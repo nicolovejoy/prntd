@@ -91,6 +91,10 @@ The refinement loop doesn't work well. When a user says "make the text bigger," 
 
 **Fix:** Include `fluxPrompt` in the messages sent to Claude (e.g. "I generated this using the prompt: {fluxPrompt}"). Rewrite system prompt to instruct Claude to take the previous Flux prompt and modify only what the user asked to change.
 
+### Save/load designs (P1)
+
+Users need to be able to save designs and come back to them later. Currently designs exist in the DB but there's no UI for listing/resuming past designs. Was originally out of scope for MVP but essential for real usage.
+
 ### Other TODOs
 
 - Shipping address collection (not yet in checkout flow)
