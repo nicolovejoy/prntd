@@ -47,7 +47,7 @@ User describes design in chat → Claude interprets intent and constructs Flux p
 
 ### Data Model (Drizzle + Turso)
 
-Three tables: `users`, `designs` (tracks chat_history JSON, current_image_url, generation cost, status draft/approved/ordered), `orders` (links design to Printful order, Stripe session, shipping details, status lifecycle).
+Six tables (all singular names to match Better-Auth defaults): `user`, `session`, `account`, `verification` (auth), `design` (tracks chat_history JSON, current_image_url, generation cost, status draft/approved/ordered), `order` (links design to Printful order, Stripe session, shipping details, status lifecycle).
 
 ### Payment Flow
 
@@ -75,5 +75,25 @@ STRIPE_SECRET_KEY
 STRIPE_WEBHOOK_SECRET
 PRINTFUL_API_KEY
 BETTER_AUTH_SECRET
+NEXT_PUBLIC_R2_PUBLIC_URL # R2 public bucket URL (pub-xxx.r2.dev)
 NEXT_PUBLIC_APP_URL     # e.g. https://prntd.org
 ```
+
+## Known Issues / Next Steps
+
+### Design iteration is broken (priority fix)
+
+The refinement loop doesn't work well. When a user says "make the text bigger," Claude writes a brand new Flux prompt from scratch instead of editing the previous one. Root cause:
+
+- `src/lib/ai.ts` strips `fluxPrompt` from chat history when building Claude messages, so Claude doesn't know what prompt produced the current image
+- The system prompt doesn't instruct Claude to treat refinements as surgical edits to the previous prompt
+- Flux is stateless (no img2img) — prompt consistency is the only way to get consistent iterations
+
+**Fix:** Include `fluxPrompt` in the messages sent to Claude (e.g. "I generated this using the prompt: {fluxPrompt}"). Rewrite system prompt to instruct Claude to take the previous Flux prompt and modify only what the user asked to change.
+
+### Other TODOs
+
+- Shipping address collection (not yet in checkout flow)
+- Printful variant IDs are placeholders — need to fetch from API
+- Stripe webhook secret not yet configured (use `stripe listen` for local dev)
+- Next.js 16 middleware deprecation warning — migrate to proxy convention
