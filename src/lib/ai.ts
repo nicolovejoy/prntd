@@ -23,7 +23,8 @@ Guidelines for Flux prompts:
 - For text on shirts, specify the exact text and font style
 - Keep designs printable — high contrast, clear shapes
 
-When the user asks for refinements, incorporate their feedback into an updated prompt while maintaining what they liked from before.`;
+IMPORTANT — Refinements:
+When the user asks to refine or change an existing design, your previous assistant messages will include the Flux prompt that generated the current image (marked as "Flux prompt used: ..."). You MUST take that exact prompt and make only the specific changes the user requested. Do not rewrite the prompt from scratch. Preserve everything the user hasn't asked to change — style, composition, colors, and all other details should stay the same unless explicitly requested otherwise.`;
 
 export async function constructFluxPrompt(
   userMessage: string,
@@ -31,7 +32,10 @@ export async function constructFluxPrompt(
 ): Promise<{ message: string; fluxPrompt: string }> {
   const messages = chatHistory.map((msg) => ({
     role: msg.role as "user" | "assistant",
-    content: msg.content,
+    content:
+      msg.role === "assistant" && msg.fluxPrompt
+        ? `${msg.content}\n\nFlux prompt used: ${msg.fluxPrompt}`
+        : msg.content,
   }));
 
   messages.push({ role: "user", content: userMessage });
