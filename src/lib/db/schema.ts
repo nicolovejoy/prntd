@@ -75,5 +75,9 @@ export type ChatMessage = {
   role: "user" | "assistant";
   content: string;
   imageUrl?: string;
+  imageUrlAlt?: string;
+  modelA?: string;
+  modelB?: string;
+  modelChosen?: string;
   fluxPrompt?: string;
 };

@@ -3,7 +3,7 @@
 import { Suspense, useState, useRef, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { sendMessage, getDesign } from "./actions";
+import { sendMessage, getDesign, chooseOption } from "./actions";
 import type { ChatMessage } from "@/lib/db/schema";
 
 export default function DesignPage() {
@@ -23,6 +23,10 @@ function DesignPageInner() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [currentImage, setCurrentImage] = useState<string | null>(null);
+  const [pendingChoice, setPendingChoice] = useState<{
+    imageA: string;
+    imageB: string;
+  } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Load existing design if resuming
@@ -49,6 +53,7 @@ function DesignPageInner() {
     const userMessage = input.trim();
     setInput("");
     setLoading(true);
+    setPendingChoice(null);
 
     setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
 
@@ -60,10 +65,21 @@ function DesignPageInner() {
           role: "assistant",
           content: result.message,
           imageUrl: result.imageUrl,
+          imageUrlAlt: result.imageUrlAlt,
+          modelA: result.modelA,
+          modelB: result.modelB,
         },
       ]);
-      setCurrentImage(result.imageUrl);
-    } catch (err) {
+
+      if (result.imageUrlAlt) {
+        setPendingChoice({
+          imageA: result.imageUrl,
+          imageB: result.imageUrlAlt,
+        });
+      } else {
+        setCurrentImage(result.imageUrl);
+      }
+    } catch {
       setMessages((prev) => [
         ...prev,
         {
@@ -74,6 +90,14 @@ function DesignPageInner() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleChoice(choice: "a" | "b") {
+    if (!pendingChoice) return;
+    const chosenUrl = choice === "a" ? pendingChoice.imageA : pendingChoice.imageB;
+    setCurrentImage(chosenUrl);
+    setPendingChoice(null);
+    await chooseOption(designId.current, choice);
   }
 
   function handleApprove() {
@@ -90,17 +114,33 @@ function DesignPageInner() {
           </Link>
           <h1 className="text-lg font-semibold mt-1">Design your shirt</h1>
           <p className="text-sm text-gray-500">
-            Describe what you want — I&apos;ll generate it for you.
+            Describe an image — we&apos;ll generate two options to pick from.
           </p>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {messages.length === 0 && (
-            <div className="text-center text-gray-400 mt-20">
+            <div className="text-center text-gray-400 mt-20 space-y-4">
               <p className="text-lg">What should your shirt look like?</p>
-              <p className="text-sm mt-2">
-                Try: &quot;A minimalist mountain landscape in blue and white&quot;
+              <p className="text-sm">
+                Works best with visual concepts. Text on shirts may need a few tries.
               </p>
+              <div className="flex flex-wrap justify-center gap-2 mt-4">
+                {[
+                  "A minimalist mountain landscape in blue and white",
+                  "A retro sunset with palm tree silhouettes",
+                  "An abstract geometric wolf head",
+                  "A simple line drawing of a coffee cup",
+                ].map((example) => (
+                  <button
+                    key={example}
+                    onClick={() => setInput(example)}
+                    className="text-xs px-3 py-1.5 border rounded-full text-gray-500 hover:text-black hover:border-black transition-colors"
+                  >
+                    {example}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
           {messages.map((msg, i) => (
@@ -129,7 +169,7 @@ function DesignPageInner() {
           {loading && (
             <div className="flex justify-start">
               <div className="bg-gray-100 rounded-lg px-4 py-2 text-gray-500">
-                Generating your design...
+                Generating two options...
               </div>
             </div>
           )}
@@ -156,7 +196,41 @@ function DesignPageInner() {
 
       {/* Preview panel */}
       <div className="w-full md:w-96 p-4 flex flex-col items-center justify-center bg-gray-50">
-        {currentImage ? (
+        {pendingChoice ? (
+          <div className="space-y-4 w-full max-w-sm">
+            <p className="text-sm text-gray-500 text-center font-medium">
+              Pick your favorite
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => handleChoice("a")}
+                className="group relative aspect-square bg-white rounded-lg shadow-sm overflow-hidden border-2 border-transparent hover:border-black transition-colors"
+              >
+                <img
+                  src={pendingChoice.imageA}
+                  alt="Option A"
+                  className="w-full h-full object-cover"
+                />
+                <span className="absolute top-2 left-2 text-xs font-medium bg-white/80 px-2 py-0.5 rounded">
+                  A
+                </span>
+              </button>
+              <button
+                onClick={() => handleChoice("b")}
+                className="group relative aspect-square bg-white rounded-lg shadow-sm overflow-hidden border-2 border-transparent hover:border-black transition-colors"
+              >
+                <img
+                  src={pendingChoice.imageB}
+                  alt="Option B"
+                  className="w-full h-full object-cover"
+                />
+                <span className="absolute top-2 left-2 text-xs font-medium bg-white/80 px-2 py-0.5 rounded">
+                  B
+                </span>
+              </button>
+            </div>
+          </div>
+        ) : currentImage ? (
           <>
             <div className="relative w-72 h-72 bg-white rounded-lg shadow-sm flex items-center justify-center">
               <img

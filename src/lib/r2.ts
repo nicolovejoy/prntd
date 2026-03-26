@@ -14,9 +14,10 @@ const bucket = process.env.R2_BUCKET_NAME!;
 export async function uploadDesignImage(
   designId: string,
   generationNumber: number,
-  imageBuffer: Buffer
+  imageBuffer: Buffer,
+  suffix?: string
 ): Promise<string> {
-  const key = `designs/${designId}/${generationNumber}.png`;
+  const key = `designs/${designId}/${generationNumber}${suffix ? `-${suffix}` : ""}.png`;
 
   await r2.send(
     new PutObjectCommand({
