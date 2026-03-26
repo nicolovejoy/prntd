@@ -3,7 +3,9 @@ import { NextRequest, NextResponse } from "next/server";
 const protectedRoutes = ["/designs", "/design", "/preview", "/order"];
 
 export function middleware(request: NextRequest) {
-  const sessionToken = request.cookies.get("better-auth.session_token");
+  const sessionToken =
+    request.cookies.get("better-auth.session_token") ||
+    request.cookies.get("__Secure-better-auth.session_token");
 
   if (
     !sessionToken &&
