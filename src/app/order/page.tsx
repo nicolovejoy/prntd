@@ -15,7 +15,22 @@ export default function OrderPage() {
 }
 
 const SIZES = ["S", "M", "L", "XL", "2XL"];
-const COLORS = ["White", "Black", "Navy", "Dark Heather"];
+const SHIRT_COLORS: { name: string; value: string }[] = [
+  { name: "White", value: "#ffffff" },
+  { name: "Black", value: "#1a1a1a" },
+  { name: "Navy", value: "#1e3a5f" },
+  { name: "Dark Grey Heather", value: "#4a4a4a" },
+  { name: "Red", value: "#b22222" },
+  { name: "True Royal", value: "#2a5caa" },
+  { name: "Forest", value: "#2d5a27" },
+  { name: "Maroon", value: "#5a1a2a" },
+  { name: "Heather Mauve", value: "#b08a9a" },
+  { name: "Soft Cream", value: "#f5f0e1" },
+  { name: "Steel Blue", value: "#4a7c9b" },
+  { name: "Olive", value: "#5c6b3c" },
+  { name: "Gold", value: "#d4a843" },
+  { name: "Athletic Heather", value: "#c5c5c5" },
+];
 const QUALITIES: { value: "standard" | "premium"; label: string }[] = [
   { value: "standard", label: "Standard" },
   { value: "premium", label: "Premium" },
@@ -119,20 +134,20 @@ function OrderPageInner() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-2">Color</label>
-            <div className="flex gap-2">
-              {COLORS.map((c) => (
+            <label className="block text-sm font-medium mb-2">
+              Color — {color}
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {SHIRT_COLORS.map((c) => (
                 <button
-                  key={c}
-                  onClick={() => setColor(c)}
-                  className={`px-3 py-1.5 border rounded-md text-sm ${
-                    color === c
-                      ? "border-black bg-black text-white"
-                      : "border-gray-300 hover:border-gray-400"
+                  key={c.name}
+                  onClick={() => setColor(c.name)}
+                  className={`w-8 h-8 rounded-full border-2 ${
+                    color === c.name ? "border-black ring-2 ring-offset-1 ring-black" : "border-gray-300"
                   }`}
-                >
-                  {c}
-                </button>
+                  style={{ backgroundColor: c.value }}
+                  title={c.name}
+                />
               ))}
             </div>
           </div>

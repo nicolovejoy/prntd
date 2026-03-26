@@ -17,7 +17,17 @@ const SHIRT_COLORS = [
   { name: "White", value: "#ffffff" },
   { name: "Black", value: "#1a1a1a" },
   { name: "Navy", value: "#1e3a5f" },
-  { name: "Gray", value: "#6b7280" },
+  { name: "Dark Grey Heather", value: "#4a4a4a" },
+  { name: "Red", value: "#b22222" },
+  { name: "True Royal", value: "#2a5caa" },
+  { name: "Forest", value: "#2d5a27" },
+  { name: "Maroon", value: "#5a1a2a" },
+  { name: "Heather Mauve", value: "#b08a9a" },
+  { name: "Soft Cream", value: "#f5f0e1" },
+  { name: "Steel Blue", value: "#4a7c9b" },
+  { name: "Olive", value: "#5c6b3c" },
+  { name: "Gold", value: "#d4a843" },
+  { name: "Athletic Heather", value: "#c5c5c5" },
 ];
 
 function PreviewPageInner() {

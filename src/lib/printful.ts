@@ -69,13 +69,23 @@ export async function getOrderStatus(orderId: string) {
   return data.result;
 }
 
-// Printful t-shirt variant IDs for Bella+Canvas 3001 (common unisex tee)
-// These are approximate — should be fetched from API for production
+// Printful variant IDs for Bella+Canvas 3001 Unisex Tee
+// Fetched from Printful API 2026-03-26 via scripts/fetch-variants.ts
 export const TSHIRT_VARIANTS: Record<string, Record<string, number>> = {
   White: { S: 4011, M: 4012, L: 4013, XL: 4014, "2XL": 4015 },
   Black: { S: 4016, M: 4017, L: 4018, XL: 4019, "2XL": 4020 },
-  Navy: { S: 4021, M: 4022, L: 4023, XL: 4024, "2XL": 4025 },
-  "Dark Heather": { S: 4026, M: 4027, L: 4028, XL: 4029, "2XL": 4030 },
+  Navy: { S: 4111, M: 4112, L: 4113, XL: 4114, "2XL": 4115 },
+  "Dark Grey Heather": { S: 8460, M: 8461, L: 8462, XL: 8463, "2XL": 8464 },
+  Red: { S: 4141, M: 4142, L: 4143, XL: 4144, "2XL": 4145 },
+  "True Royal": { S: 4171, M: 4172, L: 4173, XL: 4174, "2XL": 4175 },
+  Forest: { S: 8451, M: 8452, L: 8453, XL: 8454, "2XL": 8455 },
+  Maroon: { S: 4106, M: 4107, L: 4108, XL: 4109, "2XL": 4110 },
+  "Heather Mauve": { S: 18635, M: 18636, L: 18637, XL: 18638, "2XL": 18639 },
+  "Soft Cream": { S: 4151, M: 4152, L: 4153, XL: 4154, "2XL": 4155 },
+  "Steel Blue": { S: 4161, M: 4162, L: 4163, XL: 4164, "2XL": 4165 },
+  Olive: { S: 4121, M: 4122, L: 4123, XL: 4124, "2XL": 4125 },
+  Gold: { S: 4081, M: 4082, L: 4083, XL: 4084, "2XL": 4085 },
+  "Athletic Heather": { S: 6948, M: 6949, L: 6950, XL: 6951, "2XL": 6952 },
 };
 
 export const PRINTFUL_BASE_COST = 12.95;
