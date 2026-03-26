@@ -90,7 +90,7 @@ function PreviewPageInner() {
         className="w-80 h-96 rounded-lg shadow-lg flex items-center justify-center relative transition-colors"
         style={{ backgroundColor: shirtColor }}
       >
-        {/* Simplified shirt shape */}
+        {/* Design on shirt — multiply blend makes white areas transparent */}
         <div className="absolute inset-0 flex items-center justify-center">
           <div className="w-48 h-48 flex items-center justify-center">
             {imageUrl && (
@@ -98,6 +98,7 @@ function PreviewPageInner() {
                 src={imageUrl}
                 alt="Your design"
                 className="max-w-full max-h-full object-contain"
+                style={{ mixBlendMode: "multiply" }}
               />
             )}
           </div>

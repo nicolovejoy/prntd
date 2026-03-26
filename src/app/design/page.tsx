@@ -35,8 +35,22 @@ function DesignPageInner() {
     if (id) {
       getDesign(id).then((design) => {
         if (design) {
-          setMessages((design.chatHistory as ChatMessage[]) ?? []);
+          const history = (design.chatHistory as ChatMessage[]) ?? [];
+          setMessages(history);
           setCurrentImage(design.currentImageUrl);
+
+          // If the last message has an unresolved A/B choice, restore it
+          const lastMsg = history[history.length - 1];
+          if (
+            lastMsg?.role === "assistant" &&
+            lastMsg.imageUrlAlt &&
+            !lastMsg.modelChosen
+          ) {
+            setPendingChoice({
+              imageA: lastMsg.imageUrl!,
+              imageB: lastMsg.imageUrlAlt,
+            });
+          }
         }
       });
     }
@@ -104,6 +118,8 @@ function DesignPageInner() {
     router.push(`/preview?id=${designId.current}`);
   }
 
+  const hasDesign = currentImage && !pendingChoice;
+
   return (
     <div className="min-h-screen flex flex-col md:flex-row">
       {/* Chat panel */}
@@ -114,7 +130,9 @@ function DesignPageInner() {
           </Link>
           <h1 className="text-lg font-semibold mt-1">Design your shirt</h1>
           <p className="text-sm text-gray-500">
-            Describe an image — we&apos;ll generate two options to pick from.
+            {hasDesign
+              ? "Keep refining, or use your design when you're happy."
+              : "Describe an image — we'll generate two options to pick from."}
           </p>
         </div>
 
@@ -180,13 +198,17 @@ function DesignPageInner() {
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Describe your design..."
+            placeholder={
+              hasDesign
+                ? "Refine your design... (e.g. 'make the colors bolder')"
+                : "Describe your design..."
+            }
             className="flex-1 px-3 py-2 border rounded-md"
-            disabled={loading}
+            disabled={loading || !!pendingChoice}
           />
           <button
             type="submit"
-            disabled={loading || !input.trim()}
+            disabled={loading || !input.trim() || !!pendingChoice}
             className="px-4 py-2 bg-black text-white rounded-md disabled:opacity-50"
           >
             Send
@@ -229,9 +251,12 @@ function DesignPageInner() {
                 </span>
               </button>
             </div>
+            <p className="text-xs text-gray-400 text-center">
+              Pick one, then refine it or use it as-is
+            </p>
           </div>
         ) : currentImage ? (
-          <>
+          <div className="space-y-4 flex flex-col items-center">
             <div className="relative w-72 h-72 bg-white rounded-lg shadow-sm flex items-center justify-center">
               <img
                 src={currentImage}
@@ -239,13 +264,18 @@ function DesignPageInner() {
                 className="max-w-[90%] max-h-[90%] object-contain"
               />
             </div>
-            <button
-              onClick={handleApprove}
-              className="mt-4 px-6 py-2 bg-black text-white rounded-md"
-            >
-              Use this design
-            </button>
-          </>
+            <div className="flex gap-3">
+              <button
+                onClick={handleApprove}
+                className="px-6 py-2 bg-black text-white rounded-md"
+              >
+                Use this design
+              </button>
+            </div>
+            <p className="text-xs text-gray-400 text-center">
+              Or keep chatting to refine it
+            </p>
+          </div>
         ) : (
           <div className="text-gray-400 text-center">
             <p>Your design will appear here</p>
