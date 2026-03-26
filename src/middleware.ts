@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const protectedRoutes = ["/design", "/preview", "/order"];
+const protectedRoutes = ["/designs", "/design", "/preview", "/order"];
 
 export function middleware(request: NextRequest) {
   const sessionToken = request.cookies.get("better-auth.session_token");
@@ -16,5 +16,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/design/:path*", "/preview/:path*", "/order/:path*"],
+  matcher: ["/designs", "/design/:path*", "/preview/:path*", "/order/:path*"],
 };

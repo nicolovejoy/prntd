@@ -27,7 +27,7 @@ export default function SignInPage() {
       return;
     }
 
-    router.push("/design");
+    router.push("/designs");
   }
 
   return (

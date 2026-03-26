@@ -28,7 +28,7 @@ export default function SignUpPage() {
       return;
     }
 
-    router.push("/design");
+    router.push("/designs");
   }
 
   return (

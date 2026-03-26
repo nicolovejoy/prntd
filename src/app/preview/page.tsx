@@ -60,6 +60,10 @@ function PreviewPageInner() {
     <div className="min-h-screen flex flex-col items-center py-12 px-4">
       {/* Breadcrumbs */}
       <nav className="w-full max-w-2xl mb-8 flex gap-2 text-sm text-gray-500">
+        <Link href="/designs" className="hover:underline">
+          My Designs
+        </Link>
+        <span>/</span>
         <Link href={`/design?id=${designId}`} className="hover:underline">
           Design
         </Link>

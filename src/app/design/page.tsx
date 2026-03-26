@@ -2,6 +2,7 @@
 
 import { Suspense, useState, useRef, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { sendMessage, getDesign } from "./actions";
 import type { ChatMessage } from "@/lib/db/schema";
 
@@ -84,7 +85,10 @@ function DesignPageInner() {
       {/* Chat panel */}
       <div className="flex-1 flex flex-col border-r">
         <div className="p-4 border-b">
-          <h1 className="text-lg font-semibold">Design your shirt</h1>
+          <Link href="/designs" className="text-sm text-gray-500 hover:underline">
+            &larr; My Designs
+          </Link>
+          <h1 className="text-lg font-semibold mt-1">Design your shirt</h1>
           <p className="text-sm text-gray-500">
             Describe what you want — I&apos;ll generate it for you.
           </p>
