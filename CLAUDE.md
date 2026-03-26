@@ -14,8 +14,8 @@ PRNTD — AI-powered t-shirt designer. Users chat to describe a design, Flux gen
 - Turso (libSQL) + Drizzle ORM
 - Better-Auth (email/password)
 - Cloudflare R2 for image storage
-- Flux via Replicate for image generation
-- Claude (Anthropic API) as intermediary to construct Flux prompts from casual user messages
+- Flux + Ideogram via Replicate for image generation (migrating to Ideogram direct API)
+- Claude (Anthropic API) as intermediary to construct image generation prompts from casual user messages
 - Printful API for fulfillment
 - Stripe Checkout for payments
 
@@ -81,23 +81,24 @@ NEXT_PUBLIC_APP_URL     # e.g. https://prntd.org
 
 ## Known Issues / Next Steps
 
-### Design iteration is broken (priority fix)
+### Switch to Ideogram direct API + simplify design UX (priority)
 
-The refinement loop doesn't work well. When a user says "make the text bigger," Claude writes a brand new Flux prompt from scratch instead of editing the previous one. Root cause:
+Flux Schnell is terrible at text rendering. The dual-model A/B picker added complexity without solving it. Plan:
+- Drop A/B test entirely — one model, one result
+- Switch from Replicate/Flux to Ideogram's direct API (purpose-built for text in images)
+- Redesign the design page: full-width chat with image inline (no awkward split panel)
+- Keep iteration flow (already working: Claude sees previous prompt and edits surgically)
 
-- `src/lib/ai.ts` strips `fluxPrompt` from chat history when building Claude messages, so Claude doesn't know what prompt produced the current image
-- The system prompt doesn't instruct Claude to treat refinements as surgical edits to the previous prompt
-- Flux is stateless (no img2img) — prompt consistency is the only way to get consistent iterations
+### Shipping address collection (blocks real orders)
 
-**Fix:** Include `fluxPrompt` in the messages sent to Claude (e.g. "I generated this using the prompt: {fluxPrompt}"). Rewrite system prompt to instruct Claude to take the previous Flux prompt and modify only what the user asked to change.
+Order page needs address form (name, street, city, state, zip). Store on order record, pass to Printful in webhook. Schema columns need adding. Plan exists in plans/flickering-swinging-anchor.md.
 
-### Save/load designs (P1)
+### Admin dashboard (minimal)
 
-Users need to be able to save designs and come back to them later. Currently designs exist in the DB but there's no UI for listing/resuming past designs. Was originally out of scope for MVP but essential for real usage.
+Simple /admin page listing all orders with status, user email, design thumbnail, Printful ID. Hardcoded email check for auth.
 
 ### Other TODOs
 
-- Shipping address collection (not yet in checkout flow)
-- Printful variant IDs are placeholders — need to fetch from API
-- Stripe webhook secret not yet configured (use `stripe listen` for local dev)
 - Next.js 16 middleware deprecation warning — migrate to proxy convention
+- Printful webhooks for tracking updates (no visibility after submission)
+- Rate limiting / generation caps (cost protection, low priority while usage is minimal)
