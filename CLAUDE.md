@@ -14,7 +14,7 @@ PRNTD — AI-powered t-shirt designer. Users chat to describe a design, Flux gen
 - Turso (libSQL) + Drizzle ORM
 - Better-Auth (email/password)
 - Cloudflare R2 for image storage
-- Flux + Ideogram via Replicate for image generation (migrating to Ideogram direct API)
+- Ideogram v3 Turbo via Replicate for image generation
 - Claude (Anthropic API) as intermediary to construct image generation prompts from casual user messages
 - Printful API for fulfillment
 - Stripe Checkout for payments
@@ -43,7 +43,7 @@ npm run db:studio    # Drizzle Studio (database GUI)
 
 ### Core Loop (`/design` → `/preview`)
 
-User describes design in chat → Claude interprets intent and constructs Flux prompt → Replicate generates image → stored in R2 (`designs/{design_id}/{generation_number}.png`) → displayed on shirt mockup. User can refine (back to chat with context), try new, or approve. Chat history maintained per session. Each generation increments token/cost counter.
+User describes design in chat → Claude interprets intent and constructs Ideogram prompt → Replicate generates image via Ideogram v3 Turbo → stored in R2 (`designs/{design_id}/{generation_number}.png`) → displayed inline in chat. User can refine (back to chat with context), try new, or approve → flows to /preview. Chat history maintained per session. Each generation increments token/cost counter.
 
 ### Data Model (Drizzle + Turso)
 
@@ -55,7 +55,7 @@ Stripe Checkout Session → redirect → webhook confirms payment → triggers P
 
 ### Key Integration Points
 
-- **Replicate**: image generation via Flux model
+- **Replicate**: image generation via Ideogram v3 Turbo
 - **R2**: all generated images kept so user can revisit previous generations
 - **Printful**: product catalog, mockup generation, order submission, status webhooks
 - **Stripe**: checkout sessions, payment webhooks
@@ -81,13 +81,9 @@ NEXT_PUBLIC_APP_URL     # e.g. https://prntd.org
 
 ## Known Issues / Next Steps
 
-### Switch to Ideogram direct API + simplify design UX (priority)
+### Consider Ideogram direct API (cost optimization, low priority)
 
-Flux Schnell is terrible at text rendering. The dual-model A/B picker added complexity without solving it. Plan:
-- Drop A/B test entirely — one model, one result
-- Switch from Replicate/Flux to Ideogram's direct API (purpose-built for text in images)
-- Redesign the design page: full-width chat with image inline (no awkward split panel)
-- Keep iteration flow (already working: Claude sees previous prompt and edits surgically)
+Currently using Ideogram v3 Turbo via Replicate (~$0.03/generation). If volume grows, switching to Ideogram's direct API could reduce per-generation cost. No functional difference — same model.
 
 ### Shipping address collection (blocks real orders)
 
