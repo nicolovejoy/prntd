@@ -37,6 +37,7 @@ function PreviewPageInner() {
 
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [shirtColor, setShirtColor] = useState("#ffffff");
+  const [hoveredColor, setHoveredColor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -106,16 +107,20 @@ function PreviewPageInner() {
       </div>
 
       {/* Color picker */}
-      <div className="flex gap-3 mt-6">
-        {SHIRT_COLORS.map((color) => (
+      <div className="text-sm text-gray-400 mt-6 mb-2 h-5">
+        {hoveredColor ?? SHIRT_COLORS.find((c) => c.value === shirtColor)?.name}
+      </div>
+      <div className="flex gap-3">
+        {SHIRT_COLORS.map((c) => (
           <button
-            key={color.value}
-            onClick={() => setShirtColor(color.value)}
+            key={c.value}
+            onClick={() => setShirtColor(c.value)}
+            onMouseEnter={() => setHoveredColor(c.name)}
+            onMouseLeave={() => setHoveredColor(null)}
             className={`w-8 h-8 rounded-full border-2 ${
-              shirtColor === color.value ? "border-black" : "border-gray-300"
+              shirtColor === c.value ? "border-black" : "border-gray-300"
             }`}
-            style={{ backgroundColor: color.value }}
-            title={color.name}
+            style={{ backgroundColor: c.value }}
           />
         ))}
       </div>
