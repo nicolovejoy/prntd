@@ -102,7 +102,10 @@ function OrderPageInner() {
         {/* Design preview */}
         <div className="flex flex-col items-center">
           {imageUrl && (
-            <div className="w-64 h-64 bg-gray-100 rounded-lg flex items-center justify-center">
+            <div
+              className="w-64 h-64 rounded-lg flex items-center justify-center transition-colors"
+              style={{ backgroundColor: SHIRT_COLORS.find((c) => c.name === color)?.value ?? "#f3f4f6" }}
+            >
               <img
                 src={imageUrl}
                 alt="Your design"

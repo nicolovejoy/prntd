@@ -16,12 +16,11 @@ export default function Home() {
       <main className="flex-1 flex flex-col items-center justify-center px-4">
         <div className="max-w-2xl text-center space-y-6">
           <h1 className="text-5xl font-bold tracking-tight">
-            Design your perfect t-shirt with AI
+            Design a shirt with AI
           </h1>
           <p className="text-xl text-gray-600 max-w-lg mx-auto">
-            Describe your idea in plain English. Our AI generates unique,
-            print-ready designs. Order high-quality shirts delivered to your
-            door.
+            Describe your idea. AI generates an image. Ask for changes, then
+            order a shirt.
           </p>
           <Link
             href="/design"
@@ -38,26 +37,25 @@ export default function Home() {
           <div className="grid md:grid-cols-3 gap-8 text-center">
             <div className="space-y-3">
               <div className="text-3xl font-bold text-gray-300">1</div>
-              <h3 className="font-semibold text-lg">Describe your design</h3>
+              <h3 className="font-semibold text-lg">Describe</h3>
               <p className="text-gray-600">
-                Chat with our AI to describe what you want. A vintage sunset, a
-                minimalist logo, abstract art — anything you can imagine.
+                Type what you want on your shirt. A logo, illustration, text —
+                whatever.
               </p>
             </div>
             <div className="space-y-3">
               <div className="text-3xl font-bold text-gray-300">2</div>
-              <h3 className="font-semibold text-lg">Refine until perfect</h3>
+              <h3 className="font-semibold text-lg">Refine</h3>
               <p className="text-gray-600">
-                Preview your design on a shirt mockup. Ask for changes — adjust
-                colors, add details, try different styles — until you love it.
+                Preview the design on a shirt. Ask for changes until it looks
+                right.
               </p>
             </div>
             <div className="space-y-3">
               <div className="text-3xl font-bold text-gray-300">3</div>
-              <h3 className="font-semibold text-lg">Order and wear</h3>
+              <h3 className="font-semibold text-lg">Order</h3>
               <p className="text-gray-600">
-                Choose your size and color, checkout securely, and get a
-                high-quality printed shirt delivered to your door.
+                Pick size and color. Pay. Shirt shows up.
               </p>
             </div>
           </div>
@@ -68,15 +66,14 @@ export default function Home() {
         <div className="max-w-2xl mx-auto text-center space-y-4">
           <h2 className="text-2xl font-bold">Pricing</h2>
           <p className="text-gray-600">
-            Designing is free to try. You only pay when you order a shirt.
-            Prices start at <span className="font-semibold">$29</span> including
-            printing and shipping, depending on size and print quality.
+            Designing is free. You pay when you order. Shirts start at{" "}
+            <span className="font-semibold">$29</span>.
           </p>
         </div>
       </section>
 
       <footer className="py-8 px-4 border-t text-center text-sm text-gray-500 space-y-2">
-        <p>PRNTD — AI-powered custom t-shirt design and printing</p>
+        <p>PRNTD</p>
         <p>
           Questions?{" "}
           <a

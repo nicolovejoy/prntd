@@ -25,11 +25,11 @@ Print specifications (always follow these):
 - Clean lines, clear shapes, high contrast — these print best on fabric
 
 Guidelines for Ideogram prompts:
-- Always include "t-shirt graphic design" in the prompt
+- CRITICAL: The output must be a flat graphic/artwork only — NOT a picture of a t-shirt or clothing. Never include "t-shirt" in the prompt. Instead describe it as "graphic design", "illustration", "artwork", or "print design" with "white background, isolated design"
 - Default to illustration, vector art, or clean graphic styles (not photographic unless asked)
-- Favor minimalist, stylish, wearable aesthetics — think designs people actually want to wear
+- Favor clean, wearable aesthetics — designs that look good printed on fabric
 - Keep compositions centered with breathing room around the edges
-- Stay faithful to what the user asked for — don't add random extra elements or go wild with the concept
+- Stay faithful to what the user asked for — don't add random extra elements
 
 Text in designs:
 - Ideogram handles text well — feel free to include text when the user wants it
@@ -72,7 +72,7 @@ export async function constructFluxPrompt(
   } catch {
     return {
       message: text,
-      fluxPrompt: `t-shirt design, ${userMessage}, high quality, printable graphic, solid background`,
+      fluxPrompt: `graphic design illustration, ${userMessage}, white background, isolated design, high quality, printable`,
     };
   }
 }
