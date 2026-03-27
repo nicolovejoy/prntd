@@ -30,6 +30,7 @@ export async function createOrder(params: {
   variantId: number;
   recipientName: string;
   address1: string;
+  address2?: string;
   city: string;
   stateCode: string;
   countryCode: string;
@@ -38,9 +39,11 @@ export async function createOrder(params: {
   const data = await printfulFetch("/orders", {
     method: "POST",
     body: JSON.stringify({
+      confirm: false,
       recipient: {
         name: params.recipientName,
         address1: params.address1,
+        address2: params.address2 ?? "",
         city: params.city,
         state_code: params.stateCode,
         country_code: params.countryCode,

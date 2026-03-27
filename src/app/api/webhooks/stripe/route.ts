@@ -29,8 +29,9 @@ export async function POST(request: NextRequest) {
 
   if (event.type === "checkout.session.completed") {
     const session = event.data.object;
-    const orderId = session.metadata?.orderId;
-    const designId = session.metadata?.designId;
+    const fullSession = await stripe.checkout.sessions.retrieve(session.id);
+    const orderId = fullSession.metadata?.orderId;
+    const designId = fullSession.metadata?.designId;
 
     if (!orderId || !designId) {
       console.error(`Stripe event ${event.id}: missing orderId or designId in metadata`);
@@ -52,10 +53,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ received: true });
     }
 
-    // Mark order as paid
+    // Mark order as paid and store shipping details
+    const shipping = fullSession.collected_information?.shipping_details;
     await db
       .update(orderTable)
-      .set({ status: "paid", stripeSessionId: session.id })
+      .set({
+        status: "paid",
+        stripeSessionId: fullSession.id,
+        shippingName: shipping?.name ?? "",
+        shippingAddress1: shipping?.address?.line1 ?? "",
+        shippingAddress2: shipping?.address?.line2 ?? "",
+        shippingCity: shipping?.address?.city ?? "",
+        shippingState: shipping?.address?.state ?? "",
+        shippingZip: shipping?.address?.postal_code ?? "",
+        shippingCountry: shipping?.address?.country ?? "US",
+      })
       .where(eq(orderTable.id, orderId));
 
     console.log(`Order ${orderId} marked as paid (Stripe session ${session.id})`);
@@ -77,19 +89,18 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-      // TODO: shipping address is not yet collected — Printful will reject this.
-      // Once shipping is added to checkout, pass real address here.
       const printfulOrder = await createOrder({
         designImageUrl: foundDesign.currentImageUrl,
         size: foundOrder.size,
         color: foundOrder.color,
         variantId,
-        recipientName: "",
-        address1: "",
-        city: "",
-        stateCode: "",
-        countryCode: "US",
-        zip: "",
+        recipientName: shipping?.name ?? "",
+        address1: shipping?.address?.line1 ?? "",
+        address2: shipping?.address?.line2 ?? undefined,
+        city: shipping?.address?.city ?? "",
+        stateCode: shipping?.address?.state ?? "",
+        countryCode: shipping?.address?.country ?? "US",
+        zip: shipping?.address?.postal_code ?? "",
       });
 
       await db

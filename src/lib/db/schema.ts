@@ -68,6 +68,13 @@ export const order = sqliteTable("order", {
   quality: text("quality", { enum: ["standard", "premium"] }).notNull(),
   totalPrice: real("total_price").notNull(),
   status: text("status", { enum: ["pending", "paid", "submitted", "shipped", "delivered"] }).notNull().default("pending"),
+  shippingName: text("shipping_name"),
+  shippingAddress1: text("shipping_address1"),
+  shippingAddress2: text("shipping_address2"),
+  shippingCity: text("shipping_city"),
+  shippingState: text("shipping_state"),
+  shippingZip: text("shipping_zip"),
+  shippingCountry: text("shipping_country"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
 
