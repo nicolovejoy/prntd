@@ -6,7 +6,7 @@ import { db } from "@/lib/db";
 import { design as designTable } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { constructFluxPrompt } from "@/lib/ai";
-import { generateImage } from "@/lib/replicate";
+import { generateImage, removeBackground } from "@/lib/replicate";
 import { uploadDesignImage } from "@/lib/r2";
 import type { ChatMessage } from "@/lib/db/schema";
 
@@ -40,12 +40,13 @@ export async function sendMessage(designId: string, userMessage: string) {
   // Get Claude to construct the image prompt
   const aiResponse = await constructFluxPrompt(userMessage, chatHistory);
 
-  // Generate image
+  // Generate image and remove background
   const replicateUrl = await generateImage(aiResponse.fluxPrompt);
+  const transparentUrl = await removeBackground(replicateUrl);
 
   // Download and upload to R2
   const newGeneration = found.generationCount + 1;
-  const response = await fetch(replicateUrl);
+  const response = await fetch(transparentUrl);
   const buffer = Buffer.from(await response.arrayBuffer());
   const r2Url = await uploadDesignImage(designId, newGeneration, buffer);
 

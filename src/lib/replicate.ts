@@ -13,3 +13,13 @@ export async function generateImage(prompt: string): Promise<string> {
 
   return output as unknown as string;
 }
+
+export async function removeBackground(imageUrl: string): Promise<string> {
+  const output = await replicate.run("lucataco/remove-bg:95fcc2a26d3899cd6c2691c900571aeaa540c2adb4779e20e112e6d43b1e383e", {
+    input: {
+      image: imageUrl,
+    },
+  });
+
+  return output as unknown as string;
+}

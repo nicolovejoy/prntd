@@ -99,7 +99,6 @@ function PreviewPageInner() {
                 src={imageUrl}
                 alt="Your design"
                 className="max-w-full max-h-full object-contain"
-                style={{ mixBlendMode: "multiply" }}
               />
             )}
           </div>

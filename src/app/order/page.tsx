@@ -124,10 +124,10 @@ function OrderPageInner() {
                 <button
                   key={s}
                   onClick={() => setSize(s)}
-                  className={`px-3 py-1.5 border rounded-md text-sm ${
+                  className={`px-3 py-1.5 border-2 rounded-md text-sm ${
                     size === s
-                      ? "border-black bg-black text-white"
-                      : "border-gray-300 hover:border-gray-400"
+                      ? "border-white bg-white text-black font-medium"
+                      : "border-gray-600 text-gray-400 hover:border-gray-400"
                   }`}
                 >
                   {s}
@@ -162,10 +162,10 @@ function OrderPageInner() {
                 <button
                   key={q.value}
                   onClick={() => setQuality(q.value)}
-                  className={`px-3 py-1.5 border rounded-md text-sm ${
+                  className={`px-3 py-1.5 border-2 rounded-md text-sm ${
                     quality === q.value
-                      ? "border-black bg-black text-white"
-                      : "border-gray-300 hover:border-gray-400"
+                      ? "border-white bg-white text-black font-medium"
+                      : "border-gray-600 text-gray-400 hover:border-gray-400"
                   }`}
                 >
                   {q.label}
