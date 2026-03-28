@@ -11,7 +11,7 @@ export async function generateImage(prompt: string): Promise<string> {
     },
   });
 
-  return output as unknown as string;
+  return String(output);
 }
 
 export async function removeBackground(imageUrl: string): Promise<string> {
@@ -21,5 +21,5 @@ export async function removeBackground(imageUrl: string): Promise<string> {
     },
   });
 
-  return output as unknown as string;
+  return String(output);
 }
