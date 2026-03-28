@@ -40,13 +40,18 @@ export async function sendMessage(designId: string, userMessage: string) {
   // Get Claude to construct the image prompt
   const aiResponse = await constructFluxPrompt(userMessage, chatHistory);
 
-  // Generate image and remove background
+  // Generate image and attempt background removal
   const replicateUrl = await generateImage(aiResponse.fluxPrompt);
-  const transparentUrl = await removeBackground(replicateUrl);
+  let finalUrl = replicateUrl;
+  try {
+    finalUrl = await removeBackground(replicateUrl);
+  } catch (err) {
+    console.error("Background removal failed, using original image:", err);
+  }
 
   // Download and upload to R2
   const newGeneration = found.generationCount + 1;
-  const response = await fetch(transparentUrl);
+  const response = await fetch(finalUrl);
   const buffer = Buffer.from(await response.arrayBuffer());
   const r2Url = await uploadDesignImage(designId, newGeneration, buffer);
 
