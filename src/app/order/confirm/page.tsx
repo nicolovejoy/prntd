@@ -66,24 +66,24 @@ function ConfirmPageInner() {
           updates via email.
         </p>
 
-        <div className="bg-gray-50 rounded-lg p-4 text-sm space-y-2 text-left">
+        <div className="border border-gray-700 rounded-lg p-4 text-sm space-y-2 text-left">
           <div className="flex justify-between">
-            <span className="text-gray-500">Order ID</span>
+            <span className="text-gray-400">Order ID</span>
             <span className="font-mono">{order.id.slice(0, 8)}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-gray-500">Size</span>
+            <span className="text-gray-400">Size</span>
             <span>{order.size}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-gray-500">Color</span>
+            <span className="text-gray-400">Color</span>
             <span>{order.color}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-gray-500">Quality</span>
+            <span className="text-gray-400">Quality</span>
             <span className="capitalize">{order.quality}</span>
           </div>
-          <div className="flex justify-between font-bold border-t pt-2">
+          <div className="flex justify-between font-bold border-t border-gray-700 pt-2">
             <span>Total paid</span>
             <span>${order.totalPrice.toFixed(2)}</span>
           </div>
