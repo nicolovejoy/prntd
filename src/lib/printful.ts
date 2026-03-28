@@ -39,7 +39,7 @@ export async function createOrder(params: {
   const data = await printfulFetch("/orders", {
     method: "POST",
     body: JSON.stringify({
-      confirm: false,
+      confirm: true,
       recipient: {
         name: params.recipientName,
         address1: params.address1,
