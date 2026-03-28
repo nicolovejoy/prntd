@@ -15,19 +15,18 @@ export default function PreviewPage() {
 
 const SHIRT_COLORS = [
   { name: "White", value: "#ffffff" },
-  { name: "Black", value: "#1a1a1a" },
-  { name: "Navy", value: "#1e3a5f" },
-  { name: "Dark Grey Heather", value: "#4a4a4a" },
-  { name: "Red", value: "#b22222" },
-  { name: "True Royal", value: "#2a5caa" },
-  { name: "Forest", value: "#2d5a27" },
-  { name: "Maroon", value: "#5a1a2a" },
-  { name: "Heather Mauve", value: "#b08a9a" },
-  { name: "Soft Cream", value: "#f5f0e1" },
-  { name: "Steel Blue", value: "#4a7c9b" },
-  { name: "Olive", value: "#5c6b3c" },
-  { name: "Gold", value: "#d4a843" },
-  { name: "Athletic Heather", value: "#c5c5c5" },
+  { name: "Black", value: "#0c0c0c" },
+  { name: "Dark Grey", value: "#2A2929" },
+  { name: "Natural", value: "#fef1d1" },
+  { name: "Tan", value: "#ddb792" },
+  { name: "Soft Cream", value: "#e7d4c0" },
+  { name: "Pebble", value: "#9a8479" },
+  { name: "Heather Dust", value: "#e5d9c9" },
+  { name: "Vintage White", value: "#fcf4e8" },
+  { name: "Aqua", value: "#008db5" },
+  { name: "Burnt Orange", value: "#ed8043" },
+  { name: "Mustard", value: "#eda027" },
+  { name: "Sage", value: "#9eab96" },
 ];
 
 function PreviewPageInner() {

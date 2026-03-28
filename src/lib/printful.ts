@@ -77,18 +77,17 @@ export async function getOrderStatus(orderId: string) {
 export const TSHIRT_VARIANTS: Record<string, Record<string, number>> = {
   White: { S: 4011, M: 4012, L: 4013, XL: 4014, "2XL": 4015 },
   Black: { S: 4016, M: 4017, L: 4018, XL: 4019, "2XL": 4020 },
-  Navy: { S: 4111, M: 4112, L: 4113, XL: 4114, "2XL": 4115 },
-  "Dark Grey Heather": { S: 8460, M: 8461, L: 8462, XL: 8463, "2XL": 8464 },
-  Red: { S: 4141, M: 4142, L: 4143, XL: 4144, "2XL": 4145 },
-  "True Royal": { S: 4171, M: 4172, L: 4173, XL: 4174, "2XL": 4175 },
-  Forest: { S: 8451, M: 8452, L: 8453, XL: 8454, "2XL": 8455 },
-  Maroon: { S: 4106, M: 4107, L: 4108, XL: 4109, "2XL": 4110 },
-  "Heather Mauve": { S: 18635, M: 18636, L: 18637, XL: 18638, "2XL": 18639 },
+  "Dark Grey": { S: 21578, M: 21579, L: 21580, XL: 21581, "2XL": 21582 },
+  Natural: { S: 14682, M: 14683, L: 14684, XL: 14685, "2XL": 14686 },
+  Tan: { S: 14674, M: 14675, L: 14676, XL: 14677, "2XL": 14678 },
   "Soft Cream": { S: 4151, M: 4152, L: 4153, XL: 4154, "2XL": 4155 },
-  "Steel Blue": { S: 4161, M: 4162, L: 4163, XL: 4164, "2XL": 4165 },
-  Olive: { S: 4121, M: 4122, L: 4123, XL: 4124, "2XL": 4125 },
-  Gold: { S: 4081, M: 4082, L: 4083, XL: 4084, "2XL": 4085 },
-  "Athletic Heather": { S: 6948, M: 6949, L: 6950, XL: 6951, "2XL": 6952 },
+  Pebble: { S: 4131, M: 4132, L: 4133, XL: 4134, "2XL": 4135 },
+  "Heather Dust": { S: 10360, M: 10361, L: 10362, XL: 10363, "2XL": 10364 },
+  "Vintage White": { S: 14714, M: 14715, L: 14716, XL: 14717, "2XL": 14718 },
+  Aqua: { S: 4021, M: 4022, L: 4023, XL: 4024, "2XL": 4025 },
+  "Burnt Orange": { S: 4051, M: 4052, L: 4053, XL: 4054, "2XL": 4055 },
+  Mustard: { S: 10376, M: 10377, L: 10378, XL: 10379, "2XL": 10380 },
+  Sage: { S: 22050, M: 22051, L: 22052, XL: 22053, "2XL": 22054 },
 };
 
 export const PRINTFUL_BASE_COST = 12.95;
