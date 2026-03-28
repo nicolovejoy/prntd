@@ -81,20 +81,17 @@ NEXT_PUBLIC_APP_URL     # e.g. https://prntd.org
 
 ## Known Issues / Next Steps
 
-### Consider Ideogram direct API (cost optimization, low priority)
+### Design history / generation browser
 
-Currently using Ideogram v3 Turbo via Replicate (~$0.03/generation). If volume grows, switching to Ideogram's direct API could reduce per-generation cost. No functional difference — same model.
+Users can't go back to previous iterations. Images are stored in R2 (`designs/{id}/{1,2,3...}.png`) but the UI only shows `currentImageUrl`. Need a way to browse and select previous generations.
 
-### Shipping address collection (blocks real orders)
+### Dark-mode consistency
 
-Order page needs address form (name, street, city, state, zip). Store on order record, pass to Printful in webhook. Schema columns need adding. Plan exists in plans/flickering-swinging-anchor.md.
-
-### Admin dashboard (minimal)
-
-Simple /admin page listing all orders with status, user email, design thumbnail, Printful ID. Hardcoded email check for auth.
+The app renders on a dark background but many components still use light-mode Tailwind classes (bg-gray-50, text-gray-500, etc.). Several were fixed this session but more may surface.
 
 ### Other TODOs
 
 - Next.js 16 middleware deprecation warning — migrate to proxy convention
 - Printful webhooks for tracking updates (no visibility after submission)
 - Rate limiting / generation caps (cost protection, low priority while usage is minimal)
+- Consider Ideogram direct API for cost savings (low priority, currently ~$0.03/gen via Replicate + ~$0.005 for bg removal)
