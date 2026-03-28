@@ -15,7 +15,7 @@ export async function generateImage(prompt: string): Promise<string> {
 }
 
 export async function removeBackground(imageUrl: string): Promise<string> {
-  const output = await replicate.run("lucataco/remove-bg:95fcc2a26d3899cd6c2691c900571aeaa540c2adb4779e20e112e6d43b1e383e", {
+  const output = await replicate.run("bria/remove-background:5ecc270b34e9d8e1f007d9dbd3c724f0badf638f05ffaa0c5e0634ed64d3d378", {
     input: {
       image: imageUrl,
     },
