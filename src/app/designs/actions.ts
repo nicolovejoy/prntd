@@ -36,8 +36,8 @@ export async function deleteDesign(designId: string) {
 
   if (!found) throw new Error("Design not found");
   if (found.userId !== session.user.id) throw new Error("Unauthorized");
-  if (found.status !== "draft") {
-    throw new Error("Cannot delete a design that has been approved or ordered");
+  if (found.status === "ordered") {
+    throw new Error("Cannot delete a design that has been ordered");
   }
 
   await db.delete(designTable).where(eq(designTable.id, designId));

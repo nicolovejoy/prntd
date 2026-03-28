@@ -105,7 +105,7 @@ export default function DesignsPage() {
                     <span className="text-xs text-gray-500">
                       {design.generationCount} generation{design.generationCount !== 1 ? "s" : ""}
                     </span>
-                    {design.status === "draft" && (
+                    {design.status !== "ordered" && (
                       <button
                         onClick={() => handleDelete(design.id)}
                         className="text-xs text-red-400 hover:text-red-600 transition-colors"

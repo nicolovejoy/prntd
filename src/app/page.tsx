@@ -1,17 +1,10 @@
 import Link from "next/link";
+import { HomeHeader } from "@/components/home-header";
 
 export default function Home() {
   return (
     <div className="min-h-screen flex flex-col">
-      <header className="px-6 py-4 flex items-center justify-between">
-        <span className="text-xl font-bold tracking-tight">PRNTD</span>
-        <Link
-          href="/sign-in"
-          className="text-sm text-gray-600 hover:text-black transition-colors"
-        >
-          Sign in
-        </Link>
-      </header>
+      <HomeHeader />
 
       <main className="flex-1 flex flex-col items-center justify-center px-4">
         <div className="max-w-2xl text-center space-y-6">
