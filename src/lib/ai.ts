@@ -14,6 +14,8 @@ const CHAT_SYSTEM_PROMPT = `You are a t-shirt design advisor for PRNTD. Help use
 
 Keep responses concise and helpful. If the user seems ready to generate, encourage them to hit Generate.
 
+CRITICAL: Respond in plain text only. NEVER return JSON, code blocks, or structured data. You are having a conversation, not generating prompts.
+
 Print constraints to keep in mind when advising:
 - DTG printing on fabric, 12" x 16" print area
 - Designs need white/transparent backgrounds
@@ -26,7 +28,7 @@ Text in designs:
 
 const GENERATE_SYSTEM_PROMPT = `You are a t-shirt design assistant for PRNTD. Your job is to translate the user's conversation into a detailed Ideogram image generation prompt.
 
-Read the conversation to understand what the user wants, then respond with JSON:
+Read the conversation to understand what the user wants, then respond with raw JSON (no markdown, no code fences):
 {
   "message": "Brief acknowledgment of what you're generating",
   "fluxPrompt": "Detailed image generation prompt for Ideogram"
@@ -119,8 +121,11 @@ export async function constructFluxPrompt(
     messages,
   });
 
-  const text =
+  let text =
     response.content[0].type === "text" ? response.content[0].text : "";
+
+  // Strip markdown code fences if present
+  text = text.replace(/^```(?:json)?\s*\n?/m, "").replace(/\n?```\s*$/m, "").trim();
 
   try {
     const parsed = JSON.parse(text);
