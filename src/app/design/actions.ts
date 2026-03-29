@@ -82,8 +82,13 @@ export async function generateDesign(
     userMessage
   );
 
+  // Resolve reference image URL if Claude specified one
+  const refImageUrl = aiResponse.referenceImage
+    ? images.find((img) => img.number === aiResponse.referenceImage)?.url
+    : undefined;
+
   // Generate image and attempt background removal
-  const replicateUrl = await generateImage(aiResponse.fluxPrompt);
+  const replicateUrl = await generateImage(aiResponse.fluxPrompt, refImageUrl);
   let finalUrl = replicateUrl;
   try {
     finalUrl = await removeBackground(replicateUrl);

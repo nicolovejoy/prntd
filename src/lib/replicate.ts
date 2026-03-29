@@ -2,13 +2,23 @@ import Replicate from "replicate";
 
 const replicate = new Replicate();
 
-export async function generateImage(prompt: string): Promise<string> {
+export async function generateImage(
+  prompt: string,
+  referenceImageUrl?: string
+): Promise<string> {
+  const input: Record<string, unknown> = {
+    prompt,
+    aspect_ratio: "1:1",
+    magic_prompt_option: "Off",
+  };
+
+  if (referenceImageUrl) {
+    input.image_prompt = referenceImageUrl;
+    input.image_weight = 50;
+  }
+
   const output = await replicate.run("ideogram-ai/ideogram-v3-turbo", {
-    input: {
-      prompt,
-      aspect_ratio: "1:1",
-      magic_prompt_option: "Off",
-    },
+    input,
   });
 
   return String(output);

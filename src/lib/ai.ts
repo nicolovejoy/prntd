@@ -34,7 +34,8 @@ const GENERATE_SYSTEM_PROMPT = `You are a t-shirt design assistant for PRNTD. Yo
 Read the conversation to understand what the user wants, then respond with raw JSON (no markdown, no code fences):
 {
   "message": "Brief acknowledgment of what you're generating",
-  "fluxPrompt": "Detailed image generation prompt for Ideogram"
+  "fluxPrompt": "Detailed image generation prompt for Ideogram",
+  "referenceImage": null or number (e.g. 2) — set this to the # of a previous design if the user is refining/building on it
 }
 
 Print specifications (always follow these):
@@ -56,7 +57,7 @@ Text in designs:
 - Specify exact text in quotes with "clean, legible typography"
 
 IMPORTANT — Refinements:
-When refining a previous design, reference its prompt (shown as "Prompt used: ..." or in the gallery context). Make only the specific changes requested. Preserve everything else.`;
+When refining a previous design, reference its prompt (shown as "Prompt used: ..." or in the gallery context). Make only the specific changes requested. Preserve everything else. Set "referenceImage" to the design number being refined — the image will be passed to the model as a visual reference for style and composition consistency.`;
 
 function buildMessages(
   chatHistory: ChatMessage[],
@@ -107,7 +108,7 @@ export async function constructFluxPrompt(
   chatHistory: ChatMessage[],
   images: DesignImage[],
   userMessage?: string
-): Promise<{ message: string; fluxPrompt: string }> {
+): Promise<{ message: string; fluxPrompt: string; referenceImage: number | null }> {
   const { messages, galleryContext } = buildMessages(
     chatHistory,
     images,
@@ -135,11 +136,13 @@ export async function constructFluxPrompt(
     return {
       message: parsed.message,
       fluxPrompt: parsed.fluxPrompt,
+      referenceImage: parsed.referenceImage ?? null,
     };
   } catch {
     return {
       message: text,
       fluxPrompt: `graphic design illustration, white background, isolated design, high quality, printable`,
+      referenceImage: null,
     };
   }
 }
