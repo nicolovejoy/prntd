@@ -41,9 +41,11 @@ function OrderPageInner() {
   const designId = searchParams.get("id");
 
   const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [size, setSize] = useState("M");
-  const [color, setColor] = useState("White");
-  const [quality, setQuality] = useState<"standard" | "premium">("standard");
+  const [size, setSize] = useState(searchParams.get("size") ?? "M");
+  const [color, setColor] = useState(searchParams.get("color") ?? "White");
+  const [quality, setQuality] = useState<"standard" | "premium">(
+    (searchParams.get("quality") as "standard" | "premium") ?? "standard"
+  );
   const [pricing, setPricing] = useState<{
     baseCost: number;
     generationCost: number;
@@ -65,6 +67,16 @@ function OrderPageInner() {
     if (!designId) return;
     calculatePrice(designId, quality).then(setPricing);
   }, [designId, quality]);
+
+  // Sync selections to URL so they survive Stripe cancel → back
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    params.set("size", size);
+    params.set("color", color);
+    params.set("quality", quality);
+    const newUrl = `${window.location.pathname}?${params.toString()}`;
+    window.history.replaceState(null, "", newUrl);
+  }, [size, color, quality]);
 
   async function handleCheckout() {
     if (!designId) return;

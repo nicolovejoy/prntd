@@ -86,7 +86,7 @@ export async function createCheckoutSession(params: {
       designId: params.designId,
     },
     success_url: `${process.env.NEXT_PUBLIC_APP_URL}/order/confirm?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/order?id=${params.designId}`,
+    cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/order?id=${params.designId}&size=${encodeURIComponent(params.size)}&color=${encodeURIComponent(params.color)}&quality=${params.quality}`,
   });
 
   // Store Stripe session ID
