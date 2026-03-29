@@ -18,7 +18,7 @@ export function HomeHeader() {
             My Designs
           </Link>
           <button
-            onClick={() => authClient.signOut().then(() => window.location.reload())}
+            onClick={() => authClient.signOut().then(() => { window.location.href = "/"; })}
             className="text-sm text-text-faint hover:text-text-muted transition-colors"
           >
             Sign out
