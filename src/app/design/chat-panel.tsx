@@ -1,7 +1,40 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import type { ChatMessage } from "@/lib/db/schema";
+
+const GENERATING_MESSAGES = [
+  "Mixing paints...",
+  "Sketching ideas...",
+  "Arguing about fonts...",
+  "Consulting the muse...",
+  "Inking the lines...",
+  "Choosing colors...",
+  "Almost there...",
+  "Adding finishing touches...",
+  "Stepping back to admire...",
+  "One more brushstroke...",
+];
+
+function useRotatingMessage(messages: string[], intervalMs: number, active: boolean) {
+  const [index, setIndex] = useState(0);
+  const startIndex = useMemo(
+    () => Math.floor(Math.random() * messages.length),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [active]
+  );
+
+  useEffect(() => {
+    if (!active) return;
+    setIndex(startIndex);
+    const id = setInterval(() => {
+      setIndex((i) => (i + 1) % messages.length);
+    }, intervalMs);
+    return () => clearInterval(id);
+  }, [active, messages.length, intervalMs, startIndex]);
+
+  return messages[index];
+}
 
 const EXAMPLES = [
   "A minimalist mountain landscape in blue and white",
@@ -25,10 +58,11 @@ export function ChatPanel({
 }) {
   const [input, setInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const generatingMsg = useRotatingMessage(GENERATING_MESSAGES, 2000, generating);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading, generating]);
+  }, [messages, loading, generating, generatingMsg]);
 
   function handleSend(e: React.FormEvent) {
     e.preventDefault();
@@ -107,8 +141,8 @@ export function ChatPanel({
         )}
         {generating && (
           <div className="flex justify-start">
-            <div className="rounded-lg px-4 py-2 text-gray-500">
-              Generating image...
+            <div className="rounded-lg px-4 py-2 text-text-muted animate-pulse">
+              {generatingMsg}
             </div>
           </div>
         )}

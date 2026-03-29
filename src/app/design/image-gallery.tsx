@@ -53,9 +53,9 @@ export function ImageGallery({
             </button>
           ))}
           {generating && (
-            <div className="aspect-square rounded-lg border-2 border-gray-700 flex items-center justify-center bg-gray-900">
-              <div className="text-xs text-gray-500 animate-pulse">
-                Generating...
+            <div className="aspect-square rounded-lg border-2 border-border flex items-center justify-center bg-surface">
+              <div className="text-[10px] text-text-faint animate-pulse text-center px-2">
+                Painting...
               </div>
             </div>
           )}
