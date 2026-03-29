@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useMemo } from "react";
+import Markdown from "react-markdown";
 import type { ChatMessage } from "@/lib/db/schema";
 
 const GENERATING_MESSAGES = [
@@ -115,7 +116,13 @@ export function ChatPanel({
                   : "text-gray-100"
               }`}
             >
-              <p>{msg.content}</p>
+              {msg.role === "assistant" ? (
+                <div className="prose prose-invert prose-sm max-w-none prose-p:my-1 prose-ol:my-1 prose-ul:my-1 prose-li:my-0.5">
+                  <Markdown>{msg.content}</Markdown>
+                </div>
+              ) : (
+                <p>{msg.content}</p>
+              )}
               {msg.generationNumber && (
                 <p className="text-xs text-gray-500 mt-1">
                   Generated #{msg.generationNumber}
