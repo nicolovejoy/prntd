@@ -83,4 +83,5 @@ export type ChatMessage = {
   content: string;
   imageUrl?: string;
   fluxPrompt?: string;
+  generationNumber?: number;
 };

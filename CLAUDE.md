@@ -81,14 +81,6 @@ NEXT_PUBLIC_APP_URL     # e.g. https://prntd.org
 
 ## Known Issues / Next Steps
 
-### Design history / generation browser
-
-Users can't go back to previous iterations. Images are stored in R2 (`designs/{id}/{1,2,3...}.png`) but the UI only shows `currentImageUrl`. Need a way to browse and select previous generations.
-
-### Dark-mode consistency
-
-The app renders on a dark background but many components still use light-mode Tailwind classes (bg-gray-50, text-gray-500, etc.). Several were fixed this session but more may surface.
-
 ### Other TODOs
 
 - Next.js 16 middleware deprecation warning — migrate to proxy convention

@@ -3,8 +3,20 @@
 import { Suspense, useState, useRef, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { sendMessage, getDesign } from "./actions";
+import {
+  sendChatMessage,
+  generateDesign,
+  selectImage,
+  deleteGeneration,
+  getDesign,
+  approveDesign,
+} from "./actions";
+import { extractImagesFromHistory } from "@/lib/chat-utils";
 import type { ChatMessage } from "@/lib/db/schema";
+import type { DesignImage } from "@/lib/chat-utils";
+import { ChatPanel } from "./chat-panel";
+import { ImageGallery } from "./image-gallery";
+import { ImageLightbox } from "./image-lightbox";
 
 export default function DesignPage() {
   return (
@@ -20,10 +32,11 @@ function DesignPageInner() {
   const designId = useRef(searchParams.get("id") ?? crypto.randomUUID());
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [input, setInput] = useState("");
+  const [images, setImages] = useState<DesignImage[]>([]);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [currentImage, setCurrentImage] = useState<string | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [generating, setGenerating] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   // Load existing design if resuming
   useEffect(() => {
@@ -33,43 +46,29 @@ function DesignPageInner() {
         if (design) {
           const history = (design.chatHistory as ChatMessage[]) ?? [];
           setMessages(history);
-          setCurrentImage(design.currentImageUrl);
+          setImages(extractImagesFromHistory(history));
+          setSelectedImage(design.currentImageUrl);
         }
       });
     }
   }, [searchParams]);
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
-
-  async function handleSend(e: React.FormEvent) {
-    e.preventDefault();
-    if (!input.trim() || loading) return;
-
-    const userMessage = input.trim();
-    setInput("");
+  async function handleSend(userMessage: string) {
     setLoading(true);
-
     setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
 
     try {
-      const result = await sendMessage(designId.current, userMessage);
+      const result = await sendChatMessage(designId.current, userMessage);
       setMessages((prev) => [
         ...prev,
-        {
-          role: "assistant",
-          content: result.message,
-          imageUrl: result.imageUrl,
-        },
+        { role: "assistant", content: result.message },
       ]);
-      setCurrentImage(result.imageUrl);
     } catch {
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
-          content: "Something went wrong generating your design. Try again?",
+          content: "Something went wrong. Try again?",
         },
       ]);
     } finally {
@@ -77,113 +76,126 @@ function DesignPageInner() {
     }
   }
 
-  function handleApprove() {
-    router.push(`/preview?id=${designId.current}`);
+  async function handleGenerate(userMessage?: string) {
+    setGenerating(true);
+    if (userMessage) {
+      setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
+    }
+
+    try {
+      const result = await generateDesign(designId.current, userMessage);
+      const newImage: DesignImage = {
+        number: result.generationNumber,
+        url: result.imageUrl,
+        prompt: "",
+      };
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: result.message,
+          imageUrl: result.imageUrl,
+          generationNumber: result.generationNumber,
+        },
+      ]);
+      setImages((prev) => [...prev, newImage]);
+      setSelectedImage(result.imageUrl);
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: "Image generation failed. Try again?",
+        },
+      ]);
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function handleSelectImage(imageUrl: string) {
+    setSelectedImage(imageUrl);
+    await selectImage(designId.current, imageUrl);
+  }
+
+  async function handleDeleteImage(generationNumber: number) {
+    await deleteGeneration(designId.current, generationNumber);
+    setImages((prev) => prev.filter((img) => img.number !== generationNumber));
+    // Close lightbox if no images left, or navigate
+    const remaining = images.filter(
+      (img) => img.number !== generationNumber
+    );
+    if (remaining.length === 0) {
+      setLightboxIndex(null);
+      setSelectedImage(null);
+    } else {
+      // If deleted image was selected, pick the last remaining
+      const deleted = images.find((img) => img.number === generationNumber);
+      if (deleted && selectedImage === deleted.url) {
+        const last = remaining[remaining.length - 1];
+        setSelectedImage(last.url);
+        await selectImage(designId.current, last.url);
+      }
+      // Adjust lightbox index
+      if (lightboxIndex !== null) {
+        const newIndex = Math.min(lightboxIndex, remaining.length - 1);
+        setLightboxIndex(newIndex);
+      }
+    }
+  }
+
+  function handleUseDesign() {
+    if (!selectedImage) return;
+    approveDesign(designId.current).then(() => {
+      router.push(`/preview?id=${designId.current}`);
+    });
   }
 
   return (
-    <div className="min-h-screen flex flex-col max-w-2xl mx-auto">
-      <div className="p-4 border-b">
-        <Link href="/designs" className="text-sm text-gray-500 hover:underline">
-          &larr; My Designs
-        </Link>
-        <h1 className="text-lg font-semibold mt-1">Design your shirt</h1>
-        <p className="text-sm text-gray-500">
-          {currentImage
-            ? "Keep refining, or use your design when you're happy."
-            : "Describe what you want — we'll generate it."}
-        </p>
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.length === 0 && (
-          <div className="text-center text-gray-400 mt-20 space-y-4">
-            <p className="text-lg">What should your shirt look like?</p>
-            <p className="text-sm">
-              Describe a design — works great with text, logos, and illustrations.
-            </p>
-            <div className="flex flex-wrap justify-center gap-2 mt-4">
-              {[
-                "A minimalist mountain landscape in blue and white",
-                "A retro sunset with palm tree silhouettes",
-                "An abstract geometric wolf head",
-                'Bold text saying "HELLO" in a graffiti style',
-              ].map((example) => (
-                <button
-                  key={example}
-                  onClick={() => setInput(example)}
-                  className="text-xs px-3 py-1.5 border rounded-full text-gray-500 hover:text-black hover:border-black transition-colors"
-                >
-                  {example}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-        {messages.map((msg, i) => (
-          <div
-            key={i}
-            className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+    <div className="h-[calc(100vh-41px)] flex flex-col">
+      {/* Header */}
+      <div className="p-4 border-b border-gray-700 flex items-center justify-between">
+        <div>
+          <Link
+            href="/designs"
+            className="text-sm text-gray-500 hover:underline"
           >
-            <div
-              className={`max-w-[80%] rounded-lg px-4 py-2 ${
-                msg.role === "user"
-                  ? "bg-black text-white"
-                  : "bg-gray-100 text-gray-900"
-              }`}
-            >
-              <p>{msg.content}</p>
-              {msg.imageUrl && (
-                <img
-                  src={msg.imageUrl}
-                  alt="Generated design"
-                  className="mt-2 rounded-md max-w-full"
-                />
-              )}
-            </div>
-          </div>
-        ))}
-        {loading && (
-          <div className="flex justify-start">
-            <div className="bg-gray-100 rounded-lg px-4 py-2 text-gray-500">
-              Generating...
-            </div>
-          </div>
-        )}
-        <div ref={messagesEndRef} />
-      </div>
-
-      {currentImage && (
-        <div className="px-4 py-3 border-t flex justify-center">
-          <button
-            onClick={handleApprove}
-            className="px-6 py-2 bg-black text-white rounded-md"
-          >
-            Use this design &rarr;
-          </button>
+            &larr; My Designs
+          </Link>
+          <h1 className="text-lg font-semibold mt-1">Design your shirt</h1>
         </div>
-      )}
+      </div>
 
-      <form onSubmit={handleSend} className="p-4 border-t flex gap-2">
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder={
-            currentImage
-              ? "Refine your design... (e.g. 'make the colors bolder')"
-              : "Describe your design..."
-          }
-          className="flex-1 px-3 py-2 border rounded-md"
-          disabled={loading}
+      {/* Two-column body */}
+      <div className="flex-1 flex overflow-hidden">
+        <ChatPanel
+          messages={messages}
+          loading={loading}
+          generating={generating}
+          onSend={handleSend}
+          onGenerate={handleGenerate}
         />
-        <button
-          type="submit"
-          disabled={loading || !input.trim()}
-          className="px-4 py-2 bg-black text-white rounded-md disabled:opacity-50"
-        >
-          Send
-        </button>
-      </form>
+        <ImageGallery
+          images={images}
+          selectedImage={selectedImage}
+          generating={generating}
+          onClickImage={(i) => setLightboxIndex(i)}
+          onUseDesign={handleUseDesign}
+        />
+      </div>
+
+      {/* Lightbox */}
+      {lightboxIndex !== null && images.length > 0 && (
+        <ImageLightbox
+          images={images}
+          currentIndex={lightboxIndex}
+          selectedImage={selectedImage}
+          onClose={() => setLightboxIndex(null)}
+          onNavigate={setLightboxIndex}
+          onSelect={handleSelectImage}
+          onDelete={handleDeleteImage}
+        />
+      )}
     </div>
   );
 }

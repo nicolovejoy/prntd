@@ -5,18 +5,15 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { design as designTable } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { constructFluxPrompt } from "@/lib/ai";
+import { chatAboutDesign, constructFluxPrompt } from "@/lib/ai";
 import { generateImage, removeBackground } from "@/lib/replicate";
 import { uploadDesignImage } from "@/lib/r2";
+import { extractImagesFromHistory } from "@/lib/chat-utils";
 import type { ChatMessage } from "@/lib/db/schema";
 
 const COST_PER_GENERATION = 0.03;
 
-export async function sendMessage(designId: string, userMessage: string) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) throw new Error("Unauthorized");
-
-  // Get or create design
+async function getOrCreateDesign(designId: string, userId: string) {
   let found = await db.query.design.findFirst({
     where: eq(designTable.id, designId),
   });
@@ -26,19 +23,64 @@ export async function sendMessage(designId: string, userMessage: string) {
       .insert(designTable)
       .values({
         id: designId,
-        userId: session.user.id,
+        userId,
         chatHistory: [],
       })
       .returning();
     found = created;
   }
 
-  if (found.userId !== session.user.id) throw new Error("Unauthorized");
+  if (found.userId !== userId) throw new Error("Unauthorized");
+  return found;
+}
 
-  const chatHistory: ChatMessage[] = (found.chatHistory as ChatMessage[]) ?? [];
+export async function sendChatMessage(designId: string, userMessage: string) {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) throw new Error("Unauthorized");
 
-  // Get Claude to construct the image prompt
-  const aiResponse = await constructFluxPrompt(userMessage, chatHistory);
+  const found = await getOrCreateDesign(designId, session.user.id);
+  const chatHistory: ChatMessage[] =
+    (found.chatHistory as ChatMessage[]) ?? [];
+  const images = extractImagesFromHistory(chatHistory);
+
+  const aiResponse = await chatAboutDesign(userMessage, chatHistory, images);
+
+  const updatedHistory: ChatMessage[] = [
+    ...chatHistory,
+    { role: "user", content: userMessage },
+    { role: "assistant", content: aiResponse.message },
+  ];
+
+  await db
+    .update(designTable)
+    .set({ chatHistory: updatedHistory, updatedAt: new Date() })
+    .where(eq(designTable.id, designId));
+
+  return { message: aiResponse.message };
+}
+
+export async function generateDesign(
+  designId: string,
+  userMessage?: string
+) {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) throw new Error("Unauthorized");
+
+  const found = await getOrCreateDesign(designId, session.user.id);
+  const chatHistory: ChatMessage[] =
+    (found.chatHistory as ChatMessage[]) ?? [];
+  const images = extractImagesFromHistory(chatHistory);
+
+  // If user typed a message with the generate action, add it to history for context
+  const historyForPrompt = userMessage
+    ? [...chatHistory, { role: "user" as const, content: userMessage }]
+    : chatHistory;
+
+  const aiResponse = await constructFluxPrompt(
+    historyForPrompt,
+    images,
+    userMessage
+  );
 
   // Generate image and attempt background removal
   const replicateUrl = await generateImage(aiResponse.fluxPrompt);
@@ -55,17 +97,20 @@ export async function sendMessage(designId: string, userMessage: string) {
   const buffer = Buffer.from(await response.arrayBuffer());
   const r2Url = await uploadDesignImage(designId, newGeneration, buffer);
 
-  // Update chat history
-  const updatedHistory: ChatMessage[] = [
-    ...chatHistory,
-    { role: "user", content: userMessage },
-    {
-      role: "assistant",
-      content: aiResponse.message,
-      imageUrl: r2Url,
-      fluxPrompt: aiResponse.fluxPrompt,
-    },
-  ];
+  // Build updated chat history
+  const newMessages: ChatMessage[] = [];
+  if (userMessage) {
+    newMessages.push({ role: "user", content: userMessage });
+  }
+  newMessages.push({
+    role: "assistant",
+    content: aiResponse.message,
+    imageUrl: r2Url,
+    fluxPrompt: aiResponse.fluxPrompt,
+    generationNumber: newGeneration,
+  });
+
+  const updatedHistory: ChatMessage[] = [...chatHistory, ...newMessages];
 
   await db
     .update(designTable)
@@ -81,8 +126,71 @@ export async function sendMessage(designId: string, userMessage: string) {
   return {
     message: aiResponse.message,
     imageUrl: r2Url,
-    generationCount: newGeneration,
+    generationNumber: newGeneration,
   };
+}
+
+export async function selectImage(designId: string, imageUrl: string) {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) throw new Error("Unauthorized");
+
+  const found = await db.query.design.findFirst({
+    where: eq(designTable.id, designId),
+  });
+  if (!found || found.userId !== session.user.id)
+    throw new Error("Unauthorized");
+
+  await db
+    .update(designTable)
+    .set({ currentImageUrl: imageUrl, updatedAt: new Date() })
+    .where(eq(designTable.id, designId));
+}
+
+export async function deleteGeneration(
+  designId: string,
+  generationNumber: number
+) {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) throw new Error("Unauthorized");
+
+  const found = await db.query.design.findFirst({
+    where: eq(designTable.id, designId),
+  });
+  if (!found || found.userId !== session.user.id)
+    throw new Error("Unauthorized");
+
+  const chatHistory: ChatMessage[] =
+    (found.chatHistory as ChatMessage[]) ?? [];
+
+  // Remove the image reference from the assistant message
+  const updatedHistory = chatHistory.map((msg) => {
+    if (
+      msg.role === "assistant" &&
+      msg.generationNumber === generationNumber
+    ) {
+      return {
+        role: msg.role,
+        content: `${msg.content} (image deleted)`,
+      } as ChatMessage;
+    }
+    return msg;
+  });
+
+  // If deleted image was the current one, pick the latest remaining
+  const remainingImages = extractImagesFromHistory(updatedHistory);
+  const newCurrentUrl =
+    remainingImages.length > 0
+      ? remainingImages[remainingImages.length - 1].url
+      : null;
+
+  await db
+    .update(designTable)
+    .set({
+      chatHistory: updatedHistory,
+      currentImageUrl: newCurrentUrl,
+      updatedAt: new Date(),
+    })
+    .where(eq(designTable.id, designId));
 }
 
 export async function getDesign(designId: string) {
@@ -93,7 +201,8 @@ export async function getDesign(designId: string) {
     where: eq(designTable.id, designId),
   });
 
-  if (found && found.userId !== session.user.id) throw new Error("Unauthorized");
+  if (found && found.userId !== session.user.id)
+    throw new Error("Unauthorized");
 
   return found ?? null;
 }
