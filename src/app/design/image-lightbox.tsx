@@ -22,7 +22,7 @@ export function ImageLightbox({
 }) {
   const image = images[currentIndex];
   const isSelected = selectedImage === image?.url;
-  const [lightBg, setLightBg] = useState(false);
+  const [sideBySide, setSideBySide] = useState(true);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -60,24 +60,12 @@ export function ImageLightbox({
             <span className="text-sm text-gray-400 font-mono">
               #{image.number} of {images.length}
             </span>
-            <div className="flex gap-1">
-              <button
-                onClick={() => setLightBg(false)}
-                className={`text-[10px] px-2 py-0.5 rounded transition-colors ${
-                  !lightBg ? "bg-white text-black" : "text-text-faint hover:text-text-muted"
-                }`}
-              >
-                Dark
-              </button>
-              <button
-                onClick={() => setLightBg(true)}
-                className={`text-[10px] px-2 py-0.5 rounded transition-colors ${
-                  lightBg ? "bg-white text-black" : "text-text-faint hover:text-text-muted"
-                }`}
-              >
-                Light
-              </button>
-            </div>
+            <button
+              onClick={() => setSideBySide((s) => !s)}
+              className="text-[10px] px-2 py-0.5 rounded text-text-faint hover:text-text-muted transition-colors"
+            >
+              {sideBySide ? "Single view" : "Side by side"}
+            </button>
           </div>
           <button
             onClick={onClose}
@@ -99,12 +87,31 @@ export function ImageLightbox({
           </button>
 
           {/* Image container */}
-          <div className="flex-1 flex items-center justify-center">
-            <img
-              src={image.url}
-              alt={`Design #${image.number}`}
-              className={`max-h-[70vh] max-w-full object-contain rounded-lg ${lightBg ? "bg-white" : ""}`}
-            />
+          <div className="flex-1 flex items-center justify-center gap-4">
+            {sideBySide ? (
+              <>
+                <div className="flex-1 flex items-center justify-center rounded-lg bg-gray-900 p-4">
+                  <img
+                    src={image.url}
+                    alt={`Design #${image.number} on dark`}
+                    className="max-h-[60vh] max-w-full object-contain"
+                  />
+                </div>
+                <div className="flex-1 flex items-center justify-center rounded-lg bg-white p-4">
+                  <img
+                    src={image.url}
+                    alt={`Design #${image.number} on light`}
+                    className="max-h-[60vh] max-w-full object-contain"
+                  />
+                </div>
+              </>
+            ) : (
+              <img
+                src={image.url}
+                alt={`Design #${image.number}`}
+                className="max-h-[70vh] max-w-full object-contain rounded-lg"
+              />
+            )}
           </div>
 
           {/* Right arrow */}
