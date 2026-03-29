@@ -90,9 +90,9 @@ export function HomeHero({
                 <Link
                   key={design.id}
                   href={
-                    design.status === "draft"
-                      ? `/design?id=${design.id}`
-                      : `/preview?id=${design.id}`
+                    design.status === "ordered"
+                      ? `/order?id=${design.id}`
+                      : `/design?id=${design.id}`
                   }
                   className="group"
                 >

@@ -13,9 +13,8 @@ const STATUS_STYLES: Record<string, string> = {
 };
 
 function getDesignHref(design: Design) {
-  if (design.status === "draft") return `/design?id=${design.id}`;
-  if (design.status === "approved") return `/preview?id=${design.id}`;
-  return `/order?id=${design.id}`;
+  if (design.status === "ordered") return `/order?id=${design.id}`;
+  return `/design?id=${design.id}`;
 }
 
 function timeAgo(date: Date) {

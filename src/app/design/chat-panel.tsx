@@ -59,16 +59,31 @@ export function ChatPanel({
 }) {
   const [input, setInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const generatingMsg = useRotatingMessage(GENERATING_MESSAGES, 2000, generating);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading, generating, generatingMsg]);
 
+  // Auto-focus input on mount and after actions complete
+  useEffect(() => {
+    if (!loading && !generating) inputRef.current?.focus();
+  }, [loading, generating]);
+
+  const GENERATE_TRIGGERS = /^(yes|yeah|yep|do it|go|generate|let'?s do it|go ahead|make it|yes please|sure|ok generate)/i;
+
   function handleSend(e: React.FormEvent) {
     e.preventDefault();
     if (!input.trim() || loading || generating) return;
-    onSend(input.trim());
+    const msg = input.trim();
+    // Auto-detect generation intent
+    if (GENERATE_TRIGGERS.test(msg) && messages.length > 0) {
+      setInput("");
+      onGenerate(msg);
+      return;
+    }
+    onSend(msg);
     setInput("");
   }
 
@@ -159,6 +174,7 @@ export function ChatPanel({
       {/* Input */}
       <form onSubmit={handleSend} className="p-4 border-t border-gray-700 flex gap-2">
         <input
+          ref={inputRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="Describe your design or ask a question..."
