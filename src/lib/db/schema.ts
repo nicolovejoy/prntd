@@ -48,7 +48,7 @@ export const verification = sqliteTable("verification", {
 export const design = sqliteTable("design", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: text("user_id").notNull().references(() => user.id),
-  status: text("status", { enum: ["draft", "approved", "ordered"] }).notNull().default("draft"),
+  status: text("status", { enum: ["draft", "approved", "ordered", "archived"] }).notNull().default("draft"),
   chatHistory: text("chat_history", { mode: "json" }).$type<ChatMessage[]>(),
   currentImageUrl: text("current_image_url"),
   generationCount: integer("generation_count").notNull().default(0),

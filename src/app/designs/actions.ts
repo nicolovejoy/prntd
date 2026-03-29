@@ -4,14 +4,17 @@ import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { design as designTable } from "@/lib/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and, not } from "drizzle-orm";
 
 export async function getUserDesigns() {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) throw new Error("Unauthorized");
 
   const designs = await db.query.design.findMany({
-    where: eq(designTable.userId, session.user.id),
+    where: and(
+      eq(designTable.userId, session.user.id),
+      not(eq(designTable.status, "archived"))
+    ),
     orderBy: desc(designTable.updatedAt),
     columns: {
       id: true,
@@ -41,4 +44,21 @@ export async function deleteDesign(designId: string) {
   }
 
   await db.delete(designTable).where(eq(designTable.id, designId));
+}
+
+export async function archiveDesign(designId: string) {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) throw new Error("Unauthorized");
+
+  const found = await db.query.design.findFirst({
+    where: eq(designTable.id, designId),
+  });
+
+  if (!found) throw new Error("Design not found");
+  if (found.userId !== session.user.id) throw new Error("Unauthorized");
+
+  await db
+    .update(designTable)
+    .set({ status: "archived", updatedAt: new Date() })
+    .where(eq(designTable.id, designId));
 }

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { getUserDesigns, deleteDesign } from "./actions";
+import { getUserDesigns, deleteDesign, archiveDesign } from "./actions";
 
 type Design = Awaited<ReturnType<typeof getUserDesigns>>[number];
 
@@ -43,6 +43,11 @@ export default function DesignsPage() {
   async function handleDelete(id: string) {
     if (!window.confirm("Delete this design?")) return;
     await deleteDesign(id);
+    setDesigns((prev) => prev.filter((d) => d.id !== id));
+  }
+
+  async function handleArchive(id: string) {
+    await archiveDesign(id);
     setDesigns((prev) => prev.filter((d) => d.id !== id));
   }
 
@@ -105,7 +110,14 @@ export default function DesignsPage() {
                     <span className="text-xs text-gray-500">
                       {design.generationCount} generation{design.generationCount !== 1 ? "s" : ""}
                     </span>
-                    {design.status !== "ordered" && (
+                    {design.status === "ordered" ? (
+                      <button
+                        onClick={() => handleArchive(design.id)}
+                        className="text-xs text-text-faint hover:text-text-muted transition-colors"
+                      >
+                        Archive
+                      </button>
+                    ) : (
                       <button
                         onClick={() => handleDelete(design.id)}
                         className="text-xs text-red-400 hover:text-red-600 transition-colors"
