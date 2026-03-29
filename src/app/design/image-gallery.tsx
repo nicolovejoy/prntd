@@ -1,6 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import type { DesignImage } from "@/lib/chat-utils";
+
+const BG_OPTIONS = [
+  { label: "Dark", value: "bg-gray-900" },
+  { label: "Light", value: "bg-white" },
+];
 
 export function ImageGallery({
   images,
@@ -15,13 +21,32 @@ export function ImageGallery({
   onClickImage: (index: number) => void;
   onUseDesign: () => void;
 }) {
+  const [bgClass, setBgClass] = useState("bg-gray-900");
+
   return (
     <div className="w-80 border-l border-gray-700 flex flex-col">
       {/* Header */}
-      <div className="p-4 border-b border-gray-700">
+      <div className="p-4 border-b border-gray-700 flex items-center justify-between">
         <h2 className="text-sm font-medium text-gray-300">
           Generations{images.length > 0 && ` (${images.length})`}
         </h2>
+        {images.length > 0 && (
+          <div className="flex gap-1">
+            {BG_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => setBgClass(opt.value)}
+                className={`text-[10px] px-2 py-0.5 rounded transition-colors ${
+                  bgClass === opt.value
+                    ? "bg-white text-black"
+                    : "text-text-faint hover:text-text-muted"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Thumbnails */}
@@ -45,7 +70,7 @@ export function ImageGallery({
               <img
                 src={img.url}
                 alt={`Design #${img.number}`}
-                className="w-full h-full object-contain bg-gray-900"
+                className={`w-full h-full object-contain ${bgClass}`}
               />
               <span className="absolute top-1 left-1 bg-black/70 text-white text-[10px] font-mono px-1.5 py-0.5 rounded">
                 #{img.number}

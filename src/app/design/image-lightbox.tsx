@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useState } from "react";
 import type { DesignImage } from "@/lib/chat-utils";
 
 export function ImageLightbox({
@@ -22,6 +22,7 @@ export function ImageLightbox({
 }) {
   const image = images[currentIndex];
   const isSelected = selectedImage === image?.url;
+  const [lightBg, setLightBg] = useState(false);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -55,9 +56,29 @@ export function ImageLightbox({
       >
         {/* Header */}
         <div className="flex items-center justify-between w-full">
-          <span className="text-sm text-gray-400 font-mono">
-            #{image.number} of {images.length}
-          </span>
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-gray-400 font-mono">
+              #{image.number} of {images.length}
+            </span>
+            <div className="flex gap-1">
+              <button
+                onClick={() => setLightBg(false)}
+                className={`text-[10px] px-2 py-0.5 rounded transition-colors ${
+                  !lightBg ? "bg-white text-black" : "text-text-faint hover:text-text-muted"
+                }`}
+              >
+                Dark
+              </button>
+              <button
+                onClick={() => setLightBg(true)}
+                className={`text-[10px] px-2 py-0.5 rounded transition-colors ${
+                  lightBg ? "bg-white text-black" : "text-text-faint hover:text-text-muted"
+                }`}
+              >
+                Light
+              </button>
+            </div>
+          </div>
           <button
             onClick={onClose}
             className="text-gray-400 hover:text-white text-2xl leading-none"
@@ -82,7 +103,7 @@ export function ImageLightbox({
             <img
               src={image.url}
               alt={`Design #${image.number}`}
-              className="max-h-[70vh] max-w-full object-contain rounded-lg"
+              className={`max-h-[70vh] max-w-full object-contain rounded-lg ${lightBg ? "bg-white" : ""}`}
             />
           </div>
 
