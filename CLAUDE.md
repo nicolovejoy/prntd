@@ -81,9 +81,21 @@ NEXT_PUBLIC_APP_URL     # e.g. https://prntd.org
 
 ## Known Issues / Next Steps
 
+### Mobile layout for design page
+
+The two-column design page (chat + gallery) doesn't work on small screens. Gallery panel needs to collapse into a drawer or tab on mobile.
+
+### Sign out accessible from all pages
+
+Sign out button only exists on the home page header. Should be in the global SiteHeader or a dropdown.
+
+### Migrate existing pages to design system components
+
+New base components (Button, Card, Input, Badge, Modal) in `src/components/ui/` are only used in the home page so far. Order, preview, admin, designs pages still use raw Tailwind. Migrate incrementally.
+
 ### Other TODOs
 
+- Printful webhooks for tracking updates (no visibility after order submission)
+- Rate limiting / generation caps (cost protection)
 - Next.js 16 middleware deprecation warning — migrate to proxy convention
-- Printful webhooks for tracking updates (no visibility after submission)
-- Rate limiting / generation caps (cost protection, low priority while usage is minimal)
-- Consider Ideogram direct API for cost savings (low priority, currently ~$0.03/gen via Replicate + ~$0.005 for bg removal)
+- Consider Ideogram direct API for cost savings (low priority)
