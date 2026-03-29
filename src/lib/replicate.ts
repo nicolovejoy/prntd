@@ -13,8 +13,7 @@ export async function generateImage(
   };
 
   if (referenceImageUrl) {
-    input.image_prompt = referenceImageUrl;
-    input.image_weight = 50;
+    input.style_reference_images = [referenceImageUrl];
   }
 
   const output = await replicate.run("ideogram-ai/ideogram-v3-turbo", {
