@@ -36,10 +36,10 @@ export async function createOrder(params: {
   countryCode: string;
   zip: string;
 }) {
-  const data = await printfulFetch("/orders", {
+  const confirm = process.env.PRINTFUL_AUTO_CONFIRM !== "false";
+  const data = await printfulFetch(`/orders${confirm ? "?confirm=true" : ""}`, {
     method: "POST",
     body: JSON.stringify({
-      confirm: process.env.PRINTFUL_AUTO_CONFIRM !== "false",
       recipient: {
         name: params.recipientName,
         address1: params.address1,
