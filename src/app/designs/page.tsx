@@ -83,7 +83,7 @@ export default function DesignsPage() {
             {designs.map((design) => (
               <div key={design.id} className="border rounded-lg overflow-hidden group">
                 <Link href={getDesignHref(design)} className="block">
-                  <div className="aspect-square bg-gray-100 flex items-center justify-center">
+                  <div className="aspect-square bg-checkerboard flex items-center justify-center">
                     {design.currentImageUrl ? (
                       <img
                         src={design.currentImageUrl}

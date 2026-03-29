@@ -79,11 +79,10 @@ export function HomeHero({
               <h2 className="text-sm font-medium text-text-muted">
                 Recent designs
               </h2>
-              <Link
-                href="/designs"
-                className="text-sm text-text-faint hover:text-foreground transition-colors"
-              >
-                View all &rarr;
+              <Link href="/designs">
+                <Button variant="secondary" size="sm">
+                  View All Designs
+                </Button>
               </Link>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -97,7 +96,7 @@ export function HomeHero({
                   }
                   className="group"
                 >
-                  <div className="aspect-square rounded-lg border border-border bg-surface-raised overflow-hidden flex items-center justify-center group-hover:border-border-hover transition-colors">
+                  <div className="aspect-square rounded-lg border border-border bg-checkerboard overflow-hidden flex items-center justify-center group-hover:border-border-hover transition-colors">
                     {design.currentImageUrl ? (
                       <img
                         src={design.currentImageUrl}
