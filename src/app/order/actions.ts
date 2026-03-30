@@ -6,9 +6,7 @@ import { db } from "@/lib/db";
 import { design as designTable, order as orderTable } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { stripe } from "@/lib/stripe";
-import { PRINTFUL_BASE_COST, PREMIUM_UPCHARGE } from "@/lib/printful";
-
-const MARGIN_MULTIPLIER = 1.5;
+import { computePrice } from "@/lib/pricing";
 
 export async function calculatePrice(designId: string, quality: "standard" | "premium") {
   const found = await db.query.design.findFirst({
@@ -17,16 +15,7 @@ export async function calculatePrice(designId: string, quality: "standard" | "pr
 
   if (!found) throw new Error("Design not found");
 
-  const baseCost = PRINTFUL_BASE_COST + (quality === "premium" ? PREMIUM_UPCHARGE : 0);
-  const generationCost = found.generationCost;
-  const subtotal = (baseCost + generationCost) * MARGIN_MULTIPLIER;
-  const total = Math.ceil(subtotal * 100) / 100;
-
-  return {
-    baseCost,
-    generationCost,
-    total,
-  };
+  return computePrice(quality, found.generationCost);
 }
 
 export async function createCheckoutSession(params: {

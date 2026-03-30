@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { getDesign } from "../design/actions";
 import { calculatePrice, createCheckoutSession } from "./actions";
 import Link from "next/link";
+import { Button } from "@/components/ui";
 
 export default function OrderPage() {
   return (
@@ -95,9 +96,9 @@ function OrderPageInner() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center py-12 px-4">
-      {/* Breadcrumbs */}
-      <nav className="w-full max-w-2xl mb-8 flex gap-2 text-sm text-gray-500">
+    <div className="min-h-screen flex flex-col items-center py-6 md:py-12 px-4 pb-24 md:pb-12">
+      {/* Breadcrumbs — hidden on mobile */}
+      <nav className="hidden md:flex w-full max-w-2xl mb-8 gap-2 text-sm text-gray-500">
         <Link href={`/design?id=${designId}`} className="hover:underline">
           Design
         </Link>
@@ -106,15 +107,15 @@ function OrderPageInner() {
           Preview
         </Link>
         <span>/</span>
-        <span className="text-black font-medium">Order</span>
+        <span className="text-foreground font-medium">Order</span>
       </nav>
 
-      <div className="w-full max-w-2xl grid md:grid-cols-2 gap-8">
-        {/* Design preview */}
+      <div className="w-full max-w-2xl grid md:grid-cols-2 gap-6 md:gap-8">
+        {/* Design preview — compact on mobile */}
         <div className="flex flex-col items-center">
           {imageUrl && (
             <div
-              className="w-full aspect-square rounded-lg flex items-center justify-center transition-colors"
+              className="w-40 h-40 md:w-full md:aspect-square rounded-lg flex items-center justify-center transition-colors"
               style={{ backgroundColor: SHIRT_COLORS.find((c) => c.name === color)?.value ?? "#f3f4f6" }}
             >
               <img
@@ -127,7 +128,7 @@ function OrderPageInner() {
         </div>
 
         {/* Options */}
-        <div className="space-y-6">
+        <div className="space-y-5">
           <div>
             <label className="block text-sm font-medium mb-2">Size</label>
             <div className="flex gap-2">
@@ -135,10 +136,10 @@ function OrderPageInner() {
                 <button
                   key={s}
                   onClick={() => setSize(s)}
-                  className={`px-3 py-1.5 border-2 rounded-md text-sm ${
+                  className={`flex-1 md:flex-none px-3 py-2.5 md:py-1.5 border-2 rounded-md text-sm transition-colors ${
                     size === s
-                      ? "border-white bg-white text-black font-medium"
-                      : "border-gray-600 text-gray-400 hover:border-gray-400"
+                      ? "border-accent bg-accent text-accent-fg font-medium"
+                      : "border-border text-text-muted hover:border-border-hover"
                   }`}
                 >
                   {s}
@@ -151,13 +152,13 @@ function OrderPageInner() {
             <label className="block text-sm font-medium mb-2">
               Color — {color}
             </label>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2.5 md:gap-2">
               {SHIRT_COLORS.map((c) => (
                 <button
                   key={c.name}
                   onClick={() => setColor(c.name)}
-                  className={`w-8 h-8 rounded-full border-2 ${
-                    color === c.name ? "border-black ring-2 ring-offset-1 ring-black" : "border-gray-300"
+                  className={`w-10 h-10 md:w-8 md:h-8 rounded-full border-2 transition-colors ${
+                    color === c.name ? "border-accent ring-2 ring-offset-1 ring-accent ring-offset-background" : "border-border"
                   }`}
                   style={{ backgroundColor: c.value }}
                   title={c.name}
@@ -173,10 +174,10 @@ function OrderPageInner() {
                 <button
                   key={q.value}
                   onClick={() => setQuality(q.value)}
-                  className={`px-3 py-1.5 border-2 rounded-md text-sm ${
+                  className={`flex-1 md:flex-none px-3 py-2.5 md:py-1.5 border-2 rounded-md text-sm transition-colors ${
                     quality === q.value
-                      ? "border-white bg-white text-black font-medium"
-                      : "border-gray-600 text-gray-400 hover:border-gray-400"
+                      ? "border-accent bg-accent text-accent-fg font-medium"
+                      : "border-border text-text-muted hover:border-border-hover"
                   }`}
                 >
                   {q.label}
@@ -187,30 +188,48 @@ function OrderPageInner() {
 
           {/* Pricing */}
           {pricing && (
-            <div className="border-t pt-4 space-y-2 text-sm">
+            <div className="border-t border-border pt-4 space-y-2 text-sm">
               <div className="flex justify-between">
-                <span>Shirt ({quality})</span>
+                <span className="text-text-muted">Shirt ({quality})</span>
                 <span>${pricing.baseCost.toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
-                <span>Design generation</span>
+                <span className="text-text-muted">Design generation</span>
                 <span>${pricing.generationCost.toFixed(2)}</span>
               </div>
-              <div className="flex justify-between font-bold text-base border-t pt-2">
+              <div className="flex justify-between font-bold text-base border-t border-border pt-2">
                 <span>Total</span>
                 <span>${pricing.total.toFixed(2)}</span>
               </div>
             </div>
           )}
 
-          <button
+          {/* Desktop checkout */}
+          <Button
             onClick={handleCheckout}
             disabled={loading}
-            className="w-full py-3 bg-black text-white rounded-md font-medium disabled:opacity-50"
+            className="hidden md:block w-full"
+            size="lg"
           >
             {loading ? "Redirecting to checkout..." : "Checkout"}
-          </button>
+          </Button>
         </div>
+      </div>
+
+      {/* Mobile sticky checkout bar */}
+      <div className="fixed bottom-0 left-0 right-0 z-30 md:hidden bg-background border-t border-border p-4">
+        <Button
+          onClick={handleCheckout}
+          disabled={loading}
+          className="w-full"
+          size="lg"
+        >
+          {loading
+            ? "Redirecting..."
+            : pricing
+              ? `Checkout — $${pricing.total.toFixed(2)}`
+              : "Checkout"}
+        </Button>
       </div>
     </div>
   );

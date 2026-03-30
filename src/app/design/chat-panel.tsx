@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import Markdown from "react-markdown";
 import type { ChatMessage } from "@/lib/db/schema";
+import { Button } from "@/components/ui";
 
 const GENERATING_MESSAGES = [
   "Mixing paints...",
@@ -111,7 +112,7 @@ export function ChatPanel({
                 <button
                   key={example}
                   onClick={() => setInput(example)}
-                  className="text-xs px-3 py-1.5 border border-gray-700 rounded-full text-gray-400 hover:text-white hover:border-white transition-colors"
+                  className="text-xs px-3 py-1.5 border border-border rounded-full text-text-muted hover:text-foreground hover:border-border-hover transition-colors"
                 >
                   {example}
                 </button>
@@ -172,30 +173,29 @@ export function ChatPanel({
       </div>
 
       {/* Input */}
-      <form onSubmit={handleSend} className="p-4 border-t border-gray-700 flex gap-2">
+      <form onSubmit={handleSend} className="p-4 border-t border-border flex gap-2">
         <input
           ref={inputRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="Describe your design or ask a question..."
-          className="flex-1 px-3 py-2 bg-gray-900 border border-gray-700 rounded-md text-white placeholder:text-gray-500"
+          className="flex-1 px-3 py-2 bg-surface border border-border rounded-md text-white placeholder:text-gray-500 focus:border-border-hover focus:outline-none"
           disabled={busy}
         />
-        <button
+        <Button
           type="submit"
+          variant="secondary"
           disabled={busy || !input.trim()}
-          className="px-4 py-2 border border-gray-600 text-gray-300 rounded-md disabled:opacity-30 hover:bg-gray-800 transition-colors"
         >
           Send
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           onClick={handleGenerate}
           disabled={busy || (messages.length === 0 && !input.trim())}
-          className="px-4 py-2 bg-white text-black rounded-md font-medium disabled:opacity-30 transition-colors"
         >
           Generate
-        </button>
+        </Button>
       </form>
     </div>
   );

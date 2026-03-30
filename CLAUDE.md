@@ -81,21 +81,22 @@ NEXT_PUBLIC_APP_URL     # e.g. https://prntd.org
 
 ## Known Issues / Next Steps
 
-### Mobile layout for design page
+### Done
 
-The two-column design page (chat + gallery) doesn't work on small screens. Gallery panel needs to collapse into a drawer or tab on mobile.
+- ~~Mobile layout for design page~~ — gallery collapses into slide-in drawer on mobile, floating toggle button
+- ~~Sign out accessible from all pages~~ — SiteHeader is now auth-aware on every page
+- ~~Migrate existing pages to design system components~~ — all pages use Button, Badge, Card, Input from `src/components/ui/`
+- ~~Order tracking infrastructure~~ — updatedAt, stripePaymentIntentId, trackingNumber/URL on order table
+- ~~Printful webhook handler~~ — /api/webhooks/printful handles package_shipped and order_failed
+- ~~User-facing /orders page~~ — order history with status badges and tracking links
+- ~~Admin retry for stuck orders~~ — retry button on paid-status orders in admin table
+- ~~Fix nav and confirm page~~ — Orders link in header, confirm page links to /orders instead of promising emails
 
-### Sign out accessible from all pages
+### Next Steps
 
-Sign out button only exists on the home page header. Should be in the global SiteHeader or a dropdown.
-
-### Migrate existing pages to design system components
-
-New base components (Button, Card, Input, Badge, Modal) in `src/components/ui/` are only used in the home page so far. Order, preview, admin, designs pages still use raw Tailwind. Migrate incrementally.
-
-### Other TODOs
-
-- Printful webhooks for tracking updates (no visibility after order submission)
+- Extract testable business logic (pricing, order state machine, webhook handlers) and add test coverage — especially payment flow
+- Transactional emails via Resend (order confirmation + shipping notification) — Resend Pro ($20/mo) covers all projects/domains
+- Password reset flow (Better-Auth forgetPassword plugin + Resend)
 - Rate limiting / generation caps (cost protection)
-- Next.js 16 middleware deprecation warning — migrate to proxy convention
-- Consider Ideogram direct API for cost savings (low priority)
+- Next.js 16 middleware → proxy migration
+- Register Printful webhook URL in Printful dashboard (https://prntd.org/api/webhooks/printful)

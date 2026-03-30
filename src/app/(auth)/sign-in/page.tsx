@@ -4,6 +4,7 @@ import { authClient } from "@/lib/auth-client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { Button, Input } from "@/components/ui";
 
 export default function SignInPage() {
   const router = useRouter();
@@ -35,28 +36,29 @@ export default function SignInPage() {
       <div className="w-full max-w-sm space-y-6">
         <h1 className="text-2xl font-bold text-center">Sign in</h1>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <input
+          <Input
             name="email"
             type="email"
             placeholder="Email"
             required
-            className="w-full px-3 py-2 border rounded-md"
+            className="w-full"
           />
-          <input
+          <Input
             name="password"
             type="password"
             placeholder="Password"
             required
-            className="w-full px-3 py-2 border rounded-md"
+            className="w-full"
           />
           {error && <p className="text-red-600 text-sm">{error}</p>}
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-2 bg-black text-white rounded-md disabled:opacity-50"
-          >
+          <div className="flex justify-end">
+            <Link href="/forgot-password" className="text-sm text-gray-600 underline">
+              Forgot password?
+            </Link>
+          </div>
+          <Button type="submit" disabled={loading} className="w-full">
             {loading ? "Signing in..." : "Sign in"}
-          </button>
+          </Button>
         </form>
         <p className="text-center text-sm text-gray-600">
           Don&apos;t have an account?{" "}

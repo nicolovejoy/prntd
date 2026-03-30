@@ -17,6 +17,7 @@ import type { DesignImage } from "@/lib/chat-utils";
 import { ChatPanel } from "./chat-panel";
 import { ImageGallery } from "./image-gallery";
 import { ImageLightbox } from "./image-lightbox";
+import { MobileGalleryDrawer } from "./mobile-gallery-drawer";
 
 export default function DesignPage() {
   return (
@@ -37,6 +38,7 @@ function DesignPageInner() {
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   // Load existing design if resuming
   useEffect(() => {
@@ -100,6 +102,10 @@ function DesignPageInner() {
       ]);
       setImages((prev) => [...prev, newImage]);
       setSelectedImage(result.imageUrl);
+      // Auto-open gallery drawer on mobile
+      if (window.matchMedia("(max-width: 767px)").matches) {
+        setDrawerOpen(true);
+      }
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -151,10 +157,17 @@ function DesignPageInner() {
     });
   }
 
+  async function handleUseSpecificImage(imageUrl: string) {
+    await selectImage(designId.current, imageUrl);
+    setSelectedImage(imageUrl);
+    await approveDesign(designId.current);
+    router.push(`/preview?id=${designId.current}`);
+  }
+
   return (
     <div className="h-[calc(100vh-41px)] flex flex-col">
       {/* Header */}
-      <div className="p-4 border-b border-gray-700 flex items-center justify-between">
+      <div className="p-4 border-b border-border flex items-center justify-between">
         <div>
           <Link
             href="/designs"
@@ -184,6 +197,30 @@ function DesignPageInner() {
         />
       </div>
 
+      {/* Mobile gallery toggle */}
+      {images.length > 0 && (
+        <button
+          onClick={() => setDrawerOpen(true)}
+          className="fixed bottom-20 right-4 z-30 md:hidden w-12 h-12 rounded-full bg-accent text-accent-fg shadow-lg flex items-center justify-center"
+        >
+          <span className="text-sm font-bold">{images.length}</span>
+        </button>
+      )}
+
+      {/* Mobile gallery drawer */}
+      <MobileGalleryDrawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        images={images}
+        selectedImage={selectedImage}
+        generating={generating}
+        onClickImage={(i) => {
+          setDrawerOpen(false);
+          setLightboxIndex(i);
+        }}
+        onUseDesign={handleUseDesign}
+      />
+
       {/* Lightbox */}
       {lightboxIndex !== null && images.length > 0 && (
         <ImageLightbox
@@ -194,6 +231,7 @@ function DesignPageInner() {
           onNavigate={setLightboxIndex}
           onSelect={handleSelectImage}
           onDelete={handleDeleteImage}
+          onUseDesign={handleUseSpecificImage}
         />
       )}
     </div>

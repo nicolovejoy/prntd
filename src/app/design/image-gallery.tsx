@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { DesignImage } from "@/lib/chat-utils";
+import { Button } from "@/components/ui";
 
 const BG_OPTIONS = [
   { label: "Dark", value: "bg-gray-900" },
@@ -14,19 +15,21 @@ export function ImageGallery({
   generating,
   onClickImage,
   onUseDesign,
+  className,
 }: {
   images: DesignImage[];
   selectedImage: string | null;
   generating: boolean;
   onClickImage: (index: number) => void;
   onUseDesign: () => void;
+  className?: string;
 }) {
   const [bgClass, setBgClass] = useState("bg-gray-900");
 
   return (
-    <div className="w-80 border-l border-gray-700 flex flex-col">
+    <div className={className ?? "w-80 border-l border-border hidden md:flex flex-col"}>
       {/* Header */}
-      <div className="p-4 border-b border-gray-700 flex items-center justify-between">
+      <div className="p-4 border-b border-border flex items-center justify-between">
         <h2 className="text-sm font-medium text-gray-300">
           Generations{images.length > 0 && ` (${images.length})`}
         </h2>
@@ -63,8 +66,8 @@ export function ImageGallery({
               onClick={() => onClickImage(i)}
               className={`relative aspect-square rounded-lg overflow-hidden border-2 transition-colors ${
                 selectedImage === img.url
-                  ? "border-white"
-                  : "border-gray-700 hover:border-gray-500"
+                  ? "border-accent"
+                  : "border-border hover:border-border-hover"
               }`}
             >
               <img
@@ -89,14 +92,15 @@ export function ImageGallery({
 
       {/* Actions */}
       {images.length > 0 && (
-        <div className="p-3 border-t border-gray-700">
-          <button
+        <div className="p-3 border-t border-border">
+          <Button
             onClick={onUseDesign}
             disabled={!selectedImage}
-            className="w-full py-2 bg-white text-black rounded-md text-sm font-medium disabled:opacity-30 transition-colors"
+            className="w-full"
+            size="sm"
           >
             Use this design &rarr;
-          </button>
+          </Button>
         </div>
       )}
     </div>

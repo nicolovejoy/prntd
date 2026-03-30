@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const protectedRoutes = ["/designs", "/design", "/preview", "/order"];
+const protectedRoutes = ["/designs", "/design", "/preview", "/order", "/orders", "/admin"];
 
 export function middleware(request: NextRequest) {
   const sessionToken =
@@ -18,5 +18,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/designs", "/design/:path*", "/preview/:path*", "/order/:path*"],
+  matcher: ["/designs", "/design/:path*", "/preview/:path*", "/order/:path*", "/orders/:path*", "/admin/:path*"],
 };

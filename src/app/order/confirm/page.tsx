@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { getOrderBySession } from "./actions";
 import Link from "next/link";
+import { Button, Card } from "@/components/ui";
 
 export default function ConfirmPage() {
   return (
@@ -62,39 +63,45 @@ function ConfirmPageInner() {
         <div className="text-5xl">&#10003;</div>
         <h1 className="text-2xl font-bold">Order confirmed!</h1>
         <p className="text-gray-600">
-          Your custom t-shirt is being prepared. You&apos;ll receive shipping
-          updates via email.
+          Your custom t-shirt is being prepared. Check your order status
+          anytime on{" "}
+          <Link href="/orders" className="underline underline-offset-2">
+            My Orders
+          </Link>
+          .
         </p>
 
-        <div className="border border-gray-700 rounded-lg p-4 text-sm space-y-2 text-left">
+        <Card className="p-4 text-sm space-y-2 text-left">
           <div className="flex justify-between">
-            <span className="text-gray-400">Order ID</span>
+            <span className="text-text-muted">Order ID</span>
             <span className="font-mono">{order.id.slice(0, 8)}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-gray-400">Size</span>
+            <span className="text-text-muted">Size</span>
             <span>{order.size}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-gray-400">Color</span>
+            <span className="text-text-muted">Color</span>
             <span>{order.color}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-gray-400">Quality</span>
+            <span className="text-text-muted">Quality</span>
             <span className="capitalize">{order.quality}</span>
           </div>
-          <div className="flex justify-between font-bold border-t border-gray-700 pt-2">
+          <div className="flex justify-between font-bold border-t border-border pt-2">
             <span>Total paid</span>
             <span>${order.totalPrice.toFixed(2)}</span>
           </div>
-        </div>
+        </Card>
 
-        <Link
-          href="/design"
-          className="inline-block px-6 py-2 bg-black text-white rounded-md"
-        >
-          Design another shirt
-        </Link>
+        <div className="flex flex-col gap-3">
+          <Link href="/orders">
+            <Button className="w-full">View My Orders</Button>
+          </Link>
+          <Link href="/design">
+            <Button variant="ghost" className="w-full">Design another shirt</Button>
+          </Link>
+        </div>
       </div>
     </div>
   );

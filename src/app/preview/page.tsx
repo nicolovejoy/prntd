@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getDesign, approveDesign } from "../design/actions";
 import Link from "next/link";
+import { Button } from "@/components/ui";
 
 export default function PreviewPage() {
   return (
@@ -67,9 +68,9 @@ function PreviewPageInner() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center py-12 px-4">
-      {/* Breadcrumbs */}
-      <nav className="w-full max-w-2xl mb-8 flex gap-2 text-sm text-gray-500">
+    <div className="min-h-screen flex flex-col items-center py-6 md:py-12 px-4">
+      {/* Breadcrumbs — hidden on mobile to save space */}
+      <nav className="hidden md:flex w-full max-w-2xl mb-8 gap-2 text-sm text-gray-500">
         <Link href="/designs" className="hover:underline">
           My Designs
         </Link>
@@ -78,21 +79,20 @@ function PreviewPageInner() {
           Design
         </Link>
         <span>/</span>
-        <span className="text-black font-medium">Preview</span>
+        <span className="text-foreground font-medium">Preview</span>
         <span>/</span>
         <span>Order</span>
       </nav>
 
-      <h1 className="text-2xl font-bold mb-8">Preview your shirt</h1>
+      <h1 className="text-xl md:text-2xl font-bold mb-4 md:mb-8">Preview your shirt</h1>
 
       {/* Shirt mockup */}
       <div
-        className="w-80 h-96 rounded-lg shadow-lg flex items-center justify-center relative transition-colors"
+        className="w-64 h-80 md:w-80 md:h-96 rounded-lg shadow-lg flex items-center justify-center relative transition-colors"
         style={{ backgroundColor: shirtColor }}
       >
-        {/* Design on shirt — multiply blend makes white areas transparent */}
         <div className="absolute inset-0 flex items-center justify-center">
-          <div className="w-48 h-48 flex items-center justify-center">
+          <div className="w-40 h-40 md:w-48 md:h-48 flex items-center justify-center">
             {imageUrl && (
               <img
                 src={imageUrl}
@@ -105,18 +105,18 @@ function PreviewPageInner() {
       </div>
 
       {/* Color picker */}
-      <div className="text-sm text-gray-400 mt-6 mb-2 h-5">
+      <div className="text-sm text-text-muted mt-4 md:mt-6 mb-2 h-5">
         {hoveredColor ?? SHIRT_COLORS.find((c) => c.value === shirtColor)?.name}
       </div>
-      <div className="flex gap-3">
+      <div className="flex flex-wrap justify-center gap-2 md:gap-3 max-w-xs md:max-w-none">
         {SHIRT_COLORS.map((c) => (
           <button
             key={c.value}
             onClick={() => setShirtColor(c.value)}
             onMouseEnter={() => setHoveredColor(c.name)}
             onMouseLeave={() => setHoveredColor(null)}
-            className={`w-8 h-8 rounded-full border-2 ${
-              shirtColor === c.value ? "border-black" : "border-gray-300"
+            className={`w-10 h-10 md:w-8 md:h-8 rounded-full border-2 transition-colors ${
+              shirtColor === c.value ? "border-accent ring-2 ring-accent ring-offset-1 ring-offset-background" : "border-border"
             }`}
             style={{ backgroundColor: c.value }}
           />
@@ -124,19 +124,11 @@ function PreviewPageInner() {
       </div>
 
       {/* Actions */}
-      <div className="flex gap-4 mt-8">
-        <Link
-          href={`/design?id=${designId}`}
-          className="px-6 py-2 border border-gray-300 rounded-md hover:bg-gray-50"
-        >
-          Refine design
+      <div className="flex gap-4 mt-6 md:mt-8 w-full max-w-xs md:max-w-none md:w-auto">
+        <Link href={`/design?id=${designId}`} className="flex-1 md:flex-none">
+          <Button variant="secondary" className="w-full md:w-auto">Refine design</Button>
         </Link>
-        <button
-          onClick={handleApprove}
-          className="px-6 py-2 bg-black text-white rounded-md"
-        >
-          Order this shirt
-        </button>
+        <Button onClick={handleApprove} className="flex-1 md:flex-none">Order this shirt</Button>
       </div>
     </div>
   );

@@ -1,12 +1,10 @@
 import Link from "next/link";
-import { HomeHeader } from "@/components/home-header";
 import { HomeHero } from "@/components/home-hero";
 import { getUserDesigns } from "./designs/actions";
 
 export default function Home() {
   return (
     <div className="min-h-screen flex flex-col">
-      <HomeHeader />
       <HomeHero getRecentDesigns={getUserDesigns} />
 
       <section className="py-16 px-4 border-t border-border">

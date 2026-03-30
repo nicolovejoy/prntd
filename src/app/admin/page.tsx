@@ -1,22 +1,32 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getOrders } from "./actions";
+import { getOrders, retryPrintfulSubmission } from "./actions";
+import { Badge, Button } from "@/components/ui";
 
 type Order = Awaited<ReturnType<typeof getOrders>>[number];
 
-const STATUS_STYLES: Record<string, string> = {
-  pending: "bg-yellow-100 text-yellow-700",
-  paid: "bg-blue-100 text-blue-700",
-  submitted: "bg-purple-100 text-purple-700",
-  shipped: "bg-green-100 text-green-700",
-  delivered: "bg-green-200 text-green-800",
-};
 
 export default function AdminPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [retrying, setRetrying] = useState<string | null>(null);
+
+  async function handleRetry(orderId: string) {
+    if (!window.confirm("Retry Printful submission for this order?")) return;
+    setRetrying(orderId);
+    try {
+      await retryPrintfulSubmission(orderId);
+      // Refresh orders
+      const updated = await getOrders();
+      setOrders(updated);
+    } catch (err: any) {
+      alert(`Retry failed: ${err.message}`);
+    } finally {
+      setRetrying(null);
+    }
+  }
 
   useEffect(() => {
     getOrders()
@@ -60,21 +70,20 @@ export default function AdminPage() {
                 <th className="py-3 pr-4">Shipping</th>
                 <th className="py-3 pr-4">Total</th>
                 <th className="py-3 pr-4">Printful</th>
-                <th className="py-3">Date</th>
+                <th className="py-3 pr-4">Date</th>
+                <th className="py-3">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y">
               {orders.map((order) => (
-                <tr key={order.id} className="hover:bg-gray-50">
+                <tr key={order.id} className="hover:bg-surface-raised">
                   <td className="py-3 pr-4 font-mono text-xs">
                     {order.id.slice(0, 8)}
                   </td>
                   <td className="py-3 pr-4">
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLES[order.status] ?? "bg-gray-100 text-gray-700"}`}
-                    >
+                    <Badge variant={order.status as any}>
                       {order.status}
-                    </span>
+                    </Badge>
                   </td>
                   <td className="py-3 pr-4 text-xs">{order.userEmail}</td>
                   <td className="py-3 pr-4">
@@ -110,10 +119,31 @@ export default function AdminPage() {
                   <td className="py-3 pr-4 font-mono text-xs text-gray-400">
                     {order.printfulOrderId ?? "—"}
                   </td>
-                  <td className="py-3 text-xs text-gray-400">
+                  <td className="py-3 pr-4 text-xs text-gray-400">
                     {order.createdAt
                       ? new Date(order.createdAt).toLocaleDateString()
                       : "—"}
+                  </td>
+                  <td className="py-3 text-xs">
+                    {order.status === "paid" && (
+                      <Button
+                        size="sm"
+                        onClick={() => handleRetry(order.id)}
+                        disabled={retrying === order.id}
+                      >
+                        {retrying === order.id ? "Retrying..." : "Retry"}
+                      </Button>
+                    )}
+                    {order.trackingUrl && (
+                      <a
+                        href={order.trackingUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-400 underline"
+                      >
+                        Track
+                      </a>
+                    )}
                   </td>
                 </tr>
               ))}

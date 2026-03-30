@@ -2,6 +2,7 @@
 
 import { useEffect, useCallback, useState } from "react";
 import type { DesignImage } from "@/lib/chat-utils";
+import { Button } from "@/components/ui";
 
 export function ImageLightbox({
   images,
@@ -11,6 +12,7 @@ export function ImageLightbox({
   onNavigate,
   onSelect,
   onDelete,
+  onUseDesign,
 }: {
   images: DesignImage[];
   currentIndex: number;
@@ -19,6 +21,7 @@ export function ImageLightbox({
   onNavigate: (index: number) => void;
   onSelect: (imageUrl: string) => void;
   onDelete: (generationNumber: number) => void;
+  onUseDesign: (imageUrl: string) => void;
 }) {
   const image = images[currentIndex];
   const isSelected = selectedImage === image?.url;
@@ -90,20 +93,26 @@ export function ImageLightbox({
           <div className="flex-1 flex items-center justify-center gap-4">
             {sideBySide ? (
               <>
-                <div className="flex-1 flex items-center justify-center rounded-lg bg-gray-900 p-4">
+                <button
+                  className="flex-1 flex items-center justify-center rounded-lg bg-gray-900 p-4 cursor-zoom-in"
+                  onClick={() => setSideBySide(false)}
+                >
                   <img
                     src={image.url}
                     alt={`Design #${image.number} on dark`}
                     className="max-h-[60vh] max-w-full object-contain"
                   />
-                </div>
-                <div className="flex-1 flex items-center justify-center rounded-lg bg-white p-4">
+                </button>
+                <button
+                  className="flex-1 flex items-center justify-center rounded-lg bg-white p-4 cursor-zoom-in"
+                  onClick={() => setSideBySide(false)}
+                >
                   <img
                     src={image.url}
                     alt={`Design #${image.number} on light`}
                     className="max-h-[60vh] max-w-full object-contain"
                   />
-                </div>
+                </button>
               </>
             ) : (
               <img
@@ -128,23 +137,15 @@ export function ImageLightbox({
 
         {/* Actions */}
         <div className="flex gap-3">
-          <button
-            onClick={() => onSelect(image.url)}
-            className={`px-5 py-2 rounded-md text-sm font-medium transition-colors ${
-              isSelected
-                ? "bg-gray-700 text-gray-300 cursor-default"
-                : "bg-white text-black hover:bg-gray-200"
-            }`}
-            disabled={isSelected}
-          >
-            {isSelected ? "Selected for order" : "Use for order"}
-          </button>
-          <button
+          <Button onClick={() => onUseDesign(image.url)}>
+            Put this on a shirt
+          </Button>
+          <Button
+            variant="danger"
             onClick={() => onDelete(image.number)}
-            className="px-5 py-2 border border-gray-600 text-gray-400 rounded-md text-sm hover:text-red-400 hover:border-red-400 transition-colors"
           >
             Delete
-          </button>
+          </Button>
         </div>
       </div>
     </div>

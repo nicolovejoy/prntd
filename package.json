@@ -25,6 +25,7 @@
     "react-dom": "19.2.4",
     "react-markdown": "10.1.0",
     "replicate": "^1.4.0",
+    "resend": "6.10.0",
     "stripe": "^20.4.1"
   },
   "devDependencies": {

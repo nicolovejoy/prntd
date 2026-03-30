@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
 import { db } from "@/lib/db";
-import { order as orderTable, design as designTable } from "@/lib/db/schema";
+import { order as orderTable, user as userTable } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { createOrder, TSHIRT_VARIANTS } from "@/lib/printful";
+import { createOrder } from "@/lib/printful";
+import {
+  handleStripeCheckoutCompleted,
+  type StripeSessionData,
+} from "@/lib/webhook-handlers";
+import { sendOrderConfirmation } from "@/lib/email";
 
 export async function POST(request: NextRequest) {
   const body = await request.text();
@@ -38,89 +43,64 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Missing metadata" }, { status: 400 });
     }
 
-    // Idempotency: check if order is already processed
-    const foundOrder = await db.query.order.findFirst({
-      where: eq(orderTable.id, orderId),
-    });
-
-    if (!foundOrder) {
-      console.error(`Stripe event ${event.id}: order ${orderId} not found`);
-      return NextResponse.json({ error: "Order not found" }, { status: 400 });
-    }
-
-    if (foundOrder.status !== "pending") {
-      console.log(`Stripe event ${event.id}: order ${orderId} already ${foundOrder.status}, skipping`);
-      return NextResponse.json({ received: true });
-    }
-
-    // Mark order as paid and store shipping details
     const shipping = fullSession.collected_information?.shipping_details;
-    await db
-      .update(orderTable)
-      .set({
-        status: "paid",
-        stripeSessionId: fullSession.id,
-        shippingName: shipping?.name ?? "",
-        shippingAddress1: shipping?.address?.line1 ?? "",
-        shippingAddress2: shipping?.address?.line2 ?? "",
-        shippingCity: shipping?.address?.city ?? "",
-        shippingState: shipping?.address?.state ?? "",
-        shippingZip: shipping?.address?.postal_code ?? "",
-        shippingCountry: shipping?.address?.country ?? "US",
-      })
-      .where(eq(orderTable.id, orderId));
+    const paymentIntentId =
+      typeof fullSession.payment_intent === "string"
+        ? fullSession.payment_intent
+        : fullSession.payment_intent?.id ?? null;
 
-    console.log(`Order ${orderId} marked as paid (Stripe session ${session.id})`);
-
-    // Get design details for Printful submission
-    const foundDesign = await db.query.design.findFirst({
-      where: eq(designTable.id, designId),
-    });
-
-    if (!foundDesign?.currentImageUrl) {
-      console.error(`Order ${orderId}: design ${designId} has no image, cannot submit to Printful`);
-      return NextResponse.json({ received: true });
-    }
-
-    const variantId = TSHIRT_VARIANTS[foundOrder.color]?.[foundOrder.size];
-    if (!variantId) {
-      console.error(`Order ${orderId}: no variant for ${foundOrder.color} ${foundOrder.size}`);
-      return NextResponse.json({ received: true });
-    }
+    const sessionData: StripeSessionData = {
+      id: fullSession.id,
+      metadata: { orderId, designId },
+      paymentIntentId,
+      shipping: shipping
+        ? {
+            name: shipping.name ?? "",
+            address1: shipping.address?.line1 ?? "",
+            address2: shipping.address?.line2 ?? "",
+            city: shipping.address?.city ?? "",
+            state: shipping.address?.state ?? "",
+            zip: shipping.address?.postal_code ?? "",
+            country: shipping.address?.country ?? "US",
+          }
+        : null,
+    };
 
     try {
-      const printfulOrder = await createOrder({
-        designImageUrl: foundDesign.currentImageUrl,
-        size: foundOrder.size,
-        color: foundOrder.color,
-        variantId,
-        recipientName: shipping?.name ?? "",
-        address1: shipping?.address?.line1 ?? "",
-        address2: shipping?.address?.line2 ?? undefined,
-        city: shipping?.address?.city ?? "",
-        stateCode: shipping?.address?.state ?? "",
-        countryCode: shipping?.address?.country ?? "US",
-        zip: shipping?.address?.postal_code ?? "",
+      const result = await handleStripeCheckoutCompleted(sessionData, {
+        db,
+        createPrintfulOrder: createOrder,
       });
+      console.log(`Stripe event ${event.id}: order ${orderId} → ${result.action}`);
 
-      await db
-        .update(orderTable)
-        .set({
-          status: "submitted",
-          printfulOrderId: String(printfulOrder.id),
-        })
-        .where(eq(orderTable.id, orderId));
+      // Send confirmation email (fire-and-forget)
+      if (result.action === "submitted" || result.action === "paid" || result.action === "paid_printful_failed") {
+        try {
+          const orderWithUser = await db
+            .select({ email: userTable.email, size: orderTable.size, color: orderTable.color, quality: orderTable.quality, totalPrice: orderTable.totalPrice })
+            .from(orderTable)
+            .innerJoin(userTable, eq(orderTable.userId, userTable.id))
+            .where(eq(orderTable.id, orderId))
+            .then((rows) => rows[0]);
 
-      // Mark design as ordered
-      await db
-        .update(designTable)
-        .set({ status: "ordered", updatedAt: new Date() })
-        .where(eq(designTable.id, designId));
-
-      console.log(`Order ${orderId} submitted to Printful (${printfulOrder.id})`);
+          if (orderWithUser) {
+            await sendOrderConfirmation({
+              to: orderWithUser.email,
+              orderId,
+              size: orderWithUser.size,
+              color: orderWithUser.color,
+              quality: orderWithUser.quality,
+              total: orderWithUser.totalPrice,
+            });
+            console.log(`Order ${orderId}: confirmation email sent to ${orderWithUser.email}`);
+          }
+        } catch (emailErr) {
+          console.error(`Order ${orderId}: failed to send confirmation email:`, emailErr);
+        }
+      }
     } catch (err) {
-      console.error(`Order ${orderId}: Printful submission failed:`, err);
-      // Order stays as "paid" — can retry manually
+      console.error(`Stripe event ${event.id}: handler error:`, err);
+      return NextResponse.json({ error: "Processing failed" }, { status: 400 });
     }
   }
 

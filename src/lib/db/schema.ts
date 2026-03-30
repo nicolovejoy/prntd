@@ -75,7 +75,11 @@ export const order = sqliteTable("order", {
   shippingState: text("shipping_state"),
   shippingZip: text("shipping_zip"),
   shippingCountry: text("shipping_country"),
+  stripePaymentIntentId: text("stripe_payment_intent_id"),
+  trackingNumber: text("tracking_number"),
+  trackingUrl: text("tracking_url"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
 });
 
 export type ChatMessage = {
