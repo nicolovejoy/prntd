@@ -91,12 +91,13 @@ NEXT_PUBLIC_APP_URL     # e.g. https://prntd.org
 - ~~User-facing /orders page~~ — order history with status badges and tracking links
 - ~~Admin retry for stuck orders~~ — retry button on paid-status orders in admin table
 - ~~Fix nav and confirm page~~ — Orders link in header, confirm page links to /orders instead of promising emails
+- ~~Extract testable business logic~~ — pricing, order state machine, webhook handlers in src/lib/ with 28 tests
+- ~~Transactional emails via Resend~~ — order confirmation + shipping notification, fire-and-forget from webhooks
+- ~~Password reset flow~~ — Better-Auth sendResetPassword + Resend, /forgot-password and /reset-password pages
 
 ### Next Steps
 
-- Extract testable business logic (pricing, order state machine, webhook handlers) and add test coverage — especially payment flow
-- Transactional emails via Resend (order confirmation + shipping notification) — Resend Pro ($20/mo) covers all projects/domains
-- Password reset flow (Better-Auth forgetPassword plugin + Resend)
-- Rate limiting / generation caps (cost protection)
+- Rate limiting / generation caps (cost protection) — per-design cap is trivial, per-user daily limit TBD
 - Next.js 16 middleware → proxy migration
 - Register Printful webhook URL in Printful dashboard (https://prntd.org/api/webhooks/printful)
+- Add prntd.org domain to Resend (currently sending from soiree.pianohouseproject.org)
