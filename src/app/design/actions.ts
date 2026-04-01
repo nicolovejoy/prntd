@@ -76,19 +76,36 @@ export async function generateDesign(
     ? [...chatHistory, { role: "user" as const, content: userMessage }]
     : chatHistory;
 
-  const aiResponse = await constructFluxPrompt(
-    historyForPrompt,
-    images,
-    userMessage
-  );
+  let aiResponse;
+  try {
+    aiResponse = await constructFluxPrompt(
+      historyForPrompt,
+      images,
+      userMessage
+    );
+  } catch (err) {
+    console.error("constructFluxPrompt failed:", err);
+    throw new Error("Failed to construct prompt");
+  }
 
   // Resolve reference image URL if Claude specified one
+  // Only use generated images as references, not user uploads
   const refImageUrl = aiResponse.referenceImage
-    ? images.find((img) => img.number === aiResponse.referenceImage)?.url
+    ? images.find(
+        (img) =>
+          img.number === aiResponse.referenceImage &&
+          !img.prompt.startsWith("[user upload]")
+      )?.url
     : undefined;
 
   // Generate image and attempt background removal
-  const replicateUrl = await generateImage(aiResponse.fluxPrompt, refImageUrl);
+  let replicateUrl;
+  try {
+    replicateUrl = await generateImage(aiResponse.fluxPrompt, refImageUrl);
+  } catch (err) {
+    console.error("generateImage failed:", err);
+    throw new Error("Image generation failed");
+  }
   let finalUrl = replicateUrl;
   try {
     finalUrl = await removeBackground(replicateUrl);
