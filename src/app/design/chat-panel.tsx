@@ -51,17 +51,54 @@ export function ChatPanel({
   generating,
   onSend,
   onGenerate,
+  onUploadImage,
 }: {
   messages: ChatMessage[];
   loading: boolean;
   generating: boolean;
   onSend: (message: string) => void;
   onGenerate: (message?: string) => void;
+  onUploadImage: (base64: string, fileName: string) => void;
 }) {
   const [input, setInput] = useState("");
+  const [dragging, setDragging] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const dragCounter = useRef(0);
   const generatingMsg = useRotatingMessage(GENERATING_MESSAGES, 2000, generating);
+
+  function handleFiles(files: FileList | null) {
+    if (!files) return;
+    for (const file of Array.from(files)) {
+      if (!file.type.startsWith("image/")) continue;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64 = (reader.result as string).split(",")[1];
+        onUploadImage(base64, file.name);
+      };
+      reader.readAsDataURL(file);
+    }
+  }
+
+  function handleDragEnter(e: React.DragEvent) {
+    e.preventDefault();
+    dragCounter.current++;
+    setDragging(true);
+  }
+
+  function handleDragLeave(e: React.DragEvent) {
+    e.preventDefault();
+    dragCounter.current--;
+    if (dragCounter.current === 0) setDragging(false);
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    dragCounter.current = 0;
+    setDragging(false);
+    handleFiles(e.dataTransfer.files);
+  }
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -98,7 +135,33 @@ export function ChatPanel({
   const busy = loading || generating;
 
   return (
-    <div className="flex-1 flex flex-col min-w-0">
+    <div
+      className="flex-1 flex flex-col min-w-0 relative"
+      onDragEnter={handleDragEnter}
+      onDragOver={(e) => e.preventDefault()}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {/* Drop overlay */}
+      {dragging && (
+        <div className="absolute inset-0 z-20 bg-surface/90 border-2 border-dashed border-accent rounded-lg flex items-center justify-center pointer-events-none">
+          <p className="text-accent font-medium">Drop image here</p>
+        </div>
+      )}
+
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          handleFiles(e.target.files);
+          e.target.value = "";
+        }}
+      />
+
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 && (
@@ -137,7 +200,16 @@ export function ChatPanel({
                   <Markdown>{msg.content}</Markdown>
                 </div>
               ) : (
-                <p>{msg.content}</p>
+                <>
+                  <p>{msg.content}</p>
+                  {msg.imageUrl && (
+                    <img
+                      src={msg.imageUrl}
+                      alt="Uploaded reference"
+                      className="mt-2 rounded-md max-w-[200px]"
+                    />
+                  )}
+                </>
               )}
               {msg.generationNumber && (
                 <p className="text-xs text-gray-500 mt-1">
@@ -174,11 +246,24 @@ export function ChatPanel({
 
       {/* Input */}
       <form onSubmit={handleSend} className="p-4 border-t border-border flex gap-2">
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={busy}
+          className="px-3 py-2 border border-border rounded-md text-gray-400 hover:text-white hover:border-border-hover transition-colors disabled:opacity-50"
+          title="Upload image"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+            <circle cx="8.5" cy="8.5" r="1.5" />
+            <polyline points="21 15 16 10 5 21" />
+          </svg>
+        </button>
         <input
           ref={inputRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Describe your design or ask a question..."
+          placeholder="Describe your design or drop an image..."
           className="flex-1 px-3 py-2 bg-surface border border-border rounded-md text-white placeholder:text-gray-500 focus:border-border-hover focus:outline-none"
           disabled={busy}
         />

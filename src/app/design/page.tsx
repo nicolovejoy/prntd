@@ -10,6 +10,7 @@ import {
   deleteGeneration,
   getDesign,
   approveDesign,
+  uploadReferenceImage,
 } from "./actions";
 import { extractImagesFromHistory } from "@/lib/chat-utils";
 import type { ChatMessage } from "@/lib/db/schema";
@@ -150,6 +151,38 @@ function DesignPageInner() {
     }
   }
 
+  async function handleUploadImage(base64: string, fileName: string) {
+    setLoading(true);
+    setMessages((prev) => [
+      ...prev,
+      { role: "user", content: `Uploaded reference image: ${fileName}` },
+    ]);
+
+    try {
+      const result = await uploadReferenceImage(
+        designId.current,
+        base64,
+        fileName
+      );
+      // Update the last user message with the image URL
+      setMessages((prev) => {
+        const updated = [...prev];
+        const lastIdx = updated.length - 1;
+        if (updated[lastIdx]?.role === "user") {
+          updated[lastIdx] = { ...updated[lastIdx], imageUrl: result.imageUrl };
+        }
+        return updated;
+      });
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: "Image upload failed. Try again?" },
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   function handleUseDesign() {
     if (!selectedImage) return;
     approveDesign(designId.current).then(() => {
@@ -187,6 +220,7 @@ function DesignPageInner() {
           generating={generating}
           onSend={handleSend}
           onGenerate={handleGenerate}
+          onUploadImage={handleUploadImage}
         />
         <ImageGallery
           images={images}

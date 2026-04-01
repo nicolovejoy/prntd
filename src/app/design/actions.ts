@@ -135,6 +135,41 @@ export async function generateDesign(
   };
 }
 
+export async function uploadReferenceImage(
+  designId: string,
+  base64Data: string,
+  fileName: string
+) {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) throw new Error("Unauthorized");
+
+  const found = await getOrCreateDesign(designId, session.user.id);
+  const chatHistory: ChatMessage[] =
+    (found.chatHistory as ChatMessage[]) ?? [];
+
+  // Upload to R2 as an "upload" (not a generation)
+  const uploadNumber = Date.now();
+  const buffer = Buffer.from(base64Data, "base64");
+  const r2Url = await uploadDesignImage(designId, uploadNumber, buffer, "upload");
+
+  // Add to chat history as a user message with imageUrl
+  const updatedHistory: ChatMessage[] = [
+    ...chatHistory,
+    {
+      role: "user",
+      content: `Uploaded reference image: ${fileName}`,
+      imageUrl: r2Url,
+    },
+  ];
+
+  await db
+    .update(designTable)
+    .set({ chatHistory: updatedHistory, updatedAt: new Date() })
+    .where(eq(designTable.id, designId));
+
+  return { imageUrl: r2Url };
+}
+
 export async function selectImage(designId: string, imageUrl: string) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) throw new Error("Unauthorized");
