@@ -11,10 +11,13 @@ export function extractImagesFromHistory(
 ): DesignImage[] {
   let n = 0;
   return chatHistory
-    .filter((msg) => msg.role === "assistant" && msg.imageUrl)
+    .filter((msg) => msg.imageUrl)
     .map((msg) => ({
       number: msg.generationNumber ?? ++n,
       url: msg.imageUrl!,
-      prompt: msg.fluxPrompt ?? "",
+      prompt:
+        msg.role === "user"
+          ? `[user upload] ${msg.content}`
+          : msg.fluxPrompt ?? "",
     }));
 }

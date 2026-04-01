@@ -7,7 +7,7 @@ const anthropic = new Anthropic();
 function buildImageGalleryContext(images: DesignImage[]): string {
   if (images.length === 0) return "";
   const lines = images.map((img) => `#${img.number}: "${img.prompt}"`);
-  return `\nGenerated designs so far:\n${lines.join("\n")}\n\nWhen the user references images by number (e.g., "#2"), you know which design and prompt they mean.`;
+  return `\nImages so far:\n${lines.join("\n")}\n\nEntries marked [user upload] are reference images the user provided. Use them as style/content inspiration. When the user references images by number (e.g., "#2"), you know which image they mean.`;
 }
 
 const CHAT_SYSTEM_PROMPT = `You are a t-shirt design advisor for PRNTD. Help users refine their design ideas through conversation. You do NOT generate images — the user clicks "Generate" when ready.
