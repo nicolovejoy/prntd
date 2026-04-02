@@ -124,8 +124,8 @@ export async function archiveOrder(orderId: string) {
     where: eq(orderTable.id, orderId),
   });
   if (!found) throw new Error("Order not found");
-  if (found.status === "shipped" || found.status === "delivered" || found.trackingNumber) {
-    throw new Error("Cannot archive shipped orders");
+  if (found.status === "shipped" || found.status === "delivered" || found.trackingNumber || found.printfulOrderId) {
+    throw new Error("Cannot archive orders submitted to Printful");
   }
 
   await db

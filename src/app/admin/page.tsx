@@ -242,7 +242,7 @@ export default function AdminPage() {
                         >
                           Unarchive
                         </Button>
-                      ) : order.status !== "shipped" && order.status !== "delivered" && !order.trackingNumber ? (
+                      ) : order.status !== "shipped" && order.status !== "delivered" && !order.trackingNumber && !order.printfulOrderId ? (
                         <Button
                           size="sm"
                           variant="ghost"
