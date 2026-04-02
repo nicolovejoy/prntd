@@ -97,10 +97,19 @@ NEXT_PUBLIC_APP_URL     # e.g. https://prntd.org
 - ~~Email domain~~ — switched to orders@prntd.org via Resend Pro with Cloudflare DNS
 - ~~Printful webhook registered~~ — via API (`POST /webhooks`) for package_shipped and order_failed
 - ~~Image upload in design chat~~ — drag-and-drop + file picker, stored in R2, visible to Claude in gallery context
+- ~~Printful webhook: order_canceled~~ — auto-updates status, zeroes cost
+- ~~Order archiving~~ — soft-delete, blocks archiving shipped/Printful orders
+- ~~Printful cost tracking~~ — stores actual fulfillment cost from API, backfilled via sync script
+- ~~Accounting foundation~~ — append-only ledger_entry table, order tags, admin financial summary (revenue/fees/COGS/profit)
+- ~~Order reconciliation~~ — all orders matched against Printful billing, 4 ghost orders identified and canceled
 
 ### Next Steps
 
-- Run Printful status sync script (`npx tsx scripts/sync-printful-statuses.ts`) to backfill fulfilled order statuses
-- Drag-and-drop not working on some browsers — only file picker works currently
-- Rate limiting / generation caps (cost protection) — per-design cap is trivial, per-user daily limit TBD
+- Backfill ledger entries for existing orders (ledger only records going forward currently)
+- Tag all existing orders (customer vs test vs founder) in admin
+- Refund Elijah's canceled order via Stripe dashboard
+- hledger export script (docs/accounting.md has the architecture)
+- Drag-and-drop image upload not working on some browsers — file picker works
+- Order detail page (`/orders/[id]`)
+- Rate limiting / generation caps
 - Next.js 16 middleware → proxy migration
