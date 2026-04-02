@@ -120,6 +120,14 @@ export async function archiveOrder(orderId: string) {
     throw new Error("Unauthorized");
   }
 
+  const found = await db.query.order.findFirst({
+    where: eq(orderTable.id, orderId),
+  });
+  if (!found) throw new Error("Order not found");
+  if (found.status === "shipped" || found.status === "delivered" || found.trackingNumber) {
+    throw new Error("Cannot archive shipped orders");
+  }
+
   await db
     .update(orderTable)
     .set({ archivedAt: new Date(), updatedAt: new Date() })

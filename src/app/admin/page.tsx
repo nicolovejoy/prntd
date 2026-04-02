@@ -238,7 +238,7 @@ export default function AdminPage() {
                         >
                           Unarchive
                         </Button>
-                      ) : (
+                      ) : order.status !== "shipped" && order.status !== "delivered" && !order.trackingNumber ? (
                         <Button
                           size="sm"
                           variant="ghost"
@@ -246,7 +246,7 @@ export default function AdminPage() {
                         >
                           Archive
                         </Button>
-                      )}
+                      ) : null}
                     </td>
                   </tr>
                 );
