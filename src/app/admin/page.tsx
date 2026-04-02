@@ -142,24 +142,6 @@ export default function AdminPage() {
     <div className="max-w-6xl mx-auto py-8 px-4">
       <h1 className="text-xl font-bold mb-6">Admin</h1>
 
-      {/* Classification filter */}
-      <div className="flex items-center gap-2 mb-4">
-        <span className="text-xs text-text-muted uppercase">Filter:</span>
-        {(["all", ...ORDER_CLASSIFICATIONS] as const).map((value) => (
-          <button
-            key={value}
-            onClick={() => handleFilterChange(value)}
-            className={`text-xs px-2.5 py-1 rounded transition-colors ${
-              classificationFilter === value
-                ? "bg-surface-raised text-text-primary font-medium"
-                : "text-text-muted hover:text-text-primary"
-            }`}
-          >
-            {value === "all" ? "All" : CLASSIFICATION_INFO[value].label}
-          </button>
-        ))}
-      </div>
-
       {/* Financial summary */}
       {summary && (
         <div className="grid grid-cols-5 gap-4 mb-6">
@@ -188,17 +170,38 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* Filter toggle */}
+      {/* Orders heading + filters */}
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold">Orders</h2>
-        {archivedCount > 0 && (
-          <button
-            onClick={() => setShowArchived(!showArchived)}
-            className="text-xs text-text-muted underline"
-          >
-            {showArchived ? "Hide archived" : `Show archived (${archivedCount})`}
-          </button>
-        )}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1">
+            {(["all", ...ORDER_CLASSIFICATIONS] as const).map((value) => (
+              <button
+                key={value}
+                onClick={() => handleFilterChange(value)}
+                className={`text-xs px-2.5 py-1 rounded transition-colors ${
+                  classificationFilter === value
+                    ? "bg-surface-raised text-text-primary font-medium"
+                    : "text-text-muted hover:text-text-primary"
+                }`}
+              >
+                {value === "all" ? "All" : CLASSIFICATION_INFO[value].label}
+              </button>
+            ))}
+          </div>
+          {archivedCount > 0 && (
+            <button
+              onClick={() => setShowArchived(!showArchived)}
+              className={`text-xs px-2.5 py-1 rounded transition-colors ${
+                showArchived
+                  ? "bg-surface-raised text-text-primary font-medium"
+                  : "text-text-muted hover:text-text-primary"
+              }`}
+            >
+              Archived ({archivedCount})
+            </button>
+          )}
+        </div>
       </div>
 
       {filtered.length === 0 ? (
