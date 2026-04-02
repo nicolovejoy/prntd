@@ -141,7 +141,7 @@ export async function handleStripeCheckoutCompleted(
 export async function handlePrintfulEvent(
   payload: PrintfulWebhookPayload,
   deps: Pick<WebhookDeps, "db">
-): Promise<{ action: "shipped" | "failed_logged" | "ignored"; orderId?: string; trackingNumber?: string | null; trackingUrl?: string | null }> {
+): Promise<{ action: "shipped" | "canceled" | "failed_logged" | "ignored"; orderId?: string; trackingNumber?: string | null; trackingUrl?: string | null }> {
   const printfulOrderId = String(payload.data?.order?.id ?? "");
   if (!printfulOrderId) {
     throw new Error("Missing Printful order ID in payload");
@@ -173,6 +173,21 @@ export async function handlePrintfulEvent(
       .where(eq(orderTable.id, foundOrder.id));
 
     return { action: "shipped", orderId: foundOrder.id, trackingNumber, trackingUrl };
+  }
+
+  if (payload.type === "order_canceled") {
+    assertTransition(foundOrder.status, "canceled");
+
+    await deps.db
+      .update(orderTable)
+      .set({
+        status: "canceled",
+        printfulCost: 0,
+        updatedAt: new Date(),
+      })
+      .where(eq(orderTable.id, foundOrder.id));
+
+    return { action: "canceled", orderId: foundOrder.id };
   }
 
   if (payload.type === "order_failed") {

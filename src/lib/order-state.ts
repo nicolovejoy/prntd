@@ -3,14 +3,16 @@ export type OrderStatus =
   | "paid"
   | "submitted"
   | "shipped"
-  | "delivered";
+  | "delivered"
+  | "canceled";
 
 export const VALID_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   pending: ["paid"],
   paid: ["submitted"],
-  submitted: ["shipped"],
+  submitted: ["shipped", "canceled"],
   shipped: ["delivered"],
   delivered: [],
+  canceled: [],
 };
 
 export function canTransition(from: string, to: string): boolean {

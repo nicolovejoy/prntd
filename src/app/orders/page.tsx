@@ -13,6 +13,7 @@ const statusLabel: Record<string, string> = {
   submitted: "In production",
   shipped: "Shipped",
   delivered: "Delivered",
+  canceled: "Canceled",
 };
 
 function formatDate(date: Date | null) {

@@ -67,7 +67,7 @@ export const order = sqliteTable("order", {
   color: text("color").notNull(),
   quality: text("quality", { enum: ["standard", "premium"] }).notNull(),
   totalPrice: real("total_price").notNull(),
-  status: text("status", { enum: ["pending", "paid", "submitted", "shipped", "delivered"] }).notNull().default("pending"),
+  status: text("status", { enum: ["pending", "paid", "submitted", "shipped", "delivered", "canceled"] }).notNull().default("pending"),
   shippingName: text("shipping_name"),
   shippingAddress1: text("shipping_address1"),
   shippingAddress2: text("shipping_address2"),

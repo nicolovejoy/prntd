@@ -39,12 +39,15 @@ function mapPrintfulStatus(printfulStatus: string): string | null {
     case "fulfilled":
       return "shipped";
     case "canceled":
+      return "canceled";
     case "failed":
-      return null; // don't update canceled orders
+      return null;
     case "pending":
     case "waiting":
     case "inprocess":
       return "submitted";
+    case "archived":
+      return null; // Printful archives after fulfillment, our status stays as-is
     default:
       return null;
   }

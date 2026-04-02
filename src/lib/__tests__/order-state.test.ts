@@ -26,9 +26,17 @@ describe("canTransition", () => {
     expect(canTransition("pending", "shipped")).toBe(false);
   });
 
+  it("allows submitted → canceled", () => {
+    expect(canTransition("submitted", "canceled")).toBe(true);
+  });
+
   it("rejects delivered → anything (terminal state)", () => {
     expect(canTransition("delivered", "pending")).toBe(false);
     expect(canTransition("delivered", "paid")).toBe(false);
+  });
+
+  it("rejects canceled → anything (terminal state)", () => {
+    expect(canTransition("canceled", "submitted")).toBe(false);
   });
 
   it("rejects backward transitions", () => {
@@ -55,7 +63,7 @@ describe("assertTransition", () => {
 
 describe("VALID_TRANSITIONS", () => {
   it("covers all statuses", () => {
-    const statuses = ["pending", "paid", "submitted", "shipped", "delivered"];
+    const statuses = ["pending", "paid", "submitted", "shipped", "delivered", "canceled"];
     for (const s of statuses) {
       expect(VALID_TRANSITIONS).toHaveProperty(s);
     }
