@@ -108,7 +108,6 @@ NEXT_PUBLIC_APP_URL     # e.g. https://prntd.org
 
 ### Next Steps
 
-- Refund Elijah's canceled order via Stripe dashboard
 - hledger export script (docs/accounting.md has the architecture)
 - Drag-and-drop image upload not working on some browsers — file picker works
 - Rate limiting / generation caps

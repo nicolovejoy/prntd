@@ -24,9 +24,7 @@ Customer pays (Stripe Checkout)
 - `order.stripePaymentIntentId` — reference for refunds
 
 ### What we don't track yet
-- Stripe processing fees per transaction
-- Refund events
-- Promotional/test classification
+- Refund events (Stripe refund API not wired up yet)
 - AI generation costs as a business expense (Replicate, Anthropic)
 - Hosting costs (Vercel, Turso, R2, Resend)
 
@@ -109,14 +107,16 @@ Script reads `ledger_entry` + `order.classification` → generates `.journal` fi
 
 ## What's Built vs Planned
 
-### Built (this session)
-- [x] `ledger_entry` table in schema
-- [x] `tags` JSON column on order table
+### Built
+- [x] `ledger_entry` table — append-only financial journal
 - [x] Auto-generate ledger entries on payment (sale + stripe_fee)
 - [x] Auto-generate COGS entry on Printful submission
 - [x] Auto-generate reversal entries on cancellation
-- [x] Admin UI: tag orders, view ledger entries
-- [x] Exclude canceled orders from financial summary
+- [x] Order classification system (customer/sample/test/owner-use)
+- [x] Composable filter/sort on admin page (multi-select classification, archived, sortable columns)
+- [x] Client-side financial summary computed from ledger + order-table fallback
+- [x] Order detail page (`/admin/orders/[id]`) with ledger timeline
+- [x] Freeform tags for supplementary metadata
 
 ### Planned (future sessions)
 - [ ] Admin refund flow (Stripe API + ledger entry)
