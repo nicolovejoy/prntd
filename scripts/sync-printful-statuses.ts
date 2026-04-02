@@ -47,7 +47,7 @@ function mapPrintfulStatus(printfulStatus: string): string | null {
     case "inprocess":
       return "submitted";
     case "archived":
-      return null; // Printful archives after fulfillment, our status stays as-is
+      return "canceled"; // Ghost orders — never charged, never produced
     default:
       return null;
   }
@@ -114,7 +114,8 @@ async function main() {
       await db
         .update(schema.order)
         .set({
-          status: newStatus as "pending" | "paid" | "submitted" | "shipped" | "delivered",
+          status: newStatus as "pending" | "paid" | "submitted" | "shipped" | "delivered" | "canceled",
+          ...(newStatus === "canceled" && { printfulCost: 0 }),
           ...(trackingNumber && { trackingNumber }),
           ...(trackingUrl && { trackingUrl }),
           ...(printfulCost !== null && { printfulCost }),
