@@ -285,8 +285,8 @@ export default function AdminPage() {
               onClick={() => dispatch({ type: "SET_ALL_CLASSIFICATIONS" })}
               className={`text-xs px-2.5 py-1 rounded transition-colors ${
                 allSelected
-                  ? "bg-surface-raised text-text-primary font-medium"
-                  : "text-text-muted hover:text-text-primary"
+                  ? "bg-surface-raised text-text-primary font-medium border border-border-default"
+                  : "text-text-muted hover:text-text-primary border border-transparent"
               }`}
             >
               All
@@ -297,8 +297,8 @@ export default function AdminPage() {
                 onClick={() => dispatch({ type: "TOGGLE_CLASSIFICATION", classification: c })}
                 className={`text-xs px-2.5 py-1 rounded transition-colors ${
                   filterState.classifications.has(c)
-                    ? "bg-surface-raised text-text-primary font-medium"
-                    : "text-text-muted hover:text-text-primary"
+                    ? "bg-surface-raised text-text-primary font-medium border border-border-default"
+                    : "text-text-muted hover:text-text-primary border border-transparent"
                 }`}
               >
                 {CLASSIFICATION_INFO[c].label}
@@ -310,8 +310,8 @@ export default function AdminPage() {
               onClick={() => dispatch({ type: "TOGGLE_ARCHIVED" })}
               className={`text-xs px-2.5 py-1 rounded transition-colors ${
                 filterState.showArchived
-                  ? "bg-surface-raised text-text-primary font-medium"
-                  : "text-text-muted hover:text-text-primary"
+                  ? "bg-surface-raised text-text-primary font-medium border border-border-default"
+                  : "text-text-muted hover:text-text-primary border border-transparent"
               }`}
             >
               Archived ({archivedCount})
