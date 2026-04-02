@@ -262,14 +262,109 @@ export async function setOrderClassification(orderId: string, classification: Or
     .where(eq(orderTable.id, orderId));
 }
 
-export async function getOrderLedger(orderId: string) {
+export async function getAdminData() {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session || session.user.email !== ADMIN_EMAIL) {
     throw new Error("Unauthorized");
   }
 
-  return db.query.ledgerEntry.findMany({
-    where: eq(ledgerEntry.orderId, orderId),
-    orderBy: (entry, { asc }) => [asc(entry.createdAt)],
-  });
+  const [orders, ledger] = await Promise.all([
+    db
+      .select({
+        id: orderTable.id,
+        status: orderTable.status,
+        size: orderTable.size,
+        color: orderTable.color,
+        quality: orderTable.quality,
+        totalPrice: orderTable.totalPrice,
+        printfulCost: orderTable.printfulCost,
+        printfulOrderId: orderTable.printfulOrderId,
+        trackingNumber: orderTable.trackingNumber,
+        trackingUrl: orderTable.trackingUrl,
+        shippingName: orderTable.shippingName,
+        shippingAddress1: orderTable.shippingAddress1,
+        shippingCity: orderTable.shippingCity,
+        shippingState: orderTable.shippingState,
+        shippingZip: orderTable.shippingZip,
+        shippingCountry: orderTable.shippingCountry,
+        tags: orderTable.tags,
+        classification: orderTable.classification,
+        archivedAt: orderTable.archivedAt,
+        createdAt: orderTable.createdAt,
+        userEmail: userTable.email,
+        designImageUrl: designTable.currentImageUrl,
+        designId: orderTable.designId,
+      })
+      .from(orderTable)
+      .leftJoin(userTable, eq(orderTable.userId, userTable.id))
+      .leftJoin(designTable, eq(orderTable.designId, designTable.id))
+      .orderBy(desc(orderTable.createdAt)),
+    db
+      .select({
+        id: ledgerEntry.id,
+        orderId: ledgerEntry.orderId,
+        type: ledgerEntry.type,
+        amount: ledgerEntry.amount,
+        currency: ledgerEntry.currency,
+        description: ledgerEntry.description,
+        metadata: ledgerEntry.metadata,
+        createdAt: ledgerEntry.createdAt,
+      })
+      .from(ledgerEntry)
+      .orderBy(desc(ledgerEntry.createdAt)),
+  ]);
+
+  return { orders, ledger };
+}
+
+export async function getOrderDetail(orderId: string) {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session || session.user.email !== ADMIN_EMAIL) {
+    throw new Error("Unauthorized");
+  }
+
+  const [orders, ledger] = await Promise.all([
+    db
+      .select({
+        id: orderTable.id,
+        status: orderTable.status,
+        size: orderTable.size,
+        color: orderTable.color,
+        quality: orderTable.quality,
+        totalPrice: orderTable.totalPrice,
+        printfulCost: orderTable.printfulCost,
+        printfulOrderId: orderTable.printfulOrderId,
+        trackingNumber: orderTable.trackingNumber,
+        trackingUrl: orderTable.trackingUrl,
+        shippingName: orderTable.shippingName,
+        shippingAddress1: orderTable.shippingAddress1,
+        shippingAddress2: orderTable.shippingAddress2,
+        shippingCity: orderTable.shippingCity,
+        shippingState: orderTable.shippingState,
+        shippingZip: orderTable.shippingZip,
+        shippingCountry: orderTable.shippingCountry,
+        stripeSessionId: orderTable.stripeSessionId,
+        stripePaymentIntentId: orderTable.stripePaymentIntentId,
+        tags: orderTable.tags,
+        classification: orderTable.classification,
+        archivedAt: orderTable.archivedAt,
+        createdAt: orderTable.createdAt,
+        updatedAt: orderTable.updatedAt,
+        userEmail: userTable.email,
+        designImageUrl: designTable.currentImageUrl,
+        designId: orderTable.designId,
+      })
+      .from(orderTable)
+      .leftJoin(userTable, eq(orderTable.userId, userTable.id))
+      .leftJoin(designTable, eq(orderTable.designId, designTable.id))
+      .where(eq(orderTable.id, orderId)),
+    db.query.ledgerEntry.findMany({
+      where: eq(ledgerEntry.orderId, orderId),
+      orderBy: (entry, { asc }) => [asc(entry.createdAt)],
+    }),
+  ]);
+
+  if (orders.length === 0) throw new Error("Order not found");
+
+  return { ...orders[0], ledger };
 }

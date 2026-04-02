@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useReducer, useState } from "react";
+import Link from "next/link";
 import {
-  getOrders,
+  getAdminData,
   retryPrintfulSubmission,
   archiveOrder,
   unarchiveOrder,
-  getFinancialSummary,
   setOrderTags,
   setOrderClassification,
 } from "./actions";
@@ -18,28 +18,147 @@ import {
   type OrderClassification,
 } from "@/lib/order-classification";
 
-type Order = Awaited<ReturnType<typeof getOrders>>[number];
-type Summary = Awaited<ReturnType<typeof getFinancialSummary>>;
+// --- Types ---
+
+type AdminData = Awaited<ReturnType<typeof getAdminData>>;
+type Order = AdminData["orders"][number];
+type LedgerEntry = AdminData["ledger"][number];
+
+type SortField = "createdAt" | "totalPrice" | "status" | "userEmail";
+
+type FilterState = {
+  classifications: Set<OrderClassification>;
+  showArchived: boolean;
+  sortField: SortField;
+  sortDirection: "asc" | "desc";
+};
+
+/*
+ * Adding a new filter dimension:
+ * 1. Add the state field to FilterState (e.g., statusFilter: Set<string>)
+ * 2. Add the action(s) to FilterAction (e.g., TOGGLE_STATUS)
+ * 3. Handle the action in filterReducer
+ * 4. Add filtering logic to applyFilters() — one new conditional
+ * 5. Add UI control alongside the existing filter buttons
+ */
+
+type FilterAction =
+  | { type: "TOGGLE_CLASSIFICATION"; classification: OrderClassification }
+  | { type: "SET_ALL_CLASSIFICATIONS" }
+  | { type: "TOGGLE_ARCHIVED" }
+  | { type: "SET_SORT"; field: SortField };
+
+const initialFilterState: FilterState = {
+  classifications: new Set(ORDER_CLASSIFICATIONS),
+  showArchived: false,
+  sortField: "createdAt",
+  sortDirection: "desc",
+};
+
+function filterReducer(state: FilterState, action: FilterAction): FilterState {
+  switch (action.type) {
+    case "TOGGLE_CLASSIFICATION": {
+      const next = new Set(state.classifications);
+      if (next.has(action.classification)) {
+        if (next.size > 1) next.delete(action.classification);
+      } else {
+        next.add(action.classification);
+      }
+      return { ...state, classifications: next };
+    }
+    case "SET_ALL_CLASSIFICATIONS":
+      return { ...state, classifications: new Set(ORDER_CLASSIFICATIONS) };
+    case "TOGGLE_ARCHIVED":
+      return { ...state, showArchived: !state.showArchived };
+    case "SET_SORT":
+      return action.field === state.sortField
+        ? { ...state, sortDirection: state.sortDirection === "asc" ? "desc" : "asc" }
+        : { ...state, sortField: action.field, sortDirection: "desc" };
+  }
+}
+
+// --- Pure functions: filter, sort, compute ---
+
+function applyFilters(orders: Order[], state: FilterState): Order[] {
+  return orders.filter((o) => {
+    if (!state.showArchived && o.archivedAt) return false;
+    if (o.classification && !state.classifications.has(o.classification as OrderClassification)) return false;
+    return true;
+  });
+}
+
+function applySort(orders: Order[], state: FilterState): Order[] {
+  const dir = state.sortDirection === "asc" ? 1 : -1;
+  return [...orders].sort((a, b) => {
+    const av = a[state.sortField];
+    const bv = b[state.sortField];
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    if (av < bv) return -dir;
+    if (av > bv) return dir;
+    return 0;
+  });
+}
+
+function computeSummary(
+  orders: Order[],
+  ledger: LedgerEntry[],
+  state: FilterState
+) {
+  const filtered = applyFilters(orders, state);
+  const orderIds = new Set(filtered.map((o) => o.id));
+
+  const byType: Record<string, number> = {};
+  for (const entry of ledger) {
+    if (entry.orderId && orderIds.has(entry.orderId)) {
+      byType[entry.type] = (byType[entry.type] ?? 0) + entry.amount;
+    }
+  }
+
+  const revenue = (byType["sale"] ?? 0) + (byType["refund"] ?? 0);
+  const stripeFees = byType["stripe_fee"] ?? 0;
+  const cogs = byType["cogs"] ?? 0;
+
+  return {
+    orderCount: filtered.filter((o) => o.status !== "canceled").length,
+    revenue,
+    stripeFees,
+    cogs: Math.abs(cogs),
+    grossProfit: revenue + stripeFees + cogs,
+  };
+}
+
+// --- Sortable header helper ---
+
+const SORT_COLUMNS: { field: SortField; label: string }[] = [
+  { field: "userEmail", label: "Customer" },
+  { field: "totalPrice", label: "Revenue" },
+  { field: "status", label: "Status" },
+  { field: "createdAt", label: "Date" },
+];
+
+// --- Component ---
 
 export default function AdminPage() {
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [summary, setSummary] = useState<Summary | null>(null);
+  const [data, setData] = useState<AdminData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [retrying, setRetrying] = useState<string | null>(null);
-  const [showArchived, setShowArchived] = useState(false);
-  const [classificationFilter, setClassificationFilter] = useState<
-    OrderClassification | "all"
-  >("all");
+  const [filterState, dispatch] = useReducer(filterReducer, initialFilterState);
 
-  async function refresh(filter?: OrderClassification | "all") {
-    const f = filter ?? classificationFilter;
-    const [o, s] = await Promise.all([
-      getOrders(),
-      getFinancialSummary(f),
-    ]);
-    setOrders(o);
-    setSummary(s);
+  async function fetchData() {
+    const d = await getAdminData();
+    setData(d);
+    return d;
+  }
+
+  function updateOrder(id: string, patch: Partial<Order>) {
+    setData((prev) =>
+      prev
+        ? { ...prev, orders: prev.orders.map((o) => (o.id === id ? { ...o, ...patch } : o)) }
+        : prev
+    );
   }
 
   async function handleRetry(orderId: string) {
@@ -47,7 +166,7 @@ export default function AdminPage() {
     setRetrying(orderId);
     try {
       await retryPrintfulSubmission(orderId);
-      await refresh();
+      await fetchData();
     } catch (err: any) {
       alert(`Retry failed: ${err.message}`);
     } finally {
@@ -58,39 +177,19 @@ export default function AdminPage() {
   async function handleArchive(orderId: string) {
     if (!window.confirm("Archive this order? It will be hidden from the customer.")) return;
     await archiveOrder(orderId);
-    await refresh();
+    updateOrder(orderId, { archivedAt: new Date() });
   }
 
   async function handleUnarchive(orderId: string) {
     await unarchiveOrder(orderId);
-    await refresh();
+    updateOrder(orderId, { archivedAt: null });
   }
 
   async function handleToggleTag(orderId: string, tag: string, currentTags: string[] | null) {
     const tags = currentTags ?? [];
-    const next = tags.includes(tag)
-      ? tags.filter((t) => t !== tag)
-      : [...tags, tag];
+    const next = tags.includes(tag) ? tags.filter((t) => t !== tag) : [...tags, tag];
     await setOrderTags(orderId, next);
-    setOrders((prev) =>
-      prev.map((o) => (o.id === orderId ? { ...o, tags: next } : o))
-    );
-  }
-
-  async function handleClassificationChange(orderId: string, classification: OrderClassification) {
-    await setOrderClassification(orderId, classification);
-    setOrders((prev) =>
-      prev.map((o) => (o.id === orderId ? { ...o, classification } : o))
-    );
-    // Re-fetch summary since classification affects financial totals
-    const s = await getFinancialSummary(classificationFilter);
-    setSummary(s);
-  }
-
-  async function handleFilterChange(filter: OrderClassification | "all") {
-    setClassificationFilter(filter);
-    const s = await getFinancialSummary(filter);
-    setSummary(s);
+    updateOrder(orderId, { tags: next });
   }
 
   function handleAddTag(orderId: string, tag: string, currentTags: string[] | null) {
@@ -100,13 +199,16 @@ export default function AdminPage() {
     if (tags.includes(trimmed)) return;
     const next = [...tags, trimmed];
     setOrderTags(orderId, next);
-    setOrders((prev) =>
-      prev.map((o) => (o.id === orderId ? { ...o, tags: next } : o))
-    );
+    updateOrder(orderId, { tags: next });
+  }
+
+  async function handleClassificationChange(orderId: string, classification: OrderClassification) {
+    await setOrderClassification(orderId, classification);
+    updateOrder(orderId, { classification });
   }
 
   useEffect(() => {
-    refresh()
+    fetchData()
       .catch(() => setError("Unauthorized"))
       .finally(() => setLoading(false));
   }, []);
@@ -119,81 +221,95 @@ export default function AdminPage() {
     );
   }
 
-  if (error) {
+  if (error || !data) {
     return (
       <div className="min-h-screen flex items-center justify-center text-gray-500">
-        {error}
+        {error ?? "Failed to load"}
       </div>
     );
   }
 
-  const filtered = showArchived
-    ? orders
-    : orders.filter((o) => !o.archivedAt);
+  // Derived state — recomputed every render
+  const filtered = applyFilters(data.orders, filterState);
+  const displayed = applySort(filtered, filterState);
+  const summary = computeSummary(data.orders, data.ledger, filterState);
+  const archivedCount = data.orders.filter((o) => o.archivedAt).length;
+  const allSelected = filterState.classifications.size === ORDER_CLASSIFICATIONS.length;
 
-  const archivedCount = orders.filter((o) => o.archivedAt).length;
-
-  const filterLabel =
-    classificationFilter === "all"
-      ? ""
-      : CLASSIFICATION_INFO[classificationFilter].label;
+  // Label for summary cards when filtered
+  const activeLabels = allSelected
+    ? []
+    : ORDER_CLASSIFICATIONS.filter((c) => filterState.classifications.has(c)).map(
+        (c) => CLASSIFICATION_INFO[c].label
+      );
+  const filterLabel = activeLabels.length > 0 ? activeLabels.join(" + ") : "";
 
   return (
     <div className="max-w-6xl mx-auto py-8 px-4">
       <h1 className="text-xl font-bold mb-6">Admin</h1>
 
       {/* Financial summary */}
-      {summary && (
-        <div className="grid grid-cols-5 gap-4 mb-6">
-          <Card className="p-4">
-            <p className="text-xs text-text-muted uppercase">Orders</p>
-            <p className="text-2xl font-bold mt-1">{summary.orderCount}</p>
-          </Card>
-          <Card className="p-4">
-            <p className="text-xs text-text-muted uppercase">
-              {filterLabel ? `${filterLabel} Revenue` : "Revenue"}
-            </p>
-            <p className="text-2xl font-bold mt-1">${summary.revenue.toFixed(2)}</p>
-          </Card>
-          <Card className="p-4">
-            <p className="text-xs text-text-muted uppercase">Stripe Fees</p>
-            <p className="text-2xl font-bold mt-1 text-red-400">${Math.abs(summary.stripeFees).toFixed(2)}</p>
-          </Card>
-          <Card className="p-4">
-            <p className="text-xs text-text-muted uppercase">COGS (Printful)</p>
-            <p className="text-2xl font-bold mt-1">${summary.cogs.toFixed(2)}</p>
-          </Card>
-          <Card className="p-4">
-            <p className="text-xs text-text-muted uppercase">Gross Profit</p>
-            <p className="text-2xl font-bold mt-1">${summary.grossProfit.toFixed(2)}</p>
-          </Card>
-        </div>
-      )}
+      <div className="grid grid-cols-5 gap-4 mb-6">
+        <Card className="p-4">
+          <p className="text-xs text-text-muted uppercase">Orders</p>
+          <p className="text-2xl font-bold mt-1">{summary.orderCount}</p>
+        </Card>
+        <Card className="p-4">
+          <p className="text-xs text-text-muted uppercase">
+            {filterLabel ? `${filterLabel} Revenue` : "Revenue"}
+          </p>
+          <p className="text-2xl font-bold mt-1">${summary.revenue.toFixed(2)}</p>
+        </Card>
+        <Card className="p-4">
+          <p className="text-xs text-text-muted uppercase">Stripe Fees</p>
+          <p className="text-2xl font-bold mt-1 text-red-400">
+            ${Math.abs(summary.stripeFees).toFixed(2)}
+          </p>
+        </Card>
+        <Card className="p-4">
+          <p className="text-xs text-text-muted uppercase">COGS (Printful)</p>
+          <p className="text-2xl font-bold mt-1">${summary.cogs.toFixed(2)}</p>
+        </Card>
+        <Card className="p-4">
+          <p className="text-xs text-text-muted uppercase">Gross Profit</p>
+          <p className="text-2xl font-bold mt-1">${summary.grossProfit.toFixed(2)}</p>
+        </Card>
+      </div>
 
       {/* Orders heading + filters */}
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold">Orders</h2>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1">
-            {(["all", ...ORDER_CLASSIFICATIONS] as const).map((value) => (
+            <button
+              onClick={() => dispatch({ type: "SET_ALL_CLASSIFICATIONS" })}
+              className={`text-xs px-2.5 py-1 rounded transition-colors ${
+                allSelected
+                  ? "bg-surface-raised text-text-primary font-medium"
+                  : "text-text-muted hover:text-text-primary"
+              }`}
+            >
+              All
+            </button>
+            {ORDER_CLASSIFICATIONS.map((c) => (
               <button
-                key={value}
-                onClick={() => handleFilterChange(value)}
+                key={c}
+                onClick={() => dispatch({ type: "TOGGLE_CLASSIFICATION", classification: c })}
                 className={`text-xs px-2.5 py-1 rounded transition-colors ${
-                  classificationFilter === value
+                  filterState.classifications.has(c)
                     ? "bg-surface-raised text-text-primary font-medium"
                     : "text-text-muted hover:text-text-primary"
                 }`}
               >
-                {value === "all" ? "All" : CLASSIFICATION_INFO[value].label}
+                {CLASSIFICATION_INFO[c].label}
               </button>
             ))}
           </div>
           {archivedCount > 0 && (
             <button
-              onClick={() => setShowArchived(!showArchived)}
+              onClick={() => dispatch({ type: "TOGGLE_ARCHIVED" })}
               className={`text-xs px-2.5 py-1 rounded transition-colors ${
-                showArchived
+                filterState.showArchived
                   ? "bg-surface-raised text-text-primary font-medium"
                   : "text-text-muted hover:text-text-primary"
               }`}
@@ -204,7 +320,7 @@ export default function AdminPage() {
         </div>
       </div>
 
-      {filtered.length === 0 ? (
+      {displayed.length === 0 ? (
         <p className="text-gray-500">No orders.</p>
       ) : (
         <div className="overflow-x-auto">
@@ -212,21 +328,37 @@ export default function AdminPage() {
             <thead className="border-b text-gray-500 text-xs uppercase">
               <tr>
                 <th className="py-3 pr-4">Order</th>
-                <th className="py-3 pr-4">Status</th>
-                <th className="py-3 pr-4">Customer</th>
-                <th className="py-3 pr-4">Design</th>
-                <th className="py-3 pr-4">Details</th>
-                <th className="py-3 pr-4">Shipping</th>
-                <th className="py-3 pr-4">Revenue</th>
-                <th className="py-3 pr-4">COGS</th>
-                <th className="py-3 pr-4">Profit</th>
-                <th className="py-3 pr-4">Printful</th>
-                <th className="py-3 pr-4">Date</th>
-                <th className="py-3">Actions</th>
+                {["Status", "Customer", "Design", "Details", "Shipping", "Revenue", "COGS", "Profit", "Printful", "Date", ""].map(
+                  (label) => {
+                    const sortable = SORT_COLUMNS.find((s) => s.label === label);
+                    if (!sortable) {
+                      return (
+                        <th key={label} className="py-3 pr-4">
+                          {label}
+                        </th>
+                      );
+                    }
+                    const isActive = filterState.sortField === sortable.field;
+                    return (
+                      <th
+                        key={label}
+                        className="py-3 pr-4 cursor-pointer select-none hover:text-text-primary"
+                        onClick={() => dispatch({ type: "SET_SORT", field: sortable.field })}
+                      >
+                        {label}
+                        {isActive && (
+                          <span className="ml-1">
+                            {filterState.sortDirection === "asc" ? "↑" : "↓"}
+                          </span>
+                        )}
+                      </th>
+                    );
+                  }
+                )}
               </tr>
             </thead>
             <tbody className="divide-y">
-              {filtered.map((order) => {
+              {displayed.map((order) => {
                 const profit =
                   order.printfulCost != null
                     ? order.totalPrice - order.printfulCost
@@ -237,17 +369,19 @@ export default function AdminPage() {
                     className={`hover:bg-surface-raised ${order.archivedAt ? "opacity-50" : ""}`}
                   >
                     <td className="py-3 pr-4 font-mono text-xs">
-                      {order.id.slice(0, 8)}
+                      <Link
+                        href={`/admin/orders/${order.id}`}
+                        className="text-blue-400 hover:underline"
+                      >
+                        {order.id.slice(0, 8)}
+                      </Link>
                     </td>
                     <td className="py-3 pr-4">
                       <div className="flex flex-wrap items-center gap-1">
-                        <Badge variant={order.status as any}>
-                          {order.status}
-                        </Badge>
+                        <Badge variant={order.status as any}>{order.status}</Badge>
                         {order.archivedAt && (
                           <span className="text-xs text-text-faint">archived</span>
                         )}
-                        {/* Classification selector */}
                         <select
                           className="text-[10px] px-1.5 py-0.5 rounded bg-surface-base border border-border-default text-text-primary cursor-pointer outline-none"
                           value={order.classification ?? ""}
@@ -260,16 +394,13 @@ export default function AdminPage() {
                             }
                           }}
                         >
-                          {!order.classification && (
-                            <option value="">unclassified</option>
-                          )}
+                          {!order.classification && <option value="">unclassified</option>}
                           {ORDER_CLASSIFICATIONS.map((c) => (
                             <option key={c} value={c}>
                               {CLASSIFICATION_INFO[c].label}
                             </option>
                           ))}
                         </select>
-                        {/* Tags */}
                         {(order.tags ?? []).map((tag) => (
                           <span
                             key={tag}
@@ -280,7 +411,6 @@ export default function AdminPage() {
                             {tag}
                           </span>
                         ))}
-                        {/* Freeform tag input */}
                         <input
                           type="text"
                           placeholder="+tag"
@@ -376,7 +506,10 @@ export default function AdminPage() {
                         >
                           Unarchive
                         </Button>
-                      ) : order.status !== "shipped" && order.status !== "delivered" && !order.trackingNumber && !order.printfulOrderId ? (
+                      ) : order.status !== "shipped" &&
+                        order.status !== "delivered" &&
+                        !order.trackingNumber &&
+                        !order.printfulOrderId ? (
                         <Button
                           size="sm"
                           variant="ghost"

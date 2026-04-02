@@ -1,3 +1,15 @@
+/**
+ * Order Classification System
+ *
+ * To add a new classification:
+ * 1. Add the kebab-case string value to ORDER_CLASSIFICATIONS
+ * 2. Add its metadata to CLASSIFICATION_INFO (all four fields required)
+ * 3. Remove from FUTURE_CLASSIFICATIONS if it was listed there
+ *
+ * That's it. The admin UI (filter buttons, dropdown, reference section)
+ * all derive from these constants automatically. No migration needed —
+ * the classification column is plain text.
+ */
 export const ORDER_CLASSIFICATIONS = [
   "customer",
   "sample",
