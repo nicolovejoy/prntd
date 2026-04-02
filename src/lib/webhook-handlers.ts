@@ -111,11 +111,17 @@ export async function handleStripeCheckoutCompleted(
 
     assertTransition("paid", "submitted");
 
+    // Extract Printful fulfillment cost
+    const printfulCost = printfulOrder.costs?.total
+      ? parseFloat(printfulOrder.costs.total)
+      : null;
+
     await deps.db
       .update(orderTable)
       .set({
         status: "submitted",
         printfulOrderId: String(printfulOrder.id),
+        printfulCost,
         updatedAt: new Date(),
       })
       .where(eq(orderTable.id, orderId));

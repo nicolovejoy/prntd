@@ -76,9 +76,21 @@ async function main() {
 
       const newStatus = mapPrintfulStatus(pfStatus);
 
-      if (!newStatus || newStatus === order.status) {
+      // Backfill cost even if status hasn't changed
+      const pfCost = pfOrder.costs?.total ? parseFloat(pfOrder.costs.total) : null;
+      if ((!newStatus || newStatus === order.status) && pfCost === null) {
         console.log(`  ${order.id.slice(0, 8)} — ${order.status} (Printful: ${pfStatus}) — skip`);
         skipped++;
+        continue;
+      }
+
+      if ((!newStatus || newStatus === order.status) && pfCost !== null) {
+        await db
+          .update(schema.order)
+          .set({ printfulCost: pfCost, updatedAt: new Date() })
+          .where(eq(schema.order.id, order.id));
+        console.log(`  ${order.id.slice(0, 8)} — ${order.status} (Printful: ${pfStatus}) — cost backfill: $${pfCost}`);
+        updated++;
         continue;
       }
 
@@ -91,17 +103,23 @@ async function main() {
         trackingUrl = shipment.tracking_url ?? null;
       }
 
+      // Extract Printful cost
+      const printfulCost = pfOrder.costs?.total
+        ? parseFloat(pfOrder.costs.total)
+        : null;
+
       await db
         .update(schema.order)
         .set({
           status: newStatus as "pending" | "paid" | "submitted" | "shipped" | "delivered",
           ...(trackingNumber && { trackingNumber }),
           ...(trackingUrl && { trackingUrl }),
+          ...(printfulCost !== null && { printfulCost }),
           updatedAt: new Date(),
         })
         .where(eq(schema.order.id, order.id));
 
-      console.log(`  ${order.id.slice(0, 8)} — ${order.status} → ${newStatus} (Printful: ${pfStatus})${trackingNumber ? ` tracking: ${trackingNumber}` : ""}`);
+      console.log(`  ${order.id.slice(0, 8)} — ${order.status} → ${newStatus} (Printful: ${pfStatus})${trackingNumber ? ` tracking: ${trackingNumber}` : ""}${printfulCost ? ` cost: $${printfulCost}` : ""}`);
       updated++;
     } catch (err) {
       console.error(`  ${order.id.slice(0, 8)} — error: ${err}`);

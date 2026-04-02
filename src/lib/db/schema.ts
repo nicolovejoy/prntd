@@ -78,6 +78,8 @@ export const order = sqliteTable("order", {
   stripePaymentIntentId: text("stripe_payment_intent_id"),
   trackingNumber: text("tracking_number"),
   trackingUrl: text("tracking_url"),
+  printfulCost: real("printful_cost"),
+  archivedAt: integer("archived_at", { mode: "timestamp" }),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
   updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
 });
