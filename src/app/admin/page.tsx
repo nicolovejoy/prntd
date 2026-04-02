@@ -134,6 +134,7 @@ export default function AdminPage() {
                 <th className="py-3 pr-4">Revenue</th>
                 <th className="py-3 pr-4">COGS</th>
                 <th className="py-3 pr-4">Profit</th>
+                <th className="py-3 pr-4">Printful</th>
                 <th className="py-3 pr-4">Date</th>
                 <th className="py-3">Actions</th>
               </tr>
@@ -204,6 +205,9 @@ export default function AdminPage() {
                       ) : (
                         "—"
                       )}
+                    </td>
+                    <td className="py-3 pr-4 font-mono text-xs text-text-muted">
+                      {order.printfulOrderId ?? "—"}
                     </td>
                     <td className="py-3 pr-4 text-xs text-gray-400">
                       {order.createdAt
