@@ -66,7 +66,7 @@ function buildMessages(
 ) {
   const galleryContext = buildImageGalleryContext(images);
 
-  const messages = chatHistory.map((msg) => ({
+  const raw = chatHistory.map((msg) => ({
     role: msg.role as "user" | "assistant",
     content:
       msg.role === "assistant" && msg.fluxPrompt
@@ -75,7 +75,18 @@ function buildMessages(
   }));
 
   if (userMessage) {
-    messages.push({ role: "user" as const, content: userMessage });
+    raw.push({ role: "user" as const, content: userMessage });
+  }
+
+  // Merge consecutive same-role messages (Anthropic requires alternating roles)
+  const messages: typeof raw = [];
+  for (const msg of raw) {
+    const prev = messages[messages.length - 1];
+    if (prev && prev.role === msg.role) {
+      prev.content += "\n\n" + msg.content;
+    } else {
+      messages.push({ ...msg });
+    }
   }
 
   return { messages, galleryContext };
@@ -126,7 +137,16 @@ export async function constructFluxPrompt(
   });
 
   let text =
-    response.content[0].type === "text" ? response.content[0].text : "";
+    response.content?.[0]?.type === "text" ? response.content[0].text : "";
+
+  if (!text) {
+    console.error("constructFluxPrompt: empty response from Claude");
+    return {
+      message: "Let me generate that for you.",
+      fluxPrompt: "graphic design illustration, white background, isolated design, high quality, printable",
+      referenceImage: null,
+    };
+  }
 
   // Strip markdown code fences if present
   text = text.replace(/^```(?:json)?\s*\n?/m, "").replace(/\n?```\s*$/m, "").trim();
