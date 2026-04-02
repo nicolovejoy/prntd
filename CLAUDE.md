@@ -94,10 +94,13 @@ NEXT_PUBLIC_APP_URL     # e.g. https://prntd.org
 - ~~Extract testable business logic~~ — pricing, order state machine, webhook handlers in src/lib/ with 28 tests
 - ~~Transactional emails via Resend~~ — order confirmation + shipping notification, fire-and-forget from webhooks
 - ~~Password reset flow~~ — Better-Auth sendResetPassword + Resend, /forgot-password and /reset-password pages
+- ~~Email domain~~ — switched to orders@prntd.org via Resend Pro with Cloudflare DNS
+- ~~Printful webhook registered~~ — via API (`POST /webhooks`) for package_shipped and order_failed
+- ~~Image upload in design chat~~ — drag-and-drop + file picker, stored in R2, visible to Claude in gallery context
 
 ### Next Steps
 
+- Run Printful status sync script (`npx tsx scripts/sync-printful-statuses.ts`) to backfill fulfilled order statuses
+- Drag-and-drop not working on some browsers — only file picker works currently
 - Rate limiting / generation caps (cost protection) — per-design cap is trivial, per-user daily limit TBD
 - Next.js 16 middleware → proxy migration
-- Register Printful webhook URL in Printful dashboard (https://prntd.org/api/webhooks/printful)
-- Add prntd.org domain to Resend (currently sending from soiree.pianohouseproject.org)
