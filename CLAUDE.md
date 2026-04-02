@@ -103,12 +103,13 @@ NEXT_PUBLIC_APP_URL     # e.g. https://prntd.org
 - ~~Accounting foundation~~ — append-only ledger_entry table, order tags, admin financial summary (revenue/fees/COGS/profit)
 - ~~Order reconciliation~~ — all orders matched against Printful billing, 4 ghost orders identified and canceled
 - ~~Order classification system~~ — single-select classification (customer/sample/test/owner-use) separate from freeform tags, financial summary filtering by classification, admin reference section. Ledger starts April 1, 2026 (no backfill of pre-ledger orders).
+- ~~Composable admin filter/sort~~ — useReducer-driven FilterState, client-side summary computation with ledger+fallback, multi-select classification, sortable columns, 26 tests in admin-filters.test.ts
+- ~~Order detail page~~ — `/admin/orders/[id]` with full order info, ledger timeline, classification/tag management
 
 ### Next Steps
 
 - Refund Elijah's canceled order via Stripe dashboard
 - hledger export script (docs/accounting.md has the architecture)
 - Drag-and-drop image upload not working on some browsers — file picker works
-- Order detail page (`/orders/[id]`)
 - Rate limiting / generation caps
 - Next.js 16 middleware → proxy migration
