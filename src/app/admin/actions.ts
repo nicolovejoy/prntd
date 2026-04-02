@@ -7,8 +7,9 @@ import {
   order as orderTable,
   design as designTable,
   user as userTable,
+  ledgerEntry,
 } from "@/lib/db/schema";
-import { eq, desc, isNull, isNotNull, sum, count } from "drizzle-orm";
+import { eq, desc, isNull, isNotNull, sum, count, ne, and } from "drizzle-orm";
 import { createOrder, TSHIRT_VARIANTS } from "@/lib/printful";
 import { assertTransition } from "@/lib/order-state";
 
@@ -38,6 +39,7 @@ export async function getOrders() {
       shippingState: orderTable.shippingState,
       shippingZip: orderTable.shippingZip,
       shippingCountry: orderTable.shippingCountry,
+      tags: orderTable.tags,
       archivedAt: orderTable.archivedAt,
       createdAt: orderTable.createdAt,
       userEmail: userTable.email,
@@ -152,24 +154,83 @@ export async function getFinancialSummary() {
     throw new Error("Unauthorized");
   }
 
-  // Only count non-archived, non-pending orders (actual sales)
-  const rows = await db
+  // Ledger-based: sum by entry type
+  const entries = await db
     .select({
-      totalRevenue: sum(orderTable.totalPrice),
-      totalCOGS: sum(orderTable.printfulCost),
-      orderCount: count(),
+      type: ledgerEntry.type,
+      total: sum(ledgerEntry.amount),
     })
-    .from(orderTable)
-    .where(isNull(orderTable.archivedAt));
+    .from(ledgerEntry)
+    .groupBy(ledgerEntry.type);
 
-  const row = rows[0];
-  const revenue = parseFloat(row.totalRevenue ?? "0");
-  const cogs = parseFloat(row.totalCOGS ?? "0");
+  const byType: Record<string, number> = {};
+  for (const e of entries) {
+    byType[e.type] = parseFloat(e.total ?? "0");
+  }
+
+  const sales = byType["sale"] ?? 0;
+  const stripeFees = byType["stripe_fee"] ?? 0;
+  const cogs = byType["cogs"] ?? 0;
+  const refunds = byType["refund"] ?? 0;
+
+  // Fallback: if ledger is empty, use order table (for existing orders pre-ledger)
+  let orderCount = 0;
+  let fallbackRevenue = 0;
+  let fallbackCOGS = 0;
+  if (sales === 0) {
+    const rows = await db
+      .select({
+        totalRevenue: sum(orderTable.totalPrice),
+        totalCOGS: sum(orderTable.printfulCost),
+        orderCount: count(),
+      })
+      .from(orderTable)
+      .where(and(isNull(orderTable.archivedAt), ne(orderTable.status, "canceled")));
+
+    const row = rows[0];
+    fallbackRevenue = parseFloat(row.totalRevenue ?? "0");
+    fallbackCOGS = parseFloat(row.totalCOGS ?? "0");
+    orderCount = row.orderCount;
+  } else {
+    const countRows = await db
+      .select({ orderCount: count() })
+      .from(orderTable)
+      .where(and(isNull(orderTable.archivedAt), ne(orderTable.status, "canceled")));
+    orderCount = countRows[0].orderCount;
+  }
+
+  const revenue = sales || fallbackRevenue;
+  const totalCOGS = cogs || -fallbackCOGS; // cogs is stored as negative
 
   return {
-    revenue,
-    cogs,
-    grossProfit: revenue - cogs,
-    orderCount: row.orderCount,
+    revenue: revenue + refunds, // refunds reduce revenue
+    stripeFees,
+    cogs: Math.abs(totalCOGS),
+    grossProfit: revenue + refunds + stripeFees + totalCOGS, // all negatives reduce profit
+    orderCount,
   };
+}
+
+export async function setOrderTags(orderId: string, tags: string[]) {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session || session.user.email !== ADMIN_EMAIL) {
+    throw new Error("Unauthorized");
+  }
+
+  await db
+    .update(orderTable)
+    .set({ tags, updatedAt: new Date() })
+    .where(eq(orderTable.id, orderId));
+}
+
+export async function getOrderLedger(orderId: string) {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session || session.user.email !== ADMIN_EMAIL) {
+    throw new Error("Unauthorized");
+  }
+
+  return db.query.ledgerEntry.findMany({
+    where: eq(ledgerEntry.orderId, orderId),
+    orderBy: (entry, { asc }) => [asc(entry.createdAt)],
+  });
 }

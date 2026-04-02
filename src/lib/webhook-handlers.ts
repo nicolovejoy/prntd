@@ -5,6 +5,7 @@ import {
 } from "@/lib/db/schema";
 import { TSHIRT_VARIANTS } from "@/lib/printful";
 import { assertTransition } from "@/lib/order-state";
+import { recordSale, recordCOGS, recordCancellation } from "@/lib/ledger";
 import type { createOrder } from "@/lib/printful";
 import type { db as appDb } from "@/lib/db";
 
@@ -78,6 +79,14 @@ export async function handleStripeCheckoutCompleted(
     })
     .where(eq(orderTable.id, orderId));
 
+  // Record sale + Stripe fee in ledger
+  await recordSale(
+    orderId,
+    foundOrder.totalPrice,
+    `Order ${orderId.slice(0, 8)} — ${foundOrder.color} ${foundOrder.size} ${foundOrder.quality}`,
+    deps.db
+  );
+
   // Submit to Printful
   const foundDesign = await deps.db.query.design.findFirst({
     where: eq(designTable.id, designId),
@@ -130,6 +139,16 @@ export async function handleStripeCheckoutCompleted(
       .update(designTable)
       .set({ status: "ordered", updatedAt: new Date() })
       .where(eq(designTable.id, designId));
+
+    // Record COGS in ledger
+    if (printfulCost && printfulCost > 0) {
+      await recordCOGS(
+        orderId,
+        printfulCost,
+        `Printful fulfillment PF:${printfulOrder.id}`,
+        deps.db
+      );
+    }
 
     return { action: "submitted" };
   } catch (err) {
@@ -186,6 +205,14 @@ export async function handlePrintfulEvent(
         updatedAt: new Date(),
       })
       .where(eq(orderTable.id, foundOrder.id));
+
+    // Record cancellation reversal in ledger
+    await recordCancellation(
+      foundOrder.id,
+      foundOrder.totalPrice,
+      `Order ${foundOrder.id.slice(0, 8)} canceled — Printful ${printfulOrderId}`,
+      deps.db
+    );
 
     return { action: "canceled", orderId: foundOrder.id };
   }

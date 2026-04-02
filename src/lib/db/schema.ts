@@ -79,9 +79,21 @@ export const order = sqliteTable("order", {
   trackingNumber: text("tracking_number"),
   trackingUrl: text("tracking_url"),
   printfulCost: real("printful_cost"),
+  tags: text("tags", { mode: "json" }).$type<string[]>(),
   archivedAt: integer("archived_at", { mode: "timestamp" }),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
   updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+
+export const ledgerEntry = sqliteTable("ledger_entry", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  orderId: text("order_id").references(() => order.id),
+  type: text("type").notNull(), // sale, stripe_fee, cogs, refund, refund_cogs_reversal
+  amount: real("amount").notNull(), // positive = money in, negative = money out
+  currency: text("currency").notNull().default("USD"),
+  description: text("description").notNull(),
+  metadata: text("metadata", { mode: "json" }).$type<Record<string, unknown>>(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
 
 export type ChatMessage = {

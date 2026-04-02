@@ -16,6 +16,7 @@ function createMockDb(overrides: {
 } = {}) {
   const updateSet = vi.fn().mockReturnThis();
   const updateWhere = vi.fn().mockResolvedValue(undefined);
+  const insertValues = vi.fn().mockResolvedValue(undefined);
 
   return {
     query: {
@@ -29,7 +30,10 @@ function createMockDb(overrides: {
     update: vi.fn().mockReturnValue({
       set: updateSet.mockReturnValue({ where: updateWhere }),
     }),
-    _mocks: { updateSet, updateWhere },
+    insert: vi.fn().mockReturnValue({
+      values: insertValues,
+    }),
+    _mocks: { updateSet, updateWhere, insertValues },
   } as any;
 }
 

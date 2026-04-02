@@ -7,8 +7,11 @@ import {
   archiveOrder,
   unarchiveOrder,
   getFinancialSummary,
+  setOrderTags,
 } from "./actions";
 import { Badge, Button, Card } from "@/components/ui";
+
+const AVAILABLE_TAGS = ["customer", "test", "founder", "gift", "promotional"];
 
 type Order = Awaited<ReturnType<typeof getOrders>>[number];
 type Summary = Awaited<ReturnType<typeof getFinancialSummary>>;
@@ -51,6 +54,17 @@ export default function AdminPage() {
     await refresh();
   }
 
+  async function handleToggleTag(orderId: string, tag: string, currentTags: string[] | null) {
+    const tags = currentTags ?? [];
+    const next = tags.includes(tag)
+      ? tags.filter((t) => t !== tag)
+      : [...tags, tag];
+    await setOrderTags(orderId, next);
+    setOrders((prev) =>
+      prev.map((o) => (o.id === orderId ? { ...o, tags: next } : o))
+    );
+  }
+
   useEffect(() => {
     refresh()
       .catch(() => setError("Unauthorized"))
@@ -85,7 +99,7 @@ export default function AdminPage() {
 
       {/* Financial summary */}
       {summary && (
-        <div className="grid grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-5 gap-4 mb-6">
           <Card className="p-4">
             <p className="text-xs text-text-muted uppercase">Orders</p>
             <p className="text-2xl font-bold mt-1">{summary.orderCount}</p>
@@ -93,6 +107,10 @@ export default function AdminPage() {
           <Card className="p-4">
             <p className="text-xs text-text-muted uppercase">Revenue</p>
             <p className="text-2xl font-bold mt-1">${summary.revenue.toFixed(2)}</p>
+          </Card>
+          <Card className="p-4">
+            <p className="text-xs text-text-muted uppercase">Stripe Fees</p>
+            <p className="text-2xl font-bold mt-1 text-red-400">${Math.abs(summary.stripeFees).toFixed(2)}</p>
           </Card>
           <Card className="p-4">
             <p className="text-xs text-text-muted uppercase">COGS (Printful)</p>
@@ -154,12 +172,36 @@ export default function AdminPage() {
                       {order.id.slice(0, 8)}
                     </td>
                     <td className="py-3 pr-4">
-                      <Badge variant={order.status as any}>
-                        {order.status}
-                      </Badge>
-                      {order.archivedAt && (
-                        <span className="text-xs text-text-faint ml-1">archived</span>
-                      )}
+                      <div className="flex flex-wrap items-center gap-1">
+                        <Badge variant={order.status as any}>
+                          {order.status}
+                        </Badge>
+                        {order.archivedAt && (
+                          <span className="text-xs text-text-faint">archived</span>
+                        )}
+                        {(order.tags ?? []).map((tag) => (
+                          <span
+                            key={tag}
+                            className="text-[10px] px-1.5 py-0.5 rounded bg-surface-raised text-text-muted cursor-pointer hover:line-through"
+                            onClick={() => handleToggleTag(order.id, tag, order.tags)}
+                            title={`Click to remove "${tag}" tag`}
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                        <select
+                          className="text-[10px] bg-transparent text-text-faint cursor-pointer border-none outline-none"
+                          value=""
+                          onChange={(e) => {
+                            if (e.target.value) handleToggleTag(order.id, e.target.value, order.tags);
+                          }}
+                        >
+                          <option value="">+tag</option>
+                          {AVAILABLE_TAGS.filter((t) => !(order.tags ?? []).includes(t)).map((t) => (
+                            <option key={t} value={t}>{t}</option>
+                          ))}
+                        </select>
+                      </div>
                     </td>
                     <td className="py-3 pr-4 text-xs">{order.userEmail}</td>
                     <td className="py-3 pr-4">
