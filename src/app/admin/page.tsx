@@ -8,10 +8,15 @@ import {
   unarchiveOrder,
   getFinancialSummary,
   setOrderTags,
+  setOrderClassification,
 } from "./actions";
 import { Badge, Button, Card } from "@/components/ui";
-
-const AVAILABLE_TAGS = ["customer", "test", "founder", "gift", "promotional"];
+import {
+  ORDER_CLASSIFICATIONS,
+  CLASSIFICATION_INFO,
+  FUTURE_CLASSIFICATIONS,
+  type OrderClassification,
+} from "@/lib/order-classification";
 
 type Order = Awaited<ReturnType<typeof getOrders>>[number];
 type Summary = Awaited<ReturnType<typeof getFinancialSummary>>;
@@ -23,9 +28,16 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [retrying, setRetrying] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const [classificationFilter, setClassificationFilter] = useState<
+    OrderClassification | "all"
+  >("all");
 
-  async function refresh() {
-    const [o, s] = await Promise.all([getOrders(), getFinancialSummary()]);
+  async function refresh(filter?: OrderClassification | "all") {
+    const f = filter ?? classificationFilter;
+    const [o, s] = await Promise.all([
+      getOrders(),
+      getFinancialSummary(f),
+    ]);
     setOrders(o);
     setSummary(s);
   }
@@ -65,6 +77,34 @@ export default function AdminPage() {
     );
   }
 
+  async function handleClassificationChange(orderId: string, classification: OrderClassification) {
+    await setOrderClassification(orderId, classification);
+    setOrders((prev) =>
+      prev.map((o) => (o.id === orderId ? { ...o, classification } : o))
+    );
+    // Re-fetch summary since classification affects financial totals
+    const s = await getFinancialSummary(classificationFilter);
+    setSummary(s);
+  }
+
+  async function handleFilterChange(filter: OrderClassification | "all") {
+    setClassificationFilter(filter);
+    const s = await getFinancialSummary(filter);
+    setSummary(s);
+  }
+
+  function handleAddTag(orderId: string, tag: string, currentTags: string[] | null) {
+    const trimmed = tag.trim().toLowerCase().replace(/\s+/g, "-");
+    if (!trimmed) return;
+    const tags = currentTags ?? [];
+    if (tags.includes(trimmed)) return;
+    const next = [...tags, trimmed];
+    setOrderTags(orderId, next);
+    setOrders((prev) =>
+      prev.map((o) => (o.id === orderId ? { ...o, tags: next } : o))
+    );
+  }
+
   useEffect(() => {
     refresh()
       .catch(() => setError("Unauthorized"))
@@ -93,9 +133,32 @@ export default function AdminPage() {
 
   const archivedCount = orders.filter((o) => o.archivedAt).length;
 
+  const filterLabel =
+    classificationFilter === "all"
+      ? ""
+      : CLASSIFICATION_INFO[classificationFilter].label;
+
   return (
     <div className="max-w-6xl mx-auto py-8 px-4">
       <h1 className="text-xl font-bold mb-6">Admin</h1>
+
+      {/* Classification filter */}
+      <div className="flex items-center gap-2 mb-4">
+        <span className="text-xs text-text-muted uppercase">Filter:</span>
+        {(["all", ...ORDER_CLASSIFICATIONS] as const).map((value) => (
+          <button
+            key={value}
+            onClick={() => handleFilterChange(value)}
+            className={`text-xs px-2.5 py-1 rounded transition-colors ${
+              classificationFilter === value
+                ? "bg-surface-raised text-text-primary font-medium"
+                : "text-text-muted hover:text-text-primary"
+            }`}
+          >
+            {value === "all" ? "All" : CLASSIFICATION_INFO[value].label}
+          </button>
+        ))}
+      </div>
 
       {/* Financial summary */}
       {summary && (
@@ -105,7 +168,9 @@ export default function AdminPage() {
             <p className="text-2xl font-bold mt-1">{summary.orderCount}</p>
           </Card>
           <Card className="p-4">
-            <p className="text-xs text-text-muted uppercase">Revenue</p>
+            <p className="text-xs text-text-muted uppercase">
+              {filterLabel ? `${filterLabel} Revenue` : "Revenue"}
+            </p>
             <p className="text-2xl font-bold mt-1">${summary.revenue.toFixed(2)}</p>
           </Card>
           <Card className="p-4">
@@ -179,6 +244,29 @@ export default function AdminPage() {
                         {order.archivedAt && (
                           <span className="text-xs text-text-faint">archived</span>
                         )}
+                        {/* Classification selector */}
+                        <select
+                          className="text-[10px] px-1.5 py-0.5 rounded bg-surface-base border border-border-default text-text-primary cursor-pointer outline-none"
+                          value={order.classification ?? ""}
+                          onChange={(e) => {
+                            if (e.target.value) {
+                              handleClassificationChange(
+                                order.id,
+                                e.target.value as OrderClassification
+                              );
+                            }
+                          }}
+                        >
+                          {!order.classification && (
+                            <option value="">unclassified</option>
+                          )}
+                          {ORDER_CLASSIFICATIONS.map((c) => (
+                            <option key={c} value={c}>
+                              {CLASSIFICATION_INFO[c].label}
+                            </option>
+                          ))}
+                        </select>
+                        {/* Tags */}
                         {(order.tags ?? []).map((tag) => (
                           <span
                             key={tag}
@@ -189,18 +277,19 @@ export default function AdminPage() {
                             {tag}
                           </span>
                         ))}
-                        <select
-                          className="text-[10px] bg-transparent text-text-faint cursor-pointer border-none outline-none"
-                          value=""
-                          onChange={(e) => {
-                            if (e.target.value) handleToggleTag(order.id, e.target.value, order.tags);
+                        {/* Freeform tag input */}
+                        <input
+                          type="text"
+                          placeholder="+tag"
+                          className="text-[10px] w-12 bg-transparent text-text-faint border-none outline-none placeholder:text-text-faint"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              const input = e.currentTarget;
+                              handleAddTag(order.id, input.value, order.tags);
+                              input.value = "";
+                            }
                           }}
-                        >
-                          <option value="">+tag</option>
-                          {AVAILABLE_TAGS.filter((t) => !(order.tags ?? []).includes(t)).map((t) => (
-                            <option key={t} value={t}>{t}</option>
-                          ))}
-                        </select>
+                        />
                       </div>
                     </td>
                     <td className="py-3 pr-4 text-xs">{order.userEmail}</td>
@@ -301,6 +390,38 @@ export default function AdminPage() {
           </table>
         </div>
       )}
+
+      {/* Classification reference */}
+      <details className="mt-8">
+        <summary className="text-sm text-text-muted cursor-pointer hover:text-text-primary">
+          Classification Reference
+        </summary>
+        <div className="mt-3 space-y-4">
+          <div className="space-y-2">
+            {ORDER_CLASSIFICATIONS.map((c) => {
+              const info = CLASSIFICATION_INFO[c];
+              return (
+                <div key={c} className="text-xs">
+                  <span className="font-medium text-text-primary">{info.label}</span>
+                  <span className="text-text-muted ml-2">{info.description}</span>
+                  <span className="text-text-faint ml-2">— {info.accountingNote}</span>
+                </div>
+              );
+            })}
+          </div>
+          <div>
+            <p className="text-xs text-text-faint mb-1">Planned (not yet in use):</p>
+            {FUTURE_CLASSIFICATIONS.map((c) => (
+              <span
+                key={c}
+                className="inline-block text-[10px] px-1.5 py-0.5 rounded bg-surface-raised text-text-faint mr-1 mb-1"
+              >
+                {c}
+              </span>
+            ))}
+          </div>
+        </div>
+      </details>
     </div>
   );
 }

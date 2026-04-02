@@ -47,7 +47,7 @@ User describes design in chat → Claude interprets intent and constructs Ideogr
 
 ### Data Model (Drizzle + Turso)
 
-Six tables (all singular names to match Better-Auth defaults): `user`, `session`, `account`, `verification` (auth), `design` (tracks chat_history JSON, current_image_url, generation cost, status draft/approved/ordered), `order` (links design to Printful order, Stripe session, shipping details, status lifecycle).
+Six tables (all singular names to match Better-Auth defaults): `user`, `session`, `account`, `verification` (auth), `design` (tracks chat_history JSON, current_image_url, generation cost, status draft/approved/ordered), `order` (links design to Printful order, Stripe session, shipping details, status lifecycle, `classification` for financial categorization, freeform `tags` for supplementary metadata).
 
 ### Payment Flow
 
@@ -102,11 +102,10 @@ NEXT_PUBLIC_APP_URL     # e.g. https://prntd.org
 - ~~Printful cost tracking~~ — stores actual fulfillment cost from API, backfilled via sync script
 - ~~Accounting foundation~~ — append-only ledger_entry table, order tags, admin financial summary (revenue/fees/COGS/profit)
 - ~~Order reconciliation~~ — all orders matched against Printful billing, 4 ghost orders identified and canceled
+- ~~Order classification system~~ — single-select classification (customer/sample/test/owner-use) separate from freeform tags, financial summary filtering by classification, admin reference section. Ledger starts April 1, 2026 (no backfill of pre-ledger orders).
 
 ### Next Steps
 
-- Backfill ledger entries for existing orders (ledger only records going forward currently)
-- Tag all existing orders (customer vs test vs founder) in admin
 - Refund Elijah's canceled order via Stripe dashboard
 - hledger export script (docs/accounting.md has the architecture)
 - Drag-and-drop image upload not working on some browsers — file picker works

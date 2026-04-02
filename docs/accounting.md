@@ -4,7 +4,7 @@
 
 1. **Append-only ledger** — financial entries are never mutated or deleted. Corrections are new entries (reversals). This is GAAP's core requirement.
 2. **Operational data is separate from financial data** — the `order` table tracks fulfillment state. The `ledger_entry` table tracks money. They reference each other via `orderId`.
-3. **Tags over enums** — orders get flexible tags (`test`, `gift`, `promotional`, `customer`) rather than rigid status categories. Tags evolve as the business evolves.
+3. **Classification for financial categorization, tags for supplementary metadata** — each order has a single `classification` (the financial nature of the transaction) and optional freeform `tags` (supplementary metadata like `friend`, `repeat`).
 4. **Double-entry ready** — each ledger entry has a `type` that maps to an account. When we export to hledger, types become account names.
 
 ## Current Financial Flow
@@ -58,16 +58,28 @@ Append-only log of all financial events.
 | `refund_cogs_reversal` | + | Expenses:COGS (reversal) | Canceled before production |
 | `generation_cost` | - | Expenses:AIGeneration | Future: per-generation Replicate cost |
 
-### Order Tags
+### Order Classification
 
-Flexible JSON array on the `order` table. Examples:
-- `["customer"]` — real paying customer
-- `["test"]` — development/QA order
-- `["gift"]` — bought for someone, no expectation of payment
-- `["promotional"]` — free/discounted for marketing
-- `["founder"]` — Nico's own orders
+Single-select `classification` column on the `order` table. Every order has exactly one classification representing its financial nature. Defined in `src/lib/order-classification.ts`.
 
-Tags affect reporting but not the ledger. A test order still generates real ledger entries (real money moved). The tags let you filter reports: "show me only customer revenue" or "how much did I spend on test orders?"
+| Value | Meaning | Revenue? | Accounting treatment |
+|-------|---------|----------|---------------------|
+| `customer` | Real third-party paid order | Yes | Revenue + COGS + Stripe fees |
+| `sample` | Founder order to check quality/photograph | No | COGS as business expense |
+| `test` | Pipeline verification, bogus, immediately canceled | No | No financial impact |
+| `owner-use` | Founder bought for personal use | No | Owner's draw |
+
+Future (defined in code, not yet in UI): `gift`, `comp`, `replacement`, `return`, `exchange`, `wholesale`.
+
+Classification affects reporting: the admin financial summary can filter by classification (e.g., show only customer revenue). Classification does not affect the ledger — a test order still generates real ledger entries if real money moved.
+
+New orders from Stripe checkout are auto-classified as `customer`. The admin can reclassify later.
+
+### Order Tags (supplementary)
+
+Freeform JSON array on the `order` table for supplementary metadata. No predefined values — the admin types whatever is relevant per order (e.g., `friend`, `repeat`, `photo-shoot`).
+
+Tags do not affect financial calculations or reporting. They exist for organizational context only.
 
 ## Stripe Fee Calculation
 
@@ -78,17 +90,17 @@ We calculate and record this as a ledger entry at payment time. The exact fee is
 
 ## Export to hledger (future)
 
-Script reads `ledger_entry` + `order.tags` → generates `.journal` file:
+Script reads `ledger_entry` + `order.classification` → generates `.journal` file:
 
 ```
-2026-03-28 Order 617dd9da (shipped) ; :customer:
+2026-03-28 Order 617dd9da (shipped) ; classification:customer
   Income:Sales                        -$27.11
   Expenses:COGS                        $18.17
   Expenses:StripeFees                   $1.09
   Assets:Stripe                        $26.02
   Assets:Cash                         -$18.17  ; Printful CC charge
 
-2026-03-28 Order 5d0e12d6 (canceled) ; :test:
+2026-03-28 Order 5d0e12d6 (canceled) ; classification:test
   Income:Sales                        -$19.47
   Expenses:StripeFees                   $0.86
   Assets:Stripe                        $18.61

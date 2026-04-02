@@ -80,6 +80,7 @@ export const order = sqliteTable("order", {
   trackingUrl: text("tracking_url"),
   printfulCost: real("printful_cost"),
   tags: text("tags", { mode: "json" }).$type<string[]>(),
+  classification: text("classification"),
   archivedAt: integer("archived_at", { mode: "timestamp" }),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
   updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),

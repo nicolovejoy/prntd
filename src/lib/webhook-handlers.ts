@@ -66,6 +66,7 @@ export async function handleStripeCheckoutCompleted(
     .update(orderTable)
     .set({
       status: "paid",
+      classification: "customer",
       stripeSessionId: session.id,
       stripePaymentIntentId: session.paymentIntentId,
       shippingName: session.shipping?.name ?? "",

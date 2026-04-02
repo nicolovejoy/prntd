@@ -12,6 +12,7 @@ import {
 import { eq, desc, isNull, isNotNull, sum, count, ne, and } from "drizzle-orm";
 import { createOrder, TSHIRT_VARIANTS } from "@/lib/printful";
 import { assertTransition } from "@/lib/order-state";
+import { ORDER_CLASSIFICATIONS, type OrderClassification } from "@/lib/order-classification";
 
 const ADMIN_EMAIL = "nicholas.lovejoy@gmail.com";
 
@@ -40,6 +41,7 @@ export async function getOrders() {
       shippingZip: orderTable.shippingZip,
       shippingCountry: orderTable.shippingCountry,
       tags: orderTable.tags,
+      classification: orderTable.classification,
       archivedAt: orderTable.archivedAt,
       createdAt: orderTable.createdAt,
       userEmail: userTable.email,
@@ -148,20 +150,36 @@ export async function unarchiveOrder(orderId: string) {
     .where(eq(orderTable.id, orderId));
 }
 
-export async function getFinancialSummary() {
+export async function getFinancialSummary(classificationFilter?: OrderClassification | "all") {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session || session.user.email !== ADMIN_EMAIL) {
     throw new Error("Unauthorized");
   }
 
-  // Ledger-based: sum by entry type
-  const entries = await db
-    .select({
-      type: ledgerEntry.type,
-      total: sum(ledgerEntry.amount),
-    })
-    .from(ledgerEntry)
-    .groupBy(ledgerEntry.type);
+  const filterClassification = classificationFilter && classificationFilter !== "all"
+    ? classificationFilter
+    : null;
+
+  // Ledger-based: sum by entry type, optionally filtered by order classification
+  const ledgerQuery = filterClassification
+    ? db
+        .select({
+          type: ledgerEntry.type,
+          total: sum(ledgerEntry.amount),
+        })
+        .from(ledgerEntry)
+        .innerJoin(orderTable, eq(ledgerEntry.orderId, orderTable.id))
+        .where(eq(orderTable.classification, filterClassification))
+        .groupBy(ledgerEntry.type)
+    : db
+        .select({
+          type: ledgerEntry.type,
+          total: sum(ledgerEntry.amount),
+        })
+        .from(ledgerEntry)
+        .groupBy(ledgerEntry.type);
+
+  const entries = await ledgerQuery;
 
   const byType: Record<string, number> = {};
   for (const e of entries) {
@@ -174,6 +192,11 @@ export async function getFinancialSummary() {
   const refunds = byType["refund"] ?? 0;
 
   // Fallback: if ledger is empty, use order table (for existing orders pre-ledger)
+  const orderConditions = [isNull(orderTable.archivedAt), ne(orderTable.status, "canceled")];
+  if (filterClassification) {
+    orderConditions.push(eq(orderTable.classification, filterClassification));
+  }
+
   let orderCount = 0;
   let fallbackRevenue = 0;
   let fallbackCOGS = 0;
@@ -185,7 +208,7 @@ export async function getFinancialSummary() {
         orderCount: count(),
       })
       .from(orderTable)
-      .where(and(isNull(orderTable.archivedAt), ne(orderTable.status, "canceled")));
+      .where(and(...orderConditions));
 
     const row = rows[0];
     fallbackRevenue = parseFloat(row.totalRevenue ?? "0");
@@ -195,7 +218,7 @@ export async function getFinancialSummary() {
     const countRows = await db
       .select({ orderCount: count() })
       .from(orderTable)
-      .where(and(isNull(orderTable.archivedAt), ne(orderTable.status, "canceled")));
+      .where(and(...orderConditions));
     orderCount = countRows[0].orderCount;
   }
 
@@ -220,6 +243,22 @@ export async function setOrderTags(orderId: string, tags: string[]) {
   await db
     .update(orderTable)
     .set({ tags, updatedAt: new Date() })
+    .where(eq(orderTable.id, orderId));
+}
+
+export async function setOrderClassification(orderId: string, classification: OrderClassification) {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session || session.user.email !== ADMIN_EMAIL) {
+    throw new Error("Unauthorized");
+  }
+
+  if (!ORDER_CLASSIFICATIONS.includes(classification)) {
+    throw new Error(`Invalid classification: ${classification}`);
+  }
+
+  await db
+    .update(orderTable)
+    .set({ classification, updatedAt: new Date() })
     .where(eq(orderTable.id, orderId));
 }
 
