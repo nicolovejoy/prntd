@@ -108,26 +108,22 @@ NEXT_PUBLIC_APP_URL     # e.g. https://prntd.org
 
 ### Next Steps
 
-**Phase 1 — Printful mockups** (in progress)
-- Integrate mockup generator API on /preview (photorealistic product photos)
-- Cache generated mockups in R2, on-demand per color
-- Show mockups on /order page too
+**Multi-product UI + MC1087 launch** (in progress)
+- Run `scripts/fetch-variants-mc1087.ts` to get variant IDs, fill in products.ts
+- Run `db:push` for new productId column on order table
+- Product selector on /preview page (Classic Tee vs Box Tee)
+- Color-switch loading UX: show CSS fallback instantly while mockup generates
+- Wire productId through order/checkout/Printful submission flow
 
-**Phase 2 — Back printing**
-- Placement selector in design flow (front/back)
-- Support generating separate back design
-- Per-placement pricing (+~$5.25 for back)
-- Mockup API shows front + back views
-
-**Phase 3 — Discount codes + promo**
+**Discount codes + promo**
 - Stripe promotion codes (start with "nico-codes" 25% off)
-- Code entry at checkout
-- Splash banner on landing page
+- Code entry at checkout, splash banner on landing page
 
-**Phase 4 — Product expansion**
-- Posters / canvas prints (highest margin, easiest add)
-- Stickers (impulse add-on at checkout)
-- Hoodies (natural upsell from tees)
+**Back printing**
+- Placement selector (front/back), per-placement pricing
+
+**Product expansion**
+- Posters / canvas prints (highest margin), stickers, hoodies, women's tee
 
 ### Ongoing
 - hledger export script (docs/accounting.md has the architecture)
