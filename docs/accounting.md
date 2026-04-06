@@ -114,9 +114,12 @@ Script reads `ledger_entry` + `order.classification` → generates `.journal` fi
 - [x] Auto-generate reversal entries on cancellation
 - [x] Order classification system (customer/sample/test/owner-use)
 - [x] Composable filter/sort on admin page (multi-select classification, archived, sortable columns)
-- [x] Client-side financial summary computed from ledger + order-table fallback
+- [x] Client-side financial summary computed from ledger (all orders backfilled)
 - [x] Order detail page (`/admin/orders/[id]`) with ledger timeline
 - [x] Freeform tags for supplementary metadata
+
+- [x] Backfilled all pre-ledger orders with sale, stripe_fee, and cogs entries
+- [x] Stripe fee backfill script with actual Balance Transaction API lookup (`scripts/backfill-ledger.ts`)
 
 ### Planned (future sessions)
 - [ ] Admin refund flow (Stripe API + ledger entry)
@@ -124,4 +127,3 @@ Script reads `ledger_entry` + `order.classification` → generates `.journal` fi
 - [ ] Monthly P&L report in admin
 - [ ] Track AI generation costs as expenses
 - [ ] Track hosting/infrastructure costs
-- [ ] Stripe fee reconciliation against actual Stripe data
