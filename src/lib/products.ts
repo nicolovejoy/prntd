@@ -118,6 +118,43 @@ export const PRODUCTS: Product[] = [
       left: 0,
     },
   },
+  {
+    id: "clear-case-iphone",
+    name: "Clear iPhone Case",
+    description: "Clear snap-on case, glossy finish",
+    printfulProductId: 181,
+    baseCost: {
+      "*": 9.38,
+      "iPhone 14": 10.95, "iPhone 14 Plus": 10.95,
+      "iPhone 14 Pro": 10.95, "iPhone 14 Pro Max": 10.95,
+    },
+    premiumUpcharge: 0,
+    sizes: [
+      "iPhone 17 Pro Max", "iPhone 17 Pro", "iPhone 17 Air", "iPhone 17",
+      "iPhone 16 Pro Max", "iPhone 16 Pro", "iPhone 16 Plus", "iPhone 16",
+      "iPhone 15 Pro Max", "iPhone 15 Pro", "iPhone 15 Plus", "iPhone 15",
+      "iPhone SE",
+    ],
+    colors: [
+      { name: "Clear", value: "#f0f0f0" },
+    ],
+    variants: {
+      Clear: {
+        "iPhone 17 Pro Max": 33996, "iPhone 17 Pro": 33995, "iPhone 17 Air": 33994, "iPhone 17": 33993,
+        "iPhone 16 Pro Max": 20293, "iPhone 16 Pro": 20292, "iPhone 16 Plus": 20291, "iPhone 16": 20290,
+        "iPhone 15 Pro Max": 17619, "iPhone 15 Pro": 17618, "iPhone 15 Plus": 17617, "iPhone 15": 17616,
+        "iPhone SE": 11452,
+      },
+    },
+    mockupPosition: {
+      area_width: 879,
+      area_height: 1830,
+      width: 879,
+      height: 1830,
+      top: 0,
+      left: 0,
+    },
+  },
 ];
 
 export const DEFAULT_PRODUCT_ID = "bella-canvas-3001";
