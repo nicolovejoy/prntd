@@ -92,3 +92,69 @@ export const TSHIRT_VARIANTS: Record<string, Record<string, number>> = {
 
 export const PRINTFUL_BASE_COST = 12.95;
 export const PREMIUM_UPCHARGE = 5.0;
+
+export const BELLA_CANVAS_PRODUCT_ID = 71;
+
+// -- Mockup Generator --
+
+export async function createMockupTask(
+  variantId: number,
+  designImageUrl: string
+): Promise<string> {
+  const data = await printfulFetch(
+    `/mockup-generator/create-task/${BELLA_CANVAS_PRODUCT_ID}`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        variant_ids: [variantId],
+        format: "jpg",
+        files: [
+          {
+            placement: "front",
+            image_url: designImageUrl,
+            position: {
+              area_width: 1800,
+              area_height: 2400,
+              width: 1800,
+              height: 1800,
+              top: 300,
+              left: 0,
+            },
+          },
+        ],
+      }),
+    }
+  );
+  return data.result.task_key;
+}
+
+export async function pollMockupTask(
+  taskKey: string,
+  { intervalMs = 2000, timeoutMs = 30000 } = {}
+): Promise<{ mockupUrl: string; extraUrls: string[] }> {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const data = await printfulFetch(
+      `/mockup-generator/task?task_key=${taskKey}`
+    );
+    const result = data.result;
+
+    if (result.status === "completed") {
+      const mockup = result.mockups?.[0];
+      if (!mockup?.mockup_url) throw new Error("Mockup completed but no URL");
+      return {
+        mockupUrl: mockup.mockup_url,
+        extraUrls: mockup.extra?.map((e: { url: string }) => e.url) ?? [],
+      };
+    }
+
+    if (result.status === "failed") {
+      throw new Error(`Mockup generation failed: ${result.error ?? "unknown"}`);
+    }
+
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+
+  throw new Error("Mockup generation timed out");
+}

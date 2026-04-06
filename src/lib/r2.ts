@@ -32,6 +32,26 @@ export async function uploadDesignImage(
   return `${process.env.NEXT_PUBLIC_R2_PUBLIC_URL ?? `https://${bucket}.r2.dev`}/${key}`;
 }
 
+export async function uploadMockupImage(
+  designId: string,
+  colorName: string,
+  imageBuffer: Buffer
+): Promise<string> {
+  const slug = colorName.toLowerCase().replace(/\s+/g, "-");
+  const key = `designs/${designId}/mockups/${slug}.jpg`;
+
+  await r2.send(
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      Body: imageBuffer,
+      ContentType: "image/jpeg",
+    })
+  );
+
+  return `${process.env.NEXT_PUBLIC_R2_PUBLIC_URL ?? `https://${bucket}.r2.dev`}/${key}`;
+}
+
 export async function getDesignImage(
   designId: string,
   generationNumber: number

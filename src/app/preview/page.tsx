@@ -1,10 +1,12 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getDesign, approveDesign } from "../design/actions";
+import { generateMockup } from "./actions";
 import Link from "next/link";
 import { Button } from "@/components/ui";
+import { SHIRT_COLORS } from "@/lib/colors";
 
 export default function PreviewPage() {
   return (
@@ -14,32 +16,28 @@ export default function PreviewPage() {
   );
 }
 
-const SHIRT_COLORS = [
-  { name: "White", value: "#ffffff" },
-  { name: "Black", value: "#0c0c0c" },
-  { name: "Dark Grey", value: "#2A2929" },
-  { name: "Natural", value: "#fef1d1" },
-  { name: "Tan", value: "#ddb792" },
-  { name: "Soft Cream", value: "#e7d4c0" },
-  { name: "Pebble", value: "#9a8479" },
-  { name: "Heather Dust", value: "#e5d9c9" },
-  { name: "Vintage White", value: "#fcf4e8" },
-  { name: "Aqua", value: "#008db5" },
-  { name: "Burnt Orange", value: "#ed8043" },
-  { name: "Mustard", value: "#eda027" },
-  { name: "Sage", value: "#9eab96" },
-];
-
 function PreviewPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const designId = searchParams.get("id");
 
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [shirtColor, setShirtColor] = useState("#ffffff");
+  const [designImageUrl, setDesignImageUrl] = useState<string | null>(null);
+  const [colorName, setColorName] = useState("White");
   const [hoveredColor, setHoveredColor] = useState<string | null>(null);
+  const [mockupUrl, setMockupUrl] = useState<string | null>(null);
+  const [mockupLoading, setMockupLoading] = useState(false);
+  const [mockupError, setMockupError] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [zoomed, setZoomed] = useState(false);
+  const [panOrigin, setPanOrigin] = useState({ x: 50, y: 50 });
 
+  // Client-side cache: color name → mockup R2 URL
+  const mockupCache = useRef<Map<string, string>>(new Map());
+  // Track the latest requested color to discard stale responses
+  const latestColorRef = useRef(colorName);
+
+  // Load design and seed mockup cache from DB
   useEffect(() => {
     if (!designId) {
       router.push("/design");
@@ -47,16 +45,74 @@ function PreviewPageInner() {
     }
     getDesign(designId).then((design) => {
       if (design?.currentImageUrl) {
-        setImageUrl(design.currentImageUrl);
+        setDesignImageUrl(design.currentImageUrl);
+      }
+      // Seed cache from previously generated mockups
+      if (design?.mockupUrls) {
+        for (const [color, url] of Object.entries(design.mockupUrls)) {
+          mockupCache.current.set(color, url as string);
+        }
       }
       setLoading(false);
     });
   }, [designId, router]);
 
+  // Generate or retrieve mockup when color changes or design loads
+  const loadMockup = useCallback(
+    async (color: string) => {
+      if (!designId) return;
+
+      latestColorRef.current = color;
+
+      // Check client cache first
+      const cached = mockupCache.current.get(color);
+      if (cached) {
+        setMockupUrl(cached);
+        setMockupError(false);
+        return;
+      }
+
+      // Generate via server action
+      setMockupLoading(true);
+      setMockupError(false);
+      try {
+        const result = await generateMockup(designId, color);
+        // Only apply if this is still the color the user wants
+        if (latestColorRef.current === color) {
+          mockupCache.current.set(color, result.mockupUrl);
+          setMockupUrl(result.mockupUrl);
+        }
+      } catch (err) {
+        console.error("Mockup generation failed:", err);
+        if (latestColorRef.current === color) {
+          setMockupError(true);
+        }
+      } finally {
+        if (latestColorRef.current === color) {
+          setMockupLoading(false);
+        }
+      }
+    },
+    [designId]
+  );
+
+  // Trigger mockup generation once design is loaded
+  useEffect(() => {
+    if (!loading && designImageUrl) {
+      loadMockup(colorName);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, designImageUrl]);
+
+  function handleColorChange(name: string) {
+    setColorName(name);
+    loadMockup(name);
+  }
+
   async function handleApprove() {
     if (!designId) return;
     await approveDesign(designId);
-    router.push(`/order?id=${designId}`);
+    router.push(`/order?id=${designId}&color=${encodeURIComponent(colorName)}`);
   }
 
   if (loading) {
@@ -66,6 +122,9 @@ function PreviewPageInner() {
       </div>
     );
   }
+
+  const colorHex =
+    SHIRT_COLORS.find((c) => c.name === colorName)?.value ?? "#ffffff";
 
   return (
     <div className="min-h-screen flex flex-col items-center py-6 md:py-12 px-4">
@@ -84,40 +143,158 @@ function PreviewPageInner() {
         <span>Order</span>
       </nav>
 
-      <h1 className="text-xl md:text-2xl font-bold mb-4 md:mb-8">Preview your shirt</h1>
+      <h1 className="text-xl md:text-2xl font-bold mb-4 md:mb-8">
+        Preview your shirt
+      </h1>
 
       {/* Shirt mockup */}
-      <div
-        className="w-64 h-80 md:w-80 md:h-96 rounded-lg shadow-lg flex items-center justify-center relative transition-colors"
-        style={{ backgroundColor: shirtColor }}
+      <button
+        type="button"
+        onClick={() => mockupUrl && !mockupLoading && setLightboxOpen(true)}
+        className={`w-64 h-80 md:w-80 md:h-96 rounded-lg shadow-lg overflow-hidden relative ${
+          mockupUrl && !mockupLoading ? "cursor-zoom-in" : ""
+        }`}
       >
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="w-40 h-40 md:w-48 md:h-48 flex items-center justify-center">
-            {imageUrl && (
-              <img
-                src={imageUrl}
-                alt="Your design"
-                className="max-w-full max-h-full object-contain"
-              />
-            )}
+        {mockupLoading && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-surface-alt animate-pulse z-10">
+            <div className="w-12 h-12 border-2 border-accent border-t-transparent rounded-full animate-spin mb-3" />
+            <span className="text-sm text-text-muted">
+              Generating mockup...
+            </span>
           </div>
+        )}
+
+        {!mockupLoading && mockupError && (
+          <div
+            className="w-full h-full flex items-center justify-center transition-colors"
+            style={{ backgroundColor: colorHex }}
+          >
+            <div className="w-40 h-40 md:w-48 md:h-48 flex items-center justify-center">
+              {designImageUrl && (
+                <img
+                  src={designImageUrl}
+                  alt="Your design"
+                  className="max-w-full max-h-full object-contain"
+                />
+              )}
+            </div>
+          </div>
+        )}
+
+        {!mockupLoading && !mockupError && mockupUrl && (
+          <img
+            src={mockupUrl}
+            alt={`Your design on a ${colorName} shirt`}
+            className="w-full h-full object-cover"
+          />
+        )}
+
+        {!mockupLoading && !mockupError && !mockupUrl && (
+          <div
+            className="w-full h-full flex items-center justify-center transition-colors"
+            style={{ backgroundColor: colorHex }}
+          >
+            <div className="w-40 h-40 md:w-48 md:h-48 flex items-center justify-center">
+              {designImageUrl && (
+                <img
+                  src={designImageUrl}
+                  alt="Your design"
+                  className="max-w-full max-h-full object-contain"
+                />
+              )}
+            </div>
+          </div>
+        )}
+      </button>
+
+      {/* Fullscreen lightbox with zoom + pan */}
+      {lightboxOpen && mockupUrl && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90"
+          onClick={(e) => {
+            // Close only if clicking the backdrop (not the image)
+            if (e.target === e.currentTarget) {
+              setLightboxOpen(false);
+              setZoomed(false);
+              setPanOrigin({ x: 50, y: 50 });
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              setLightboxOpen(false);
+              setZoomed(false);
+              setPanOrigin({ x: 50, y: 50 });
+            }
+          }}
+          role="dialog"
+          aria-label="Mockup fullscreen view"
+        >
+          <div
+            className="relative max-w-[90vw] max-h-[90vh] overflow-hidden cursor-zoom-in"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!zoomed) {
+                // Zoom in at click position
+                const rect = e.currentTarget.getBoundingClientRect();
+                const x = ((e.clientX - rect.left) / rect.width) * 100;
+                const y = ((e.clientY - rect.top) / rect.height) * 100;
+                setPanOrigin({ x, y });
+                setZoomed(true);
+              } else {
+                setZoomed(false);
+                setPanOrigin({ x: 50, y: 50 });
+              }
+            }}
+            onMouseMove={(e) => {
+              if (!zoomed) return;
+              const rect = e.currentTarget.getBoundingClientRect();
+              const x = ((e.clientX - rect.left) / rect.width) * 100;
+              const y = ((e.clientY - rect.top) / rect.height) * 100;
+              setPanOrigin({ x, y });
+            }}
+          >
+            <img
+              src={mockupUrl}
+              alt={`Your design on a ${colorName} shirt`}
+              className="max-w-[90vw] max-h-[90vh] object-contain transition-transform duration-200"
+              style={{
+                transform: zoomed ? "scale(2.5)" : "scale(1)",
+                transformOrigin: `${panOrigin.x}% ${panOrigin.y}%`,
+              }}
+              draggable={false}
+            />
+          </div>
+          <button
+            onClick={() => {
+              setLightboxOpen(false);
+              setZoomed(false);
+              setPanOrigin({ x: 50, y: 50 });
+            }}
+            className="absolute top-4 right-4 text-white/70 hover:text-white text-3xl leading-none"
+            aria-label="Close"
+          >
+            &times;
+          </button>
         </div>
-      </div>
+      )}
 
       {/* Color picker */}
       <div className="text-sm text-text-muted mt-4 md:mt-6 mb-2 h-5">
-        {hoveredColor ?? SHIRT_COLORS.find((c) => c.value === shirtColor)?.name}
+        {hoveredColor ?? colorName}
       </div>
       <div className="flex flex-wrap justify-center gap-2 md:gap-3 max-w-xs md:max-w-none">
         {SHIRT_COLORS.map((c) => (
           <button
-            key={c.value}
-            onClick={() => setShirtColor(c.value)}
+            key={c.name}
+            onClick={() => handleColorChange(c.name)}
             onMouseEnter={() => setHoveredColor(c.name)}
             onMouseLeave={() => setHoveredColor(null)}
+            disabled={mockupLoading}
             className={`w-10 h-10 md:w-8 md:h-8 rounded-full border-2 transition-colors ${
-              shirtColor === c.value ? "border-accent ring-2 ring-accent ring-offset-1 ring-offset-background" : "border-border"
-            }`}
+              colorName === c.name
+                ? "border-accent ring-2 ring-accent ring-offset-1 ring-offset-background"
+                : "border-border"
+            } ${mockupLoading ? "opacity-50 cursor-not-allowed" : ""}`}
             style={{ backgroundColor: c.value }}
           />
         ))}
@@ -126,9 +303,13 @@ function PreviewPageInner() {
       {/* Actions */}
       <div className="flex gap-4 mt-6 md:mt-8 w-full max-w-xs md:max-w-none md:w-auto">
         <Link href={`/design?id=${designId}`} className="flex-1 md:flex-none">
-          <Button variant="secondary" className="w-full md:w-auto">Refine design</Button>
+          <Button variant="secondary" className="w-full md:w-auto">
+            Refine design
+          </Button>
         </Link>
-        <Button onClick={handleApprove} className="flex-1 md:flex-none">Order this shirt</Button>
+        <Button onClick={handleApprove} className="flex-1 md:flex-none">
+          Order this shirt
+        </Button>
       </div>
     </div>
   );

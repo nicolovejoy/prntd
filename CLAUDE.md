@@ -108,6 +108,28 @@ NEXT_PUBLIC_APP_URL     # e.g. https://prntd.org
 
 ### Next Steps
 
+**Phase 1 — Printful mockups** (in progress)
+- Integrate mockup generator API on /preview (photorealistic product photos)
+- Cache generated mockups in R2, on-demand per color
+- Show mockups on /order page too
+
+**Phase 2 — Back printing**
+- Placement selector in design flow (front/back)
+- Support generating separate back design
+- Per-placement pricing (+~$5.25 for back)
+- Mockup API shows front + back views
+
+**Phase 3 — Discount codes + promo**
+- Stripe promotion codes (start with "nico-codes" 25% off)
+- Code entry at checkout
+- Splash banner on landing page
+
+**Phase 4 — Product expansion**
+- Posters / canvas prints (highest margin, easiest add)
+- Stickers (impulse add-on at checkout)
+- Hoodies (natural upsell from tees)
+
+### Ongoing
 - hledger export script (docs/accounting.md has the architecture)
 - Drag-and-drop image upload not working on some browsers — file picker works
 - Rate limiting / generation caps

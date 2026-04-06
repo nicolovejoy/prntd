@@ -6,6 +6,7 @@ import { getDesign } from "../design/actions";
 import { calculatePrice, createCheckoutSession } from "./actions";
 import Link from "next/link";
 import { Button } from "@/components/ui";
+import { SHIRT_COLORS } from "@/lib/colors";
 
 export default function OrderPage() {
   return (
@@ -16,21 +17,6 @@ export default function OrderPage() {
 }
 
 const SIZES = ["S", "M", "L", "XL", "2XL"];
-const SHIRT_COLORS: { name: string; value: string }[] = [
-  { name: "White", value: "#ffffff" },
-  { name: "Black", value: "#0c0c0c" },
-  { name: "Dark Grey", value: "#2A2929" },
-  { name: "Natural", value: "#fef1d1" },
-  { name: "Tan", value: "#ddb792" },
-  { name: "Soft Cream", value: "#e7d4c0" },
-  { name: "Pebble", value: "#9a8479" },
-  { name: "Heather Dust", value: "#e5d9c9" },
-  { name: "Vintage White", value: "#fcf4e8" },
-  { name: "Aqua", value: "#008db5" },
-  { name: "Burnt Orange", value: "#ed8043" },
-  { name: "Mustard", value: "#eda027" },
-  { name: "Sage", value: "#9eab96" },
-];
 const QUALITIES: { value: "standard" | "premium"; label: string }[] = [
   { value: "standard", label: "Standard" },
   { value: "premium", label: "Premium" },
@@ -42,6 +28,7 @@ function OrderPageInner() {
   const designId = searchParams.get("id");
 
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [mockupUrls, setMockupUrls] = useState<Record<string, string> | null>(null);
   const [size, setSize] = useState(searchParams.get("size") ?? "M");
   const [color, setColor] = useState(searchParams.get("color") ?? "White");
   const [quality, setQuality] = useState<"standard" | "premium">(
@@ -61,6 +48,7 @@ function OrderPageInner() {
     }
     getDesign(designId).then((design) => {
       if (design?.currentImageUrl) setImageUrl(design.currentImageUrl);
+      if (design?.mockupUrls) setMockupUrls(design.mockupUrls);
     });
   }, [designId, router]);
 
@@ -113,7 +101,15 @@ function OrderPageInner() {
       <div className="w-full max-w-2xl grid md:grid-cols-2 gap-6 md:gap-8">
         {/* Design preview — compact on mobile */}
         <div className="flex flex-col items-center">
-          {imageUrl && (
+          {mockupUrls?.[color] ? (
+            <div className="w-40 h-40 md:w-full md:aspect-square rounded-lg overflow-hidden">
+              <img
+                src={mockupUrls[color]}
+                alt={`Your design on a ${color} shirt`}
+                className="w-full h-full object-cover"
+              />
+            </div>
+          ) : imageUrl ? (
             <div
               className="w-40 h-40 md:w-full md:aspect-square rounded-lg flex items-center justify-center transition-colors"
               style={{ backgroundColor: SHIRT_COLORS.find((c) => c.name === color)?.value ?? "#f3f4f6" }}
@@ -124,7 +120,7 @@ function OrderPageInner() {
                 className="max-w-[80%] max-h-[80%] object-contain"
               />
             </div>
-          )}
+          ) : null}
         </div>
 
         {/* Options */}

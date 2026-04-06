@@ -53,6 +53,7 @@ export const design = sqliteTable("design", {
   currentImageUrl: text("current_image_url"),
   generationCount: integer("generation_count").notNull().default(0),
   generationCost: real("generation_cost").notNull().default(0),
+  mockupUrls: text("mockup_urls", { mode: "json" }).$type<Record<string, string>>(),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });

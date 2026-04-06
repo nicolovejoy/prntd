@@ -141,6 +141,7 @@ export async function generateDesign(
       currentImageUrl: r2Url,
       generationCount: newGeneration,
       generationCost: found.generationCost + COST_PER_GENERATION,
+      mockupUrls: null,
       updatedAt: new Date(),
     })
     .where(eq(designTable.id, designId));
@@ -199,7 +200,7 @@ export async function selectImage(designId: string, imageUrl: string) {
 
   await db
     .update(designTable)
-    .set({ currentImageUrl: imageUrl, updatedAt: new Date() })
+    .set({ currentImageUrl: imageUrl, mockupUrls: null, updatedAt: new Date() })
     .where(eq(designTable.id, designId));
 }
 
