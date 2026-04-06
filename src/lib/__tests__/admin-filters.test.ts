@@ -227,60 +227,46 @@ describe("computeSummary", () => {
     expect(result.grossProfit).toBeCloseTo(27.11 - 1.09 - 18.17);
   });
 
-  it("falls back to order fields when no ledger entries exist", () => {
+  it("sums multiple orders from ledger", () => {
     const orders = [
-      makeOrder({ id: "order-1", totalPrice: 27.11, printfulCost: 18.17 }),
-    ];
-    const ledger: FilterableLedgerEntry[] = [];
-
-    const result = computeSummary(orders, ledger, initialFilterState);
-    expect(result.revenue).toBeCloseTo(27.11);
-    expect(result.stripeFees).toBe(0);
-    expect(result.cogs).toBeCloseTo(18.17);
-    expect(result.grossProfit).toBeCloseTo(27.11 - 18.17);
-  });
-
-  it("mixes ledger and fallback for different orders", () => {
-    const orders = [
-      makeOrder({ id: "order-1", totalPrice: 27.11, printfulCost: 18.17 }),
-      makeOrder({ id: "order-2", totalPrice: 20.00, printfulCost: 12.95 }),
+      makeOrder({ id: "order-1" }),
+      makeOrder({ id: "order-2" }),
     ];
     const ledger: FilterableLedgerEntry[] = [
       makeLedger({ orderId: "order-1", type: "sale", amount: 27.11 }),
       makeLedger({ orderId: "order-1", type: "stripe_fee", amount: -1.09 }),
       makeLedger({ orderId: "order-1", type: "cogs", amount: -18.17 }),
-      // order-2 has no ledger entries — uses fallback
+      makeLedger({ orderId: "order-2", type: "sale", amount: 20.00 }),
+      makeLedger({ orderId: "order-2", type: "stripe_fee", amount: -0.88 }),
+      makeLedger({ orderId: "order-2", type: "cogs", amount: -12.95 }),
     ];
 
     const result = computeSummary(orders, ledger, initialFilterState);
     expect(result.orderCount).toBe(2);
     expect(result.revenue).toBeCloseTo(27.11 + 20.00);
-    expect(result.stripeFees).toBeCloseTo(-1.09);
+    expect(result.stripeFees).toBeCloseTo(-1.09 - 0.88);
     expect(result.cogs).toBeCloseTo(18.17 + 12.95);
   });
 
-  it("falls back to order fields when only stripe_fee ledger entry exists", () => {
-    const orders = [
-      makeOrder({ id: "order-1", totalPrice: 27.11, printfulCost: 18.17 }),
-    ];
-    const ledger: FilterableLedgerEntry[] = [
-      makeLedger({ orderId: "order-1", type: "stripe_fee", amount: -1.09 }),
-      // no sale or cogs entries — revenue and COGS should come from order fields
-    ];
+  it("returns zeros when no ledger entries exist", () => {
+    const orders = [makeOrder({ id: "order-1" })];
+    const ledger: FilterableLedgerEntry[] = [];
 
     const result = computeSummary(orders, ledger, initialFilterState);
-    expect(result.revenue).toBeCloseTo(27.11);
-    expect(result.stripeFees).toBeCloseTo(-1.09);
-    expect(result.cogs).toBeCloseTo(18.17);
-    expect(result.grossProfit).toBeCloseTo(27.11 - 1.09 - 18.17);
+    expect(result.revenue).toBe(0);
+    expect(result.stripeFees).toBe(0);
+    expect(result.cogs).toBe(0);
+    expect(result.grossProfit).toBe(0);
   });
 
-  it("excludes canceled orders from count and fallback", () => {
+  it("excludes canceled orders from count", () => {
     const orders = [
-      makeOrder({ id: "order-1", totalPrice: 27.11, printfulCost: 18.17 }),
-      makeOrder({ id: "order-2", totalPrice: 20.00, status: "canceled" }),
+      makeOrder({ id: "order-1" }),
+      makeOrder({ id: "order-2", status: "canceled" }),
     ];
-    const ledger: FilterableLedgerEntry[] = [];
+    const ledger: FilterableLedgerEntry[] = [
+      makeLedger({ orderId: "order-1", type: "sale", amount: 27.11 }),
+    ];
 
     const result = computeSummary(orders, ledger, initialFilterState);
     expect(result.orderCount).toBe(1);
@@ -289,10 +275,13 @@ describe("computeSummary", () => {
 
   it("respects classification filter", () => {
     const orders = [
-      makeOrder({ id: "order-1", classification: "customer", totalPrice: 27.11, printfulCost: 18.17 }),
-      makeOrder({ id: "order-2", classification: "test", totalPrice: 20.00, printfulCost: 12.95 }),
+      makeOrder({ id: "order-1", classification: "customer" }),
+      makeOrder({ id: "order-2", classification: "test" }),
     ];
-    const ledger: FilterableLedgerEntry[] = [];
+    const ledger: FilterableLedgerEntry[] = [
+      makeLedger({ orderId: "order-1", type: "sale", amount: 27.11 }),
+      makeLedger({ orderId: "order-2", type: "sale", amount: 20.00 }),
+    ];
 
     const state: FilterState = {
       ...initialFilterState,
@@ -305,10 +294,13 @@ describe("computeSummary", () => {
 
   it("excludes archived orders from summary by default", () => {
     const orders = [
-      makeOrder({ id: "order-1", totalPrice: 27.11 }),
-      makeOrder({ id: "order-2", totalPrice: 20.00, archivedAt: new Date() }),
+      makeOrder({ id: "order-1" }),
+      makeOrder({ id: "order-2", archivedAt: new Date() }),
     ];
-    const ledger: FilterableLedgerEntry[] = [];
+    const ledger: FilterableLedgerEntry[] = [
+      makeLedger({ orderId: "order-1", type: "sale", amount: 27.11 }),
+      makeLedger({ orderId: "order-2", type: "sale", amount: 20.00 }),
+    ];
 
     const result = computeSummary(orders, ledger, initialFilterState);
     expect(result.orderCount).toBe(1);
@@ -317,10 +309,13 @@ describe("computeSummary", () => {
 
   it("includes archived orders in summary when showArchived is true", () => {
     const orders = [
-      makeOrder({ id: "order-1", totalPrice: 27.11 }),
-      makeOrder({ id: "order-2", totalPrice: 20.00, archivedAt: new Date() }),
+      makeOrder({ id: "order-1" }),
+      makeOrder({ id: "order-2", archivedAt: new Date() }),
     ];
-    const ledger: FilterableLedgerEntry[] = [];
+    const ledger: FilterableLedgerEntry[] = [
+      makeLedger({ orderId: "order-1", type: "sale", amount: 27.11 }),
+      makeLedger({ orderId: "order-2", type: "sale", amount: 20.00 }),
+    ];
 
     const state = { ...initialFilterState, showArchived: true };
     const result = computeSummary(orders, ledger, state);

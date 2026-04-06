@@ -9,7 +9,7 @@ import {
   user as userTable,
   ledgerEntry,
 } from "@/lib/db/schema";
-import { eq, desc, isNull, isNotNull, sum, count, ne, and } from "drizzle-orm";
+import { eq, desc, isNull, isNotNull, sum, count, and } from "drizzle-orm";
 import { createOrder } from "@/lib/printful";
 import { getProductOrThrow, getVariantId } from "@/lib/products";
 import { assertTransition } from "@/lib/order-state";
@@ -193,45 +193,24 @@ export async function getFinancialSummary(classificationFilter?: OrderClassifica
   const cogs = byType["cogs"] ?? 0;
   const refunds = byType["refund"] ?? 0;
 
-  // Fallback: if ledger is empty, use order table (for existing orders pre-ledger)
-  const orderConditions = [isNull(orderTable.archivedAt), ne(orderTable.status, "canceled")];
+  const orderConditions = [isNull(orderTable.archivedAt)];
   if (filterClassification) {
     orderConditions.push(eq(orderTable.classification, filterClassification));
   }
 
-  let orderCount = 0;
-  let fallbackRevenue = 0;
-  let fallbackCOGS = 0;
-  if (sales === 0) {
-    const rows = await db
-      .select({
-        totalRevenue: sum(orderTable.totalPrice),
-        totalCOGS: sum(orderTable.printfulCost),
-        orderCount: count(),
-      })
-      .from(orderTable)
-      .where(and(...orderConditions));
+  const countRows = await db
+    .select({ orderCount: count() })
+    .from(orderTable)
+    .where(and(...orderConditions));
+  const orderCount = countRows[0].orderCount;
 
-    const row = rows[0];
-    fallbackRevenue = parseFloat(row.totalRevenue ?? "0");
-    fallbackCOGS = parseFloat(row.totalCOGS ?? "0");
-    orderCount = row.orderCount;
-  } else {
-    const countRows = await db
-      .select({ orderCount: count() })
-      .from(orderTable)
-      .where(and(...orderConditions));
-    orderCount = countRows[0].orderCount;
-  }
-
-  const revenue = sales || fallbackRevenue;
-  const totalCOGS = cogs || -fallbackCOGS; // cogs is stored as negative
+  const revenue = sales + refunds;
 
   return {
-    revenue: revenue + refunds, // refunds reduce revenue
+    revenue,
     stripeFees,
-    cogs: Math.abs(totalCOGS),
-    grossProfit: revenue + refunds + stripeFees + totalCOGS, // all negatives reduce profit
+    cogs: Math.abs(cogs),
+    grossProfit: revenue + stripeFees + cogs,
     orderCount,
   };
 }

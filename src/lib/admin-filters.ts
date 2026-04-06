@@ -108,28 +108,17 @@ export function computeSummary(
   const filtered = applyFilters(orders, state);
   const orderIds = new Set(filtered.map((o) => o.id));
 
-  // Sum ledger entries for visible orders, tracking which types exist per order
+  // Sum ledger entries for visible orders
   const byType: Record<string, number> = {};
-  const orderLedgerTypes = new Map<string, Set<string>>();
   for (const entry of ledger) {
     if (entry.orderId && orderIds.has(entry.orderId)) {
       byType[entry.type] = (byType[entry.type] ?? 0) + entry.amount;
-      if (!orderLedgerTypes.has(entry.orderId)) orderLedgerTypes.set(entry.orderId, new Set());
-      orderLedgerTypes.get(entry.orderId)!.add(entry.type);
     }
   }
 
-  let revenue = (byType["sale"] ?? 0) + (byType["refund"] ?? 0);
-  let stripeFees = byType["stripe_fee"] ?? 0;
-  let cogs = byType["cogs"] ?? 0;
-
-  // Fallback: use order table fields when specific ledger types are missing
-  for (const o of filtered) {
-    if (o.status === "canceled") continue;
-    const types = orderLedgerTypes.get(o.id);
-    if (!types?.has("sale")) revenue += o.totalPrice;
-    if (!types?.has("cogs") && o.printfulCost != null) cogs -= o.printfulCost;
-  }
+  const revenue = (byType["sale"] ?? 0) + (byType["refund"] ?? 0);
+  const stripeFees = byType["stripe_fee"] ?? 0;
+  const cogs = byType["cogs"] ?? 0;
 
   return {
     orderCount: filtered.filter((o) => o.status !== "canceled").length,

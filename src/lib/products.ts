@@ -103,10 +103,13 @@ export const PRODUCTS: Product[] = [
       { name: "Vintage White", value: "#f5f0e8" },
     ],
     variants: {
-      // TODO: fill from scripts/fetch-variants-mc1087.ts output
+      Black: { S: 23577, M: 23578, L: 23579, XL: 23580, "2XL": 23581, "3XL": 23582, "4XL": 23583 },
+      "Navy Blazer": { S: 23584, M: 23585, L: 23586, XL: 23587, "2XL": 23588, "3XL": 23589, "4XL": 23590 },
+      "Vintage Black": { S: 23591, M: 23592, L: 23593, XL: 23594, "2XL": 23595, "3XL": 23596, "4XL": 23597 },
+      "Vintage White": { S: 23598, M: 23599, L: 23600, XL: 23601, "2XL": 23602, "3XL": 23603, "4XL": 23604 },
+      White: { S: 23605, M: 23606, L: 23607, XL: 23608, "2XL": 23609, "3XL": 23610, "4XL": 23611 },
     },
     mockupPosition: {
-      // TODO: fill from mockup template discovery
       area_width: 1800,
       area_height: 2400,
       width: 1800,
