@@ -105,8 +105,14 @@ NEXT_PUBLIC_APP_URL     # e.g. https://prntd.org
 - ~~Order classification system~~ — single-select classification (customer/sample/test/owner-use) separate from freeform tags, financial summary filtering by classification, admin reference section. Ledger starts April 1, 2026 (no backfill of pre-ledger orders).
 - ~~Composable admin filter/sort~~ — useReducer-driven FilterState, client-side summary computation with ledger+fallback, multi-select classification, sortable columns, 26 tests in admin-filters.test.ts
 - ~~Order detail page~~ — `/admin/orders/[id]` with full order info, ledger timeline, classification/tag management
+- ~~Customer order filters~~ — Active/Canceled/All status filter on /orders page, canceled Badge variant
+- ~~Build fix~~ — excluded scripts/ from tsconfig to prevent type collisions
 
 ### Next Steps
+
+**Run Stripe fee backfill** (ready to go)
+- `npx dotenvx run --env-file=.env.local -- npx tsx scripts/backfill-stripe-fees.ts`
+- Populates stripe_fee ledger entries for existing paid orders → fixes $0.00 on admin summary
 
 **Multi-product UI + MC1087 launch** (in progress)
 - Run `scripts/fetch-variants-mc1087.ts` to get variant IDs, fill in products.ts
