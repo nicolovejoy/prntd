@@ -30,6 +30,8 @@ export type Product = {
   baseCost: Record<string, number>;
   premiumUpcharge: number;
   sizes: string[];
+  /** Label for the size selector. Defaults to "Size" if omitted. */
+  sizeLabel?: string;
   colors: ProductColor[];
   variants: Record<string, Record<string, number>>; // color → size → variantId
   mockupPosition: MockupPosition;
@@ -123,6 +125,7 @@ export const PRODUCTS: Product[] = [
     name: "Clear iPhone Case",
     description: "Clear snap-on case, glossy finish",
     printfulProductId: 181,
+    sizeLabel: "Model",
     baseCost: {
       "*": 9.38,
       "iPhone 14": 10.95, "iPhone 14 Plus": 10.95,

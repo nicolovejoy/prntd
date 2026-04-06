@@ -6,7 +6,7 @@ import { getDesign } from "../design/actions";
 import { calculatePrice, createCheckoutSession } from "./actions";
 import Link from "next/link";
 import { Button } from "@/components/ui";
-import { SHIRT_COLORS } from "@/lib/colors";
+import { getProduct, DEFAULT_PRODUCT_ID } from "@/lib/products";
 
 export default function OrderPage() {
   return (
@@ -16,7 +16,6 @@ export default function OrderPage() {
   );
 }
 
-const SIZES = ["S", "M", "L", "XL", "2XL"];
 const QUALITIES: { value: "standard" | "premium"; label: string }[] = [
   { value: "standard", label: "Standard" },
   { value: "premium", label: "Premium" },
@@ -26,11 +25,18 @@ function OrderPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const designId = searchParams.get("id");
+  const productId = searchParams.get("product") ?? DEFAULT_PRODUCT_ID;
+  const product = getProduct(productId);
+
+  const sizes = product?.sizes ?? [];
+  const colors = product?.colors ?? [];
+  const sizeLabel = product?.sizeLabel ?? "Size";
+  const productName = product?.name ?? "design";
 
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [mockupUrls, setMockupUrls] = useState<Record<string, string> | null>(null);
-  const [size, setSize] = useState(searchParams.get("size") ?? "M");
-  const [color, setColor] = useState(searchParams.get("color") ?? "White");
+  const [size, setSize] = useState(searchParams.get("size") ?? sizes[1] ?? sizes[0] ?? "M");
+  const [color, setColor] = useState(searchParams.get("color") ?? colors[0]?.name ?? "White");
   const [quality, setQuality] = useState<"standard" | "premium">(
     (searchParams.get("quality") as "standard" | "premium") ?? "standard"
   );
@@ -54,8 +60,8 @@ function OrderPageInner() {
 
   useEffect(() => {
     if (!designId) return;
-    calculatePrice(designId, quality).then(setPricing);
-  }, [designId, quality]);
+    calculatePrice(designId, quality, productId, size).then(setPricing);
+  }, [designId, quality, productId, size]);
 
   // Sync selections to URL so they survive Stripe cancel → back
   useEffect(() => {
@@ -63,9 +69,10 @@ function OrderPageInner() {
     params.set("size", size);
     params.set("color", color);
     params.set("quality", quality);
+    params.set("product", productId);
     const newUrl = `${window.location.pathname}?${params.toString()}`;
     window.history.replaceState(null, "", newUrl);
-  }, [size, color, quality]);
+  }, [size, color, quality, productId]);
 
   async function handleCheckout() {
     if (!designId) return;
@@ -76,12 +83,17 @@ function OrderPageInner() {
         size,
         color,
         quality,
+        productId,
       });
       if (url) window.location.href = url;
     } catch {
       setLoading(false);
     }
   }
+
+  // Mockup cache key includes productId
+  const mockupKey = `${productId}:${color}`;
+  const colorHex = colors.find((c) => c.name === color)?.value ?? "#f3f4f6";
 
   return (
     <div className="min-h-screen flex flex-col items-center py-6 md:py-12 px-4 pb-24 md:pb-12">
@@ -91,7 +103,7 @@ function OrderPageInner() {
           Design
         </Link>
         <span>/</span>
-        <Link href={`/preview?id=${designId}`} className="hover:underline">
+        <Link href={`/preview?id=${designId}&product=${productId}`} className="hover:underline">
           Preview
         </Link>
         <span>/</span>
@@ -101,18 +113,27 @@ function OrderPageInner() {
       <div className="w-full max-w-2xl grid md:grid-cols-2 gap-6 md:gap-8">
         {/* Design preview — compact on mobile */}
         <div className="flex flex-col items-center">
-          {mockupUrls?.[color] ? (
+          {mockupUrls?.[mockupKey] ? (
+            <div className="w-40 h-40 md:w-full md:aspect-square rounded-lg overflow-hidden">
+              <img
+                src={mockupUrls[mockupKey]}
+                alt={`Your design on a ${color} ${productName}`}
+                className="w-full h-full object-cover"
+              />
+            </div>
+          ) : mockupUrls?.[color] ? (
+            /* Fallback: old cache key format (colorName only) */
             <div className="w-40 h-40 md:w-full md:aspect-square rounded-lg overflow-hidden">
               <img
                 src={mockupUrls[color]}
-                alt={`Your design on a ${color} shirt`}
+                alt={`Your design on a ${color} ${productName}`}
                 className="w-full h-full object-cover"
               />
             </div>
           ) : imageUrl ? (
             <div
               className="w-40 h-40 md:w-full md:aspect-square rounded-lg flex items-center justify-center transition-colors"
-              style={{ backgroundColor: SHIRT_COLORS.find((c) => c.name === color)?.value ?? "#f3f4f6" }}
+              style={{ backgroundColor: colorHex }}
             >
               <img
                 src={imageUrl}
@@ -126,13 +147,13 @@ function OrderPageInner() {
         {/* Options */}
         <div className="space-y-5">
           <div>
-            <label className="block text-sm font-medium mb-2">Size</label>
-            <div className="flex gap-2">
-              {SIZES.map((s) => (
+            <label className="block text-sm font-medium mb-2">{sizeLabel}</label>
+            <div className="flex flex-wrap gap-2">
+              {sizes.map((s) => (
                 <button
                   key={s}
                   onClick={() => setSize(s)}
-                  className={`flex-1 md:flex-none px-3 py-2.5 md:py-1.5 border-2 rounded-md text-sm transition-colors ${
+                  className={`px-3 py-2.5 md:py-1.5 border-2 rounded-md text-sm transition-colors ${
                     size === s
                       ? "border-accent bg-accent text-accent-fg font-medium"
                       : "border-border text-text-muted hover:border-border-hover"
@@ -144,49 +165,54 @@ function OrderPageInner() {
             </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium mb-2">
-              Color — {color}
-            </label>
-            <div className="flex flex-wrap gap-2.5 md:gap-2">
-              {SHIRT_COLORS.map((c) => (
-                <button
-                  key={c.name}
-                  onClick={() => setColor(c.name)}
-                  className={`w-10 h-10 md:w-8 md:h-8 rounded-full border-2 transition-colors ${
-                    color === c.name ? "border-accent ring-2 ring-offset-1 ring-accent ring-offset-background" : "border-border"
-                  }`}
-                  style={{ backgroundColor: c.value }}
-                  title={c.name}
-                />
-              ))}
+          {/* Color picker — hidden when product has only one color */}
+          {colors.length > 1 && (
+            <div>
+              <label className="block text-sm font-medium mb-2">
+                Color — {color}
+              </label>
+              <div className="flex flex-wrap gap-2.5 md:gap-2">
+                {colors.map((c) => (
+                  <button
+                    key={c.name}
+                    onClick={() => setColor(c.name)}
+                    className={`w-10 h-10 md:w-8 md:h-8 rounded-full border-2 transition-colors ${
+                      color === c.name ? "border-accent ring-2 ring-offset-1 ring-accent ring-offset-background" : "border-border"
+                    }`}
+                    style={{ backgroundColor: c.value }}
+                    title={c.name}
+                  />
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
-          <div>
-            <label className="block text-sm font-medium mb-2">Quality</label>
-            <div className="flex gap-2">
-              {QUALITIES.map((q) => (
-                <button
-                  key={q.value}
-                  onClick={() => setQuality(q.value)}
-                  className={`flex-1 md:flex-none px-3 py-2.5 md:py-1.5 border-2 rounded-md text-sm transition-colors ${
-                    quality === q.value
-                      ? "border-accent bg-accent text-accent-fg font-medium"
-                      : "border-border text-text-muted hover:border-border-hover"
-                  }`}
-                >
-                  {q.label}
-                </button>
-              ))}
+          {product?.premiumUpcharge ? (
+            <div>
+              <label className="block text-sm font-medium mb-2">Quality</label>
+              <div className="flex gap-2">
+                {QUALITIES.map((q) => (
+                  <button
+                    key={q.value}
+                    onClick={() => setQuality(q.value)}
+                    className={`flex-1 md:flex-none px-3 py-2.5 md:py-1.5 border-2 rounded-md text-sm transition-colors ${
+                      quality === q.value
+                        ? "border-accent bg-accent text-accent-fg font-medium"
+                        : "border-border text-text-muted hover:border-border-hover"
+                    }`}
+                  >
+                    {q.label}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          ) : null}
 
           {/* Pricing */}
           {pricing && (
             <div className="border-t border-border pt-4 space-y-2 text-sm">
               <div className="flex justify-between">
-                <span className="text-text-muted">Shirt ({quality})</span>
+                <span className="text-text-muted">{productName} ({quality})</span>
                 <span>${pricing.baseCost.toFixed(2)}</span>
               </div>
               <div className="flex justify-between">

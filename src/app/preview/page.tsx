@@ -6,7 +6,7 @@ import { getDesign, approveDesign } from "../design/actions";
 import { generateMockup } from "./actions";
 import Link from "next/link";
 import { Button } from "@/components/ui";
-import { SHIRT_COLORS } from "@/lib/colors";
+import { getProduct, DEFAULT_PRODUCT_ID } from "@/lib/products";
 
 export default function PreviewPage() {
   return (
@@ -20,9 +20,11 @@ function PreviewPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const designId = searchParams.get("id");
+  const productId = searchParams.get("product") ?? DEFAULT_PRODUCT_ID;
+  const product = getProduct(productId);
 
   const [designImageUrl, setDesignImageUrl] = useState<string | null>(null);
-  const [colorName, setColorName] = useState("White");
+  const [colorName, setColorName] = useState(product?.colors[0]?.name ?? "White");
   const [hoveredColor, setHoveredColor] = useState<string | null>(null);
   const [mockupUrl, setMockupUrl] = useState<string | null>(null);
   const [mockupLoading, setMockupLoading] = useState(false);
@@ -32,10 +34,12 @@ function PreviewPageInner() {
   const [zoomed, setZoomed] = useState(false);
   const [panOrigin, setPanOrigin] = useState({ x: 50, y: 50 });
 
-  // Client-side cache: color name → mockup R2 URL
+  // Client-side cache: "productId:colorName" → mockup R2 URL
   const mockupCache = useRef<Map<string, string>>(new Map());
   // Track the latest requested color to discard stale responses
   const latestColorRef = useRef(colorName);
+
+  const colors = product?.colors ?? [];
 
   // Load design and seed mockup cache from DB
   useEffect(() => {
@@ -47,10 +51,10 @@ function PreviewPageInner() {
       if (design?.currentImageUrl) {
         setDesignImageUrl(design.currentImageUrl);
       }
-      // Seed cache from previously generated mockups
+      // Seed cache from previously generated mockups (keyed as "productId:colorName")
       if (design?.mockupUrls) {
-        for (const [color, url] of Object.entries(design.mockupUrls)) {
-          mockupCache.current.set(color, url as string);
+        for (const [key, url] of Object.entries(design.mockupUrls)) {
+          mockupCache.current.set(key, url as string);
         }
       }
       setLoading(false);
@@ -63,9 +67,10 @@ function PreviewPageInner() {
       if (!designId) return;
 
       latestColorRef.current = color;
+      const cacheKey = `${productId}:${color}`;
 
       // Check client cache first
-      const cached = mockupCache.current.get(color);
+      const cached = mockupCache.current.get(cacheKey);
       if (cached) {
         setMockupUrl(cached);
         setMockupError(false);
@@ -76,10 +81,10 @@ function PreviewPageInner() {
       setMockupLoading(true);
       setMockupError(false);
       try {
-        const result = await generateMockup(designId, color);
+        const result = await generateMockup(designId, color, productId);
         // Only apply if this is still the color the user wants
         if (latestColorRef.current === color) {
-          mockupCache.current.set(color, result.mockupUrl);
+          mockupCache.current.set(cacheKey, result.mockupUrl);
           setMockupUrl(result.mockupUrl);
         }
       } catch (err) {
@@ -93,7 +98,7 @@ function PreviewPageInner() {
         }
       }
     },
-    [designId]
+    [designId, productId]
   );
 
   // Trigger mockup generation once design is loaded
@@ -112,7 +117,9 @@ function PreviewPageInner() {
   async function handleApprove() {
     if (!designId) return;
     await approveDesign(designId);
-    router.push(`/order?id=${designId}&color=${encodeURIComponent(colorName)}`);
+    router.push(
+      `/order?id=${designId}&color=${encodeURIComponent(colorName)}&product=${productId}`
+    );
   }
 
   if (loading) {
@@ -124,7 +131,8 @@ function PreviewPageInner() {
   }
 
   const colorHex =
-    SHIRT_COLORS.find((c) => c.name === colorName)?.value ?? "#ffffff";
+    colors.find((c) => c.name === colorName)?.value ?? "#ffffff";
+  const productName = product?.name ?? "design";
 
   return (
     <div className="min-h-screen flex flex-col items-center py-6 md:py-12 px-4">
@@ -144,10 +152,10 @@ function PreviewPageInner() {
       </nav>
 
       <h1 className="text-xl md:text-2xl font-bold mb-4 md:mb-8">
-        Preview your shirt
+        Preview your {productName}
       </h1>
 
-      {/* Shirt mockup */}
+      {/* Mockup */}
       <button
         type="button"
         onClick={() => mockupUrl && !mockupLoading && setLightboxOpen(true)}
@@ -184,7 +192,7 @@ function PreviewPageInner() {
         {!mockupLoading && !mockupError && mockupUrl && (
           <img
             src={mockupUrl}
-            alt={`Your design on a ${colorName} shirt`}
+            alt={`Your design on a ${colorName} ${productName}`}
             className="w-full h-full object-cover"
           />
         )}
@@ -212,7 +220,6 @@ function PreviewPageInner() {
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/90"
           onClick={(e) => {
-            // Close only if clicking the backdrop (not the image)
             if (e.target === e.currentTarget) {
               setLightboxOpen(false);
               setZoomed(false);
@@ -234,7 +241,6 @@ function PreviewPageInner() {
             onClick={(e) => {
               e.stopPropagation();
               if (!zoomed) {
-                // Zoom in at click position
                 const rect = e.currentTarget.getBoundingClientRect();
                 const x = ((e.clientX - rect.left) / rect.width) * 100;
                 const y = ((e.clientY - rect.top) / rect.height) * 100;
@@ -255,7 +261,7 @@ function PreviewPageInner() {
           >
             <img
               src={mockupUrl}
-              alt={`Your design on a ${colorName} shirt`}
+              alt={`Your design on a ${colorName} ${productName}`}
               className="max-w-[90vw] max-h-[90vh] object-contain transition-transform duration-200"
               style={{
                 transform: zoomed ? "scale(2.5)" : "scale(1)",
@@ -278,27 +284,31 @@ function PreviewPageInner() {
         </div>
       )}
 
-      {/* Color picker */}
-      <div className="text-sm text-text-muted mt-4 md:mt-6 mb-2 h-5">
-        {hoveredColor ?? colorName}
-      </div>
-      <div className="flex flex-wrap justify-center gap-2 md:gap-3 max-w-xs md:max-w-none">
-        {SHIRT_COLORS.map((c) => (
-          <button
-            key={c.name}
-            onClick={() => handleColorChange(c.name)}
-            onMouseEnter={() => setHoveredColor(c.name)}
-            onMouseLeave={() => setHoveredColor(null)}
-            disabled={mockupLoading}
-            className={`w-10 h-10 md:w-8 md:h-8 rounded-full border-2 transition-colors ${
-              colorName === c.name
-                ? "border-accent ring-2 ring-accent ring-offset-1 ring-offset-background"
-                : "border-border"
-            } ${mockupLoading ? "opacity-50 cursor-not-allowed" : ""}`}
-            style={{ backgroundColor: c.value }}
-          />
-        ))}
-      </div>
+      {/* Color picker — hidden when product has only one color */}
+      {colors.length > 1 && (
+        <>
+          <div className="text-sm text-text-muted mt-4 md:mt-6 mb-2 h-5">
+            {hoveredColor ?? colorName}
+          </div>
+          <div className="flex flex-wrap justify-center gap-2 md:gap-3 max-w-xs md:max-w-none">
+            {colors.map((c) => (
+              <button
+                key={c.name}
+                onClick={() => handleColorChange(c.name)}
+                onMouseEnter={() => setHoveredColor(c.name)}
+                onMouseLeave={() => setHoveredColor(null)}
+                disabled={mockupLoading}
+                className={`w-10 h-10 md:w-8 md:h-8 rounded-full border-2 transition-colors ${
+                  colorName === c.name
+                    ? "border-accent ring-2 ring-accent ring-offset-1 ring-offset-background"
+                    : "border-border"
+                } ${mockupLoading ? "opacity-50 cursor-not-allowed" : ""}`}
+                style={{ backgroundColor: c.value }}
+              />
+            ))}
+          </div>
+        </>
+      )}
 
       {/* Actions */}
       <div className="flex gap-4 mt-6 md:mt-8 w-full max-w-xs md:max-w-none md:w-auto">
@@ -308,7 +318,7 @@ function PreviewPageInner() {
           </Button>
         </Link>
         <Button onClick={handleApprove} className="flex-1 md:flex-none">
-          Order this shirt
+          Order this {productName}
         </Button>
       </div>
     </div>

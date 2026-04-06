@@ -7,6 +7,7 @@ import { design as designTable, order as orderTable } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { stripe } from "@/lib/stripe";
 import { computePrice } from "@/lib/pricing";
+import { getProduct, DEFAULT_PRODUCT_ID } from "@/lib/products";
 
 export async function calculatePrice(
   designId: string,
@@ -41,7 +42,10 @@ export async function createCheckoutSession(params: {
     throw new Error("Design not found");
   }
 
-  const pricing = await calculatePrice(params.designId, params.quality, params.productId, params.size);
+  const resolvedProductId = params.productId ?? DEFAULT_PRODUCT_ID;
+  const pricing = await calculatePrice(params.designId, params.quality, resolvedProductId, params.size);
+  const product = getProduct(resolvedProductId);
+  const productName = product?.name ?? "Custom Product";
 
   // Create order record
   const [newOrder] = await db
@@ -49,7 +53,7 @@ export async function createCheckoutSession(params: {
     .values({
       userId: session.user.id,
       designId: params.designId,
-      productId: params.productId ?? "bella-canvas-3001",
+      productId: resolvedProductId,
       size: params.size,
       color: params.color,
       quality: params.quality,
@@ -68,7 +72,7 @@ export async function createCheckoutSession(params: {
         price_data: {
           currency: "usd",
           product_data: {
-            name: `PRNTD Custom T-Shirt (${params.quality})`,
+            name: `PRNTD ${productName} (${params.quality})`,
             description: `${params.color} / ${params.size}`,
             images: found.currentImageUrl ? [found.currentImageUrl] : [],
           },
@@ -82,7 +86,7 @@ export async function createCheckoutSession(params: {
       designId: params.designId,
     },
     success_url: `${process.env.NEXT_PUBLIC_APP_URL}/order/confirm?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/order?id=${params.designId}&size=${encodeURIComponent(params.size)}&color=${encodeURIComponent(params.color)}&quality=${params.quality}`,
+    cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/order?id=${params.designId}&size=${encodeURIComponent(params.size)}&color=${encodeURIComponent(params.color)}&quality=${params.quality}&product=${resolvedProductId}`,
   });
 
   // Store Stripe session ID
