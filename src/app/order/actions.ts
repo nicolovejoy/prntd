@@ -8,14 +8,19 @@ import { eq } from "drizzle-orm";
 import { stripe } from "@/lib/stripe";
 import { computePrice } from "@/lib/pricing";
 
-export async function calculatePrice(designId: string, quality: "standard" | "premium") {
+export async function calculatePrice(
+  designId: string,
+  quality: "standard" | "premium",
+  productId?: string,
+  size?: string
+) {
   const found = await db.query.design.findFirst({
     where: eq(designTable.id, designId),
   });
 
   if (!found) throw new Error("Design not found");
 
-  return computePrice(quality, found.generationCost);
+  return computePrice(quality, found.generationCost, productId, size);
 }
 
 export async function createCheckoutSession(params: {
@@ -23,6 +28,7 @@ export async function createCheckoutSession(params: {
   size: string;
   color: string;
   quality: "standard" | "premium";
+  productId?: string;
 }) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) throw new Error("Unauthorized");
@@ -35,7 +41,7 @@ export async function createCheckoutSession(params: {
     throw new Error("Design not found");
   }
 
-  const pricing = await calculatePrice(params.designId, params.quality);
+  const pricing = await calculatePrice(params.designId, params.quality, params.productId, params.size);
 
   // Create order record
   const [newOrder] = await db
@@ -43,6 +49,7 @@ export async function createCheckoutSession(params: {
     .values({
       userId: session.user.id,
       designId: params.designId,
+      productId: params.productId ?? "bella-canvas-3001",
       size: params.size,
       color: params.color,
       quality: params.quality,

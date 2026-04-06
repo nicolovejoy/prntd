@@ -36,4 +36,15 @@ describe("computePrice", () => {
     const result = computePrice("premium", 0.9); // 30 generations
     expect(result.total).toBe(Math.ceil((17.95 + 0.9) * MARGIN_MULTIPLIER * 100) / 100);
   });
+
+  it("uses product-specific base cost", () => {
+    const result = computePrice("standard", 0, "cotton-heritage-mc1087", "M");
+    expect(result.baseCost).toBe(17.45);
+    expect(result.total).toBe(Math.ceil(17.45 * MARGIN_MULTIPLIER * 100) / 100);
+  });
+
+  it("uses size-specific base cost for products with per-size pricing", () => {
+    const result = computePrice("standard", 0, "cotton-heritage-mc1087", "2XL");
+    expect(result.baseCost).toBe(19.45);
+  });
 });

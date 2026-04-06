@@ -3,7 +3,7 @@ import {
   order as orderTable,
   design as designTable,
 } from "@/lib/db/schema";
-import { TSHIRT_VARIANTS } from "@/lib/printful";
+import { getProductOrThrow, getVariantId } from "@/lib/products";
 import { assertTransition } from "@/lib/order-state";
 import { recordSale, recordCOGS, recordCancellation } from "@/lib/ledger";
 import type { createOrder } from "@/lib/printful";
@@ -98,9 +98,10 @@ export async function handleStripeCheckoutCompleted(
     return { action: "paid" };
   }
 
-  const variantId = TSHIRT_VARIANTS[foundOrder.color]?.[foundOrder.size];
+  const product = getProductOrThrow(foundOrder.productId ?? "bella-canvas-3001");
+  const variantId = getVariantId(product, foundOrder.color, foundOrder.size);
   if (!variantId) {
-    console.error(`Order ${orderId}: no variant for ${foundOrder.color} ${foundOrder.size}`);
+    console.error(`Order ${orderId}: no variant for ${foundOrder.color} ${foundOrder.size} on ${product.name}`);
     return { action: "paid" };
   }
 

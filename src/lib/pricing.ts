@@ -1,13 +1,21 @@
-import { PRINTFUL_BASE_COST, PREMIUM_UPCHARGE } from "./printful";
+import {
+  getProductOrThrow,
+  getBaseCost,
+  DEFAULT_PRODUCT_ID,
+  type Product,
+} from "./products";
 
 export const MARGIN_MULTIPLIER = 1.5;
 
 export function computePrice(
   quality: "standard" | "premium",
-  generationCost: number
+  generationCost: number,
+  productId: string = DEFAULT_PRODUCT_ID,
+  size: string = "M"
 ): { baseCost: number; generationCost: number; total: number } {
+  const product = getProductOrThrow(productId);
   const baseCost =
-    PRINTFUL_BASE_COST + (quality === "premium" ? PREMIUM_UPCHARGE : 0);
+    getBaseCost(product, size) + (quality === "premium" ? product.premiumUpcharge : 0);
   const subtotal = (baseCost + generationCost) * MARGIN_MULTIPLIER;
   const total = Math.ceil(subtotal * 100) / 100;
 

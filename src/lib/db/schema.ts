@@ -66,6 +66,7 @@ export const order = sqliteTable("order", {
   stripeSessionId: text("stripe_session_id"),
   size: text("size").notNull(),
   color: text("color").notNull(),
+  productId: text("product_id").notNull().default("bella-canvas-3001"),
   quality: text("quality", { enum: ["standard", "premium"] }).notNull(),
   totalPrice: real("total_price").notNull(),
   status: text("status", { enum: ["pending", "paid", "submitted", "shipped", "delivered", "canceled"] }).notNull().default("pending"),

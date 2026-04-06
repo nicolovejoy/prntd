@@ -10,7 +10,8 @@ import {
   ledgerEntry,
 } from "@/lib/db/schema";
 import { eq, desc, isNull, isNotNull, sum, count, ne, and } from "drizzle-orm";
-import { createOrder, TSHIRT_VARIANTS } from "@/lib/printful";
+import { createOrder } from "@/lib/printful";
+import { getProductOrThrow, getVariantId } from "@/lib/products";
 import { assertTransition } from "@/lib/order-state";
 import { ORDER_CLASSIFICATIONS, type OrderClassification } from "@/lib/order-classification";
 
@@ -76,9 +77,10 @@ export async function retryPrintfulSubmission(orderId: string) {
     throw new Error("Design has no image");
   }
 
-  const variantId = TSHIRT_VARIANTS[foundOrder.color]?.[foundOrder.size];
+  const product = getProductOrThrow(foundOrder.productId ?? "bella-canvas-3001");
+  const variantId = getVariantId(product, foundOrder.color, foundOrder.size);
   if (!variantId) {
-    throw new Error(`No variant for ${foundOrder.color} ${foundOrder.size}`);
+    throw new Error(`No variant for ${foundOrder.color} ${foundOrder.size} on ${product.name}`);
   }
 
   const printfulOrder = await createOrder({
