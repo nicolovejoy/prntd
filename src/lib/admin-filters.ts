@@ -108,13 +108,14 @@ export function computeSummary(
   const filtered = applyFilters(orders, state);
   const orderIds = new Set(filtered.map((o) => o.id));
 
-  // Sum ledger entries for visible orders
+  // Sum ledger entries for visible orders, tracking which types exist per order
   const byType: Record<string, number> = {};
-  const ordersWithLedger = new Set<string>();
+  const orderLedgerTypes = new Map<string, Set<string>>();
   for (const entry of ledger) {
     if (entry.orderId && orderIds.has(entry.orderId)) {
       byType[entry.type] = (byType[entry.type] ?? 0) + entry.amount;
-      ordersWithLedger.add(entry.orderId);
+      if (!orderLedgerTypes.has(entry.orderId)) orderLedgerTypes.set(entry.orderId, new Set());
+      orderLedgerTypes.get(entry.orderId)!.add(entry.type);
     }
   }
 
@@ -122,11 +123,12 @@ export function computeSummary(
   let stripeFees = byType["stripe_fee"] ?? 0;
   let cogs = byType["cogs"] ?? 0;
 
-  // Fallback: for orders without ledger entries, use order table fields
+  // Fallback: use order table fields when specific ledger types are missing
   for (const o of filtered) {
-    if (ordersWithLedger.has(o.id) || o.status === "canceled") continue;
-    revenue += o.totalPrice;
-    if (o.printfulCost != null) cogs -= o.printfulCost;
+    if (o.status === "canceled") continue;
+    const types = orderLedgerTypes.get(o.id);
+    if (!types?.has("sale")) revenue += o.totalPrice;
+    if (!types?.has("cogs") && o.printfulCost != null) cogs -= o.printfulCost;
   }
 
   return {

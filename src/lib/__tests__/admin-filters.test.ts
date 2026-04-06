@@ -259,6 +259,22 @@ describe("computeSummary", () => {
     expect(result.cogs).toBeCloseTo(18.17 + 12.95);
   });
 
+  it("falls back to order fields when only stripe_fee ledger entry exists", () => {
+    const orders = [
+      makeOrder({ id: "order-1", totalPrice: 27.11, printfulCost: 18.17 }),
+    ];
+    const ledger: FilterableLedgerEntry[] = [
+      makeLedger({ orderId: "order-1", type: "stripe_fee", amount: -1.09 }),
+      // no sale or cogs entries — revenue and COGS should come from order fields
+    ];
+
+    const result = computeSummary(orders, ledger, initialFilterState);
+    expect(result.revenue).toBeCloseTo(27.11);
+    expect(result.stripeFees).toBeCloseTo(-1.09);
+    expect(result.cogs).toBeCloseTo(18.17);
+    expect(result.grossProfit).toBeCloseTo(27.11 - 1.09 - 18.17);
+  });
+
   it("excludes canceled orders from count and fallback", () => {
     const orders = [
       makeOrder({ id: "order-1", totalPrice: 27.11, printfulCost: 18.17 }),
