@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { getUserOrders } from "./actions";
 import { Badge, Button, Card } from "@/components/ui";
 
 type Order = Awaited<ReturnType<typeof getUserOrders>>[number];
+
+type StatusFilter = "active" | "canceled" | "all";
 
 const statusLabel: Record<string, string> = {
   pending: "Processing",
@@ -25,15 +27,35 @@ function formatDate(date: Date | null) {
   });
 }
 
+const filterBtnBase = "text-xs px-2.5 py-1 rounded transition-colors";
+const filterBtnActive =
+  "bg-surface-raised text-text-primary font-medium border border-border-default";
+const filterBtnInactive =
+  "text-text-muted hover:text-text-primary border border-transparent";
+
 export default function OrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<StatusFilter>("active");
 
   useEffect(() => {
     getUserOrders()
       .then(setOrders)
       .finally(() => setLoading(false));
   }, []);
+
+  const canceledCount = useMemo(
+    () => orders.filter((o) => o.status === "canceled" || o.archivedAt).length,
+    [orders]
+  );
+
+  const filtered = useMemo(() => {
+    if (filter === "all") return orders;
+    if (filter === "canceled")
+      return orders.filter((o) => o.status === "canceled" || o.archivedAt);
+    // "active" — not canceled and not archived
+    return orders.filter((o) => o.status !== "canceled" && !o.archivedAt);
+  }, [orders, filter]);
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -45,6 +67,25 @@ export default function OrdersPage() {
           </Link>
         </div>
 
+        {/* Status filter */}
+        {!loading && orders.length > 0 && (
+          <div className="flex items-center gap-1 mb-4">
+            {(["active", "canceled", "all"] as const).map((f) => (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                className={`${filterBtnBase} ${filter === f ? filterBtnActive : filterBtnInactive}`}
+              >
+                {f === "active"
+                  ? "Active"
+                  : f === "canceled"
+                    ? `Canceled (${canceledCount})`
+                    : "All"}
+              </button>
+            ))}
+          </div>
+        )}
+
         {loading ? (
           <p className="text-text-muted">Loading...</p>
         ) : orders.length === 0 ? (
@@ -54,9 +95,13 @@ export default function OrdersPage() {
               <Button>Design your first shirt</Button>
             </Link>
           </div>
+        ) : filtered.length === 0 ? (
+          <p className="text-text-muted text-center py-8">
+            No {filter === "canceled" ? "canceled" : "active"} orders.
+          </p>
         ) : (
           <div className="space-y-3">
-            {orders.map((order) => (
+            {filtered.map((order) => (
               <Card key={order.id} className="p-4">
                 <div className="flex gap-4">
                   {/* Design thumbnail */}

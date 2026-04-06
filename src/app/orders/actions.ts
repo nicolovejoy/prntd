@@ -7,7 +7,7 @@ import {
   order as orderTable,
   design as designTable,
 } from "@/lib/db/schema";
-import { eq, desc, isNull, and } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 
 export async function getUserOrders() {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -24,10 +24,11 @@ export async function getUserOrders() {
       trackingNumber: orderTable.trackingNumber,
       trackingUrl: orderTable.trackingUrl,
       createdAt: orderTable.createdAt,
+      archivedAt: orderTable.archivedAt,
       designImageUrl: designTable.currentImageUrl,
     })
     .from(orderTable)
     .leftJoin(designTable, eq(orderTable.designId, designTable.id))
-    .where(and(eq(orderTable.userId, session.user.id), isNull(orderTable.archivedAt)))
+    .where(eq(orderTable.userId, session.user.id))
     .orderBy(desc(orderTable.createdAt));
 }
