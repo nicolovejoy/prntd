@@ -115,33 +115,53 @@ function PreviewPageInner() {
     [designId, productId]
   );
 
-  // Background preload all product/color combos once design is loaded
+  // Background preload all product/color combos (throttled, selected product first)
   useEffect(() => {
     if (!designId || loading || !designImageUrl) return;
+    let cancelled = false;
 
-    for (const p of PRODUCTS) {
+    // Build preload queue: selected product first, then others
+    const queue: [string, string][] = [];
+    const selected = PRODUCTS.find((p) => p.id === productId);
+    const rest = PRODUCTS.filter((p) => p.id !== productId);
+    for (const p of selected ? [selected, ...rest] : PRODUCTS) {
       for (const c of p.colors) {
         const cacheKey = `${p.id}:${c.name}`;
         if (mockupCache.current.has(cacheKey) || preloadedRef.current.has(cacheKey))
           continue;
-        preloadedRef.current.add(cacheKey);
-
-        generateMockup(designId, c.name, p.id)
-          .then((result) => {
-            mockupCache.current.set(cacheKey, result.mockupUrl);
-            // Auto-show if this matches the user's current selection
-            if (
-              latestProductRef.current === p.id &&
-              latestColorRef.current === c.name
-            ) {
-              setMockupUrl(result.mockupUrl);
-              setMockupLoading(false);
-              setMockupError(false);
-            }
-          })
-          .catch(() => {});
+        queue.push([p.id, c.name]);
       }
     }
+
+    // Run with concurrency limit of 3
+    const CONCURRENCY = 3;
+    let i = 0;
+
+    function runNext() {
+      if (cancelled || i >= queue.length) return;
+      const [pid, color] = queue[i++];
+      const cacheKey = `${pid}:${color}`;
+      preloadedRef.current.add(cacheKey);
+
+      generateMockup(designId!, color, pid)
+        .then((result) => {
+          mockupCache.current.set(cacheKey, result.mockupUrl);
+          if (
+            latestProductRef.current === pid &&
+            latestColorRef.current === color
+          ) {
+            setMockupUrl(result.mockupUrl);
+            setMockupLoading(false);
+            setMockupError(false);
+          }
+        })
+        .catch(() => {})
+        .finally(() => runNext());
+    }
+
+    for (let j = 0; j < CONCURRENCY; j++) runNext();
+
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [designId, loading, designImageUrl]);
 

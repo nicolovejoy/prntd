@@ -104,7 +104,7 @@ export async function createMockupTask(
 
 export async function pollMockupTask(
   taskKey: string,
-  { intervalMs = 2000, timeoutMs = 30000 } = {}
+  { intervalMs = 2000, timeoutMs = 90000 } = {}
 ): Promise<{ mockupUrl: string; extraUrls: string[] }> {
   const deadline = Date.now() + timeoutMs;
 
