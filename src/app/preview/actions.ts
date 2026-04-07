@@ -48,8 +48,12 @@ export async function generateMockup(
   const buffer = Buffer.from(await response.arrayBuffer());
   const r2Url = await uploadMockupImage(designId, colorName, buffer);
 
-  // Update cache in DB
-  const updatedMockups = { ...found.mockupUrls, [cacheKey]: r2Url };
+  // Re-read before update to avoid clobbering concurrent preloads
+  const fresh = await db.query.design.findFirst({
+    where: eq(designTable.id, designId),
+    columns: { mockupUrls: true },
+  });
+  const updatedMockups = { ...(fresh?.mockupUrls ?? {}), [cacheKey]: r2Url };
   await db
     .update(designTable)
     .set({ mockupUrls: updatedMockups, updatedAt: new Date() })

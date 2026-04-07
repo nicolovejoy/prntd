@@ -8,6 +8,13 @@ import Link from "next/link";
 import { Button } from "@/components/ui";
 import { getProduct, DEFAULT_PRODUCT_ID, PRODUCTS } from "@/lib/products";
 
+const LOADING_MESSAGES = [
+  "Rendering your design\u2026",
+  "Placing design on product\u2026",
+  "Almost there\u2026",
+  "Adding finishing touches\u2026",
+];
+
 export default function PreviewPage() {
   return (
     <Suspense>
@@ -36,10 +43,15 @@ function PreviewPageInner() {
   const [zoomed, setZoomed] = useState(false);
   const [panOrigin, setPanOrigin] = useState({ x: 50, y: 50 });
 
+  const [loadingMessageIdx, setLoadingMessageIdx] = useState(0);
+
   // Client-side cache: "productId:colorName" → mockup R2 URL
   const mockupCache = useRef<Map<string, string>>(new Map());
-  // Track the latest requested color to discard stale responses
+  // Track the latest requested selection to discard stale responses
   const latestColorRef = useRef(colorName);
+  const latestProductRef = useRef(productId);
+  // Track which preloads have been kicked off
+  const preloadedRef = useRef<Set<string>>(new Set());
 
   const colors = product?.colors ?? [];
 
@@ -103,17 +115,61 @@ function PreviewPageInner() {
     [designId, productId]
   );
 
-  // Trigger mockup generation once design is loaded
+  // Background preload all product/color combos once design is loaded
   useEffect(() => {
-    if (!loading && designImageUrl) {
-      loadMockup(colorName);
+    if (!designId || loading || !designImageUrl) return;
+
+    for (const p of PRODUCTS) {
+      for (const c of p.colors) {
+        const cacheKey = `${p.id}:${c.name}`;
+        if (mockupCache.current.has(cacheKey) || preloadedRef.current.has(cacheKey))
+          continue;
+        preloadedRef.current.add(cacheKey);
+
+        generateMockup(designId, c.name, p.id)
+          .then((result) => {
+            mockupCache.current.set(cacheKey, result.mockupUrl);
+            // Auto-show if this matches the user's current selection
+            if (
+              latestProductRef.current === p.id &&
+              latestColorRef.current === c.name
+            ) {
+              setMockupUrl(result.mockupUrl);
+              setMockupLoading(false);
+              setMockupError(false);
+            }
+          })
+          .catch(() => {});
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, designImageUrl]);
+  }, [designId, loading, designImageUrl]);
+
+  // Rotate loading messages while mockup generates
+  useEffect(() => {
+    if (!mockupLoading) {
+      setLoadingMessageIdx(0);
+      return;
+    }
+    const timer = setInterval(() => {
+      setLoadingMessageIdx((i) => (i + 1) % LOADING_MESSAGES.length);
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [mockupLoading]);
 
   function handleColorChange(name: string) {
     setColorName(name);
-    loadMockup(name);
+    latestColorRef.current = name;
+
+    const cacheKey = `${productId}:${name}`;
+    const cached = mockupCache.current.get(cacheKey);
+    if (cached) {
+      setMockupUrl(cached);
+      setMockupError(false);
+    } else {
+      setMockupUrl(null);
+      loadMockup(name);
+    }
   }
 
   function handleProductChange(newProductId: string) {
@@ -122,10 +178,21 @@ function PreviewPageInner() {
     if (!newProduct) return;
     const newColor = newProduct.colors[0]?.name ?? "White";
     setProductId(newProductId);
+    latestProductRef.current = newProductId;
     setColorName(newColor);
-    setMockupUrl(null);
+    latestColorRef.current = newColor;
     setMockupError(false);
-    loadMockup(newColor, newProductId);
+
+    // Use preloaded mockup if available, otherwise generate on demand
+    const cacheKey = `${newProductId}:${newColor}`;
+    const cached = mockupCache.current.get(cacheKey);
+    if (cached) {
+      setMockupUrl(cached);
+    } else {
+      setMockupUrl(null);
+      loadMockup(newColor, newProductId);
+    }
+
     router.replace(`/preview?id=${designId}&product=${newProductId}`, { scroll: false });
   }
 
@@ -202,8 +269,8 @@ function PreviewPageInner() {
         {mockupLoading && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-surface-alt animate-pulse z-10">
             <div className="w-12 h-12 border-2 border-accent border-t-transparent rounded-full animate-spin mb-3" />
-            <span className="text-sm text-text-muted">
-              Generating mockup...
+            <span className="text-sm text-text-muted transition-opacity">
+              {LOADING_MESSAGES[loadingMessageIdx]}
             </span>
           </div>
         )}
