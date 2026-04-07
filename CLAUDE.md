@@ -110,22 +110,18 @@ NEXT_PUBLIC_APP_URL     # e.g. https://prntd.org
 - ~~Stripe fee backfill~~ — all orders have complete ledger entries (sale + stripe_fee + cogs), fallback logic removed
 - ~~Multi-product plumbing~~ — productId wired through preview/order/checkout, colors/sizes/labels from product config, SHIRT_COLORS deleted
 - ~~Product catalog~~ — 3 products: Classic Tee (13 colors), Box Tee (5 colors), Clear iPhone Case (13 models)
+- ~~Product selector UI~~ — product picker cards on /preview, background preloads all mockups (throttled 3 concurrent), rotating loading messages, instant switching when cached
 
 ### Next Steps
-
-**Product selector UI** (Phase 2 of multi-product)
-- Product picker on /preview page (tabs or cards)
-- When product changes: update colors, clear mockup, regenerate
-- Color-switch loading UX: show CSS fallback instantly while mockup generates
-
-**Data architecture + UX vision docs**
-- Nico is working on data models separately
-- Need UX vision doc (user journeys), data architecture doc, product design flow model
-- Research prompt ready for competitive analysis (Custom Ink, Canva Print, Kittl, etc.)
 
 **Discount codes + promo**
 - Stripe promotion codes (start with "nico-codes" 25% off)
 - Code entry at checkout, splash banner on landing page
+
+**Design conversation persistence**
+- Design threads must stay accessible after ordering (not hidden/locked)
+- Navigation between past purchases ↔ design conversations
+- Iteration UX within a thread needs improvement
 
 **Product expansion**
 - Women's tee (3rd apparel product), posters, canvas prints, stickers, hoodies
