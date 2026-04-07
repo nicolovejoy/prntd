@@ -107,29 +107,29 @@ NEXT_PUBLIC_APP_URL     # e.g. https://prntd.org
 - ~~Order detail page~~ — `/admin/orders/[id]` with full order info, ledger timeline, classification/tag management
 - ~~Customer order filters~~ — Active/Canceled/All status filter on /orders page, canceled Badge variant
 - ~~Build fix~~ — excluded scripts/ from tsconfig to prevent type collisions
+- ~~Stripe fee backfill~~ — all orders have complete ledger entries (sale + stripe_fee + cogs), fallback logic removed
+- ~~Multi-product plumbing~~ — productId wired through preview/order/checkout, colors/sizes/labels from product config, SHIRT_COLORS deleted
+- ~~Product catalog~~ — 3 products: Classic Tee (13 colors), Box Tee (5 colors), Clear iPhone Case (13 models)
 
 ### Next Steps
 
-**Run Stripe fee backfill** (ready to go)
-- `npx dotenvx run --env-file=.env.local -- npx tsx scripts/backfill-stripe-fees.ts`
-- Populates stripe_fee ledger entries for existing paid orders → fixes $0.00 on admin summary
-
-**Multi-product UI + MC1087 launch** (in progress)
-- Run `scripts/fetch-variants-mc1087.ts` to get variant IDs, fill in products.ts
-- Run `db:push` for new productId column on order table
-- Product selector on /preview page (Classic Tee vs Box Tee)
+**Product selector UI** (Phase 2 of multi-product)
+- Product picker on /preview page (tabs or cards)
+- When product changes: update colors, clear mockup, regenerate
 - Color-switch loading UX: show CSS fallback instantly while mockup generates
-- Wire productId through order/checkout/Printful submission flow
+
+**Data architecture + UX vision docs**
+- Nico is working on data models separately
+- Need UX vision doc (user journeys), data architecture doc, product design flow model
+- Research prompt ready for competitive analysis (Custom Ink, Canva Print, Kittl, etc.)
 
 **Discount codes + promo**
 - Stripe promotion codes (start with "nico-codes" 25% off)
 - Code entry at checkout, splash banner on landing page
 
-**Back printing**
-- Placement selector (front/back), per-placement pricing
-
 **Product expansion**
-- Posters / canvas prints (highest margin), stickers, hoodies, women's tee
+- Women's tee (3rd apparel product), posters, canvas prints, stickers, hoodies
+- Multi-placement support (front/back printing) — see docs/products.md
 
 ### Ongoing
 - hledger export script (docs/accounting.md has the architecture)
