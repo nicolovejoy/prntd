@@ -155,7 +155,15 @@ function PreviewPageInner() {
             setMockupError(false);
           }
         })
-        .catch(() => {})
+        .catch(() => {
+          if (
+            latestProductRef.current === pid &&
+            latestColorRef.current === color
+          ) {
+            setMockupError(true);
+            setMockupLoading(false);
+          }
+        })
         .finally(() => runNext());
     }
 
@@ -186,6 +194,11 @@ function PreviewPageInner() {
     if (cached) {
       setMockupUrl(cached);
       setMockupError(false);
+      setMockupLoading(false);
+    } else if (preloadedRef.current.has(cacheKey)) {
+      // Preload already in flight — just wait for it
+      setMockupUrl(null);
+      setMockupLoading(true);
     } else {
       setMockupUrl(null);
       loadMockup(name);
@@ -203,11 +216,14 @@ function PreviewPageInner() {
     latestColorRef.current = newColor;
     setMockupError(false);
 
-    // Use preloaded mockup if available, otherwise generate on demand
+    // Use preloaded mockup if available, wait for in-flight preload, or generate on demand
     const cacheKey = `${newProductId}:${newColor}`;
     const cached = mockupCache.current.get(cacheKey);
     if (cached) {
       setMockupUrl(cached);
+    } else if (preloadedRef.current.has(cacheKey)) {
+      setMockupUrl(null);
+      setMockupLoading(true);
     } else {
       setMockupUrl(null);
       loadMockup(newColor, newProductId);
