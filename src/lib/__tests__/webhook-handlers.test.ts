@@ -128,6 +128,51 @@ describe("handleStripeCheckoutCompleted", () => {
     expect(result.action).toBe("paid");
   });
 
+  it("stores discount info and adjusts totalPrice when discount applied", async () => {
+    const mockDb = createMockDb({
+      orderFindFirst: vi.fn().mockResolvedValue({ ...pendingOrder, totalPrice: 40.0 }),
+      designFindFirst: vi.fn().mockResolvedValue(designWithImage),
+    });
+    const mockCreateOrder = vi.fn().mockResolvedValue({ id: "pf_456" });
+
+    const session = baseSession({
+      amountTotal: 2000, // $20.00 after 50% discount
+      discount: { code: "nico-codes", amount: 20.0 },
+    });
+
+    const result = await handleStripeCheckoutCompleted(session, {
+      db: mockDb,
+      createPrintfulOrder: mockCreateOrder,
+    });
+
+    expect(result.action).toBe("submitted");
+
+    // Verify order was updated with discount info and adjusted totalPrice
+    const setCall = mockDb._mocks.updateSet.mock.calls[0][0];
+    expect(setCall.totalPrice).toBe(20.0); // amountTotal / 100
+    expect(setCall.discountCode).toBe("nico-codes");
+    expect(setCall.discountAmount).toBe(20.0);
+  });
+
+  it("uses original totalPrice when no amountTotal present", async () => {
+    const mockDb = createMockDb({
+      orderFindFirst: vi.fn().mockResolvedValue({ ...pendingOrder, totalPrice: 40.0 }),
+      designFindFirst: vi.fn().mockResolvedValue(designWithImage),
+    });
+    const mockCreateOrder = vi.fn().mockResolvedValue({ id: "pf_789" });
+
+    const result = await handleStripeCheckoutCompleted(
+      baseSession({ amountTotal: null, discount: null }),
+      { db: mockDb, createPrintfulOrder: mockCreateOrder },
+    );
+
+    expect(result.action).toBe("submitted");
+    const setCall = mockDb._mocks.updateSet.mock.calls[0][0];
+    expect(setCall.totalPrice).toBe(40.0);
+    expect(setCall.discountCode).toBeNull();
+    expect(setCall.discountAmount).toBeNull();
+  });
+
   it("returns paid_printful_failed when Printful errors", async () => {
     const mockDb = createMockDb({
       orderFindFirst: vi.fn().mockResolvedValue(pendingOrder),

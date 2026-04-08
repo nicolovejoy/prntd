@@ -210,6 +210,31 @@ function PreviewPageInner() {
         ))}
       </div>
 
+      {/* Color picker — above the preview, hidden when product has only one color */}
+      {colors.length > 1 && (
+        <>
+          <div className="text-sm text-text-muted mb-2 h-5">
+            {hoveredColor ?? colorName}
+          </div>
+          <div className="flex flex-wrap justify-center gap-2 md:gap-3 max-w-xs md:max-w-none mb-4 md:mb-6">
+            {colors.map((c) => (
+              <button
+                key={c.name}
+                onClick={() => handleColorChange(c.name)}
+                onMouseEnter={() => setHoveredColor(c.name)}
+                onMouseLeave={() => setHoveredColor(null)}
+                className={`w-10 h-10 md:w-8 md:h-8 rounded-full border-2 transition-colors ${
+                  colorName === c.name
+                    ? "border-accent ring-2 ring-accent ring-offset-1 ring-offset-background"
+                    : "border-border"
+                }`}
+                style={{ backgroundColor: c.value }}
+              />
+            ))}
+          </div>
+        </>
+      )}
+
       {/* Mockup / Client-side preview */}
       <button
         type="button"
@@ -268,17 +293,6 @@ function PreviewPageInner() {
             className="w-full h-2 accent-accent"
           />
         </div>
-      )}
-
-      {/* Preview on product button */}
-      {!mockupLoading && !mockupUrl && designImageUrl && (
-        <Button
-          onClick={handlePreviewOnProduct}
-          variant="secondary"
-          className="mt-3"
-        >
-          Preview on {productName}
-        </Button>
       )}
 
       {/* Mockup error — show retry */}
@@ -360,41 +374,30 @@ function PreviewPageInner() {
         </div>
       )}
 
-      {/* Color picker — hidden when product has only one color */}
-      {colors.length > 1 && (
-        <>
-          <div className="text-sm text-text-muted mt-4 md:mt-6 mb-2 h-5">
-            {hoveredColor ?? colorName}
-          </div>
-          <div className="flex flex-wrap justify-center gap-2 md:gap-3 max-w-xs md:max-w-none">
-            {colors.map((c) => (
-              <button
-                key={c.name}
-                onClick={() => handleColorChange(c.name)}
-                onMouseEnter={() => setHoveredColor(c.name)}
-                onMouseLeave={() => setHoveredColor(null)}
-                className={`w-10 h-10 md:w-8 md:h-8 rounded-full border-2 transition-colors ${
-                  colorName === c.name
-                    ? "border-accent ring-2 ring-accent ring-offset-1 ring-offset-background"
-                    : "border-border"
-                }`}
-                style={{ backgroundColor: c.value }}
-              />
-            ))}
-          </div>
-        </>
-      )}
-
       {/* Actions */}
-      <div className="flex gap-4 mt-6 md:mt-8 w-full max-w-xs md:max-w-none md:w-auto">
-        <Link href={`/design?id=${designId}`} className="flex-1 md:flex-none">
-          <Button variant="secondary" className="w-full md:w-auto">
-            Refine design
+      <div className="flex flex-col items-center gap-3 mt-6 md:mt-8 w-full max-w-xs md:max-w-none md:w-auto">
+        <div className="flex gap-4 w-full md:w-auto">
+          {!mockupLoading && !mockupUrl && designImageUrl && (
+            <Button
+              onClick={handlePreviewOnProduct}
+              variant="secondary"
+              className="flex-1 md:flex-none"
+            >
+              Preview on {productName}
+            </Button>
+          )}
+          <Button onClick={handleApprove} className="flex-1 md:flex-none">
+            Order this {productName}
           </Button>
+        </div>
+        {!mockupUrl && !mockupLoading && (
+          <p className="text-xs text-text-muted text-center">
+            Preview takes about a minute — choose your options first
+          </p>
+        )}
+        <Link href={`/design?id=${designId}`} className="text-sm text-text-muted hover:text-foreground hover:underline">
+          Refine design
         </Link>
-        <Button onClick={handleApprove} className="flex-1 md:flex-none">
-          Order this {productName}
-        </Button>
       </div>
     </div>
   );
