@@ -12,7 +12,8 @@ import { uploadMockupImage } from "@/lib/r2";
 export async function generateMockup(
   designId: string,
   colorName: string,
-  productId: string = DEFAULT_PRODUCT_ID
+  productId: string = DEFAULT_PRODUCT_ID,
+  scale: number = 1.0
 ): Promise<{ mockupUrl: string }> {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) throw new Error("Unauthorized");
@@ -24,8 +25,12 @@ export async function generateMockup(
     throw new Error("Unauthorized");
   if (!found.currentImageUrl) throw new Error("No design image");
 
-  // Cache key includes product so different shirts don't collide
-  const cacheKey = `${productId}:${colorName}`;
+  // Clamp scale to valid range
+  const clampedScale = Math.max(0.3, Math.min(1.0, scale));
+  const scaleKey = Math.round(clampedScale * 100);
+
+  // Cache key includes product and scale so different combos don't collide
+  const cacheKey = `${productId}:${colorName}:${scaleKey}`;
   const cached = found.mockupUrls?.[cacheKey];
   if (cached) return { mockupUrl: cached };
 
@@ -34,12 +39,25 @@ export async function generateMockup(
   const variantId = product.variants[colorName]?.["M"];
   if (!variantId) throw new Error(`No variant for ${colorName} on ${product.name}`);
 
+  // Compute scaled position (centered within print area)
+  const base = product.mockupPosition;
+  const scaledWidth = Math.round(base.width * clampedScale);
+  const scaledHeight = Math.round(base.height * clampedScale);
+  const scaledPosition = {
+    area_width: base.area_width,
+    area_height: base.area_height,
+    width: scaledWidth,
+    height: scaledHeight,
+    top: Math.round((base.area_height - scaledHeight) / 2),
+    left: Math.round((base.area_width - scaledWidth) / 2),
+  };
+
   // Generate mockup via Printful
   const taskKey = await createMockupTask(
     product.printfulProductId,
     variantId,
     found.currentImageUrl,
-    product.mockupPosition
+    scaledPosition
   );
   const { mockupUrl: tempUrl } = await pollMockupTask(taskKey);
 

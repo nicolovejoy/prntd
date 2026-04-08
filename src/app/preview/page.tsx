@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getDesign, approveDesign } from "../design/actions";
 import { generateMockup } from "./actions";
@@ -42,16 +42,15 @@ function PreviewPageInner() {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [zoomed, setZoomed] = useState(false);
   const [panOrigin, setPanOrigin] = useState({ x: 50, y: 50 });
+  const [scale, setScale] = useState(1.0);
 
   const [loadingMessageIdx, setLoadingMessageIdx] = useState(0);
 
-  // Client-side cache: "productId:colorName" → mockup R2 URL
+  // Client-side cache: "productId:colorName:scale" → mockup R2 URL
   const mockupCache = useRef<Map<string, string>>(new Map());
   // Track the latest requested selection to discard stale responses
   const latestColorRef = useRef(colorName);
   const latestProductRef = useRef(productId);
-  // Track which preloads have been kicked off
-  const preloadedRef = useRef<Set<string>>(new Set());
 
   const colors = product?.colors ?? [];
 
@@ -75,103 +74,42 @@ function PreviewPageInner() {
     });
   }, [designId, router]);
 
-  // Generate or retrieve mockup when color or product changes
-  const loadMockup = useCallback(
-    async (color: string, forProductId: string = productId) => {
-      if (!designId) return;
+  // Generate mockup on demand (called by "Preview on product" button)
+  async function handlePreviewOnProduct() {
+    if (!designId) return;
 
-      latestColorRef.current = color;
-      const cacheKey = `${forProductId}:${color}`;
+    const scaleKey = Math.round(scale * 100);
+    const cacheKey = `${productId}:${colorName}:${scaleKey}`;
 
-      // Check client cache first
-      const cached = mockupCache.current.get(cacheKey);
-      if (cached) {
-        setMockupUrl(cached);
-        setMockupError(false);
-        return;
-      }
-
-      // Generate via server action
-      setMockupLoading(true);
+    // Check client cache first
+    const cached = mockupCache.current.get(cacheKey);
+    if (cached) {
+      setMockupUrl(cached);
       setMockupError(false);
-      try {
-        const result = await generateMockup(designId, color, forProductId);
-        // Only apply if this is still the color the user wants
-        if (latestColorRef.current === color) {
-          mockupCache.current.set(cacheKey, result.mockupUrl);
-          setMockupUrl(result.mockupUrl);
-        }
-      } catch (err) {
-        console.error("Mockup generation failed:", err);
-        if (latestColorRef.current === color) {
-          setMockupError(true);
-        }
-      } finally {
-        if (latestColorRef.current === color) {
-          setMockupLoading(false);
-        }
-      }
-    },
-    [designId, productId]
-  );
-
-  // Background preload all product/color combos (throttled, selected product first)
-  useEffect(() => {
-    if (!designId || loading || !designImageUrl) return;
-    let cancelled = false;
-
-    // Build preload queue: selected product first, then others
-    const queue: [string, string][] = [];
-    const selected = PRODUCTS.find((p) => p.id === productId);
-    const rest = PRODUCTS.filter((p) => p.id !== productId);
-    for (const p of selected ? [selected, ...rest] : PRODUCTS) {
-      for (const c of p.colors) {
-        const cacheKey = `${p.id}:${c.name}`;
-        if (mockupCache.current.has(cacheKey) || preloadedRef.current.has(cacheKey))
-          continue;
-        queue.push([p.id, c.name]);
-      }
+      return;
     }
 
-    // Run with concurrency limit of 3
-    const CONCURRENCY = 3;
-    let i = 0;
-
-    function runNext() {
-      if (cancelled || i >= queue.length) return;
-      const [pid, color] = queue[i++];
-      const cacheKey = `${pid}:${color}`;
-      preloadedRef.current.add(cacheKey);
-
-      generateMockup(designId!, color, pid)
-        .then((result) => {
-          mockupCache.current.set(cacheKey, result.mockupUrl);
-          if (
-            latestProductRef.current === pid &&
-            latestColorRef.current === color
-          ) {
-            setMockupUrl(result.mockupUrl);
-            setMockupLoading(false);
-            setMockupError(false);
-          }
-        })
-        .catch(() => {
-          if (
-            latestProductRef.current === pid &&
-            latestColorRef.current === color
-          ) {
-            setMockupError(true);
-            setMockupLoading(false);
-          }
-        })
-        .finally(() => runNext());
+    setMockupLoading(true);
+    setMockupError(false);
+    setMockupUrl(null);
+    try {
+      const result = await generateMockup(designId, colorName, productId, scale);
+      // Only apply if selections haven't changed
+      if (latestColorRef.current === colorName && latestProductRef.current === productId) {
+        mockupCache.current.set(cacheKey, result.mockupUrl);
+        setMockupUrl(result.mockupUrl);
+      }
+    } catch (err) {
+      console.error("Mockup generation failed:", err);
+      if (latestColorRef.current === colorName && latestProductRef.current === productId) {
+        setMockupError(true);
+      }
+    } finally {
+      if (latestColorRef.current === colorName && latestProductRef.current === productId) {
+        setMockupLoading(false);
+      }
     }
-
-    for (let j = 0; j < CONCURRENCY; j++) runNext();
-
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [designId, loading, designImageUrl]);
+  }
 
   // Rotate loading messages while mockup generates
   useEffect(() => {
@@ -188,21 +126,10 @@ function PreviewPageInner() {
   function handleColorChange(name: string) {
     setColorName(name);
     latestColorRef.current = name;
-
-    const cacheKey = `${productId}:${name}`;
-    const cached = mockupCache.current.get(cacheKey);
-    if (cached) {
-      setMockupUrl(cached);
-      setMockupError(false);
-      setMockupLoading(false);
-    } else if (preloadedRef.current.has(cacheKey)) {
-      // Preload already in flight — just wait for it
-      setMockupUrl(null);
-      setMockupLoading(true);
-    } else {
-      setMockupUrl(null);
-      loadMockup(name);
-    }
+    // Revert to client-side preview — user can hit "Preview on product" to render
+    setMockupUrl(null);
+    setMockupError(false);
+    setMockupLoading(false);
   }
 
   function handleProductChange(newProductId: string) {
@@ -214,20 +141,10 @@ function PreviewPageInner() {
     latestProductRef.current = newProductId;
     setColorName(newColor);
     latestColorRef.current = newColor;
+    // Revert to client-side preview
+    setMockupUrl(null);
     setMockupError(false);
-
-    // Use preloaded mockup if available, wait for in-flight preload, or generate on demand
-    const cacheKey = `${newProductId}:${newColor}`;
-    const cached = mockupCache.current.get(cacheKey);
-    if (cached) {
-      setMockupUrl(cached);
-    } else if (preloadedRef.current.has(cacheKey)) {
-      setMockupUrl(null);
-      setMockupLoading(true);
-    } else {
-      setMockupUrl(null);
-      loadMockup(newColor, newProductId);
-    }
+    setMockupLoading(false);
 
     router.replace(`/preview?id=${designId}&product=${newProductId}`, { scroll: false });
   }
@@ -279,12 +196,11 @@ function PreviewPageInner() {
           <button
             key={p.id}
             onClick={() => handleProductChange(p.id)}
-            disabled={mockupLoading}
             className={`flex-1 px-3 py-2 rounded-lg border-2 text-left transition-colors ${
               productId === p.id
                 ? "border-accent ring-2 ring-accent ring-offset-1 ring-offset-background"
                 : "border-border hover:border-text-muted"
-            } ${mockupLoading ? "opacity-50 cursor-not-allowed" : ""}`}
+            }`}
           >
             <div className="text-sm font-medium truncate">{p.name}</div>
             <div className="text-xs text-text-muted truncate hidden md:block">
@@ -294,7 +210,7 @@ function PreviewPageInner() {
         ))}
       </div>
 
-      {/* Mockup */}
+      {/* Mockup / Client-side preview */}
       <button
         type="button"
         onClick={() => mockupUrl && !mockupLoading && setLightboxOpen(true)}
@@ -311,24 +227,7 @@ function PreviewPageInner() {
           </div>
         )}
 
-        {!mockupLoading && mockupError && (
-          <div
-            className="w-full h-full flex items-center justify-center transition-colors"
-            style={{ backgroundColor: colorHex }}
-          >
-            <div className="w-40 h-40 md:w-48 md:h-48 flex items-center justify-center">
-              {designImageUrl && (
-                <img
-                  src={designImageUrl}
-                  alt="Your design"
-                  className="max-w-full max-h-full object-contain"
-                />
-              )}
-            </div>
-          </div>
-        )}
-
-        {!mockupLoading && !mockupError && mockupUrl && (
+        {!mockupLoading && mockupUrl && (
           <img
             src={mockupUrl}
             alt={`Your design on a ${colorName} ${productName}`}
@@ -336,23 +235,61 @@ function PreviewPageInner() {
           />
         )}
 
-        {!mockupLoading && !mockupError && !mockupUrl && (
+        {!mockupLoading && !mockupUrl && (
           <div
             className="w-full h-full flex items-center justify-center transition-colors"
             style={{ backgroundColor: colorHex }}
           >
-            <div className="w-40 h-40 md:w-48 md:h-48 flex items-center justify-center">
-              {designImageUrl && (
-                <img
-                  src={designImageUrl}
-                  alt="Your design"
-                  className="max-w-full max-h-full object-contain"
-                />
-              )}
-            </div>
+            {designImageUrl && (
+              <img
+                src={designImageUrl}
+                alt="Your design"
+                className="max-h-full object-contain transition-transform"
+                style={{ width: `${scale * 75}%` }}
+              />
+            )}
           </div>
         )}
       </button>
+
+      {/* Scale slider */}
+      {!mockupLoading && !mockupUrl && (
+        <div className="w-full max-w-xs mt-4">
+          <div className="flex items-center justify-between text-xs text-text-muted mb-1">
+            <span>Design size</span>
+            <span>{Math.round(scale * 100)}%</span>
+          </div>
+          <input
+            type="range"
+            min={30}
+            max={100}
+            value={Math.round(scale * 100)}
+            onChange={(e) => setScale(Number(e.target.value) / 100)}
+            className="w-full h-2 accent-accent"
+          />
+        </div>
+      )}
+
+      {/* Preview on product button */}
+      {!mockupLoading && !mockupUrl && designImageUrl && (
+        <Button
+          onClick={handlePreviewOnProduct}
+          variant="secondary"
+          className="mt-3"
+        >
+          Preview on {productName}
+        </Button>
+      )}
+
+      {/* Mockup error — show retry */}
+      {!mockupLoading && mockupError && (
+        <p className="text-sm text-red-400 mt-2">
+          Mockup failed.{" "}
+          <button onClick={handlePreviewOnProduct} className="underline hover:text-red-300">
+            Try again
+          </button>
+        </p>
+      )}
 
       {/* Fullscreen lightbox with zoom + pan */}
       {lightboxOpen && mockupUrl && (
@@ -436,12 +373,11 @@ function PreviewPageInner() {
                 onClick={() => handleColorChange(c.name)}
                 onMouseEnter={() => setHoveredColor(c.name)}
                 onMouseLeave={() => setHoveredColor(null)}
-                disabled={mockupLoading}
                 className={`w-10 h-10 md:w-8 md:h-8 rounded-full border-2 transition-colors ${
                   colorName === c.name
                     ? "border-accent ring-2 ring-accent ring-offset-1 ring-offset-background"
                     : "border-border"
-                } ${mockupLoading ? "opacity-50 cursor-not-allowed" : ""}`}
+                }`}
                 style={{ backgroundColor: c.value }}
               />
             ))}
