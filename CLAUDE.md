@@ -111,12 +111,14 @@ NEXT_PUBLIC_APP_URL     # e.g. https://prntd.org
 - ~~Multi-product plumbing~~ — productId wired through preview/order/checkout, colors/sizes/labels from product config, SHIRT_COLORS deleted
 - ~~Product catalog~~ — 3 products: Classic Tee (13 colors), Box Tee (5 colors), Clear iPhone Case (13 models)
 - ~~Product selector UI~~ — product picker cards on /preview, background preloads all mockups (throttled 3 concurrent), rotating loading messages, instant switching when cached
+- ~~Discount code plumbing~~ — allow_promotion_codes on checkout, webhook captures discountCode/discountAmount, ledger uses actual amount paid. "Launch Special" coupon (50% off) created in Stripe with nico-codes and atlas codes.
 
 ### Next Steps
 
-**Discount codes + promo**
-- Stripe promotion codes (start with "nico-codes" 25% off)
-- Code entry at checkout, splash banner on landing page
+**Discount codes + promo (remaining)**
+- Promo banner on landing page
+- Test end-to-end checkout with a promo code, verify webhook captures discount
+- Show discount info on admin order detail page and /orders
 
 **Design conversation persistence**
 - Design threads must stay accessible after ordering (not hidden/locked)

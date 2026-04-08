@@ -83,6 +83,8 @@ export const order = sqliteTable("order", {
   printfulCost: real("printful_cost"),
   tags: text("tags", { mode: "json" }).$type<string[]>(),
   classification: text("classification"),
+  discountCode: text("discount_code"),
+  discountAmount: real("discount_amount"),
   archivedAt: integer("archived_at", { mode: "timestamp" }),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
   updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),

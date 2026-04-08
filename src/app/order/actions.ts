@@ -64,6 +64,7 @@ export async function createCheckoutSession(params: {
   // Create Stripe checkout session
   const checkoutSession = await stripe.checkout.sessions.create({
     mode: "payment",
+    allow_promotion_codes: true,
     shipping_address_collection: {
       allowed_countries: ["US"],
     },

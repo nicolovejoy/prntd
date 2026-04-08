@@ -34,7 +34,9 @@ export async function POST(request: NextRequest) {
 
   if (event.type === "checkout.session.completed") {
     const session = event.data.object;
-    const fullSession = await stripe.checkout.sessions.retrieve(session.id);
+    const fullSession = await stripe.checkout.sessions.retrieve(session.id, {
+      expand: ["total_details.breakdown.discounts.discount.promotion_code"],
+    });
     const orderId = fullSession.metadata?.orderId;
     const designId = fullSession.metadata?.designId;
 
@@ -49,10 +51,26 @@ export async function POST(request: NextRequest) {
         ? fullSession.payment_intent
         : fullSession.payment_intent?.id ?? null;
 
+    // Extract discount info if a promotion code was applied
+    const discountEntry = fullSession.total_details?.breakdown?.discounts?.[0];
+    let discount: StripeSessionData["discount"] = null;
+    if (discountEntry && discountEntry.amount > 0) {
+      const promoCode = discountEntry.discount.promotion_code;
+      const code = typeof promoCode === "object" && promoCode !== null
+        ? promoCode.code
+        : null;
+      discount = {
+        code: code ?? (typeof discountEntry.discount.source.coupon === "object" && discountEntry.discount.source.coupon !== null ? discountEntry.discount.source.coupon.name ?? "unknown" : "unknown"),
+        amount: discountEntry.amount / 100,
+      };
+    }
+
     const sessionData: StripeSessionData = {
       id: fullSession.id,
       metadata: { orderId, designId },
       paymentIntentId,
+      amountTotal: fullSession.amount_total,
+      discount,
       shipping: shipping
         ? {
             name: shipping.name ?? "",

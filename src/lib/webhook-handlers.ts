@@ -20,6 +20,11 @@ export type StripeSessionData = {
   id: string;
   metadata: { orderId: string; designId: string };
   paymentIntentId: string | null;
+  amountTotal: number | null; // cents — actual amount charged after discounts
+  discount: {
+    code: string;
+    amount: number; // dollars — discount amount
+  } | null;
   shipping: {
     name: string;
     address1: string;
@@ -61,7 +66,12 @@ export async function handleStripeCheckoutCompleted(
 
   assertTransition(foundOrder.status, "paid");
 
-  // Mark as paid with shipping details
+  // If a discount was applied, update totalPrice to what was actually charged
+  const actualTotal = session.amountTotal != null
+    ? session.amountTotal / 100
+    : foundOrder.totalPrice;
+
+  // Mark as paid with shipping details + discount info
   await deps.db
     .update(orderTable)
     .set({
@@ -69,6 +79,9 @@ export async function handleStripeCheckoutCompleted(
       classification: "customer",
       stripeSessionId: session.id,
       stripePaymentIntentId: session.paymentIntentId,
+      totalPrice: actualTotal,
+      discountCode: session.discount?.code ?? null,
+      discountAmount: session.discount?.amount ?? null,
       shippingName: session.shipping?.name ?? "",
       shippingAddress1: session.shipping?.address1 ?? "",
       shippingAddress2: session.shipping?.address2 ?? "",
@@ -80,11 +93,11 @@ export async function handleStripeCheckoutCompleted(
     })
     .where(eq(orderTable.id, orderId));
 
-  // Record sale + Stripe fee in ledger
+  // Record sale + Stripe fee in ledger (using actual amount charged)
   await recordSale(
     orderId,
-    foundOrder.totalPrice,
-    `Order ${orderId.slice(0, 8)} — ${foundOrder.color} ${foundOrder.size} ${foundOrder.quality}`,
+    actualTotal,
+    `Order ${orderId.slice(0, 8)} — ${foundOrder.color} ${foundOrder.size} ${foundOrder.quality}${session.discount ? ` (${session.discount.code} -$${session.discount.amount.toFixed(2)})` : ""}`,
     deps.db
   );
 

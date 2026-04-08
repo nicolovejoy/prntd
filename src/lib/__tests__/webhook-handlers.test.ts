@@ -42,6 +42,8 @@ function baseSession(overrides?: Partial<StripeSessionData>): StripeSessionData 
     id: "cs_test_123",
     metadata: { orderId: "order-1", designId: "design-1" },
     paymentIntentId: "pi_123",
+    amountTotal: null,
+    discount: null,
     shipping: {
       name: "Test User",
       address1: "123 Main St",
