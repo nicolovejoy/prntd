@@ -112,8 +112,13 @@ NEXT_PUBLIC_APP_URL     # e.g. https://prntd.org
 - ~~Product catalog~~ — 3 products: Classic Tee (13 colors), Box Tee (5 colors), Clear iPhone Case (13 models)
 - ~~Product selector UI~~ — product picker cards on /preview, background preloads all mockups (throttled 3 concurrent), rotating loading messages, instant switching when cached
 - ~~Discount code plumbing~~ — allow_promotion_codes on checkout, webhook captures discountCode/discountAmount, ledger uses actual amount paid. "Launch Special" coupon (50% off) created in Stripe with nico-codes and atlas codes.
+- ~~Preview page overhaul~~ — deferred mockup rendering (no eager preload), image scale slider, product silhouettes with print area overlay, color picker moved above preview, iPhone case mockup fix
+- ~~Test coverage expansion~~ — 84 → 121 tests: ledger, chat-utils, products, AI prompt parsing, discount webhook path
 
 ### Next Steps
+
+**Remove "quality" (standard/premium) selector**
+- Cruft — premium upcharge ($5) never changes the Printful order. Remove from schema, pricing, order page, checkout action, webhook descriptions, tests.
 
 **Discount codes + promo (remaining)**
 - Promo banner on landing page
@@ -124,6 +129,10 @@ NEXT_PUBLIC_APP_URL     # e.g. https://prntd.org
 - Design threads must stay accessible after ordering (not hidden/locked)
 - Navigation between past purchases ↔ design conversations
 - Iteration UX within a thread needs improvement
+
+**Mobile flow rethink**
+- Design→preview→order feels fragmented on phones — too many page jumps
+- Consider collapsing preview into design page, or a stepped flow
 
 **Product expansion**
 - Women's tee (3rd apparel product), posters, canvas prints, stickers, hoodies
