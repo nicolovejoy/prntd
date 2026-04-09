@@ -97,7 +97,7 @@ export async function handleStripeCheckoutCompleted(
   await recordSale(
     orderId,
     actualTotal,
-    `Order ${orderId.slice(0, 8)} — ${foundOrder.color} ${foundOrder.size} ${foundOrder.quality}${session.discount ? ` (${session.discount.code} -$${session.discount.amount.toFixed(2)})` : ""}`,
+    `Order ${orderId.slice(0, 8)} — ${foundOrder.color} ${foundOrder.size}${session.discount ? ` (${session.discount.code} -$${session.discount.amount.toFixed(2)})` : ""}`,
     deps.db
   );
 

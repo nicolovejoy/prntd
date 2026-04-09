@@ -29,7 +29,6 @@ export type Product = {
   printfulProductId: number;
   /** Base cost by size. Use "*" as default for all sizes. */
   baseCost: Record<string, number>;
-  premiumUpcharge: number;
   sizes: string[];
   /** Label for the size selector. Defaults to "Size" if omitted. */
   sizeLabel?: string;
@@ -48,7 +47,6 @@ export const PRODUCTS: Product[] = [
     type: "shirt",
     printfulProductId: 71,
     baseCost: { "*": 12.95 },
-    premiumUpcharge: 5.0,
     sizes: ["S", "M", "L", "XL", "2XL"],
     colors: [
       { name: "White", value: "#ffffff" },
@@ -100,7 +98,6 @@ export const PRODUCTS: Product[] = [
       S: 17.45, M: 17.45, L: 17.45, XL: 17.45,
       "2XL": 19.45, "3XL": 21.45, "4XL": 23.45,
     },
-    premiumUpcharge: 5.0,
     sizes: ["S", "M", "L", "XL", "2XL", "3XL", "4XL"],
     colors: [
       // Placeholder hex values — will refine after variant discovery
@@ -139,7 +136,6 @@ export const PRODUCTS: Product[] = [
       "iPhone 14": 10.95, "iPhone 14 Plus": 10.95,
       "iPhone 14 Pro": 10.95, "iPhone 14 Pro Max": 10.95,
     },
-    premiumUpcharge: 0,
     sizes: [
       "iPhone 17 Pro Max", "iPhone 17 Pro", "iPhone 17 Air", "iPhone 17",
       "iPhone 16 Pro Max", "iPhone 16 Pro", "iPhone 16 Plus", "iPhone 16",

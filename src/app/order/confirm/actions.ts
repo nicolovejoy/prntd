@@ -16,7 +16,6 @@ export async function getOrderBySession(stripeSessionId: string) {
     status: found.status,
     size: found.size,
     color: found.color,
-    quality: found.quality,
     totalPrice: found.totalPrice,
   };
 }

@@ -337,8 +337,6 @@ export default function AdminPage() {
                     </td>
                     <td className="py-3 pr-4 text-xs">
                       {order.size} / {order.color}
-                      <br />
-                      <span className="text-gray-400">{order.quality}</span>
                     </td>
                     <td className="py-3 pr-4 text-xs">
                       {order.shippingName && (

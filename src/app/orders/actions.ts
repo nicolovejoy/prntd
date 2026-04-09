@@ -19,7 +19,6 @@ export async function getUserOrders() {
       status: orderTable.status,
       size: orderTable.size,
       color: orderTable.color,
-      quality: orderTable.quality,
       totalPrice: orderTable.totalPrice,
       trackingNumber: orderTable.trackingNumber,
       trackingUrl: orderTable.trackingUrl,

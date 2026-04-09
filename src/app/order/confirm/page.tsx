@@ -23,7 +23,6 @@ function ConfirmPageInner() {
     status: string;
     size: string;
     color: string;
-    quality: string;
     totalPrice: number;
   } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -83,10 +82,6 @@ function ConfirmPageInner() {
           <div className="flex justify-between">
             <span className="text-text-muted">Color</span>
             <span>{order.color}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-text-muted">Quality</span>
-            <span className="capitalize">{order.quality}</span>
           </div>
           <div className="flex justify-between font-bold border-t border-border pt-2">
             <span>Total paid</span>

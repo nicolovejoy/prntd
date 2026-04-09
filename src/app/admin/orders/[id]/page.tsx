@@ -174,7 +174,6 @@ export default function OrderDetailPage() {
                 <p>
                   {order.size} / {order.color}
                 </p>
-                <p className="text-text-muted">{order.quality}</p>
                 {order.printfulOrderId && (
                   <p className="text-xs text-text-faint mt-1">
                     Printful: {order.printfulOrderId}

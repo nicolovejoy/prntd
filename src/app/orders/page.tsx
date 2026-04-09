@@ -137,7 +137,6 @@ export default function OrdersPage() {
 
                     <p className="text-sm text-text-muted">
                       {order.size} / {order.color}
-                      <span className="text-text-faint"> · {order.quality}</span>
                     </p>
 
                     <div className="flex items-center justify-between mt-1">

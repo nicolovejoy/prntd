@@ -4,6 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 @AGENTS.md
 
+## Design Principle
+
+Phone-first. When prioritizing between features, the one that improves the mobile experience wins. Desktop is secondary.
+
 ## Writing Style
 
 - No hyperbole, no "core insight", no "the X IS the Y" declarations
@@ -120,11 +124,7 @@ NEXT_PUBLIC_APP_URL     # e.g. https://prntd.org
 - ~~Discount code plumbing~~ — allow_promotion_codes on checkout, webhook captures discountCode/discountAmount, ledger uses actual amount paid. "Launch Special" coupon (50% off) created in Stripe with nico-codes and atlas codes.
 - ~~Preview page overhaul~~ — deferred mockup rendering (no eager preload), image scale slider, product silhouettes with print area overlay, color picker moved above preview, iPhone case mockup fix
 - ~~Test coverage expansion~~ — 84 → 121 tests: ledger, chat-utils, products, AI prompt parsing, discount webhook path
-
-### Next Steps
-
-**Remove "quality" (standard/premium) selector**
-- Cruft — premium upcharge ($5) never changes the Printful order. Remove from schema, pricing, order page, checkout action, webhook descriptions, tests.
+- ~~Remove quality selector~~ — stripped standard/premium from pricing, order page, checkout, webhooks, email, admin, tests. Schema field kept nullable for historical orders.
 
 **Discount codes + promo (remaining)**
 - Promo banner on landing page

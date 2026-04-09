@@ -11,7 +11,6 @@ import { getProduct, DEFAULT_PRODUCT_ID } from "@/lib/products";
 
 export async function calculatePrice(
   designId: string,
-  quality: "standard" | "premium",
   productId?: string,
   size?: string
 ) {
@@ -21,14 +20,13 @@ export async function calculatePrice(
 
   if (!found) throw new Error("Design not found");
 
-  return computePrice(quality, found.generationCost, productId, size);
+  return computePrice(found.generationCost, productId, size);
 }
 
 export async function createCheckoutSession(params: {
   designId: string;
   size: string;
   color: string;
-  quality: "standard" | "premium";
   productId?: string;
 }) {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -43,7 +41,7 @@ export async function createCheckoutSession(params: {
   }
 
   const resolvedProductId = params.productId ?? DEFAULT_PRODUCT_ID;
-  const pricing = await calculatePrice(params.designId, params.quality, resolvedProductId, params.size);
+  const pricing = await calculatePrice(params.designId, resolvedProductId, params.size);
   const product = getProduct(resolvedProductId);
   const productName = product?.name ?? "Custom Product";
 
@@ -56,7 +54,6 @@ export async function createCheckoutSession(params: {
       productId: resolvedProductId,
       size: params.size,
       color: params.color,
-      quality: params.quality,
       totalPrice: pricing.total,
     })
     .returning();
@@ -73,7 +70,7 @@ export async function createCheckoutSession(params: {
         price_data: {
           currency: "usd",
           product_data: {
-            name: `PRNTD ${productName} (${params.quality})`,
+            name: `PRNTD ${productName}`,
             description: `${params.color} / ${params.size}`,
             images: found.currentImageUrl ? [found.currentImageUrl] : [],
           },
@@ -87,7 +84,7 @@ export async function createCheckoutSession(params: {
       designId: params.designId,
     },
     success_url: `${process.env.NEXT_PUBLIC_APP_URL}/order/confirm?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/order?id=${params.designId}&size=${encodeURIComponent(params.size)}&color=${encodeURIComponent(params.color)}&quality=${params.quality}&product=${resolvedProductId}`,
+    cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/order?id=${params.designId}&size=${encodeURIComponent(params.size)}&color=${encodeURIComponent(params.color)}&product=${resolvedProductId}`,
   });
 
   // Store Stripe session ID

@@ -29,7 +29,6 @@ export async function getOrders() {
       status: orderTable.status,
       size: orderTable.size,
       color: orderTable.color,
-      quality: orderTable.quality,
       totalPrice: orderTable.totalPrice,
       printfulCost: orderTable.printfulCost,
       printfulOrderId: orderTable.printfulOrderId,

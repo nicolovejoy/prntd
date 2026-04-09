@@ -95,7 +95,7 @@ export async function POST(request: NextRequest) {
       if (result.action === "submitted" || result.action === "paid" || result.action === "paid_printful_failed") {
         try {
           const orderWithUser = await db
-            .select({ email: userTable.email, size: orderTable.size, color: orderTable.color, quality: orderTable.quality, totalPrice: orderTable.totalPrice })
+            .select({ email: userTable.email, size: orderTable.size, color: orderTable.color, totalPrice: orderTable.totalPrice })
             .from(orderTable)
             .innerJoin(userTable, eq(orderTable.userId, userTable.id))
             .where(eq(orderTable.id, orderId))
@@ -107,7 +107,6 @@ export async function POST(request: NextRequest) {
               orderId,
               size: orderWithUser.size,
               color: orderWithUser.color,
-              quality: orderWithUser.quality,
               total: orderWithUser.totalPrice,
             });
             console.log(`Order ${orderId}: confirmation email sent to ${orderWithUser.email}`);

@@ -16,11 +16,6 @@ export default function OrderPage() {
   );
 }
 
-const QUALITIES: { value: "standard" | "premium"; label: string }[] = [
-  { value: "standard", label: "Standard" },
-  { value: "premium", label: "Premium" },
-];
-
 function OrderPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -37,9 +32,6 @@ function OrderPageInner() {
   const [mockupUrls, setMockupUrls] = useState<Record<string, string> | null>(null);
   const [size, setSize] = useState(searchParams.get("size") ?? sizes[1] ?? sizes[0] ?? "M");
   const [color, setColor] = useState(searchParams.get("color") ?? colors[0]?.name ?? "White");
-  const [quality, setQuality] = useState<"standard" | "premium">(
-    (searchParams.get("quality") as "standard" | "premium") ?? "standard"
-  );
   const [pricing, setPricing] = useState<{
     baseCost: number;
     generationCost: number;
@@ -60,19 +52,18 @@ function OrderPageInner() {
 
   useEffect(() => {
     if (!designId) return;
-    calculatePrice(designId, quality, productId, size).then(setPricing);
-  }, [designId, quality, productId, size]);
+    calculatePrice(designId, productId, size).then(setPricing);
+  }, [designId, productId, size]);
 
   // Sync selections to URL so they survive Stripe cancel → back
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     params.set("size", size);
     params.set("color", color);
-    params.set("quality", quality);
     params.set("product", productId);
     const newUrl = `${window.location.pathname}?${params.toString()}`;
     window.history.replaceState(null, "", newUrl);
-  }, [size, color, quality, productId]);
+  }, [size, color, productId]);
 
   async function handleCheckout() {
     if (!designId) return;
@@ -82,7 +73,6 @@ function OrderPageInner() {
         designId,
         size,
         color,
-        quality,
         productId,
       });
       if (url) window.location.href = url;
@@ -187,32 +177,11 @@ function OrderPageInner() {
             </div>
           )}
 
-          {product?.premiumUpcharge ? (
-            <div>
-              <label className="block text-sm font-medium mb-2">Quality</label>
-              <div className="flex gap-2">
-                {QUALITIES.map((q) => (
-                  <button
-                    key={q.value}
-                    onClick={() => setQuality(q.value)}
-                    className={`flex-1 md:flex-none px-3 py-2.5 md:py-1.5 border-2 rounded-md text-sm transition-colors ${
-                      quality === q.value
-                        ? "border-accent bg-accent text-accent-fg font-medium"
-                        : "border-border text-text-muted hover:border-border-hover"
-                    }`}
-                  >
-                    {q.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
-
           {/* Pricing */}
           {pricing && (
             <div className="border-t border-border pt-4 space-y-2 text-sm">
               <div className="flex justify-between">
-                <span className="text-text-muted">{productName} ({quality})</span>
+                <span className="text-text-muted">{productName}</span>
                 <span>${pricing.baseCost.toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
