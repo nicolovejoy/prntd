@@ -8,7 +8,7 @@ import {
   handleStripeCheckoutCompleted,
   type StripeSessionData,
 } from "@/lib/webhook-handlers";
-import { sendOrderConfirmation } from "@/lib/email";
+import { sendOrderConfirmation, sendOwnerOrderAlert } from "@/lib/email";
 
 export async function POST(request: NextRequest) {
   const body = await request.text();
@@ -110,6 +110,16 @@ export async function POST(request: NextRequest) {
               total: orderWithUser.totalPrice,
             });
             console.log(`Order ${orderId}: confirmation email sent to ${orderWithUser.email}`);
+
+            // Notify owner
+            await sendOwnerOrderAlert({
+              orderId,
+              customerEmail: orderWithUser.email,
+              size: orderWithUser.size,
+              color: orderWithUser.color,
+              total: orderWithUser.totalPrice,
+              discountCode: discount?.code,
+            });
           }
         } catch (emailErr) {
           console.error(`Order ${orderId}: failed to send confirmation email:`, emailErr);

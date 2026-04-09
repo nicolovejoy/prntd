@@ -7,6 +7,14 @@ export default function Home() {
     <div className="min-h-screen flex flex-col">
       <HomeHero getRecentDesigns={getUserDesigns} />
 
+      <section className="py-4 px-4 bg-accent/10 border-y border-accent/20 text-center">
+        <p className="text-sm">
+          <span className="font-medium">50% off</span> your order — use code{" "}
+          <code className="px-1.5 py-0.5 bg-accent/20 rounded text-accent font-mono text-xs">nico-codes</code>{" "}
+          at checkout
+        </p>
+      </section>
+
       <section className="py-16 px-4 border-t border-border">
         <div className="max-w-4xl mx-auto">
           <h2 className="text-2xl font-bold text-center mb-12">How it works</h2>

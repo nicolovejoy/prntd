@@ -53,6 +53,39 @@ export async function sendOrderConfirmation(params: {
   });
 }
 
+export async function sendOwnerOrderAlert(params: {
+  orderId: string;
+  customerEmail: string;
+  size: string;
+  color: string;
+  total: number;
+  discountCode?: string | null;
+}) {
+  const shortId = params.orderId.slice(0, 8);
+  const discountLine = params.discountCode
+    ? `<tr><td style="padding: 4px 0; color: #888;">Discount</td><td style="padding: 4px 0; text-align: right;">${params.discountCode}</td></tr>`
+    : "";
+
+  await resend.emails.send({
+    from: FROM,
+    to: process.env.OWNER_EMAIL ?? "nico@prntd.org",
+    subject: `New order ${shortId} — $${params.total.toFixed(2)}`,
+    html: `
+      <div style="font-family: system-ui, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+        <h2 style="margin: 0 0 16px;">New order</h2>
+        <table style="width: 100%; border-collapse: collapse;">
+          <tr><td style="padding: 4px 0; color: #888;">Order</td><td style="padding: 4px 0; text-align: right; font-family: monospace;">${shortId}</td></tr>
+          <tr><td style="padding: 4px 0; color: #888;">Customer</td><td style="padding: 4px 0; text-align: right;">${params.customerEmail}</td></tr>
+          <tr><td style="padding: 4px 0; color: #888;">Product</td><td style="padding: 4px 0; text-align: right;">${params.color} / ${params.size}</td></tr>
+          ${discountLine}
+          <tr style="border-top: 1px solid #eee;"><td style="padding: 8px 0; font-weight: 600;">Total</td><td style="padding: 8px 0; text-align: right; font-weight: 600;">$${params.total.toFixed(2)}</td></tr>
+        </table>
+        <p style="margin-top: 16px;"><a href="https://prntd.org/admin/orders/${params.orderId}" style="color: #555;">View in admin</a></p>
+      </div>
+    `,
+  });
+}
+
 export async function sendShippingNotification(params: {
   to: string;
   orderId: string;
