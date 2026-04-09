@@ -4,6 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 @AGENTS.md
 
+## Writing Style
+
+- No hyperbole, no "core insight", no "the X IS the Y" declarations
+- State things plainly. Present options and tradeoffs, don't evangelize
+- Docs and comments should describe what something does and why, not sell it
+
 ## Project
 
 PRNTD — AI-powered t-shirt designer. Users chat to describe a design, Flux generates it, users iterate, then order via Printful. Live at prntd.org.
