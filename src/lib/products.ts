@@ -25,6 +25,7 @@ export type Product = {
   id: string;
   name: string;
   description: string;
+  type: "shirt" | "phone-case";
   printfulProductId: number;
   /** Base cost by size. Use "*" as default for all sizes. */
   baseCost: Record<string, number>;
@@ -35,6 +36,8 @@ export type Product = {
   colors: ProductColor[];
   variants: Record<string, Record<string, number>>; // color → size → variantId
   mockupPosition: MockupPosition;
+  /** Physical print area dimensions in inches, for display. */
+  printArea: { width: number; height: number };
 };
 
 export const PRODUCTS: Product[] = [
@@ -42,6 +45,7 @@ export const PRODUCTS: Product[] = [
     id: "bella-canvas-3001",
     name: "Classic Tee",
     description: "Unisex classic fit",
+    type: "shirt",
     printfulProductId: 71,
     baseCost: { "*": 12.95 },
     premiumUpcharge: 5.0,
@@ -84,11 +88,13 @@ export const PRODUCTS: Product[] = [
       top: 300,
       left: 0,
     },
+    printArea: { width: 12, height: 16 },
   },
   {
     id: "cotton-heritage-mc1087",
     name: "Box Tee",
     description: "Oversized box fit, drop shoulder",
+    type: "shirt",
     printfulProductId: 917,
     baseCost: {
       S: 17.45, M: 17.45, L: 17.45, XL: 17.45,
@@ -119,11 +125,13 @@ export const PRODUCTS: Product[] = [
       top: 300,
       left: 0,
     },
+    printArea: { width: 12, height: 16 },
   },
   {
     id: "clear-case-iphone",
     name: "Clear iPhone Case",
     description: "Clear snap-on case, glossy finish",
+    type: "phone-case",
     printfulProductId: 181,
     sizeLabel: "Model",
     baseCost: {
@@ -157,6 +165,7 @@ export const PRODUCTS: Product[] = [
       top: 0,
       left: 0,
     },
+    printArea: { width: 2.5, height: 5.2 },
   },
 ];
 

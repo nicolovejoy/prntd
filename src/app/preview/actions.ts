@@ -34,9 +34,10 @@ export async function generateMockup(
   const cached = found.mockupUrls?.[cacheKey];
   if (cached) return { mockupUrl: cached };
 
-  // Look up product and variant
+  // Look up product and variant — use "M" for apparel, first available for other products
   const product = getProductOrThrow(productId);
-  const variantId = product.variants[colorName]?.["M"];
+  const colorVariants = product.variants[colorName];
+  const variantId = colorVariants?.["M"] ?? (colorVariants ? Object.values(colorVariants)[0] : undefined);
   if (!variantId) throw new Error(`No variant for ${colorName} on ${product.name}`);
 
   // Compute scaled position (centered within print area)

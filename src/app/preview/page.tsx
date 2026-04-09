@@ -7,6 +7,7 @@ import { generateMockup } from "./actions";
 import Link from "next/link";
 import { Button } from "@/components/ui";
 import { getProduct, DEFAULT_PRODUCT_ID, PRODUCTS } from "@/lib/products";
+import { ProductSilhouette } from "./product-silhouette";
 
 const LOADING_MESSAGES = [
   "Rendering your design\u2026",
@@ -261,18 +262,14 @@ function PreviewPageInner() {
         )}
 
         {!mockupLoading && !mockupUrl && (
-          <div
-            className="w-full h-full flex items-center justify-center transition-colors"
-            style={{ backgroundColor: colorHex }}
-          >
-            {designImageUrl && (
-              <img
-                src={designImageUrl}
-                alt="Your design"
-                className="max-h-full object-contain transition-transform"
-                style={{ width: `${scale * 75}%` }}
-              />
-            )}
+          <div className="w-full h-full p-2">
+            <ProductSilhouette
+              productType={product?.type ?? "shirt"}
+              color={colorHex}
+              designImageUrl={designImageUrl}
+              scale={scale}
+              printArea={product?.printArea ?? { width: 12, height: 16 }}
+            />
           </div>
         )}
       </button>
