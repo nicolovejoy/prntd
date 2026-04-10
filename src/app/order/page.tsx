@@ -182,11 +182,11 @@ function OrderPageInner() {
             <div className="border-t border-border pt-4 space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-text-muted">{productName}</span>
-                <span>${pricing.baseCost.toFixed(2)}</span>
+                <span>${pricing.total.toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-text-muted">Design generation</span>
-                <span>${pricing.generationCost.toFixed(2)}</span>
+                <span className="text-text-muted">Shipping</span>
+                <span className="text-text-muted">Free</span>
               </div>
               <div className="flex justify-between font-bold text-base border-t border-border pt-2">
                 <span>Total</span>
