@@ -125,11 +125,18 @@ NEXT_PUBLIC_APP_URL     # e.g. https://prntd.org
 - ~~Preview page overhaul~~ — deferred mockup rendering (no eager preload), image scale slider, product silhouettes with print area overlay, color picker moved above preview, iPhone case mockup fix
 - ~~Test coverage expansion~~ — 84 → 121 tests: ledger, chat-utils, products, AI prompt parsing, discount webhook path
 - ~~Remove quality selector~~ — stripped standard/premium from pricing, order page, checkout, webhooks, email, admin, tests. Schema field kept nullable for historical orders.
+- ~~Admin Recover action for stuck pending orders~~ — replays Stripe webhook flow via shared `handleStripeCheckoutCompleted`; extracted `sendPostOrderEmails` helper; structured `{ok, reason}` response so admin alerts show actual failure reason (e.g., "Stripe session is not paid"). 14 new TDD tests.
+- ~~Drop generation cost from customer-facing price~~ — baseCost × 1.5 only; generationCost still tracked on design row for internal use. Fixes order page breakdown where line items didn't sum to total.
+- ~~Admin list shows time to the minute~~ — easier Stripe cross-reference.
 
 **Discount codes + promo (remaining)**
-- Promo banner on landing page
-- Test end-to-end checkout with a promo code, verify webhook captures discount
+- Test end-to-end checkout with a promo code on local dev + Stripe test mode (see validation checklist in memory)
 - Show discount info on admin order detail page and /orders
+- Decide whether to charge shipping as a separate line so percentage promo codes don't eat margin to zero (currently `shipping_options` not set, shipping is baked into COGS; 50% off launches at structural loss)
+
+**Local dev testing setup**
+- Add `PRINTFUL_DRY_RUN` env flag to `src/lib/printful.ts` so local test-mode checkouts don't place real Printful orders
+- Document the full local dev + Stripe test mode workflow (npm run dev, stripe listen, test cards)
 
 **Design conversation persistence**
 - Design threads must stay accessible after ordering (not hidden/locked)
