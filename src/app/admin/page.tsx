@@ -398,9 +398,12 @@ export default function AdminPage() {
                     <td className="py-3 pr-4 font-mono text-xs text-text-muted">
                       {order.printfulOrderId ?? "—"}
                     </td>
-                    <td className="py-3 pr-4 text-xs text-gray-400">
+                    <td className="py-3 pr-4 text-xs text-gray-400 whitespace-nowrap">
                       {order.createdAt
-                        ? new Date(order.createdAt).toLocaleDateString()
+                        ? new Date(order.createdAt).toLocaleString(undefined, {
+                            dateStyle: "short",
+                            timeStyle: "short",
+                          })
                         : "—"}
                     </td>
                     <td className="py-3 text-xs space-x-2">
