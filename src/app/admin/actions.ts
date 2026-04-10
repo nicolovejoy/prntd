@@ -124,99 +124,111 @@ export async function retryPrintfulSubmission(orderId: string) {
   return { printfulOrderId: printfulOrder.id };
 }
 
-export async function recoverPendingOrder(orderId: string) {
+export type RecoverPendingOrderResult =
+  | { ok: true; action: "skipped" | "paid" | "submitted" | "paid_printful_failed" }
+  | { ok: false; reason: string };
+
+export async function recoverPendingOrder(
+  orderId: string
+): Promise<RecoverPendingOrderResult> {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session || session.user.email !== ADMIN_EMAIL) {
     throw new Error("Unauthorized");
   }
 
-  const result = await recoverPendingOrderCore(orderId, {
-    loadOrder: async (id) => {
-      const found = await db.query.order.findFirst({
-        where: eq(orderTable.id, id),
-        columns: { id: true, status: true, stripeSessionId: true },
-      });
-      return found ?? null;
-    },
+  try {
+    const result = await recoverPendingOrderCore(orderId, {
+      loadOrder: async (id) => {
+        const found = await db.query.order.findFirst({
+          where: eq(orderTable.id, id),
+          columns: { id: true, status: true, stripeSessionId: true },
+        });
+        return found ?? null;
+      },
 
-    fetchSessionData: async (stripeSessionId) => {
-      const fullSession = await stripe.checkout.sessions.retrieve(stripeSessionId, {
-        expand: ["total_details.breakdown.discounts.discount"],
-      });
+      fetchSessionData: async (stripeSessionId) => {
+        const fullSession = await stripe.checkout.sessions.retrieve(stripeSessionId, {
+          expand: ["total_details.breakdown.discounts.discount"],
+        });
 
-      const orderIdMeta = fullSession.metadata?.orderId;
-      const designIdMeta = fullSession.metadata?.designId;
-      if (!orderIdMeta || !designIdMeta) {
-        throw new Error(
-          `Stripe session ${stripeSessionId} missing orderId/designId metadata`
-        );
-      }
-
-      const shipping = fullSession.collected_information?.shipping_details;
-      const paymentIntentId =
-        typeof fullSession.payment_intent === "string"
-          ? fullSession.payment_intent
-          : fullSession.payment_intent?.id ?? null;
-
-      // Discount info — same parsing as the live webhook route
-      const discountEntry = fullSession.total_details?.breakdown?.discounts?.[0];
-      let discount: StripeSessionData["discount"] = null;
-      if (discountEntry && discountEntry.amount > 0) {
-        const promoCodeId = discountEntry.discount.promotion_code;
-        let code = "unknown";
-        if (typeof promoCodeId === "string") {
-          try {
-            const promoCode = await stripe.promotionCodes.retrieve(promoCodeId);
-            code = promoCode.code ?? "unknown";
-          } catch (err) {
-            console.error("Failed to retrieve promotion code during recovery:", err);
-          }
+        const orderIdMeta = fullSession.metadata?.orderId;
+        const designIdMeta = fullSession.metadata?.designId;
+        if (!orderIdMeta || !designIdMeta) {
+          throw new Error(
+            `Stripe session ${stripeSessionId} missing orderId/designId metadata`
+          );
         }
-        discount = {
-          code,
-          amount: discountEntry.amount / 100,
-        };
-      }
 
-      const sessionData: StripeSessionData = {
-        id: fullSession.id,
-        metadata: { orderId: orderIdMeta, designId: designIdMeta },
-        paymentIntentId,
-        amountTotal: fullSession.amount_total,
-        discount,
-        shipping: shipping
-          ? {
-              name: shipping.name ?? "",
-              address1: shipping.address?.line1 ?? "",
-              address2: shipping.address?.line2 ?? "",
-              city: shipping.address?.city ?? "",
-              state: shipping.address?.state ?? "",
-              zip: shipping.address?.postal_code ?? "",
-              country: shipping.address?.country ?? "US",
+        const shipping = fullSession.collected_information?.shipping_details;
+        const paymentIntentId =
+          typeof fullSession.payment_intent === "string"
+            ? fullSession.payment_intent
+            : fullSession.payment_intent?.id ?? null;
+
+        // Discount info — same parsing as the live webhook route
+        const discountEntry = fullSession.total_details?.breakdown?.discounts?.[0];
+        let discount: StripeSessionData["discount"] = null;
+        if (discountEntry && discountEntry.amount > 0) {
+          const promoCodeId = discountEntry.discount.promotion_code;
+          let code = "unknown";
+          if (typeof promoCodeId === "string") {
+            try {
+              const promoCode = await stripe.promotionCodes.retrieve(promoCodeId);
+              code = promoCode.code ?? "unknown";
+            } catch (err) {
+              console.error("Failed to retrieve promotion code during recovery:", err);
             }
-          : null,
-      };
+          }
+          discount = {
+            code,
+            amount: discountEntry.amount / 100,
+          };
+        }
 
-      return {
-        paymentStatus: fullSession.payment_status,
-        sessionData,
-      };
-    },
+        const sessionData: StripeSessionData = {
+          id: fullSession.id,
+          metadata: { orderId: orderIdMeta, designId: designIdMeta },
+          paymentIntentId,
+          amountTotal: fullSession.amount_total,
+          discount,
+          shipping: shipping
+            ? {
+                name: shipping.name ?? "",
+                address1: shipping.address?.line1 ?? "",
+                address2: shipping.address?.line2 ?? "",
+                city: shipping.address?.city ?? "",
+                state: shipping.address?.state ?? "",
+                zip: shipping.address?.postal_code ?? "",
+                country: shipping.address?.country ?? "US",
+              }
+            : null,
+        };
 
-    runCheckoutHandler: (sessionData) =>
-      handleStripeCheckoutCompleted(sessionData, {
-        db,
-        createPrintfulOrder: createOrder,
-      }),
+        return {
+          paymentStatus: fullSession.payment_status,
+          sessionData,
+        };
+      },
 
-    sendEmails: (id) =>
-      sendPostOrderEmails(
-        id,
-        createDefaultOrderEmailDeps(db, { sendOrderConfirmation, sendOwnerOrderAlert })
-      ),
-  });
+      runCheckoutHandler: (sessionData) =>
+        handleStripeCheckoutCompleted(sessionData, {
+          db,
+          createPrintfulOrder: createOrder,
+        }),
 
-  return result;
+      sendEmails: (id) =>
+        sendPostOrderEmails(
+          id,
+          createDefaultOrderEmailDeps(db, { sendOrderConfirmation, sendOwnerOrderAlert })
+        ),
+    });
+
+    return { ok: true, action: result.action };
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    console.error(`recoverPendingOrder(${orderId}) failed:`, err);
+    return { ok: false, reason };
+  }
 }
 
 export async function archiveOrder(orderId: string) {

@@ -86,8 +86,14 @@ export default function AdminPage() {
     setRecovering(orderId);
     try {
       const result = await recoverPendingOrder(orderId);
-      alert(`Recovered: ${result.action}`);
-      await fetchData();
+      if (result.ok) {
+        alert(`Recovered: ${result.action}`);
+        await fetchData();
+      } else {
+        alert(
+          `Cannot recover: ${result.reason}\n\nIf the Stripe session was never paid, click Archive instead.`
+        );
+      }
     } catch (err: any) {
       alert(`Recover failed: ${err.message}`);
     } finally {
