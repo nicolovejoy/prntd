@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
 import { db } from "@/lib/db";
-import { order as orderTable, user as userTable } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
 import { createOrder } from "@/lib/printful";
 import {
   handleStripeCheckoutCompleted,
   type StripeSessionData,
 } from "@/lib/webhook-handlers";
 import { sendOrderConfirmation, sendOwnerOrderAlert } from "@/lib/email";
+import { sendPostOrderEmails, createDefaultOrderEmailDeps } from "@/lib/order-emails";
 
 export async function POST(request: NextRequest) {
   const body = await request.text();
@@ -97,39 +96,12 @@ export async function POST(request: NextRequest) {
       });
       console.log(`Stripe event ${event.id}: order ${orderId} → ${result.action}`);
 
-      // Send confirmation email (fire-and-forget)
+      // Send confirmation + owner alert (fire-and-forget; helper swallows errors)
       if (result.action === "submitted" || result.action === "paid" || result.action === "paid_printful_failed") {
-        try {
-          const orderWithUser = await db
-            .select({ email: userTable.email, size: orderTable.size, color: orderTable.color, totalPrice: orderTable.totalPrice })
-            .from(orderTable)
-            .innerJoin(userTable, eq(orderTable.userId, userTable.id))
-            .where(eq(orderTable.id, orderId))
-            .then((rows) => rows[0]);
-
-          if (orderWithUser) {
-            await sendOrderConfirmation({
-              to: orderWithUser.email,
-              orderId,
-              size: orderWithUser.size,
-              color: orderWithUser.color,
-              total: orderWithUser.totalPrice,
-            });
-            console.log(`Order ${orderId}: confirmation email sent to ${orderWithUser.email}`);
-
-            // Notify owner
-            await sendOwnerOrderAlert({
-              orderId,
-              customerEmail: orderWithUser.email,
-              size: orderWithUser.size,
-              color: orderWithUser.color,
-              total: orderWithUser.totalPrice,
-              discountCode: discount?.code,
-            });
-          }
-        } catch (emailErr) {
-          console.error(`Order ${orderId}: failed to send confirmation email:`, emailErr);
-        }
+        await sendPostOrderEmails(
+          orderId,
+          createDefaultOrderEmailDeps(db, { sendOrderConfirmation, sendOwnerOrderAlert })
+        );
       }
     } catch (err) {
       console.error(`Stripe event ${event.id}: handler error:`, err);

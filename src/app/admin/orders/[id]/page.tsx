@@ -6,6 +6,7 @@ import Link from "next/link";
 import {
   getOrderDetail,
   retryPrintfulSubmission,
+  recoverPendingOrder,
   archiveOrder,
   unarchiveOrder,
   setOrderClassification,
@@ -34,6 +35,7 @@ export default function OrderDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [retrying, setRetrying] = useState(false);
+  const [recovering, setRecovering] = useState(false);
 
   async function fetchOrder() {
     const o = await getOrderDetail(params.id);
@@ -51,6 +53,25 @@ export default function OrderDetailPage() {
       alert(`Retry failed: ${err.message}`);
     } finally {
       setRetrying(false);
+    }
+  }
+
+  async function handleRecover() {
+    if (
+      !window.confirm(
+        "Replay the Stripe webhook for this stuck pending order? This will run pending → paid → submitted and send emails."
+      )
+    )
+      return;
+    setRecovering(true);
+    try {
+      const result = await recoverPendingOrder(params.id);
+      alert(`Recovered: ${result.action}`);
+      await fetchOrder();
+    } catch (err: any) {
+      alert(`Recover failed: ${err.message}`);
+    } finally {
+      setRecovering(false);
     }
   }
 
@@ -255,6 +276,11 @@ export default function OrderDetailPage() {
 
           {/* Actions */}
           <div className="flex gap-2">
+            {order.status === "pending" && order.stripeSessionId && (
+              <Button size="sm" onClick={handleRecover} disabled={recovering}>
+                {recovering ? "Recovering..." : "Recover (replay webhook)"}
+              </Button>
+            )}
             {order.status === "paid" && (
               <Button size="sm" onClick={handleRetry} disabled={retrying}>
                 {retrying ? "Retrying..." : "Retry Printful"}

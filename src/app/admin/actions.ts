@@ -14,6 +14,11 @@ import { createOrder } from "@/lib/printful";
 import { getProductOrThrow, getVariantId } from "@/lib/products";
 import { assertTransition } from "@/lib/order-state";
 import { ORDER_CLASSIFICATIONS, type OrderClassification } from "@/lib/order-classification";
+import { stripe } from "@/lib/stripe";
+import { handleStripeCheckoutCompleted, type StripeSessionData } from "@/lib/webhook-handlers";
+import { recoverPendingOrderCore } from "@/lib/recover-pending-order";
+import { sendPostOrderEmails, createDefaultOrderEmailDeps } from "@/lib/order-emails";
+import { sendOrderConfirmation, sendOwnerOrderAlert } from "@/lib/email";
 
 const ADMIN_EMAIL = "nicholas.lovejoy@gmail.com";
 
@@ -117,6 +122,101 @@ export async function retryPrintfulSubmission(orderId: string) {
     .where(eq(designTable.id, foundOrder.designId));
 
   return { printfulOrderId: printfulOrder.id };
+}
+
+export async function recoverPendingOrder(orderId: string) {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session || session.user.email !== ADMIN_EMAIL) {
+    throw new Error("Unauthorized");
+  }
+
+  const result = await recoverPendingOrderCore(orderId, {
+    loadOrder: async (id) => {
+      const found = await db.query.order.findFirst({
+        where: eq(orderTable.id, id),
+        columns: { id: true, status: true, stripeSessionId: true },
+      });
+      return found ?? null;
+    },
+
+    fetchSessionData: async (stripeSessionId) => {
+      const fullSession = await stripe.checkout.sessions.retrieve(stripeSessionId, {
+        expand: ["total_details.breakdown.discounts.discount"],
+      });
+
+      const orderIdMeta = fullSession.metadata?.orderId;
+      const designIdMeta = fullSession.metadata?.designId;
+      if (!orderIdMeta || !designIdMeta) {
+        throw new Error(
+          `Stripe session ${stripeSessionId} missing orderId/designId metadata`
+        );
+      }
+
+      const shipping = fullSession.collected_information?.shipping_details;
+      const paymentIntentId =
+        typeof fullSession.payment_intent === "string"
+          ? fullSession.payment_intent
+          : fullSession.payment_intent?.id ?? null;
+
+      // Discount info — same parsing as the live webhook route
+      const discountEntry = fullSession.total_details?.breakdown?.discounts?.[0];
+      let discount: StripeSessionData["discount"] = null;
+      if (discountEntry && discountEntry.amount > 0) {
+        const promoCodeId = discountEntry.discount.promotion_code;
+        let code = "unknown";
+        if (typeof promoCodeId === "string") {
+          try {
+            const promoCode = await stripe.promotionCodes.retrieve(promoCodeId);
+            code = promoCode.code ?? "unknown";
+          } catch (err) {
+            console.error("Failed to retrieve promotion code during recovery:", err);
+          }
+        }
+        discount = {
+          code,
+          amount: discountEntry.amount / 100,
+        };
+      }
+
+      const sessionData: StripeSessionData = {
+        id: fullSession.id,
+        metadata: { orderId: orderIdMeta, designId: designIdMeta },
+        paymentIntentId,
+        amountTotal: fullSession.amount_total,
+        discount,
+        shipping: shipping
+          ? {
+              name: shipping.name ?? "",
+              address1: shipping.address?.line1 ?? "",
+              address2: shipping.address?.line2 ?? "",
+              city: shipping.address?.city ?? "",
+              state: shipping.address?.state ?? "",
+              zip: shipping.address?.postal_code ?? "",
+              country: shipping.address?.country ?? "US",
+            }
+          : null,
+      };
+
+      return {
+        paymentStatus: fullSession.payment_status,
+        sessionData,
+      };
+    },
+
+    runCheckoutHandler: (sessionData) =>
+      handleStripeCheckoutCompleted(sessionData, {
+        db,
+        createPrintfulOrder: createOrder,
+      }),
+
+    sendEmails: (id) =>
+      sendPostOrderEmails(
+        id,
+        createDefaultOrderEmailDeps(db, { sendOrderConfirmation, sendOwnerOrderAlert })
+      ),
+  });
+
+  return result;
 }
 
 export async function archiveOrder(orderId: string) {
@@ -259,6 +359,7 @@ export async function getAdminData() {
         totalPrice: orderTable.totalPrice,
         printfulCost: orderTable.printfulCost,
         printfulOrderId: orderTable.printfulOrderId,
+        stripeSessionId: orderTable.stripeSessionId,
         trackingNumber: orderTable.trackingNumber,
         trackingUrl: orderTable.trackingUrl,
         shippingName: orderTable.shippingName,

@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   getAdminData,
   retryPrintfulSubmission,
+  recoverPendingOrder,
   archiveOrder,
   unarchiveOrder,
   setOrderTags,
@@ -45,6 +46,7 @@ export default function AdminPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [retrying, setRetrying] = useState<string | null>(null);
+  const [recovering, setRecovering] = useState<string | null>(null);
   const [filterState, dispatch] = useReducer(filterReducer, initialFilterState);
 
   async function fetchData() {
@@ -71,6 +73,25 @@ export default function AdminPage() {
       alert(`Retry failed: ${err.message}`);
     } finally {
       setRetrying(null);
+    }
+  }
+
+  async function handleRecover(orderId: string) {
+    if (
+      !window.confirm(
+        "Replay the Stripe webhook for this stuck pending order? This will charge through the full flow: paid → submitted → emails."
+      )
+    )
+      return;
+    setRecovering(orderId);
+    try {
+      const result = await recoverPendingOrder(orderId);
+      alert(`Recovered: ${result.action}`);
+      await fetchData();
+    } catch (err: any) {
+      alert(`Recover failed: ${err.message}`);
+    } finally {
+      setRecovering(null);
     }
   }
 
@@ -377,6 +398,15 @@ export default function AdminPage() {
                         : "—"}
                     </td>
                     <td className="py-3 text-xs space-x-2">
+                      {order.status === "pending" && order.stripeSessionId && (
+                        <Button
+                          size="sm"
+                          onClick={() => handleRecover(order.id)}
+                          disabled={recovering === order.id}
+                        >
+                          {recovering === order.id ? "Recovering..." : "Recover"}
+                        </Button>
+                      )}
                       {order.status === "paid" && (
                         <Button
                           size="sm"
