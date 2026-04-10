@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
   if (event.type === "checkout.session.completed") {
     const session = event.data.object;
     const fullSession = await stripe.checkout.sessions.retrieve(session.id, {
-      expand: ["total_details.breakdown.discounts.discount.promotion_code"],
+      expand: ["total_details.breakdown.discounts.discount"],
     });
     const orderId = fullSession.metadata?.orderId;
     const designId = fullSession.metadata?.designId;
@@ -55,12 +55,18 @@ export async function POST(request: NextRequest) {
     const discountEntry = fullSession.total_details?.breakdown?.discounts?.[0];
     let discount: StripeSessionData["discount"] = null;
     if (discountEntry && discountEntry.amount > 0) {
-      const promoCode = discountEntry.discount.promotion_code;
-      const code = typeof promoCode === "object" && promoCode !== null
-        ? promoCode.code
-        : null;
+      const promoCodeId = discountEntry.discount.promotion_code;
+      let code = "unknown";
+      if (typeof promoCodeId === "string") {
+        try {
+          const promoCode = await stripe.promotionCodes.retrieve(promoCodeId);
+          code = promoCode.code;
+        } catch (err) {
+          console.error("Failed to retrieve promotion code:", err);
+        }
+      }
       discount = {
-        code: code ?? (typeof discountEntry.discount.source.coupon === "object" && discountEntry.discount.source.coupon !== null ? discountEntry.discount.source.coupon.name ?? "unknown" : "unknown"),
+        code,
         amount: discountEntry.amount / 100,
       };
     }
