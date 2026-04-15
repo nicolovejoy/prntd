@@ -104,7 +104,7 @@ export async function chatAboutDesign(
   );
 
   const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-20250514",
+    model: "claude-sonnet-4-6",
     max_tokens: 1024,
     system: CHAT_SYSTEM_PROMPT + galleryContext,
     messages,
@@ -130,7 +130,7 @@ export async function constructFluxPrompt(
   // If no messages at all, this shouldn't be called
 
   const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-20250514",
+    model: "claude-sonnet-4-6",
     max_tokens: 1024,
     system: GENERATE_SYSTEM_PROMPT + galleryContext,
     messages,
