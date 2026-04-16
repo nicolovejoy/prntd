@@ -134,6 +134,11 @@ NEXT_PUBLIC_APP_URL     # e.g. https://prntd.org
 - Show discount info on admin order detail page and /orders
 - Decide whether to charge shipping as a separate line so percentage promo codes don't eat margin to zero (currently `shipping_options` not set, shipping is baked into COGS; 50% off launches at structural loss)
 
+**Anthropic key rotation + 1Password migration (paused 2026-04-14)**
+- Model swap to `claude-sonnet-4-6` shipped (commit 358f53a) — sonnet-4 retires 2026-06-15
+- Still TODO: create per-project key in Anthropic console, migrate 9 secrets to 1Password `dev-secrets` vault, complete `.env.tpl` with `op://` refs, update Vercel prod env, revoke old global key
+- See memory `project_anthropic_key_rotation.md` for full checklist
+
 **Local dev testing setup**
 - Add `PRINTFUL_DRY_RUN` env flag to `src/lib/printful.ts` so local test-mode checkouts don't place real Printful orders
 - Document the full local dev + Stripe test mode workflow (npm run dev, stripe listen, test cards)
