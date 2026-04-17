@@ -153,7 +153,8 @@ NEXT_PUBLIC_APP_URL     # e.g. https://prntd.org
 - Consider collapsing preview into design page, or a stepped flow
 
 **Product expansion**
-- Women's tee (3rd apparel product), posters, canvas prints, stickers, hoodies
+- Women's tee — **Bella+Canvas 6400** selected. Next: write variant fetch script, run it, add to products.ts
+- Posters, canvas prints, stickers, hoodies (future)
 - Multi-placement support (front/back printing) — see docs/products.md
 
 ### Ongoing
