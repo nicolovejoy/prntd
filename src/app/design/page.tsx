@@ -42,8 +42,8 @@ function DesignPageInner() {
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   // Load existing design if resuming
+  const id = searchParams.get("id");
   useEffect(() => {
-    const id = searchParams.get("id");
     if (id) {
       getDesign(id).then((design) => {
         if (design) {
@@ -54,7 +54,7 @@ function DesignPageInner() {
         }
       });
     }
-  }, [searchParams]);
+  }, [id]);
 
   async function handleSend(userMessage: string) {
     setLoading(true);

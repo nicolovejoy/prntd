@@ -89,6 +89,11 @@ function buildMessages(
     }
   }
 
+  // Sonnet 4.6 requires messages to end with a user turn (no assistant prefill)
+  if (messages.length > 0 && messages[messages.length - 1].role === "assistant") {
+    messages.push({ role: "user", content: "Generate an image based on this conversation." });
+  }
+
   return { messages, galleryContext };
 }
 
