@@ -128,15 +128,18 @@ NEXT_PUBLIC_APP_URL     # e.g. https://prntd.org
 - ~~Admin Recover action for stuck pending orders~~ — replays Stripe webhook flow via shared `handleStripeCheckoutCompleted`; extracted `sendPostOrderEmails` helper; structured `{ok, reason}` response so admin alerts show actual failure reason (e.g., "Stripe session is not paid"). 14 new TDD tests.
 - ~~Drop generation cost from customer-facing price~~ — baseCost × 1.5 only; generationCost still tracked on design row for internal use. Fixes order page breakdown where line items didn't sum to total.
 - ~~Admin list shows time to the minute~~ — easier Stripe cross-reference.
+- ~~Claude model swap~~ — `claude-sonnet-4-20250514` → `claude-sonnet-4-6` with Sonnet 4.6 compatibility fixes (no assistant prefill, useEffect loop)
+- ~~Women's Relaxed Tee~~ — Bella+Canvas 6400, 22 colors, S–3XL, Printful product ID 360, variant fetch script at `scripts/fetch-variants-6400.ts`
+- ~~Product catalog~~ — now 4 products: Classic Tee, Box Tee, Women's Relaxed Tee, Clear iPhone Case
 
 **Discount codes + promo (remaining)**
 - Test end-to-end checkout with a promo code on local dev + Stripe test mode (see validation checklist in memory)
 - Show discount info on admin order detail page and /orders
 - Decide whether to charge shipping as a separate line so percentage promo codes don't eat margin to zero (currently `shipping_options` not set, shipping is baked into COGS; 50% off launches at structural loss)
 
-**Anthropic key rotation + 1Password migration (paused 2026-04-14)**
-- Model swap to `claude-sonnet-4-6` shipped (commit 358f53a) — sonnet-4 retires 2026-06-15
-- Still TODO: create per-project key in Anthropic console, migrate 9 secrets to 1Password `dev-secrets` vault, complete `.env.tpl` with `op://` refs, update Vercel prod env, revoke old global key
+**1Password secret migration (paused 2026-04-14)**
+- `.env.tpl` drafted locally with `op://dev-secrets/prntd-*` refs — NOT committed
+- TODO: create 9 items in 1Password `dev-secrets` vault, `op inject` to regenerate `.env.local`, update Vercel prod env for Anthropic key, revoke old global key
 - See memory `project_anthropic_key_rotation.md` for full checklist
 
 **Local dev testing setup**
@@ -153,7 +156,6 @@ NEXT_PUBLIC_APP_URL     # e.g. https://prntd.org
 - Consider collapsing preview into design page, or a stepped flow
 
 **Product expansion**
-- Women's tee — **Bella+Canvas 6400** selected. Next: write variant fetch script, run it, add to products.ts
 - Posters, canvas prints, stickers, hoodies (future)
 - Multi-placement support (front/back printing) — see docs/products.md
 
