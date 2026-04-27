@@ -145,8 +145,12 @@ PRINTFUL_DRY_RUN        # "true" to short-circuit Printful order submission (loc
 - See memory `project_anthropic_key_rotation.md` for full checklist
 
 **Local dev testing setup**
-- Add `PRINTFUL_DRY_RUN` env flag to `src/lib/printful.ts` so local test-mode checkouts don't place real Printful orders
-- Document the full local dev + Stripe test mode workflow (npm run dev, stripe listen, test cards)
+- ~~`PRINTFUL_DRY_RUN` env flag~~ — shipped, validated end-to-end on 2026-04-27
+- ~~Document local dev + Stripe test mode workflow~~ — `docs/e2e-testing.md`
+
+**Email + order naming clarity**
+- Owner alert and customer confirmation subject lines lack at-a-glance context — `docs/current-state.md`-style audit captured in the GitHub issue (Max's first PR)
+- Auto-name each order from the dominant text in its design image (e.g. "Artificial Idiot" instead of `3cd9d356`). Use it in admin list, /orders, email subjects, owner alerts. Need a way to extract the text — Claude vision call at order time, or pull from the chat history that produced the design.
 
 **Design conversation persistence**
 - Design threads must stay accessible after ordering (not hidden/locked)
