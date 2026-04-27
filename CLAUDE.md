@@ -87,6 +87,8 @@ PRINTFUL_API_KEY
 BETTER_AUTH_SECRET
 NEXT_PUBLIC_R2_PUBLIC_URL # R2 public bucket URL (pub-xxx.r2.dev)
 NEXT_PUBLIC_APP_URL     # e.g. https://prntd.org
+ADMIN_EMAIL             # email of the admin user (gates /admin)
+PRINTFUL_DRY_RUN        # "true" to short-circuit Printful order submission (local testing)
 ```
 
 ## Known Issues / Next Steps

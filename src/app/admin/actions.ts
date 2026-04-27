@@ -20,7 +20,10 @@ import { recoverPendingOrderCore } from "@/lib/recover-pending-order";
 import { sendPostOrderEmails, createDefaultOrderEmailDeps } from "@/lib/order-emails";
 import { sendOrderConfirmation, sendOwnerOrderAlert } from "@/lib/email";
 
-const ADMIN_EMAIL = "nicholas.lovejoy@gmail.com";
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
+if (!ADMIN_EMAIL) {
+  throw new Error("ADMIN_EMAIL env var is required");
+}
 
 export async function getOrders() {
   const session = await auth.api.getSession({ headers: await headers() });

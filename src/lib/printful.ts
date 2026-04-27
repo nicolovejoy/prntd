@@ -36,6 +36,19 @@ export async function createOrder(params: {
   countryCode: string;
   zip: string;
 }) {
+  if (process.env.PRINTFUL_DRY_RUN === "true") {
+    const fakeId = `dry-run-${crypto.randomUUID()}`;
+    console.warn(
+      `[PRINTFUL_DRY_RUN] Skipping real order submission. Returning fake id=${fakeId} for ${params.recipientName} variant=${params.variantId}`
+    );
+    return {
+      id: fakeId,
+      status: "draft",
+      costs: { total: "0.00" },
+      dryRun: true,
+    };
+  }
+
   const confirm = process.env.PRINTFUL_AUTO_CONFIRM !== "false";
   const data = await printfulFetch(`/orders${confirm ? "?confirm=true" : ""}`, {
     method: "POST",
