@@ -10,6 +10,7 @@ const variants = {
   draft: "bg-surface-raised text-text-muted border-border",
   approved: "bg-emerald-900/30 text-emerald-400 border-emerald-800",
   ordered: "bg-blue-900/30 text-blue-400 border-blue-800",
+  archived: "bg-surface-raised text-text-faint border-border",
   canceled: "bg-red-900/30 text-red-400 border-red-800",
 } as const;
 

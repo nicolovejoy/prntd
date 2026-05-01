@@ -123,7 +123,7 @@ export default function OrdersPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2 mb-1">
                       <div className="flex items-center gap-2">
-                        <Badge variant={order.status as any}>
+                        <Badge variant={order.status}>
                           {statusLabel[order.status] ?? order.status}
                         </Badge>
                         <span className="text-xs text-text-faint font-mono">

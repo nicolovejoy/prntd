@@ -1,12 +1,10 @@
+import type { db } from "@/lib/db";
 import { ledgerEntry } from "@/lib/db/schema";
 
 const STRIPE_FEE_RATE = 0.029;
 const STRIPE_FEE_FIXED = 0.30;
 
-type DbInstance = {
-  insert: (...args: any[]) => any;
-  query: { ledgerEntry: { findMany: (...args: any[]) => any } };
-};
+type DbInstance = Pick<typeof db, "insert" | "query">;
 
 export function calculateStripeFee(amount: number): number {
   return Math.round((amount * STRIPE_FEE_RATE + STRIPE_FEE_FIXED) * 100) / 100;

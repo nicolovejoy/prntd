@@ -84,7 +84,7 @@ export default function DesignsPage() {
                 </Link>
                 <div className="p-3 space-y-2">
                   <div className="flex items-center justify-between">
-                    <Badge variant={design.status as any}>
+                    <Badge variant={design.status}>
                       {design.status}
                     </Badge>
                     <span className="text-xs text-gray-400">

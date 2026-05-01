@@ -69,8 +69,9 @@ export default function AdminPage() {
     try {
       await retryPrintfulSubmission(orderId);
       await fetchData();
-    } catch (err: any) {
-      alert(`Retry failed: ${err.message}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      alert(`Retry failed: ${message}`);
     } finally {
       setRetrying(null);
     }
@@ -94,8 +95,9 @@ export default function AdminPage() {
           `Cannot recover: ${result.reason}\n\nIf the Stripe session was never paid, click Archive instead.`
         );
       }
-    } catch (err: any) {
-      alert(`Recover failed: ${err.message}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      alert(`Recover failed: ${message}`);
     } finally {
       setRecovering(null);
     }
@@ -305,7 +307,7 @@ export default function AdminPage() {
                     </td>
                     <td className="py-3 pr-4">
                       <div className="flex flex-wrap items-center gap-1">
-                        <Badge variant={order.status as any}>{order.status}</Badge>
+                        <Badge variant={order.status}>{order.status}</Badge>
                         {order.archivedAt && (
                           <span className="text-xs text-text-faint">archived</span>
                         )}

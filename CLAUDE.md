@@ -35,9 +35,23 @@ PRNTD — AI-powered t-shirt designer. Users chat to describe a design, Flux gen
 npm run dev          # Local dev server
 npm run build        # Production build
 npm run lint         # ESLint
+npm test             # Vitest run (no watch)
 npm run db:push      # Push Drizzle schema to Turso
 npm run db:studio    # Drizzle Studio (database GUI)
 ```
+
+## Tooling & CI
+
+GitHub Actions workflow `.github/workflows/ci.yml` runs `lint`, `test`, and `build` on every PR and push to main. Branch protection requires the `check` job to pass and one approving review before merging to main. Admins can bypass.
+
+Lint policy:
+- `@typescript-eslint/no-explicit-any` is `error` in product code, `off` in test files (`**/__tests__/**`, `*.test.ts(x)`). Mocks are the canonical case for `any`; production code should type things.
+- For `catch` clauses: use `catch (err)` (defaults to `unknown`) and narrow with `err instanceof Error ? err.message : String(err)`. Don't annotate `err: any`.
+- `scripts/**` is excluded from lint (also excluded from tsconfig). One-off ops scripts.
+
+**Before tightening any lint rule, type-check, or CI gate**: run it locally against the current codebase first. If existing code already violates the new rule, decide between (a) cleaning the violations, (b) scoping the rule narrower (e.g. test-only), or (c) downgrading severity — and do that work *before* pushing the gate. Don't push a stricter gate without that audit, or the next PR will be blocked for reasons unrelated to that PR.
+
+Vercel preview deploys on PRs require the PR author's GitHub user to be authorized in the Vercel team. Collaborator PRs from outside the team may show a Vercel build failure that's actually a team-membership issue, not a code problem.
 
 ## Architecture
 

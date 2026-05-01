@@ -49,8 +49,9 @@ export default function OrderDetailPage() {
     try {
       await retryPrintfulSubmission(params.id);
       await fetchOrder();
-    } catch (err: any) {
-      alert(`Retry failed: ${err.message}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      alert(`Retry failed: ${message}`);
     } finally {
       setRetrying(false);
     }
@@ -74,8 +75,9 @@ export default function OrderDetailPage() {
           `Cannot recover: ${result.reason}\n\nIf the Stripe session was never paid, click Archive instead.`
         );
       }
-    } catch (err: any) {
-      alert(`Recover failed: ${err.message}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      alert(`Recover failed: ${message}`);
     } finally {
       setRecovering(false);
     }
@@ -150,7 +152,7 @@ export default function OrderDetailPage() {
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
         <h1 className="text-xl font-bold font-mono">{order.id.slice(0, 8)}</h1>
-        <Badge variant={order.status as any}>{order.status}</Badge>
+        <Badge variant={order.status}>{order.status}</Badge>
         {order.classification && (
           <span className="text-xs px-2 py-0.5 rounded bg-surface-raised text-text-muted">
             {CLASSIFICATION_INFO[order.classification as OrderClassification]?.label ?? order.classification}
