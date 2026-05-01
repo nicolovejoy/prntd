@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
     if (result.action === "shipped" && result.orderId) {
       try {
         const orderWithUser = await db
-          .select({ email: userTable.email })
+          .select({ email: userTable.email, displayName: orderTable.displayName })
           .from(orderTable)
           .innerJoin(userTable, eq(orderTable.userId, userTable.id))
           .where(eq(orderTable.id, result.orderId))
@@ -43,6 +43,7 @@ export async function POST(request: NextRequest) {
             orderId: result.orderId,
             trackingNumber: result.trackingNumber ?? null,
             trackingUrl: result.trackingUrl ?? null,
+            displayName: orderWithUser.displayName,
           });
           console.log(`Order ${result.orderId}: shipping email sent to ${orderWithUser.email}`);
         }

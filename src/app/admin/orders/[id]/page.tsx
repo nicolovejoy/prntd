@@ -150,8 +150,11 @@ export default function OrderDetailPage() {
       </Link>
 
       {/* Header */}
-      <div className="flex items-center gap-3 mb-6">
-        <h1 className="text-xl font-bold font-mono">{order.id.slice(0, 8)}</h1>
+      <div className="flex items-center gap-3 mb-6 flex-wrap">
+        <h1 className="text-xl font-bold">{order.displayName ?? order.id.slice(0, 8)}</h1>
+        {order.displayName && (
+          <span className="text-sm font-mono text-text-muted">{order.id.slice(0, 8)}</span>
+        )}
         <Badge variant={order.status}>{order.status}</Badge>
         {order.classification && (
           <span className="text-xs px-2 py-0.5 rounded bg-surface-raised text-text-muted">

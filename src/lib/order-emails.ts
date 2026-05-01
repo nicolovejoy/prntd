@@ -9,6 +9,7 @@ export type OrderEmailPayload = {
   color: string;
   totalPrice: number;
   discountCode: string | null;
+  displayName: string | null;
 };
 
 export type OrderEmailDeps = {
@@ -46,6 +47,7 @@ export async function sendPostOrderEmails(
       size: payload.size,
       color: payload.color,
       total: payload.totalPrice,
+      displayName: payload.displayName,
     });
     console.log(`Order ${orderId}: confirmation email sent to ${payload.email}`);
   } catch (err) {
@@ -60,6 +62,7 @@ export async function sendPostOrderEmails(
       color: payload.color,
       total: payload.totalPrice,
       discountCode: payload.discountCode,
+      displayName: payload.displayName,
     });
   } catch (err) {
     console.error(`sendPostOrderEmails: owner alert failed for ${orderId}:`, err);
@@ -86,6 +89,7 @@ export function createDefaultOrderEmailDeps(
           color: orderTable.color,
           totalPrice: orderTable.totalPrice,
           discountCode: orderTable.discountCode,
+          displayName: orderTable.displayName,
         })
         .from(orderTable)
         .innerJoin(userTable, eq(orderTable.userId, userTable.id))

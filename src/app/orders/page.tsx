@@ -122,13 +122,17 @@ export default function OrdersPage() {
                   {/* Order details */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2 mb-1">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
                         <Badge variant={order.status}>
                           {statusLabel[order.status] ?? order.status}
                         </Badge>
-                        <span className="text-xs text-text-faint font-mono">
-                          {order.id.slice(0, 8)}
-                        </span>
+                        {order.displayName ? (
+                          <span className="text-sm font-medium truncate">{order.displayName}</span>
+                        ) : (
+                          <span className="text-xs text-text-faint font-mono">
+                            {order.id.slice(0, 8)}
+                          </span>
+                        )}
                       </div>
                       <span className="text-sm font-medium">
                         ${order.totalPrice.toFixed(2)}
@@ -137,6 +141,9 @@ export default function OrdersPage() {
 
                     <p className="text-sm text-text-muted">
                       {order.size} / {order.color}
+                      {order.displayName && (
+                        <span className="text-xs text-text-faint font-mono ml-2">{order.id.slice(0, 8)}</span>
+                      )}
                     </p>
 
                     <div className="flex items-center justify-between mt-1">

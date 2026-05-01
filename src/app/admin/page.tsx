@@ -297,13 +297,16 @@ export default function AdminPage() {
                     key={order.id}
                     className={`hover:bg-surface-raised ${order.archivedAt ? "opacity-50" : ""}`}
                   >
-                    <td className="py-3 pr-4 font-mono text-xs">
+                    <td className="py-3 pr-4 text-xs">
                       <Link
                         href={`/admin/orders/${order.id}`}
                         className="text-blue-400 hover:underline"
                       >
-                        {order.id.slice(0, 8)}
+                        {order.displayName ?? <span className="font-mono">{order.id.slice(0, 8)}</span>}
                       </Link>
+                      {order.displayName && (
+                        <div className="font-mono text-text-faint text-[10px] mt-0.5">{order.id.slice(0, 8)}</div>
+                      )}
                     </td>
                     <td className="py-3 pr-4">
                       <div className="flex flex-wrap items-center gap-1">

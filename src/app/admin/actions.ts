@@ -11,6 +11,7 @@ import {
 } from "@/lib/db/schema";
 import { eq, desc, isNull, isNotNull, sum, count, and } from "drizzle-orm";
 import { createOrder } from "@/lib/printful";
+import { generateOrderName } from "@/lib/ai";
 import { getProductOrThrow, getVariantId } from "@/lib/products";
 import { assertTransition } from "@/lib/order-state";
 import { ORDER_CLASSIFICATIONS, type OrderClassification } from "@/lib/order-classification";
@@ -52,6 +53,7 @@ export async function getOrders() {
       classification: orderTable.classification,
       archivedAt: orderTable.archivedAt,
       createdAt: orderTable.createdAt,
+      displayName: orderTable.displayName,
       userEmail: userTable.email,
       designImageUrl: designTable.currentImageUrl,
       designId: orderTable.designId,
@@ -217,6 +219,7 @@ export async function recoverPendingOrder(
         handleStripeCheckoutCompleted(sessionData, {
           db,
           createPrintfulOrder: createOrder,
+          generateOrderName,
         }),
 
       sendEmails: (id) =>
@@ -387,6 +390,7 @@ export async function getAdminData() {
         classification: orderTable.classification,
         archivedAt: orderTable.archivedAt,
         createdAt: orderTable.createdAt,
+        displayName: orderTable.displayName,
         userEmail: userTable.email,
         designImageUrl: designTable.currentImageUrl,
         designId: orderTable.designId,
@@ -446,6 +450,7 @@ export async function getOrderDetail(orderId: string) {
         archivedAt: orderTable.archivedAt,
         createdAt: orderTable.createdAt,
         updatedAt: orderTable.updatedAt,
+        displayName: orderTable.displayName,
         userEmail: userTable.email,
         designImageUrl: designTable.currentImageUrl,
         designId: orderTable.designId,

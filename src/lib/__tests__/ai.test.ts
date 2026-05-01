@@ -64,6 +64,74 @@ describe("chatAboutDesign", () => {
   });
 });
 
+describe("generateOrderName", () => {
+  beforeEach(async () => {
+    const mockCreate = await getMockCreate();
+    mockCreate.mockReset();
+  });
+
+  it("returns the trimmed name from a vision response", async () => {
+    const mockCreate = await getMockCreate();
+    mockCreate.mockResolvedValue({
+      content: [{ type: "text", text: "Artificial Idiot" }],
+    });
+
+    const { generateOrderName } = await import("../ai");
+    const name = await generateOrderName("https://example.com/x.png");
+
+    expect(name).toBe("Artificial Idiot");
+    // Verify the call sent an image content block
+    const call = mockCreate.mock.calls[0][0];
+    expect(call.messages[0].content[0].type).toBe("image");
+    expect(call.messages[0].content[0].source.url).toBe("https://example.com/x.png");
+  });
+
+  it("strips surrounding quotes and trailing periods", async () => {
+    const mockCreate = await getMockCreate();
+    mockCreate.mockResolvedValue({
+      content: [{ type: "text", text: '"Blue Mountain Landscape."' }],
+    });
+
+    const { generateOrderName } = await import("../ai");
+    const name = await generateOrderName("https://example.com/x.png");
+    expect(name).toBe("Blue Mountain Landscape");
+  });
+
+  it("returns null on empty response", async () => {
+    const mockCreate = await getMockCreate();
+    mockCreate.mockResolvedValue({ content: [{ type: "text", text: "   " }] });
+
+    const { generateOrderName } = await import("../ai");
+    const name = await generateOrderName("https://example.com/x.png");
+    expect(name).toBeNull();
+  });
+
+  it("returns null and logs on API error", async () => {
+    const mockCreate = await getMockCreate();
+    mockCreate.mockRejectedValue(new Error("Anthropic down"));
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { generateOrderName } = await import("../ai");
+    const name = await generateOrderName("https://example.com/x.png");
+
+    expect(name).toBeNull();
+    expect(errSpy).toHaveBeenCalled();
+    errSpy.mockRestore();
+  });
+
+  it("caps overly long names at 60 chars", async () => {
+    const mockCreate = await getMockCreate();
+    const longName = "A".repeat(120);
+    mockCreate.mockResolvedValue({
+      content: [{ type: "text", text: longName }],
+    });
+
+    const { generateOrderName } = await import("../ai");
+    const name = await generateOrderName("https://example.com/x.png");
+    expect(name?.length).toBeLessThanOrEqual(60);
+  });
+});
+
 describe("constructFluxPrompt", () => {
   beforeEach(async () => {
     const mockCreate = await getMockCreate();

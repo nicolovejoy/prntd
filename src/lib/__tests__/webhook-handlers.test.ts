@@ -81,6 +81,7 @@ describe("handleStripeCheckoutCompleted", () => {
     const result = await handleStripeCheckoutCompleted(baseSession(), {
       db: mockDb,
       createPrintfulOrder: mockCreateOrder,
+      generateOrderName: vi.fn().mockResolvedValue(null),
     });
 
     expect(result.action).toBe("submitted");
@@ -96,6 +97,7 @@ describe("handleStripeCheckoutCompleted", () => {
     const result = await handleStripeCheckoutCompleted(baseSession(), {
       db: mockDb,
       createPrintfulOrder: vi.fn(),
+      generateOrderName: vi.fn().mockResolvedValue(null),
     });
 
     expect(result.action).toBe("skipped");
@@ -110,6 +112,7 @@ describe("handleStripeCheckoutCompleted", () => {
       handleStripeCheckoutCompleted(baseSession(), {
         db: mockDb,
         createPrintfulOrder: vi.fn(),
+        generateOrderName: vi.fn().mockResolvedValue(null),
       })
     ).rejects.toThrow("Order order-1 not found");
   });
@@ -123,6 +126,7 @@ describe("handleStripeCheckoutCompleted", () => {
     const result = await handleStripeCheckoutCompleted(baseSession(), {
       db: mockDb,
       createPrintfulOrder: vi.fn(),
+      generateOrderName: vi.fn().mockResolvedValue(null),
     });
 
     expect(result.action).toBe("paid");
@@ -143,6 +147,7 @@ describe("handleStripeCheckoutCompleted", () => {
     const result = await handleStripeCheckoutCompleted(session, {
       db: mockDb,
       createPrintfulOrder: mockCreateOrder,
+      generateOrderName: vi.fn().mockResolvedValue(null),
     });
 
     expect(result.action).toBe("submitted");
@@ -163,7 +168,7 @@ describe("handleStripeCheckoutCompleted", () => {
 
     const result = await handleStripeCheckoutCompleted(
       baseSession({ amountTotal: null, discount: null }),
-      { db: mockDb, createPrintfulOrder: mockCreateOrder },
+      { db: mockDb, createPrintfulOrder: mockCreateOrder, generateOrderName: vi.fn().mockResolvedValue(null) },
     );
 
     expect(result.action).toBe("submitted");
@@ -171,6 +176,45 @@ describe("handleStripeCheckoutCompleted", () => {
     expect(setCall.totalPrice).toBe(40.0);
     expect(setCall.discountCode).toBeNull();
     expect(setCall.discountAmount).toBeNull();
+  });
+
+  it("persists displayName from generateOrderName before submitting to Printful", async () => {
+    const mockDb = createMockDb({
+      orderFindFirst: vi.fn().mockResolvedValue(pendingOrder),
+      designFindFirst: vi.fn().mockResolvedValue(designWithImage),
+    });
+    const mockCreateOrder = vi.fn().mockResolvedValue({ id: "pf_999" });
+    const mockGenerate = vi.fn().mockResolvedValue("Artificial Idiot");
+
+    const result = await handleStripeCheckoutCompleted(baseSession(), {
+      db: mockDb,
+      createPrintfulOrder: mockCreateOrder,
+      generateOrderName: mockGenerate,
+    });
+
+    expect(result.action).toBe("submitted");
+    expect(mockGenerate).toHaveBeenCalledWith(designWithImage.currentImageUrl);
+    // One of the update calls should set displayName
+    const setCalls = mockDb._mocks.updateSet.mock.calls.map((c: any[]) => c[0]);
+    expect(setCalls.some((c: any) => c.displayName === "Artificial Idiot")).toBe(true);
+  });
+
+  it("submits successfully when generateOrderName returns null", async () => {
+    const mockDb = createMockDb({
+      orderFindFirst: vi.fn().mockResolvedValue(pendingOrder),
+      designFindFirst: vi.fn().mockResolvedValue(designWithImage),
+    });
+    const mockCreateOrder = vi.fn().mockResolvedValue({ id: "pf_111" });
+
+    const result = await handleStripeCheckoutCompleted(baseSession(), {
+      db: mockDb,
+      createPrintfulOrder: mockCreateOrder,
+      generateOrderName: vi.fn().mockResolvedValue(null),
+    });
+
+    expect(result.action).toBe("submitted");
+    const setCalls = mockDb._mocks.updateSet.mock.calls.map((c: any[]) => c[0]);
+    expect(setCalls.some((c: any) => "displayName" in c)).toBe(false);
   });
 
   it("returns paid_printful_failed when Printful errors", async () => {
@@ -183,6 +227,7 @@ describe("handleStripeCheckoutCompleted", () => {
     const result = await handleStripeCheckoutCompleted(baseSession(), {
       db: mockDb,
       createPrintfulOrder: mockCreateOrder,
+      generateOrderName: vi.fn().mockResolvedValue(null),
     });
 
     expect(result.action).toBe("paid_printful_failed");

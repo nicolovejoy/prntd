@@ -24,6 +24,7 @@ export async function getUserOrders() {
       trackingUrl: orderTable.trackingUrl,
       createdAt: orderTable.createdAt,
       archivedAt: orderTable.archivedAt,
+      displayName: orderTable.displayName,
       designImageUrl: designTable.currentImageUrl,
     })
     .from(orderTable)

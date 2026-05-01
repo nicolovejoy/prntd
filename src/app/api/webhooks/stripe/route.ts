@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
 import { db } from "@/lib/db";
 import { createOrder } from "@/lib/printful";
+import { generateOrderName } from "@/lib/ai";
 import {
   handleStripeCheckoutCompleted,
   type StripeSessionData,
@@ -93,6 +94,7 @@ export async function POST(request: NextRequest) {
       const result = await handleStripeCheckoutCompleted(sessionData, {
         db,
         createPrintfulOrder: createOrder,
+        generateOrderName,
       });
       console.log(`Stripe event ${event.id}: order ${orderId} → ${result.action}`);
 
