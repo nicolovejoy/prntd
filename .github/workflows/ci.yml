@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run lint
+
+      - run: npm test
+
+      - run: npm run build
+        env:
+          DATABASE_URL: file:ci-skip.db
+          DATABASE_AUTH_TOKEN: ci-skip
+          BETTER_AUTH_SECRET: ci-skip-secret-not-real
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
+          NEXT_PUBLIC_R2_PUBLIC_URL: https://example.com
