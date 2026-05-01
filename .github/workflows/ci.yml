@@ -23,6 +23,9 @@ jobs:
 
       - run: npm test
 
+      # Fake env values just to satisfy SDK constructors that run at module-eval
+      # time during Next.js's "collect page data" step. Routes never execute
+      # in CI, so these are never used to make real API calls.
       - run: npm run build
         env:
           DATABASE_URL: file:ci-skip.db
@@ -30,3 +33,14 @@ jobs:
           BETTER_AUTH_SECRET: ci-skip-secret-not-real
           NEXT_PUBLIC_APP_URL: http://localhost:3000
           NEXT_PUBLIC_R2_PUBLIC_URL: https://example.com
+          STRIPE_SECRET_KEY: sk_test_ci_skip
+          STRIPE_WEBHOOK_SECRET: whsec_ci_skip
+          ANTHROPIC_API_KEY: sk-ant-ci-skip
+          REPLICATE_API_TOKEN: r8_ci_skip
+          RESEND_API_KEY: re_ci_skip
+          PRINTFUL_API_KEY: pf_ci_skip
+          R2_ACCOUNT_ID: ci-skip
+          R2_ACCESS_KEY_ID: ci-skip
+          R2_SECRET_ACCESS_KEY: ci-skip
+          R2_BUCKET_NAME: ci-skip
+          ADMIN_EMAIL: ci-skip@example.com
