@@ -4,7 +4,8 @@ const replicate = new Replicate();
 
 export async function generateImage(
   prompt: string,
-  referenceImageUrl?: string
+  referenceImageUrl?: string,
+  negativePrompt?: string | null
 ): Promise<string> {
   const input: Record<string, unknown> = {
     prompt,
@@ -14,6 +15,10 @@ export async function generateImage(
 
   if (referenceImageUrl) {
     input.style_reference_images = [referenceImageUrl];
+  }
+
+  if (negativePrompt) {
+    input.negative_prompt = negativePrompt;
   }
 
   const output = await replicate.run("ideogram-ai/ideogram-v3-turbo", {

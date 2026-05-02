@@ -9,7 +9,6 @@ type Design = Awaited<ReturnType<typeof getUserDesigns>>[number];
 
 
 function getDesignHref(design: Design) {
-  if (design.status === "ordered") return "/orders";
   return `/design?id=${design.id}`;
 }
 
@@ -96,13 +95,18 @@ export default function DesignsPage() {
                       {design.generationCount} generation{design.generationCount !== 1 ? "s" : ""}
                     </span>
                     {design.status === "ordered" ? (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleArchive(design.id)}
-                      >
-                        Archive
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Link href={`/preview?id=${design.id}`}>
+                          <Button size="sm">Reorder</Button>
+                        </Link>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleArchive(design.id)}
+                        >
+                          Archive
+                        </Button>
+                      </div>
                     ) : (
                       <Button
                         variant="danger"
