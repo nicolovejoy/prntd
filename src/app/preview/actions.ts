@@ -3,11 +3,20 @@
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { design as designTable } from "@/lib/db/schema";
+import { design as designTable, type ChatMessage } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { createMockupTask, pollMockupTask } from "@/lib/printful";
-import { getProductOrThrow, DEFAULT_PRODUCT_ID } from "@/lib/products";
-import { uploadMockupImage } from "@/lib/r2";
+import {
+  getProductOrThrow,
+  getDefaultPlacement,
+  needsAspectRegeneration,
+  DEFAULT_PRODUCT_ID,
+  type AspectRatio,
+} from "@/lib/products";
+import { uploadMockupImage, uploadDesignImage } from "@/lib/r2";
+import { generateImage, removeBackground } from "@/lib/replicate";
+
+const COST_PER_GENERATION = 0.03;
 
 export async function generateMockup(
   designId: string,
@@ -79,4 +88,91 @@ export async function generateMockup(
     .where(eq(designTable.id, designId));
 
   return { mockupUrl: r2Url };
+}
+
+/**
+ * Regenerate the design's image to fit a product's placement aspect ratio.
+ *
+ * Phase 1 of the print-targets work (see docs/print-targets-plan.md): we
+ * overwrite design.currentImageUrl with the re-targeted render and clear
+ * the mockup cache. The original 1:1 source is lost from the design row
+ * (still preserved as an earlier generation in chat_history). Phase 2/3
+ * introduce a proper design_image table that preserves provenance.
+ *
+ * Skips work and returns null when the source aspect is close enough to
+ * the target — see needsAspectRegeneration's threshold.
+ */
+export async function regenerateForPlacement(
+  designId: string,
+  productId: string,
+  sourceAspect: AspectRatio = "1:1"
+): Promise<{ imageUrl: string; aspectRatio: AspectRatio } | null> {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) throw new Error("Unauthorized");
+
+  const found = await db.query.design.findFirst({
+    where: eq(designTable.id, designId),
+  });
+  if (!found || found.userId !== session.user.id) {
+    throw new Error("Unauthorized");
+  }
+  if (!found.currentImageUrl) throw new Error("No design image to re-target");
+
+  const product = getProductOrThrow(productId);
+  const placement = getDefaultPlacement(product);
+  const targetAspect = placement.aspectRatio;
+
+  if (!needsAspectRegeneration(sourceAspect, targetAspect)) {
+    return null;
+  }
+
+  // Pull the most recent generation prompt from chat history. Without a
+  // prompt we can't re-render meaningfully — bail rather than guess.
+  const chatHistory = (found.chatHistory as ChatMessage[]) ?? [];
+  const lastPrompt = [...chatHistory]
+    .reverse()
+    .find((m) => m.role === "assistant" && m.fluxPrompt)?.fluxPrompt;
+  if (!lastPrompt) {
+    throw new Error("No generation prompt available to re-render");
+  }
+
+  // Use the existing image as a style reference so the re-render keeps
+  // the look the user already approved of, just at the new shape.
+  let replicateUrl: string;
+  try {
+    replicateUrl = await generateImage(
+      lastPrompt,
+      found.currentImageUrl,
+      undefined,
+      targetAspect
+    );
+  } catch (err) {
+    console.error("regenerateForPlacement generateImage failed:", err);
+    throw new Error("Image generation failed");
+  }
+
+  let finalUrl = replicateUrl;
+  try {
+    finalUrl = await removeBackground(replicateUrl);
+  } catch (err) {
+    console.error("Background removal failed, using original:", err);
+  }
+
+  const newGeneration = found.generationCount + 1;
+  const response = await fetch(finalUrl);
+  const buffer = Buffer.from(await response.arrayBuffer());
+  const r2Url = await uploadDesignImage(designId, newGeneration, buffer);
+
+  await db
+    .update(designTable)
+    .set({
+      currentImageUrl: r2Url,
+      generationCount: newGeneration,
+      generationCost: found.generationCost + COST_PER_GENERATION,
+      mockupUrls: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(designTable.id, designId));
+
+  return { imageUrl: r2Url, aspectRatio: targetAspect };
 }

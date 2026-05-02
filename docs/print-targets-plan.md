@@ -10,9 +10,11 @@ Companion to `docs/print-targets.md`. The design doc describes *what* and *why*;
 - ~15 historical orders to backfill. Cheap, do it carefully.
 - Existing customers (Knute) get no regressions: their `/orders` page must keep showing their order.
 
-## Phase 1 — Aspect-correct generation (no schema change)
+## Phase 1 — Aspect-correct generation (no schema change) — SHIPPED 2026-05-02
 
 **Goal:** stop the iPhone-case crop bug. New orders generate at the right aspect for the picked product. Existing data model unchanged.
+
+Status: implemented and committed. Pending real-world verification with a test-mode iPhone case order.
 
 ### Changes
 

@@ -3,10 +3,17 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getDesign, approveDesign } from "../design/actions";
-import { generateMockup } from "./actions";
+import { generateMockup, regenerateForPlacement } from "./actions";
 import Link from "next/link";
 import { Button } from "@/components/ui";
-import { getProduct, DEFAULT_PRODUCT_ID, PRODUCTS } from "@/lib/products";
+import {
+  getProduct,
+  getDefaultPlacement,
+  needsAspectRegeneration,
+  DEFAULT_PRODUCT_ID,
+  PRODUCTS,
+  type AspectRatio,
+} from "@/lib/products";
 import { ProductSilhouette } from "./product-silhouette";
 
 const LOADING_MESSAGES = [
@@ -29,17 +36,23 @@ function PreviewPageInner() {
   const searchParams = useSearchParams();
   const designId = searchParams.get("id");
   const initialProductId = searchParams.get("product") ?? DEFAULT_PRODUCT_ID;
+  // Tracks the aspect ratio of the current design image. Persisted in the
+  // URL so refresh/bookmark of e.g. ?aspect=1:2 doesn't trigger a redundant
+  // regeneration. Defaults to 1:1, the aspect every design is born at.
+  const initialAspect = (searchParams.get("aspect") as AspectRatio | null) ?? "1:1";
 
   const [productId, setProductId] = useState(initialProductId);
   const product = getProduct(productId);
 
   const [designImageUrl, setDesignImageUrl] = useState<string | null>(null);
+  const [currentAspect, setCurrentAspect] = useState<AspectRatio>(initialAspect);
   const [colorName, setColorName] = useState(product?.colors[0]?.name ?? "White");
   const [hoveredColor, setHoveredColor] = useState<string | null>(null);
   const [mockupUrl, setMockupUrl] = useState<string | null>(null);
   const [mockupLoading, setMockupLoading] = useState(false);
   const [mockupError, setMockupError] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [regenerating, setRegenerating] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [zoomed, setZoomed] = useState(false);
   const [panOrigin, setPanOrigin] = useState({ x: 50, y: 50 });
@@ -52,27 +65,41 @@ function PreviewPageInner() {
   // Track the latest requested selection to discard stale responses
   const latestColorRef = useRef(colorName);
   const latestProductRef = useRef(productId);
+  const latestAspectRef = useRef(currentAspect);
 
   const colors = product?.colors ?? [];
 
-  // Load design and seed mockup cache from DB
+  // Load design and seed mockup cache from DB. After load, kick off a
+  // placement-aware regeneration if the URL's product/aspect combo doesn't
+  // already fit — this handles the "shared link to a phone-case preview"
+  // case where the stored image is still 1:1.
   useEffect(() => {
     if (!designId) {
       router.push("/design");
       return;
     }
+    let canceled = false;
     getDesign(designId).then((design) => {
+      if (canceled) return;
       if (design?.currentImageUrl) {
         setDesignImageUrl(design.currentImageUrl);
       }
-      // Seed cache from previously generated mockups (keyed as "productId:colorName")
       if (design?.mockupUrls) {
         for (const [key, url] of Object.entries(design.mockupUrls)) {
           mockupCache.current.set(key, url as string);
         }
       }
       setLoading(false);
+      // Same regen path as a manual product change, using the URL's aspect
+      // hint as the assumed source aspect.
+      void maybeRegenerateForProduct(initialProductId, initialAspect);
     });
+    return () => {
+      canceled = true;
+    };
+    // Deliberately runs once for the initial design+product+aspect tuple.
+    // Subsequent product changes are handled by handleProductChange.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [designId, router]);
 
   // Generate mockup on demand (called by "Preview on product" button)
@@ -133,6 +160,44 @@ function PreviewPageInner() {
     setMockupLoading(false);
   }
 
+  // Regenerate the design image at the new placement aspect when needed.
+  // Skips work when the current aspect already fits the target placement
+  // (server also re-checks via needsAspectRegeneration as a guard).
+  async function maybeRegenerateForProduct(
+    newProductId: string,
+    sourceAspect: AspectRatio
+  ) {
+    const newProduct = getProduct(newProductId);
+    if (!designId || !newProduct) return;
+
+    const targetAspect = getDefaultPlacement(newProduct).aspectRatio;
+    if (!needsAspectRegeneration(sourceAspect, targetAspect)) return;
+
+    setRegenerating(true);
+    try {
+      const result = await regenerateForPlacement(designId, newProductId, sourceAspect);
+      if (latestProductRef.current !== newProductId) return; // user switched away
+      if (result) {
+        setDesignImageUrl(result.imageUrl);
+        setCurrentAspect(result.aspectRatio);
+        latestAspectRef.current = result.aspectRatio;
+        // Update URL so refresh/bookmark preserves the regenerated aspect
+        router.replace(
+          `/preview?id=${designId}&product=${newProductId}&aspect=${encodeURIComponent(result.aspectRatio)}`,
+          { scroll: false }
+        );
+        // Mockup cache for the prior image is now stale
+        mockupCache.current.clear();
+      }
+    } catch (err) {
+      console.error("regenerateForPlacement failed:", err);
+    } finally {
+      if (latestProductRef.current === newProductId) {
+        setRegenerating(false);
+      }
+    }
+  }
+
   function handleProductChange(newProductId: string) {
     if (newProductId === productId) return;
     const newProduct = getProduct(newProductId);
@@ -147,7 +212,14 @@ function PreviewPageInner() {
     setMockupError(false);
     setMockupLoading(false);
 
-    router.replace(`/preview?id=${designId}&product=${newProductId}`, { scroll: false });
+    router.replace(
+      `/preview?id=${designId}&product=${newProductId}&aspect=${encodeURIComponent(currentAspect)}`,
+      { scroll: false }
+    );
+
+    // Kick off a re-render at the new placement aspect if the current
+    // image's shape doesn't fit. Fire-and-forget; the UI shows a banner.
+    void maybeRegenerateForProduct(newProductId, currentAspect);
   }
 
   async function handleApprove() {
@@ -244,7 +316,16 @@ function PreviewPageInner() {
           mockupUrl && !mockupLoading ? "cursor-zoom-in" : ""
         }`}
       >
-        {mockupLoading && (
+        {regenerating && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-surface-alt animate-pulse z-20">
+            <div className="w-12 h-12 border-2 border-accent border-t-transparent rounded-full animate-spin mb-3" />
+            <span className="text-sm text-text-muted text-center px-4">
+              Preparing your design for the {productName}…
+            </span>
+          </div>
+        )}
+
+        {!regenerating && mockupLoading && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-surface-alt animate-pulse z-10">
             <div className="w-12 h-12 border-2 border-accent border-t-transparent rounded-full animate-spin mb-3" />
             <span className="text-sm text-text-muted transition-opacity">
@@ -379,11 +460,16 @@ function PreviewPageInner() {
               onClick={handlePreviewOnProduct}
               variant="secondary"
               className="flex-1 md:flex-none"
+              disabled={regenerating}
             >
               Preview on {productName}
             </Button>
           )}
-          <Button onClick={handleApprove} className="flex-1 md:flex-none">
+          <Button
+            onClick={handleApprove}
+            className="flex-1 md:flex-none"
+            disabled={regenerating}
+          >
             Order this {productName}
           </Button>
         </div>

@@ -21,6 +21,39 @@ export type MockupPosition = {
   left: number;
 };
 
+/**
+ * Ideogram v3 Turbo's supported aspect ratios. Used as the source-of-truth
+ * enum for placement aspectRatio values so a typo in products.ts is a
+ * compile error, not a runtime Replicate failure.
+ */
+export type AspectRatio =
+  | "1:1"
+  | "1:2" | "2:1"
+  | "1:3" | "3:1"
+  | "9:16" | "16:9"
+  | "10:16" | "16:10"
+  | "2:3" | "3:2"
+  | "3:4" | "4:3"
+  | "4:5" | "5:4";
+
+/**
+ * A named region on a product where one image gets printed. Carries the
+ * geometry needed by mockup compositing (mockupPosition), the physical
+ * dimensions for UI hints (printArea), and the aspect ratio the image
+ * generator should target so the design fits without crops.
+ *
+ * Today every product has exactly one front placement. The structure
+ * supports multi-placement (front + back, sleeves) — see
+ * docs/print-targets.md.
+ */
+export type Placement = {
+  id: string;                   // "front", "back", "sleeve-left", etc.
+  aspectRatio: AspectRatio;     // generator target
+  mockupPosition: MockupPosition;
+  printArea: { width: number; height: number };  // inches
+  required?: boolean;           // must be filled for fulfillment
+};
+
 export type Product = {
   id: string;
   name: string;
@@ -34,8 +67,21 @@ export type Product = {
   sizeLabel?: string;
   colors: ProductColor[];
   variants: Record<string, Record<string, number>>; // color → size → variantId
+  /**
+   * Print regions on this product. First entry is the default ("front").
+   * See Placement for per-region geometry.
+   */
+  placements: Placement[];
+  /**
+   * @deprecated Use getDefaultPlacement(product).mockupPosition.
+   * Mirrored from placements[0] during Phase 1 of the print-targets work
+   * to avoid touching every existing consumer in one pass.
+   */
   mockupPosition: MockupPosition;
-  /** Physical print area dimensions in inches, for display. */
+  /**
+   * @deprecated Use getDefaultPlacement(product).printArea.
+   * Mirrored from placements[0] during Phase 1.
+   */
   printArea: { width: number; height: number };
 };
 
@@ -78,6 +124,15 @@ export const PRODUCTS: Product[] = [
       Mustard: { S: 10376, M: 10377, L: 10378, XL: 10379, "2XL": 10380 },
       Sage: { S: 22050, M: 22051, L: 22052, XL: 22053, "2XL": 22054 },
     },
+    placements: [
+      {
+        id: "front",
+        aspectRatio: "3:4",
+        mockupPosition: { area_width: 1800, area_height: 2400, width: 1800, height: 1800, top: 300, left: 0 },
+        printArea: { width: 12, height: 16 },
+        required: true,
+      },
+    ],
     mockupPosition: {
       area_width: 1800,
       area_height: 2400,
@@ -114,6 +169,15 @@ export const PRODUCTS: Product[] = [
       "Vintage White": { S: 23598, M: 23599, L: 23600, XL: 23601, "2XL": 23602, "3XL": 23603, "4XL": 23604 },
       White: { S: 23605, M: 23606, L: 23607, XL: 23608, "2XL": 23609, "3XL": 23610, "4XL": 23611 },
     },
+    placements: [
+      {
+        id: "front",
+        aspectRatio: "3:4",
+        mockupPosition: { area_width: 1800, area_height: 2400, width: 1800, height: 1800, top: 300, left: 0 },
+        printArea: { width: 12, height: 16 },
+        required: true,
+      },
+    ],
     mockupPosition: {
       area_width: 1800,
       area_height: 2400,
@@ -182,6 +246,15 @@ export const PRODUCTS: Product[] = [
       "Heather Red": { S: 14268, M: 14269, L: 14270, XL: 14271, "2XL": 14272, "3XL": 14288 },
       "Heather Stone": { S: 14273, M: 14274, L: 14275, XL: 14276, "2XL": 14277, "3XL": 14289 },
     },
+    placements: [
+      {
+        id: "front",
+        aspectRatio: "4:5",
+        mockupPosition: { area_width: 1500, area_height: 1800, width: 1138, height: 1368, top: 372, left: 930 },
+        printArea: { width: 10, height: 12 },
+        required: true,
+      },
+    ],
     mockupPosition: {
       area_width: 1500,
       area_height: 1800,
@@ -221,6 +294,15 @@ export const PRODUCTS: Product[] = [
         "iPhone SE": 11452,
       },
     },
+    placements: [
+      {
+        id: "front",
+        aspectRatio: "1:2",
+        mockupPosition: { area_width: 879, area_height: 1830, width: 879, height: 1830, top: 0, left: 0 },
+        printArea: { width: 2.5, height: 5.2 },
+        required: true,
+      },
+    ],
     mockupPosition: {
       area_width: 879,
       area_height: 1830,
@@ -270,4 +352,40 @@ export function getColorHex(productId: string | null | undefined, colorName: str
   const product = getProduct(productId);
   const color = product?.colors.find((c) => c.name === colorName);
   return color?.value ?? FALLBACK;
+}
+
+/**
+ * The default placement for a product — the first one, by convention "front".
+ * In Phase 1 every product has exactly one placement; multi-placement is
+ * Phase 4 work (see docs/print-targets-plan.md).
+ */
+export function getDefaultPlacement(product: Product): Placement {
+  const p = product.placements[0];
+  if (!p) throw new Error(`Product ${product.id} has no placements defined`);
+  return p;
+}
+
+/** Parse "W:H" into a numeric width/height ratio. */
+function aspectToRatio(aspect: AspectRatio): number {
+  const [w, h] = aspect.split(":").map(Number);
+  return w / h;
+}
+
+/**
+ * Whether a source image generated at `sourceAspect` should be regenerated
+ * to fit a placement with `targetAspect`. True when the two aspects are
+ * different enough that crop/letterbox would visibly mangle the design.
+ *
+ * Threshold: the larger ratio is more than 1.5× the smaller one. This means
+ * 1:1 → 1:2 (phone case) regenerates, but 1:1 → 3:4 (default tee) doesn't —
+ * the tee letterboxes acceptably.
+ */
+export function needsAspectRegeneration(
+  sourceAspect: AspectRatio,
+  targetAspect: AspectRatio
+): boolean {
+  if (sourceAspect === targetAspect) return false;
+  const r1 = aspectToRatio(sourceAspect);
+  const r2 = aspectToRatio(targetAspect);
+  return Math.max(r1, r2) / Math.min(r1, r2) >= 1.5;
 }

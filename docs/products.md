@@ -41,9 +41,23 @@ type Product = {
   sizes: string[];           // Available sizes in display order
   colors: ProductColor[];    // Available colors with hex values for UI
   variants: Record<string, Record<string, number>>;  // color → size → Printful variant ID
-  mockupPosition: MockupPosition;  // Where the design lands on the product
+  placements: Placement[];   // Print regions; first entry is "front"
+  mockupPosition: MockupPosition;  // @deprecated — mirrored from placements[0]
+  printArea: { width: number; height: number };  // @deprecated — mirrored from placements[0]
+};
+
+type Placement = {
+  id: string;                // "front", "back", "sleeve-left", "phone-back"
+  aspectRatio: AspectRatio;  // Ideogram enum, drives image generation shape
+  mockupPosition: MockupPosition;
+  printArea: { width: number; height: number };  // physical inches
+  required?: boolean;        // must be filled for fulfillment
 };
 ```
+
+`AspectRatio` is a string-literal union of Ideogram v3 Turbo's supported values (`"1:1"`, `"1:2"`, `"3:4"`, `"4:5"`, etc.) — typos surface as compile errors, not runtime Replicate failures.
+
+The top-level `mockupPosition` and `printArea` fields are kept during Phase 1 of the print-targets work so existing consumers (`generateMockup`, `ProductSilhouette`) don't need to change in lockstep with the placements rollout. They're populated identically to `placements[0]`'s values; new code should call `getDefaultPlacement(product)` instead. See `docs/print-targets-plan.md`.
 
 ### Current Products
 
@@ -54,11 +68,13 @@ type Product = {
 
 ### Design Generation (`/design`)
 
-Product-agnostic. The AI generates an image based on the user's description. The system prompt references a generic print area but doesn't know which product the design will go on.
+Product-agnostic. The AI generates an image based on the user's description at 1:1, the default exploratory aspect. The system prompt references a generic print area but doesn't know which product the design will go on.
 
 ### Preview (`/preview`)
 
-Product-aware. Generates Printful mockups using the product's `mockupPosition` and `variants`. Mockups are cached per `{productId}:{colorName}` on the design record.
+Product-aware. When the user picks a product whose front-placement aspect is significantly different from the source image's aspect (`needsAspectRegeneration` returns true — currently triggers for 1:1 → 1:2 phone case), the page calls `regenerateForPlacement` to re-render the design at the placement aspect, using the existing image as a style reference. The aspect is persisted in the URL (`?aspect=`) so refresh/bookmark doesn't trigger a redundant regeneration.
+
+Generates Printful mockups using the product's `mockupPosition` and `variants`. Mockups are cached per `{productId}:{colorName}` on the design record; the cache is cleared when a regeneration replaces the source image.
 
 ### Order (`/order`)
 
@@ -107,5 +123,5 @@ Not every product fits the `standard/premium` quality model. A poster might offe
 
 ### Aspect Ratio
 
-Current designs are generated square-ish for the 12"×16" DTG print area. A poster needs a different ratio. The design generation step would need a target aspect ratio — derivable from `mockupPosition` or specified explicitly on the product.
+Each placement now carries an `aspectRatio` (Phase 1 of the print-targets work, see `docs/print-targets-plan.md`). New designs are still generated at 1:1 in `/design`; `/preview` regenerates at the placement aspect when the user picks a product whose aspect is meaningfully different from the source. Phase 2/3 will move every generated image to a first-class `design_image` row with provenance, replacing the current single-image-per-design model.
 

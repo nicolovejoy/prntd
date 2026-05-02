@@ -1,15 +1,17 @@
 import Replicate from "replicate";
+import type { AspectRatio } from "./products";
 
 const replicate = new Replicate();
 
 export async function generateImage(
   prompt: string,
   referenceImageUrl?: string,
-  negativePrompt?: string | null
+  negativePrompt?: string | null,
+  aspectRatio: AspectRatio = "1:1"
 ): Promise<string> {
   const input: Record<string, unknown> = {
     prompt,
-    aspect_ratio: "1:1",
+    aspect_ratio: aspectRatio,
     magic_prompt_option: "Off",
   };
 

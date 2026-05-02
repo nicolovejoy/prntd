@@ -138,6 +138,12 @@ See `docs/next-phase.md` for the full Phase 1/2/3 plan. Top items:
 - #5 Homepage re-org — Nico, after first real disbursement is logged
 - #10 ~~Order list thumbnails on shirt color~~ — shipped May 1; iPhone case "Clear" still renders on white, follow-up to special-case `type === "phone-case"`
 
+**Print targets (parallel track) — see `docs/print-targets.md` + `docs/print-targets-plan.md`**
+- Phase 1 (aspect-correct generation, no schema change) shipped 2026-05-02. Triggered by the iPhone case crop on order #155282908-77750732. Needs a real test-mode iPhone case order to verify end-to-end.
+- #11 Printful + checkout deep-dive (multi-placement, tax, shipping, team orders, safe-area UX) — blocks Phase 4 multi-placement UI.
+- #12 Image export facility — independent, slot anywhere after Phase 2.
+- Phase 2 (`design_image` table + backfill) is the next implementation step.
+
 **Background-removal failure (open)**
 - Bria's bg-remove returns un-removed white-background image for some hand-painted designs (Ideogram output edges too soft for the model to isolate). Symptom: design renders white-on-white in the gallery's Dark/Light toggle. Investigate logs + fall-back behavior, or swap to a more robust matting model.
 
