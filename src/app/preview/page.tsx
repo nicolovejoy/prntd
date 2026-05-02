@@ -151,6 +151,29 @@ function PreviewPageInner() {
     return () => clearInterval(timer);
   }, [mockupLoading]);
 
+  // Auto-trigger the real Printful mockup whenever the underlying inputs
+  // settle (initial load, color change, product change post-regen) and we
+  // don't already have one. The mockup is the actual product render the
+  // user will see in their order — making them click a button to see it
+  // is friction we don't want before checkout.
+  useEffect(() => {
+    if (!designImageUrl) return;
+    if (regenerating || mockupLoading || mockupUrl) return;
+    // If the current image needs an aspect regen for this product, skip —
+    // the regen path will set designImageUrl when done and we'll re-run
+    // the effect against a correctly-shaped image. Avoids burning a Printful
+    // mockup call on a soon-to-be-discarded image.
+    const product = getProduct(productId);
+    if (product) {
+      const targetAspect = getDefaultPlacement(product).aspectRatio;
+      if (needsAspectRegeneration(currentAspect, targetAspect)) return;
+    }
+    void handlePreviewOnProduct();
+    // handlePreviewOnProduct closes over current state; the dep list captures
+    // the inputs that determine whether a mockup is needed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [designImageUrl, productId, colorName, regenerating, currentAspect]);
+
   function handleColorChange(name: string) {
     setColorName(name);
     latestColorRef.current = name;
