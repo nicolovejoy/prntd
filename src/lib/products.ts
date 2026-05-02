@@ -258,3 +258,16 @@ export function getVariantId(
 ): number | undefined {
   return product.variants[color]?.[size];
 }
+
+/**
+ * Look up the hex value for a color on a given product. Falls back to a
+ * neutral light gray when the product or color isn't found, so list views
+ * always have something usable to render against.
+ */
+export function getColorHex(productId: string | null | undefined, colorName: string | null | undefined): string {
+  const FALLBACK = "#e5e5e5";
+  if (!productId || !colorName) return FALLBACK;
+  const product = getProduct(productId);
+  const color = product?.colors.find((c) => c.name === colorName);
+  return color?.value ?? FALLBACK;
+}

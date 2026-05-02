@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { getUserOrders } from "./actions";
 import { Badge, Button, Card } from "@/components/ui";
+import { getColorHex } from "@/lib/products";
 
 type Order = Awaited<ReturnType<typeof getUserOrders>>[number];
 
@@ -104,16 +105,23 @@ export default function OrdersPage() {
             {filtered.map((order) => (
               <Card key={order.id} className="p-4">
                 <div className="flex gap-4">
-                  {/* Design thumbnail */}
-                  <div className="w-16 h-16 rounded bg-surface-raised flex-shrink-0 overflow-hidden">
+                  {/* Design thumbnail rendered on the actual shirt color */}
+                  <div
+                    className="w-16 h-16 rounded p-1.5 flex-shrink-0 overflow-hidden"
+                    style={{
+                      backgroundColor: order.designImageUrl
+                        ? getColorHex(order.productId, order.color)
+                        : undefined,
+                    }}
+                  >
                     {order.designImageUrl ? (
                       <img
                         src={order.designImageUrl}
                         alt="Design"
-                        className="w-full h-full object-cover"
+                        className="w-full h-full object-contain"
                       />
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center text-text-faint text-xs">
+                      <div className="w-full h-full flex items-center justify-center text-text-faint text-xs bg-surface-raised rounded">
                         —
                       </div>
                     )}

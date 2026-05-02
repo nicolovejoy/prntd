@@ -13,6 +13,7 @@ import {
   setOrderTags,
 } from "../../actions";
 import { Badge, Button, Card } from "@/components/ui";
+import { getColorHex } from "@/lib/products";
 import {
   ORDER_CLASSIFICATIONS,
   CLASSIFICATION_INFO,
@@ -196,11 +197,16 @@ export default function OrderDetailPage() {
             <h3 className="text-xs text-text-muted uppercase mb-2">Product</h3>
             <div className="flex gap-3">
               {order.designImageUrl && (
-                <img
-                  src={order.designImageUrl}
-                  alt="Design"
-                  className="w-20 h-20 rounded object-cover"
-                />
+                <div
+                  className="w-20 h-20 rounded p-2 overflow-hidden flex-shrink-0"
+                  style={{ backgroundColor: getColorHex(order.productId, order.color) }}
+                >
+                  <img
+                    src={order.designImageUrl}
+                    alt="Design"
+                    className="w-full h-full object-contain"
+                  />
+                </div>
               )}
               <div className="text-sm">
                 <p>

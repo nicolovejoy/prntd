@@ -12,6 +12,7 @@ import {
   setOrderClassification,
 } from "./actions";
 import { Badge, Button, Card } from "@/components/ui";
+import { getColorHex } from "@/lib/products";
 import {
   ORDER_CLASSIFICATIONS,
   CLASSIFICATION_INFO,
@@ -360,11 +361,16 @@ export default function AdminPage() {
                     <td className="py-3 pr-4 text-xs">{order.userEmail}</td>
                     <td className="py-3 pr-4">
                       {order.designImageUrl && (
-                        <img
-                          src={order.designImageUrl}
-                          alt="Design"
-                          className="w-10 h-10 rounded object-cover"
-                        />
+                        <div
+                          className="w-10 h-10 rounded p-1 overflow-hidden"
+                          style={{ backgroundColor: getColorHex(order.productId, order.color) }}
+                        >
+                          <img
+                            src={order.designImageUrl}
+                            alt="Design"
+                            className="w-full h-full object-contain"
+                          />
+                        </div>
                       )}
                     </td>
                     <td className="py-3 pr-4 text-xs">
