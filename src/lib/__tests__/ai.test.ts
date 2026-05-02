@@ -244,4 +244,73 @@ describe("constructFluxPrompt", () => {
     const call = mockCreate.mock.calls[0][0];
     expect(call.system).toContain('#1: "sunset"');
   });
+
+  it("captures negativePrompt when Claude provides one", async () => {
+    const mockCreate = await getMockCreate();
+    mockCreate.mockResolvedValue({
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          message: "Generating your brushy design",
+          fluxPrompt: "sumi-e brush calligraphy, hand-painted, white background",
+          negativePrompt: "clean vector, smooth gradients, digital font, polished illustration",
+          referenceImage: null,
+        }),
+      }],
+    });
+
+    const { constructFluxPrompt } = await import("../ai");
+    const result = await constructFluxPrompt(
+      [{ role: "user", content: "Hand-painted thought bubble" }],
+      []
+    );
+
+    expect(result.negativePrompt).toContain("clean vector");
+    expect(result.fluxPrompt).toContain("sumi-e");
+  });
+
+  it("defaults negativePrompt to null when missing", async () => {
+    const mockCreate = await getMockCreate();
+    mockCreate.mockResolvedValue({
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          message: "Generating",
+          fluxPrompt: "vector illustration",
+          referenceImage: null,
+        }),
+      }],
+    });
+
+    const { constructFluxPrompt } = await import("../ai");
+    const result = await constructFluxPrompt(
+      [{ role: "user", content: "anything" }],
+      []
+    );
+
+    expect(result.negativePrompt).toBeNull();
+  });
+
+  it("treats empty-string negativePrompt as null", async () => {
+    const mockCreate = await getMockCreate();
+    mockCreate.mockResolvedValue({
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          message: "Generating",
+          fluxPrompt: "vector illustration",
+          negativePrompt: "   ",
+          referenceImage: null,
+        }),
+      }],
+    });
+
+    const { constructFluxPrompt } = await import("../ai");
+    const result = await constructFluxPrompt(
+      [{ role: "user", content: "anything" }],
+      []
+    );
+
+    expect(result.negativePrompt).toBeNull();
+  });
 });

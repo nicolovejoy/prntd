@@ -101,7 +101,11 @@ export async function generateDesign(
   // Generate image and attempt background removal
   let replicateUrl;
   try {
-    replicateUrl = await generateImage(aiResponse.fluxPrompt, refImageUrl);
+    replicateUrl = await generateImage(
+      aiResponse.fluxPrompt,
+      refImageUrl,
+      aiResponse.negativePrompt
+    );
   } catch (err) {
     console.error("generateImage failed:", err);
     throw new Error("Image generation failed");
