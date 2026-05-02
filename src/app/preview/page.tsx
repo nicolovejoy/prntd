@@ -396,16 +396,6 @@ function PreviewPageInner() {
         </div>
       )}
 
-      {/* Mockup error — show retry */}
-      {!mockupLoading && mockupError && (
-        <p className="text-sm text-red-400 mt-2">
-          Mockup failed.{" "}
-          <button onClick={handlePreviewOnProduct} className="underline hover:text-red-300">
-            Try again
-          </button>
-        </p>
-      )}
-
       {/* Fullscreen lightbox with zoom + pan */}
       {lightboxOpen && mockupUrl && (
         <div
@@ -478,27 +468,28 @@ function PreviewPageInner() {
       {/* Actions */}
       <div className="flex flex-col items-center gap-3 mt-6 md:mt-8 w-full max-w-xs md:max-w-none md:w-auto">
         <div className="flex gap-4 w-full md:w-auto">
-          {!mockupLoading && !mockupUrl && designImageUrl && (
-            <Button
-              onClick={handlePreviewOnProduct}
-              variant="secondary"
-              className="flex-1 md:flex-none"
-              disabled={regenerating}
-            >
-              Preview on {productName}
-            </Button>
-          )}
+          {/* The order CTA is gated on having a real Printful mockup on
+              screen — users shouldn't reach checkout without seeing what
+              their product will actually look like. The auto-mockup effect
+              fetches it as soon as design/product/color settle. */}
           <Button
             onClick={handleApprove}
             className="flex-1 md:flex-none"
-            disabled={regenerating}
+            disabled={regenerating || mockupLoading || !mockupUrl}
           >
-            Order this {productName}
+            {regenerating
+              ? "Preparing design…"
+              : mockupLoading || !mockupUrl
+                ? "Rendering preview…"
+                : `Order this ${productName}`}
           </Button>
         </div>
-        {!mockupUrl && !mockupLoading && (
-          <p className="text-xs text-text-muted text-center">
-            Preview takes about a minute — choose your options first
+        {mockupError && (
+          <p className="text-sm text-red-400 text-center">
+            Couldn&apos;t render the preview.{" "}
+            <button onClick={handlePreviewOnProduct} className="underline hover:text-red-300">
+              Try again
+            </button>
           </p>
         )}
         <Link href={`/design?id=${designId}`} className="text-sm text-text-muted hover:text-foreground hover:underline">
