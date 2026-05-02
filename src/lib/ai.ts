@@ -120,6 +120,43 @@ export async function chatAboutDesign(
   return { message: text };
 }
 
+const NAME_SYSTEM_PROMPT = `You name t-shirt designs for an order management system. Look at the image and respond with 2–4 words that identify it at a glance.
+
+Rules:
+- If the design contains prominent text, return that text verbatim (trim to 4 words max).
+- Otherwise, describe the subject concisely (e.g. "Blue Mountain Landscape", "Skull With Roses").
+- Title Case. No quotes, no punctuation, no trailing period.
+- Respond with only the name. No preamble, no explanation.`;
+
+export async function generateOrderName(imageUrl: string): Promise<string | null> {
+  try {
+    const response = await anthropic.messages.create({
+      model: "claude-sonnet-4-6",
+      max_tokens: 32,
+      system: NAME_SYSTEM_PROMPT,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "image", source: { type: "url", url: imageUrl } },
+            { type: "text", text: "Name this design." },
+          ],
+        },
+      ],
+    });
+
+    const text =
+      response.content?.[0]?.type === "text" ? response.content[0].text : "";
+    const cleaned = text.trim().replace(/^["']|["']$/g, "").replace(/\.$/, "");
+    if (!cleaned) return null;
+    // Cap at 60 chars to keep email subjects sane
+    return cleaned.length > 60 ? cleaned.slice(0, 60).trim() : cleaned;
+  } catch (err) {
+    console.error("generateOrderName failed:", err);
+    return null;
+  }
+}
+
 export async function constructFluxPrompt(
   chatHistory: ChatMessage[],
   images: DesignImage[],

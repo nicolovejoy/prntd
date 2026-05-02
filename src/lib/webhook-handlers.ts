@@ -8,11 +8,13 @@ import { assertTransition } from "@/lib/order-state";
 import { recordSale, recordCOGS, recordCancellation } from "@/lib/ledger";
 import type { createOrder } from "@/lib/printful";
 import type { db as appDb } from "@/lib/db";
+import type { generateOrderName } from "@/lib/ai";
 
 // Dependency interface for testability
 export type WebhookDeps = {
   db: typeof appDb;
   createPrintfulOrder: typeof createOrder;
+  generateOrderName: typeof generateOrderName;
 };
 
 // Stripe checkout.session.completed payload (after retrieval)
@@ -109,6 +111,14 @@ export async function handleStripeCheckoutCompleted(
   if (!foundDesign?.currentImageUrl) {
     console.error(`Order ${orderId}: design ${designId} has no image`);
     return { action: "paid" };
+  }
+
+  const displayName = await deps.generateOrderName(foundDesign.currentImageUrl);
+  if (displayName) {
+    await deps.db
+      .update(orderTable)
+      .set({ displayName, updatedAt: new Date() })
+      .where(eq(orderTable.id, orderId));
   }
 
   const product = getProductOrThrow(foundOrder.productId ?? "bella-canvas-3001");

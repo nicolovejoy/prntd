@@ -9,6 +9,7 @@ function createDeps(overrides: Partial<OrderEmailDeps> = {}): OrderEmailDeps {
       color: "Black",
       totalPrice: 30.0,
       discountCode: null,
+      displayName: null,
     }),
     sendOrderConfirmation: vi.fn().mockResolvedValue(undefined),
     sendOwnerOrderAlert: vi.fn().mockResolvedValue(undefined),
@@ -29,6 +30,7 @@ describe("sendPostOrderEmails", () => {
       size: "M",
       color: "Black",
       total: 30.0,
+      displayName: null,
     });
     expect(deps.sendOwnerOrderAlert).toHaveBeenCalledWith({
       orderId: "order-1",
@@ -37,6 +39,7 @@ describe("sendPostOrderEmails", () => {
       color: "Black",
       total: 30.0,
       discountCode: null,
+      displayName: null,
     });
   });
 
@@ -48,6 +51,7 @@ describe("sendPostOrderEmails", () => {
         color: "White",
         totalPrice: 15.0,
         discountCode: "nico-codes",
+        displayName: null,
       }),
     });
 
@@ -55,6 +59,28 @@ describe("sendPostOrderEmails", () => {
 
     expect(deps.sendOwnerOrderAlert).toHaveBeenCalledWith(
       expect.objectContaining({ discountCode: "nico-codes", total: 15.0 })
+    );
+  });
+
+  it("forwards displayName to both customer and owner emails", async () => {
+    const deps = createDeps({
+      loadOrderForEmail: vi.fn().mockResolvedValue({
+        email: "user@example.com",
+        size: "M",
+        color: "Black",
+        totalPrice: 30.0,
+        discountCode: null,
+        displayName: "Artificial Idiot",
+      }),
+    });
+
+    await sendPostOrderEmails("order-3", deps);
+
+    expect(deps.sendOrderConfirmation).toHaveBeenCalledWith(
+      expect.objectContaining({ displayName: "Artificial Idiot" })
+    );
+    expect(deps.sendOwnerOrderAlert).toHaveBeenCalledWith(
+      expect.objectContaining({ displayName: "Artificial Idiot" })
     );
   });
 

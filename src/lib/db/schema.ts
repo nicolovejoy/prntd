@@ -67,6 +67,7 @@ export const order = sqliteTable("order", {
   size: text("size").notNull(),
   color: text("color").notNull(),
   productId: text("product_id").notNull().default("bella-canvas-3001"),
+  displayName: text("display_name"),
   quality: text("quality"),  // deprecated — kept for historical orders
   totalPrice: real("total_price").notNull(),
   status: text("status", { enum: ["pending", "paid", "submitted", "shipped", "delivered", "canceled"] }).notNull().default("pending"),
