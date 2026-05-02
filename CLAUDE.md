@@ -130,39 +130,34 @@ PRINTFUL_DRY_RUN        # "true" to short-circuit Printful order submission (loc
 
 ## Known Issues / Next Steps
 
-**Discount codes + promo (remaining)**
-- Test end-to-end checkout with a promo code on local dev + Stripe test mode (see validation checklist in memory)
-- Show discount info on admin order detail page and /orders
-- Decide whether to charge shipping as a separate line so percentage promo codes don't eat margin to zero (currently `shipping_options` not set, shipping is baked into COGS; 50% off launches at structural loss)
+See `docs/next-phase.md` for the full Phase 1/2/3 plan. Top items:
 
-**1Password secret migration (paused 2026-04-14)**
-- `.env.tpl` drafted locally with `op://dev-secrets/prntd-*` refs — NOT committed
-- TODO: create 9 items in 1Password `dev-secrets` vault, `op inject` to regenerate `.env.local`, update Vercel prod env for Anthropic key, revoke old global key
-- See memory `project_anthropic_key_rotation.md` for full checklist
+**Phase 1 — public-facing readiness (active)**
+- #4 Charity disbursement infrastructure — Nico, blocks #5
+- DESC permission email + sole-prop/LLC entity confirmation — Nico (pre-flight for #4/#5)
+- #5 Homepage re-org — Nico, after first real disbursement is logged
+- #10 ~~Order list thumbnails on shirt color~~ — shipped May 1; iPhone case "Clear" still renders on white, follow-up to special-case `type === "phone-case"`
 
-**Local dev testing setup**
-- ~~`PRINTFUL_DRY_RUN` env flag~~ — shipped, validated end-to-end on 2026-04-27
-- ~~Document local dev + Stripe test mode workflow~~ — `docs/e2e-testing.md`
+**Background-removal failure (open)**
+- Bria's bg-remove returns un-removed white-background image for some hand-painted designs (Ideogram output edges too soft for the model to isolate). Symptom: design renders white-on-white in the gallery's Dark/Light toggle. Investigate logs + fall-back behavior, or swap to a more robust matting model.
 
-**Email + order naming clarity**
-- Owner alert and customer confirmation subject lines lack at-a-glance context — `docs/current-state.md`-style audit captured in the GitHub issue (Max's first PR)
-- Auto-name each order from the dominant text in its design image (e.g. "Artificial Idiot" instead of `3cd9d356`). Use it in admin list, /orders, email subjects, owner alerts. Need a way to extract the text — Claude vision call at order time, or pull from the chat history that produced the design.
+**Image-gen style versatility (followup to #8)**
+- Designs should default to colors that read on both light and dark shirts unless the user explicitly asks for "black lettering" / "white text". System prompt update queued; not yet shipped. After that, build the style-reference image library (#8 follow-up).
 
-**Design conversation persistence**
-- Design threads must stay accessible after ordering (not hidden/locked)
-- Navigation between past purchases ↔ design conversations
-- Iteration UX within a thread needs improvement
+**Design fork model (#2 remainder)**
+- `parent_design_id` schema + `forkDesign()` action + read-only past-thread view + "Make another like this" button. Required scaffolding before #6 marketplace.
 
-**Mobile flow rethink**
-- Design→preview→order feels fragmented on phones — too many page jumps
-- Consider collapsing preview into design page, or a stepped flow
+**Discount codes (remaining)**
+- Show discount info on admin order detail and /orders
+- Charge shipping as a separate Stripe line so percentage promos don't eat margin to zero (currently shipping is baked into COGS; 50% off launches at structural loss)
 
-**Product expansion**
-- Posters, canvas prints, stickers, hoodies (future)
-- Multi-placement support (front/back printing) — see docs/products.md
+**Mobile flow rethink** — Phase 2. Design→preview→order too fragmented on phones.
 
-### Ongoing
+**1Password secret migration (paused 2026-04-14)** — see memory `project_anthropic_key_rotation.md`
+
+### Ongoing / low priority
 - hledger export script (docs/accounting.md has the architecture)
 - Drag-and-drop image upload not working on some browsers — file picker works
 - Rate limiting / generation caps
 - Next.js 16 middleware → proxy migration
+- Backfill `display_name` for historical orders
