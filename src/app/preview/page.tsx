@@ -66,6 +66,11 @@ function PreviewPageInner() {
   const latestColorRef = useRef(colorName);
   const latestProductRef = useRef(productId);
   const latestAspectRef = useRef(currentAspect);
+  // Monotonic counter for regen attempts. Only the latest attempt is
+  // allowed to clear the regenerating spinner, so an earlier in-flight
+  // regen (e.g. from a product the user already navigated away from)
+  // can't accidentally cancel a newer one.
+  const regenSeqRef = useRef(0);
 
   const colors = product?.colors ?? [];
 
@@ -196,26 +201,31 @@ function PreviewPageInner() {
     const targetAspect = getDefaultPlacement(newProduct).aspectRatio;
     if (!needsAspectRegeneration(sourceAspect, targetAspect)) return;
 
+    const seq = ++regenSeqRef.current;
     setRegenerating(true);
     try {
       const result = await regenerateForPlacement(designId, newProductId, sourceAspect);
-      if (latestProductRef.current !== newProductId) return; // user switched away
+      // If a newer regen has been started, defer to it and don't touch
+      // shared state (image URL, URL params, cache, spinner).
+      if (seq !== regenSeqRef.current) return;
       if (result) {
         setDesignImageUrl(result.imageUrl);
         setCurrentAspect(result.aspectRatio);
         latestAspectRef.current = result.aspectRatio;
-        // Update URL so refresh/bookmark preserves the regenerated aspect
         router.replace(
           `/preview?id=${designId}&product=${newProductId}&aspect=${encodeURIComponent(result.aspectRatio)}`,
           { scroll: false }
         );
-        // Mockup cache for the prior image is now stale
         mockupCache.current.clear();
       }
     } catch (err) {
       console.error("regenerateForPlacement failed:", err);
     } finally {
-      if (latestProductRef.current === newProductId) {
+      // Only the latest regen owns the spinner. An earlier attempt that
+      // happens to settle later must not flip it off — that would unmask
+      // a stale state and let the user click Order while the real regen
+      // is still in flight.
+      if (seq === regenSeqRef.current) {
         setRegenerating(false);
       }
     }
@@ -470,26 +480,34 @@ function PreviewPageInner() {
         <div className="flex gap-4 w-full md:w-auto">
           {/* The order CTA is gated on having a real Printful mockup on
               screen — users shouldn't reach checkout without seeing what
-              their product will actually look like. The auto-mockup effect
-              fetches it as soon as design/product/color settle. */}
-          <Button
-            onClick={handleApprove}
-            className="flex-1 md:flex-none"
-            disabled={regenerating || mockupLoading || !mockupUrl}
-          >
-            {regenerating
-              ? "Preparing design…"
-              : mockupLoading || !mockupUrl
-                ? "Rendering preview…"
-                : `Order this ${productName}`}
-          </Button>
+              their product will actually look like. When the mockup
+              errors, the same button becomes the retry. */}
+          {mockupError ? (
+            <Button
+              onClick={handlePreviewOnProduct}
+              variant="secondary"
+              className="flex-1 md:flex-none"
+              disabled={regenerating}
+            >
+              Retry preview
+            </Button>
+          ) : (
+            <Button
+              onClick={handleApprove}
+              className="flex-1 md:flex-none"
+              disabled={regenerating || mockupLoading || !mockupUrl}
+            >
+              {regenerating
+                ? "Preparing design…"
+                : mockupLoading || !mockupUrl
+                  ? "Rendering preview…"
+                  : `Use this design`}
+            </Button>
+          )}
         </div>
         {mockupError && (
           <p className="text-sm text-red-400 text-center">
-            Couldn&apos;t render the preview.{" "}
-            <button onClick={handlePreviewOnProduct} className="underline hover:text-red-300">
-              Try again
-            </button>
+            Couldn&apos;t render the preview.
           </p>
         )}
         <Link href={`/design?id=${designId}`} className="text-sm text-text-muted hover:text-foreground hover:underline">

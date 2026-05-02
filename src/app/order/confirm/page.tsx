@@ -94,7 +94,7 @@ function ConfirmPageInner() {
             <Button className="w-full">View My Orders</Button>
           </Link>
           <Link href="/design">
-            <Button variant="ghost" className="w-full">Design another shirt</Button>
+            <Button variant="ghost" className="w-full">Start another design</Button>
           </Link>
         </div>
       </div>

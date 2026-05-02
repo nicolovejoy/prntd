@@ -30,6 +30,7 @@ export async function sendOrderConfirmation(params: {
   size: string;
   color: string;
   total: number;
+  productName: string;
   displayName?: string | null;
 }) {
   const shortId = params.orderId.slice(0, 8);
@@ -45,11 +46,11 @@ export async function sendOrderConfirmation(params: {
     html: `
       <div style="font-family: system-ui, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
         <h2 style="margin: 0 0 16px;">Your order is confirmed</h2>
-        <p style="color: #555; margin: 0 0 24px;">We're printing your custom t-shirt now.</p>
+        <p style="color: #555; margin: 0 0 24px;">We're printing your ${params.productName} now.</p>
         <table style="width: 100%; border-collapse: collapse; margin-bottom: 24px;">
           ${nameRow}
           <tr><td style="padding: 8px 0; color: #888;">Order</td><td style="padding: 8px 0; text-align: right; font-family: monospace;">${shortId}</td></tr>
-          <tr><td style="padding: 8px 0; color: #888;">Shirt</td><td style="padding: 8px 0; text-align: right;">${params.color} / ${params.size}</td></tr>
+          <tr><td style="padding: 8px 0; color: #888;">${params.productName}</td><td style="padding: 8px 0; text-align: right;">${params.color} / ${params.size}</td></tr>
           <tr style="border-top: 1px solid #eee;"><td style="padding: 8px 0; font-weight: 600;">Total</td><td style="padding: 8px 0; text-align: right; font-weight: 600;">$${params.total.toFixed(2)}</td></tr>
         </table>
         <p style="color: #555; font-size: 14px;">We'll email you again when it ships with tracking info.</p>
@@ -118,10 +119,10 @@ export async function sendShippingNotification(params: {
   await resend.emails.send({
     from: FROM,
     to: params.to,
-    subject: `Your shirt shipped — ${label}`,
+    subject: `Your order shipped — ${label}`,
     html: `
       <div style="font-family: system-ui, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
-        <h2 style="margin: 0 0 16px;">Your shirt is on the way</h2>
+        <h2 style="margin: 0 0 16px;">Your order is on the way</h2>
         <p style="color: #555; margin: 0 0 24px;">${params.displayName ? `"${params.displayName}" (order ${shortId})` : `Order ${shortId}`} has shipped.</p>
         ${trackingHtml}
         <p style="color: #999; font-size: 12px; margin-top: 32px;">PRNTD &mdash; prntd.org</p>

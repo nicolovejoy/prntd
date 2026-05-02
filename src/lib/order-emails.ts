@@ -2,12 +2,15 @@ import { eq } from "drizzle-orm";
 import { order as orderTable, user as userTable } from "@/lib/db/schema";
 import type { db as appDb } from "@/lib/db";
 import type { sendOrderConfirmation, sendOwnerOrderAlert } from "@/lib/email";
+import { getProduct } from "@/lib/products";
 
 export type OrderEmailPayload = {
   email: string;
   size: string;
   color: string;
   totalPrice: number;
+  productId: string;
+  productName: string;
   discountCode: string | null;
   displayName: string | null;
 };
@@ -47,6 +50,7 @@ export async function sendPostOrderEmails(
       size: payload.size,
       color: payload.color,
       total: payload.totalPrice,
+      productName: payload.productName,
       displayName: payload.displayName,
     });
     console.log(`Order ${orderId}: confirmation email sent to ${payload.email}`);
@@ -88,13 +92,23 @@ export function createDefaultOrderEmailDeps(
           size: orderTable.size,
           color: orderTable.color,
           totalPrice: orderTable.totalPrice,
+          productId: orderTable.productId,
           discountCode: orderTable.discountCode,
           displayName: orderTable.displayName,
         })
         .from(orderTable)
         .innerJoin(userTable, eq(orderTable.userId, userTable.id))
         .where(eq(orderTable.id, orderId));
-      return rows[0] ?? null;
+      const row = rows[0];
+      if (!row) return null;
+      // Resolve product name from the catalog. Falls back to a generic
+      // "product" label if a historical order references an id we no
+      // longer carry — emails should never break on a missing product.
+      const product = getProduct(row.productId);
+      return {
+        ...row,
+        productName: product?.name ?? "product",
+      };
     },
     sendOrderConfirmation: senders.sendOrderConfirmation,
     sendOwnerOrderAlert: senders.sendOwnerOrderAlert,

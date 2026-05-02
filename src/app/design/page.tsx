@@ -208,7 +208,7 @@ function DesignPageInner() {
           >
             &larr; My Designs
           </Link>
-          <h1 className="text-lg font-semibold mt-1">Design your shirt</h1>
+          <h1 className="text-lg font-semibold mt-1">Design something</h1>
         </div>
       </div>
 

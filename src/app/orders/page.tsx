@@ -93,7 +93,7 @@ export default function OrdersPage() {
           <div className="text-center py-16 space-y-4">
             <p className="text-text-muted text-lg">No orders yet.</p>
             <Link href="/design">
-              <Button>Design your first shirt</Button>
+              <Button>Make your first design</Button>
             </Link>
           </div>
         ) : filtered.length === 0 ? (
@@ -105,7 +105,7 @@ export default function OrdersPage() {
             {filtered.map((order) => (
               <Card key={order.id} className="p-4">
                 <div className="flex gap-4">
-                  {/* Design thumbnail rendered on the actual shirt color */}
+                  {/* Design thumbnail rendered on the product's selected color */}
                   <div
                     className="w-16 h-16 rounded p-1.5 flex-shrink-0 overflow-hidden"
                     style={{

@@ -35,11 +35,11 @@ export function HomeHero({
       <main className="flex-1 flex flex-col items-center justify-center px-4">
         <div className="max-w-2xl text-center space-y-6">
           <h1 className="text-5xl font-bold tracking-tight">
-            Design a shirt with AI
+            Design custom prints with AI
           </h1>
           <p className="text-xl text-text-muted max-w-lg mx-auto">
             Describe your idea. AI generates an image. Ask for changes, then
-            order a shirt.
+            order it on a shirt, phone case, or more.
           </p>
           <Link href="/design">
             <Button size="lg">Start Designing</Button>
@@ -64,7 +64,7 @@ export function HomeHero({
             <p className="text-text-muted mt-1">
               {hasDesigns
                 ? "Continue a design or start fresh."
-                : "Create your first shirt design."}
+                : "Make your first design."}
             </p>
           </div>
           <Link href="/design">

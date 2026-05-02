@@ -23,7 +23,7 @@ export default function Home() {
               <div className="text-3xl font-bold text-text-faint">1</div>
               <h3 className="font-semibold text-lg">Describe</h3>
               <p className="text-text-muted">
-                Type what you want on your shirt. A logo, illustration, text —
+                Type what you want printed. A logo, illustration, text —
                 whatever.
               </p>
             </div>
@@ -31,15 +31,15 @@ export default function Home() {
               <div className="text-3xl font-bold text-text-faint">2</div>
               <h3 className="font-semibold text-lg">Refine</h3>
               <p className="text-text-muted">
-                Preview the design on a shirt. Ask for changes until it looks
-                right.
+                Preview the design on the product you want. Ask for changes
+                until it looks right.
               </p>
             </div>
             <div className="space-y-3">
               <div className="text-3xl font-bold text-text-faint">3</div>
               <h3 className="font-semibold text-lg">Order</h3>
               <p className="text-text-muted">
-                Pick size and color. Pay. Shirt shows up.
+                Pick size and color. Pay. It shows up.
               </p>
             </div>
           </div>
@@ -50,8 +50,8 @@ export default function Home() {
         <div className="max-w-2xl mx-auto text-center space-y-4">
           <h2 className="text-2xl font-bold">Pricing</h2>
           <p className="text-text-muted">
-            Designing is free. You pay when you order. Shirts start at{" "}
-            <span className="font-semibold text-foreground">$29</span>.
+            Designing is free. You pay when you order. Products start at{" "}
+            <span className="font-semibold text-foreground">$15</span>.
           </p>
         </div>
       </section>

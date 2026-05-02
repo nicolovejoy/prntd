@@ -138,7 +138,7 @@ export function ImageLightbox({
         {/* Actions */}
         <div className="flex gap-3">
           <Button onClick={() => onUseDesign(image.url)}>
-            Put this on a shirt
+            Use this design
           </Button>
           <Button
             variant="danger"

@@ -15,9 +15,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "PRNTD — AI-Powered Custom T-Shirt Design",
+  title: "PRNTD — AI-Powered Custom Design",
   description:
-    "Design your perfect t-shirt with AI. Describe your idea, generate unique designs, and order high-quality prints delivered to your door.",
+    "Design custom apparel and accessories with AI. Describe your idea, generate a unique design, and order it on shirts, phone cases, and more.",
 };
 
 export default function RootLayout({
