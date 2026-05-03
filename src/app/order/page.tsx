@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getDesign } from "../design/actions";
+import { generateMockup } from "../preview/actions";
 import { calculatePrice, createCheckoutSession } from "./actions";
 import Link from "next/link";
 import { Button } from "@/components/ui";
@@ -29,7 +30,8 @@ function OrderPageInner() {
   const productName = product?.name ?? "design";
 
   const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [mockupUrls, setMockupUrls] = useState<Record<string, string> | null>(null);
+  const [mockupUrl, setMockupUrl] = useState<string | null>(null);
+  const [mockupLoading, setMockupLoading] = useState(false);
   const [size, setSize] = useState(searchParams.get("size") ?? sizes[1] ?? sizes[0] ?? "M");
   const [color, setColor] = useState(searchParams.get("color") ?? colors[0]?.name ?? "White");
   const [pricing, setPricing] = useState<{
@@ -46,9 +48,31 @@ function OrderPageInner() {
     }
     getDesign(designId).then((design) => {
       if (design?.currentImageUrl) setImageUrl(design.currentImageUrl);
-      if (design?.mockupUrls) setMockupUrls(design.mockupUrls);
     });
   }, [designId, router]);
+
+  // Auto-fetch the Printful mockup for the picked product+color so the
+  // canonical render is on screen at checkout. generateMockup caches
+  // server-side keyed by productId:color:scale (we use scale=1.0 here).
+  useEffect(() => {
+    if (!designId) return;
+    let cancelled = false;
+    setMockupLoading(true);
+    setMockupUrl(null);
+    generateMockup(designId, color, productId, 1.0)
+      .then((res) => {
+        if (!cancelled) setMockupUrl(res.mockupUrl);
+      })
+      .catch(() => {
+        // Silently fall back to the raw design image
+      })
+      .finally(() => {
+        if (!cancelled) setMockupLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [designId, productId, color]);
 
   useEffect(() => {
     if (!designId) return;
@@ -81,8 +105,6 @@ function OrderPageInner() {
     }
   }
 
-  // Mockup cache key includes productId
-  const mockupKey = `${productId}:${color}`;
   const colorHex = colors.find((c) => c.name === color)?.value ?? "#f3f4f6";
 
   return (
@@ -103,26 +125,17 @@ function OrderPageInner() {
       <div className="w-full max-w-2xl grid md:grid-cols-2 gap-6 md:gap-8">
         {/* Design preview — compact on mobile */}
         <div className="flex flex-col items-center">
-          {mockupUrls?.[mockupKey] ? (
+          {mockupUrl ? (
             <div className="w-40 h-40 md:w-full md:aspect-square rounded-lg overflow-hidden">
               <img
-                src={mockupUrls[mockupKey]}
-                alt={`Your design on a ${color} ${productName}`}
-                className="w-full h-full object-cover"
-              />
-            </div>
-          ) : mockupUrls?.[color] ? (
-            /* Fallback: old cache key format (colorName only) */
-            <div className="w-40 h-40 md:w-full md:aspect-square rounded-lg overflow-hidden">
-              <img
-                src={mockupUrls[color]}
+                src={mockupUrl}
                 alt={`Your design on a ${color} ${productName}`}
                 className="w-full h-full object-cover"
               />
             </div>
           ) : imageUrl ? (
             <div
-              className="w-40 h-40 md:w-full md:aspect-square rounded-lg flex items-center justify-center transition-colors"
+              className="relative w-40 h-40 md:w-full md:aspect-square rounded-lg flex items-center justify-center transition-colors"
               style={{ backgroundColor: colorHex }}
             >
               <img
@@ -130,6 +143,11 @@ function OrderPageInner() {
                 alt="Your design"
                 className="max-w-[80%] max-h-[80%] object-contain"
               />
+              {mockupLoading && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/30 rounded-lg">
+                  <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                </div>
+              )}
             </div>
           ) : null}
         </div>
