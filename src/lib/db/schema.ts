@@ -58,10 +58,33 @@ export const design = sqliteTable("design", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
 
+export const designImage = sqliteTable("design_image", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  designId: text("design_id").notNull().references(() => design.id),
+  // Provenance: the image this one was derived from (regenerated at a
+  // different aspect, or iterated via chat). Null for the original
+  // generation in a thread.
+  parentImageId: text("parent_image_id"),
+  aspectRatio: text("aspect_ratio").notNull(), // "1:1", "4:5", "1:2"
+  // When this image was generated for a specific product placement
+  // (Phase 3), these get set. Null on exploratory 1:1 generations.
+  productId: text("product_id"),
+  placementId: text("placement_id"),
+  imageUrl: text("image_url").notNull(),
+  prompt: text("prompt"),
+  generationCost: real("generation_cost").notNull().default(0),
+  isApproved: integer("is_approved", { mode: "boolean" }).notNull().default(false),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
 export const order = sqliteTable("order", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: text("user_id").notNull().references(() => user.id),
   designId: text("design_id").notNull().references(() => design.id),
+  // Phase 2: maps placement id → design_image id. Today only "front" is
+  // populated; multi-placement is Phase 4. Null on pre-Phase-2 orders;
+  // resolution falls back to design.currentImageUrl.
+  placements: text("placements", { mode: "json" }).$type<Record<string, string>>(),
   printfulOrderId: text("printful_order_id"),
   stripeSessionId: text("stripe_session_id"),
   size: text("size").notNull(),

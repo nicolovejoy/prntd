@@ -35,7 +35,11 @@ Status: implemented and committed. Pending real-world verification with a test-m
 - No data model changes. `currentImageUrl` is still the source of truth. Iteration history not yet tracked. Multi-placement not yet possible.
 - Acceptable side effect: when the user picks a phone case after generating a 1:1 design, the 1:1 source is overwritten in `currentImageUrl`. Going back to a tee will require another regeneration. We accept this temporarily because Phase 2 fixes it.
 
-## Phase 2 — `design_image` table + backfill
+## Phase 2 — `design_image` table + backfill — IN PROGRESS
+
+Schema + backfill script committed 2026-05-03. Awaiting user to push schema and run backfill before code-side dual-read changes ship.
+
+
 
 **Goal:** every generated image becomes a first-class row. Iteration history is preserved as a tree. Order lines reference the specific image that shipped.
 
