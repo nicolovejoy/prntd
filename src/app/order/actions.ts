@@ -8,6 +8,7 @@ import { eq } from "drizzle-orm";
 import { stripe } from "@/lib/stripe";
 import { computePrice } from "@/lib/pricing";
 import { getProduct, DEFAULT_PRODUCT_ID } from "@/lib/products";
+import { findDesignImageByUrl } from "@/lib/design-images";
 
 export async function calculatePrice(
   designId: string,
@@ -45,6 +46,16 @@ export async function createCheckoutSession(params: {
   const product = getProduct(resolvedProductId);
   const productName = product?.name ?? "Custom Product";
 
+  // Phase 2: pin the order to a specific design_image at purchase time
+  // so post-order regenerations of the same design don't change what
+  // this customer's records show. Falls back to null if we can't find
+  // a matching row (e.g. a design that's somehow missed Phase 2's
+  // backfill) — order then resolves via design.currentImageUrl.
+  const pinnedImageId = found.currentImageUrl
+    ? await findDesignImageByUrl(params.designId, found.currentImageUrl)
+    : null;
+  const placements = pinnedImageId ? { front: pinnedImageId } : null;
+
   // Create order record
   const [newOrder] = await db
     .insert(orderTable)
@@ -55,6 +66,7 @@ export async function createCheckoutSession(params: {
       size: params.size,
       color: params.color,
       totalPrice: pricing.total,
+      placements,
     })
     .returning();
 

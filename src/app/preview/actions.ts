@@ -15,6 +15,7 @@ import {
 } from "@/lib/products";
 import { uploadMockupImage, uploadDesignImage } from "@/lib/r2";
 import { generateImage, removeBackground } from "@/lib/replicate";
+import { insertDesignImage } from "@/lib/design-images";
 
 const COST_PER_GENERATION = 0.03;
 
@@ -166,6 +167,20 @@ export async function regenerateForPlacement(
   const response = await fetch(finalUrl);
   const buffer = Buffer.from(await response.arrayBuffer());
   const r2Url = await uploadDesignImage(designId, newGeneration, buffer);
+
+  // Phase 2: record the re-targeted render as its own design_image
+  // with productId/placementId set so we can later distinguish "the
+  // 1:1 source" from "the 1:2 render for the iPhone case." Phase 3
+  // will start using these to avoid overwriting the source.
+  await insertDesignImage({
+    designId,
+    imageUrl: r2Url,
+    aspectRatio: targetAspect,
+    prompt: lastPrompt,
+    generationCost: COST_PER_GENERATION,
+    productId,
+    placementId: placement.id,
+  });
 
   await db
     .update(designTable)

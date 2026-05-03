@@ -20,6 +20,7 @@ import { handleStripeCheckoutCompleted, type StripeSessionData } from "@/lib/web
 import { recoverPendingOrderCore } from "@/lib/recover-pending-order";
 import { sendPostOrderEmails, createDefaultOrderEmailDeps } from "@/lib/order-emails";
 import { sendOrderConfirmation, sendOwnerOrderAlert } from "@/lib/email";
+import { resolveOrderImageUrls } from "@/lib/design-images";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
 if (!ADMIN_EMAIL) {
@@ -32,7 +33,7 @@ export async function getOrders() {
     throw new Error("Unauthorized");
   }
 
-  return db
+  const rows = await db
     .select({
       id: orderTable.id,
       status: orderTable.status,
@@ -57,11 +58,18 @@ export async function getOrders() {
       userEmail: userTable.email,
       designImageUrl: designTable.currentImageUrl,
       designId: orderTable.designId,
+      placements: orderTable.placements,
     })
     .from(orderTable)
     .leftJoin(userTable, eq(orderTable.userId, userTable.id))
     .leftJoin(designTable, eq(orderTable.designId, designTable.id))
     .orderBy(desc(orderTable.createdAt));
+
+  const fallback = new Map<string, string | null>(
+    rows.map((r) => [r.designId, r.designImageUrl])
+  );
+  const resolved = await resolveOrderImageUrls(rows, fallback);
+  return rows.map((r) => ({ ...r, designImageUrl: resolved.get(r.id) ?? null }));
 }
 
 export async function retryPrintfulSubmission(orderId: string) {
@@ -395,6 +403,7 @@ export async function getAdminData() {
         userEmail: userTable.email,
         designImageUrl: designTable.currentImageUrl,
         designId: orderTable.designId,
+        placements: orderTable.placements,
       })
       .from(orderTable)
       .leftJoin(userTable, eq(orderTable.userId, userTable.id))
@@ -415,7 +424,16 @@ export async function getAdminData() {
       .orderBy(desc(ledgerEntry.createdAt)),
   ]);
 
-  return { orders, ledger };
+  const fallback = new Map<string, string | null>(
+    orders.map((r) => [r.designId, r.designImageUrl])
+  );
+  const resolved = await resolveOrderImageUrls(orders, fallback);
+  const ordersWithPinned = orders.map((r) => ({
+    ...r,
+    designImageUrl: resolved.get(r.id) ?? null,
+  }));
+
+  return { orders: ordersWithPinned, ledger };
 }
 
 export async function getOrderDetail(orderId: string) {
@@ -456,6 +474,7 @@ export async function getOrderDetail(orderId: string) {
         userEmail: userTable.email,
         designImageUrl: designTable.currentImageUrl,
         designId: orderTable.designId,
+        placements: orderTable.placements,
       })
       .from(orderTable)
       .leftJoin(userTable, eq(orderTable.userId, userTable.id))
@@ -469,5 +488,11 @@ export async function getOrderDetail(orderId: string) {
 
   if (orders.length === 0) throw new Error("Order not found");
 
-  return { ...orders[0], ledger };
+  const fallback = new Map<string, string | null>([
+    [orders[0].designId, orders[0].designImageUrl],
+  ]);
+  const resolved = await resolveOrderImageUrls(orders, fallback);
+  const designImageUrl = resolved.get(orders[0].id) ?? null;
+
+  return { ...orders[0], designImageUrl, ledger };
 }

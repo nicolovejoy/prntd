@@ -9,6 +9,7 @@ import { chatAboutDesign, constructFluxPrompt } from "@/lib/ai";
 import { generateImage, removeBackground } from "@/lib/replicate";
 import { uploadDesignImage } from "@/lib/r2";
 import { extractImagesFromHistory } from "@/lib/chat-utils";
+import { insertDesignImage } from "@/lib/design-images";
 import type { ChatMessage } from "@/lib/db/schema";
 
 const COST_PER_GENERATION = 0.03;
@@ -122,6 +123,17 @@ export async function generateDesign(
   const response = await fetch(finalUrl);
   const buffer = Buffer.from(await response.arrayBuffer());
   const r2Url = await uploadDesignImage(designId, newGeneration, buffer);
+
+  // Phase 2: record this generation as a first-class design_image row.
+  // Aspect is "1:1" here — chat-driven generations are always square;
+  // product-targeted regenerations happen in preview/actions.ts.
+  await insertDesignImage({
+    designId,
+    imageUrl: r2Url,
+    aspectRatio: "1:1",
+    prompt: aiResponse.fluxPrompt,
+    generationCost: COST_PER_GENERATION,
+  });
 
   // Build updated chat history
   const newMessages: ChatMessage[] = [];
