@@ -3,6 +3,7 @@ import { Resend } from "resend";
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 const FROM = "PRNTD <orders@prntd.org>";
+const REPLY_TO = "hello@prntd.org";
 
 export async function sendPasswordResetEmail(params: {
   to: string;
@@ -10,6 +11,7 @@ export async function sendPasswordResetEmail(params: {
 }) {
   await resend.emails.send({
     from: FROM,
+    replyTo: REPLY_TO,
     to: params.to,
     subject: "Reset your password",
     html: `
@@ -41,6 +43,7 @@ export async function sendOrderConfirmation(params: {
 
   await resend.emails.send({
     from: FROM,
+    replyTo: REPLY_TO,
     to: params.to,
     subject: `Order confirmed — ${label} (${params.color} ${params.size})`,
     html: `
@@ -80,6 +83,7 @@ export async function sendOwnerOrderAlert(params: {
 
   await resend.emails.send({
     from: FROM,
+    replyTo: REPLY_TO,
     to: process.env.OWNER_EMAIL ?? "nico@prntd.org",
     subject: `New order: ${label} — ${params.color} ${params.size} — $${params.total.toFixed(2)}`,
     html: `
@@ -118,6 +122,7 @@ export async function sendShippingNotification(params: {
 
   await resend.emails.send({
     from: FROM,
+    replyTo: REPLY_TO,
     to: params.to,
     subject: `Your order shipped — ${label}`,
     html: `
