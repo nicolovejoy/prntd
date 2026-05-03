@@ -18,16 +18,19 @@ export function HomeHero({
   getRecentDesigns: () => Promise<RecentDesign[]>;
 }) {
   const { data: session } = authClient.useSession();
+  const userId = session?.user?.id;
   const [designs, setDesigns] = useState<RecentDesign[]>([]);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    if (session) {
-      getRecentDesigns()
-        .then(setDesigns)
-        .finally(() => setLoaded(true));
-    }
-  }, [session, getRecentDesigns]);
+    if (!userId) return;
+    let cancelled = false;
+    getRecentDesigns()
+      .then((d) => { if (!cancelled) setDesigns(d); })
+      .finally(() => { if (!cancelled) setLoaded(true); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
 
   // Logged-out: landing hero
   if (!session) {

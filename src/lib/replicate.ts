@@ -31,11 +31,33 @@ export async function generateImage(
 }
 
 export async function removeBackground(imageUrl: string): Promise<string> {
-  const output = await replicate.run("bria/remove-background:5ecc270b34e9d8e1f007d9dbd3c724f0badf638f05ffaa0c5e0634ed64d3d378", {
-    input: {
-      image: imageUrl,
-    },
-  });
+  // 851-labs/background-remover (BiRefNet): handles soft / painterly edges
+  // much better than Bria, which silently returned the un-removed image on
+  // Ideogram's hand-painted output.
+  const run = () =>
+    replicate.run("851-labs/background-remover:a029dff38972b5fda4ec5d75d7d1cd25aeff621d2cf4946a41055d7db66b80bc", {
+      input: {
+        image: imageUrl,
+        format: "png",
+        background_type: "rgba",
+        // Hard segmentation: every pixel is fully foreground or fully
+        // background. With soft alpha (threshold: 0) thin dark text was
+        // coming through semi-transparent against colored shirts.
+        threshold: 0.5,
+      },
+    });
 
-  return String(output);
+  try {
+    return String(await run());
+  } catch (err) {
+    // Retry once on 429 (Replicate throttles to 6/min when account credit is
+    // low). The error from replicate-js exposes the response on `.response`.
+    const status = (err as { response?: { status?: number } })?.response?.status;
+    if (status !== 429) throw err;
+    const retryAfterRaw = (err as { response?: { headers?: Headers } })?.response?.headers?.get?.("retry-after");
+    const waitMs = Math.min(15000, Math.max(1000, (Number(retryAfterRaw) || 5) * 1000 + 500));
+    console.warn(`removeBackground: 429 from Replicate, retrying after ${waitMs}ms`);
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+    return String(await run());
+  }
 }

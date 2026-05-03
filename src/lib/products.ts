@@ -47,7 +47,7 @@ export type AspectRatio =
  * docs/print-targets.md.
  */
 export type Placement = {
-  id: string;                   // "front", "back", "sleeve-left", etc.
+  id: string;                   // Printful placement key: "front", "back", "default" (phone cases), etc.
   aspectRatio: AspectRatio;     // generator target
   mockupPosition: MockupPosition;
   printArea: { width: number; height: number };  // inches
@@ -296,7 +296,7 @@ export const PRODUCTS: Product[] = [
     },
     placements: [
       {
-        id: "front",
+        id: "default",
         aspectRatio: "1:2",
         mockupPosition: { area_width: 879, area_height: 1830, width: 879, height: 1830, top: 0, left: 0 },
         printArea: { width: 2.5, height: 5.2 },

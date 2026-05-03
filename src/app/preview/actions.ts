@@ -49,6 +49,9 @@ export async function generateMockup(
   const variantId = colorVariants?.["M"] ?? (colorVariants ? Object.values(colorVariants)[0] : undefined);
   if (!variantId) throw new Error(`No variant for ${colorName} on ${product.name}`);
 
+  const placement = product.placements[0];
+  if (!placement) throw new Error(`Product ${product.id} has no placements defined`);
+
   // Compute scaled position (centered within print area)
   const base = product.mockupPosition;
   const scaledWidth = Math.round(base.width * clampedScale);
@@ -67,7 +70,8 @@ export async function generateMockup(
     product.printfulProductId,
     variantId,
     found.currentImageUrl,
-    scaledPosition
+    scaledPosition,
+    placement.id
   );
   const { mockupUrl: tempUrl } = await pollMockupTask(taskKey);
 

@@ -93,7 +93,8 @@ export async function createMockupTask(
   printfulProductId: number,
   variantId: number,
   designImageUrl: string,
-  mockupPosition: MockupPosition
+  mockupPosition: MockupPosition,
+  placement: string
 ): Promise<string> {
   const data = await printfulFetch(
     `/mockup-generator/create-task/${printfulProductId}`,
@@ -104,7 +105,7 @@ export async function createMockupTask(
         format: "jpg",
         files: [
           {
-            placement: "front",
+            placement,
             image_url: designImageUrl,
             position: mockupPosition,
           },
