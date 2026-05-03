@@ -111,11 +111,22 @@ export async function generateDesign(
     console.error("generateImage failed:", err);
     throw new Error("Image generation failed");
   }
+  // Skip bg-removal when the prompt contains text Ideogram is supposed
+  // to render. BiRefNet (and matting models generally) classify
+  // standalone text as background, so removal would erase the caption.
+  // Quoted strings are the reliable signal — every "text reads X" /
+  // "lettering says Y" prompt construction wraps the literal in quotes.
+  const promptHasText = /"[^"]{2,}"/.test(aiResponse.fluxPrompt);
+
   let finalUrl = replicateUrl;
-  try {
-    finalUrl = await removeBackground(replicateUrl);
-  } catch (err) {
-    console.error("Background removal failed, using original image:", err);
+  if (promptHasText) {
+    console.log("Skipping background removal — prompt contains text");
+  } else {
+    try {
+      finalUrl = await removeBackground(replicateUrl);
+    } catch (err) {
+      console.error("Background removal failed, using original image:", err);
+    }
   }
 
   // Download and upload to R2

@@ -156,11 +156,20 @@ export async function regenerateForPlacement(
     throw new Error("Image generation failed");
   }
 
+  // Same text-preserving carve-out as src/app/design/actions.ts: when
+  // the prompt asks Ideogram to render a quoted caption, skip
+  // bg-removal so the matting model doesn't strip the lettering.
+  const promptHasText = /"[^"]{2,}"/.test(lastPrompt);
+
   let finalUrl = replicateUrl;
-  try {
-    finalUrl = await removeBackground(replicateUrl);
-  } catch (err) {
-    console.error("Background removal failed, using original:", err);
+  if (promptHasText) {
+    console.log("Skipping background removal — prompt contains text");
+  } else {
+    try {
+      finalUrl = await removeBackground(replicateUrl);
+    } catch (err) {
+      console.error("Background removal failed, using original:", err);
+    }
   }
 
   const newGeneration = found.generationCount + 1;
