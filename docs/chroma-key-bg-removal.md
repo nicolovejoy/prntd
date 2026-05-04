@@ -1,4 +1,10 @@
-# Chroma-Key Background Removal — Design Doc
+# Chroma-Key Background Removal — Design Doc (SUPERSEDED 2026-05-03)
+
+**Outcome:** abandoned in favor of Ideogram's native `generate-transparent`
+endpoint. See `docs/ideogram-transparent-swap-plan.md` for the chosen path.
+Kept here for reasoning history.
+
+---
 
 A different agent is being asked to sanity-check this proposal before implementation. Push back, suggest alternatives, or flag pitfalls if you see them.
 
