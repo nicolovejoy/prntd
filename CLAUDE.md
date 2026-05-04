@@ -139,13 +139,13 @@ See `docs/next-phase.md` for the full Phase 1/2/3 plan. Top items:
 - #10 ~~Order list thumbnails on shirt color~~ — shipped May 1; iPhone case "Clear" still renders on white, follow-up to special-case `type === "phone-case"`
 
 **Print targets (parallel track) — see `docs/print-targets.md` + `docs/print-targets-plan.md`**
-- Phase 1 (aspect-correct generation, no schema change) shipped 2026-05-02. Triggered by the iPhone case crop on order #155282908-77750732. Needs a real test-mode iPhone case order to verify end-to-end.
+- Phase 1 (aspect-correct generation) shipped 2026-05-02. Phase 2 (`design_image` table + backfill + dual-read) shipped 2026-05-03 — 40 designs and 40 orders backfilled.
+- Phase 3 (placement-aware regeneration with provenance, removal of `design.currentImageUrl`) is the next implementation step.
 - #11 Printful + checkout deep-dive (multi-placement, tax, shipping, team orders, safe-area UX) — blocks Phase 4 multi-placement UI.
-- #12 Image export facility — independent, slot anywhere after Phase 2.
-- Phase 2 (`design_image` table + backfill) is the next implementation step.
+- #12 Image export facility — independent, slot anywhere after Phase 3.
 
-**Background-removal failure (open)**
-- Bria's bg-remove returns un-removed white-background image for some hand-painted designs (Ideogram output edges too soft for the model to isolate). Symptom: design renders white-on-white in the gallery's Dark/Light toggle. Investigate logs + fall-back behavior, or swap to a more robust matting model.
+**Ideogram native transparent swap (queued, plan ready)**
+- See `docs/ideogram-transparent-swap-plan.md`. Empirical test confirmed Ideogram's direct API `generate-transparent` produces clean RGBA PNGs with text preserved. Replaces the matting-model bg-removal pipeline (Bria/BiRefNet) and the skip-when-text heuristic. Next session: execute the swap, add `IDEOGRAM_API_KEY` to Vercel env. `src/lib/ideogram.ts` and the test script already in repo.
 
 **Image-gen style versatility (followup to #8)**
 - Designs should default to colors that read on both light and dark shirts unless the user explicitly asks for "black lettering" / "white text". System prompt update queued; not yet shipped. After that, build the style-reference image library (#8 follow-up).
