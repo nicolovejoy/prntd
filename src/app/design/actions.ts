@@ -6,7 +6,7 @@ import { db } from "@/lib/db";
 import { design as designTable } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { chatAboutDesign, constructFluxPrompt } from "@/lib/ai";
-import { generateImage, removeBackground } from "@/lib/replicate";
+import { generateTransparent } from "@/lib/ideogram";
 import { uploadDesignImage } from "@/lib/r2";
 import { extractImagesFromHistory } from "@/lib/chat-utils";
 import { insertDesignImage } from "@/lib/design-images";
@@ -89,49 +89,22 @@ export async function generateDesign(
     throw new Error("Failed to construct prompt");
   }
 
-  // Resolve reference image URL if Claude specified one
-  // Only use generated images as references, not user uploads
-  const refImageUrl = aiResponse.referenceImage
-    ? images.find(
-        (img) =>
-          img.number === aiResponse.referenceImage &&
-          !img.prompt.startsWith("[user upload]")
-      )?.url
-    : undefined;
-
-  // Generate image and attempt background removal
-  let replicateUrl;
+  // Generate transparent RGBA PNG via Ideogram's native endpoint.
+  // Reference-image carry-over from prior generations is not yet wired
+  // through the direct API; aiResponse.referenceImage is unused here.
+  let imageUrl: string;
   try {
-    replicateUrl = await generateImage(
-      aiResponse.fluxPrompt,
-      refImageUrl,
-      aiResponse.negativePrompt
-    );
+    imageUrl = await generateTransparent(aiResponse.fluxPrompt, "1:1", {
+      negativePrompt: aiResponse.negativePrompt ?? undefined,
+    });
   } catch (err) {
-    console.error("generateImage failed:", err);
+    console.error("generateTransparent failed:", err);
     throw new Error("Image generation failed");
-  }
-  // Skip bg-removal when the prompt contains text Ideogram is supposed
-  // to render. BiRefNet (and matting models generally) classify
-  // standalone text as background, so removal would erase the caption.
-  // Quoted strings are the reliable signal — every "text reads X" /
-  // "lettering says Y" prompt construction wraps the literal in quotes.
-  const promptHasText = /"[^"]{2,}"/.test(aiResponse.fluxPrompt);
-
-  let finalUrl = replicateUrl;
-  if (promptHasText) {
-    console.log("Skipping background removal — prompt contains text");
-  } else {
-    try {
-      finalUrl = await removeBackground(replicateUrl);
-    } catch (err) {
-      console.error("Background removal failed, using original image:", err);
-    }
   }
 
   // Download and upload to R2
   const newGeneration = found.generationCount + 1;
-  const response = await fetch(finalUrl);
+  const response = await fetch(imageUrl);
   const buffer = Buffer.from(await response.arrayBuffer());
   const r2Url = await uploadDesignImage(designId, newGeneration, buffer);
 

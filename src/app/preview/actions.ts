@@ -14,7 +14,7 @@ import {
   type AspectRatio,
 } from "@/lib/products";
 import { uploadMockupImage, uploadDesignImage } from "@/lib/r2";
-import { generateImage, removeBackground } from "@/lib/replicate";
+import { generateTransparent } from "@/lib/ideogram";
 import { insertDesignImage } from "@/lib/design-images";
 
 const COST_PER_GENERATION = 0.03;
@@ -141,39 +141,19 @@ export async function regenerateForPlacement(
     throw new Error("No generation prompt available to re-render");
   }
 
-  // Use the existing image as a style reference so the re-render keeps
-  // the look the user already approved of, just at the new shape.
-  let replicateUrl: string;
+  // Re-render at target aspect via Ideogram's native transparent endpoint.
+  // Style reference (using the existing image as a look anchor) is not
+  // yet wired through the direct API — re-renders may drift visually.
+  let imageUrl: string;
   try {
-    replicateUrl = await generateImage(
-      lastPrompt,
-      found.currentImageUrl,
-      undefined,
-      targetAspect
-    );
+    imageUrl = await generateTransparent(lastPrompt, targetAspect);
   } catch (err) {
-    console.error("regenerateForPlacement generateImage failed:", err);
+    console.error("regenerateForPlacement generateTransparent failed:", err);
     throw new Error("Image generation failed");
   }
 
-  // Same text-preserving carve-out as src/app/design/actions.ts: when
-  // the prompt asks Ideogram to render a quoted caption, skip
-  // bg-removal so the matting model doesn't strip the lettering.
-  const promptHasText = /"[^"]{2,}"/.test(lastPrompt);
-
-  let finalUrl = replicateUrl;
-  if (promptHasText) {
-    console.log("Skipping background removal — prompt contains text");
-  } else {
-    try {
-      finalUrl = await removeBackground(replicateUrl);
-    } catch (err) {
-      console.error("Background removal failed, using original:", err);
-    }
-  }
-
   const newGeneration = found.generationCount + 1;
-  const response = await fetch(finalUrl);
+  const response = await fetch(imageUrl);
   const buffer = Buffer.from(await response.arrayBuffer());
   const r2Url = await uploadDesignImage(designId, newGeneration, buffer);
 
