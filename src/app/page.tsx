@@ -9,8 +9,9 @@ export default function Home() {
 
       <section className="py-4 px-4 bg-accent/10 border-y border-accent/20 text-center">
         <p className="text-sm">
-          <span className="font-medium">50% off</span> your order — use code{" "}
-          <code className="px-1.5 py-0.5 bg-accent/20 rounded text-accent font-mono text-xs">nico-codes</code>{" "}
+          Mother&rsquo;s Day —{" "}
+          <span className="font-medium">50% off</span> with code{" "}
+          <code className="px-1.5 py-0.5 bg-accent/20 rounded text-accent font-mono text-xs">MothersDay</code>{" "}
           at checkout
         </p>
       </section>
