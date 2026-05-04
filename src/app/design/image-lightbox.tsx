@@ -7,24 +7,19 @@ import { Button } from "@/components/ui";
 export function ImageLightbox({
   images,
   currentIndex,
-  selectedImage,
   onClose,
   onNavigate,
-  onSelect,
   onDelete,
   onUseDesign,
 }: {
   images: DesignImage[];
   currentIndex: number;
-  selectedImage: string | null;
   onClose: () => void;
   onNavigate: (index: number) => void;
-  onSelect: (imageUrl: string) => void;
   onDelete: (generationNumber: number) => void;
   onUseDesign: (imageUrl: string) => void;
 }) {
   const image = images[currentIndex];
-  const isSelected = selectedImage === image?.url;
   const [sideBySide, setSideBySide] = useState(true);
 
   const handleKeyDown = useCallback(

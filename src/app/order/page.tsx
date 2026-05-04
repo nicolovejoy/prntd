@@ -57,7 +57,11 @@ function OrderPageInner() {
   useEffect(() => {
     if (!designId) return;
     let cancelled = false;
+    // Reset on dep change so the new product/color doesn't briefly show
+    // the previous mockup. Legitimate use of setState in effect.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMockupLoading(true);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMockupUrl(null);
     generateMockup(designId, color, productId, 1.0)
       .then((res) => {

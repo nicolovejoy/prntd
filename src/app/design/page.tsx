@@ -260,10 +260,8 @@ function DesignPageInner() {
         <ImageLightbox
           images={images}
           currentIndex={lightboxIndex}
-          selectedImage={selectedImage}
           onClose={() => setLightboxIndex(null)}
           onNavigate={setLightboxIndex}
-          onSelect={handleSelectImage}
           onDelete={handleDeleteImage}
           onUseDesign={handleUseSpecificImage}
         />
