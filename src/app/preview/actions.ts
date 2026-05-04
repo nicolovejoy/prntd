@@ -144,16 +144,23 @@ export async function regenerateForPlacement(
   // Re-render at target aspect via Ideogram's native transparent endpoint.
   // Style reference (using the existing image as a look anchor) is not
   // yet wired through the direct API — re-renders may drift visually.
+  console.log(
+    `regenerateForPlacement: design=${designId} product=${productId} target=${targetAspect} promptLen=${lastPrompt.length}`
+  );
   let imageUrl: string;
   try {
     imageUrl = await generateTransparent(lastPrompt, targetAspect);
   } catch (err) {
-    console.error("regenerateForPlacement generateTransparent failed:", err);
-    throw new Error("Image generation failed");
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("regenerateForPlacement generateTransparent failed:", msg);
+    throw new Error(`Image generation failed: ${msg}`);
   }
 
   const newGeneration = found.generationCount + 1;
   const response = await fetch(imageUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch generated image: ${response.status}`);
+  }
   const buffer = Buffer.from(await response.arrayBuffer());
   const r2Url = await uploadDesignImage(designId, newGeneration, buffer);
 
