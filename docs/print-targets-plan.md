@@ -22,7 +22,6 @@ Status: implemented and committed. Pending real-world verification with a test-m
 2. **`src/lib/replicate.ts`** — `generateImage` takes an optional `aspectRatio` param (default `"1:1"`).
 3. **`/preview` server action** — when the user picks a product whose front-placement aspect ≠ `"1:1"`, kick off a regeneration at the placement aspect. Update `design.currentImageUrl` to the new render. Show "preparing for {productName}…" affordance with a spinner.
 4. **`/preview` UX** — keep the previous (1:1) image visible alongside the new render with a small "original" / "for this product" caption so the user understands what changed.
-5. Update `docs/products.md` to reflect the placement field on `Product`.
 
 ### Verification
 

@@ -140,7 +140,7 @@ Steps 1–2 unblock the iPhone-case crop today without a schema change. Step 3 i
 
 ## Out of scope for this doc
 
-- DTG vs. sublimation vs. screen-print constraints (mentioned in `docs/products.md` under Print Method).
+- DTG vs. sublimation vs. screen-print constraints.
 - Per-placement pricing (an iPhone case + back-print premium is a separate question).
 - Live mockup preview during generation (would help the user see crops before ordering, but that's a separate UX project).
 

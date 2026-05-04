@@ -144,8 +144,6 @@ The revert is clean because `src/lib/replicate.ts:generateImage` and
 
 ## Background context
 
-See for reasoning history:
-- `docs/chroma-key-bg-removal.md` — alternative we considered (and rejected) before testing the native endpoint.
 - Test output: `/tmp/ideogram-test/` — three PNGs from the empirical test.
 - Test script: `scripts/test-ideogram-transparent.ts` — re-runnable with `node --env-file=.env.local --import tsx scripts/test-ideogram-transparent.ts`.
 
