@@ -1,8 +1,8 @@
 # Design loop — reality, constraints, and candidate UIs
 
-Working doc for rethinking the `/design` UI. Captures what's actually true about the system today, what fences any redesign, and four candidate UIs sketched as user journeys. Not a decision — input for one.
+Working doc for rethinking the `/design` UI. Captures what's actually true about the system today, what fences any redesign, and four candidate UIs sketched as user journeys. Synthesis (§4.5), locked decisions (§3), post-pick journey (§7), and non-goals (§8) added 2026-05-05 after the planning pass and Phase 0/1 ship.
 
-Date: 2026-05-04
+Date: 2026-05-04 (initial), 2026-05-05 (synthesis + locked decisions)
 
 ## 1. Reality
 
@@ -75,15 +75,15 @@ Anything we redesign has to live with these. Listed here so they don't get lost 
 - **Conversion is the goal.** Time-on-design without an order is wasted compute. Every UI choice should ask: does this make a stranger more likely to finish the order?
 - **Mission framing matters.** PRNTD's pitch involves charity; the design loop is the moment the visitor decides whether the product is worth supporting it through.
 
-## 3. Open questions the journeys probe
+## 3. Locked decisions (was: open questions)
 
-Each candidate journey below is a different bet on these:
+These were open at the time the journeys were drafted. After the 2026-05-05 planning pass with Nico, they are now decided. The journeys remain in §4 as historical context; the build follows §4.5 Synthesis.
 
-- **Where should structure enter the flow?** Up front (intake form), middle (brief shown for confirmation), or end (refinement controls)?
-- **How many generations per click?** One image per round, or N variants?
-- **How much should the user describe?** Free-form prose, structured fields, or genre-anchored templates?
-- **Where does text come from?** The image model, an app-rendered overlay, or a hybrid?
-- **What does "iterate" mean?** Free-form chat, discrete editorial moves (variations / swap-style / redo-text), or branching from a chosen base?
+- **Where structure enters the flow:** Middle. An editable brief is shown after chat capture, before generation. Not an upfront form.
+- **How many generations per click:** Three. Batch-of-3 over single-shot.
+- **How much the user describes:** Free-form chat captures intent; the structured brief renders that capture as editable fields the user can adjust before generating. Genre is a *suggestion inside the brief's style field*, not a separate flow.
+- **Where text comes from:** Native text layer is the default; AI-rendered text is an opt-in escape hatch for hand-lettered or integrated-typography looks.
+- **What "iterate" means:** Discrete editorial moves on a chosen base (Bolder / Simpler / More vintage / Try 3 similar / Better for dark shirts). Free chat stays as a fallback.
 
 ## 4. Candidate user journeys
 
@@ -182,12 +182,34 @@ The image model produces only the illustration. Text is rendered by the app in a
 
 ---
 
+## 4.5 Synthesis — what we're actually building
+
+The four journeys read as alternatives but the answer composes them. After two AI peer reviews and a hands-on session, the build is:
+
+**Journey B + Journey D, with Journey C folded into B as a hint.**
+
+- **From D:** native text rendering is the default. Text is an app-composited layer over the AI illustration. AI-rendered text becomes opt-in for the cases where it's actually wanted (hand-lettered, integrated typography). This permanently retires the loudest failure mode: "Ideogram refused to spell BEST BOY correctly."
+- **From B:** chat captures intent → editable brief → batch-of-3 → pick → discrete refinements. The brief is the structure that lets us run a useful batch instead of a guess.
+- **From C, embedded in B:** genre lives as a *suggestion inside the style field of the brief* ("playful sticker," "vintage badge," "hand-drawn cartoon"). It's not a separate flow; it's the vocabulary the brief uses for `style`.
+
+Build order = phase order. Each phase ships independently and has standalone value:
+
+- **Phase 0** (shipped 2026-05-04, commit `cf5f93f`) — Ideogram native-transparent swap. Stable image pipeline before anything is built on top.
+- **Phase 1** (shipped 2026-05-05, commit `9647622`) — Negation rewriting in the chat advisor's system prompt. Affirmative-only `fluxPrompt`, rule-coded examples in-prompt.
+- **Phase 2** (next, ~1 week) — Text-as-layer. Schema (`design_image.textLayers`), font catalog, server-side compositing (`@vercel/og` + `sharp`), text-control UI panel with live preview. AI-rendered text escape hatch preserved.
+- **Phase 3** (~1 week) — Structured brief + batch-of-3. New `design.brief` JSON column, `BRIEF_SYSTEM_PROMPT`, parallel batch generation, refinement controls bar.
+- **Phase 4** — Doc updates (this section).
+
+Plan source of truth: `/Users/nico/.claude/plans/feedback-for-the-coding-woolly-snowflake.md`.
+
+---
+
 ## 5. What's not in any journey (but probably should be)
 
 These cross-cut all four:
 
-- **Negations are silently rewritten upstream.** "No tongue" → "closed mouth" before the prompt ever reaches the image model. Same fix in every journey.
-- **The advisor doesn't say "I'll fix it."** It says "I'll try a closer version" or "I'll aim for X." Keeps the contract honest.
+- **Negations are rewritten in the chat advisor's system prompt — not as a deterministic post-processing pass.** Claude restates "no tongue" → "mouth closed, lips together" naturally before constructing the image prompt; `fluxPrompt` is positive-only. Implemented in `src/lib/ai.ts` (Phase 1, commit `9647622`).
+- **The advisor doesn't say "I'll fix it."** It says "I'll try a closer version" or "I'll aim for X." Keeps the contract honest. Implemented as part of Phase 1.
 - **Print-readiness check before order.** Is the text readable at shirt scale? Is the design viable on dark shirts? This is downstream of the design loop but should always run.
 
 ## 6. What we're betting against
@@ -197,9 +219,49 @@ It's worth being explicit about the bets *not* taken in any of the journeys abov
 - **Inpainting / mask-and-edit.** Real fix for "change one corner" but expensive to build, requires user to learn masking, and Ideogram v3 may already offer remix/edit endpoints we haven't audited. Defer until journey-style data shows the demand survives the simpler fixes.
 - **Multi-turn freeform chat as the primary loop.** Tempting because it feels modern, but every additional turn is a chance for the chat metaphor to over-promise and the image model to drift.
 - **Designer-marketplace shortcuts.** "Pick a featured design and remix it" sidesteps the design loop entirely. Worth building (issue #6 / Phase 0 sketch in `next-phase.md`) but doesn't replace the question of what the from-scratch loop should be.
+- **AI-rendered text as the default.** This is the headline non-bet. The complexity of Phase 2 (font catalog, layer compositor, print-resolution rendering) is intentional and not negotiable — it's the price of permanently retiring the "wrong text" failure class. Google Fonts covers all v1 needs (license non-issue), so the cost is engineering, not licensing.
 
-## 7. How to use this doc
+## 7. Post-pick journey
 
-Hand this to a UI / product agent and ask: "given these constraints and these four candidate journeys, sketch the screens. Pick which journey to flesh out, or hybridize. What does each one *look like* in a phone-first column?"
+The journeys above all stop at "user picks a design." That's where the design loop ends, but the path to a placed order continues. This section sketches the downstream commit-or-regret flow and validates that upstream choices (transparency, dark/light suitability, native text) inform it.
 
-Or: pick one journey and write three friction scenarios where it fails. The journey that fails *gracefully* in the most scenarios is the one to build.
+After the user taps "Use this design" on a chosen batch result:
+
+1. **Land on `/preview`.** Mockup renders with the composited PNG (illustration + native text layer, if any). Product selector across the top — Classic Tee, Box Tee, Women's Relaxed Tee, Clear iPhone Case.
+2. **Color picker** — for shirts, a color row above the mockup. The transparency choice from Phase 0 means the design works equally on dark and light. Hovering / tapping each color re-renders the mockup with cached Printful previews.
+3. **Switch product** — picking the iPhone case re-renders the design at 1:2 via `regenerateForPlacement`. Native text layer survives the regeneration unchanged (text layer is composited app-side, not part of the AI illustration). Spinner state has a known reliability gap (issue #15) — fix queued.
+4. **Refine design** link — backs the user into `/design` with the conversation preserved. Text layer state on `design_image` follows the user back so they can adjust.
+5. **Use this design** → `/order`. Size + color confirmation, pricing breakdown.
+6. **Order/confirm** — Stripe Checkout. Webhook fires → Printful order with the composited PNG URL. Customer never sees the underlying separation between illustration and text layer.
+
+What this validates about upstream choices:
+- Transparency is load-bearing: the color picker only works as a no-regen interaction because the design is already RGBA.
+- Native text layers must survive cross-product regeneration. The `parentImageId` provenance chain on `design_image` is the mechanism.
+- The "AI-rendered text" escape hatch must follow the design through `/preview` and `/order` without divergence between what's previewed and what's printed.
+
+Open issue tracked: #15 (silent regen hang on second product switch).
+
+---
+
+## 8. Non-goals for this build
+
+Listed here so the implementer doesn't scope-creep. Mirrored from the plan file.
+
+- Inpainting / mask-and-edit / region-select editor.
+- Multi-text element layouts (single text element only in v1).
+- Marketplace, design forking, or remix flows in the design loop. Marketplace is a separate workstream.
+- Save / load / collections beyond the existing `design.status="draft"` persistence.
+- Designer profile pages, accounts, or any social surface.
+- Auto-syncing fonts, models, or product catalog.
+- A general-purpose layer compositor — only what's needed for AI illustration + one text layer.
+- Migrating off `@anthropic-ai/sdk` / changing the model stack as part of the design-loop work.
+
+If a need surfaces during build for any of these, file a GH issue and continue.
+
+---
+
+## 9. How to use this doc
+
+The synthesis (§4.5) and locked decisions (§3) are the build target. Phase order is the build order. Open the plan file (`/Users/nico/.claude/plans/feedback-for-the-coding-woolly-snowflake.md`) for the implementation specifics; this doc is the why and the journey sketches that justify the synthesis.
+
+For UI work, pick a phase and treat its journey scenes (steps 1–8 within Journey B / D) as the screens to design phone-first.
