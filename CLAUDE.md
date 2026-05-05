@@ -144,8 +144,13 @@ See `docs/next-phase.md` for the full Phase 1/2/3 plan. Top items:
 - #11 Printful + checkout deep-dive (multi-placement, tax, shipping, team orders, safe-area UX) — blocks Phase 4 multi-placement UI.
 - #12 Image export facility — independent, slot anywhere after Phase 3.
 
-**Ideogram native transparent swap (queued, plan ready)**
-- See `docs/ideogram-transparent-swap-plan.md`. Empirical test confirmed Ideogram's direct API `generate-transparent` produces clean RGBA PNGs with text preserved. Replaces the matting-model bg-removal pipeline (Bria/BiRefNet) and the skip-when-text heuristic. Next session: execute the swap, add `IDEOGRAM_API_KEY` to Vercel env. `src/lib/ideogram.ts` and the test script already in repo.
+**Design loop rethink — phased build (active)**
+- Phase 0 (Ideogram native-transparent swap) shipped 2026-05-04, commit `cf5f93f`. Transparency confirmed in prod.
+- Phase 1 (negation rewriting in chat advisor system prompt) shipped 2026-05-05, commit `9647622`. Partial improvement; stubborn defaults like "tongue out on happy cartoon dog" still leak through. Refinement deferred.
+- Phase 4 (doc updates to `docs/design-loop-rethink.md` — synthesis, locked decisions, post-pick journey, non-goals) shipped 2026-05-05, commit `26f2b88`.
+- Phase 2 (text-as-layer) — heaviest phase, ~1 week. Plan in `docs/phase-2-text-as-layer-plan.md`. Schema + font catalog + `composeWithText` (`@vercel/og` + `sharp`) + UI panel. Next implementation step.
+- Phase 3 (structured brief + batch-of-3) — after Phase 2. Plan in `~/.claude/plans/feedback-for-the-coding-woolly-snowflake.md`.
+- #15 — silent regen hang on second product switch in `/preview`. Diagnostic logging shipped (`3ff1ab4`). Not blocking; revisit when Phase 2 lands.
 
 **Image-gen style versatility (followup to #8)**
 - Designs should default to colors that read on both light and dark shirts unless the user explicitly asks for "black lettering" / "white text". System prompt update queued; not yet shipped. After that, build the style-reference image library (#8 follow-up).
