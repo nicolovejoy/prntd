@@ -15,7 +15,7 @@ import {
 } from "@/lib/products";
 import { uploadMockupImage, uploadDesignImage } from "@/lib/r2";
 import { generateAnchoredTransparent } from "@/lib/replicate";
-import { insertDesignImage } from "@/lib/design-images";
+import { insertDesignImage, findPlacementRender } from "@/lib/design-images";
 
 const COST_PER_GENERATION = 0.03;
 
@@ -129,6 +129,22 @@ export async function regenerateForPlacement(
 
   if (!needsAspectRegeneration(sourceAspect, targetAspect)) {
     return null;
+  }
+
+  // Cache hit: a render for (designId, productId, placementId) already
+  // exists. Reuse it instead of burning Replicate credits on a duplicate.
+  // This also makes double-fires (seq-guard race, double-click) idempotent
+  // — second one finds the first one's row and returns immediately.
+  const cached = await findPlacementRender(designId, productId, placement.id);
+  if (cached) {
+    console.log(
+      `regenerateForPlacement: cache hit design=${designId} product=${productId} url=${cached.imageUrl}`
+    );
+    await db
+      .update(designTable)
+      .set({ currentImageUrl: cached.imageUrl, updatedAt: new Date() })
+      .where(eq(designTable.id, designId));
+    return cached;
   }
 
   // Pull the most recent generation prompt from chat history. Without a

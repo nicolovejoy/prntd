@@ -41,6 +41,42 @@ export async function insertDesignImage(params: {
 }
 
 /**
+ * Look up an existing placement-targeted render for a design. Used by
+ * `regenerateForPlacement` as a cache-hit short-circuit so re-clicking
+ * the same product doesn't re-spend Replicate credits.
+ *
+ * Returns the most recent matching row (latest wins if there are
+ * multiple, which can happen if an earlier rewrite landed before
+ * dedup was in place).
+ */
+export async function findPlacementRender(
+  designId: string,
+  productId: string,
+  placementId: string
+): Promise<{ imageUrl: string; aspectRatio: AspectRatio } | null> {
+  const rows = await db
+    .select({
+      imageUrl: designImageTable.imageUrl,
+      aspectRatio: designImageTable.aspectRatio,
+    })
+    .from(designImageTable)
+    .where(
+      and(
+        eq(designImageTable.designId, designId),
+        eq(designImageTable.productId, productId),
+        eq(designImageTable.placementId, placementId)
+      )
+    )
+    .orderBy(desc(designImageTable.createdAt))
+    .limit(1);
+  if (!rows[0]) return null;
+  return {
+    imageUrl: rows[0].imageUrl,
+    aspectRatio: rows[0].aspectRatio as AspectRatio,
+  };
+}
+
+/**
  * Find the design_image row whose imageUrl matches a target URL, scoped
  * to a design. Used at order-creation time to pin the order to the
  * specific image that was on screen when the customer clicked checkout.
