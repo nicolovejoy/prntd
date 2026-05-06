@@ -167,7 +167,6 @@ export async function generateDesign(
     .update(designTable)
     .set({
       chatHistory: updatedHistory,
-      currentImageUrl: r2Url,
       primaryImageId: newImageId,
       generationCount: newGeneration,
       generationCost: found.generationCost + COST_PER_GENERATION,
@@ -233,7 +232,6 @@ export async function selectImage(designId: string, imageUrl: string) {
   await db
     .update(designTable)
     .set({
-      currentImageUrl: imageUrl,
       primaryImageId,
       mockupUrls: null,
       updatedAt: new Date(),
@@ -245,8 +243,8 @@ export async function selectImage(designId: string, imageUrl: string) {
  * Delete a design_image row by id. Refuses when any order pins the
  * row via placements (e.g. order.placements.front references this id),
  * so a deletion can't orphan an order's recorded thumbnail. Recomputes
- * primary_image_id / currentImageUrl to the most recent remaining
- * source image when the delete proceeds.
+ * primary_image_id to the most recent remaining source image when
+ * the delete proceeds.
  */
 export async function deleteDesignImage(designId: string, imageId: string) {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -274,15 +272,11 @@ export async function deleteDesignImage(designId: string, imageId: string) {
     );
   }
 
-  const { newPrimaryId, newPrimaryUrl } = await deleteDesignImageRow(
-    designId,
-    imageId
-  );
+  const { newPrimaryId } = await deleteDesignImageRow(designId, imageId);
 
   await db
     .update(designTable)
     .set({
-      currentImageUrl: newPrimaryUrl,
       primaryImageId: newPrimaryId,
       updatedAt: new Date(),
     })
@@ -302,9 +296,9 @@ export async function getDesign(designId: string) {
 
   if (!found) return null;
 
-  // Resolve the display image URL via primary_image_id (Step 5: callers
-  // should consume `displayImageUrl` rather than the deprecated
-  // `currentImageUrl` column).
+  // Resolve the display image URL via primary_image_id (callers
+  // consume `displayImageUrl` rather than touching design_image rows
+  // directly).
   const displayImageUrl = await getDesignDisplayImageUrl(designId);
   return { ...found, displayImageUrl };
 }

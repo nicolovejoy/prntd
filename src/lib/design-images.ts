@@ -142,11 +142,11 @@ export async function findDesignImageByUrl(
 /**
  * Resolve the image URL to display for a list of orders. Prefers each
  * order's `placements.front` (a design_image id snapshot from purchase
- * time) over the current design.currentImageUrl, so historical orders
+ * time) over the design's current display image, so historical orders
  * keep showing what was actually printed even if the design was
  * regenerated afterward.
  *
- * Falls back to the provided fallback map (designId → currentImageUrl)
+ * Falls back to the provided fallback map (designId → display URL)
  * when the order has no placements or the referenced design_image is
  * gone.
  */
@@ -287,9 +287,8 @@ export async function getDesignPlacementRenders(
  * Resolution: design.primary_image_id → its image URL. Fallback: the
  * most recent source image (product_id IS NULL). Null when neither.
  *
- * Replaces direct reads of design.currentImageUrl as part of Step 5.
- * Keep using this even after the column is dropped — the resolution
- * rule is the same.
+ * Use this everywhere a design's "main image URL" is needed —
+ * card thumbnails, hydration, mockup gen fallback.
  */
 export async function getDesignDisplayImageUrl(
   designId: string
@@ -375,13 +374,12 @@ export async function resolveDesignDisplayImageUrls(
  * Delete a design_image row. Returns the id that should become the
  * design's new primary_image_id (the most recent remaining source
  * image), or null if there are no source images left. Caller is
- * responsible for updating design.primary_image_id and
- * design.currentImageUrl.
+ * responsible for updating design.primary_image_id.
  */
 export async function deleteDesignImageRow(
   designId: string,
   imageId: string
-): Promise<{ newPrimaryId: string | null; newPrimaryUrl: string | null }> {
+): Promise<{ newPrimaryId: string | null }> {
   await db
     .delete(designImageTable)
     .where(
@@ -392,10 +390,7 @@ export async function deleteDesignImageRow(
     );
 
   const remaining = await db
-    .select({
-      id: designImageTable.id,
-      imageUrl: designImageTable.imageUrl,
-    })
+    .select({ id: designImageTable.id })
     .from(designImageTable)
     .where(
       and(
@@ -406,8 +401,5 @@ export async function deleteDesignImageRow(
     .orderBy(desc(designImageTable.createdAt))
     .limit(1);
 
-  return {
-    newPrimaryId: remaining[0]?.id ?? null,
-    newPrimaryUrl: remaining[0]?.imageUrl ?? null,
-  };
+  return { newPrimaryId: remaining[0]?.id ?? null };
 }

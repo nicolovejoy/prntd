@@ -50,11 +50,9 @@ export const design = sqliteTable("design", {
   userId: text("user_id").notNull().references(() => user.id),
   status: text("status", { enum: ["draft", "approved", "ordered", "archived"] }).notNull().default("draft"),
   chatHistory: text("chat_history", { mode: "json" }).$type<ChatMessage[]>(),
-  currentImageUrl: text("current_image_url"),
-  // The user's anchor pick — stable FK to the design_image they want
-  // products built from. Set in dual-write alongside currentImageUrl
-  // during the deprecation window; becomes the sole source of truth
-  // when currentImageUrl is retired (Step 5 of the data model rework).
+  // The user's anchor pick — the design_image they want products
+  // built from. Resolved via getDesignDisplayImageUrl helpers; falls
+  // back to the latest source design_image when null.
   primaryImageId: text("primary_image_id"),
   generationCount: integer("generation_count").notNull().default(0),
   generationCost: real("generation_cost").notNull().default(0),
@@ -88,7 +86,7 @@ export const order = sqliteTable("order", {
   designId: text("design_id").notNull().references(() => design.id),
   // Phase 2: maps placement id → design_image id. Today only "front" is
   // populated; multi-placement is Phase 4. Null on pre-Phase-2 orders;
-  // resolution falls back to design.currentImageUrl.
+  // resolution falls back to the design's primary image.
   placements: text("placements", { mode: "json" }).$type<Record<string, string>>(),
   printfulOrderId: text("printful_order_id"),
   stripeSessionId: text("stripe_session_id"),

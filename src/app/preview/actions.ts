@@ -117,8 +117,8 @@ export async function generateMockup(
 
 /**
  * Pure function of (designId, productId): return the design_image to
- * render on the product. Does NOT mutate design.currentImageUrl or
- * design.primary_image_id — primary stays anchored on the user's source
+ * render on the product. Does NOT mutate design.primary_image_id —
+ * primary stays anchored on the user's source
  * pick. Caller (the /preview page) drives all UI state from the return.
  *
  *   1. Read design.primary_image_id. Null → throw (caller redirects).
@@ -227,7 +227,7 @@ export async function getOrCreatePlacementRender(
   });
 
   // Bump generation_count + cost so accounting stays accurate. Do NOT
-  // touch currentImageUrl or primaryImageId — primary stays on the
+  // touch primaryImageId — primary stays on the
   // source pick. clearing mockupUrls because the cache is keyed on
   // (productId, color, scale) and a fresh placement render invalidates
   // any stale mockups for that product.
