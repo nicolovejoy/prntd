@@ -18,7 +18,7 @@ import { generateAnchoredTransparent } from "@/lib/replicate";
 import {
   insertDesignImage,
   findPlacementRender,
-  findDesignImageByUrl,
+  getDesignImageById,
 } from "@/lib/design-images";
 
 const COST_PER_GENERATION = 0.03;
@@ -37,7 +37,6 @@ export async function generateMockup(
   });
   if (!found || found.userId !== session.user.id)
     throw new Error("Unauthorized");
-  if (!found.currentImageUrl) throw new Error("No design image");
 
   // Clamp scale to valid range
   const clampedScale = Math.max(0.3, Math.min(1.0, scale));
@@ -57,6 +56,15 @@ export async function generateMockup(
   const placement = product.placements[0];
   if (!placement) throw new Error(`Product ${product.id} has no placements defined`);
 
+  // Resolve the image URL to print: use the placement-specific render
+  // when one exists (for products whose aspect differs from the source),
+  // otherwise fall back to currentImageUrl. After Step 2,
+  // getOrCreatePlacementRender always populates this row before
+  // generateMockup runs, so the cache hit is the common case.
+  const placementRender = await findPlacementRender(designId, productId, placement.id);
+  const sourceImageUrl = placementRender?.imageUrl ?? found.currentImageUrl;
+  if (!sourceImageUrl) throw new Error("No design image");
+
   // Compute scaled position (centered within print area)
   const base = product.mockupPosition;
   const scaledWidth = Math.round(base.width * clampedScale);
@@ -74,7 +82,7 @@ export async function generateMockup(
   const taskKey = await createMockupTask(
     product.printfulProductId,
     variantId,
-    found.currentImageUrl,
+    sourceImageUrl,
     scaledPosition,
     placement.id
   );
@@ -144,16 +152,15 @@ export async function regenerateForPlacement(
     console.log(
       `regenerateForPlacement: cache hit design=${designId} product=${productId} url=${cached.imageUrl}`
     );
-    const cachedImageId = await findDesignImageByUrl(designId, cached.imageUrl);
     await db
       .update(designTable)
       .set({
         currentImageUrl: cached.imageUrl,
-        primaryImageId: cachedImageId,
+        primaryImageId: cached.id,
         updatedAt: new Date(),
       })
       .where(eq(designTable.id, designId));
-    return cached;
+    return { imageUrl: cached.imageUrl, aspectRatio: cached.aspectRatio };
   }
 
   // Pull the most recent generation prompt from chat history. Without a
@@ -226,4 +233,133 @@ export async function regenerateForPlacement(
     .where(eq(designTable.id, designId));
 
   return { imageUrl: r2Url, aspectRatio: targetAspect };
+}
+
+/**
+ * Pure function of (designId, productId): return the design_image to
+ * render on the product. Does NOT mutate design.currentImageUrl or
+ * design.primary_image_id — primary stays anchored on the user's source
+ * pick. Caller (the /preview page) drives all UI state from the return.
+ *
+ *   1. Read design.primary_image_id. Null → throw (caller redirects).
+ *   2. If the primary's aspect already fits the product's placement,
+ *      return the primary directly. No new row, no Replicate spend.
+ *   3. Else look up an existing (designId, productId, placementId) row.
+ *      Hit → return.
+ *   4. Else generate anchored on primary, insert design_image row,
+ *      return.
+ *
+ * Step 2 of the design data model rework. Replaces the imperative
+ * `regenerateForPlacement` flow that mutated design row state on every
+ * product switch.
+ */
+export async function getOrCreatePlacementRender(
+  designId: string,
+  productId: string
+): Promise<{ id: string; imageUrl: string; aspectRatio: AspectRatio }> {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) throw new Error("Unauthorized");
+
+  const found = await db.query.design.findFirst({
+    where: eq(designTable.id, designId),
+  });
+  if (!found || found.userId !== session.user.id) {
+    throw new Error("Unauthorized");
+  }
+  if (!found.primaryImageId) {
+    throw new Error("No primary image — design has no source pick yet");
+  }
+
+  const primary = await getDesignImageById(found.primaryImageId);
+  if (!primary) throw new Error("Primary image row missing");
+
+  const product = getProductOrThrow(productId);
+  const placement = getDefaultPlacement(product);
+  const targetAspect = placement.aspectRatio;
+
+  // Source aspect already fits → primary IS the placement render.
+  if (!needsAspectRegeneration(primary.aspectRatio, targetAspect)) {
+    return {
+      id: primary.id,
+      imageUrl: primary.imageUrl,
+      aspectRatio: primary.aspectRatio,
+    };
+  }
+
+  const cached = await findPlacementRender(designId, productId, placement.id);
+  if (cached) {
+    console.log(
+      `getOrCreatePlacementRender: cache hit design=${designId} product=${productId} url=${cached.imageUrl}`
+    );
+    return cached;
+  }
+
+  // Generate anchored on primary. Pull the prompt from primary.prompt,
+  // fall back to the most recent assistant fluxPrompt in chat history.
+  let prompt = primary.prompt ?? null;
+  if (!prompt) {
+    const chatHistory = (found.chatHistory as ChatMessage[]) ?? [];
+    prompt =
+      [...chatHistory]
+        .reverse()
+        .find((m) => m.role === "assistant" && m.fluxPrompt)?.fluxPrompt ?? null;
+  }
+  if (!prompt) {
+    throw new Error("No generation prompt available to re-render");
+  }
+
+  const startedAt = Date.now();
+  console.log(
+    `getOrCreatePlacementRender: design=${designId} product=${productId} target=${targetAspect} promptLen=${prompt.length} anchor=${primary.imageUrl}`
+  );
+  let imageUrl: string;
+  try {
+    imageUrl = await generateAnchoredTransparent(
+      prompt,
+      primary.imageUrl,
+      targetAspect
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("getOrCreatePlacementRender failed:", msg);
+    throw new Error(`Image generation failed: ${msg}`);
+  }
+  console.log(
+    `getOrCreatePlacementRender: design=${designId} done in ${Date.now() - startedAt}ms imageUrl=${imageUrl}`
+  );
+
+  const generationNumber = (found.generationCount ?? 0) + 1;
+  const response = await fetch(imageUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch generated image: ${response.status}`);
+  }
+  const buffer = Buffer.from(await response.arrayBuffer());
+  const r2Url = await uploadDesignImage(designId, generationNumber, buffer);
+
+  const newId = await insertDesignImage({
+    designId,
+    imageUrl: r2Url,
+    aspectRatio: targetAspect,
+    prompt,
+    generationCost: COST_PER_GENERATION,
+    productId,
+    placementId: placement.id,
+  });
+
+  // Bump generation_count + cost so accounting stays accurate. Do NOT
+  // touch currentImageUrl or primaryImageId — primary stays on the
+  // source pick. clearing mockupUrls because the cache is keyed on
+  // (productId, color, scale) and a fresh placement render invalidates
+  // any stale mockups for that product.
+  await db
+    .update(designTable)
+    .set({
+      generationCount: generationNumber,
+      generationCost: (found.generationCost ?? 0) + COST_PER_GENERATION,
+      mockupUrls: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(designTable.id, designId));
+
+  return { id: newId, imageUrl: r2Url, aspectRatio: targetAspect };
 }

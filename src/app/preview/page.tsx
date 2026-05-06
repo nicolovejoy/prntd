@@ -3,13 +3,11 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getDesign, approveDesign } from "../design/actions";
-import { generateMockup, regenerateForPlacement } from "./actions";
+import { generateMockup, getOrCreatePlacementRender } from "./actions";
 import Link from "next/link";
 import { Button } from "@/components/ui";
 import {
   getProduct,
-  getDefaultPlacement,
-  needsAspectRegeneration,
   DEFAULT_PRODUCT_ID,
   PRODUCTS,
   type AspectRatio,
@@ -17,11 +15,20 @@ import {
 import { ProductSilhouette } from "./product-silhouette";
 
 const LOADING_MESSAGES = [
-  "Rendering your design\u2026",
-  "Placing design on product\u2026",
-  "Almost there\u2026",
-  "Adding finishing touches\u2026",
+  "Rendering your design…",
+  "Placing design on product…",
+  "Almost there…",
+  "Adding finishing touches…",
 ];
+
+// Discriminated union: the placement render is the single source of
+// truth for what's on screen. Drives both the design image and the
+// "preparing your design" spinner via derivation, no seq-guard.
+type RenderState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "ready"; imageUrl: string; aspectRatio: AspectRatio }
+  | { status: "error"; message: string };
 
 export default function PreviewPage() {
   return (
@@ -36,23 +43,17 @@ function PreviewPageInner() {
   const searchParams = useSearchParams();
   const designId = searchParams.get("id");
   const initialProductId = searchParams.get("product") ?? DEFAULT_PRODUCT_ID;
-  // Tracks the aspect ratio of the current design image. Persisted in the
-  // URL so refresh/bookmark of e.g. ?aspect=1:2 doesn't trigger a redundant
-  // regeneration. Defaults to 1:1, the aspect every design is born at.
-  const initialAspect = (searchParams.get("aspect") as AspectRatio | null) ?? "1:1";
 
   const [productId, setProductId] = useState(initialProductId);
   const product = getProduct(productId);
 
-  const [designImageUrl, setDesignImageUrl] = useState<string | null>(null);
-  const [currentAspect, setCurrentAspect] = useState<AspectRatio>(initialAspect);
+  const [renderState, setRenderState] = useState<RenderState>({ status: "idle" });
   const [colorName, setColorName] = useState(product?.colors[0]?.name ?? "White");
   const [hoveredColor, setHoveredColor] = useState<string | null>(null);
   const [mockupUrl, setMockupUrl] = useState<string | null>(null);
   const [mockupLoading, setMockupLoading] = useState(false);
   const [mockupError, setMockupError] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [regenerating, setRegenerating] = useState(false);
+  const [hasPrimary, setHasPrimary] = useState<boolean | null>(null);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [zoomed, setZoomed] = useState(false);
   const [panOrigin, setPanOrigin] = useState({ x: 50, y: 50 });
@@ -60,24 +61,20 @@ function PreviewPageInner() {
 
   const [loadingMessageIdx, setLoadingMessageIdx] = useState(0);
 
-  // Client-side cache: "productId:colorName:scale" → mockup R2 URL
+  // Client-side cache: "productId:colorName:scale" -> mockup R2 URL
   const mockupCache = useRef<Map<string, string>>(new Map());
-  // Track the latest requested selection to discard stale responses
+  // Track the latest requested selection so a stale Printful response
+  // (color clicked, then changed) can't overwrite the current one.
   const latestColorRef = useRef(colorName);
   const latestProductRef = useRef(productId);
-  const latestAspectRef = useRef(currentAspect);
-  // Monotonic counter for regen attempts. Only the latest attempt is
-  // allowed to clear the regenerating spinner, so an earlier in-flight
-  // regen (e.g. from a product the user already navigated away from)
-  // can't accidentally cancel a newer one.
-  const regenSeqRef = useRef(0);
 
   const colors = product?.colors ?? [];
+  const regenerating = renderState.status === "loading";
+  const designImageUrl = renderState.status === "ready" ? renderState.imageUrl : null;
 
-  // Load design and seed mockup cache from DB. After load, kick off a
-  // placement-aware regeneration if the URL's product/aspect combo doesn't
-  // already fit — this handles the "shared link to a phone-case preview"
-  // case where the stored image is still 1:1.
+  // Load design once. Confirms primary_image_id exists (else send the
+  // user back to /design to pick one) and seeds the client mockup cache
+  // from the DB-cached entries.
   useEffect(() => {
     if (!designId) {
       router.push("/design");
@@ -87,40 +84,71 @@ function PreviewPageInner() {
     getDesign(designId)
       .then((design) => {
         if (canceled) return;
-        if (design?.currentImageUrl) {
-          setDesignImageUrl(design.currentImageUrl);
+        if (!design?.primaryImageId) {
+          router.push(`/design?id=${designId}`);
+          return;
         }
-        if (design?.mockupUrls) {
+        setHasPrimary(true);
+        if (design.mockupUrls) {
           for (const [key, url] of Object.entries(design.mockupUrls)) {
             mockupCache.current.set(key, url as string);
           }
         }
-        setLoading(false);
-        // Same regen path as a manual product change, using the URL's aspect
-        // hint as the assumed source aspect.
-        void maybeRegenerateForProduct(initialProductId, initialAspect);
       })
       .catch((err) => {
         if (canceled) return;
         console.error("getDesign failed:", err);
-        setLoading(false);
+        setHasPrimary(false);
       });
     return () => {
       canceled = true;
     };
-    // Deliberately runs once for the initial design+product+aspect tuple.
-    // Subsequent product changes are handled by handleProductChange.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [designId, router]);
 
-  // Generate mockup on demand (called by "Preview on product" button)
+  // Resolve the design image to render for the current (designId, productId).
+  // The server returns either a cached design_image row or a fresh anchored
+  // render. State derives from the in-flight call -- the cleanup function
+  // cancels stale resolutions, replacing the old seq-guard ref pattern.
+  useEffect(() => {
+    if (!designId || !hasPrimary) return;
+    let canceled = false;
+    setRenderState({ status: "loading" });
+    getOrCreatePlacementRender(designId, productId)
+      .then((result) => {
+        if (canceled) return;
+        setRenderState({
+          status: "ready",
+          imageUrl: result.imageUrl,
+          aspectRatio: result.aspectRatio,
+        });
+        // Fresh placement render invalidates client mockup entries for
+        // this product. Server clears DB mockupUrls on insert.
+        for (const key of [...mockupCache.current.keys()]) {
+          if (key.startsWith(`${productId}:`)) mockupCache.current.delete(key);
+        }
+        setMockupUrl(null);
+        setMockupError(false);
+      })
+      .catch((err) => {
+        if (canceled) return;
+        console.error("getOrCreatePlacementRender failed:", err);
+        setRenderState({
+          status: "error",
+          message: err instanceof Error ? err.message : String(err),
+        });
+      });
+    return () => {
+      canceled = true;
+    };
+  }, [designId, productId, hasPrimary]);
+
+  // Generate mockup on demand (called by "Preview on product" effect)
   async function handlePreviewOnProduct() {
     if (!designId) return;
 
     const scaleKey = Math.round(scale * 100);
     const cacheKey = `${productId}:${colorName}:${scaleKey}`;
 
-    // Check client cache first
     const cached = mockupCache.current.get(cacheKey);
     if (cached) {
       setMockupUrl(cached);
@@ -133,7 +161,6 @@ function PreviewPageInner() {
     setMockupUrl(null);
     try {
       const result = await generateMockup(designId, colorName, productId, scale);
-      // Only apply if selections haven't changed
       if (latestColorRef.current === colorName && latestProductRef.current === productId) {
         mockupCache.current.set(cacheKey, result.mockupUrl);
         setMockupUrl(result.mockupUrl);
@@ -162,79 +189,22 @@ function PreviewPageInner() {
     return () => clearInterval(timer);
   }, [mockupLoading]);
 
-  // Auto-trigger the real Printful mockup whenever the underlying inputs
-  // settle (initial load, color change, product change post-regen) and we
-  // don't already have one. The mockup is the actual product render the
-  // user will see in their order — making them click a button to see it
-  // is friction we don't want before checkout.
+  // Auto-trigger the real Printful mockup whenever the placement render
+  // settles (initial load, color change, product change). The mockup is
+  // the actual product render the user will see in their order.
   useEffect(() => {
     if (!designImageUrl) return;
     if (regenerating || mockupLoading || mockupUrl) return;
-    // If the current image needs an aspect regen for this product, skip —
-    // the regen path will set designImageUrl when done and we'll re-run
-    // the effect against a correctly-shaped image. Avoids burning a Printful
-    // mockup call on a soon-to-be-discarded image.
-    const product = getProduct(productId);
-    if (product) {
-      const targetAspect = getDefaultPlacement(product).aspectRatio;
-      if (needsAspectRegeneration(currentAspect, targetAspect)) return;
-    }
     void handlePreviewOnProduct();
-    // handlePreviewOnProduct closes over current state; the dep list captures
-    // the inputs that determine whether a mockup is needed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [designImageUrl, productId, colorName, regenerating, currentAspect]);
+  }, [designImageUrl, productId, colorName, regenerating]);
 
   function handleColorChange(name: string) {
     setColorName(name);
     latestColorRef.current = name;
-    // Revert to client-side preview — user can hit "Preview on product" to render
     setMockupUrl(null);
     setMockupError(false);
     setMockupLoading(false);
-  }
-
-  // Regenerate the design image at the new placement aspect when needed.
-  // Skips work when the current aspect already fits the target placement
-  // (server also re-checks via needsAspectRegeneration as a guard).
-  async function maybeRegenerateForProduct(
-    newProductId: string,
-    sourceAspect: AspectRatio
-  ) {
-    const newProduct = getProduct(newProductId);
-    if (!designId || !newProduct) return;
-
-    const targetAspect = getDefaultPlacement(newProduct).aspectRatio;
-    if (!needsAspectRegeneration(sourceAspect, targetAspect)) return;
-
-    const seq = ++regenSeqRef.current;
-    setRegenerating(true);
-    try {
-      const result = await regenerateForPlacement(designId, newProductId, sourceAspect);
-      // If a newer regen has been started, defer to it and don't touch
-      // shared state (image URL, URL params, cache, spinner).
-      if (seq !== regenSeqRef.current) return;
-      if (result) {
-        setDesignImageUrl(result.imageUrl);
-        setCurrentAspect(result.aspectRatio);
-        latestAspectRef.current = result.aspectRatio;
-        router.replace(
-          `/preview?id=${designId}&product=${newProductId}&aspect=${encodeURIComponent(result.aspectRatio)}`,
-          { scroll: false }
-        );
-        mockupCache.current.clear();
-      }
-    } catch (err) {
-      console.error("regenerateForPlacement failed:", err);
-    } finally {
-      // Only the latest regen owns the spinner. An earlier attempt that
-      // happens to settle later must not flip it off — that would unmask
-      // a stale state and let the user click Order while the real regen
-      // is still in flight.
-      if (seq === regenSeqRef.current) {
-        setRegenerating(false);
-      }
-    }
   }
 
   function handleProductChange(newProductId: string) {
@@ -246,19 +216,14 @@ function PreviewPageInner() {
     latestProductRef.current = newProductId;
     setColorName(newColor);
     latestColorRef.current = newColor;
-    // Revert to client-side preview
     setMockupUrl(null);
     setMockupError(false);
     setMockupLoading(false);
 
     router.replace(
-      `/preview?id=${designId}&product=${newProductId}&aspect=${encodeURIComponent(currentAspect)}`,
+      `/preview?id=${designId}&product=${newProductId}`,
       { scroll: false }
     );
-
-    // Kick off a re-render at the new placement aspect if the current
-    // image's shape doesn't fit. Fire-and-forget; the UI shows a banner.
-    void maybeRegenerateForProduct(newProductId, currentAspect);
   }
 
   async function handleApprove() {
@@ -269,10 +234,19 @@ function PreviewPageInner() {
     );
   }
 
-  if (loading) {
+  if (hasPrimary === null) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         Loading preview...
+      </div>
+    );
+  }
+
+  if (hasPrimary === false) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4">
+        <p>Couldn&apos;t load this design.</p>
+        <Link href="/designs" className="underline">My Designs</Link>
       </div>
     );
   }
@@ -283,7 +257,7 @@ function PreviewPageInner() {
 
   return (
     <div className="min-h-screen flex flex-col items-center py-6 md:py-12 px-4">
-      {/* Breadcrumbs — hidden on mobile to save space */}
+      {/* Breadcrumbs -- hidden on mobile to save space */}
       <nav className="hidden md:flex w-full max-w-2xl mb-8 gap-2 text-sm text-gray-500">
         <Link href="/designs" className="hover:underline">
           My Designs
@@ -323,7 +297,7 @@ function PreviewPageInner() {
         ))}
       </div>
 
-      {/* Color picker — above the preview, hidden when product has only one color */}
+      {/* Color picker -- above the preview, hidden when product has only one color */}
       {colors.length > 1 && (
         <>
           <div className="text-sm text-text-muted mb-2 h-5">
@@ -486,7 +460,7 @@ function PreviewPageInner() {
       <div className="flex flex-col items-center gap-3 mt-6 md:mt-8 w-full max-w-xs md:max-w-none md:w-auto">
         <div className="flex gap-4 w-full md:w-auto">
           {/* The order CTA is gated on having a real Printful mockup on
-              screen — users shouldn't reach checkout without seeing what
+              screen -- users shouldn't reach checkout without seeing what
               their product will actually look like. When the mockup
               errors, the same button becomes the retry. */}
           {mockupError ? (

@@ -41,9 +41,9 @@ export async function insertDesignImage(params: {
 }
 
 /**
- * Look up an existing placement-targeted render for a design. Used by
- * `regenerateForPlacement` as a cache-hit short-circuit so re-clicking
- * the same product doesn't re-spend Replicate credits.
+ * Look up an existing placement-targeted render for a design. Used as
+ * a cache-hit short-circuit so re-clicking the same product doesn't
+ * re-spend Replicate credits.
  *
  * Returns the most recent matching row (latest wins if there are
  * multiple, which can happen if an earlier rewrite landed before
@@ -53,9 +53,10 @@ export async function findPlacementRender(
   designId: string,
   productId: string,
   placementId: string
-): Promise<{ imageUrl: string; aspectRatio: AspectRatio } | null> {
+): Promise<{ id: string; imageUrl: string; aspectRatio: AspectRatio } | null> {
   const rows = await db
     .select({
+      id: designImageTable.id,
       imageUrl: designImageTable.imageUrl,
       aspectRatio: designImageTable.aspectRatio,
     })
@@ -71,8 +72,42 @@ export async function findPlacementRender(
     .limit(1);
   if (!rows[0]) return null;
   return {
+    id: rows[0].id,
     imageUrl: rows[0].imageUrl,
     aspectRatio: rows[0].aspectRatio as AspectRatio,
+  };
+}
+
+/**
+ * Fetch a single design_image by id. Returns null if not found.
+ */
+export async function getDesignImageById(
+  id: string
+): Promise<{
+  id: string;
+  designId: string;
+  imageUrl: string;
+  aspectRatio: AspectRatio;
+  prompt: string | null;
+} | null> {
+  const rows = await db
+    .select({
+      id: designImageTable.id,
+      designId: designImageTable.designId,
+      imageUrl: designImageTable.imageUrl,
+      aspectRatio: designImageTable.aspectRatio,
+      prompt: designImageTable.prompt,
+    })
+    .from(designImageTable)
+    .where(eq(designImageTable.id, id))
+    .limit(1);
+  if (!rows[0]) return null;
+  return {
+    id: rows[0].id,
+    designId: rows[0].designId,
+    imageUrl: rows[0].imageUrl,
+    aspectRatio: rows[0].aspectRatio as AspectRatio,
+    prompt: rows[0].prompt,
   };
 }
 
