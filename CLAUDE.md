@@ -167,9 +167,15 @@ See `docs/next-phase.md` for the full Phase 1/2/3 plan. Top items:
 
 **Followups surfaced during data model rework verification (2026-05-06)**
 
-- **`deleteDesignImage` ignores order pinning** — the lightbox Delete on `/design` deletes a `design_image` row even if an `order.placements.front` still references its id, leaving the order with a broken thumbnail. Mirror the deleteDesign auto-archive logic at the per-image level: refuse (or skip) deletion when an order pins the row. Backstory: Nico hit this on 2026-05-06 — order shows in `/orders` and `/admin` with no thumbnail.
-- **No prefetch on /preview revisit** — Step 3 prefetches all default-product colors only on `approveDesign` (fresh accept). Existing/already-approved designs revisited via `/preview` get on-demand mockups, so first color render is slow. Fix candidate: trigger `prefetchProductMockups` from `/preview` page load via `after()` when the cache is empty.
-- **Bella+Canvas 3001 color spectrum** — `products.ts` lists 13 colors; Printful catalog has ~30+. Run the variant discovery script and expand the catalog entry.
+- ~~**`deleteDesignImage` ignores order pinning**~~ — shipped 2026-05-06, commit `d7d9e25`. Refuses delete when any order's placements pin the row; page surfaces the refusal via window.alert.
+- ~~**No prefetch on /preview revisit**~~ — shipped 2026-05-06, commit `d7d9e25`. New `ensureMockupsPrefetched` server action fires from /preview on load, schedules the bulk prefetch via `after()` when the cache is empty.
+- ~~**Bella+Canvas 3001 color spectrum**~~ — expanded from 13 to 25 colors on 2026-05-06. Printful catalog has 81 in total; trimmed to a curated set with consistent S/M/L/XL/2XL coverage. Skipped: Heather Prism Peach (only L available); near-duplicate heathers; less popular variants. Process documented in `docs/products.md`.
+
+**Pricing + checkout — backlog (2026-05-06)**
+
+- **Per-size pricing accuracy** — `bella-canvas-3001` and other product entries use a flat `baseCost: { "*": 12.95 }`. Real Printful pricing is per-size: $11.69 for S–XL, $13.69 for 2XL, $15.69 for 3XL, $17.69 for 4XL, $19.69 for 5XL on 3001. Acceptable today (margins absorb it), revisit if prices tighten or we expose 3XL+ sizes.
+- **Multi-item shipping savings** — Printful charges less for the second+ tee in a single shipment. Today every order is single-item and we don't expose a "buy more" path. Part of #11 scope (Printful + checkout deep-dive) but worth its own bullet because it shapes pricing logic, not just the order UI.
+- **Tax** — also #11. Printful collects sales tax for fulfillment; we currently bake nothing into Stripe's checkout.
 
 **Image-gen style versatility (followup to #8)**
 
