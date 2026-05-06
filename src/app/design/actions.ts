@@ -1,6 +1,7 @@
 "use server";
 
 import { headers } from "next/headers";
+import { after } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { design as designTable } from "@/lib/db/schema";
@@ -11,6 +12,8 @@ import { generateAnchoredTransparent } from "@/lib/replicate";
 import { uploadDesignImage } from "@/lib/r2";
 import { extractImagesFromHistory } from "@/lib/chat-utils";
 import { insertDesignImage, findDesignImageByUrl } from "@/lib/design-images";
+import { prefetchProductMockups } from "@/app/preview/actions";
+import { DEFAULT_PRODUCT_ID } from "@/lib/products";
 import type { ChatMessage } from "@/lib/db/schema";
 
 const COST_PER_GENERATION = 0.03;
@@ -299,4 +302,10 @@ export async function approveDesign(designId: string) {
     .update(designTable)
     .set({ status: "approved", updatedAt: new Date() })
     .where(eq(designTable.id, designId));
+
+  // Warm the mockup cache for every color of the default product. By the
+  // time the user lands on /preview and starts clicking colors, the common
+  // picks render instantly. Printful mockups are free so this is pure UX.
+  // Best-effort: failures log and are swallowed by prefetchProductMockups.
+  after(() => prefetchProductMockups(designId, DEFAULT_PRODUCT_ID));
 }

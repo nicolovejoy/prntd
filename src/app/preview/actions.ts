@@ -7,6 +7,7 @@ import { design as designTable, type ChatMessage } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { createMockupTask, pollMockupTask } from "@/lib/printful";
 import {
+  getProduct,
   getProductOrThrow,
   getDefaultPlacement,
   needsAspectRegeneration,
@@ -362,4 +363,47 @@ export async function getOrCreatePlacementRender(
     .where(eq(designTable.id, designId));
 
   return { id: newId, imageUrl: r2Url, aspectRatio: targetAspect };
+}
+
+/**
+ * Pre-fetch Printful mockups for every color of a product, best-effort.
+ * Triggered via after() on accept so the user lands on /preview with the
+ * common color picks already cached. Printful mockup tasks are free (only
+ * fulfillment costs money) so the only cost is wall time.
+ *
+ * Runs serially to avoid the read-modify-write race on design.mockupUrls
+ * — concurrent generateMockup calls would clobber each other's writes.
+ * Sequential at ~10s/color × 13 colors ≈ 2 minutes, well within the 300s
+ * function budget.
+ *
+ * Failures per color are logged and skipped; never throws to the caller.
+ */
+export async function prefetchProductMockups(
+  designId: string,
+  productId: string = DEFAULT_PRODUCT_ID
+): Promise<void> {
+  const product = getProduct(productId);
+  if (!product) {
+    console.warn(`prefetchProductMockups: unknown product ${productId}`);
+    return;
+  }
+
+  const startedAt = Date.now();
+  let ok = 0;
+  let failed = 0;
+  for (const color of product.colors) {
+    try {
+      await generateMockup(designId, color.name, productId);
+      ok++;
+    } catch (err) {
+      failed++;
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `prefetchProductMockups: design=${designId} color=${color.name} failed: ${msg}`
+      );
+    }
+  }
+  console.log(
+    `prefetchProductMockups: design=${designId} product=${productId} ok=${ok} failed=${failed} elapsed=${Date.now() - startedAt}ms`
+  );
 }
