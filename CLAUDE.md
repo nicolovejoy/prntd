@@ -138,44 +138,19 @@ See `docs/next-phase.md` for the full Phase 1/2/3 plan. Top items:
 - DESC/charity work paused as of 2026-05-06. Chain (DESC permission → entity confirmation → #4 ledger infra → first disbursement → #5 homepage re-org) still applies if/when it restarts.
 - #10 ~~Order list thumbnails on shirt color~~ — shipped May 1; iPhone case "Clear" still renders on white, follow-up to special-case `type === "phone-case"`. discuss this with user
 
-**Print targets (parallel track) — see `docs/print-targets.md` + `docs/print-targets-plan.md`**
+**Recently shipped — 2026-05-05/06**
 
-- Phase 1 (aspect-correct generation) shipped 2026-05-02. Phase 2 (`design_image` table + backfill + dual-read) shipped 2026-05-03 — 40 designs and 40 orders backfilled.
-- Phase 3 (placement-aware regeneration with provenance, removal of `design.currentImageUrl`) is the next implementation step.
-- #11 Printful + checkout deep-dive (multi-placement, tax, shipping, team orders, safe-area UX) — blocks Phase 4 multi-placement UI.
-- #12 Image export facility — independent, slot anywhere after Phase 3.
+- **Data model rework Steps 0–5b**: `design.primary_image_id` is now the source of truth, `currentImageUrl` column dropped from Turso. `/preview` is a pure function of (designId, productId), placement renders live in `design_image` rows with provenance, mockup cache resolves via primary. Plan: `~/.claude/plans/i-want-you-to-concurrent-fountain.md`.
+- **Step 5c (deferred)**: strip `chat_history.imageUrl` writes + switch chat-panel inline bubbles + `extractImagesFromHistory` (AI context) to read from `design_image`. Non-trivial UI change; chat panel currently still reads the embedded URL.
+- **Design loop rethink Phases 0/1/4** shipped (Ideogram native-transparent, advisor negation rewriting, doc updates). Phase 2 (text-as-layer) and Phase 3 (structured brief + batch-of-3) still queued.
+- **Bulk Printful prefetch** on accept and on `/preview` revisit. **deleteDesign** + **deleteDesignImage** order-pin protection. **bella-canvas-3001** expanded 13 → 25 colors. Product catalog process documented in `docs/products.md`.
 
-**Design loop rethink — phased build (active)**
+**Pricing + checkout — backlog**
 
-- Phase 0 (Ideogram native-transparent swap) shipped 2026-05-04, commit `cf5f93f`. Transparency confirmed in prod.
-- Phase 1 (negation rewriting in chat advisor system prompt) shipped 2026-05-05, commit `9647622`. Partial improvement; stubborn defaults like "tongue out on happy cartoon dog" still leak through. Refinement deferred.
-- Phase 4 (doc updates to `docs/design-loop-rethink.md`) shipped 2026-05-05, commit `26f2b88`.
-- Phase 2 (text-as-layer) — heaviest phase, ~1 week. Plan in `docs/phase-2-text-as-layer-plan.md`. Schema + font catalog + `composeWithText` (`@vercel/og` + `sharp`) + UI panel. Sequenced after the data model rework.
-- Phase 3 (structured brief + batch-of-3) — after Phase 2. Plan in `~/.claude/plans/feedback-for-the-coding-woolly-snowflake.md`.
-- #15 (silent regen hang on product switch) — structurally resolved by data model rework Step 2 (5d6cd9f handoff to b9e72e9). Verify in prod after deploy.
-
-**Design data model rework (active) — plan: `~/.claude/plans/i-want-you-to-concurrent-fountain.md`**
-
-- Step 0 (style-anchored regens + duplicate-call hardening) shipped 2026-05-05, commits `9421606` + `b052457`.
-- Step 1 (`design.primary_image_id` column + dual-write + backfill) shipped 2026-05-05, commit `5d6cd9f`. 57 designs migrated, 4 left null (no images).
-- Step 2 (`/preview` rewritten as pure function of designId/productId; `getOrCreatePlacementRender`; `generateMockup` resolves placement URL; `deleteDesign` FK cascade) shipped 2026-05-05, commit `b9e72e9`.
-- Step 3 (pre-fetch Printful mockups on accept via `after()`, bulk Printful task in one call) shipped 2026-05-06, commits `2829111` + `8b878db`.
-- Step 4 (`/design` gallery rewrite: source images vs Product versions section; rename "Use this image" → "Make Products") shipped 2026-05-06, commit `48691e9`.
-- Step 5a (switch all reads off `design.currentImageUrl` via `getDesignDisplayImageUrl`/`resolveDesignDisplayImageUrls`; delete dead `regenerateForPlacement`; webhook gains `resolveDesignImageUrl` dep) shipped 2026-05-06, commit `dd6ffb5`. Validated end-to-end with a real test order.
-- Step 5b code (drop `currentImageUrl` writes + remove from Drizzle schema; `deleteDesignImageRow` shape simplified) shipped 2026-05-06, commit `536fb8f`. Pending: `npm run db:push` to drop the column from Turso.
-- Step 5c (strip `chat_history.imageUrl` from new writes, switch chat-panel inline bubble images and AI context to read from `design_image`) — deferred; chat panel currently still reads `chat_history.imageUrl` for inline rendering, and `extractImagesFromHistory` uses it to pass prior images into Claude for refinement. Non-trivial UI change.
-
-**Followups surfaced during data model rework verification (2026-05-06)**
-
-- ~~**`deleteDesignImage` ignores order pinning**~~ — shipped 2026-05-06, commit `d7d9e25`. Refuses delete when any order's placements pin the row; page surfaces the refusal via window.alert.
-- ~~**No prefetch on /preview revisit**~~ — shipped 2026-05-06, commit `d7d9e25`. New `ensureMockupsPrefetched` server action fires from /preview on load, schedules the bulk prefetch via `after()` when the cache is empty.
-- ~~**Bella+Canvas 3001 color spectrum**~~ — expanded from 13 to 25 colors on 2026-05-06. Printful catalog has 81 in total; trimmed to a curated set with consistent S/M/L/XL/2XL coverage. Skipped: Heather Prism Peach (only L available); near-duplicate heathers; less popular variants. Process documented in `docs/products.md`.
-
-**Pricing + checkout — backlog (2026-05-06)**
-
-- **Per-size pricing accuracy** — `bella-canvas-3001` and other product entries use a flat `baseCost: { "*": 12.95 }`. Real Printful pricing is per-size: $11.69 for S–XL, $13.69 for 2XL, $15.69 for 3XL, $17.69 for 4XL, $19.69 for 5XL on 3001. Acceptable today (margins absorb it), revisit if prices tighten or we expose 3XL+ sizes.
-- **Multi-item shipping savings** — Printful charges less for the second+ tee in a single shipment. Today every order is single-item and we don't expose a "buy more" path. Part of #11 scope (Printful + checkout deep-dive) but worth its own bullet because it shapes pricing logic, not just the order UI.
-- **Tax** — also #11. Printful collects sales tax for fulfillment; we currently bake nothing into Stripe's checkout.
+- **Per-size pricing accuracy** — entries use flat `baseCost: { "*": 12.95 }`. Real Printful pricing is per-size: $11.69 S–XL, $13.69 2XL, $15.69 3XL, $17.69 4XL, $19.69 5XL on 3001. Acceptable today; revisit if margins tighten or 3XL+ sizes get exposed.
+- **Multi-item shipping savings** — Printful charges less for the 2nd+ tee in one shipment. Single-item orders only today. Shapes pricing logic, not just UI. Part of #11 scope.
+- **Tax** — Printful collects fulfillment sales tax; nothing baked into Stripe checkout. Part of #11 scope.
+- **#11 Printful + checkout deep-dive** (multi-placement, tax, shipping, team orders, safe-area UX) — umbrella ticket; blocks Phase 4 multi-placement UI.
 
 **Image-gen style versatility (followup to #8)**
 
@@ -187,10 +162,20 @@ See `docs/next-phase.md` for the full Phase 1/2/3 plan. Top items:
 
 **Discount codes (remaining)**
 
-- Show discount info on admin order detail and /orders
-- Charge shipping as a separate Stripe line so percentage promos don't eat margin to zero (currently shipping is baked into COGS; 50% off launches at structural loss)
+- Show discount info on admin order detail and /orders.
+- Charge shipping as a separate Stripe line so percentage promos don't eat margin to zero (currently shipping is baked into COGS; 50% off launches at structural loss).
 
-**Mobile flow rethink** — Phase 2. Design→preview→order too fragmented on phones.
+**Print targets — see `docs/print-targets.md` + `docs/print-targets-plan.md`**
+
+- Phase 3 (placement-aware regeneration, removal of `currentImageUrl`) effectively folded into the data model rework above. Phase 4 (multi-placement UI) blocked on #11.
+- #12 Image export facility — independent, slot anywhere.
+
+**Design loop rethink — remaining phases**
+
+- Phase 2 (text-as-layer) — heaviest phase, ~1 week. Plan: `docs/phase-2-text-as-layer-plan.md`. Schema + font catalog + `composeWithText` (`@vercel/og` + `sharp`) + UI panel.
+- Phase 3 (structured brief + batch-of-3) — after Phase 2. Plan: `~/.claude/plans/feedback-for-the-coding-woolly-snowflake.md`.
+
+**Mobile flow rethink** — Design→preview→order too fragmented on phones. Adjacent: `docs/funnel-back-nav.md`.
 
 **1Password secret migration (paused 2026-04-14)** — see memory `project_anthropic_key_rotation.md`
 
