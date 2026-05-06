@@ -1,20 +1,21 @@
 "use client";
 
-import { Suspense, useState, useRef, useEffect } from "react";
+import { Suspense, useState, useRef, useEffect, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   sendChatMessage,
   generateDesign,
   selectImage,
-  deleteGeneration,
+  deleteDesignImage,
   getDesign,
+  getDesignGallery,
   approveDesign,
   uploadReferenceImage,
 } from "./actions";
-import { extractImagesFromHistory } from "@/lib/chat-utils";
 import type { ChatMessage } from "@/lib/db/schema";
 import type { DesignImage } from "@/lib/chat-utils";
+import type { ProductVersionGroup } from "@/lib/design-images";
 import { ChatPanel } from "./chat-panel";
 import { ImageGallery } from "./image-gallery";
 import { ImageLightbox } from "./image-lightbox";
@@ -35,26 +36,38 @@ function DesignPageInner() {
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [images, setImages] = useState<DesignImage[]>([]);
+  const [productGroups, setProductGroups] = useState<ProductVersionGroup[]>([]);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
+  const refreshGallery = useCallback(async () => {
+    const { sources, productGroups } = await getDesignGallery(designId.current);
+    setImages(
+      sources.map((s, i) => ({
+        id: s.id,
+        number: i + 1,
+        url: s.imageUrl,
+        prompt: "",
+      }))
+    );
+    setProductGroups(productGroups);
+  }, []);
+
   // Load existing design if resuming
   const id = searchParams.get("id");
   useEffect(() => {
-    if (id) {
-      getDesign(id).then((design) => {
-        if (design) {
-          const history = (design.chatHistory as ChatMessage[]) ?? [];
-          setMessages(history);
-          setImages(extractImagesFromHistory(history));
-          setSelectedImage(design.currentImageUrl);
-        }
-      });
-    }
-  }, [id]);
+    if (!id) return;
+    getDesign(id).then((design) => {
+      if (!design) return;
+      const history = (design.chatHistory as ChatMessage[]) ?? [];
+      setMessages(history);
+      setSelectedImage(design.currentImageUrl);
+    });
+    refreshGallery();
+  }, [id, refreshGallery]);
 
   async function handleSend(userMessage: string) {
     setLoading(true);
@@ -87,11 +100,6 @@ function DesignPageInner() {
 
     try {
       const result = await generateDesign(designId.current, userMessage);
-      const newImage: DesignImage = {
-        number: result.generationNumber,
-        url: result.imageUrl,
-        prompt: "",
-      };
       setMessages((prev) => [
         ...prev,
         {
@@ -101,8 +109,8 @@ function DesignPageInner() {
           generationNumber: result.generationNumber,
         },
       ]);
-      setImages((prev) => [...prev, newImage]);
       setSelectedImage(result.imageUrl);
+      await refreshGallery();
       // Auto-open gallery drawer on mobile
       if (window.matchMedia("(max-width: 767px)").matches) {
         setDrawerOpen(true);
@@ -120,34 +128,21 @@ function DesignPageInner() {
     }
   }
 
-  async function handleSelectImage(imageUrl: string) {
-    setSelectedImage(imageUrl);
-    await selectImage(designId.current, imageUrl);
-  }
-
-  async function handleDeleteImage(generationNumber: number) {
-    await deleteGeneration(designId.current, generationNumber);
-    setImages((prev) => prev.filter((img) => img.number !== generationNumber));
-    // Close lightbox if no images left, or navigate
-    const remaining = images.filter(
-      (img) => img.number !== generationNumber
-    );
-    if (remaining.length === 0) {
-      setLightboxIndex(null);
+  async function handleDeleteImage(imageId: string) {
+    const deleted = images.find((img) => img.id === imageId);
+    await deleteDesignImage(designId.current, imageId);
+    await refreshGallery();
+    // If lightbox was open on this image, clamp or close
+    setImages((current) => {
+      if (current.length === 0) {
+        setLightboxIndex(null);
+      } else if (lightboxIndex !== null) {
+        setLightboxIndex(Math.min(lightboxIndex, current.length - 1));
+      }
+      return current;
+    });
+    if (deleted && selectedImage === deleted.url) {
       setSelectedImage(null);
-    } else {
-      // If deleted image was selected, pick the last remaining
-      const deleted = images.find((img) => img.number === generationNumber);
-      if (deleted && selectedImage === deleted.url) {
-        const last = remaining[remaining.length - 1];
-        setSelectedImage(last.url);
-        await selectImage(designId.current, last.url);
-      }
-      // Adjust lightbox index
-      if (lightboxIndex !== null) {
-        const newIndex = Math.min(lightboxIndex, remaining.length - 1);
-        setLightboxIndex(newIndex);
-      }
     }
   }
 
@@ -183,18 +178,24 @@ function DesignPageInner() {
     }
   }
 
-  function handleUseDesign() {
+  function handleMakeProducts() {
     if (!selectedImage) return;
     approveDesign(designId.current).then(() => {
       router.push(`/preview?id=${designId.current}`);
     });
   }
 
-  async function handleUseSpecificImage(imageUrl: string) {
+  async function handleMakeProductsForImage(imageUrl: string) {
+    // selectImage promotes this image to primary_image_id before approve,
+    // so /preview anchors on the user's pick rather than the latest.
     await selectImage(designId.current, imageUrl);
     setSelectedImage(imageUrl);
     await approveDesign(designId.current);
     router.push(`/preview?id=${designId.current}`);
+  }
+
+  async function handleSelectProductVersion(productId: string) {
+    router.push(`/preview?id=${designId.current}&product=${productId}`);
   }
 
   return (
@@ -224,15 +225,17 @@ function DesignPageInner() {
         />
         <ImageGallery
           images={images}
+          productGroups={productGroups}
           selectedImage={selectedImage}
           generating={generating}
           onClickImage={(i) => setLightboxIndex(i)}
-          onUseDesign={handleUseDesign}
+          onMakeProducts={handleMakeProducts}
+          onSelectProductVersion={handleSelectProductVersion}
         />
       </div>
 
       {/* Mobile gallery toggle */}
-      {images.length > 0 && (
+      {(images.length > 0 || productGroups.length > 0) && (
         <button
           onClick={() => setDrawerOpen(true)}
           className="fixed bottom-20 right-4 z-30 md:hidden w-12 h-12 rounded-full bg-accent text-accent-fg shadow-lg flex items-center justify-center"
@@ -246,13 +249,18 @@ function DesignPageInner() {
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         images={images}
+        productGroups={productGroups}
         selectedImage={selectedImage}
         generating={generating}
         onClickImage={(i) => {
           setDrawerOpen(false);
           setLightboxIndex(i);
         }}
-        onUseDesign={handleUseDesign}
+        onMakeProducts={handleMakeProducts}
+        onSelectProductVersion={(productId) => {
+          setDrawerOpen(false);
+          handleSelectProductVersion(productId);
+        }}
       />
 
       {/* Lightbox */}
@@ -263,7 +271,7 @@ function DesignPageInner() {
           onClose={() => setLightboxIndex(null)}
           onNavigate={setLightboxIndex}
           onDelete={handleDeleteImage}
-          onUseDesign={handleUseSpecificImage}
+          onMakeProducts={handleMakeProductsForImage}
         />
       )}
     </div>

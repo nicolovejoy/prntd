@@ -3,23 +3,28 @@
 import { useEffect } from "react";
 import { ImageGallery } from "./image-gallery";
 import type { DesignImage } from "@/lib/chat-utils";
+import type { ProductVersionGroup } from "@/lib/design-images";
 
 export function MobileGalleryDrawer({
   open,
   onClose,
   images,
+  productGroups,
   selectedImage,
   generating,
   onClickImage,
-  onUseDesign,
+  onMakeProducts,
+  onSelectProductVersion,
 }: {
   open: boolean;
   onClose: () => void;
   images: DesignImage[];
+  productGroups: ProductVersionGroup[];
   selectedImage: string | null;
   generating: boolean;
   onClickImage: (index: number) => void;
-  onUseDesign: () => void;
+  onMakeProducts: () => void;
+  onSelectProductVersion: (productId: string) => void;
 }) {
   useEffect(() => {
     if (!open) return;
@@ -49,10 +54,12 @@ export function MobileGalleryDrawer({
         <ImageGallery
           className="w-full h-full flex flex-col bg-background border-l border-border"
           images={images}
+          productGroups={productGroups}
           selectedImage={selectedImage}
           generating={generating}
           onClickImage={onClickImage}
-          onUseDesign={onUseDesign}
+          onMakeProducts={onMakeProducts}
+          onSelectProductVersion={onSelectProductVersion}
         />
       </div>
     </>

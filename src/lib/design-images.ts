@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { designImage as designImageTable } from "@/lib/db/schema";
-import { eq, and, desc, inArray } from "drizzle-orm";
-import type { AspectRatio } from "@/lib/products";
+import { eq, and, asc, desc, inArray, isNull, isNotNull } from "drizzle-orm";
+import { getProduct, type AspectRatio } from "@/lib/products";
 
 /**
  * Insert a new design_image row for a generation. Automatically links
@@ -171,4 +171,149 @@ export async function resolveOrderImageUrls(
     out.set(o.id, pinned ?? fallback.get(o.designId) ?? null);
   }
   return out;
+}
+
+export type SourceImage = {
+  id: string;
+  imageUrl: string;
+  aspectRatio: AspectRatio;
+  createdAt: Date;
+};
+
+/**
+ * Fetch all source images for a design (rows with product_id IS NULL —
+ * the exploratory 1:1 generations and user uploads). Ordered oldest →
+ * newest so the chat-thread gallery scrolls forward in time.
+ */
+export async function getDesignSourceImages(
+  designId: string
+): Promise<SourceImage[]> {
+  const rows = await db
+    .select({
+      id: designImageTable.id,
+      imageUrl: designImageTable.imageUrl,
+      aspectRatio: designImageTable.aspectRatio,
+      createdAt: designImageTable.createdAt,
+    })
+    .from(designImageTable)
+    .where(
+      and(
+        eq(designImageTable.designId, designId),
+        isNull(designImageTable.productId)
+      )
+    )
+    .orderBy(asc(designImageTable.createdAt));
+
+  return rows.map((r) => ({
+    id: r.id,
+    imageUrl: r.imageUrl,
+    aspectRatio: r.aspectRatio as AspectRatio,
+    createdAt: r.createdAt,
+  }));
+}
+
+export type ProductVersion = {
+  id: string;
+  imageUrl: string;
+  aspectRatio: AspectRatio;
+  placementId: string;
+  createdAt: Date;
+};
+
+export type ProductVersionGroup = {
+  productId: string;
+  productName: string;
+  images: ProductVersion[];
+};
+
+/**
+ * Fetch placement-targeted renders for a design (rows with non-null
+ * product_id), grouped by product. Each group's `images` is ordered
+ * oldest → newest. Products with no renders for this design are
+ * omitted entirely.
+ */
+export async function getDesignPlacementRenders(
+  designId: string
+): Promise<ProductVersionGroup[]> {
+  const rows = await db
+    .select({
+      id: designImageTable.id,
+      imageUrl: designImageTable.imageUrl,
+      aspectRatio: designImageTable.aspectRatio,
+      productId: designImageTable.productId,
+      placementId: designImageTable.placementId,
+      createdAt: designImageTable.createdAt,
+    })
+    .from(designImageTable)
+    .where(
+      and(
+        eq(designImageTable.designId, designId),
+        isNotNull(designImageTable.productId)
+      )
+    )
+    .orderBy(asc(designImageTable.createdAt));
+
+  const byProduct = new Map<string, ProductVersionGroup>();
+  for (const r of rows) {
+    if (!r.productId) continue;
+    let group = byProduct.get(r.productId);
+    if (!group) {
+      const product = getProduct(r.productId);
+      group = {
+        productId: r.productId,
+        productName: product?.name ?? r.productId,
+        images: [],
+      };
+      byProduct.set(r.productId, group);
+    }
+    group.images.push({
+      id: r.id,
+      imageUrl: r.imageUrl,
+      aspectRatio: r.aspectRatio as AspectRatio,
+      placementId: r.placementId ?? "default",
+      createdAt: r.createdAt,
+    });
+  }
+  return Array.from(byProduct.values());
+}
+
+/**
+ * Delete a design_image row. Returns the id that should become the
+ * design's new primary_image_id (the most recent remaining source
+ * image), or null if there are no source images left. Caller is
+ * responsible for updating design.primary_image_id and
+ * design.currentImageUrl.
+ */
+export async function deleteDesignImageRow(
+  designId: string,
+  imageId: string
+): Promise<{ newPrimaryId: string | null; newPrimaryUrl: string | null }> {
+  await db
+    .delete(designImageTable)
+    .where(
+      and(
+        eq(designImageTable.id, imageId),
+        eq(designImageTable.designId, designId)
+      )
+    );
+
+  const remaining = await db
+    .select({
+      id: designImageTable.id,
+      imageUrl: designImageTable.imageUrl,
+    })
+    .from(designImageTable)
+    .where(
+      and(
+        eq(designImageTable.designId, designId),
+        isNull(designImageTable.productId)
+      )
+    )
+    .orderBy(desc(designImageTable.createdAt))
+    .limit(1);
+
+  return {
+    newPrimaryId: remaining[0]?.id ?? null,
+    newPrimaryUrl: remaining[0]?.imageUrl ?? null,
+  };
 }

@@ -10,14 +10,14 @@ export function ImageLightbox({
   onClose,
   onNavigate,
   onDelete,
-  onUseDesign,
+  onMakeProducts,
 }: {
   images: DesignImage[];
   currentIndex: number;
   onClose: () => void;
   onNavigate: (index: number) => void;
-  onDelete: (generationNumber: number) => void;
-  onUseDesign: (imageUrl: string) => void;
+  onDelete: (imageId: string) => void;
+  onMakeProducts: (imageUrl: string) => void;
 }) {
   const image = images[currentIndex];
   const [sideBySide, setSideBySide] = useState(true);
@@ -132,12 +132,13 @@ export function ImageLightbox({
 
         {/* Actions */}
         <div className="flex gap-3">
-          <Button onClick={() => onUseDesign(image.url)}>
-            Use this design
+          <Button onClick={() => onMakeProducts(image.url)}>
+            Make Products
           </Button>
           <Button
             variant="danger"
-            onClick={() => onDelete(image.number)}
+            onClick={() => image.id && onDelete(image.id)}
+            disabled={!image.id}
           >
             Delete
           </Button>

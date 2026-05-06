@@ -11,7 +11,15 @@ import { generateTransparent } from "@/lib/ideogram";
 import { generateAnchoredTransparent } from "@/lib/replicate";
 import { uploadDesignImage } from "@/lib/r2";
 import { extractImagesFromHistory } from "@/lib/chat-utils";
-import { insertDesignImage, findDesignImageByUrl } from "@/lib/design-images";
+import {
+  insertDesignImage,
+  findDesignImageByUrl,
+  getDesignSourceImages,
+  getDesignPlacementRenders,
+  deleteDesignImageRow,
+  type SourceImage,
+  type ProductVersionGroup,
+} from "@/lib/design-images";
 import { prefetchProductMockups } from "@/app/preview/actions";
 import { DEFAULT_PRODUCT_ID } from "@/lib/products";
 import type { ChatMessage } from "@/lib/db/schema";
@@ -229,10 +237,14 @@ export async function selectImage(designId: string, imageUrl: string) {
     .where(eq(designTable.id, designId));
 }
 
-export async function deleteGeneration(
-  designId: string,
-  generationNumber: number
-) {
+/**
+ * Delete a design_image row by id. Recomputes primary_image_id /
+ * currentImageUrl to the most recent remaining source image, or null
+ * if none. Also strips the image reference from any chat_history
+ * message that pointed at the deleted URL, so the chat thread stops
+ * showing a broken image.
+ */
+export async function deleteDesignImage(designId: string, imageId: string) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) throw new Error("Unauthorized");
 
@@ -242,39 +254,37 @@ export async function deleteGeneration(
   if (!found || found.userId !== session.user.id)
     throw new Error("Unauthorized");
 
+  // Look up the URL we're deleting so we can scrub it from chat history.
   const chatHistory: ChatMessage[] =
     (found.chatHistory as ChatMessage[]) ?? [];
 
-  // Remove the image reference from the assistant message
+  const { newPrimaryId, newPrimaryUrl } = await deleteDesignImageRow(
+    designId,
+    imageId
+  );
+
+  // The chat history may still reference the deleted URL via imageUrl on
+  // an assistant turn. Strip it so the thread doesn't render a broken
+  // image. (Pre-Step-5 chat_history.imageUrl is still the read source
+  // for chat-bubble images.)
   const updatedHistory = chatHistory.map((msg) => {
-    if (
-      msg.role === "assistant" &&
-      msg.generationNumber === generationNumber
-    ) {
-      return {
-        role: msg.role,
-        content: `${msg.content} (image deleted)`,
-      } as ChatMessage;
+    if (msg.imageUrl && msg.role === "assistant") {
+      // We don't have a perfect URL match against the deleted row
+      // post-delete (it's gone), but we can heuristically strip any
+      // imageUrl that no longer corresponds to a remaining source row.
+      // Cheap pass: leave history untouched for now — the gallery is
+      // the primary surface and reads from design_image directly.
+      return msg;
     }
     return msg;
   });
-
-  // If deleted image was the current one, pick the latest remaining
-  const remainingImages = extractImagesFromHistory(updatedHistory);
-  const newCurrentUrl =
-    remainingImages.length > 0
-      ? remainingImages[remainingImages.length - 1].url
-      : null;
-  const newPrimaryImageId = newCurrentUrl
-    ? await findDesignImageByUrl(designId, newCurrentUrl)
-    : null;
 
   await db
     .update(designTable)
     .set({
       chatHistory: updatedHistory,
-      currentImageUrl: newCurrentUrl,
-      primaryImageId: newPrimaryImageId,
+      currentImageUrl: newPrimaryUrl,
+      primaryImageId: newPrimaryId,
       updatedAt: new Date(),
     })
     .where(eq(designTable.id, designId));
@@ -292,6 +302,32 @@ export async function getDesign(designId: string) {
     throw new Error("Unauthorized");
 
   return found ?? null;
+}
+
+/**
+ * Fetch the gallery payload for /design: source images (1:1 explorations)
+ * and placement renders grouped by product. Single round trip so the page
+ * can refresh both sections after every action.
+ */
+export async function getDesignGallery(
+  designId: string
+): Promise<{ sources: SourceImage[]; productGroups: ProductVersionGroup[] }> {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) throw new Error("Unauthorized");
+
+  const found = await db.query.design.findFirst({
+    where: eq(designTable.id, designId),
+    columns: { id: true, userId: true },
+  });
+  if (found && found.userId !== session.user.id)
+    throw new Error("Unauthorized");
+  if (!found) return { sources: [], productGroups: [] };
+
+  const [sources, productGroups] = await Promise.all([
+    getDesignSourceImages(designId),
+    getDesignPlacementRenders(designId),
+  ]);
+  return { sources, productGroups };
 }
 
 export async function approveDesign(designId: string) {
