@@ -3,8 +3,8 @@
  * Use the output to fill in `placements[].mockupPosition` and `printArea` in
  * src/lib/products.ts.
  *
- * Run with: source .env.local && npx tsx scripts/fetch-mockup-templates.ts <productId>
- * Example:  source .env.local && npx tsx scripts/fetch-mockup-templates.ts 71
+ * Run with: npx tsx --env-file=.env.local scripts/fetch-mockup-templates.ts <productId>
+ * Example:  npx tsx --env-file=.env.local scripts/fetch-mockup-templates.ts 71
  *
  * Defaults to product 71 (Bella+Canvas 3001) if no arg is given.
  */

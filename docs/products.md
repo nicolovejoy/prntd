@@ -26,7 +26,7 @@ Search Printful's public catalog. Returns matching products with their numeric I
 ### 2. Pull variants, sizes, prices, and color hexes
 
 ```
-source .env.local && npx tsx scripts/fetch-variants.ts <productId>
+npx tsx --env-file=.env.local scripts/fetch-variants.ts <productId>
 ```
 
 Prints two snippets ready to paste:
@@ -39,7 +39,7 @@ Plus a pricing summary showing every distinct price by size — needed for the `
 ### 3. Pull placement geometry
 
 ```
-source .env.local && npx tsx scripts/fetch-mockup-templates.ts <productId>
+npx tsx --env-file=.env.local scripts/fetch-mockup-templates.ts <productId>
 ```
 
 Prints the available placements (`front`, `back`, `default` for phone cases, etc.), template image dimensions, and printable area in inches/mm.
@@ -90,7 +90,7 @@ The most common case: Printful added new colors and the catalog entry doesn't re
 ### 1. Re-pull variants
 
 ```
-source .env.local && npx tsx scripts/fetch-variants.ts <productId>
+npx tsx --env-file=.env.local scripts/fetch-variants.ts <productId>
 ```
 
 ### 2. Diff against the current catalog entry

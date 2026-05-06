@@ -1,8 +1,8 @@
 /**
  * Discover variant IDs, sizes, prices, and colors for any Printful product.
  *
- * Run with: source .env.local && npx tsx scripts/fetch-variants.ts <productId>
- * Example:  source .env.local && npx tsx scripts/fetch-variants.ts 71
+ * Run with: npx tsx --env-file=.env.local scripts/fetch-variants.ts <productId>
+ * Example:  npx tsx --env-file=.env.local scripts/fetch-variants.ts 71
  *
  * Requires PRINTFUL_API_KEY env var.
  *
