@@ -162,7 +162,8 @@ See `docs/next-phase.md` for the full Phase 1/2/3 plan. Top items:
 - Step 3 (pre-fetch Printful mockups on accept via `after()`, bulk Printful task in one call) shipped 2026-05-06, commits `2829111` + `8b878db`.
 - Step 4 (`/design` gallery rewrite: source images vs Product versions section; rename "Use this image" → "Make Products") shipped 2026-05-06, commit `48691e9`.
 - Step 5a (switch all reads off `design.currentImageUrl` via `getDesignDisplayImageUrl`/`resolveDesignDisplayImageUrls`; delete dead `regenerateForPlacement`; webhook gains `resolveDesignImageUrl` dep) shipped 2026-05-06, commit `dd6ffb5`. Validated end-to-end with a real test order.
-- Step 5b (drop `currentImageUrl` writes + drop column from schema + `db:push`) — next implementation step. Destructive, needs explicit go-ahead.
+- Step 5b code (drop `currentImageUrl` writes + remove from Drizzle schema; `deleteDesignImageRow` shape simplified) shipped 2026-05-06, commit `536fb8f`. Pending: `npm run db:push` to drop the column from Turso.
+- Step 5c (strip `chat_history.imageUrl` from new writes, switch chat-panel inline bubble images and AI context to read from `design_image`) — deferred; chat panel currently still reads `chat_history.imageUrl` for inline rendering, and `extractImagesFromHistory` uses it to pass prior images into Claude for refinement. Non-trivial UI change.
 
 **Followups surfaced during data model rework verification (2026-05-06)**
 
