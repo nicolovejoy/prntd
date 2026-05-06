@@ -147,10 +147,18 @@ See `docs/next-phase.md` for the full Phase 1/2/3 plan. Top items:
 **Design loop rethink — phased build (active)**
 - Phase 0 (Ideogram native-transparent swap) shipped 2026-05-04, commit `cf5f93f`. Transparency confirmed in prod.
 - Phase 1 (negation rewriting in chat advisor system prompt) shipped 2026-05-05, commit `9647622`. Partial improvement; stubborn defaults like "tongue out on happy cartoon dog" still leak through. Refinement deferred.
-- Phase 4 (doc updates to `docs/design-loop-rethink.md` — synthesis, locked decisions, post-pick journey, non-goals) shipped 2026-05-05, commit `26f2b88`.
-- Phase 2 (text-as-layer) — heaviest phase, ~1 week. Plan in `docs/phase-2-text-as-layer-plan.md`. Schema + font catalog + `composeWithText` (`@vercel/og` + `sharp`) + UI panel. Next implementation step.
+- Phase 4 (doc updates to `docs/design-loop-rethink.md`) shipped 2026-05-05, commit `26f2b88`.
+- Phase 2 (text-as-layer) — heaviest phase, ~1 week. Plan in `docs/phase-2-text-as-layer-plan.md`. Schema + font catalog + `composeWithText` (`@vercel/og` + `sharp`) + UI panel. Sequenced after the data model rework.
 - Phase 3 (structured brief + batch-of-3) — after Phase 2. Plan in `~/.claude/plans/feedback-for-the-coding-woolly-snowflake.md`.
-- #15 — silent regen hang on second product switch in `/preview`. Diagnostic logging shipped (`3ff1ab4`). Not blocking; revisit when Phase 2 lands.
+- #15 (silent regen hang on product switch) — structurally resolved by data model rework Step 2 (5d6cd9f handoff to b9e72e9). Verify in prod after deploy.
+
+**Design data model rework (active) — plan: `~/.claude/plans/i-want-you-to-concurrent-fountain.md`**
+- Step 0 (style-anchored regens + duplicate-call hardening) shipped 2026-05-05, commits `9421606` + `b052457`.
+- Step 1 (`design.primary_image_id` column + dual-write + backfill) shipped 2026-05-05, commit `5d6cd9f`. 57 designs migrated, 4 left null (no images).
+- Step 2 (`/preview` rewritten as pure function of designId/productId; `getOrCreatePlacementRender`; `generateMockup` resolves placement URL; `deleteDesign` FK cascade) shipped 2026-05-05, commit `b9e72e9`. Verified end-to-end on dev.
+- Step 3 (pre-fetch Printful mockups on accept via `after()` — all colors of default product, free) — next implementation step.
+- Step 4 (`/design` gallery rewrite: source images vs Product versions section; rename "Use this image" → "Make Products").
+- Step 5 (retire `currentImageUrl` writes, drop column, strip `chat_history.imageUrl`).
 
 **Image-gen style versatility (followup to #8)**
 - Designs should default to colors that read on both light and dark shirts unless the user explicitly asks for "black lettering" / "white text". System prompt update queued; not yet shipped. After that, build the style-reference image library (#8 follow-up).
