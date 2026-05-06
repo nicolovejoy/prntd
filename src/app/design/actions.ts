@@ -10,7 +10,7 @@ import { generateTransparent } from "@/lib/ideogram";
 import { generateAnchoredTransparent } from "@/lib/replicate";
 import { uploadDesignImage } from "@/lib/r2";
 import { extractImagesFromHistory } from "@/lib/chat-utils";
-import { insertDesignImage } from "@/lib/design-images";
+import { insertDesignImage, findDesignImageByUrl } from "@/lib/design-images";
 import type { ChatMessage } from "@/lib/db/schema";
 
 const COST_PER_GENERATION = 0.03;
@@ -125,7 +125,7 @@ export async function generateDesign(
   // Phase 2: record this generation as a first-class design_image row.
   // Aspect is "1:1" here — chat-driven generations are always square;
   // product-targeted regenerations happen in preview/actions.ts.
-  await insertDesignImage({
+  const newImageId = await insertDesignImage({
     designId,
     imageUrl: r2Url,
     aspectRatio: "1:1",
@@ -153,6 +153,7 @@ export async function generateDesign(
     .set({
       chatHistory: updatedHistory,
       currentImageUrl: r2Url,
+      primaryImageId: newImageId,
       generationCount: newGeneration,
       generationCost: found.generationCost + COST_PER_GENERATION,
       mockupUrls: null,
@@ -212,9 +213,16 @@ export async function selectImage(designId: string, imageUrl: string) {
   if (!found || found.userId !== session.user.id)
     throw new Error("Unauthorized");
 
+  const primaryImageId = await findDesignImageByUrl(designId, imageUrl);
+
   await db
     .update(designTable)
-    .set({ currentImageUrl: imageUrl, mockupUrls: null, updatedAt: new Date() })
+    .set({
+      currentImageUrl: imageUrl,
+      primaryImageId,
+      mockupUrls: null,
+      updatedAt: new Date(),
+    })
     .where(eq(designTable.id, designId));
 }
 
@@ -254,12 +262,16 @@ export async function deleteGeneration(
     remainingImages.length > 0
       ? remainingImages[remainingImages.length - 1].url
       : null;
+  const newPrimaryImageId = newCurrentUrl
+    ? await findDesignImageByUrl(designId, newCurrentUrl)
+    : null;
 
   await db
     .update(designTable)
     .set({
       chatHistory: updatedHistory,
       currentImageUrl: newCurrentUrl,
+      primaryImageId: newPrimaryImageId,
       updatedAt: new Date(),
     })
     .where(eq(designTable.id, designId));

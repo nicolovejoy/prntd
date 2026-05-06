@@ -15,7 +15,11 @@ import {
 } from "@/lib/products";
 import { uploadMockupImage, uploadDesignImage } from "@/lib/r2";
 import { generateAnchoredTransparent } from "@/lib/replicate";
-import { insertDesignImage, findPlacementRender } from "@/lib/design-images";
+import {
+  insertDesignImage,
+  findPlacementRender,
+  findDesignImageByUrl,
+} from "@/lib/design-images";
 
 const COST_PER_GENERATION = 0.03;
 
@@ -140,9 +144,14 @@ export async function regenerateForPlacement(
     console.log(
       `regenerateForPlacement: cache hit design=${designId} product=${productId} url=${cached.imageUrl}`
     );
+    const cachedImageId = await findDesignImageByUrl(designId, cached.imageUrl);
     await db
       .update(designTable)
-      .set({ currentImageUrl: cached.imageUrl, updatedAt: new Date() })
+      .set({
+        currentImageUrl: cached.imageUrl,
+        primaryImageId: cachedImageId,
+        updatedAt: new Date(),
+      })
       .where(eq(designTable.id, designId));
     return cached;
   }
@@ -194,7 +203,7 @@ export async function regenerateForPlacement(
   // with productId/placementId set so we can later distinguish "the
   // 1:1 source" from "the 1:2 render for the iPhone case." Phase 3
   // will start using these to avoid overwriting the source.
-  await insertDesignImage({
+  const newImageId = await insertDesignImage({
     designId,
     imageUrl: r2Url,
     aspectRatio: targetAspect,
@@ -208,6 +217,7 @@ export async function regenerateForPlacement(
     .update(designTable)
     .set({
       currentImageUrl: r2Url,
+      primaryImageId: newImageId,
       generationCount: newGeneration,
       generationCost: found.generationCost + COST_PER_GENERATION,
       mockupUrls: null,

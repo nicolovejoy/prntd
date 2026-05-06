@@ -51,6 +51,11 @@ export const design = sqliteTable("design", {
   status: text("status", { enum: ["draft", "approved", "ordered", "archived"] }).notNull().default("draft"),
   chatHistory: text("chat_history", { mode: "json" }).$type<ChatMessage[]>(),
   currentImageUrl: text("current_image_url"),
+  // The user's anchor pick — stable FK to the design_image they want
+  // products built from. Set in dual-write alongside currentImageUrl
+  // during the deprecation window; becomes the sole source of truth
+  // when currentImageUrl is retired (Step 5 of the data model rework).
+  primaryImageId: text("primary_image_id"),
   generationCount: integer("generation_count").notNull().default(0),
   generationCost: real("generation_cost").notNull().default(0),
   mockupUrls: text("mockup_urls", { mode: "json" }).$type<Record<string, string>>(),
