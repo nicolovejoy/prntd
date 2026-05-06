@@ -17,6 +17,7 @@ import {
   getDesignSourceImages,
   getDesignPlacementRenders,
   deleteDesignImageRow,
+  getDesignDisplayImageUrl,
   type SourceImage,
   type ProductVersionGroup,
 } from "@/lib/design-images";
@@ -301,7 +302,13 @@ export async function getDesign(designId: string) {
   if (found && found.userId !== session.user.id)
     throw new Error("Unauthorized");
 
-  return found ?? null;
+  if (!found) return null;
+
+  // Resolve the display image URL via primary_image_id (Step 5: callers
+  // should consume `displayImageUrl` rather than the deprecated
+  // `currentImageUrl` column).
+  const displayImageUrl = await getDesignDisplayImageUrl(designId);
+  return { ...found, displayImageUrl };
 }
 
 /**

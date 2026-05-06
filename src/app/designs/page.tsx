@@ -70,9 +70,9 @@ export default function DesignsPage() {
               <div key={design.id} className="border rounded-lg overflow-hidden group">
                 <Link href={getDesignHref(design)} className="block">
                   <div className="aspect-square bg-checkerboard flex items-center justify-center">
-                    {design.currentImageUrl ? (
+                    {design.imageUrl ? (
                       <img
-                        src={design.currentImageUrl}
+                        src={design.imageUrl}
                         alt="Design preview"
                         className="w-full h-full object-cover"
                       />

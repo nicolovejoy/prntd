@@ -70,6 +70,12 @@ const designWithImage = {
   currentImageUrl: "https://r2.example.com/designs/1/1.png",
 };
 
+// Default mock that resolves to the same URL the legacy designWithImage
+// fixture exposes via currentImageUrl. Tests that exercise the
+// "no image" branch override this with .mockResolvedValue(null).
+const mockResolveImageUrl = () =>
+  vi.fn().mockResolvedValue(designWithImage.currentImageUrl);
+
 describe("handleStripeCheckoutCompleted", () => {
   it("processes a pending order through to submitted", async () => {
     const mockDb = createMockDb({
@@ -82,6 +88,7 @@ describe("handleStripeCheckoutCompleted", () => {
       db: mockDb,
       createPrintfulOrder: mockCreateOrder,
       generateOrderName: vi.fn().mockResolvedValue(null),
+      resolveDesignImageUrl: mockResolveImageUrl(),
     });
 
     expect(result.action).toBe("submitted");
@@ -98,6 +105,7 @@ describe("handleStripeCheckoutCompleted", () => {
       db: mockDb,
       createPrintfulOrder: vi.fn(),
       generateOrderName: vi.fn().mockResolvedValue(null),
+      resolveDesignImageUrl: mockResolveImageUrl(),
     });
 
     expect(result.action).toBe("skipped");
@@ -113,6 +121,7 @@ describe("handleStripeCheckoutCompleted", () => {
         db: mockDb,
         createPrintfulOrder: vi.fn(),
         generateOrderName: vi.fn().mockResolvedValue(null),
+        resolveDesignImageUrl: mockResolveImageUrl(),
       })
     ).rejects.toThrow("Order order-1 not found");
   });
@@ -120,13 +129,13 @@ describe("handleStripeCheckoutCompleted", () => {
   it("returns paid when design has no image", async () => {
     const mockDb = createMockDb({
       orderFindFirst: vi.fn().mockResolvedValue(pendingOrder),
-      designFindFirst: vi.fn().mockResolvedValue({ id: "design-1", currentImageUrl: null }),
     });
 
     const result = await handleStripeCheckoutCompleted(baseSession(), {
       db: mockDb,
       createPrintfulOrder: vi.fn(),
       generateOrderName: vi.fn().mockResolvedValue(null),
+      resolveDesignImageUrl: vi.fn().mockResolvedValue(null),
     });
 
     expect(result.action).toBe("paid");
@@ -148,6 +157,7 @@ describe("handleStripeCheckoutCompleted", () => {
       db: mockDb,
       createPrintfulOrder: mockCreateOrder,
       generateOrderName: vi.fn().mockResolvedValue(null),
+      resolveDesignImageUrl: mockResolveImageUrl(),
     });
 
     expect(result.action).toBe("submitted");
@@ -168,7 +178,12 @@ describe("handleStripeCheckoutCompleted", () => {
 
     const result = await handleStripeCheckoutCompleted(
       baseSession({ amountTotal: null, discount: null }),
-      { db: mockDb, createPrintfulOrder: mockCreateOrder, generateOrderName: vi.fn().mockResolvedValue(null) },
+      {
+        db: mockDb,
+        createPrintfulOrder: mockCreateOrder,
+        generateOrderName: vi.fn().mockResolvedValue(null),
+        resolveDesignImageUrl: mockResolveImageUrl(),
+      },
     );
 
     expect(result.action).toBe("submitted");
@@ -190,6 +205,7 @@ describe("handleStripeCheckoutCompleted", () => {
       db: mockDb,
       createPrintfulOrder: mockCreateOrder,
       generateOrderName: mockGenerate,
+      resolveDesignImageUrl: mockResolveImageUrl(),
     });
 
     expect(result.action).toBe("submitted");
@@ -210,6 +226,7 @@ describe("handleStripeCheckoutCompleted", () => {
       db: mockDb,
       createPrintfulOrder: mockCreateOrder,
       generateOrderName: vi.fn().mockResolvedValue(null),
+      resolveDesignImageUrl: mockResolveImageUrl(),
     });
 
     expect(result.action).toBe("submitted");
@@ -228,6 +245,7 @@ describe("handleStripeCheckoutCompleted", () => {
       db: mockDb,
       createPrintfulOrder: mockCreateOrder,
       generateOrderName: vi.fn().mockResolvedValue(null),
+      resolveDesignImageUrl: mockResolveImageUrl(),
     });
 
     expect(result.action).toBe("paid_printful_failed");

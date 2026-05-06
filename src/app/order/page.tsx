@@ -47,7 +47,7 @@ function OrderPageInner() {
       return;
     }
     getDesign(designId).then((design) => {
-      if (design?.currentImageUrl) setImageUrl(design.currentImageUrl);
+      if (design?.displayImageUrl) setImageUrl(design.displayImageUrl);
     });
   }, [designId, router]);
 

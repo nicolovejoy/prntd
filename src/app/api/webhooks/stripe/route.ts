@@ -9,6 +9,7 @@ import {
 } from "@/lib/webhook-handlers";
 import { sendOrderConfirmation, sendOwnerOrderAlert } from "@/lib/email";
 import { sendPostOrderEmails, createDefaultOrderEmailDeps } from "@/lib/order-emails";
+import { getDesignDisplayImageUrl } from "@/lib/design-images";
 
 export async function POST(request: NextRequest) {
   const body = await request.text();
@@ -95,6 +96,7 @@ export async function POST(request: NextRequest) {
         db,
         createPrintfulOrder: createOrder,
         generateOrderName,
+        resolveDesignImageUrl: getDesignDisplayImageUrl,
       });
       console.log(`Stripe event ${event.id}: order ${orderId} → ${result.action}`);
 

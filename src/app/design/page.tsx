@@ -64,7 +64,7 @@ function DesignPageInner() {
       if (!design) return;
       const history = (design.chatHistory as ChatMessage[]) ?? [];
       setMessages(history);
-      setSelectedImage(design.currentImageUrl);
+      setSelectedImage(design.displayImageUrl);
     });
     refreshGallery();
   }, [id, refreshGallery]);

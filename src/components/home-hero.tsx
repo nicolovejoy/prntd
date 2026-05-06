@@ -7,7 +7,7 @@ import { Button } from "@/components/ui";
 
 type RecentDesign = {
   id: string;
-  currentImageUrl: string | null;
+  imageUrl: string | null;
   generationCount: number;
   status: string;
 };
@@ -100,9 +100,9 @@ export function HomeHero({
                   className="group"
                 >
                   <div className="aspect-square rounded-lg border border-border bg-checkerboard overflow-hidden flex items-center justify-center group-hover:border-border-hover transition-colors">
-                    {design.currentImageUrl ? (
+                    {design.imageUrl ? (
                       <img
-                        src={design.currentImageUrl}
+                        src={design.imageUrl}
                         alt="Design"
                         className="w-full h-full object-contain"
                       />

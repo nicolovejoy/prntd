@@ -15,6 +15,7 @@ export type WebhookDeps = {
   db: typeof appDb;
   createPrintfulOrder: typeof createOrder;
   generateOrderName: typeof generateOrderName;
+  resolveDesignImageUrl: (designId: string) => Promise<string | null>;
 };
 
 // Stripe checkout.session.completed payload (after retrieval)
@@ -104,16 +105,14 @@ export async function handleStripeCheckoutCompleted(
   );
 
   // Submit to Printful
-  const foundDesign = await deps.db.query.design.findFirst({
-    where: eq(designTable.id, designId),
-  });
+  const designImageUrl = await deps.resolveDesignImageUrl(designId);
 
-  if (!foundDesign?.currentImageUrl) {
+  if (!designImageUrl) {
     console.error(`Order ${orderId}: design ${designId} has no image`);
     return { action: "paid" };
   }
 
-  const displayName = await deps.generateOrderName(foundDesign.currentImageUrl);
+  const displayName = await deps.generateOrderName(designImageUrl);
   if (displayName) {
     await deps.db
       .update(orderTable)
@@ -130,7 +129,7 @@ export async function handleStripeCheckoutCompleted(
 
   try {
     const printfulOrder = await deps.createPrintfulOrder({
-      designImageUrl: foundDesign.currentImageUrl,
+      designImageUrl,
       size: foundOrder.size,
       color: foundOrder.color,
       variantId,

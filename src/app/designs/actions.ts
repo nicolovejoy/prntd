@@ -9,6 +9,7 @@ import {
   order as orderTable,
 } from "@/lib/db/schema";
 import { eq, desc, and, not, count } from "drizzle-orm";
+import { resolveDesignDisplayImageUrls } from "@/lib/design-images";
 
 export async function getUserDesigns() {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -23,14 +24,20 @@ export async function getUserDesigns() {
     columns: {
       id: true,
       status: true,
-      currentImageUrl: true,
       generationCount: true,
       createdAt: true,
       updatedAt: true,
     },
   });
 
-  return designs;
+  const imageUrls = await resolveDesignDisplayImageUrls(
+    designs.map((d) => d.id)
+  );
+
+  return designs.map((d) => ({
+    ...d,
+    imageUrl: imageUrls.get(d.id) ?? null,
+  }));
 }
 
 /**

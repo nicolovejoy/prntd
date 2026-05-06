@@ -20,7 +20,11 @@ import { handleStripeCheckoutCompleted, type StripeSessionData } from "@/lib/web
 import { recoverPendingOrderCore } from "@/lib/recover-pending-order";
 import { sendPostOrderEmails, createDefaultOrderEmailDeps } from "@/lib/order-emails";
 import { sendOrderConfirmation, sendOwnerOrderAlert } from "@/lib/email";
-import { resolveOrderImageUrls } from "@/lib/design-images";
+import {
+  resolveOrderImageUrls,
+  resolveDesignDisplayImageUrls,
+  getDesignDisplayImageUrl,
+} from "@/lib/design-images";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
 if (!ADMIN_EMAIL) {
@@ -56,17 +60,18 @@ export async function getOrders() {
       createdAt: orderTable.createdAt,
       displayName: orderTable.displayName,
       userEmail: userTable.email,
-      designImageUrl: designTable.currentImageUrl,
       designId: orderTable.designId,
       placements: orderTable.placements,
     })
     .from(orderTable)
     .leftJoin(userTable, eq(orderTable.userId, userTable.id))
-    .leftJoin(designTable, eq(orderTable.designId, designTable.id))
     .orderBy(desc(orderTable.createdAt));
 
+  const displayUrls = await resolveDesignDisplayImageUrls(
+    rows.map((r) => r.designId)
+  );
   const fallback = new Map<string, string | null>(
-    rows.map((r) => [r.designId, r.designImageUrl])
+    rows.map((r) => [r.designId, displayUrls.get(r.designId) ?? null])
   );
   const resolved = await resolveOrderImageUrls(rows, fallback);
   return rows.map((r) => ({ ...r, designImageUrl: resolved.get(r.id) ?? null }));
@@ -85,12 +90,10 @@ export async function retryPrintfulSubmission(orderId: string) {
   if (!foundOrder) throw new Error("Order not found");
   assertTransition(foundOrder.status, "submitted");
 
-  // Get design image
-  const foundDesign = await db.query.design.findFirst({
-    where: eq(designTable.id, foundOrder.designId),
-  });
-
-  if (!foundDesign?.currentImageUrl) {
+  // Resolve the design image to print. Prefers the order's pinned
+  // placement (placements.front), falls back to the design's primary.
+  const designImageUrl = await getDesignDisplayImageUrl(foundOrder.designId);
+  if (!designImageUrl) {
     throw new Error("Design has no image");
   }
 
@@ -101,7 +104,7 @@ export async function retryPrintfulSubmission(orderId: string) {
   }
 
   const printfulOrder = await createOrder({
-    designImageUrl: foundDesign.currentImageUrl,
+    designImageUrl,
     size: foundOrder.size,
     color: foundOrder.color,
     variantId,
@@ -228,6 +231,7 @@ export async function recoverPendingOrder(
           db,
           createPrintfulOrder: createOrder,
           generateOrderName,
+          resolveDesignImageUrl: getDesignDisplayImageUrl,
         }),
 
       sendEmails: (id) =>
@@ -401,13 +405,11 @@ export async function getAdminData() {
         createdAt: orderTable.createdAt,
         displayName: orderTable.displayName,
         userEmail: userTable.email,
-        designImageUrl: designTable.currentImageUrl,
         designId: orderTable.designId,
         placements: orderTable.placements,
       })
       .from(orderTable)
       .leftJoin(userTable, eq(orderTable.userId, userTable.id))
-      .leftJoin(designTable, eq(orderTable.designId, designTable.id))
       .orderBy(desc(orderTable.createdAt)),
     db
       .select({
@@ -424,8 +426,11 @@ export async function getAdminData() {
       .orderBy(desc(ledgerEntry.createdAt)),
   ]);
 
+  const displayUrls = await resolveDesignDisplayImageUrls(
+    orders.map((r) => r.designId)
+  );
   const fallback = new Map<string, string | null>(
-    orders.map((r) => [r.designId, r.designImageUrl])
+    orders.map((r) => [r.designId, displayUrls.get(r.designId) ?? null])
   );
   const resolved = await resolveOrderImageUrls(orders, fallback);
   const ordersWithPinned = orders.map((r) => ({
@@ -472,13 +477,11 @@ export async function getOrderDetail(orderId: string) {
         updatedAt: orderTable.updatedAt,
         displayName: orderTable.displayName,
         userEmail: userTable.email,
-        designImageUrl: designTable.currentImageUrl,
         designId: orderTable.designId,
         placements: orderTable.placements,
       })
       .from(orderTable)
       .leftJoin(userTable, eq(orderTable.userId, userTable.id))
-      .leftJoin(designTable, eq(orderTable.designId, designTable.id))
       .where(eq(orderTable.id, orderId)),
     db.query.ledgerEntry.findMany({
       where: eq(ledgerEntry.orderId, orderId),
@@ -488,8 +491,9 @@ export async function getOrderDetail(orderId: string) {
 
   if (orders.length === 0) throw new Error("Order not found");
 
+  const displayUrl = await getDesignDisplayImageUrl(orders[0].designId);
   const fallback = new Map<string, string | null>([
-    [orders[0].designId, orders[0].designImageUrl],
+    [orders[0].designId, displayUrl],
   ]);
   const resolved = await resolveOrderImageUrls(orders, fallback);
   const designImageUrl = resolved.get(orders[0].id) ?? null;

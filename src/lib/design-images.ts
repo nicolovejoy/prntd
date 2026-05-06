@@ -1,5 +1,8 @@
 import { db } from "@/lib/db";
-import { designImage as designImageTable } from "@/lib/db/schema";
+import {
+  design as designTable,
+  designImage as designImageTable,
+} from "@/lib/db/schema";
 import { eq, and, asc, desc, inArray, isNull, isNotNull } from "drizzle-orm";
 import { getProduct, type AspectRatio } from "@/lib/products";
 
@@ -275,6 +278,97 @@ export async function getDesignPlacementRenders(
     });
   }
   return Array.from(byProduct.values());
+}
+
+/**
+ * Resolve the display image URL for a design — the URL surfaced on
+ * /designs cards, /orders rows, the design hydration on /design, etc.
+ *
+ * Resolution: design.primary_image_id → its image URL. Fallback: the
+ * most recent source image (product_id IS NULL). Null when neither.
+ *
+ * Replaces direct reads of design.currentImageUrl as part of Step 5.
+ * Keep using this even after the column is dropped — the resolution
+ * rule is the same.
+ */
+export async function getDesignDisplayImageUrl(
+  designId: string
+): Promise<string | null> {
+  const map = await resolveDesignDisplayImageUrls([designId]);
+  return map.get(designId) ?? null;
+}
+
+/**
+ * Batch version of getDesignDisplayImageUrl — for list pages (/designs,
+ * /orders, /admin) that would otherwise N+1 the design_image table.
+ * One query for primary lookups, one for latest-source fallbacks.
+ */
+export async function resolveDesignDisplayImageUrls(
+  designIds: string[]
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (designIds.length === 0) return out;
+
+  const designRows = await db
+    .select({
+      id: designTable.id,
+      primaryImageId: designTable.primaryImageId,
+    })
+    .from(designTable)
+    .where(inArray(designTable.id, designIds));
+
+  const primaryIds = designRows
+    .map((d) => d.primaryImageId)
+    .filter((v): v is string => Boolean(v));
+
+  const primaryRows =
+    primaryIds.length > 0
+      ? await db
+          .select({
+            id: designImageTable.id,
+            imageUrl: designImageTable.imageUrl,
+          })
+          .from(designImageTable)
+          .where(inArray(designImageTable.id, primaryIds))
+      : [];
+  const urlByImageId = new Map(primaryRows.map((r) => [r.id, r.imageUrl]));
+
+  // First pass: pick up everything with a working primary pointer.
+  const needFallback: string[] = [];
+  for (const d of designRows) {
+    const url = d.primaryImageId
+      ? urlByImageId.get(d.primaryImageId)
+      : undefined;
+    if (url) {
+      out.set(d.id, url);
+    } else {
+      needFallback.push(d.id);
+    }
+  }
+
+  // Fallback: latest source image (product_id IS NULL) per design.
+  if (needFallback.length > 0) {
+    const fallbackRows = await db
+      .select({
+        designId: designImageTable.designId,
+        imageUrl: designImageTable.imageUrl,
+        createdAt: designImageTable.createdAt,
+      })
+      .from(designImageTable)
+      .where(
+        and(
+          inArray(designImageTable.designId, needFallback),
+          isNull(designImageTable.productId)
+        )
+      )
+      .orderBy(desc(designImageTable.createdAt));
+
+    for (const r of fallbackRows) {
+      if (!out.has(r.designId)) out.set(r.designId, r.imageUrl);
+    }
+  }
+
+  return out;
 }
 
 /**

@@ -8,7 +8,7 @@ import { eq } from "drizzle-orm";
 import { stripe } from "@/lib/stripe";
 import { computePrice } from "@/lib/pricing";
 import { getProduct, DEFAULT_PRODUCT_ID } from "@/lib/products";
-import { findDesignImageByUrl } from "@/lib/design-images";
+import { getDesignDisplayImageUrl } from "@/lib/design-images";
 
 export async function calculatePrice(
   designId: string,
@@ -46,15 +46,14 @@ export async function createCheckoutSession(params: {
   const product = getProduct(resolvedProductId);
   const productName = product?.name ?? "Custom Product";
 
-  // Phase 2: pin the order to a specific design_image at purchase time
-  // so post-order regenerations of the same design don't change what
-  // this customer's records show. Falls back to null if we can't find
-  // a matching row (e.g. a design that's somehow missed Phase 2's
-  // backfill) — order then resolves via design.currentImageUrl.
-  const pinnedImageId = found.currentImageUrl
-    ? await findDesignImageByUrl(params.designId, found.currentImageUrl)
-    : null;
+  // Pin the order to the design's current primary image so post-order
+  // regenerations don't mutate what this customer's records show.
+  // primary_image_id is the source of truth post Step 5; falls back to
+  // null on any design without a primary set (rare — only designs that
+  // never produced a source image).
+  const pinnedImageId = found.primaryImageId ?? null;
   const placements = pinnedImageId ? { front: pinnedImageId } : null;
+  const checkoutImageUrl = await getDesignDisplayImageUrl(params.designId);
 
   // Create order record
   const [newOrder] = await db
@@ -84,7 +83,7 @@ export async function createCheckoutSession(params: {
           product_data: {
             name: `PRNTD ${productName}`,
             description: `${params.color} / ${params.size}`,
-            images: found.currentImageUrl ? [found.currentImageUrl] : [],
+            images: checkoutImageUrl ? [checkoutImageUrl] : [],
           },
           unit_amount: Math.round(pricing.total * 100),
         },
