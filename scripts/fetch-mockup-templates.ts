@@ -1,12 +1,16 @@
 /**
- * One-time script to discover available mockup templates for Bella+Canvas 3001.
+ * Discover mockup templates and printfile dimensions for a Printful product.
+ * Use the output to fill in `placements[].mockupPosition` and `printArea` in
+ * src/lib/products.ts.
  *
- * Run with: npx tsx scripts/fetch-mockup-templates.ts
- * Requires PRINTFUL_API_KEY env var (source .env.local first).
+ * Run with: source .env.local && npx tsx scripts/fetch-mockup-templates.ts <productId>
+ * Example:  source .env.local && npx tsx scripts/fetch-mockup-templates.ts 71
+ *
+ * Defaults to product 71 (Bella+Canvas 3001) if no arg is given.
  */
 
 const PRINTFUL_API = "https://api.printful.com";
-const PRODUCT_ID = 71; // Bella+Canvas 3001
+const PRODUCT_ID = process.argv[2] ? parseInt(process.argv[2], 10) : 71;
 
 async function printfulFetch(path: string) {
   const res = await fetch(`${PRINTFUL_API}${path}`, {
