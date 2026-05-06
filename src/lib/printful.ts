@@ -89,9 +89,14 @@ export async function getOrderStatus(orderId: string) {
 
 import type { MockupPosition } from "./products";
 
+/**
+ * Submit a mockup-generator task. `variantIds` is an array — Printful
+ * renders one mockup per variant in a single task, which is how we batch
+ * the prefetch fan-out into a single API call.
+ */
 export async function createMockupTask(
   printfulProductId: number,
-  variantId: number,
+  variantIds: number[],
   designImageUrl: string,
   mockupPosition: MockupPosition,
   placement: string
@@ -101,7 +106,7 @@ export async function createMockupTask(
     {
       method: "POST",
       body: JSON.stringify({
-        variant_ids: [variantId],
+        variant_ids: variantIds,
         format: "jpg",
         files: [
           {
@@ -116,10 +121,21 @@ export async function createMockupTask(
   return data.result.task_key;
 }
 
+export type MockupResult = {
+  variantIds: number[];
+  mockupUrl: string;
+};
+
+/**
+ * Poll a mockup task until completion. Returns one entry per rendered
+ * mockup; each entry's `variantIds` tells the caller which variants the
+ * URL applies to (Printful groups variants that render to identical
+ * mockups, so a single URL can map to multiple variant IDs).
+ */
 export async function pollMockupTask(
   taskKey: string,
   { intervalMs = 2000, timeoutMs = 55000 } = {}
-): Promise<{ mockupUrl: string; extraUrls: string[] }> {
+): Promise<MockupResult[]> {
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
@@ -129,12 +145,17 @@ export async function pollMockupTask(
     const result = data.result;
 
     if (result.status === "completed") {
-      const mockup = result.mockups?.[0];
-      if (!mockup?.mockup_url) throw new Error("Mockup completed but no URL");
-      return {
-        mockupUrl: mockup.mockup_url,
-        extraUrls: mockup.extra?.map((e: { url: string }) => e.url) ?? [],
-      };
+      const mockups = (result.mockups ?? []) as Array<{
+        variant_ids: number[];
+        mockup_url: string;
+      }>;
+      if (mockups.length === 0) {
+        throw new Error("Mockup completed but no URLs");
+      }
+      return mockups.map((m) => ({
+        variantIds: m.variant_ids,
+        mockupUrl: m.mockup_url,
+      }));
     }
 
     if (result.status === "failed") {

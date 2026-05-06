@@ -79,15 +79,19 @@ export async function generateMockup(
     left: Math.round((base.area_width - scaledWidth) / 2),
   };
 
-  // Generate mockup via Printful
+  // Generate mockup via Printful. Single-variant call uses the same
+  // multi-variant API (variant_ids accepts an array); bulk callers like
+  // prefetchProductMockups pass the full set in one task.
   const taskKey = await createMockupTask(
     product.printfulProductId,
-    variantId,
+    [variantId],
     sourceImageUrl,
     scaledPosition,
     placement.id
   );
-  const { mockupUrl: tempUrl } = await pollMockupTask(taskKey);
+  const results = await pollMockupTask(taskKey);
+  const tempUrl = results[0]?.mockupUrl;
+  if (!tempUrl) throw new Error("Mockup completed but no URL");
 
   // Download and persist to R2
   const response = await fetch(tempUrl);
@@ -368,42 +372,132 @@ export async function getOrCreatePlacementRender(
 /**
  * Pre-fetch Printful mockups for every color of a product, best-effort.
  * Triggered via after() on accept so the user lands on /preview with the
- * common color picks already cached. Printful mockup tasks are free (only
- * fulfillment costs money) so the only cost is wall time.
+ * color cache already warming. Printful mockup tasks are free; only wall
+ * time costs.
  *
- * Runs serially to avoid the read-modify-write race on design.mockupUrls
- * — concurrent generateMockup calls would clobber each other's writes.
- * Sequential at ~10s/color × 13 colors ≈ 2 minutes, well within the 300s
- * function budget.
+ * Issues a single multi-variant Printful task instead of one task per
+ * color. One API round trip, one DB write at the end — no read-modify-
+ * write race against concurrent on-demand mockup writes.
  *
- * Failures per color are logged and skipped; never throws to the caller.
+ * Never throws to the caller; failures are logged and the function
+ * returns without populating (or partially populating) the cache.
  */
 export async function prefetchProductMockups(
   designId: string,
   productId: string = DEFAULT_PRODUCT_ID
 ): Promise<void> {
+  const startedAt = Date.now();
   const product = getProduct(productId);
   if (!product) {
     console.warn(`prefetchProductMockups: unknown product ${productId}`);
     return;
   }
 
-  const startedAt = Date.now();
-  let ok = 0;
-  let failed = 0;
-  for (const color of product.colors) {
-    try {
-      await generateMockup(designId, color.name, productId);
-      ok++;
-    } catch (err) {
-      failed++;
-      const msg = err instanceof Error ? err.message : String(err);
-      console.warn(
-        `prefetchProductMockups: design=${designId} color=${color.name} failed: ${msg}`
-      );
+  try {
+    const found = await db.query.design.findFirst({
+      where: eq(designTable.id, designId),
+    });
+    if (!found) {
+      console.warn(`prefetchProductMockups: design ${designId} not found`);
+      return;
     }
+
+    const placement = product.placements[0];
+    if (!placement) return;
+
+    // Resolve the source image — same priority as generateMockup: prefer
+    // the placement-specific render, fall back to currentImageUrl.
+    const placementRender = await findPlacementRender(
+      designId,
+      productId,
+      placement.id
+    );
+    const sourceImageUrl = placementRender?.imageUrl ?? found.currentImageUrl;
+    if (!sourceImageUrl) {
+      console.warn(`prefetchProductMockups: design ${designId} has no image`);
+      return;
+    }
+
+    // Build the (color, variantId) list. Use size "M" for apparel, first
+    // available variant for products without an "M" (e.g. phone cases).
+    const variantToColor = new Map<number, string>();
+    for (const color of product.colors) {
+      const sizeMap = product.variants[color.name];
+      const variantId =
+        sizeMap?.["M"] ?? (sizeMap ? Object.values(sizeMap)[0] : undefined);
+      if (variantId) variantToColor.set(variantId, color.name);
+    }
+    if (variantToColor.size === 0) return;
+
+    // Use the same scaled position the on-demand path uses at scale 1.0.
+    const base = product.mockupPosition;
+    const scaledPosition = {
+      area_width: base.area_width,
+      area_height: base.area_height,
+      width: base.width,
+      height: base.height,
+      top: base.top,
+      left: base.left,
+    };
+
+    const taskKey = await createMockupTask(
+      product.printfulProductId,
+      Array.from(variantToColor.keys()),
+      sourceImageUrl,
+      scaledPosition,
+      placement.id
+    );
+    // Bigger window — bulk tasks render N variants and may take longer
+    // than the on-demand single-variant default.
+    const results = await pollMockupTask(taskKey, { timeoutMs: 180000 });
+
+    // Download each mockup to R2 in parallel — these don't touch the
+    // design row, so no race here.
+    const newEntries: Record<string, string> = {};
+    await Promise.all(
+      results.map(async (r) => {
+        const colorName = r.variantIds
+          .map((v) => variantToColor.get(v))
+          .find((c): c is string => Boolean(c));
+        if (!colorName) return;
+        try {
+          const response = await fetch(r.mockupUrl);
+          if (!response.ok) throw new Error(`fetch ${response.status}`);
+          const buffer = Buffer.from(await response.arrayBuffer());
+          const r2Url = await uploadMockupImage(designId, colorName, buffer);
+          // Cache key matches generateMockup: productId:color:scale (100 = 1.0)
+          newEntries[`${productId}:${colorName}:100`] = r2Url;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.warn(
+            `prefetchProductMockups: r2 upload failed color=${colorName}: ${msg}`
+          );
+        }
+      })
+    );
+
+    if (Object.keys(newEntries).length === 0) return;
+
+    // Single read-modify-write at the end. The window is small enough
+    // that an on-demand mockup write landing in this gap would just
+    // overwrite a few keys we'd have populated — acceptable.
+    const fresh = await db.query.design.findFirst({
+      where: eq(designTable.id, designId),
+      columns: { mockupUrls: true },
+    });
+    const merged = { ...(fresh?.mockupUrls ?? {}), ...newEntries };
+    await db
+      .update(designTable)
+      .set({ mockupUrls: merged, updatedAt: new Date() })
+      .where(eq(designTable.id, designId));
+
+    console.log(
+      `prefetchProductMockups: design=${designId} product=${productId} cached=${Object.keys(newEntries).length}/${variantToColor.size} elapsed=${Date.now() - startedAt}ms`
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `prefetchProductMockups: design=${designId} product=${productId} failed: ${msg} elapsed=${Date.now() - startedAt}ms`
+    );
   }
-  console.log(
-    `prefetchProductMockups: design=${designId} product=${productId} ok=${ok} failed=${failed} elapsed=${Date.now() - startedAt}ms`
-  );
 }
