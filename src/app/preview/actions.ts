@@ -14,7 +14,7 @@ import {
   type AspectRatio,
 } from "@/lib/products";
 import { uploadMockupImage, uploadDesignImage } from "@/lib/r2";
-import { generateTransparent } from "@/lib/ideogram";
+import { generateAnchoredTransparent } from "@/lib/replicate";
 import { insertDesignImage } from "@/lib/design-images";
 
 const COST_PER_GENERATION = 0.03;
@@ -141,20 +141,30 @@ export async function regenerateForPlacement(
     throw new Error("No generation prompt available to re-render");
   }
 
-  // Re-render at target aspect via Ideogram's native transparent endpoint.
-  // Style reference (using the existing image as a look anchor) is not
-  // yet wired through the direct API — re-renders may drift visually.
+  // Re-render at target aspect anchored on the user's current image.
+  // Routes through Replicate (Ideogram regular generate + BiRefNet) since
+  // the direct generate-transparent endpoint doesn't accept style refs.
+  // Once design.primary_image_id lands, the anchor becomes the primary
+  // pick rather than currentImageUrl.
+  const startedAt = Date.now();
   console.log(
-    `regenerateForPlacement: design=${designId} product=${productId} target=${targetAspect} promptLen=${lastPrompt.length}`
+    `regenerateForPlacement: design=${designId} product=${productId} target=${targetAspect} promptLen=${lastPrompt.length} anchor=${found.currentImageUrl}`
   );
   let imageUrl: string;
   try {
-    imageUrl = await generateTransparent(lastPrompt, targetAspect);
+    imageUrl = await generateAnchoredTransparent(
+      lastPrompt,
+      found.currentImageUrl,
+      targetAspect
+    );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error("regenerateForPlacement generateTransparent failed:", msg);
+    console.error("regenerateForPlacement generateAnchoredTransparent failed:", msg);
     throw new Error(`Image generation failed: ${msg}`);
   }
+  console.log(
+    `regenerateForPlacement: design=${designId} done in ${Date.now() - startedAt}ms imageUrl=${imageUrl}`
+  );
 
   const newGeneration = found.generationCount + 1;
   const response = await fetch(imageUrl);

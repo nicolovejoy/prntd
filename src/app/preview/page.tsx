@@ -84,21 +84,27 @@ function PreviewPageInner() {
       return;
     }
     let canceled = false;
-    getDesign(designId).then((design) => {
-      if (canceled) return;
-      if (design?.currentImageUrl) {
-        setDesignImageUrl(design.currentImageUrl);
-      }
-      if (design?.mockupUrls) {
-        for (const [key, url] of Object.entries(design.mockupUrls)) {
-          mockupCache.current.set(key, url as string);
+    getDesign(designId)
+      .then((design) => {
+        if (canceled) return;
+        if (design?.currentImageUrl) {
+          setDesignImageUrl(design.currentImageUrl);
         }
-      }
-      setLoading(false);
-      // Same regen path as a manual product change, using the URL's aspect
-      // hint as the assumed source aspect.
-      void maybeRegenerateForProduct(initialProductId, initialAspect);
-    });
+        if (design?.mockupUrls) {
+          for (const [key, url] of Object.entries(design.mockupUrls)) {
+            mockupCache.current.set(key, url as string);
+          }
+        }
+        setLoading(false);
+        // Same regen path as a manual product change, using the URL's aspect
+        // hint as the assumed source aspect.
+        void maybeRegenerateForProduct(initialProductId, initialAspect);
+      })
+      .catch((err) => {
+        if (canceled) return;
+        console.error("getDesign failed:", err);
+        setLoading(false);
+      });
     return () => {
       canceled = true;
     };

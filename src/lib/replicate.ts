@@ -30,6 +30,29 @@ export async function generateImage(
   return String(output);
 }
 
+/**
+ * Generate a transparent PNG anchored visually on a style reference image.
+ *
+ * Routes through Replicate's regular Ideogram v3 Turbo (not the direct
+ * generate-transparent endpoint, which doesn't accept style refs per
+ * developer.ideogram.ai/openapi.json), then runs BiRefNet for transparency.
+ * Two API calls instead of one — the cost we pay for visual continuity
+ * across aspect ratios and chat iterations.
+ *
+ * Use this when you have an anchor image (chat iteration: prior image;
+ * placement adaptation: the user's primary pick). Use the direct
+ * `generateTransparent` from ideogram.ts when there is no anchor.
+ */
+export async function generateAnchoredTransparent(
+  prompt: string,
+  styleReferenceUrl: string,
+  aspectRatio: AspectRatio = "1:1",
+  negativePrompt?: string | null
+): Promise<string> {
+  const rgbUrl = await generateImage(prompt, styleReferenceUrl, negativePrompt, aspectRatio);
+  return await removeBackground(rgbUrl);
+}
+
 export async function removeBackground(imageUrl: string): Promise<string> {
   // 851-labs/background-remover (BiRefNet): handles soft / painterly edges
   // much better than Bria, which silently returned the un-removed image on

@@ -7,6 +7,7 @@ import { design as designTable } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { chatAboutDesign, constructFluxPrompt } from "@/lib/ai";
 import { generateTransparent } from "@/lib/ideogram";
+import { generateAnchoredTransparent } from "@/lib/replicate";
 import { uploadDesignImage } from "@/lib/r2";
 import { extractImagesFromHistory } from "@/lib/chat-utils";
 import { insertDesignImage } from "@/lib/design-images";
@@ -89,16 +90,29 @@ export async function generateDesign(
     throw new Error("Failed to construct prompt");
   }
 
-  // Generate transparent RGBA PNG via Ideogram's native endpoint.
-  // Reference-image carry-over from prior generations is not yet wired
-  // through the direct API; aiResponse.referenceImage is unused here.
+  // When the AI flags a prior generation as the reference (the user is
+  // refining/iterating, not starting fresh), anchor on it visually via
+  // the Replicate path. First-pass generations have no anchor and use
+  // the direct transparent endpoint (single call, native RGBA).
+  const anchorUrl =
+    aiResponse.referenceImage != null
+      ? images.find((img) => img.number === aiResponse.referenceImage)?.url
+      : undefined;
+
   let imageUrl: string;
   try {
-    imageUrl = await generateTransparent(aiResponse.fluxPrompt, "1:1", {
-      negativePrompt: aiResponse.negativePrompt ?? undefined,
-    });
+    imageUrl = anchorUrl
+      ? await generateAnchoredTransparent(
+          aiResponse.fluxPrompt,
+          anchorUrl,
+          "1:1",
+          aiResponse.negativePrompt ?? undefined
+        )
+      : await generateTransparent(aiResponse.fluxPrompt, "1:1", {
+          negativePrompt: aiResponse.negativePrompt ?? undefined,
+        });
   } catch (err) {
-    console.error("generateTransparent failed:", err);
+    console.error("generateDesign image generation failed:", err);
     throw new Error("Image generation failed");
   }
 
