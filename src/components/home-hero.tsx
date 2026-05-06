@@ -92,11 +92,7 @@ export function HomeHero({
               {designs.slice(0, 4).map((design) => (
                 <Link
                   key={design.id}
-                  href={
-                    design.status === "ordered"
-                      ? `/order?id=${design.id}`
-                      : `/design?id=${design.id}`
-                  }
+                  href={`/design?id=${design.id}`}
                   className="group"
                 >
                   <div className="aspect-square rounded-lg border border-border bg-checkerboard overflow-hidden flex items-center justify-center group-hover:border-border-hover transition-colors">

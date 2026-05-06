@@ -158,10 +158,17 @@ See `docs/next-phase.md` for the full Phase 1/2/3 plan. Top items:
 
 - Step 0 (style-anchored regens + duplicate-call hardening) shipped 2026-05-05, commits `9421606` + `b052457`.
 - Step 1 (`design.primary_image_id` column + dual-write + backfill) shipped 2026-05-05, commit `5d6cd9f`. 57 designs migrated, 4 left null (no images).
-- Step 2 (`/preview` rewritten as pure function of designId/productId; `getOrCreatePlacementRender`; `generateMockup` resolves placement URL; `deleteDesign` FK cascade) shipped 2026-05-05, commit `b9e72e9`. Verified end-to-end on dev.
-- Step 3 (pre-fetch Printful mockups on accept via `after()` — all colors of default product, free) — next implementation step.
-- Step 4 (`/design` gallery rewrite: source images vs Product versions section; rename "Use this image" → "Make Products").
-- Step 5 (retire `currentImageUrl` writes, drop column, strip `chat_history.imageUrl`).
+- Step 2 (`/preview` rewritten as pure function of designId/productId; `getOrCreatePlacementRender`; `generateMockup` resolves placement URL; `deleteDesign` FK cascade) shipped 2026-05-05, commit `b9e72e9`.
+- Step 3 (pre-fetch Printful mockups on accept via `after()`, bulk Printful task in one call) shipped 2026-05-06, commits `2829111` + `8b878db`.
+- Step 4 (`/design` gallery rewrite: source images vs Product versions section; rename "Use this image" → "Make Products") shipped 2026-05-06, commit `48691e9`.
+- Step 5a (switch all reads off `design.currentImageUrl` via `getDesignDisplayImageUrl`/`resolveDesignDisplayImageUrls`; delete dead `regenerateForPlacement`; webhook gains `resolveDesignImageUrl` dep) shipped 2026-05-06, commit `dd6ffb5`. Validated end-to-end with a real test order.
+- Step 5b (drop `currentImageUrl` writes + drop column from schema + `db:push`) — next implementation step. Destructive, needs explicit go-ahead.
+
+**Followups surfaced during data model rework verification (2026-05-06)**
+
+- **`deleteDesignImage` ignores order pinning** — the lightbox Delete on `/design` deletes a `design_image` row even if an `order.placements.front` still references its id, leaving the order with a broken thumbnail. Mirror the deleteDesign auto-archive logic at the per-image level: refuse (or skip) deletion when an order pins the row. Backstory: Nico hit this on 2026-05-06 — order shows in `/orders` and `/admin` with no thumbnail.
+- **No prefetch on /preview revisit** — Step 3 prefetches all default-product colors only on `approveDesign` (fresh accept). Existing/already-approved designs revisited via `/preview` get on-demand mockups, so first color render is slow. Fix candidate: trigger `prefetchProductMockups` from `/preview` page load via `after()` when the cache is empty.
+- **Bella+Canvas 3001 color spectrum** — `products.ts` lists 13 colors; Printful catalog has ~30+. Run the variant discovery script and expand the catalog entry.
 
 **Image-gen style versatility (followup to #8)**
 
