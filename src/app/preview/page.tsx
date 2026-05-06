@@ -3,7 +3,11 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getDesign, approveDesign } from "../design/actions";
-import { generateMockup, getOrCreatePlacementRender } from "./actions";
+import {
+  generateMockup,
+  getOrCreatePlacementRender,
+  ensureMockupsPrefetched,
+} from "./actions";
 import Link from "next/link";
 import { Button } from "@/components/ui";
 import {
@@ -94,6 +98,13 @@ function PreviewPageInner() {
             mockupCache.current.set(key, url as string);
           }
         }
+        // Warm the mockup cache for this product if nothing's been
+        // prefetched yet — covers existing/already-approved designs that
+        // never went through approveDesign's after() prefetch hook.
+        // Best-effort; no-op when the cache is already populated.
+        ensureMockupsPrefetched(designId, productId).catch((err) =>
+          console.warn("ensureMockupsPrefetched failed:", err)
+        );
       })
       .catch((err) => {
         if (canceled) return;

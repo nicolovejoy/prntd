@@ -4,7 +4,10 @@ import { headers } from "next/headers";
 import { after } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { design as designTable } from "@/lib/db/schema";
+import {
+  design as designTable,
+  order as orderTable,
+} from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { chatAboutDesign, constructFluxPrompt } from "@/lib/ai";
 import { generateTransparent } from "@/lib/ideogram";
@@ -239,11 +242,11 @@ export async function selectImage(designId: string, imageUrl: string) {
 }
 
 /**
- * Delete a design_image row by id. Recomputes primary_image_id /
- * currentImageUrl to the most recent remaining source image, or null
- * if none. Also strips the image reference from any chat_history
- * message that pointed at the deleted URL, so the chat thread stops
- * showing a broken image.
+ * Delete a design_image row by id. Refuses when any order pins the
+ * row via placements (e.g. order.placements.front references this id),
+ * so a deletion can't orphan an order's recorded thumbnail. Recomputes
+ * primary_image_id / currentImageUrl to the most recent remaining
+ * source image when the delete proceeds.
  */
 export async function deleteDesignImage(designId: string, imageId: string) {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -255,35 +258,30 @@ export async function deleteDesignImage(designId: string, imageId: string) {
   if (!found || found.userId !== session.user.id)
     throw new Error("Unauthorized");
 
-  // Look up the URL we're deleting so we can scrub it from chat history.
-  const chatHistory: ChatMessage[] =
-    (found.chatHistory as ChatMessage[]) ?? [];
+  // Refuse if any order placement references this image — deleting
+  // would leave the order's thumbnail broken on /orders and /admin.
+  const orders = await db
+    .select({ id: orderTable.id, placements: orderTable.placements })
+    .from(orderTable)
+    .where(eq(orderTable.designId, designId));
+
+  const pinnedBy = orders.find(
+    (o) => o.placements && Object.values(o.placements).includes(imageId)
+  );
+  if (pinnedBy) {
+    throw new Error(
+      "Can't delete this image — it's pinned to an order's thumbnail."
+    );
+  }
 
   const { newPrimaryId, newPrimaryUrl } = await deleteDesignImageRow(
     designId,
     imageId
   );
 
-  // The chat history may still reference the deleted URL via imageUrl on
-  // an assistant turn. Strip it so the thread doesn't render a broken
-  // image. (Pre-Step-5 chat_history.imageUrl is still the read source
-  // for chat-bubble images.)
-  const updatedHistory = chatHistory.map((msg) => {
-    if (msg.imageUrl && msg.role === "assistant") {
-      // We don't have a perfect URL match against the deleted row
-      // post-delete (it's gone), but we can heuristically strip any
-      // imageUrl that no longer corresponds to a remaining source row.
-      // Cheap pass: leave history untouched for now — the gallery is
-      // the primary surface and reads from design_image directly.
-      return msg;
-    }
-    return msg;
-  });
-
   await db
     .update(designTable)
     .set({
-      chatHistory: updatedHistory,
       currentImageUrl: newPrimaryUrl,
       primaryImageId: newPrimaryId,
       updatedAt: new Date(),

@@ -130,7 +130,13 @@ function DesignPageInner() {
 
   async function handleDeleteImage(imageId: string) {
     const deleted = images.find((img) => img.id === imageId);
-    await deleteDesignImage(designId.current, imageId);
+    try {
+      await deleteDesignImage(designId.current, imageId);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Delete failed";
+      window.alert(msg);
+      return;
+    }
     await refreshGallery();
     // If lightbox was open on this image, clamp or close
     setImages((current) => {

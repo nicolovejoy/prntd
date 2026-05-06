@@ -1,6 +1,7 @@
 "use server";
 
 import { headers } from "next/headers";
+import { after } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { design as designTable, type ChatMessage } from "@/lib/db/schema";
@@ -256,6 +257,43 @@ export async function getOrCreatePlacementRender(
  * Never throws to the caller; failures are logged and the function
  * returns without populating (or partially populating) the cache.
  */
+/**
+ * Schedule a prefetch via after() if there are no cached mockups yet
+ * for this product. Cheap idempotent call — `/preview` invokes it on
+ * page load so existing/already-approved designs (which never went
+ * through approveDesign's prefetch hook) still warm their cache when
+ * the user revisits.
+ *
+ * Returns instantly; the actual prefetch runs after the response is
+ * sent, scoped to this function invocation's 300s budget. Safe to
+ * call from a client useEffect — failures are logged inside
+ * prefetchProductMockups.
+ */
+export async function ensureMockupsPrefetched(
+  designId: string,
+  productId: string = DEFAULT_PRODUCT_ID
+): Promise<{ kicked: boolean }> {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) throw new Error("Unauthorized");
+
+  const found = await db.query.design.findFirst({
+    where: eq(designTable.id, designId),
+    columns: { userId: true, mockupUrls: true },
+  });
+  if (!found || found.userId !== session.user.id) {
+    throw new Error("Unauthorized");
+  }
+
+  const prefix = `${productId}:`;
+  const hasAny = Object.keys(found.mockupUrls ?? {}).some((k) =>
+    k.startsWith(prefix)
+  );
+  if (hasAny) return { kicked: false };
+
+  after(() => prefetchProductMockups(designId, productId));
+  return { kicked: true };
+}
+
 export async function prefetchProductMockups(
   designId: string,
   productId: string = DEFAULT_PRODUCT_ID
