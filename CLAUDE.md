@@ -48,11 +48,12 @@ npx vitest run src/lib/__tests__/pricing.test.ts  # Run a single test file
 GitHub Actions workflow `.github/workflows/ci.yml` runs `lint`, `test`, and `build` on every PR and push to main. Branch protection requires the `check` job to pass and one approving review before merging to main. Admins can bypass.
 
 Lint policy:
+
 - `@typescript-eslint/no-explicit-any` is `error` in product code, `off` in test files (`**/__tests__/**`, `*.test.ts(x)`). Mocks are the canonical case for `any`; production code should type things.
 - For `catch` clauses: use `catch (err)` (defaults to `unknown`) and narrow with `err instanceof Error ? err.message : String(err)`. Don't annotate `err: any`.
 - `scripts/**` is excluded from lint (also excluded from tsconfig). One-off ops scripts.
 
-**Before tightening any lint rule, type-check, or CI gate**: run it locally against the current codebase first. If existing code already violates the new rule, decide between (a) cleaning the violations, (b) scoping the rule narrower (e.g. test-only), or (c) downgrading severity — and do that work *before* pushing the gate. Don't push a stricter gate without that audit, or the next PR will be blocked for reasons unrelated to that PR.
+**Before tightening any lint rule, type-check, or CI gate**: run it locally against the current codebase first. If existing code already violates the new rule, decide between (a) cleaning the violations, (b) scoping the rule narrower (e.g. test-only), or (c) downgrading severity — and do that work _before_ pushing the gate. Don't push a stricter gate without that audit, or the next PR will be blocked for reasons unrelated to that PR.
 
 Vercel preview deploys on PRs require the PR author's GitHub user to be authorized in the Vercel team. Collaborator PRs from outside the team may show a Vercel build failure that's actually a team-membership issue, not a code problem.
 
@@ -132,19 +133,20 @@ PRINTFUL_DRY_RUN        # "true" to short-circuit Printful order submission (loc
 
 See `docs/next-phase.md` for the full Phase 1/2/3 plan. Top items:
 
-**Phase 1 — public-facing readiness (active)**
-- #4 Charity disbursement infrastructure — Nico, blocks #5
-- DESC permission email + sole-prop/LLC entity confirmation — Nico (pre-flight for #4/#5)
-- #5 Homepage re-org — Nico, after first real disbursement is logged
-- #10 ~~Order list thumbnails on shirt color~~ — shipped May 1; iPhone case "Clear" still renders on white, follow-up to special-case `type === "phone-case"`
+**Phase 1 — public-facing readiness (on hold)**
+
+- DESC/charity work paused as of 2026-05-06. Chain (DESC permission → entity confirmation → #4 ledger infra → first disbursement → #5 homepage re-org) still applies if/when it restarts.
+- #10 ~~Order list thumbnails on shirt color~~ — shipped May 1; iPhone case "Clear" still renders on white, follow-up to special-case `type === "phone-case"`. discuss this with user
 
 **Print targets (parallel track) — see `docs/print-targets.md` + `docs/print-targets-plan.md`**
+
 - Phase 1 (aspect-correct generation) shipped 2026-05-02. Phase 2 (`design_image` table + backfill + dual-read) shipped 2026-05-03 — 40 designs and 40 orders backfilled.
 - Phase 3 (placement-aware regeneration with provenance, removal of `design.currentImageUrl`) is the next implementation step.
 - #11 Printful + checkout deep-dive (multi-placement, tax, shipping, team orders, safe-area UX) — blocks Phase 4 multi-placement UI.
 - #12 Image export facility — independent, slot anywhere after Phase 3.
 
 **Design loop rethink — phased build (active)**
+
 - Phase 0 (Ideogram native-transparent swap) shipped 2026-05-04, commit `cf5f93f`. Transparency confirmed in prod.
 - Phase 1 (negation rewriting in chat advisor system prompt) shipped 2026-05-05, commit `9647622`. Partial improvement; stubborn defaults like "tongue out on happy cartoon dog" still leak through. Refinement deferred.
 - Phase 4 (doc updates to `docs/design-loop-rethink.md`) shipped 2026-05-05, commit `26f2b88`.
@@ -153,6 +155,7 @@ See `docs/next-phase.md` for the full Phase 1/2/3 plan. Top items:
 - #15 (silent regen hang on product switch) — structurally resolved by data model rework Step 2 (5d6cd9f handoff to b9e72e9). Verify in prod after deploy.
 
 **Design data model rework (active) — plan: `~/.claude/plans/i-want-you-to-concurrent-fountain.md`**
+
 - Step 0 (style-anchored regens + duplicate-call hardening) shipped 2026-05-05, commits `9421606` + `b052457`.
 - Step 1 (`design.primary_image_id` column + dual-write + backfill) shipped 2026-05-05, commit `5d6cd9f`. 57 designs migrated, 4 left null (no images).
 - Step 2 (`/preview` rewritten as pure function of designId/productId; `getOrCreatePlacementRender`; `generateMockup` resolves placement URL; `deleteDesign` FK cascade) shipped 2026-05-05, commit `b9e72e9`. Verified end-to-end on dev.
@@ -161,12 +164,15 @@ See `docs/next-phase.md` for the full Phase 1/2/3 plan. Top items:
 - Step 5 (retire `currentImageUrl` writes, drop column, strip `chat_history.imageUrl`).
 
 **Image-gen style versatility (followup to #8)**
+
 - Designs should default to colors that read on both light and dark shirts unless the user explicitly asks for "black lettering" / "white text". System prompt update queued; not yet shipped. After that, build the style-reference image library (#8 follow-up).
 
 **Design fork model (#2 remainder)**
+
 - `parent_design_id` schema + `forkDesign()` action + read-only past-thread view + "Make another like this" button. Required scaffolding before #6 marketplace.
 
 **Discount codes (remaining)**
+
 - Show discount info on admin order detail and /orders
 - Charge shipping as a separate Stripe line so percentage promos don't eat margin to zero (currently shipping is baked into COGS; 50% off launches at structural loss)
 
@@ -175,6 +181,7 @@ See `docs/next-phase.md` for the full Phase 1/2/3 plan. Top items:
 **1Password secret migration (paused 2026-04-14)** — see memory `project_anthropic_key_rotation.md`
 
 ### Ongoing / low priority
+
 - hledger export script (docs/accounting.md has the architecture)
 - Drag-and-drop image upload not working on some browsers — file picker works
 - Rate limiting / generation caps
