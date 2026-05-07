@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import Markdown from "react-markdown";
 import type { ChatMessage } from "@/lib/db/schema";
+import type { DesignImage } from "@/lib/design-images";
 import { Button } from "@/components/ui";
 
 const GENERATING_MESSAGES = [
@@ -47,6 +48,7 @@ const EXAMPLES = [
 
 export function ChatPanel({
   messages,
+  images,
   loading,
   generating,
   onSend,
@@ -54,12 +56,17 @@ export function ChatPanel({
   onUploadImage,
 }: {
   messages: ChatMessage[];
+  images: DesignImage[];
   loading: boolean;
   generating: boolean;
   onSend: (message: string) => void;
   onGenerate: (message?: string) => void;
   onUploadImage: (base64: string, fileName: string) => void;
 }) {
+  const urlByImageId = useMemo(
+    () => new Map(images.map((img) => [img.id, img.url])),
+    [images]
+  );
   const [input, setInput] = useState("");
   const [dragging, setDragging] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -183,50 +190,38 @@ export function ChatPanel({
             </div>
           </div>
         )}
-        {messages.map((msg, i) => (
-          <div
-            key={i}
-            className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-          >
+        {messages.map((msg) => {
+          const imageUrl = msg.imageId ? urlByImageId.get(msg.imageId) : undefined;
+          return (
             <div
-              className={`max-w-[80%] rounded-lg px-4 py-2 ${
-                msg.role === "user"
-                  ? "bg-gray-800 text-white"
-                  : "text-gray-100"
-              }`}
+              key={msg.id}
+              className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
             >
-              {msg.role === "assistant" ? (
-                <div className="prose prose-invert prose-sm max-w-none prose-p:my-1 prose-ol:my-1 prose-ul:my-1 prose-li:my-0.5">
-                  <Markdown>{msg.content}</Markdown>
-                </div>
-              ) : (
-                <>
+              <div
+                className={`max-w-[80%] rounded-lg px-4 py-2 ${
+                  msg.role === "user"
+                    ? "bg-gray-800 text-white"
+                    : "text-gray-100"
+                }`}
+              >
+                {msg.role === "assistant" ? (
+                  <div className="prose prose-invert prose-sm max-w-none prose-p:my-1 prose-ol:my-1 prose-ul:my-1 prose-li:my-0.5">
+                    <Markdown>{msg.content}</Markdown>
+                  </div>
+                ) : (
                   <p>{msg.content}</p>
-                  {msg.imageUrl && (
-                    <img
-                      src={msg.imageUrl}
-                      alt="Uploaded reference"
-                      className="mt-2 rounded-md max-w-[200px]"
-                    />
-                  )}
-                </>
-              )}
-              {msg.generationNumber && (
-                <p className="text-xs text-gray-500 mt-1">
-                  Generated #{msg.generationNumber}
-                </p>
-              )}
-              {/* Backward compat: old messages with imageUrl but no generationNumber */}
-              {msg.imageUrl && !msg.generationNumber && (
-                <img
-                  src={msg.imageUrl}
-                  alt="Generated design"
-                  className="mt-2 rounded-md max-w-[200px]"
-                />
-              )}
+                )}
+                {imageUrl && (
+                  <img
+                    src={imageUrl}
+                    alt={msg.role === "user" ? "Uploaded reference" : "Generated design"}
+                    className="mt-2 rounded-md max-w-[200px]"
+                  />
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
         {loading && (
           <div className="flex justify-start">
             <div className="rounded-lg px-4 py-2 text-gray-500">

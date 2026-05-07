@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useCallback, useState } from "react";
-import type { DesignImage } from "@/lib/chat-utils";
+import type { DesignImage } from "@/lib/design-images";
 import { Button } from "@/components/ui";
 
 export function ImageLightbox({

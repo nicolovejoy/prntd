@@ -49,7 +49,6 @@ export const design = sqliteTable("design", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: text("user_id").notNull().references(() => user.id),
   status: text("status", { enum: ["draft", "approved", "ordered", "archived"] }).notNull().default("draft"),
-  chatHistory: text("chat_history", { mode: "json" }).$type<ChatMessage[]>(),
   // The user's anchor pick — the design_image they want products
   // built from. Resolved via getDesignDisplayImageUrl helpers; falls
   // back to the latest source design_image when null.
@@ -59,6 +58,15 @@ export const design = sqliteTable("design", {
   mockupUrls: text("mockup_urls", { mode: "json" }).$type<Record<string, string>>(),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
+export const chatMessage = sqliteTable("chat_message", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  designId: text("design_id").notNull().references(() => design.id),
+  role: text("role", { enum: ["user", "assistant"] }).notNull(),
+  content: text("content").notNull(),
+  imageId: text("image_id"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 });
 
 export const designImage = sqliteTable("design_image", {
@@ -129,6 +137,20 @@ export const ledgerEntry = sqliteTable("ledger_entry", {
 });
 
 export type ChatMessage = {
+  id: string;
+  designId: string;
+  role: "user" | "assistant";
+  content: string;
+  imageId: string | null;
+  createdAt: Date;
+};
+
+/**
+ * Shape of rows in the legacy `design.chat_history` JSON column. Used only
+ * by the backfill migration script. Production code reads from the
+ * `chat_message` table instead.
+ */
+export type LegacyChatMessage = {
   role: "user" | "assistant";
   content: string;
   imageUrl?: string;

@@ -13,7 +13,6 @@ import { chatAboutDesign, constructFluxPrompt } from "@/lib/ai";
 import { generateTransparent } from "@/lib/ideogram";
 import { generateAnchoredTransparent } from "@/lib/replicate";
 import { uploadDesignImage } from "@/lib/r2";
-import { extractImagesFromHistory } from "@/lib/chat-utils";
 import {
   insertDesignImage,
   findDesignImageByUrl,
@@ -21,6 +20,9 @@ import {
   getDesignPlacementRenders,
   deleteDesignImageRow,
   getDesignDisplayImageUrl,
+  getDesignMessages,
+  insertChatMessage,
+  getDesignImagesForAIContext,
   type SourceImage,
   type ProductVersionGroup,
 } from "@/lib/design-images";
@@ -41,7 +43,6 @@ async function getOrCreateDesign(designId: string, userId: string) {
       .values({
         id: designId,
         userId,
-        chatHistory: [],
       })
       .returning();
     found = created;
@@ -55,22 +56,22 @@ export async function sendChatMessage(designId: string, userMessage: string) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) throw new Error("Unauthorized");
 
-  const found = await getOrCreateDesign(designId, session.user.id);
-  const chatHistory: ChatMessage[] =
-    (found.chatHistory as ChatMessage[]) ?? [];
-  const images = extractImagesFromHistory(chatHistory);
+  await getOrCreateDesign(designId, session.user.id);
+  const messages = await getDesignMessages(designId);
+  const images = await getDesignImagesForAIContext(designId);
 
-  const aiResponse = await chatAboutDesign(userMessage, chatHistory, images);
+  const aiResponse = await chatAboutDesign(userMessage, messages, images);
 
-  const updatedHistory: ChatMessage[] = [
-    ...chatHistory,
-    { role: "user", content: userMessage },
-    { role: "assistant", content: aiResponse.message },
-  ];
+  await insertChatMessage({ designId, role: "user", content: userMessage });
+  await insertChatMessage({
+    designId,
+    role: "assistant",
+    content: aiResponse.message,
+  });
 
   await db
     .update(designTable)
-    .set({ chatHistory: updatedHistory, updatedAt: new Date() })
+    .set({ updatedAt: new Date() })
     .where(eq(designTable.id, designId));
 
   return { message: aiResponse.message };
@@ -84,19 +85,29 @@ export async function generateDesign(
   if (!session) throw new Error("Unauthorized");
 
   const found = await getOrCreateDesign(designId, session.user.id);
-  const chatHistory: ChatMessage[] =
-    (found.chatHistory as ChatMessage[]) ?? [];
-  const images = extractImagesFromHistory(chatHistory);
+  const messages = await getDesignMessages(designId);
+  const images = await getDesignImagesForAIContext(designId);
 
-  // If user typed a message with the generate action, add it to history for context
-  const historyForPrompt = userMessage
-    ? [...chatHistory, { role: "user" as const, content: userMessage }]
-    : chatHistory;
+  // If user typed a message with the generate action, fold it into the
+  // context the AI sees (without persisting until generation succeeds).
+  const messagesForPrompt: ChatMessage[] = userMessage
+    ? [
+        ...messages,
+        {
+          id: "pending",
+          designId,
+          role: "user",
+          content: userMessage,
+          imageId: null,
+          createdAt: new Date(),
+        },
+      ]
+    : messages;
 
   let aiResponse;
   try {
     aiResponse = await constructFluxPrompt(
-      historyForPrompt,
+      messagesForPrompt,
       images,
       userMessage
     );
@@ -148,25 +159,19 @@ export async function generateDesign(
     generationCost: COST_PER_GENERATION,
   });
 
-  // Build updated chat history
-  const newMessages: ChatMessage[] = [];
   if (userMessage) {
-    newMessages.push({ role: "user", content: userMessage });
+    await insertChatMessage({ designId, role: "user", content: userMessage });
   }
-  newMessages.push({
+  await insertChatMessage({
+    designId,
     role: "assistant",
     content: aiResponse.message,
-    imageUrl: r2Url,
-    fluxPrompt: aiResponse.fluxPrompt,
-    generationNumber: newGeneration,
+    imageId: newImageId,
   });
-
-  const updatedHistory: ChatMessage[] = [...chatHistory, ...newMessages];
 
   await db
     .update(designTable)
     .set({
-      chatHistory: updatedHistory,
       primaryImageId: newImageId,
       generationCount: newGeneration,
       generationCost: found.generationCost + COST_PER_GENERATION,
@@ -178,6 +183,7 @@ export async function generateDesign(
   return {
     message: aiResponse.message,
     imageUrl: r2Url,
+    imageId: newImageId,
     generationNumber: newGeneration,
   };
 }
@@ -190,31 +196,36 @@ export async function uploadReferenceImage(
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) throw new Error("Unauthorized");
 
-  const found = await getOrCreateDesign(designId, session.user.id);
-  const chatHistory: ChatMessage[] =
-    (found.chatHistory as ChatMessage[]) ?? [];
+  await getOrCreateDesign(designId, session.user.id);
 
   // Upload to R2 as an "upload" (not a generation)
   const uploadNumber = Date.now();
   const buffer = Buffer.from(base64Data, "base64");
   const r2Url = await uploadDesignImage(designId, uploadNumber, buffer, "upload");
 
-  // Add to chat history as a user message with imageUrl
-  const updatedHistory: ChatMessage[] = [
-    ...chatHistory,
-    {
-      role: "user",
-      content: `Uploaded reference image: ${fileName}`,
-      imageUrl: r2Url,
-    },
-  ];
+  // Record as a design_image row so the gallery picks it up and the
+  // AI gallery context can reference it.
+  const newImageId = await insertDesignImage({
+    designId,
+    imageUrl: r2Url,
+    aspectRatio: "1:1",
+    prompt: `[user upload] ${fileName}`,
+    generationCost: 0,
+  });
+
+  await insertChatMessage({
+    designId,
+    role: "user",
+    content: `Uploaded reference image: ${fileName}`,
+    imageId: newImageId,
+  });
 
   await db
     .update(designTable)
-    .set({ chatHistory: updatedHistory, updatedAt: new Date() })
+    .set({ updatedAt: new Date() })
     .where(eq(designTable.id, designId));
 
-  return { imageUrl: r2Url };
+  return { imageUrl: r2Url, imageId: newImageId };
 }
 
 export async function selectImage(designId: string, imageUrl: string) {
@@ -301,6 +312,24 @@ export async function getDesign(designId: string) {
   // directly).
   const displayImageUrl = await getDesignDisplayImageUrl(designId);
   return { ...found, displayImageUrl };
+}
+
+/**
+ * Hydrate chat thread for a design. Append-only log read from the
+ * chat_message table.
+ */
+export async function getDesignChat(designId: string): Promise<ChatMessage[]> {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) throw new Error("Unauthorized");
+
+  const found = await db.query.design.findFirst({
+    where: eq(designTable.id, designId),
+    columns: { id: true, userId: true },
+  });
+  if (!found) return [];
+  if (found.userId !== session.user.id) throw new Error("Unauthorized");
+
+  return await getDesignMessages(designId);
 }
 
 /**

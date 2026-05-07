@@ -2,9 +2,70 @@ import { db } from "@/lib/db";
 import {
   design as designTable,
   designImage as designImageTable,
+  chatMessage as chatMessageTable,
+  type ChatMessage,
 } from "@/lib/db/schema";
 import { eq, and, asc, desc, inArray, isNull, isNotNull } from "drizzle-orm";
 import { getProduct, type AspectRatio } from "@/lib/products";
+
+export type DesignImage = {
+  id: string;
+  number: number;
+  url: string;
+  prompt: string;
+};
+
+/**
+ * Fetch chat messages for a design, ordered oldest → newest.
+ */
+export async function getDesignMessages(
+  designId: string
+): Promise<ChatMessage[]> {
+  return await db
+    .select()
+    .from(chatMessageTable)
+    .where(eq(chatMessageTable.designId, designId))
+    .orderBy(asc(chatMessageTable.createdAt));
+}
+
+/**
+ * Insert a chat message row. Append-only — never updates existing rows.
+ */
+export async function insertChatMessage(params: {
+  designId: string;
+  role: "user" | "assistant";
+  content: string;
+  imageId?: string | null;
+}): Promise<string> {
+  const id = crypto.randomUUID();
+  await db.insert(chatMessageTable).values({
+    id,
+    designId: params.designId,
+    role: params.role,
+    content: params.content,
+    imageId: params.imageId ?? null,
+  });
+  return id;
+}
+
+/**
+ * Source images for a design with the AI-context shape the prompt
+ * builder wants (number, url, prompt). Numbers are 1-indexed in
+ * chronological order. Used by sendChatMessage / generateDesign /
+ * constructFluxPrompt to populate the "Images so far" gallery
+ * context. Uploads stored with prompt='[user upload] ...' surface as-is.
+ */
+export async function getDesignImagesForAIContext(
+  designId: string
+): Promise<DesignImage[]> {
+  const sources = await getDesignSourceImages(designId);
+  return sources.map((s, i) => ({
+    id: s.id,
+    number: i + 1,
+    url: s.imageUrl,
+    prompt: s.prompt ?? "",
+  }));
+}
 
 /**
  * Insert a new design_image row for a generation. Automatically links
@@ -180,6 +241,7 @@ export type SourceImage = {
   id: string;
   imageUrl: string;
   aspectRatio: AspectRatio;
+  prompt: string | null;
   createdAt: Date;
 };
 
@@ -196,6 +258,7 @@ export async function getDesignSourceImages(
       id: designImageTable.id,
       imageUrl: designImageTable.imageUrl,
       aspectRatio: designImageTable.aspectRatio,
+      prompt: designImageTable.prompt,
       createdAt: designImageTable.createdAt,
     })
     .from(designImageTable)
@@ -211,6 +274,7 @@ export async function getDesignSourceImages(
     id: r.id,
     imageUrl: r.imageUrl,
     aspectRatio: r.aspectRatio as AspectRatio,
+    prompt: r.prompt,
     createdAt: r.createdAt,
   }));
 }

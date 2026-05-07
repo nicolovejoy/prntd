@@ -1,8 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { DesignImage } from "@/lib/chat-utils";
-import type { ProductVersionGroup } from "@/lib/design-images";
+import type { DesignImage, ProductVersionGroup } from "@/lib/design-images";
 import { Button } from "@/components/ui";
 
 const BG_OPTIONS = [

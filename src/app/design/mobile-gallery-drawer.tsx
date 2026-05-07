@@ -2,8 +2,7 @@
 
 import { useEffect } from "react";
 import { ImageGallery } from "./image-gallery";
-import type { DesignImage } from "@/lib/chat-utils";
-import type { ProductVersionGroup } from "@/lib/design-images";
+import type { DesignImage, ProductVersionGroup } from "@/lib/design-images";
 
 export function MobileGalleryDrawer({
   open,

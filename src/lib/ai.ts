@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { ChatMessage } from "./db/schema";
-import type { DesignImage } from "./chat-utils";
+import type { DesignImage } from "./design-images";
 
 const anthropic = new Anthropic();
 
@@ -103,13 +103,23 @@ function buildMessages(
 ) {
   const galleryContext = buildImageGalleryContext(images);
 
-  const raw = chatHistory.map((msg) => ({
-    role: msg.role as "user" | "assistant",
-    content:
-      msg.role === "assistant" && msg.fluxPrompt
-        ? `${msg.content}\n\nPrompt used: ${msg.fluxPrompt}`
+  // Resolve flux prompt for assistant messages via image_id →
+  // design_image.prompt (carried on DesignImage entries from
+  // getDesignImagesForAIContext).
+  const promptByImageId = new Map(images.map((img) => [img.id, img.prompt]));
+
+  const raw = chatHistory.map((msg) => {
+    const fluxPrompt =
+      msg.role === "assistant" && msg.imageId
+        ? promptByImageId.get(msg.imageId)
+        : null;
+    return {
+      role: msg.role as "user" | "assistant",
+      content: fluxPrompt
+        ? `${msg.content}\n\nPrompt used: ${fluxPrompt}`
         : msg.content,
-  }));
+    };
+  });
 
   if (userMessage) {
     raw.push({ role: "user" as const, content: userMessage });

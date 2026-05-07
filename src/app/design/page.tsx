@@ -9,13 +9,13 @@ import {
   selectImage,
   deleteDesignImage,
   getDesign,
+  getDesignChat,
   getDesignGallery,
   approveDesign,
   uploadReferenceImage,
 } from "./actions";
 import type { ChatMessage } from "@/lib/db/schema";
-import type { DesignImage } from "@/lib/chat-utils";
-import type { ProductVersionGroup } from "@/lib/design-images";
+import type { DesignImage, ProductVersionGroup } from "@/lib/design-images";
 import { ChatPanel } from "./chat-panel";
 import { ImageGallery } from "./image-gallery";
 import { ImageLightbox } from "./image-lightbox";
@@ -60,32 +60,43 @@ function DesignPageInner() {
   const id = searchParams.get("id");
   useEffect(() => {
     if (!id) return;
-    getDesign(id).then((design) => {
+    Promise.all([getDesign(id), getDesignChat(id)]).then(([design, chat]) => {
       if (!design) return;
-      const history = (design.chatHistory as ChatMessage[]) ?? [];
-      setMessages(history);
+      setMessages(chat);
       setSelectedImage(design.displayImageUrl);
     });
     refreshGallery();
   }, [id, refreshGallery]);
 
+  function makeOptimisticMessage(
+    role: "user" | "assistant",
+    content: string,
+    imageId: string | null = null
+  ): ChatMessage {
+    return {
+      id: `optimistic-${crypto.randomUUID()}`,
+      designId: designId.current,
+      role,
+      content,
+      imageId,
+      createdAt: new Date(),
+    };
+  }
+
   async function handleSend(userMessage: string) {
     setLoading(true);
-    setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
+    setMessages((prev) => [...prev, makeOptimisticMessage("user", userMessage)]);
 
     try {
       const result = await sendChatMessage(designId.current, userMessage);
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: result.message },
+        makeOptimisticMessage("assistant", result.message),
       ]);
     } catch {
       setMessages((prev) => [
         ...prev,
-        {
-          role: "assistant",
-          content: "Something went wrong. Try again?",
-        },
+        makeOptimisticMessage("assistant", "Something went wrong. Try again?"),
       ]);
     } finally {
       setLoading(false);
@@ -95,19 +106,14 @@ function DesignPageInner() {
   async function handleGenerate(userMessage?: string) {
     setGenerating(true);
     if (userMessage) {
-      setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
+      setMessages((prev) => [...prev, makeOptimisticMessage("user", userMessage)]);
     }
 
     try {
       const result = await generateDesign(designId.current, userMessage);
       setMessages((prev) => [
         ...prev,
-        {
-          role: "assistant",
-          content: result.message,
-          imageUrl: result.imageUrl,
-          generationNumber: result.generationNumber,
-        },
+        makeOptimisticMessage("assistant", result.message, result.imageId),
       ]);
       setSelectedImage(result.imageUrl);
       await refreshGallery();
@@ -118,10 +124,7 @@ function DesignPageInner() {
     } catch {
       setMessages((prev) => [
         ...prev,
-        {
-          role: "assistant",
-          content: "Image generation failed. Try again?",
-        },
+        makeOptimisticMessage("assistant", "Image generation failed. Try again?"),
       ]);
     } finally {
       setGenerating(false);
@@ -156,7 +159,7 @@ function DesignPageInner() {
     setLoading(true);
     setMessages((prev) => [
       ...prev,
-      { role: "user", content: `Uploaded reference image: ${fileName}` },
+      makeOptimisticMessage("user", `Uploaded reference image: ${fileName}`),
     ]);
 
     try {
@@ -165,19 +168,21 @@ function DesignPageInner() {
         base64,
         fileName
       );
-      // Update the last user message with the image URL
+      // Update the last user message with the image id and refresh
+      // gallery so the new design_image row is visible.
       setMessages((prev) => {
         const updated = [...prev];
         const lastIdx = updated.length - 1;
         if (updated[lastIdx]?.role === "user") {
-          updated[lastIdx] = { ...updated[lastIdx], imageUrl: result.imageUrl };
+          updated[lastIdx] = { ...updated[lastIdx], imageId: result.imageId };
         }
         return updated;
       });
+      await refreshGallery();
     } catch {
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: "Image upload failed. Try again?" },
+        makeOptimisticMessage("assistant", "Image upload failed. Try again?"),
       ]);
     } finally {
       setLoading(false);
@@ -223,6 +228,7 @@ function DesignPageInner() {
       <div className="flex-1 flex overflow-hidden">
         <ChatPanel
           messages={messages}
+          images={images}
           loading={loading}
           generating={generating}
           onSend={handleSend}

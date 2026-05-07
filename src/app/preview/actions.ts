@@ -4,7 +4,7 @@ import { headers } from "next/headers";
 import { after } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { design as designTable, type ChatMessage } from "@/lib/db/schema";
+import { design as designTable } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { createMockupTask, pollMockupTask } from "@/lib/printful";
 import {
@@ -174,16 +174,10 @@ export async function getOrCreatePlacementRender(
     return cached;
   }
 
-  // Generate anchored on primary. Pull the prompt from primary.prompt,
-  // fall back to the most recent assistant fluxPrompt in chat history.
-  let prompt = primary.prompt ?? null;
-  if (!prompt) {
-    const chatHistory = (found.chatHistory as ChatMessage[]) ?? [];
-    prompt =
-      [...chatHistory]
-        .reverse()
-        .find((m) => m.role === "assistant" && m.fluxPrompt)?.fluxPrompt ?? null;
-  }
+  // Generate anchored on primary. Prompt comes from primary.prompt.
+  // Every chat-driven generation writes its fluxPrompt to design_image,
+  // so this is the canonical source.
+  const prompt = primary.prompt ?? null;
   if (!prompt) {
     throw new Error("No generation prompt available to re-render");
   }

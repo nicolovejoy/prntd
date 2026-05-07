@@ -20,10 +20,9 @@ async function main() {
     SELECT
       id,
       status,
-      current_image_url IS NOT NULL AS has_url,
       primary_image_id IS NOT NULL AS has_primary,
       generation_count,
-      json_array_length(COALESCE(chat_history, '[]')) AS chat_len,
+      json_array_length(COALESCE(chat_history, '[]')) AS legacy_chat_len,
       datetime(created_at / 1000, 'unixepoch') AS created,
       datetime(updated_at / 1000, 'unixepoch') AS updated
     FROM design WHERE id = ${id}
@@ -36,6 +35,13 @@ async function main() {
   `);
   console.log(`design_image rows: ${imgs.rows.length}`);
   for (const row of imgs.rows) console.log(row);
+
+  const msgs = await db.run(sql`
+    SELECT id, role, substr(content, 1, 60) AS preview, image_id, datetime(created_at / 1000, 'unixepoch') AS created
+    FROM chat_message WHERE design_id = ${id} ORDER BY created_at
+  `);
+  console.log(`chat_message rows: ${msgs.rows.length}`);
+  for (const row of msgs.rows) console.log(row);
 }
 
 main().catch((err) => {

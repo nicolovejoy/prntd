@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ChatMessage } from "../db/schema";
-import type { DesignImage } from "../chat-utils";
+import type { DesignImage } from "../design-images";
 
 // Mock the Anthropic SDK before importing
 vi.mock("@anthropic-ai/sdk", () => {
@@ -17,6 +17,21 @@ vi.mock("@anthropic-ai/sdk", () => {
 async function getMockCreate() {
   const mod = await import("@anthropic-ai/sdk") as any;
   return mod._mockCreate as ReturnType<typeof vi.fn>;
+}
+
+function msg(
+  role: "user" | "assistant",
+  content: string,
+  imageId: string | null = null
+): ChatMessage {
+  return {
+    id: `test-${role}-${Math.random().toString(36).slice(2, 8)}`,
+    designId: "test-design",
+    role,
+    content,
+    imageId,
+    createdAt: new Date(),
+  };
 }
 
 describe("chatAboutDesign", () => {
@@ -49,8 +64,8 @@ describe("chatAboutDesign", () => {
     });
 
     const history: ChatMessage[] = [
-      { role: "user", content: "first" },
-      { role: "user", content: "second" },
+      msg("user", "first"),
+      msg("user", "second"),
     ];
 
     const { chatAboutDesign } = await import("../ai");
@@ -153,7 +168,7 @@ describe("constructFluxPrompt", () => {
 
     const { constructFluxPrompt } = await import("../ai");
     const result = await constructFluxPrompt(
-      [{ role: "user", content: "A sunset" }],
+      [msg("user", "A sunset")],
       []
     );
 
@@ -173,7 +188,7 @@ describe("constructFluxPrompt", () => {
 
     const { constructFluxPrompt } = await import("../ai");
     const result = await constructFluxPrompt(
-      [{ role: "user", content: "anything" }],
+      [msg("user", "anything")],
       []
     );
 
@@ -189,7 +204,7 @@ describe("constructFluxPrompt", () => {
 
     const { constructFluxPrompt } = await import("../ai");
     const result = await constructFluxPrompt(
-      [{ role: "user", content: "anything" }],
+      [msg("user", "anything")],
       []
     );
 
@@ -207,7 +222,7 @@ describe("constructFluxPrompt", () => {
 
     const { constructFluxPrompt } = await import("../ai");
     const result = await constructFluxPrompt(
-      [{ role: "user", content: "anything" }],
+      [msg("user", "anything")],
       []
     );
 
@@ -229,12 +244,12 @@ describe("constructFluxPrompt", () => {
     });
 
     const images: DesignImage[] = [
-      { number: 1, url: "https://example.com/1.png", prompt: "sunset" },
+      { id: "img-1", number: 1, url: "https://example.com/1.png", prompt: "sunset" },
     ];
 
     const { constructFluxPrompt } = await import("../ai");
     const result = await constructFluxPrompt(
-      [{ role: "user", content: "make it brighter" }],
+      [msg("user", "make it brighter")],
       images
     );
 
@@ -261,7 +276,7 @@ describe("constructFluxPrompt", () => {
 
     const { constructFluxPrompt } = await import("../ai");
     const result = await constructFluxPrompt(
-      [{ role: "user", content: "Hand-painted thought bubble" }],
+      [msg("user", "Hand-painted thought bubble")],
       []
     );
 
@@ -284,7 +299,7 @@ describe("constructFluxPrompt", () => {
 
     const { constructFluxPrompt } = await import("../ai");
     const result = await constructFluxPrompt(
-      [{ role: "user", content: "anything" }],
+      [msg("user", "anything")],
       []
     );
 
@@ -307,7 +322,7 @@ describe("constructFluxPrompt", () => {
 
     const { constructFluxPrompt } = await import("../ai");
     const result = await constructFluxPrompt(
-      [{ role: "user", content: "anything" }],
+      [msg("user", "anything")],
       []
     );
 
