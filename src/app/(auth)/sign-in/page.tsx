@@ -1,13 +1,22 @@
 "use client";
 
 import { authClient } from "@/lib/auth-client";
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button, Input } from "@/components/ui";
 
 export default function SignInPage() {
+  return (
+    <Suspense>
+      <SignInForm />
+    </Suspense>
+  );
+}
+
+function SignInForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -28,7 +37,13 @@ export default function SignInPage() {
       return;
     }
 
-    router.push("/designs");
+    // Honor ?next= for post-sign-in redirects. Restricted to same-origin
+    // paths to prevent open-redirect.
+    const next = searchParams.get("next");
+    const safeNext = next && next.startsWith("/") && !next.startsWith("//")
+      ? next
+      : "/designs";
+    router.push(safeNext);
   }
 
   return (

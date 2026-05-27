@@ -56,6 +56,12 @@ export const design = sqliteTable("design", {
   generationCount: integer("generation_count").notNull().default(0),
   generationCost: real("generation_cost").notNull().default(0),
   mockupUrls: text("mockup_urls", { mode: "json" }).$type<Record<string, string>>(),
+  // Fork lineage. forked_from_image_id records which published image
+  // seeded this thread (null on original threads). original_designer_id
+  // is the user at the root of the attribution chain — denormalized so
+  // attribution lookups don't have to walk the chain.
+  originalDesignerId: text("original_designer_id"),
+  forkedFromImageId: text("forked_from_image_id"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
@@ -85,6 +91,15 @@ export const designImage = sqliteTable("design_image", {
   prompt: text("prompt"),
   generationCost: real("generation_cost").notNull().default(0),
   isApproved: integer("is_approved", { mode: "boolean" }).notNull().default(false),
+  // Publish model. published_at is set once on first publish; non-null
+  // implies the image is in the discover feed and the row is immortal
+  // (deleteDesignImage refuses). is_hidden is admin moderation —
+  // excludes from feed but leaves the row intact. title + description
+  // are the public listing; AI-proposed on publish, owner-editable.
+  publishedAt: integer("published_at", { mode: "timestamp" }),
+  isHidden: integer("is_hidden", { mode: "boolean" }).notNull().default(false),
+  title: text("title"),
+  description: text("description"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
 

@@ -20,6 +20,7 @@ import {
   getDesignPlacementRenders,
   deleteDesignImageRow,
   getDesignDisplayImageUrl,
+  getDesignImageById,
   getDesignMessages,
   insertChatMessage,
   getDesignImagesForAIContext,
@@ -28,6 +29,7 @@ import {
 } from "@/lib/design-images";
 import { prefetchProductMockups } from "@/app/preview/actions";
 import { DEFAULT_PRODUCT_ID } from "@/lib/products";
+import { assertNotLocked } from "@/lib/design-publish";
 import type { ChatMessage } from "@/lib/db/schema";
 
 const COST_PER_GENERATION = 0.03;
@@ -266,6 +268,9 @@ export async function deleteDesignImage(designId: string, imageId: string) {
   });
   if (!found || found.userId !== session.user.id)
     throw new Error("Unauthorized");
+
+  const image = await getDesignImageById(imageId);
+  if (image) assertNotLocked(image);
 
   // Refuse if any order placement references this image — deleting
   // would leave the order's thumbnail broken on /orders and /admin.

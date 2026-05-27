@@ -11,6 +11,7 @@ export function ImageLightbox({
   onNavigate,
   onDelete,
   onMakeProducts,
+  onPublish,
 }: {
   images: DesignImage[];
   currentIndex: number;
@@ -18,7 +19,9 @@ export function ImageLightbox({
   onNavigate: (index: number) => void;
   onDelete: (imageId: string) => void;
   onMakeProducts: (imageUrl: string) => void;
+  onPublish: (imageId: string) => void | Promise<void>;
 }) {
+  const [publishing, setPublishing] = useState(false);
   const image = images[currentIndex];
   const [sideBySide, setSideBySide] = useState(true);
 
@@ -131,14 +134,48 @@ export function ImageLightbox({
         </div>
 
         {/* Actions */}
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3 justify-center">
           <Button onClick={() => onMakeProducts(image.url)}>
             Make Products
           </Button>
+          {image.publishedAt ? (
+            <span className="self-center text-sm text-text-faint">
+              Published ·{" "}
+              <a
+                href={`/d/${image.id}`}
+                target="_blank"
+                rel="noreferrer"
+                className="underline hover:text-text-muted"
+              >
+                view
+              </a>
+            </span>
+          ) : (
+            <Button
+              variant="secondary"
+              disabled={!image.id || publishing}
+              onClick={async () => {
+                if (!image.id) return;
+                setPublishing(true);
+                try {
+                  await onPublish(image.id);
+                } finally {
+                  setPublishing(false);
+                }
+              }}
+            >
+              {publishing ? "Publishing…" : "Publish"}
+            </Button>
+          )}
           <Button
             variant="danger"
             onClick={() => image.id && onDelete(image.id)}
-            disabled={!image.id}
+            disabled={!image.id || Boolean(image.publishedAt)}
+            title={
+              image.publishedAt
+                ? "Published images cannot be deleted."
+                : undefined
+            }
           >
             Delete
           </Button>

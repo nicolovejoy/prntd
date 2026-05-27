@@ -1,8 +1,11 @@
 import Link from "next/link";
 import { HomeHero } from "@/components/home-hero";
 import { getUserDesigns } from "./designs/actions";
+import { getDiscoverFeed } from "./d/actions";
 
-export default function Home() {
+export default async function Home() {
+  const discover = await getDiscoverFeed(24);
+
   return (
     <div className="min-h-screen flex flex-col">
       <HomeHero getRecentDesigns={getUserDesigns} />
@@ -46,6 +49,42 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      {discover.length > 0 && (
+        <section className="py-16 px-4 border-t border-border">
+          <div className="max-w-6xl mx-auto">
+            <h2 className="text-2xl font-bold text-center mb-8">
+              Recent designs
+            </h2>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+              {discover.map((img) => (
+                <Link
+                  key={img.imageId}
+                  href={`/d/${img.imageId}`}
+                  className="group block"
+                >
+                  <div className="aspect-square bg-surface rounded-md overflow-hidden border border-border group-hover:border-accent transition-colors">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={img.imageUrl}
+                      alt={img.title ?? "Design"}
+                      className="w-full h-full object-contain"
+                    />
+                  </div>
+                  {img.title && (
+                    <p className="mt-2 text-sm font-medium truncate">
+                      {img.title}
+                    </p>
+                  )}
+                  <p className="text-xs text-text-muted truncate">
+                    by {img.designerName}
+                  </p>
+                </Link>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
 
       <section className="py-16 px-4 bg-surface">
         <div className="max-w-2xl mx-auto text-center space-y-4">

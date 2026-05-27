@@ -14,6 +14,7 @@ import {
   approveDesign,
   uploadReferenceImage,
 } from "./actions";
+import { publishImage } from "../designs/actions";
 import type { ChatMessage } from "@/lib/db/schema";
 import type { DesignImage, ProductVersionGroup } from "@/lib/design-images";
 import { ChatPanel } from "./chat-panel";
@@ -51,6 +52,7 @@ function DesignPageInner() {
         number: i + 1,
         url: s.imageUrl,
         prompt: "",
+        publishedAt: s.publishedAt,
       }))
     );
     setProductGroups(productGroups);
@@ -153,6 +155,17 @@ function DesignPageInner() {
     if (deleted && selectedImage === deleted.url) {
       setSelectedImage(null);
     }
+  }
+
+  async function handlePublishImage(imageId: string) {
+    try {
+      await publishImage(imageId);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Publish failed";
+      window.alert(msg);
+      return;
+    }
+    await refreshGallery();
   }
 
   async function handleUploadImage(base64: string, fileName: string) {
@@ -284,6 +297,7 @@ function DesignPageInner() {
           onNavigate={setLightboxIndex}
           onDelete={handleDeleteImage}
           onMakeProducts={handleMakeProductsForImage}
+          onPublish={handlePublishImage}
         />
       )}
     </div>

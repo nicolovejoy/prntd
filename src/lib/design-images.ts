@@ -13,6 +13,7 @@ export type DesignImage = {
   number: number;
   url: string;
   prompt: string;
+  publishedAt: Date | null;
 };
 
 /**
@@ -64,6 +65,7 @@ export async function getDesignImagesForAIContext(
     number: i + 1,
     url: s.imageUrl,
     prompt: s.prompt ?? "",
+    publishedAt: s.publishedAt,
   }));
 }
 
@@ -153,6 +155,7 @@ export async function getDesignImageById(
   imageUrl: string;
   aspectRatio: AspectRatio;
   prompt: string | null;
+  publishedAt: Date | null;
 } | null> {
   const rows = await db
     .select({
@@ -161,6 +164,7 @@ export async function getDesignImageById(
       imageUrl: designImageTable.imageUrl,
       aspectRatio: designImageTable.aspectRatio,
       prompt: designImageTable.prompt,
+      publishedAt: designImageTable.publishedAt,
     })
     .from(designImageTable)
     .where(eq(designImageTable.id, id))
@@ -172,6 +176,7 @@ export async function getDesignImageById(
     imageUrl: rows[0].imageUrl,
     aspectRatio: rows[0].aspectRatio as AspectRatio,
     prompt: rows[0].prompt,
+    publishedAt: rows[0].publishedAt,
   };
 }
 
@@ -243,6 +248,7 @@ export type SourceImage = {
   aspectRatio: AspectRatio;
   prompt: string | null;
   createdAt: Date;
+  publishedAt: Date | null;
 };
 
 /**
@@ -260,6 +266,7 @@ export async function getDesignSourceImages(
       aspectRatio: designImageTable.aspectRatio,
       prompt: designImageTable.prompt,
       createdAt: designImageTable.createdAt,
+      publishedAt: designImageTable.publishedAt,
     })
     .from(designImageTable)
     .where(
@@ -276,6 +283,7 @@ export async function getDesignSourceImages(
     aspectRatio: r.aspectRatio as AspectRatio,
     prompt: r.prompt,
     createdAt: r.createdAt,
+    publishedAt: r.publishedAt,
   }));
 }
 

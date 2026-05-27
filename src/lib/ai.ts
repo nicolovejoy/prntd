@@ -204,6 +204,63 @@ export async function generateOrderName(imageUrl: string): Promise<string | null
   }
 }
 
+const PUBLISH_NAMING_SYSTEM_PROMPT = `You write public listings for t-shirt designs being shared in a discover feed. Look at the image and the prompt that generated it, then return raw JSON (no markdown, no code fences):
+{
+  "title": "Short, 2-5 words, Title Case, no quotes, no trailing period. If the design has prominent text, you may use that text verbatim.",
+  "description": "One to two plain sentences (max ~30 words total) explaining what the design depicts and its style. Human-readable, not a prompt. No filler, no hype, no 'this design features'. Just describe it."
+}
+
+The audience is other people browsing for design inspiration. Keep the description concrete (what is in the image, what style) — not aspirational marketing copy.`;
+
+export async function generatePublishedNaming(
+  imageUrl: string,
+  prompt: string | null
+): Promise<{ title: string; description: string }> {
+  const fallback = {
+    title: "Untitled Design",
+    description: prompt ?? "A t-shirt design.",
+  };
+  try {
+    const response = await anthropic.messages.create({
+      model: "claude-sonnet-4-6",
+      max_tokens: 256,
+      system: PUBLISH_NAMING_SYSTEM_PROMPT,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "image", source: { type: "url", url: imageUrl } },
+            {
+              type: "text",
+              text: prompt
+                ? `Prompt used to generate this image:\n${prompt}\n\nWrite the listing.`
+                : "Write the listing.",
+            },
+          ],
+        },
+      ],
+    });
+
+    let text =
+      response.content?.[0]?.type === "text" ? response.content[0].text : "";
+    text = text.replace(/^```(?:json)?\s*\n?/m, "").replace(/\n?```\s*$/m, "").trim();
+
+    const parsed = JSON.parse(text);
+    const title =
+      typeof parsed.title === "string" && parsed.title.trim()
+        ? parsed.title.trim().slice(0, 80)
+        : fallback.title;
+    const description =
+      typeof parsed.description === "string" && parsed.description.trim()
+        ? parsed.description.trim().slice(0, 400)
+        : fallback.description;
+    return { title, description };
+  } catch (err) {
+    console.error("generatePublishedNaming failed:", err);
+    return fallback;
+  }
+}
+
 export async function constructFluxPrompt(
   chatHistory: ChatMessage[],
   images: DesignImage[],
