@@ -138,6 +138,10 @@ See `docs/next-phase.md` for the full Phase 1/2/3 plan. Top items:
 - DESC/charity work paused as of 2026-05-06. Chain (DESC permission → entity confirmation → #4 ledger infra → first disbursement → #5 homepage re-org) still applies if/when it restarts.
 - #10 ~~Order list thumbnails on shirt color~~ — shipped May 1. iPhone case was discontinued 2026-05-26 (soft-discontinue: `discontinued: true` on `clear-case-iphone`, picker uses `ACTIVE_PRODUCTS`; historical orders still resolve via `getProduct()`).
 
+**Recently shipped — 2026-05-27**
+
+- **Image-level publish + fork model** (Phases 0–3). `design_image` owns `published_at` (one-way lock, undeletable once published), `is_hidden` (admin moderation), `title`, `description` (AI-generated via `generatePublishedNaming`, owner-editable via `updatePublishedNaming`). Landing-page "Recent designs" grid pulls from `getDiscoverFeed`. Public `/d/[imageId]` page shows image + title + description + designer + "Forked from …" attribution. `forkImage()` copies the seed R2 object into a new design under the forker (each design owns its own R2 keys), records `forked_from_image_id` + denormalized `original_designer_id`. `canFork` helper unit-tested (self-fork bypasses hidden; non-owners need published + not hidden). Sign-in honors `?next=`.
+
 **Recently shipped — 2026-05-05/06**
 
 - **Data model rework Steps 0–5b**: `design.primary_image_id` is now the source of truth, `currentImageUrl` column dropped from Turso. `/preview` is a pure function of (designId, productId), placement renders live in `design_image` rows with provenance, mockup cache resolves via primary. Plan: `~/.claude/plans/i-want-you-to-concurrent-fountain.md`.
@@ -156,9 +160,11 @@ See `docs/next-phase.md` for the full Phase 1/2/3 plan. Top items:
 
 - Designs should default to colors that read on both light and dark shirts unless the user explicitly asks for "black lettering" / "white text". System prompt update queued; not yet shipped. After that, build the style-reference image library (#8 follow-up).
 
-**Design fork model (#2 remainder)**
+**Design fork model — Phase 4 (admin moderation + chain display)**
 
-- `parent_design_id` schema + `forkDesign()` action + read-only past-thread view + "Make another like this" button. Required scaffolding before #6 marketplace.
+- Admin UI to flip `design_image.is_hidden` (today only settable via direct SQL). Probably on `/admin` — list of recent published, button to hide.
+- Show the full attribution chain on `/d/[imageId]` instead of just immediate parent (walk `forked_from_image_id` up). Today's "Forked from X by Y" is one hop.
+- Phase 5 deferred: self-fork button on `/designs` for "start a new conversation from one of my own designs." Plumbing already in place via `forkImage`; just needs UI.
 
 **Discount codes (remaining)**
 
