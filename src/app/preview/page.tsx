@@ -13,7 +13,7 @@ import { Button } from "@/components/ui";
 import {
   getProduct,
   DEFAULT_PRODUCT_ID,
-  PRODUCTS,
+  ACTIVE_PRODUCTS,
   type AspectRatio,
 } from "@/lib/products";
 import { ProductSilhouette } from "./product-silhouette";
@@ -289,7 +289,7 @@ function PreviewPageInner() {
 
       {/* Product selector */}
       <div className="flex gap-2 md:gap-3 mb-4 md:mb-6 w-full max-w-md justify-center">
-        {PRODUCTS.map((p) => (
+        {ACTIVE_PRODUCTS.map((p) => (
           <button
             key={p.id}
             onClick={() => handleProductChange(p.id)}

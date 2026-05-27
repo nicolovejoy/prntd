@@ -59,6 +59,12 @@ export type Product = {
   name: string;
   description: string;
   type: "shirt" | "phone-case";
+  /**
+   * Hidden from the customer-facing product picker. Historical orders and
+   * design_image rows pinned to this product still resolve via getProduct()
+   * so admin pages render correctly.
+   */
+  discontinued?: boolean;
   printfulProductId: number;
   /** Base cost by size. Use "*" as default for all sizes. */
   baseCost: Record<string, number>;
@@ -294,6 +300,7 @@ export const PRODUCTS: Product[] = [
     name: "Clear iPhone Case",
     description: "Clear snap-on case, glossy finish",
     type: "phone-case",
+    discontinued: true,
     printfulProductId: 181,
     sizeLabel: "Model",
     baseCost: {
@@ -340,6 +347,9 @@ export const PRODUCTS: Product[] = [
 ];
 
 export const DEFAULT_PRODUCT_ID = "bella-canvas-3001";
+
+/** Customer-facing catalog — excludes discontinued products. */
+export const ACTIVE_PRODUCTS: Product[] = PRODUCTS.filter((p) => !p.discontinued);
 
 export function getProduct(id: string): Product | undefined {
   return PRODUCTS.find((p) => p.id === id);

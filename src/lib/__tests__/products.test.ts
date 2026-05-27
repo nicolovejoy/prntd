@@ -7,6 +7,7 @@ import {
   getDefaultPlacement,
   needsAspectRegeneration,
   PRODUCTS,
+  ACTIVE_PRODUCTS,
   DEFAULT_PRODUCT_ID,
 } from "../products";
 
@@ -116,6 +117,19 @@ describe("PRODUCTS", () => {
       expect(front.mockupPosition).toEqual(p.mockupPosition);
       expect(front.printArea).toEqual(p.printArea);
     }
+  });
+});
+
+describe("ACTIVE_PRODUCTS", () => {
+  it("excludes discontinued products", () => {
+    expect(ACTIVE_PRODUCTS.every((p) => !p.discontinued)).toBe(true);
+    expect(ACTIVE_PRODUCTS.find((p) => p.id === "clear-case-iphone")).toBeUndefined();
+  });
+
+  it("still resolves discontinued products via getProduct (historical orders)", () => {
+    const p = getProduct("clear-case-iphone");
+    expect(p).toBeDefined();
+    expect(p!.discontinued).toBe(true);
   });
 });
 

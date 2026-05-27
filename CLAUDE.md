@@ -136,7 +136,7 @@ See `docs/next-phase.md` for the full Phase 1/2/3 plan. Top items:
 **Phase 1 — public-facing readiness (on hold)**
 
 - DESC/charity work paused as of 2026-05-06. Chain (DESC permission → entity confirmation → #4 ledger infra → first disbursement → #5 homepage re-org) still applies if/when it restarts.
-- #10 ~~Order list thumbnails on shirt color~~ — shipped May 1; iPhone case "Clear" still renders on white, follow-up to special-case `type === "phone-case"`. discuss this with user
+- #10 ~~Order list thumbnails on shirt color~~ — shipped May 1. iPhone case was discontinued 2026-05-26 (soft-discontinue: `discontinued: true` on `clear-case-iphone`, picker uses `ACTIVE_PRODUCTS`; historical orders still resolve via `getProduct()`).
 
 **Recently shipped — 2026-05-05/06**
 
