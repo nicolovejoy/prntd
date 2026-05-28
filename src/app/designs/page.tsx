@@ -1,8 +1,15 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { getUserDesigns, deleteDesign, archiveDesign } from "./actions";
+import {
+  getUserDesigns,
+  deleteDesign,
+  archiveDesign,
+  publishImage,
+} from "./actions";
+import { forkImage } from "../d/actions";
 import { Badge, Button } from "@/components/ui";
 
 type Design = Awaited<ReturnType<typeof getUserDesigns>>[number];
@@ -25,8 +32,10 @@ function timeAgo(date: Date) {
 }
 
 export default function DesignsPage() {
+  const router = useRouter();
   const [designs, setDesigns] = useState<Design[]>([]);
   const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState<string | null>(null);
 
   useEffect(() => {
     getUserDesigns()
@@ -43,6 +52,30 @@ export default function DesignsPage() {
   async function handleArchive(id: string) {
     await archiveDesign(id);
     setDesigns((prev) => prev.filter((d) => d.id !== id));
+  }
+
+  async function handlePublish(designId: string, imageId: string) {
+    setBusy(designId);
+    try {
+      await publishImage(imageId);
+      const fresh = await getUserDesigns();
+      setDesigns(fresh);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleFork(designId: string, imageId: string) {
+    setBusy(designId);
+    try {
+      const newId = await forkImage(imageId);
+      router.push(`/design?id=${newId}`);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : String(err));
+      setBusy(null);
+    }
   }
 
   return (
@@ -117,6 +150,39 @@ export default function DesignsPage() {
                       </Button>
                     )}
                   </div>
+                  {design.primaryImageId && (
+                    <div className="flex items-center gap-2 pt-1 border-t border-border">
+                      {design.primaryImagePublishedAt ? (
+                        <Link
+                          href={`/d/${design.primaryImageId}`}
+                          className="text-xs text-text-muted underline hover:no-underline"
+                        >
+                          Published →
+                        </Link>
+                      ) : (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          disabled={busy === design.id}
+                          onClick={() =>
+                            handlePublish(design.id, design.primaryImageId!)
+                          }
+                        >
+                          {busy === design.id ? "Publishing…" : "Publish"}
+                        </Button>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={busy === design.id}
+                        onClick={() =>
+                          handleFork(design.id, design.primaryImageId!)
+                        }
+                      >
+                        Fork
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}

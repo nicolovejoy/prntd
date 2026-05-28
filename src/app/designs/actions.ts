@@ -8,7 +8,7 @@ import {
   designImage as designImageTable,
   order as orderTable,
 } from "@/lib/db/schema";
-import { eq, desc, and, not, count } from "drizzle-orm";
+import { eq, desc, and, not, count, inArray } from "drizzle-orm";
 import { resolveDesignDisplayImageUrls } from "@/lib/design-images";
 import { generatePublishedNaming } from "@/lib/ai";
 
@@ -26,6 +26,7 @@ export async function getUserDesigns() {
       id: true,
       status: true,
       generationCount: true,
+      primaryImageId: true,
       createdAt: true,
       updatedAt: true,
     },
@@ -35,9 +36,30 @@ export async function getUserDesigns() {
     designs.map((d) => d.id)
   );
 
+  // Look up publish state for each primary image so the cards can
+  // show Publish vs Published correctly.
+  const primaryIds = designs
+    .map((d) => d.primaryImageId)
+    .filter((id): id is string => id !== null);
+  const primaryRows = primaryIds.length
+    ? await db
+        .select({
+          id: designImageTable.id,
+          publishedAt: designImageTable.publishedAt,
+        })
+        .from(designImageTable)
+        .where(inArray(designImageTable.id, primaryIds))
+    : [];
+  const publishedAtById = new Map(
+    primaryRows.map((r) => [r.id, r.publishedAt])
+  );
+
   return designs.map((d) => ({
     ...d,
     imageUrl: imageUrls.get(d.id) ?? null,
+    primaryImagePublishedAt: d.primaryImageId
+      ? publishedAtById.get(d.primaryImageId) ?? null
+      : null,
   }));
 }
 
