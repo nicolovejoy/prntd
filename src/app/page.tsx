@@ -3,6 +3,8 @@ import { HomeHero } from "@/components/home-hero";
 import { getUserDesigns } from "./designs/actions";
 import { getDiscoverFeed } from "./d/actions";
 
+export const dynamic = "force-dynamic";
+
 export default async function Home() {
   const discover = await getDiscoverFeed(24);
 
