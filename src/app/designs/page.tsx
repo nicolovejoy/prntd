@@ -35,11 +35,15 @@ export default function DesignsPage() {
   const router = useRouter();
   const [designs, setDesigns] = useState<Design[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
   useEffect(() => {
     getUserDesigns()
       .then(setDesigns)
+      .catch((err) =>
+        setLoadError(err instanceof Error ? err.message : String(err))
+      )
       .finally(() => setLoading(false));
   }, []);
 
@@ -90,6 +94,11 @@ export default function DesignsPage() {
 
         {loading ? (
           <p className="text-gray-500">Loading...</p>
+        ) : loadError ? (
+          <div className="text-center py-16 space-y-2">
+            <p className="text-red-400 font-medium">Failed to load designs.</p>
+            <p className="text-xs text-text-muted font-mono">{loadError}</p>
+          </div>
         ) : designs.length === 0 ? (
           <div className="text-center py-16 space-y-4">
             <p className="text-gray-500 text-lg">No designs yet.</p>

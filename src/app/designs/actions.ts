@@ -37,22 +37,27 @@ export async function getUserDesigns() {
   );
 
   // Look up publish state for each primary image so the cards can
-  // show Publish vs Published correctly.
+  // show Publish vs Published correctly. Best-effort: if this query
+  // fails the cards just hide the publish badge — the design list
+  // itself must still render.
   const primaryIds = designs
     .map((d) => d.primaryImageId)
     .filter((id): id is string => id !== null);
-  const primaryRows = primaryIds.length
-    ? await db
+  let publishedAtById = new Map<string, Date | null>();
+  if (primaryIds.length) {
+    try {
+      const primaryRows = await db
         .select({
           id: designImageTable.id,
           publishedAt: designImageTable.publishedAt,
         })
         .from(designImageTable)
-        .where(inArray(designImageTable.id, primaryIds))
-    : [];
-  const publishedAtById = new Map(
-    primaryRows.map((r) => [r.id, r.publishedAt])
-  );
+        .where(inArray(designImageTable.id, primaryIds));
+      publishedAtById = new Map(primaryRows.map((r) => [r.id, r.publishedAt]));
+    } catch (err) {
+      console.error("getUserDesigns: publish-state lookup failed", err);
+    }
+  }
 
   return designs.map((d) => ({
     ...d,
