@@ -49,6 +49,7 @@ export default function OrdersPage() {
     () => orders.filter((o) => o.status === "canceled" || o.archivedAt).length,
     [orders]
   );
+  const activeCount = orders.length - canceledCount;
 
   const filtered = useMemo(() => {
     if (filter === "all") return orders;
@@ -78,10 +79,10 @@ export default function OrdersPage() {
                 className={`${filterBtnBase} ${filter === f ? filterBtnActive : filterBtnInactive}`}
               >
                 {f === "active"
-                  ? "Active"
+                  ? `Active (${activeCount})`
                   : f === "canceled"
                     ? `Canceled (${canceledCount})`
-                    : "All"}
+                    : `All (${orders.length})`}
               </button>
             ))}
           </div>
