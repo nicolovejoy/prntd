@@ -23,6 +23,7 @@ export type PublishedImage = {
   title: string | null;
   description: string | null;
   designerName: string;
+  designerId: string;
   publishedAt: Date;
   /**
    * Walks the lineage from this image's parent up toward the root,
@@ -46,6 +47,7 @@ export async function getDiscoverFeed(limit = 60): Promise<PublishedImage[]> {
       description: designImageTable.description,
       publishedAt: designImageTable.publishedAt,
       designerName: userTable.name,
+      designerId: userTable.id,
     })
     .from(designImageTable)
     .innerJoin(designTable, eq(designTable.id, designImageTable.designId))
@@ -65,6 +67,7 @@ export async function getDiscoverFeed(limit = 60): Promise<PublishedImage[]> {
     title: r.title,
     description: r.description,
     designerName: r.designerName,
+    designerId: r.designerId,
     publishedAt: r.publishedAt!,
     forkChain: [],
   }));
@@ -117,6 +120,7 @@ export async function getPublishedImage(
       publishedAt: designImageTable.publishedAt,
       isHidden: designImageTable.isHidden,
       designerName: userTable.name,
+      designerId: userTable.id,
       forkedFromImageId: designTable.forkedFromImageId,
     })
     .from(designImageTable)
@@ -138,6 +142,7 @@ export async function getPublishedImage(
     title: r.title,
     description: r.description,
     designerName: r.designerName,
+    designerId: r.designerId,
     publishedAt: r.publishedAt,
     forkChain,
   };

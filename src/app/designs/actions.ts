@@ -9,6 +9,7 @@ import {
   order as orderTable,
 } from "@/lib/db/schema";
 import { eq, desc, and, not, count, inArray } from "drizzle-orm";
+import { revalidatePath } from "next/cache";
 import { resolveDesignDisplayImageUrls } from "@/lib/design-images";
 import { generatePublishedNaming } from "@/lib/ai";
 
@@ -204,4 +205,7 @@ export async function updatePublishedNaming(
     .update(designImageTable)
     .set({ title: title.trim(), description: description.trim() })
     .where(eq(designImageTable.id, imageId));
+
+  revalidatePath("/");
+  revalidatePath(`/d/${imageId}`);
 }

@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { getPublishedImage, forkImage } from "../actions";
 import { auth } from "@/lib/auth";
 import { Button } from "@/components/ui";
+import { EditableNaming } from "./editable-naming";
 
 type Params = Promise<{ imageId: string }>;
 
@@ -18,6 +19,7 @@ export default async function PublishedImagePage({
 
   const session = await auth.api.getSession({ headers: await headers() });
   const isLoggedIn = Boolean(session);
+  const isOwner = session?.user.id === img.designerId;
 
   async function handleFork() {
     "use server";
@@ -44,7 +46,7 @@ export default async function PublishedImagePage({
 
       <main className="flex-1 px-4 py-8">
         <div className="max-w-3xl mx-auto space-y-6">
-          <div className="bg-surface rounded-lg overflow-hidden border border-border">
+          <div className="bg-checkerboard rounded-lg overflow-hidden border border-border">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={img.imageUrl}
@@ -54,7 +56,12 @@ export default async function PublishedImagePage({
           </div>
 
           <div className="space-y-2">
-            {img.title && <h1 className="text-2xl font-bold">{img.title}</h1>}
+            <EditableNaming
+              imageId={img.imageId}
+              title={img.title}
+              description={img.description}
+              canEdit={isOwner}
+            />
             <p className="text-sm text-text-muted">by {img.designerName}</p>
             {img.forkChain.length > 0 && (
               <p className="text-sm text-text-faint">
@@ -71,11 +78,6 @@ export default async function PublishedImagePage({
                     by {link.designerName}
                   </span>
                 ))}
-              </p>
-            )}
-            {img.description && (
-              <p className="text-base leading-relaxed pt-2">
-                {img.description}
               </p>
             )}
           </div>

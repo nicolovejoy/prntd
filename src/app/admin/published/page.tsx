@@ -46,7 +46,7 @@ export default async function AdminPublishedPage() {
             >
               <Link
                 href={`/d/${img.imageId}`}
-                className="block aspect-square bg-surface"
+                className="block aspect-square bg-checkerboard"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img

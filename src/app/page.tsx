@@ -65,7 +65,7 @@ export default async function Home() {
                   href={`/d/${img.imageId}`}
                   className="group block"
                 >
-                  <div className="aspect-square bg-surface rounded-md overflow-hidden border border-border group-hover:border-accent transition-colors">
+                  <div className="aspect-square bg-checkerboard rounded-md overflow-hidden border border-border group-hover:border-accent transition-colors">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={img.imageUrl}
