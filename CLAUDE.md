@@ -138,7 +138,15 @@ See `docs/next-phase.md` for the full Phase 1/2/3 plan. Top items:
 - DESC/charity work paused as of 2026-05-06. Chain (DESC permission → entity confirmation → #4 ledger infra → first disbursement → #5 homepage re-org) still applies if/when it restarts.
 - #10 ~~Order list thumbnails on shirt color~~ — shipped May 1. iPhone case was discontinued 2026-05-26 (soft-discontinue: `discontinued: true` on `clear-case-iphone`, picker uses `ACTIVE_PRODUCTS`; historical orders still resolve via `getProduct()`).
 
-**Recently shipped — 2026-05-27**
+**Recently shipped — 2026-05-27 (evening)**
+
+- **Phase 4 admin moderation + full attribution chain**. `/admin/published` grid (last 100) with `setImageHidden` toggle that revalidates `/`, `/d/[imageId]`, and `/admin/published`. `PublishedImage.forkChain` replaces single-hop `forkedFrom` — `buildForkChain` walks `forked_from_image_id` upward, stops at first invisible link, breaks on cycles, capped at depth 10. Pure helper with 8 unit tests.
+- **Publish + Fork buttons on `/designs` cards**. Both delegate to existing `publishImage` / `forkImage` actions. Fork is the Phase 5 self-fork affordance (canFork's owner shortcut handles it).
+- **Orders page tab counts**. Active and All now show counts alongside Canceled.
+- **CI build fix**. Homepage `getDiscoverFeed` was being prerendered against an empty CI sqlite → `export const dynamic = "force-dynamic"`.
+- **Disaster recovery**. `design` + `design_image` tables were wiped at some point before today's session (cause unknown — possibly a destructive `db:push`). 51 orders survived along with R2. `scripts/recover-designs-from-r2.ts` rebuilt 27 design rows + their `design_image` rows by listing R2 keys; lossy (no prompts, no chat history, no publish state, aspect ratio defaults to 1:1). Recovered designs show up in `/designs` and `/orders` again. Consider enabling Turso PITR or branches to avoid relying on R2 next time.
+
+**Recently shipped — 2026-05-27 (morning)**
 
 - **Image-level publish + fork model** (Phases 0–3). `design_image` owns `published_at` (one-way lock, undeletable once published), `is_hidden` (admin moderation), `title`, `description` (AI-generated via `generatePublishedNaming`, owner-editable via `updatePublishedNaming`). Landing-page "Recent designs" grid pulls from `getDiscoverFeed`. Public `/d/[imageId]` page shows image + title + description + designer + "Forked from …" attribution. `forkImage()` copies the seed R2 object into a new design under the forker (each design owns its own R2 keys), records `forked_from_image_id` + denormalized `original_designer_id`. `canFork` helper unit-tested (self-fork bypasses hidden; non-owners need published + not hidden). Sign-in honors `?next=`.
 
@@ -160,11 +168,11 @@ See `docs/next-phase.md` for the full Phase 1/2/3 plan. Top items:
 
 - Designs should default to colors that read on both light and dark shirts unless the user explicitly asks for "black lettering" / "white text". System prompt update queued; not yet shipped. After that, build the style-reference image library (#8 follow-up).
 
-**Design fork model — Phase 4 (admin moderation + chain display)**
+**Design fork model — followups**
 
-- Admin UI to flip `design_image.is_hidden` (today only settable via direct SQL). Probably on `/admin` — list of recent published, button to hide.
-- Show the full attribution chain on `/d/[imageId]` instead of just immediate parent (walk `forked_from_image_id` up). Today's "Forked from X by Y" is one hop.
-- Phase 5 deferred: self-fork button on `/designs` for "start a new conversation from one of my own designs." Plumbing already in place via `forkImage`; just needs UI.
+- Phase 4 admin moderation + multi-hop attribution chain — shipped 2026-05-27 evening (see Recently shipped).
+- Phase 5 self-fork on `/designs` — shipped same day via the Fork button on each card.
+- Open: nothing concrete. Possible nice-to-haves: bulk-hide selection on `/admin/published`; "Show hidden in chain" admin toggle for debugging.
 
 **Discount codes (remaining)**
 
