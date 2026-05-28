@@ -56,16 +56,21 @@ export default async function PublishedImagePage({
           <div className="space-y-2">
             {img.title && <h1 className="text-2xl font-bold">{img.title}</h1>}
             <p className="text-sm text-text-muted">by {img.designerName}</p>
-            {img.forkedFrom && (
+            {img.forkChain.length > 0 && (
               <p className="text-sm text-text-faint">
                 Forked from{" "}
-                <Link
-                  href={`/d/${img.forkedFrom.imageId}`}
-                  className="underline hover:text-text-muted"
-                >
-                  {img.forkedFrom.title ?? "an earlier design"}
-                </Link>{" "}
-                by {img.forkedFrom.designerName}
+                {img.forkChain.map((link, i) => (
+                  <span key={link.imageId}>
+                    {i > 0 && " ← "}
+                    <Link
+                      href={`/d/${link.imageId}`}
+                      className="underline hover:text-text-muted"
+                    >
+                      {link.title ?? "an earlier design"}
+                    </Link>{" "}
+                    by {link.designerName}
+                  </span>
+                ))}
               </p>
             )}
             {img.description && (

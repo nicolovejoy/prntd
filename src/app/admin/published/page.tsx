@@ -1,0 +1,91 @@
+import Link from "next/link";
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
+import { auth } from "@/lib/auth";
+import { getRecentPublishedForAdmin, setImageHidden } from "../actions";
+import { Button } from "@/components/ui";
+
+export const dynamic = "force-dynamic";
+
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
+
+export default async function AdminPublishedPage() {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session || session.user.email !== ADMIN_EMAIL) {
+    redirect("/");
+  }
+
+  const images = await getRecentPublishedForAdmin(100);
+
+  async function toggle(formData: FormData) {
+    "use server";
+    const imageId = String(formData.get("imageId"));
+    const hidden = formData.get("hidden") === "true";
+    await setImageHidden(imageId, hidden);
+  }
+
+  return (
+    <div className="max-w-6xl mx-auto py-8 px-4">
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-xl font-bold">Published images</h1>
+        <Link href="/admin" className="text-sm underline hover:no-underline">
+          ← Orders
+        </Link>
+      </div>
+
+      {images.length === 0 ? (
+        <p className="text-text-muted">No published images yet.</p>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+          {images.map((img) => (
+            <div
+              key={img.imageId}
+              className={`border rounded-md overflow-hidden ${
+                img.isHidden ? "border-red-400 opacity-60" : "border-border"
+              }`}
+            >
+              <Link
+                href={`/d/${img.imageId}`}
+                className="block aspect-square bg-surface"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={img.imageUrl}
+                  alt={img.title ?? "Design"}
+                  className="w-full h-full object-contain"
+                />
+              </Link>
+              <div className="p-3 space-y-2">
+                {img.title && (
+                  <p className="text-sm font-medium truncate">{img.title}</p>
+                )}
+                <p className="text-xs text-text-muted truncate">
+                  {img.designerName} · {img.designerEmail}
+                </p>
+                <p className="text-xs text-text-faint">
+                  {img.publishedAt.toLocaleDateString()}
+                </p>
+                <form action={toggle}>
+                  <input type="hidden" name="imageId" value={img.imageId} />
+                  <input
+                    type="hidden"
+                    name="hidden"
+                    value={img.isHidden ? "false" : "true"}
+                  />
+                  <Button
+                    type="submit"
+                    variant={img.isHidden ? "secondary" : "danger"}
+                    size="sm"
+                    className="w-full"
+                  >
+                    {img.isHidden ? "Unhide" : "Hide"}
+                  </Button>
+                </form>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

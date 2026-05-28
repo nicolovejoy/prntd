@@ -10,7 +10,12 @@ import {
 } from "@/lib/db/schema";
 import { eq, and, isNotNull, desc } from "drizzle-orm";
 import { copyDesignImageByUrl } from "@/lib/r2";
-import { canFork } from "@/lib/design-publish";
+import {
+  canFork,
+  buildForkChain,
+  type ForkChainEntry,
+  type ForkChainRow,
+} from "@/lib/design-publish";
 
 export type PublishedImage = {
   imageId: string;
@@ -20,15 +25,12 @@ export type PublishedImage = {
   designerName: string;
   publishedAt: Date;
   /**
-   * Set when this image's design was forked from another image AND
-   * that source image is still published + visible. Null otherwise
-   * (original work, or source has been admin-hidden).
+   * Walks the lineage from this image's parent up toward the root,
+   * stopping at the first hop that isn't published + visible. Empty
+   * for original work or when the immediate parent has been hidden.
+   * Entries are immediate-parent-first.
    */
-  forkedFrom: {
-    imageId: string;
-    title: string | null;
-    designerName: string;
-  } | null;
+  forkChain: ForkChainEntry[];
 };
 
 /**
@@ -64,8 +66,39 @@ export async function getDiscoverFeed(limit = 60): Promise<PublishedImage[]> {
     description: r.description,
     designerName: r.designerName,
     publishedAt: r.publishedAt!,
-    forkedFrom: null,
+    forkChain: [],
   }));
+}
+
+/**
+ * Fetcher backing buildForkChain — one row per imageId, joining design
+ * and user so we can render the chain without further round-trips.
+ */
+async function fetchForkChainRow(imageId: string): Promise<ForkChainRow | null> {
+  const rows = await db
+    .select({
+      imageId: designImageTable.id,
+      title: designImageTable.title,
+      publishedAt: designImageTable.publishedAt,
+      isHidden: designImageTable.isHidden,
+      designerName: userTable.name,
+      forkedFromImageId: designTable.forkedFromImageId,
+    })
+    .from(designImageTable)
+    .innerJoin(designTable, eq(designTable.id, designImageTable.designId))
+    .innerJoin(userTable, eq(userTable.id, designTable.userId))
+    .where(eq(designImageTable.id, imageId))
+    .limit(1);
+  const r = rows[0];
+  if (!r) return null;
+  return {
+    imageId: r.imageId,
+    title: r.title,
+    designerName: r.designerName,
+    forkedFromImageId: r.forkedFromImageId,
+    publishedAt: r.publishedAt,
+    isHidden: r.isHidden,
+  };
 }
 
 /**
@@ -95,30 +128,9 @@ export async function getPublishedImage(
   const r = rows[0];
   if (!r || !r.publishedAt || r.isHidden) return null;
 
-  let forkedFrom: PublishedImage["forkedFrom"] = null;
-  if (r.forkedFromImageId) {
-    const parent = await db
-      .select({
-        imageId: designImageTable.id,
-        title: designImageTable.title,
-        publishedAt: designImageTable.publishedAt,
-        isHidden: designImageTable.isHidden,
-        designerName: userTable.name,
-      })
-      .from(designImageTable)
-      .innerJoin(designTable, eq(designTable.id, designImageTable.designId))
-      .innerJoin(userTable, eq(userTable.id, designTable.userId))
-      .where(eq(designImageTable.id, r.forkedFromImageId))
-      .limit(1);
-    const p = parent[0];
-    if (p && p.publishedAt && !p.isHidden) {
-      forkedFrom = {
-        imageId: p.imageId,
-        title: p.title,
-        designerName: p.designerName,
-      };
-    }
-  }
+  // Walk forkedFromImageId upward, stopping at the first invisible
+  // parent so admin moderation also breaks the public chain.
+  const forkChain = await buildForkChain(r.forkedFromImageId, fetchForkChainRow);
 
   return {
     imageId: r.imageId,
@@ -127,7 +139,7 @@ export async function getPublishedImage(
     description: r.description,
     designerName: r.designerName,
     publishedAt: r.publishedAt,
-    forkedFrom,
+    forkChain,
   };
 }
 

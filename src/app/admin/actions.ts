@@ -6,10 +6,12 @@ import { db } from "@/lib/db";
 import {
   order as orderTable,
   design as designTable,
+  designImage as designImageTable,
   user as userTable,
   ledgerEntry,
 } from "@/lib/db/schema";
 import { eq, desc, isNull, isNotNull, sum, count, and } from "drizzle-orm";
+import { revalidatePath } from "next/cache";
 import { createOrder } from "@/lib/printful";
 import { generateOrderName } from "@/lib/ai";
 import { getProductOrThrow, getVariantId } from "@/lib/products";
@@ -370,6 +372,70 @@ export async function setOrderClassification(orderId: string, classification: Or
     .update(orderTable)
     .set({ classification, updatedAt: new Date() })
     .where(eq(orderTable.id, orderId));
+}
+
+export type AdminPublishedImage = {
+  imageId: string;
+  imageUrl: string;
+  title: string | null;
+  designerName: string;
+  designerEmail: string;
+  publishedAt: Date;
+  isHidden: boolean;
+};
+
+export async function getRecentPublishedForAdmin(
+  limit = 100
+): Promise<AdminPublishedImage[]> {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session || session.user.email !== ADMIN_EMAIL) {
+    throw new Error("Unauthorized");
+  }
+
+  const rows = await db
+    .select({
+      imageId: designImageTable.id,
+      imageUrl: designImageTable.imageUrl,
+      title: designImageTable.title,
+      publishedAt: designImageTable.publishedAt,
+      isHidden: designImageTable.isHidden,
+      designerName: userTable.name,
+      designerEmail: userTable.email,
+    })
+    .from(designImageTable)
+    .innerJoin(designTable, eq(designTable.id, designImageTable.designId))
+    .innerJoin(userTable, eq(userTable.id, designTable.userId))
+    .where(isNotNull(designImageTable.publishedAt))
+    .orderBy(desc(designImageTable.publishedAt))
+    .limit(limit);
+
+  return rows.map((r) => ({
+    imageId: r.imageId,
+    imageUrl: r.imageUrl,
+    title: r.title,
+    designerName: r.designerName,
+    designerEmail: r.designerEmail,
+    publishedAt: r.publishedAt!,
+    isHidden: r.isHidden,
+  }));
+}
+
+export async function setImageHidden(imageId: string, hidden: boolean) {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session || session.user.email !== ADMIN_EMAIL) {
+    throw new Error("Unauthorized");
+  }
+
+  await db
+    .update(designImageTable)
+    .set({ isHidden: hidden })
+    .where(eq(designImageTable.id, imageId));
+
+  // Discover feed on / and the public /d/[imageId] page both filter
+  // by isHidden — bust their caches so the change is visible.
+  revalidatePath("/");
+  revalidatePath(`/d/${imageId}`);
+  revalidatePath("/admin/published");
 }
 
 export async function getAdminData() {

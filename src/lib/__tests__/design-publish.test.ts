@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { isLocked, assertNotLocked, canFork } from "../design-publish";
+import {
+  isLocked,
+  assertNotLocked,
+  canFork,
+  buildForkChain,
+  type ForkChainRow,
+} from "../design-publish";
 import { design, designImage } from "../db/schema";
 
 describe("isLocked", () => {
@@ -93,6 +99,90 @@ describe("canFork", () => {
         callerId: otherId,
       })
     ).toBe(false);
+  });
+});
+
+describe("buildForkChain", () => {
+  const published = (id: string, designer: string, parent: string | null): ForkChainRow => ({
+    imageId: id,
+    title: `Title ${id}`,
+    designerName: designer,
+    forkedFromImageId: parent,
+    publishedAt: new Date("2026-05-27T00:00:00Z"),
+    isHidden: false,
+  });
+
+  function makeFetcher(rows: ForkChainRow[]) {
+    const map = new Map(rows.map((r) => [r.imageId, r]));
+    return async (id: string) => map.get(id) ?? null;
+  }
+
+  it("returns empty array when startImageId is null", async () => {
+    const chain = await buildForkChain(null, async () => null);
+    expect(chain).toEqual([]);
+  });
+
+  it("returns single entry for one-hop chain", async () => {
+    const fetcher = makeFetcher([published("a", "Alice", null)]);
+    const chain = await buildForkChain("a", fetcher);
+    expect(chain).toEqual([
+      { imageId: "a", title: "Title a", designerName: "Alice" },
+    ]);
+  });
+
+  it("walks multi-hop chain immediate-parent-first", async () => {
+    const fetcher = makeFetcher([
+      published("c", "Carol", "b"),
+      published("b", "Bob", "a"),
+      published("a", "Alice", null),
+    ]);
+    const chain = await buildForkChain("c", fetcher);
+    expect(chain.map((c) => c.imageId)).toEqual(["c", "b", "a"]);
+  });
+
+  it("stops at first invisible link (unpublished)", async () => {
+    const fetcher = makeFetcher([
+      published("c", "Carol", "b"),
+      { ...published("b", "Bob", "a"), publishedAt: null },
+      published("a", "Alice", null),
+    ]);
+    const chain = await buildForkChain("c", fetcher);
+    expect(chain.map((c) => c.imageId)).toEqual(["c"]);
+  });
+
+  it("stops at first invisible link (hidden)", async () => {
+    const fetcher = makeFetcher([
+      published("c", "Carol", "b"),
+      { ...published("b", "Bob", "a"), isHidden: true },
+      published("a", "Alice", null),
+    ]);
+    const chain = await buildForkChain("c", fetcher);
+    expect(chain.map((c) => c.imageId)).toEqual(["c"]);
+  });
+
+  it("stops when row is missing from fetcher", async () => {
+    const fetcher = makeFetcher([published("c", "Carol", "missing")]);
+    const chain = await buildForkChain("c", fetcher);
+    expect(chain.map((c) => c.imageId)).toEqual(["c"]);
+  });
+
+  it("respects maxDepth (no runaway)", async () => {
+    const rows: ForkChainRow[] = [];
+    for (let i = 0; i < 20; i++) {
+      rows.push(published(`n${i}`, `D${i}`, i < 19 ? `n${i + 1}` : null));
+    }
+    const fetcher = makeFetcher(rows);
+    const chain = await buildForkChain("n0", fetcher, 5);
+    expect(chain).toHaveLength(5);
+  });
+
+  it("breaks on cycle without infinite loop", async () => {
+    const fetcher = makeFetcher([
+      published("a", "Alice", "b"),
+      published("b", "Bob", "a"),
+    ]);
+    const chain = await buildForkChain("a", fetcher);
+    expect(chain.map((c) => c.imageId)).toEqual(["a", "b"]);
   });
 });
 

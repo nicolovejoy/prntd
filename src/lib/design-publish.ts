@@ -48,3 +48,51 @@ export function canFork(params: {
   if (sourceDesign.userId === callerId) return true;
   return sourceImage.publishedAt !== null && !sourceImage.isHidden;
 }
+
+export type ForkChainRow = {
+  imageId: string;
+  title: string | null;
+  designerName: string;
+  forkedFromImageId: string | null;
+  publishedAt: Date | null;
+  isHidden: boolean;
+};
+
+export type ForkChainEntry = {
+  imageId: string;
+  title: string | null;
+  designerName: string;
+};
+
+/**
+ * Walk a fork chain starting at `startImageId`, returning entries
+ * immediate-parent-first (i.e. the start image is first, the root is
+ * last). Stops at the first invisible link (unpublished or hidden) so
+ * moderation actions also break the public attribution trail. Guards
+ * against cycles and runaway depth.
+ *
+ * Pure-logic wrapper around a fetcher callback so it can be unit-tested
+ * without a database.
+ */
+export async function buildForkChain(
+  startImageId: string | null,
+  fetchRow: (id: string) => Promise<ForkChainRow | null>,
+  maxDepth = 10
+): Promise<ForkChainEntry[]> {
+  const chain: ForkChainEntry[] = [];
+  const seen = new Set<string>();
+  let currentId: string | null = startImageId;
+  while (currentId && chain.length < maxDepth && !seen.has(currentId)) {
+    seen.add(currentId);
+    const row: ForkChainRow | null = await fetchRow(currentId);
+    if (!row) break;
+    if (!row.publishedAt || row.isHidden) break;
+    chain.push({
+      imageId: row.imageId,
+      title: row.title,
+      designerName: row.designerName,
+    });
+    currentId = row.forkedFromImageId;
+  }
+  return chain;
+}
