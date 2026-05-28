@@ -138,6 +138,10 @@ See `docs/next-phase.md` for the full Phase 1/2/3 plan. Top items:
 - DESC/charity work paused as of 2026-05-06. Chain (DESC permission → entity confirmation → #4 ledger infra → first disbursement → #5 homepage re-org) still applies if/when it restarts.
 - #10 ~~Order list thumbnails on shirt color~~ — shipped May 1. iPhone case was discontinued 2026-05-26 (soft-discontinue: `discontinued: true` on `clear-case-iphone`, picker uses `ACTIVE_PRODUCTS`; historical orders still resolve via `getProduct()`).
 
+**Recently shipped — 2026-05-28**
+
+- **Publish-flow polish**. Dark designs were lost against `bg-surface` on the discover grid, `/d/[imageId]`, and `/admin/published` — all three now use `bg-checkerboard`. Added owner-only inline title/description editor on `/d/[imageId]` (`EditableNaming` client component) using `updatePublishedNaming`, which now revalidates `/` and `/d/[imageId]` so the edit shows up immediately.
+
 **Recently shipped — 2026-05-27 (evening)**
 
 - **Phase 4 admin moderation + full attribution chain**. `/admin/published` grid (last 100) with `setImageHidden` toggle that revalidates `/`, `/d/[imageId]`, and `/admin/published`. `PublishedImage.forkChain` replaces single-hop `forkedFrom` — `buildForkChain` walks `forked_from_image_id` upward, stops at first invisible link, breaks on cycles, capped at depth 10. Pure helper with 8 unit tests.
