@@ -138,7 +138,11 @@ See `docs/next-phase.md` for the full Phase 1/2/3 plan. Top items:
 - DESC/charity work paused as of 2026-05-06. Chain (DESC permission → entity confirmation → #4 ledger infra → first disbursement → #5 homepage re-org) still applies if/when it restarts.
 - #10 ~~Order list thumbnails on shirt color~~ — shipped May 1. iPhone case was discontinued 2026-05-26 (soft-discontinue: `discontinued: true` on `clear-case-iphone`, picker uses `ACTIVE_PRODUCTS`; historical orders still resolve via `getProduct()`).
 
-**Recently shipped — 2026-05-28**
+**Recently shipped — 2026-05-28 (evening)**
+
+- **Two-flow UX direction + feedback widget**. Wrote `docs/ux-two-flow-model.md` — the artifact for the homepage/mobile rework with Manine (product designer). Core split: buy-existing (open, no account) vs design-your-own (account-gated); published designs are the storefront and should lead. Embedded the ibuild4you feedback widget globally (`src/components/feedback-{widget,launcher}.tsx` + `src/lib/feedback/payload.ts`), rendered from `layout.tsx`, posting to the `prntd-mobile-flow-rethink` slug (override via `NEXT_PUBLIC_FEEDBACK_PROJECT_ID`). Filed #16 (publish modal: name/description/bg-color, replacing auto-publish), #17 (in-product marketing + social proof, for Manine), #18 (landing rework: lead with published designs, drop How-it-works for returning users).
+
+**Recently shipped — 2026-05-28 (morning)**
 
 - **Publish-flow polish**. Dark designs were lost against `bg-surface` on the discover grid, `/d/[imageId]`, and `/admin/published` — all three now use `bg-checkerboard`. Added owner-only inline title/description editor on `/d/[imageId]` (`EditableNaming` client component) using `updatePublishedNaming`, which now revalidates `/` and `/d/[imageId]` so the edit shows up immediately.
 
@@ -170,7 +174,8 @@ See `docs/next-phase.md` for the full Phase 1/2/3 plan. Top items:
 
 **Image-gen style versatility (followup to #8)**
 
-- Designs should default to colors that read on both light and dark shirts unless the user explicitly asks for "black lettering" / "white text". System prompt update queued; not yet shipped. After that, build the style-reference image library (#8 follow-up).
+- Default-color rule (auto-pick colors that read on light + dark shirts) — **rejected by Nico 2026-05-28, do not pursue.**
+- Still open: build the style-reference image library (#8 follow-up).
 
 **Design fork model — followups**
 
@@ -193,7 +198,7 @@ See `docs/next-phase.md` for the full Phase 1/2/3 plan. Top items:
 - Phase 2 (text-as-layer) — heaviest phase, ~1 week. Plan: `docs/phase-2-text-as-layer-plan.md`. Schema + font catalog + `composeWithText` (`@vercel/og` + `sharp`) + UI panel.
 - Phase 3 (structured brief + batch-of-3) — after Phase 2. Plan: `~/.claude/plans/feedback-for-the-coding-woolly-snowflake.md`.
 
-**Mobile flow rethink** — Design→preview→order too fragmented on phones. Adjacent: `docs/funnel-back-nav.md`.
+**Mobile flow rethink** — Design→preview→order too fragmented on phones. Now in motion: ibuild4you brief sent to Manine (product designer), framed by `docs/ux-two-flow-model.md`; homepage rework tracked in #18. Adjacent: `docs/funnel-back-nav.md`.
 
 **1Password secret migration (paused 2026-04-14)** — see memory `project_anthropic_key_rotation.md`
 
