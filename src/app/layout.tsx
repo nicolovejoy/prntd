@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { SiteHeader } from "@/components/site-header";
 import { EscBack } from "@/components/esc-back";
+import { FeedbackLauncher } from "@/components/feedback-launcher";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -34,6 +35,11 @@ export default function RootLayout({
         <SiteHeader />
         <EscBack />
         {children}
+        <FeedbackLauncher
+          projectId={
+            process.env.NEXT_PUBLIC_FEEDBACK_PROJECT_ID ?? "prntd-mobile-flow-rethink"
+          }
+        />
       </body>
     </html>
   );
