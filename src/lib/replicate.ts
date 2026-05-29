@@ -3,6 +3,38 @@ import type { AspectRatio } from "./products";
 
 const replicate = new Replicate();
 
+// Ideogram v3 Turbo and BiRefNet both finish well inside a minute in
+// practice. `replicate.run` polls until the prediction settles, so a
+// prediction stuck in "starting" (model boot hang, capacity stall) never
+// resolves OR rejects — the caller hangs forever and the /preview spinner
+// spins with no error surfaced (issue #15). This ceiling converts that
+// silent hang into a rejection the UI can show.
+const REPLICATE_RUN_TIMEOUT_MS = 120_000;
+
+/**
+ * Reject if `run` hasn't settled within `ms`. Note: this does not cancel
+ * the underlying Replicate prediction (Promise.race can't), it just stops
+ * the caller from waiting indefinitely so an error state can render.
+ */
+async function withTimeout<T>(
+  label: string,
+  ms: number,
+  run: () => Promise<T>
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`${label} timed out after ${ms}ms`)),
+      ms
+    );
+  });
+  try {
+    return await Promise.race([run(), timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 /**
  * Run a Replicate call with one retry on 429 (Replicate throttles to
  * 6/min when account credit is low; bursts can also produce transient
@@ -44,9 +76,9 @@ export async function generateImage(
   }
 
   return withReplicate429Retry("generateImage", async () => {
-    const output = await replicate.run("ideogram-ai/ideogram-v3-turbo", {
-      input,
-    });
+    const output = await withTimeout("generateImage", REPLICATE_RUN_TIMEOUT_MS, () =>
+      replicate.run("ideogram-ai/ideogram-v3-turbo", { input })
+    );
     return String(output);
   });
 }
@@ -79,19 +111,24 @@ export async function removeBackground(imageUrl: string): Promise<string> {
   // much better than Bria, which silently returned the un-removed image on
   // Ideogram's hand-painted output.
   return withReplicate429Retry("removeBackground", async () => {
-    const output = await replicate.run(
-      "851-labs/background-remover:a029dff38972b5fda4ec5d75d7d1cd25aeff621d2cf4946a41055d7db66b80bc",
-      {
-        input: {
-          image: imageUrl,
-          format: "png",
-          background_type: "rgba",
-          // Hard segmentation: every pixel is fully foreground or fully
-          // background. With soft alpha (threshold: 0) thin dark text was
-          // coming through semi-transparent against colored shirts.
-          threshold: 0.5,
-        },
-      }
+    const output = await withTimeout(
+      "removeBackground",
+      REPLICATE_RUN_TIMEOUT_MS,
+      () =>
+        replicate.run(
+          "851-labs/background-remover:a029dff38972b5fda4ec5d75d7d1cd25aeff621d2cf4946a41055d7db66b80bc",
+          {
+            input: {
+              image: imageUrl,
+              format: "png",
+              background_type: "rgba",
+              // Hard segmentation: every pixel is fully foreground or fully
+              // background. With soft alpha (threshold: 0) thin dark text was
+              // coming through semi-transparent against colored shirts.
+              threshold: 0.5,
+            },
+          }
+        )
     );
     return String(output);
   });

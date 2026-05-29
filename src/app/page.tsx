@@ -2,24 +2,31 @@ import Link from "next/link";
 import { HomeHero } from "@/components/home-hero";
 import { getUserDesigns } from "./designs/actions";
 import { getDiscoverFeed } from "./d/actions";
+import { getActivePromo } from "@/lib/promotion";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const discover = await getDiscoverFeed(24);
+  const [discover, promo] = await Promise.all([
+    getDiscoverFeed(24),
+    getActivePromo(),
+  ]);
 
   return (
     <div className="min-h-screen flex flex-col">
       <HomeHero getRecentDesigns={getUserDesigns} />
 
-      <section className="py-4 px-4 bg-accent/10 border-y border-accent/20 text-center">
-        <p className="text-sm">
-          Mother&rsquo;s Day —{" "}
-          <span className="font-medium">50% off</span> with code{" "}
-          <code className="px-1.5 py-0.5 bg-accent/20 rounded text-accent font-mono text-xs">MothersDay</code>{" "}
-          at checkout
-        </p>
-      </section>
+      {promo && (
+        <section className="py-4 px-4 bg-accent/10 border-y border-accent/20 text-center">
+          <p className="text-sm">
+            <span className="font-medium">{promo.blurb}</span> with code{" "}
+            <code className="px-1.5 py-0.5 bg-accent/20 rounded text-accent font-mono text-xs">
+              {promo.code}
+            </code>{" "}
+            at checkout
+          </p>
+        </section>
+      )}
 
       <section className="py-16 px-4 border-t border-border">
         <div className="max-w-4xl mx-auto">

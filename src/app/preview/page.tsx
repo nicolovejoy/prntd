@@ -52,6 +52,8 @@ function PreviewPageInner() {
   const product = getProduct(productId);
 
   const [renderState, setRenderState] = useState<RenderState>({ status: "idle" });
+  // Bumped to re-run the placement-render effect (retry after an error).
+  const [renderNonce, setRenderNonce] = useState(0);
   const [colorName, setColorName] = useState(product?.colors[0]?.name ?? "White");
   const [hoveredColor, setHoveredColor] = useState<string | null>(null);
   const [mockupUrl, setMockupUrl] = useState<string | null>(null);
@@ -151,7 +153,7 @@ function PreviewPageInner() {
     return () => {
       canceled = true;
     };
-  }, [designId, productId, hasPrimary]);
+  }, [designId, productId, hasPrimary, renderNonce]);
 
   // Generate mockup on demand (called by "Preview on product" effect)
   async function handlePreviewOnProduct() {
@@ -350,6 +352,17 @@ function PreviewPageInner() {
           </div>
         )}
 
+        {renderState.status === "error" && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-surface-alt z-20 px-4 text-center">
+            <span className="text-sm text-text-muted">
+              Couldn&rsquo;t prepare your design for the {productName}.
+            </span>
+            <span className="text-xs text-text-faint">
+              Use “Try again” below.
+            </span>
+          </div>
+        )}
+
         {!regenerating && mockupLoading && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-surface-alt animate-pulse z-10">
             <div className="w-12 h-12 border-2 border-accent border-t-transparent rounded-full animate-spin mb-3" />
@@ -474,7 +487,15 @@ function PreviewPageInner() {
               screen -- users shouldn't reach checkout without seeing what
               their product will actually look like. When the mockup
               errors, the same button becomes the retry. */}
-          {mockupError ? (
+          {renderState.status === "error" ? (
+            <Button
+              onClick={() => setRenderNonce((n) => n + 1)}
+              variant="secondary"
+              className="flex-1 md:flex-none"
+            >
+              Try again
+            </Button>
+          ) : mockupError ? (
             <Button
               onClick={handlePreviewOnProduct}
               variant="secondary"
