@@ -5,6 +5,7 @@ import { getPublishedImage, forkImage } from "../actions";
 import { auth } from "@/lib/auth";
 import { Button } from "@/components/ui";
 import { EditableNaming } from "./editable-naming";
+import { BuyPanel } from "./buy-panel";
 
 type Params = Promise<{ imageId: string }>;
 
@@ -82,14 +83,20 @@ export default async function PublishedImagePage({
             )}
           </div>
 
-          <div className="pt-4">
+          <BuyPanel imageId={img.imageId} isLoggedIn={isLoggedIn} />
+
+          <div className="pt-1">
             {isLoggedIn ? (
               <form action={handleFork}>
-                <Button type="submit">Make one like this</Button>
+                <Button type="submit" variant="secondary" className="w-full">
+                  Make one like this
+                </Button>
               </form>
             ) : (
-              <Link href={`/sign-in?next=/d/${imageId}`}>
-                <Button>Sign in to make one like this</Button>
+              <Link href={`/sign-in?next=/d/${imageId}`} className="block">
+                <Button variant="secondary" className="w-full">
+                  Sign in to make one like this
+                </Button>
               </Link>
             )}
           </div>

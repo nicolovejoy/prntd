@@ -7,6 +7,7 @@ import { generateMockup } from "../preview/actions";
 import { calculatePrice, createCheckoutSession } from "./actions";
 import Link from "next/link";
 import { Button } from "@/components/ui";
+import { SizePicker, ColorPicker } from "@/components/product-options";
 import { getProduct, DEFAULT_PRODUCT_ID } from "@/lib/products";
 
 export default function OrderPage() {
@@ -158,46 +159,8 @@ function OrderPageInner() {
 
         {/* Options */}
         <div className="space-y-5">
-          <div>
-            <label className="block text-sm font-medium mb-2">{sizeLabel}</label>
-            <div className="flex flex-wrap gap-2">
-              {sizes.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setSize(s)}
-                  className={`px-3 py-2.5 md:py-1.5 border-2 rounded-md text-sm transition-colors ${
-                    size === s
-                      ? "border-accent bg-accent text-accent-fg font-medium"
-                      : "border-border text-text-muted hover:border-border-hover"
-                  }`}
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Color picker — hidden when product has only one color */}
-          {colors.length > 1 && (
-            <div>
-              <label className="block text-sm font-medium mb-2">
-                Color — {color}
-              </label>
-              <div className="flex flex-wrap gap-2.5 md:gap-2">
-                {colors.map((c) => (
-                  <button
-                    key={c.name}
-                    onClick={() => setColor(c.name)}
-                    className={`w-10 h-10 md:w-8 md:h-8 rounded-full border-2 transition-colors ${
-                      color === c.name ? "border-accent ring-2 ring-offset-1 ring-accent ring-offset-background" : "border-border"
-                    }`}
-                    style={{ backgroundColor: c.value }}
-                    title={c.name}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
+          <SizePicker sizes={sizes} value={size} onChange={setSize} label={sizeLabel} />
+          <ColorPicker colors={colors} value={color} onChange={setColor} />
 
           {/* Pricing */}
           {pricing && (
