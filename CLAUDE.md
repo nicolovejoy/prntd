@@ -194,10 +194,11 @@ The buy-direct half of the two-flow model: a logged-in user buys a published des
   - Phase 2: `BuyPanel` (`src/app/d/[imageId]/buy-panel.tsx`) — product/size/color, client-side price, "Buy this design" primary CTA, signed-out → "Sign in to buy" `?next=`; fork demoted to secondary. Shared `SizePicker`/`ColorPicker` in `src/components/product-options.tsx` (order page reuses them).
   - Phase 3: reuses `/order/confirm` (session-keyed) + `/orders` (buyer-scoped). No code needed.
 - Also shipped: `resolveOrderVariant` validates product/size/color → variant at the checkout choke point (rejects unfulfillable orders before charging); "Designed by X" attribution on `/orders` + admin detail via pure `designerAttribution` (shows only when designer != buyer).
+- **E2E verified ✅ (2026-05-30, local + Stripe test mode).** Cross-owner buy ran whole: buy → correct Stripe session (Black/L/$19.43) → webhook 200 → dry-run Printful variant 4018 → status `pending→submitted` → lands in buyer's `/orders` with "Designed by Nicholas Lovejoy". `generateOrderName` 401'd (stale local key) but the handler degraded gracefully. Checklist: `docs/buy-existing-e2e-checklist.md`.
 - **Remaining:**
-  - **E2E test-mode pass** — never run whole. Checklist: `docs/buy-existing-e2e-checklist.md`. **Use Stripe test mode**, not a real card.
-  - **Cross-owner edge:** webhook flips `design.status = "ordered"` on `order.designId` — for a buy that's the *seller's* design. Decide whether to scope the flip to self-designed orders.
-  - Followups (need product decision): designer royalty/credit, guest checkout, multi-placement, homepage entry point (Manine's #18).
+  - **Cross-owner edge — confirmed in effect:** the test buy flipped the *seller's* `design.status` to `ordered` (webhook updates `order.designId`, which on a buy is the seller's design). Decide whether to scope the flip to self-designed orders.
+  - Followups (need product decision): designer royalty/credit, guest checkout, multi-placement.
+- **Test cleanup left in prod data:** throwaway buyer `buyer-test-0530@example.com` + one `test`-classified order; design `b7315b39…` shows `ordered` from the test buy (revert if desired).
 
 **Design fork model — followups**
 
@@ -221,6 +222,10 @@ The buy-direct half of the two-flow model: a logged-in user buys a published des
 - Phase 3 (structured brief + batch-of-3) — after Phase 2. Plan: `~/.claude/plans/feedback-for-the-coding-woolly-snowflake.md`.
 
 **Mobile flow rethink** — Design→preview→order too fragmented on phones. Now in motion: ibuild4you brief sent to Manine (product designer), framed by `docs/ux-two-flow-model.md`; homepage rework tracked in #18. Adjacent: `docs/funnel-back-nav.md`.
+
+**Homepage + nav rework — NEXT UP, plan in `docs/homepage-nav-rework.md`** (direction set 2026-05-30):
+- **Part A — homepage (#18, ready to build):** remove the logged-in user's own "Recent designs" grid from `HomeHero`; hide "How it works" when logged in (make `page.tsx` session-aware); lead with the discover feed, reframed as purchasable — heading **"Designs from the community"**, subtext "Browse and buy designs other makers have published." Layout + labels only; `getDiscoverFeed` already returns what's needed.
+- **Part B — nav + nomenclature pass (design after handoff):** the whole app's navigation/naming should reflect the two flows (buy-existing vs design-your-own) and cleanly separate "my designs" from "designs I can buy". Open questions (nav structure, storefront name, where own-published live, fork+buy CTA coexistence) in the doc. Its own focused session.
 
 **1Password secret migration (paused 2026-04-14)** — see memory `project_anthropic_key_rotation.md`
 
