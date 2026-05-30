@@ -138,7 +138,7 @@ See `docs/next-phase.md` for the full Phase 1/2/3 plan. Top items:
 - DESC/charity work paused as of 2026-05-06. Chain (DESC permission → entity confirmation → #4 ledger infra → first disbursement → homepage re-org) still applies if/when it restarts. (Homepage re-org now tracked under #18/#17; old #5 closed as superseded 2026-05-29.)
 - #10 ~~Order list thumbnails on shirt color~~ — shipped May 1. iPhone case was discontinued 2026-05-26 (soft-discontinue: `discontinued: true` on `clear-case-iphone`, picker uses `ACTIVE_PRODUCTS`; historical orders still resolve via `getProduct()`).
 
-**Recently shipped — 2026-05-29**
+**Recently shipped — 2026-05-29/30**
 
 - **Promo banner liveness (#13, closed)**. Homepage promo banner is now config-driven from `src/lib/promotion.ts`: `ACTIVE_PROMO` single-source (set to `null` → no banner, the live MothersDay banner is removed for now), `checkPromoLive()` looks up the Stripe promotion code and fails closed, `getActivePromo()` caches the result 5 min. Banner renders only when the advertised code is still redeemable, preventing a repeat of the May 4 dead-code incident. 6 tests in `promotion.test.ts`. Relaunch a campaign by setting `ACTIVE_PROMO = { code, blurb }`. Commit `bc44a1e`.
 - **Replicate timeout (#15, closed)**. `replicate.run` polls until a prediction settles and could hang forever; added a 120s `withTimeout` around both Replicate calls in `src/lib/replicate.ts`, and `/preview` now actually displays the render-error state (it was set but never rendered) with a Try-again retry. Commit `bc44a1e`.
@@ -183,6 +183,16 @@ See `docs/next-phase.md` for the full Phase 1/2/3 plan. Top items:
 
 - Default-color rule (auto-pick colors that read on light + dark shirts) — **rejected by Nico 2026-05-28, do not pursue.**
 - Still open: build the style-reference image library (#8 follow-up).
+
+**Buy-existing path (#6) — active build, account-gated**
+
+The buy-direct half of the two-flow model: let a logged-in user buy a published design from `/d/[imageId]` without designing one. **Decision: account-gated, not guest checkout** — orders must tie to an account (trackable in `/orders`). Build the buy action so the auth check / `userId` resolution is isolated, so a future guest swap is a few lines.
+
+- Phase 0 ✅ shipped (3f97308): webhook prints `order.placements.front` (the pinned image) over the design's display image — a bought published image prints exactly and survives post-purchase regeneration. New optional `resolveImageUrlById` dep in `handleStripeCheckoutCompleted`.
+- Phase 1 (next): `buyPublishedDesign({ imageId, productId, size, color })` in `src/app/d/actions.ts` — auth-gated, guards `published && !hidden`, order `designId` = image's source design, `placements: { front: imageId }`, `userId` = buyer, price `computePrice(0, …)`. Extract a shared `createStripeCheckoutForOrder(...)` helper (createCheckoutSession + this would otherwise drift).
+- Phase 2: buy UI on `/d/[imageId]` — `buy-panel.tsx` client component (product/size/color + "Buy this design" primary CTA; signed-out → "Sign in to buy" `?next=`). "Make one like this" demotes to secondary. Phone-first.
+- Phase 3: reuse existing auth-gated `/order/confirm` (buyer is logged in). Order lands in `/orders`.
+- Out of scope (followups): designer royalty/credit, guest checkout, multi-placement, homepage entry point (Manine's #18).
 
 **Design fork model — followups**
 
