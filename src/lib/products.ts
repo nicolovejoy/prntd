@@ -376,6 +376,40 @@ export function getVariantId(
 }
 
 /**
+ * Validate an order's product/size/color and resolve the Printful variant
+ * it maps to. Server-side guard at the checkout choke point: the UI only
+ * ever submits valid combos, but server actions are callable endpoints, so
+ * this stops a crafted request from creating an order we can't fulfill
+ * (unknown/discontinued product, a size or color the product doesn't offer,
+ * or a listed combo with no variant). Throws with a specific reason;
+ * returns the product + variant id on success.
+ */
+export function resolveOrderVariant(params: {
+  productId: string;
+  size: string;
+  color: string;
+}): { product: Product; variantId: number } {
+  const product = getProduct(params.productId);
+  if (!product) throw new Error(`Unknown product: ${params.productId}`);
+  if (product.discontinued) {
+    throw new Error(`Product is no longer available: ${params.productId}`);
+  }
+  if (!product.sizes.includes(params.size)) {
+    throw new Error(`Invalid size "${params.size}" for ${product.id}`);
+  }
+  if (!product.colors.some((c) => c.name === params.color)) {
+    throw new Error(`Invalid color "${params.color}" for ${product.id}`);
+  }
+  const variantId = getVariantId(product, params.color, params.size);
+  if (variantId === undefined) {
+    throw new Error(
+      `No variant for ${product.id} / ${params.color} / ${params.size}`
+    );
+  }
+  return { product, variantId };
+}
+
+/**
  * Look up the hex value for a color on a given product. Falls back to a
  * neutral light gray when the product or color isn't found, so list views
  * always have something usable to render against.

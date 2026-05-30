@@ -6,6 +6,7 @@ import {
   getVariantId,
   getDefaultPlacement,
   needsAspectRegeneration,
+  resolveOrderVariant,
   PRODUCTS,
   ACTIVE_PRODUCTS,
   DEFAULT_PRODUCT_ID,
@@ -71,6 +72,54 @@ describe("getVariantId", () => {
   it("returns undefined for invalid size", () => {
     const product = getProductOrThrow("bella-canvas-3001");
     expect(getVariantId(product, "White", "5XL")).toBeUndefined();
+  });
+});
+
+describe("resolveOrderVariant", () => {
+  it("returns the product and variant id for a valid combo", () => {
+    const { product, variantId } = resolveOrderVariant({
+      productId: "bella-canvas-3001",
+      size: "M",
+      color: "White",
+    });
+    expect(product.id).toBe("bella-canvas-3001");
+    expect(variantId).toBe(4012);
+  });
+
+  it("throws on an unknown product", () => {
+    expect(() =>
+      resolveOrderVariant({ productId: "nope", size: "M", color: "White" })
+    ).toThrow(/unknown product/i);
+  });
+
+  it("rejects a discontinued product (not orderable, even via a stale link)", () => {
+    expect(() =>
+      resolveOrderVariant({
+        productId: "clear-case-iphone",
+        size: "iPhone 16",
+        color: "Clear",
+      })
+    ).toThrow(/no longer available/i);
+  });
+
+  it("throws on a size the product doesn't offer", () => {
+    expect(() =>
+      resolveOrderVariant({
+        productId: "bella-canvas-3001",
+        size: "5XL",
+        color: "White",
+      })
+    ).toThrow(/size/i);
+  });
+
+  it("throws on a color the product doesn't offer", () => {
+    expect(() =>
+      resolveOrderVariant({
+        productId: "bella-canvas-3001",
+        size: "M",
+        color: "Neon Pink",
+      })
+    ).toThrow(/color/i);
   });
 });
 

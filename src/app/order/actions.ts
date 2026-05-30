@@ -8,7 +8,7 @@ import { eq } from "drizzle-orm";
 import { stripe } from "@/lib/stripe";
 import { computePrice } from "@/lib/pricing";
 import { buildCheckoutSessionParams } from "@/lib/checkout";
-import { getProduct, DEFAULT_PRODUCT_ID } from "@/lib/products";
+import { resolveOrderVariant, DEFAULT_PRODUCT_ID } from "@/lib/products";
 import { getDesignDisplayImageUrl } from "@/lib/design-images";
 
 export async function calculatePrice(
@@ -85,8 +85,14 @@ export async function createStripeCheckoutForOrder(params: {
   checkoutImageUrl: string | null;
   cancelUrl: string;
 }): Promise<{ url: string | null }> {
-  const product = getProduct(params.productId);
-  const productName = product?.name ?? "Custom Product";
+  // Validate product/size/color before taking money — rejects an
+  // unknown/discontinued product or a combo with no fulfillable variant.
+  const { product } = resolveOrderVariant({
+    productId: params.productId,
+    size: params.size,
+    color: params.color,
+  });
+  const productName = product.name;
 
   const [newOrder] = await db
     .insert(orderTable)
