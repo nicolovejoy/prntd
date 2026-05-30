@@ -199,6 +199,7 @@ The buy-direct half of the two-flow model: a logged-in user buys a published des
   - **Cross-owner edge — confirmed in effect:** the test buy flipped the *seller's* `design.status` to `ordered` (webhook updates `order.designId`, which on a buy is the seller's design). Decide whether to scope the flip to self-designed orders.
   - Followups (need product decision): designer royalty/credit, guest checkout, multi-placement.
 - **Test cleanup left in prod data:** throwaway buyer `buyer-test-0530@example.com` + one `test`-classified order; design `b7315b39…` shows `ordered` from the test buy (revert if desired).
+- **Test-orders + accounting hardening — proposal in `docs/test-orders-and-accounting.md`** (set 2026-05-30): auto-classify Stripe test-mode orders as `test` (add `livemode` to the webhook payload), skip ledger writes for test orders, default-exclude `test` from `getFinancialSummary` (today it includes everything unless filtered), badge test orders in `/orders` + `/admin`. Plus a one-off cleanup of order `2ade8478`'s `sale`/`cogs` ledger rows.
 
 **Design fork model — followups**
 
