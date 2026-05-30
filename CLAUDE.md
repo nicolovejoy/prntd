@@ -135,8 +135,15 @@ See `docs/next-phase.md` for the full Phase 1/2/3 plan. Top items:
 
 **Phase 1 — public-facing readiness (on hold)**
 
-- DESC/charity work paused as of 2026-05-06. Chain (DESC permission → entity confirmation → #4 ledger infra → first disbursement → #5 homepage re-org) still applies if/when it restarts.
+- DESC/charity work paused as of 2026-05-06. Chain (DESC permission → entity confirmation → #4 ledger infra → first disbursement → homepage re-org) still applies if/when it restarts. (Homepage re-org now tracked under #18/#17; old #5 closed as superseded 2026-05-29.)
 - #10 ~~Order list thumbnails on shirt color~~ — shipped May 1. iPhone case was discontinued 2026-05-26 (soft-discontinue: `discontinued: true` on `clear-case-iphone`, picker uses `ACTIVE_PRODUCTS`; historical orders still resolve via `getProduct()`).
+
+**Recently shipped — 2026-05-29**
+
+- **Promo banner liveness (#13, closed)**. Homepage promo banner is now config-driven from `src/lib/promotion.ts`: `ACTIVE_PROMO` single-source (set to `null` → no banner, the live MothersDay banner is removed for now), `checkPromoLive()` looks up the Stripe promotion code and fails closed, `getActivePromo()` caches the result 5 min. Banner renders only when the advertised code is still redeemable, preventing a repeat of the May 4 dead-code incident. 6 tests in `promotion.test.ts`. Relaunch a campaign by setting `ACTIVE_PROMO = { code, blurb }`. Commit `bc44a1e`.
+- **Replicate timeout (#15, closed)**. `replicate.run` polls until a prediction settles and could hang forever; added a 120s `withTimeout` around both Replicate calls in `src/lib/replicate.ts`, and `/preview` now actually displays the render-error state (it was set but never rendered) with a Try-again retry. Commit `bc44a1e`.
+- **#2 confirmed fixed (closed)**. Clicking an ordered design loads its `/design` thread — no `/orders` bounce remains anywhere. Resolved earlier by the data-model rework; verified and closed 2026-05-29.
+- **Drive-by contributor on #13**. A non-collaborator (`MrBlue-1996`) commented a patch plan matching the issue; implemented directly, replied, closed. No external PR taken (payments-adjacent surface).
 
 **Recently shipped — 2026-05-28 (evening)**
 
