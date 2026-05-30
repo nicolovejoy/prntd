@@ -234,6 +234,58 @@ describe("handleStripeCheckoutCompleted", () => {
     expect(setCalls.some((c: any) => "displayName" in c)).toBe(false);
   });
 
+  it("prints the order's pinned placements.front image over the design display image", async () => {
+    const pinnedUrl = "https://r2.example.com/designs/9/published.png";
+    const mockDb = createMockDb({
+      orderFindFirst: vi.fn().mockResolvedValue({
+        ...pendingOrder,
+        placements: { front: "img-pinned" },
+      }),
+      designFindFirst: vi.fn().mockResolvedValue(designWithImage),
+    });
+    const mockCreateOrder = vi.fn().mockResolvedValue({ id: "pf_pin" });
+    const mockResolveById = vi.fn().mockResolvedValue(pinnedUrl);
+    const mockGenerate = vi.fn().mockResolvedValue(null);
+
+    const result = await handleStripeCheckoutCompleted(baseSession(), {
+      db: mockDb,
+      createPrintfulOrder: mockCreateOrder,
+      generateOrderName: mockGenerate,
+      resolveDesignImageUrl: mockResolveImageUrl(),
+      resolveImageUrlById: mockResolveById,
+    });
+
+    expect(result.action).toBe("submitted");
+    expect(mockResolveById).toHaveBeenCalledWith("img-pinned");
+    expect(mockCreateOrder).toHaveBeenCalledWith(
+      expect.objectContaining({ designImageUrl: pinnedUrl })
+    );
+  });
+
+  it("falls back to the design display image when the pinned image can't resolve", async () => {
+    const mockDb = createMockDb({
+      orderFindFirst: vi.fn().mockResolvedValue({
+        ...pendingOrder,
+        placements: { front: "img-missing" },
+      }),
+      designFindFirst: vi.fn().mockResolvedValue(designWithImage),
+    });
+    const mockCreateOrder = vi.fn().mockResolvedValue({ id: "pf_fallback" });
+
+    const result = await handleStripeCheckoutCompleted(baseSession(), {
+      db: mockDb,
+      createPrintfulOrder: mockCreateOrder,
+      generateOrderName: vi.fn().mockResolvedValue(null),
+      resolveDesignImageUrl: mockResolveImageUrl(),
+      resolveImageUrlById: vi.fn().mockResolvedValue(null),
+    });
+
+    expect(result.action).toBe("submitted");
+    expect(mockCreateOrder).toHaveBeenCalledWith(
+      expect.objectContaining({ designImageUrl: designWithImage.currentImageUrl })
+    );
+  });
+
   it("returns paid_printful_failed when Printful errors", async () => {
     const mockDb = createMockDb({
       orderFindFirst: vi.fn().mockResolvedValue(pendingOrder),

@@ -16,6 +16,13 @@ export type WebhookDeps = {
   createPrintfulOrder: typeof createOrder;
   generateOrderName: typeof generateOrderName;
   resolveDesignImageUrl: (designId: string) => Promise<string | null>;
+  // Resolve a specific design_image id to its URL. Used to print the
+  // exact image pinned on the order (`placements.front`) rather than the
+  // design's current display image — which matters when the order was
+  // placed against a published image owned by someone else, or when the
+  // design was regenerated after purchase. Optional: when absent, the
+  // handler falls back to `resolveDesignImageUrl(designId)`.
+  resolveImageUrlById?: (imageId: string) => Promise<string | null>;
 };
 
 // Stripe checkout.session.completed payload (after retrieval)
@@ -104,8 +111,16 @@ export async function handleStripeCheckoutCompleted(
     deps.db
   );
 
-  // Submit to Printful
-  const designImageUrl = await deps.resolveDesignImageUrl(designId);
+  // Submit to Printful. Prefer the image pinned on the order
+  // (placements.front) so we print exactly what the customer bought —
+  // including a published image owned by another designer — and stay
+  // immune to post-purchase regeneration. Fall back to the design's
+  // current display image for orders with no pin.
+  const pinnedImageId = foundOrder.placements?.front ?? null;
+  const designImageUrl =
+    (pinnedImageId && deps.resolveImageUrlById
+      ? await deps.resolveImageUrlById(pinnedImageId)
+      : null) ?? (await deps.resolveDesignImageUrl(designId));
 
   if (!designImageUrl) {
     console.error(`Order ${orderId}: design ${designId} has no image`);
