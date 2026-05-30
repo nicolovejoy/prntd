@@ -184,15 +184,20 @@ See `docs/next-phase.md` for the full Phase 1/2/3 plan. Top items:
 - Default-color rule (auto-pick colors that read on light + dark shirts) — **rejected by Nico 2026-05-28, do not pursue.**
 - Still open: build the style-reference image library (#8 follow-up).
 
-**Buy-existing path (#6) — active build, account-gated**
+**Buy-existing path (#6) — core shipped, account-gated**
 
-The buy-direct half of the two-flow model: let a logged-in user buy a published design from `/d/[imageId]` without designing one. **Decision: account-gated, not guest checkout** — orders must tie to an account (trackable in `/orders`). Build the buy action so the auth check / `userId` resolution is isolated, so a future guest swap is a few lines.
+The buy-direct half of the two-flow model: a logged-in user buys a published design from `/d/[imageId]` without designing one. **Decision: account-gated, not guest checkout** — orders tie to an account (trackable in `/orders`). Auth check / `userId` resolution is isolated in `buyPublishedDesign` so a future guest swap is a few lines.
 
-- Phase 0 ✅ shipped (3f97308): webhook prints `order.placements.front` (the pinned image) over the design's display image — a bought published image prints exactly and survives post-purchase regeneration. New optional `resolveImageUrlById` dep in `handleStripeCheckoutCompleted`.
-- Phase 1 (next): `buyPublishedDesign({ imageId, productId, size, color })` in `src/app/d/actions.ts` — auth-gated, guards `published && !hidden`, order `designId` = image's source design, `placements: { front: imageId }`, `userId` = buyer, price `computePrice(0, …)`. Extract a shared `createStripeCheckoutForOrder(...)` helper (createCheckoutSession + this would otherwise drift).
-- Phase 2: buy UI on `/d/[imageId]` — `buy-panel.tsx` client component (product/size/color + "Buy this design" primary CTA; signed-out → "Sign in to buy" `?next=`). "Make one like this" demotes to secondary. Phone-first.
-- Phase 3: reuse existing auth-gated `/order/confirm` (buyer is logged in). Order lands in `/orders`.
-- Out of scope (followups): designer royalty/credit, guest checkout, multi-placement, homepage entry point (Manine's #18).
+- Phases 0–3 ✅ shipped (2026-05-30, commits `3f97308`, `682e182`, `1f877a1`):
+  - Phase 0: webhook prints `order.placements.front` (the pinned image) over the design display image; survives post-purchase regeneration. Optional `resolveImageUrlById` dep in `handleStripeCheckoutCompleted`.
+  - Phase 1: `buyPublishedDesign({imageId,productId,size,color})` in `src/app/d/actions.ts` — auth-gated, `canBuyPublishedImage` guard (published && !hidden, no owner shortcut), order `designId` = image's source design, `placements.front = imageId`, `userId` = buyer, price `computePrice(0,…)`. Shared `createStripeCheckoutForOrder` + pure `buildCheckoutSessionParams` (`src/lib/checkout.ts`) extracted so both purchase flows share one choke point.
+  - Phase 2: `BuyPanel` (`src/app/d/[imageId]/buy-panel.tsx`) — product/size/color, client-side price, "Buy this design" primary CTA, signed-out → "Sign in to buy" `?next=`; fork demoted to secondary. Shared `SizePicker`/`ColorPicker` in `src/components/product-options.tsx` (order page reuses them).
+  - Phase 3: reuses `/order/confirm` (session-keyed) + `/orders` (buyer-scoped). No code needed.
+- Also shipped: `resolveOrderVariant` validates product/size/color → variant at the checkout choke point (rejects unfulfillable orders before charging); "Designed by X" attribution on `/orders` + admin detail via pure `designerAttribution` (shows only when designer != buyer).
+- **Remaining:**
+  - **E2E test-mode pass** — never run whole. Checklist: `docs/buy-existing-e2e-checklist.md`. **Use Stripe test mode**, not a real card.
+  - **Cross-owner edge:** webhook flips `design.status = "ordered"` on `order.designId` — for a buy that's the *seller's* design. Decide whether to scope the flip to self-designed orders.
+  - Followups (need product decision): designer royalty/credit, guest checkout, multi-placement, homepage entry point (Manine's #18).
 
 **Design fork model — followups**
 
