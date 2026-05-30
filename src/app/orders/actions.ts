@@ -3,12 +3,17 @@
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { order as orderTable } from "@/lib/db/schema";
+import {
+  order as orderTable,
+  design as designTable,
+  user as userTable,
+} from "@/lib/db/schema";
 import { eq, desc } from "drizzle-orm";
 import {
   resolveOrderImageUrls,
   resolveDesignDisplayImageUrls,
 } from "@/lib/design-images";
+import { designerAttribution } from "@/lib/order-attribution";
 
 export async function getUserOrders() {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -29,8 +34,12 @@ export async function getUserOrders() {
       createdAt: orderTable.createdAt,
       archivedAt: orderTable.archivedAt,
       displayName: orderTable.displayName,
+      designerId: designTable.userId,
+      designerName: userTable.name,
     })
     .from(orderTable)
+    .leftJoin(designTable, eq(designTable.id, orderTable.designId))
+    .leftJoin(userTable, eq(userTable.id, designTable.userId))
     .where(eq(orderTable.userId, session.user.id))
     .orderBy(desc(orderTable.createdAt));
 
@@ -48,5 +57,10 @@ export async function getUserOrders() {
   return rows.map((r) => ({
     ...r,
     designImageUrl: resolved.get(r.id) ?? null,
+    designedByName: designerAttribution({
+      designerId: r.designerId,
+      designerName: r.designerName,
+      buyerId: session.user.id,
+    }),
   }));
 }

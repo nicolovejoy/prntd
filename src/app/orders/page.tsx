@@ -155,6 +155,12 @@ export default function OrdersPage() {
                       )}
                     </p>
 
+                    {order.designedByName && (
+                      <p className="text-xs text-text-faint mt-0.5">
+                        Designed by {order.designedByName}
+                      </p>
+                    )}
+
                     <div className="flex items-center justify-between mt-1">
                       <span className="text-xs text-text-faint">
                         {formatDate(order.createdAt)}

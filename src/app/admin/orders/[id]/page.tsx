@@ -212,6 +212,11 @@ export default function OrderDetailPage() {
                 <p>
                   {order.size} / {order.color}
                 </p>
+                {order.designedByName && (
+                  <p className="text-xs text-text-muted mt-1">
+                    Designed by {order.designedByName}
+                  </p>
+                )}
                 {order.printfulOrderId && (
                   <p className="text-xs text-text-faint mt-1">
                     Printful: {order.printfulOrderId}

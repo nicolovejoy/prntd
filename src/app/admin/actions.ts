@@ -11,6 +11,7 @@ import {
   ledgerEntry,
 } from "@/lib/db/schema";
 import { eq, desc, isNull, isNotNull, sum, count, and } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import { revalidatePath } from "next/cache";
 import { createOrder } from "@/lib/printful";
 import { generateOrderName } from "@/lib/ai";
@@ -27,6 +28,11 @@ import {
   resolveDesignDisplayImageUrls,
   getDesignDisplayImageUrl,
 } from "@/lib/design-images";
+import { designerAttribution } from "@/lib/order-attribution";
+
+// Second user join (the design's owner) needs an alias to coexist with the
+// buyer join on the same query.
+const designerUser = alias(userTable, "designer_user");
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
 if (!ADMIN_EMAIL) {
@@ -543,11 +549,16 @@ export async function getOrderDetail(orderId: string) {
         updatedAt: orderTable.updatedAt,
         displayName: orderTable.displayName,
         userEmail: userTable.email,
+        buyerId: orderTable.userId,
         designId: orderTable.designId,
+        designerId: designTable.userId,
+        designerName: designerUser.name,
         placements: orderTable.placements,
       })
       .from(orderTable)
       .leftJoin(userTable, eq(orderTable.userId, userTable.id))
+      .leftJoin(designTable, eq(designTable.id, orderTable.designId))
+      .leftJoin(designerUser, eq(designerUser.id, designTable.userId))
       .where(eq(orderTable.id, orderId)),
     db.query.ledgerEntry.findMany({
       where: eq(ledgerEntry.orderId, orderId),
@@ -564,5 +575,11 @@ export async function getOrderDetail(orderId: string) {
   const resolved = await resolveOrderImageUrls(orders, fallback);
   const designImageUrl = resolved.get(orders[0].id) ?? null;
 
-  return { ...orders[0], designImageUrl, ledger };
+  const designedByName = designerAttribution({
+    designerId: orders[0].designerId,
+    designerName: orders[0].designerName,
+    buyerId: orders[0].buyerId,
+  });
+
+  return { ...orders[0], designImageUrl, designedByName, ledger };
 }
