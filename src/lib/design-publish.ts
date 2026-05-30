@@ -49,6 +49,20 @@ export function canFork(params: {
   return sourceImage.publishedAt !== null && !sourceImage.isHidden;
 }
 
+/**
+ * Decide whether an image may be bought via the buy-existing path
+ * (`/d/[imageId]`). Unlike forking there is no owner shortcut: the image
+ * must be published and not admin-hidden for anyone — including its
+ * owner, who buys their own unpublished work through the normal /order
+ * flow instead.
+ */
+export function canBuyPublishedImage(image: {
+  publishedAt: Date | null;
+  isHidden: boolean;
+}): boolean {
+  return image.publishedAt !== null && !image.isHidden;
+}
+
 export type ForkChainRow = {
   imageId: string;
   title: string | null;

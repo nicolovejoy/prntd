@@ -3,6 +3,7 @@ import {
   isLocked,
   assertNotLocked,
   canFork,
+  canBuyPublishedImage,
   buildForkChain,
   type ForkChainRow,
 } from "../design-publish";
@@ -99,6 +100,24 @@ describe("canFork", () => {
         callerId: otherId,
       })
     ).toBe(false);
+  });
+});
+
+describe("canBuyPublishedImage", () => {
+  const published = { publishedAt: new Date(), isHidden: false };
+  const unpublished = { publishedAt: null, isHidden: false };
+  const hidden = { publishedAt: new Date(), isHidden: true };
+
+  it("allows buying a published, non-hidden image", () => {
+    expect(canBuyPublishedImage(published)).toBe(true);
+  });
+
+  it("rejects an unpublished image (no owner shortcut — use the design flow)", () => {
+    expect(canBuyPublishedImage(unpublished)).toBe(false);
+  });
+
+  it("rejects a hidden image even if published", () => {
+    expect(canBuyPublishedImage(hidden)).toBe(false);
   });
 });
 

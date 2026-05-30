@@ -7,6 +7,7 @@ import { design as designTable, order as orderTable } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { stripe } from "@/lib/stripe";
 import { computePrice } from "@/lib/pricing";
+import { buildCheckoutSessionParams } from "@/lib/checkout";
 import { getProduct, DEFAULT_PRODUCT_ID } from "@/lib/products";
 import { getDesignDisplayImageUrl } from "@/lib/design-images";
 
@@ -43,8 +44,6 @@ export async function createCheckoutSession(params: {
 
   const resolvedProductId = params.productId ?? DEFAULT_PRODUCT_ID;
   const pricing = await calculatePrice(params.designId, resolvedProductId, params.size);
-  const product = getProduct(resolvedProductId);
-  const productName = product?.name ?? "Custom Product";
 
   // Pin the order to the design's current primary image so post-order
   // regenerations don't mutate what this customer's records show.
@@ -52,53 +51,70 @@ export async function createCheckoutSession(params: {
   // null on any design without a primary set (rare — only designs that
   // never produced a source image).
   const pinnedImageId = found.primaryImageId ?? null;
-  const placements = pinnedImageId ? { front: pinnedImageId } : null;
   const checkoutImageUrl = await getDesignDisplayImageUrl(params.designId);
 
-  // Create order record
+  return createStripeCheckoutForOrder({
+    userId: session.user.id,
+    designId: params.designId,
+    productId: resolvedProductId,
+    size: params.size,
+    color: params.color,
+    totalPrice: pricing.total,
+    placements: pinnedImageId ? { front: pinnedImageId } : null,
+    checkoutImageUrl,
+    cancelUrl: `${process.env.NEXT_PUBLIC_APP_URL}/order?id=${params.designId}&size=${encodeURIComponent(params.size)}&color=${encodeURIComponent(params.color)}&product=${resolvedProductId}`,
+  });
+}
+
+/**
+ * Shared order-creation + Stripe-checkout step for both purchase flows
+ * (design-your-own via `createCheckoutSession`, buy-existing via
+ * `buyPublishedDesign`). Inserts the order row, creates the Stripe
+ * session with `buildCheckoutSessionParams`, persists the session id,
+ * and returns the redirect URL. Callers own auth, pricing, image-pinning
+ * and the cancel URL; this owns the parts that would otherwise drift.
+ */
+export async function createStripeCheckoutForOrder(params: {
+  userId: string;
+  designId: string;
+  productId: string;
+  size: string;
+  color: string;
+  totalPrice: number;
+  placements: { front: string } | null;
+  checkoutImageUrl: string | null;
+  cancelUrl: string;
+}): Promise<{ url: string | null }> {
+  const product = getProduct(params.productId);
+  const productName = product?.name ?? "Custom Product";
+
   const [newOrder] = await db
     .insert(orderTable)
     .values({
-      userId: session.user.id,
+      userId: params.userId,
       designId: params.designId,
-      productId: resolvedProductId,
+      productId: params.productId,
       size: params.size,
       color: params.color,
-      totalPrice: pricing.total,
-      placements,
+      totalPrice: params.totalPrice,
+      placements: params.placements,
     })
     .returning();
 
-  // Create Stripe checkout session
-  const checkoutSession = await stripe.checkout.sessions.create({
-    mode: "payment",
-    allow_promotion_codes: true,
-    shipping_address_collection: {
-      allowed_countries: ["US"],
-    },
-    line_items: [
-      {
-        price_data: {
-          currency: "usd",
-          product_data: {
-            name: `PRNTD ${productName}`,
-            description: `${params.color} / ${params.size}`,
-            images: checkoutImageUrl ? [checkoutImageUrl] : [],
-          },
-          unit_amount: Math.round(pricing.total * 100),
-        },
-        quantity: 1,
-      },
-    ],
-    metadata: {
+  const checkoutSession = await stripe.checkout.sessions.create(
+    buildCheckoutSessionParams({
       orderId: newOrder.id,
       designId: params.designId,
-    },
-    success_url: `${process.env.NEXT_PUBLIC_APP_URL}/order/confirm?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/order?id=${params.designId}&size=${encodeURIComponent(params.size)}&color=${encodeURIComponent(params.color)}&product=${resolvedProductId}`,
-  });
+      productName,
+      color: params.color,
+      size: params.size,
+      totalPrice: params.totalPrice,
+      imageUrl: params.checkoutImageUrl,
+      cancelUrl: params.cancelUrl,
+      appUrl: process.env.NEXT_PUBLIC_APP_URL!,
+    })
+  );
 
-  // Store Stripe session ID
   await db
     .update(orderTable)
     .set({ stripeSessionId: checkoutSession.id })

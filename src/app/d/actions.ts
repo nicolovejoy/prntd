@@ -10,8 +10,12 @@ import {
 } from "@/lib/db/schema";
 import { eq, and, isNotNull, desc } from "drizzle-orm";
 import { copyDesignImageByUrl } from "@/lib/r2";
+import { computePrice } from "@/lib/pricing";
+import { DEFAULT_PRODUCT_ID } from "@/lib/products";
+import { createStripeCheckoutForOrder } from "@/app/order/actions";
 import {
   canFork,
+  canBuyPublishedImage,
   buildForkChain,
   type ForkChainEntry,
   type ForkChainRow,
@@ -226,4 +230,52 @@ export async function forkImage(imageId: string): Promise<string> {
     .where(eq(designTable.id, newDesignId));
 
   return newDesignId;
+}
+
+/**
+ * Buy-existing path: a logged-in user purchases a published image from
+ * `/d/[imageId]` without designing one. Account-gated by decision (orders
+ * must tie to an account so they're trackable in /orders) — the auth check
+ * and userId resolution are isolated here so a future guest swap is a few
+ * lines.
+ *
+ * The order is pinned to the exact image bought (`placements.front =
+ * imageId`) so the webhook prints that image regardless of later
+ * regenerations of its source design. Price is `computePrice(0, …)` — the
+ * buyer didn't incur generation cost; the designer's is internal-only and
+ * never billed anyway. The order's designId is the image's source design,
+ * NOT a new design — the buyer isn't creating one.
+ */
+export async function buyPublishedDesign(params: {
+  imageId: string;
+  productId?: string;
+  size: string;
+  color: string;
+}): Promise<{ url: string | null }> {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) throw new Error("Unauthorized");
+
+  const image = await db.query.designImage.findFirst({
+    where: eq(designImageTable.id, params.imageId),
+  });
+  if (!image) throw new Error("Image not found");
+
+  if (!canBuyPublishedImage(image)) {
+    throw new Error("Image is not available to buy");
+  }
+
+  const resolvedProductId = params.productId ?? DEFAULT_PRODUCT_ID;
+  const pricing = computePrice(0, resolvedProductId, params.size);
+
+  return createStripeCheckoutForOrder({
+    userId: session.user.id,
+    designId: image.designId,
+    productId: resolvedProductId,
+    size: params.size,
+    color: params.color,
+    totalPrice: pricing.total,
+    placements: { front: params.imageId },
+    checkoutImageUrl: image.imageUrl,
+    cancelUrl: `${process.env.NEXT_PUBLIC_APP_URL}/d/${params.imageId}`,
+  });
 }
