@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   isLocked,
   assertNotLocked,
-  canFork,
   canBuyPublishedImage,
   buildForkChain,
   dedupeFeedByDesign,
@@ -33,74 +32,6 @@ describe("assertNotLocked", () => {
     expect(() =>
       assertNotLocked({ publishedAt: new Date("2026-05-26T00:00:00Z") })
     ).toThrow(/locked/i);
-  });
-});
-
-describe("canFork", () => {
-  const published = { publishedAt: new Date(), isHidden: false };
-  const unpublished = { publishedAt: null, isHidden: false };
-  const hidden = { publishedAt: new Date(), isHidden: true };
-  const ownerId = "user-A";
-  const otherId = "user-B";
-
-  it("owner can fork their own unpublished image", () => {
-    expect(
-      canFork({
-        sourceImage: unpublished,
-        sourceDesign: { userId: ownerId },
-        callerId: ownerId,
-      })
-    ).toBe(true);
-  });
-
-  it("owner can fork their own published image", () => {
-    expect(
-      canFork({
-        sourceImage: published,
-        sourceDesign: { userId: ownerId },
-        callerId: ownerId,
-      })
-    ).toBe(true);
-  });
-
-  it("owner can fork their own hidden image (self-fork bypasses moderation)", () => {
-    expect(
-      canFork({
-        sourceImage: hidden,
-        sourceDesign: { userId: ownerId },
-        callerId: ownerId,
-      })
-    ).toBe(true);
-  });
-
-  it("non-owner can fork a published, non-hidden image", () => {
-    expect(
-      canFork({
-        sourceImage: published,
-        sourceDesign: { userId: ownerId },
-        callerId: otherId,
-      })
-    ).toBe(true);
-  });
-
-  it("non-owner cannot fork an unpublished image", () => {
-    expect(
-      canFork({
-        sourceImage: unpublished,
-        sourceDesign: { userId: ownerId },
-        callerId: otherId,
-      })
-    ).toBe(false);
-  });
-
-  it("non-owner cannot fork a hidden image", () => {
-    expect(
-      canFork({
-        sourceImage: hidden,
-        sourceDesign: { userId: ownerId },
-        callerId: otherId,
-      })
-    ).toBe(false);
   });
 });
 

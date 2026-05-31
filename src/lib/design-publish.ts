@@ -35,21 +35,6 @@ export function assertNotLocked(image: ImageLockFields): void {
 }
 
 /**
- * Decide whether `callerId` may fork an image. Self-fork is always
- * allowed (useful for starting a new thread from your own past work).
- * Otherwise the source image must be published and not admin-hidden.
- */
-export function canFork(params: {
-  sourceImage: { publishedAt: Date | null; isHidden: boolean };
-  sourceDesign: { userId: string };
-  callerId: string;
-}): boolean {
-  const { sourceImage, sourceDesign, callerId } = params;
-  if (sourceDesign.userId === callerId) return true;
-  return sourceImage.publishedAt !== null && !sourceImage.isHidden;
-}
-
-/**
  * Decide whether an image may be bought via the buy-existing path
  * (`/d/[imageId]`). Unlike forking there is no owner shortcut: the image
  * must be published and not admin-hidden for anyone — including its

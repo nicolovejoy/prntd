@@ -23,20 +23,6 @@ export default async function PublishedImagePage({
 
   return (
     <div className="min-h-screen flex flex-col">
-      <header className="px-4 py-3 border-b border-border">
-        <div className="max-w-3xl mx-auto flex items-center justify-between">
-          <Link href="/" className="font-bold">
-            PRNTD
-          </Link>
-          <Link
-            href="/prints"
-            className="text-sm text-text-muted hover:underline"
-          >
-            Fresh Prints
-          </Link>
-        </div>
-      </header>
-
       <main className="flex-1 px-4 py-8">
         <div className="max-w-3xl mx-auto space-y-6">
           <div className="bg-checkerboard rounded-lg overflow-hidden border border-border">

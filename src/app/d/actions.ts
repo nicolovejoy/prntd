@@ -9,12 +9,10 @@ import {
   user as userTable,
 } from "@/lib/db/schema";
 import { eq, and, isNotNull, desc } from "drizzle-orm";
-import { copyDesignImageByUrl } from "@/lib/r2";
 import { computePrice } from "@/lib/pricing";
 import { DEFAULT_PRODUCT_ID } from "@/lib/products";
 import { createStripeCheckoutForOrder } from "@/app/order/actions";
 import {
-  canFork,
   canBuyPublishedImage,
   buildForkChain,
   dedupeFeedByDesign,
@@ -181,86 +179,6 @@ export async function getPublishedImage(
     publishedAt: r.publishedAt,
     forkChain,
   };
-}
-
-/**
- * Fork an image into a new private design owned by the caller. Copies
- * the seed image into a fresh R2 key under the new design so each
- * design owns its R2 keys independently. The original image (locked
- * via publishedAt) is left untouched.
- *
- * Source must be either owned by the caller (self-fork — useful for
- * starting a new thread from one of your own past designs) or
- * published and not hidden.
- *
- * Returns the new designId. Caller redirects to /design?id=...
- */
-export async function forkImage(imageId: string): Promise<string> {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) throw new Error("Unauthorized");
-
-  const sourceImage = await db.query.designImage.findFirst({
-    where: eq(designImageTable.id, imageId),
-  });
-  if (!sourceImage) throw new Error("Image not found");
-
-  const sourceDesign = await db.query.design.findFirst({
-    where: eq(designTable.id, sourceImage.designId),
-  });
-  if (!sourceDesign) throw new Error("Source design missing");
-
-  if (
-    !canFork({
-      sourceImage,
-      sourceDesign,
-      callerId: session.user.id,
-    })
-  ) {
-    throw new Error("Image is not available to fork");
-  }
-
-  // Walk one level: if the source design is itself a fork, inherit its
-  // root; otherwise the source design's owner IS the root.
-  const originalDesignerId =
-    sourceDesign.originalDesignerId ?? sourceDesign.userId;
-
-  const newDesignId = crypto.randomUUID();
-  await db.insert(designTable).values({
-    id: newDesignId,
-    userId: session.user.id,
-    forkedFromImageId: imageId,
-    originalDesignerId,
-  });
-
-  // Copy R2 object into the new design's namespace as generation #1.
-  const newImageUrl = await copyDesignImageByUrl(
-    sourceImage.imageUrl,
-    newDesignId,
-    1
-  );
-
-  const newImageId = crypto.randomUUID();
-  await db.insert(designImageTable).values({
-    id: newImageId,
-    designId: newDesignId,
-    parentImageId: null,
-    aspectRatio: sourceImage.aspectRatio,
-    imageUrl: newImageUrl,
-    prompt: sourceImage.prompt,
-    generationCost: 0,
-    isApproved: false,
-  });
-
-  await db
-    .update(designTable)
-    .set({
-      primaryImageId: newImageId,
-      generationCount: 1,
-      updatedAt: new Date(),
-    })
-    .where(eq(designTable.id, newDesignId));
-
-  return newDesignId;
 }
 
 /**
