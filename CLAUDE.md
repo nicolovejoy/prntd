@@ -224,9 +224,10 @@ The buy-direct half of the two-flow model: a logged-in user buys a published des
 
 **Mobile flow rethink** — Design→preview→order too fragmented on phones. Now in motion: ibuild4you brief sent to Manine (product designer), framed by `docs/ux-two-flow-model.md`; homepage rework tracked in #18. Adjacent: `docs/funnel-back-nav.md`.
 
-**Homepage + nav rework — NEXT UP, plan in `docs/homepage-nav-rework.md`** (direction set 2026-05-30):
-- **Part A — homepage (#18, ready to build):** remove the logged-in user's own "Recent designs" grid from `HomeHero`; hide "How it works" when logged in (make `page.tsx` session-aware); lead with the discover feed, reframed as purchasable — heading **"Designs from the community"**, subtext "Browse and buy designs other makers have published." Layout + labels only; `getDiscoverFeed` already returns what's needed.
-- **Part B — nav + nomenclature pass (design after handoff):** the whole app's navigation/naming should reflect the two flows (buy-existing vs design-your-own) and cleanly separate "my designs" from "designs I can buy". Open questions (nav structure, storefront name, where own-published live, fork+buy CTA coexistence) in the doc. Its own focused session.
+**Homepage + nav rework (#18) — SHIPPED 2026-05-30** (plan was `docs/homepage-nav-rework.md`; commits `bb4a194`, `f5e635d`, `d4f3c35`):
+- **Part A:** homepage reads session server-side, leads with the community feed, hides "How it works" when logged in; own-designs grid removed from `HomeHero`.
+- **Part B:** storefront named **"Fresh Prints"** (see memory `project_two_flow_nav.md`). New global nav `Fresh Prints | New Design | My Designs | Orders | Sign out` (hamburger on mobile, phone-first). New `/prints` page. Homepage feed → 12-card teaser via shared `PublishedGrid` + "See all" link. `getDiscoverFeed` deduped to one card per design (pure `dedupeFeedByDesign`, 5 tests); `PublishedImage.isOwn` → "by you". **Fork removed entirely** (UI + `forkImage` action + `canFork`); `buildForkChain` kept for historical "Forked from" attribution. Duplicate inner header on `/d/[imageId]` removed.
+- **Remaining followups (small):** `copyDesignImageByUrl` in `r2.ts` is now dead (left as reusable helper — delete if you want). Part B doc's deeper IA open questions (long-term home for own-published; storefront depth) mostly resolved; doc could be updated to reflect shipped state.
 
 **1Password secret migration (paused 2026-04-14)** — see memory `project_anthropic_key_rotation.md`
 
