@@ -63,6 +63,29 @@ export function canBuyPublishedImage(image: {
   return image.publishedAt !== null && !image.isHidden;
 }
 
+/**
+ * Collapse a published-image feed to one entry per design. Publishing
+ * happens per design_image, so a maker who publishes several generations
+ * within one design would otherwise flood the storefront with
+ * near-identical cards. We keep the most-recently-published image as the
+ * design's single storefront representative and return the result newest
+ * first. Order-independent: the input need not be pre-sorted.
+ */
+export function dedupeFeedByDesign<
+  T extends { designId: string; publishedAt: Date },
+>(rows: T[]): T[] {
+  const byDesign = new Map<string, T>();
+  for (const row of rows) {
+    const existing = byDesign.get(row.designId);
+    if (!existing || row.publishedAt.getTime() > existing.publishedAt.getTime()) {
+      byDesign.set(row.designId, row);
+    }
+  }
+  return [...byDesign.values()].sort(
+    (a, b) => b.publishedAt.getTime() - a.publishedAt.getTime()
+  );
+}
+
 export type ForkChainRow = {
   imageId: string;
   title: string | null;

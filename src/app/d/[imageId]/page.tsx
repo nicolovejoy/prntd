@@ -1,9 +1,8 @@
 import Link from "next/link";
 import { headers } from "next/headers";
-import { notFound, redirect } from "next/navigation";
-import { getPublishedImage, forkImage } from "../actions";
+import { notFound } from "next/navigation";
+import { getPublishedImage } from "../actions";
 import { auth } from "@/lib/auth";
-import { Button } from "@/components/ui";
 import { EditableNaming } from "./editable-naming";
 import { BuyPanel } from "./buy-panel";
 
@@ -22,16 +21,6 @@ export default async function PublishedImagePage({
   const isLoggedIn = Boolean(session);
   const isOwner = session?.user.id === img.designerId;
 
-  async function handleFork() {
-    "use server";
-    const session = await auth.api.getSession({ headers: await headers() });
-    if (!session) {
-      redirect(`/sign-in?next=/d/${imageId}`);
-    }
-    const newDesignId = await forkImage(imageId);
-    redirect(`/design?id=${newDesignId}`);
-  }
-
   return (
     <div className="min-h-screen flex flex-col">
       <header className="px-4 py-3 border-b border-border">
@@ -39,8 +28,11 @@ export default async function PublishedImagePage({
           <Link href="/" className="font-bold">
             PRNTD
           </Link>
-          <Link href="/" className="text-sm text-text-muted hover:underline">
-            Discover
+          <Link
+            href="/prints"
+            className="text-sm text-text-muted hover:underline"
+          >
+            Fresh Prints
           </Link>
         </div>
       </header>
@@ -84,22 +76,6 @@ export default async function PublishedImagePage({
           </div>
 
           <BuyPanel imageId={img.imageId} isLoggedIn={isLoggedIn} />
-
-          <div className="pt-1">
-            {isLoggedIn ? (
-              <form action={handleFork}>
-                <Button type="submit" variant="secondary" className="w-full">
-                  Make one like this
-                </Button>
-              </form>
-            ) : (
-              <Link href={`/sign-in?next=/d/${imageId}`} className="block">
-                <Button variant="secondary" className="w-full">
-                  Sign in to make one like this
-                </Button>
-              </Link>
-            )}
-          </div>
         </div>
       </main>
     </div>

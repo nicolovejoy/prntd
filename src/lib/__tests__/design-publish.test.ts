@@ -5,6 +5,7 @@ import {
   canFork,
   canBuyPublishedImage,
   buildForkChain,
+  dedupeFeedByDesign,
   type ForkChainRow,
 } from "../design-publish";
 import { design, designImage } from "../db/schema";
@@ -230,5 +231,54 @@ describe("schema columns", () => {
 
   it("design.forkedFromImageId is nullable", () => {
     expect(design.forkedFromImageId.notNull).toBe(false);
+  });
+});
+
+describe("dedupeFeedByDesign", () => {
+  const row = (imageId: string, designId: string, iso: string) => ({
+    imageId,
+    designId,
+    publishedAt: new Date(iso),
+  });
+
+  it("returns one entry per design", () => {
+    const out = dedupeFeedByDesign([
+      row("img1", "dA", "2026-05-01T00:00:00Z"),
+      row("img2", "dA", "2026-05-03T00:00:00Z"),
+      row("img3", "dB", "2026-05-02T00:00:00Z"),
+    ]);
+    expect(out.map((r) => r.designId)).toEqual(["dA", "dB"]);
+  });
+
+  it("keeps the most-recently-published image for a design", () => {
+    const out = dedupeFeedByDesign([
+      row("old", "dA", "2026-05-01T00:00:00Z"),
+      row("new", "dA", "2026-05-05T00:00:00Z"),
+      row("mid", "dA", "2026-05-03T00:00:00Z"),
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].imageId).toBe("new");
+  });
+
+  it("orders the result newest-first regardless of input order", () => {
+    const out = dedupeFeedByDesign([
+      row("a", "dA", "2026-05-01T00:00:00Z"),
+      row("c", "dC", "2026-05-09T00:00:00Z"),
+      row("b", "dB", "2026-05-05T00:00:00Z"),
+    ]);
+    expect(out.map((r) => r.designId)).toEqual(["dC", "dB", "dA"]);
+  });
+
+  it("returns an empty array for empty input", () => {
+    expect(dedupeFeedByDesign([])).toEqual([]);
+  });
+
+  it("passes through extra fields on the kept row", () => {
+    const out = dedupeFeedByDesign([
+      { imageId: "x", designId: "dA", publishedAt: new Date("2026-05-02T00:00:00Z"), title: "Keep me" },
+      { imageId: "y", designId: "dA", publishedAt: new Date("2026-05-01T00:00:00Z"), title: "Drop me" },
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].title).toBe("Keep me");
   });
 });

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { HomeHero } from "@/components/home-hero";
+import { PublishedGrid } from "@/components/published-grid";
 import { getUserDesigns } from "./designs/actions";
 import { getDiscoverFeed } from "./d/actions";
 import { getActivePromo } from "@/lib/promotion";
@@ -10,7 +11,7 @@ export const dynamic = "force-dynamic";
 
 export default async function Home() {
   const [discover, promo, session] = await Promise.all([
-    getDiscoverFeed(24),
+    getDiscoverFeed(12),
     getActivePromo(),
     auth.api.getSession({ headers: await headers() }),
   ]);
@@ -35,37 +36,18 @@ export default async function Home() {
       {discover.length > 0 && (
         <section className="py-16 px-4 border-t border-border">
           <div className="max-w-6xl mx-auto">
-            <h2 className="text-2xl font-bold text-center mb-2">
-              Designs from the community
-            </h2>
+            <h2 className="text-2xl font-bold text-center mb-2">Fresh Prints</h2>
             <p className="text-text-muted text-center mb-8">
               Browse and buy designs other makers have published.
             </p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-              {discover.map((img) => (
-                <Link
-                  key={img.imageId}
-                  href={`/d/${img.imageId}`}
-                  className="group block"
-                >
-                  <div className="aspect-square bg-checkerboard rounded-md overflow-hidden border border-border group-hover:border-accent transition-colors">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={img.imageUrl}
-                      alt={img.title ?? "Design"}
-                      className="w-full h-full object-contain"
-                    />
-                  </div>
-                  {img.title && (
-                    <p className="mt-2 text-sm font-medium truncate">
-                      {img.title}
-                    </p>
-                  )}
-                  <p className="text-xs text-text-muted truncate">
-                    by {img.designerName}
-                  </p>
-                </Link>
-              ))}
+            <PublishedGrid images={discover} />
+            <div className="text-center mt-8">
+              <Link
+                href="/prints"
+                className="text-sm text-text-muted underline hover:text-foreground transition-colors"
+              >
+                See all Fresh Prints →
+              </Link>
             </div>
           </div>
         </section>

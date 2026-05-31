@@ -17,6 +17,7 @@ import {
   canFork,
   canBuyPublishedImage,
   buildForkChain,
+  dedupeFeedByDesign,
   type ForkChainEntry,
   type ForkChainRow,
 } from "@/lib/design-publish";
@@ -28,6 +29,8 @@ export type PublishedImage = {
   description: string | null;
   designerName: string;
   designerId: string;
+  /** True when the feed viewer is this design's owner — render "by you". */
+  isOwn: boolean;
   publishedAt: Date;
   /**
    * Walks the lineage from this image's parent up toward the root,
@@ -43,9 +46,23 @@ export type PublishedImage = {
  * No auth required.
  */
 export async function getDiscoverFeed(limit = 60): Promise<PublishedImage[]> {
+  // Identify the viewer so we can tag their own designs "by you". Best-effort:
+  // a signed-out visitor just sees every card attributed by maker name.
+  let viewerId: string | null = null;
+  try {
+    const session = await auth.api.getSession({ headers: await headers() });
+    viewerId = session?.user.id ?? null;
+  } catch {
+    viewerId = null;
+  }
+
+  // The feed is one card per design, but publishing happens per image, so a
+  // design can have several published rows. Over-fetch, then collapse to one
+  // row per design (newest published) before slicing to the requested limit.
   const rows = await db
     .select({
       imageId: designImageTable.id,
+      designId: designImageTable.designId,
       imageUrl: designImageTable.imageUrl,
       title: designImageTable.title,
       description: designImageTable.description,
@@ -63,16 +80,21 @@ export async function getDiscoverFeed(limit = 60): Promise<PublishedImage[]> {
       )
     )
     .orderBy(desc(designImageTable.publishedAt))
-    .limit(limit);
+    .limit(Math.min(limit * 4, 240));
 
-  return rows.map((r) => ({
+  const deduped = dedupeFeedByDesign(
+    rows.map((r) => ({ ...r, publishedAt: r.publishedAt! }))
+  ).slice(0, limit);
+
+  return deduped.map((r) => ({
     imageId: r.imageId,
     imageUrl: r.imageUrl,
     title: r.title,
     description: r.description,
     designerName: r.designerName,
     designerId: r.designerId,
-    publishedAt: r.publishedAt!,
+    isOwn: viewerId !== null && r.designerId === viewerId,
+    publishedAt: r.publishedAt,
     forkChain: [],
   }));
 }
@@ -140,6 +162,14 @@ export async function getPublishedImage(
   // parent so admin moderation also breaks the public chain.
   const forkChain = await buildForkChain(r.forkedFromImageId, fetchForkChainRow);
 
+  let viewerId: string | null = null;
+  try {
+    const session = await auth.api.getSession({ headers: await headers() });
+    viewerId = session?.user.id ?? null;
+  } catch {
+    viewerId = null;
+  }
+
   return {
     imageId: r.imageId,
     imageUrl: r.imageUrl,
@@ -147,6 +177,7 @@ export async function getPublishedImage(
     description: r.description,
     designerName: r.designerName,
     designerId: r.designerId,
+    isOwn: viewerId !== null && r.designerId === viewerId,
     publishedAt: r.publishedAt,
     forkChain,
   };

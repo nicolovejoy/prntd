@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   getUserDesigns,
@@ -9,7 +8,6 @@ import {
   archiveDesign,
   publishImage,
 } from "./actions";
-import { forkImage } from "../d/actions";
 import { Badge, Button } from "@/components/ui";
 
 type Design = Awaited<ReturnType<typeof getUserDesigns>>[number];
@@ -32,7 +30,6 @@ function timeAgo(date: Date) {
 }
 
 export default function DesignsPage() {
-  const router = useRouter();
   const [designs, setDesigns] = useState<Design[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -67,17 +64,6 @@ export default function DesignsPage() {
     } catch (err) {
       alert(err instanceof Error ? err.message : String(err));
     } finally {
-      setBusy(null);
-    }
-  }
-
-  async function handleFork(designId: string, imageId: string) {
-    setBusy(designId);
-    try {
-      const newId = await forkImage(imageId);
-      router.push(`/design?id=${newId}`);
-    } catch (err) {
-      alert(err instanceof Error ? err.message : String(err));
       setBusy(null);
     }
   }
@@ -180,16 +166,6 @@ export default function DesignsPage() {
                           {busy === design.id ? "Publishing…" : "Publish"}
                         </Button>
                       )}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={busy === design.id}
-                        onClick={() =>
-                          handleFork(design.id, design.primaryImageId!)
-                        }
-                      >
-                        Fork
-                      </Button>
                     </div>
                   )}
                 </div>
