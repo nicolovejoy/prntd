@@ -2,13 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import {
-  getUserDesigns,
-  deleteDesign,
-  archiveDesign,
-  publishImage,
-} from "./actions";
+import { getUserDesigns, deleteDesign, archiveDesign } from "./actions";
 import { Badge, Button } from "@/components/ui";
+import { PublishModal } from "@/components/publish-modal";
 
 type Design = Awaited<ReturnType<typeof getUserDesigns>>[number];
 
@@ -33,7 +29,7 @@ export default function DesignsPage() {
   const [designs, setDesigns] = useState<Design[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
+  const [publishImageId, setPublishImageId] = useState<string | null>(null);
 
   useEffect(() => {
     getUserDesigns()
@@ -55,17 +51,10 @@ export default function DesignsPage() {
     setDesigns((prev) => prev.filter((d) => d.id !== id));
   }
 
-  async function handlePublish(designId: string, imageId: string) {
-    setBusy(designId);
-    try {
-      await publishImage(imageId);
-      const fresh = await getUserDesigns();
-      setDesigns(fresh);
-    } catch (err) {
-      alert(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(null);
-    }
+  // Publishing opens the modal (name/description/backdrop), which performs
+  // the publish and navigates to the new public page.
+  function openPublish(imageId: string) {
+    setPublishImageId(imageId);
   }
 
   return (
@@ -149,7 +138,7 @@ export default function DesignsPage() {
                     <div className="flex items-center gap-2 pt-1 border-t border-border">
                       {design.primaryImagePublishedAt ? (
                         <Link
-                          href={`/d/${design.primaryImageId}`}
+                          href={`/d/${design.primaryImageId}?from=/designs`}
                           className="text-xs text-text-muted underline hover:no-underline"
                         >
                           Published →
@@ -158,12 +147,9 @@ export default function DesignsPage() {
                         <Button
                           variant="secondary"
                           size="sm"
-                          disabled={busy === design.id}
-                          onClick={() =>
-                            handlePublish(design.id, design.primaryImageId!)
-                          }
+                          onClick={() => openPublish(design.primaryImageId!)}
                         >
-                          {busy === design.id ? "Publishing…" : "Publish"}
+                          Publish
                         </Button>
                       )}
                     </div>
@@ -174,6 +160,13 @@ export default function DesignsPage() {
           </div>
         )}
       </main>
+
+      <PublishModal
+        imageId={publishImageId}
+        open={publishImageId !== null}
+        onClose={() => setPublishImageId(null)}
+        from="/designs"
+      />
     </div>
   );
 }

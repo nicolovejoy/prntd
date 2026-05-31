@@ -13,7 +13,7 @@ import {
   approveDesign,
   uploadReferenceImage,
 } from "./actions";
-import { publishImage } from "../designs/actions";
+import { PublishModal } from "@/components/publish-modal";
 import type { ChatMessage } from "@/lib/db/schema";
 import type { DesignImage, ProductVersionGroup } from "@/lib/design-images";
 import { ChatPanel } from "./chat-panel";
@@ -43,6 +43,7 @@ function DesignPageInner() {
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [publishImageId, setPublishImageId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const refreshGallery = useCallback(async () => {
@@ -158,15 +159,12 @@ function DesignPageInner() {
     }
   }
 
-  async function handlePublishImage(imageId: string) {
-    try {
-      await publishImage(imageId);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Publish failed";
-      window.alert(msg);
-      return;
-    }
-    await refreshGallery();
+  // Publishing opens the modal (name/description/backdrop). Close the
+  // lightbox first so the modal isn't stacked on top of it; the modal does
+  // the publish and routes to the new public page.
+  function handlePublishImage(imageId: string) {
+    setLightboxIndex(null);
+    setPublishImageId(imageId);
   }
 
   async function handleUploadImage(base64: string, fileName: string) {
@@ -299,6 +297,12 @@ function DesignPageInner() {
           onPublish={handlePublishImage}
         />
       )}
+
+      <PublishModal
+        imageId={publishImageId}
+        open={publishImageId !== null}
+        onClose={() => setPublishImageId(null)}
+      />
     </div>
   );
 }

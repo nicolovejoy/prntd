@@ -141,7 +141,14 @@ export async function archiveDesign(designId: string) {
  * Authorizes via the design's userId — the image's owner is the
  * design's owner.
  */
-export async function publishImage(imageId: string) {
+export async function publishImage(
+  imageId: string,
+  opts: {
+    title?: string;
+    description?: string;
+    backgroundColor?: string | null;
+  } = {}
+) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) throw new Error("Unauthorized");
 
@@ -160,10 +167,16 @@ export async function publishImage(imageId: string) {
 
   if (image.publishedAt) return;
 
-  const { title, description } = await generatePublishedNaming(
-    image.imageUrl,
-    image.prompt
-  );
+  // The publish modal lets the owner supply name/description/backdrop up
+  // front. Auto-generate via Claude only for the fields left blank, so the
+  // legacy "just publish" path (no opts) still works.
+  let title = opts.title?.trim();
+  let description = opts.description?.trim();
+  if (!title || !description) {
+    const gen = await generatePublishedNaming(image.imageUrl, image.prompt);
+    title = title || gen.title;
+    description = description || gen.description;
+  }
 
   await db
     .update(designImageTable)
@@ -171,8 +184,14 @@ export async function publishImage(imageId: string) {
       publishedAt: new Date(),
       title,
       description,
+      ...(opts.backgroundColor !== undefined
+        ? { backgroundColor: opts.backgroundColor }
+        : {}),
     })
     .where(eq(designImageTable.id, imageId));
+
+  revalidatePath("/");
+  revalidatePath("/prints");
 }
 
 /**
@@ -186,7 +205,11 @@ export async function updatePublishedNaming(
     title,
     description,
     backgroundColor,
-  }: { title: string; description: string; backgroundColor?: string | null }
+  }: {
+    title?: string;
+    description?: string;
+    backgroundColor?: string | null;
+  }
 ) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) throw new Error("Unauthorized");
@@ -205,13 +228,15 @@ export async function updatePublishedNaming(
     throw new Error("Unauthorized");
   }
 
+  // Partial update: only touch fields the caller actually sent. The
+  // background control persists backgroundColor alone; the naming editor
+  // sends title + description. backgroundColor can be explicit null (clear
+  // to checkerboard), so the guard is `!== undefined`, not truthiness.
   await db
     .update(designImageTable)
     .set({
-      title: title.trim(),
-      description: description.trim(),
-      // Only touch the backdrop when the caller sent a value (including
-      // explicit null to clear back to checkerboard); undefined leaves it.
+      ...(title !== undefined ? { title: title.trim() } : {}),
+      ...(description !== undefined ? { description: description.trim() } : {}),
       ...(backgroundColor !== undefined ? { backgroundColor } : {}),
     })
     .where(eq(designImageTable.id, imageId));

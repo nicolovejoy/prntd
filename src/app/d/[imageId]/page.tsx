@@ -3,10 +3,10 @@ import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { getPublishedImage } from "../actions";
 import { auth } from "@/lib/auth";
-import { publishedBackdrop } from "@/lib/products";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
 import { EditableNaming } from "./editable-naming";
+import { PublishedImageView } from "./published-image-view";
 import { BuyPanel } from "./buy-panel";
 
 type Params = Promise<{ imageId: string }>;
@@ -27,7 +27,6 @@ export default async function PublishedImagePage({
   const session = await auth.api.getSession({ headers: await headers() });
   const isLoggedIn = Boolean(session);
   const isOwner = session?.user.id === img.designerId;
-  const backdrop = publishedBackdrop(img.backgroundColor);
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -37,24 +36,19 @@ export default async function PublishedImagePage({
             trail={breadcrumbTrail(`/d/${imageId}`, { from })}
             current={img.title ?? "Design"}
           />
-          <div
-            className={`rounded-lg overflow-hidden border border-border ${backdrop.className}`}
-            style={backdrop.style}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={img.imageUrl}
-              alt={img.title ?? "Design"}
-              className="w-full h-auto object-contain"
-            />
-          </div>
+          <PublishedImageView
+            imageId={img.imageId}
+            imageUrl={img.imageUrl}
+            alt={img.title ?? "Design"}
+            initialBackgroundColor={img.backgroundColor}
+            canEdit={isOwner}
+          />
 
           <div className="space-y-2">
             <EditableNaming
               imageId={img.imageId}
               title={img.title}
               description={img.description}
-              backgroundColor={img.backgroundColor}
               canEdit={isOwner}
             />
             <p className="text-sm text-text-muted">by {img.designerName}</p>
