@@ -5,10 +5,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { getDesign } from "../design/actions";
 import { generateMockup } from "../preview/actions";
 import { calculatePrice, createCheckoutSession } from "./actions";
-import Link from "next/link";
 import { Button } from "@/components/ui";
 import { SizePicker, ColorPicker } from "@/components/product-options";
 import { getProduct, DEFAULT_PRODUCT_ID } from "@/lib/products";
+import { Breadcrumbs } from "@/components/breadcrumbs";
+import { breadcrumbTrail } from "@/lib/nav";
 
 export default function OrderPage() {
   return (
@@ -114,18 +115,15 @@ function OrderPageInner() {
 
   return (
     <div className="min-h-screen flex flex-col items-center py-6 md:py-12 px-4 pb-24 md:pb-12">
-      {/* Breadcrumbs — hidden on mobile */}
-      <nav className="hidden md:flex w-full max-w-2xl mb-8 gap-2 text-sm text-gray-500">
-        <Link href={`/design?id=${designId}`} className="hover:underline">
-          Design
-        </Link>
-        <span>/</span>
-        <Link href={`/preview?id=${designId}&product=${productId}`} className="hover:underline">
-          Preview
-        </Link>
-        <span>/</span>
-        <span className="text-foreground font-medium">Order</span>
-      </nav>
+      <Breadcrumbs
+        trail={breadcrumbTrail("/order", {
+          id: designId ?? undefined,
+          product: productId,
+          color,
+        })}
+        current="Order"
+        className="w-full max-w-2xl mb-8"
+      />
 
       <div className="w-full max-w-2xl grid md:grid-cols-2 gap-6 md:gap-8">
         {/* Design preview — compact on mobile */}

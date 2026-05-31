@@ -25,6 +25,8 @@ export type PublishedImage = {
   imageUrl: string;
   title: string | null;
   description: string | null;
+  /** Pinned storefront backdrop (a BACKGROUND_PALETTE color name); null → checkerboard. */
+  backgroundColor: string | null;
   designerName: string;
   designerId: string;
   /** True when the feed viewer is this design's owner — render "by you". */
@@ -64,6 +66,7 @@ export async function getDiscoverFeed(limit = 60): Promise<PublishedImage[]> {
       imageUrl: designImageTable.imageUrl,
       title: designImageTable.title,
       description: designImageTable.description,
+      backgroundColor: designImageTable.backgroundColor,
       publishedAt: designImageTable.publishedAt,
       designerName: userTable.name,
       designerId: userTable.id,
@@ -89,6 +92,7 @@ export async function getDiscoverFeed(limit = 60): Promise<PublishedImage[]> {
     imageUrl: r.imageUrl,
     title: r.title,
     description: r.description,
+    backgroundColor: r.backgroundColor,
     designerName: r.designerName,
     designerId: r.designerId,
     isOwn: viewerId !== null && r.designerId === viewerId,
@@ -141,6 +145,7 @@ export async function getPublishedImage(
       imageUrl: designImageTable.imageUrl,
       title: designImageTable.title,
       description: designImageTable.description,
+      backgroundColor: designImageTable.backgroundColor,
       publishedAt: designImageTable.publishedAt,
       isHidden: designImageTable.isHidden,
       designerName: userTable.name,
@@ -173,6 +178,7 @@ export async function getPublishedImage(
     imageUrl: r.imageUrl,
     title: r.title,
     description: r.description,
+    backgroundColor: r.backgroundColor,
     designerName: r.designerName,
     designerId: r.designerId,
     isOwn: viewerId !== null && r.designerId === viewerId,

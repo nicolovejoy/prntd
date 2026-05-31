@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { getRecentPublishedForAdmin, setImageHidden } from "../actions";
 import { Button } from "@/components/ui";
+import { Breadcrumbs } from "@/components/breadcrumbs";
+import { breadcrumbTrail } from "@/lib/nav";
 
 export const dynamic = "force-dynamic";
 
@@ -26,12 +28,12 @@ export default async function AdminPublishedPage() {
 
   return (
     <div className="max-w-6xl mx-auto py-8 px-4">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-xl font-bold">Published images</h1>
-        <Link href="/admin" className="text-sm underline hover:no-underline">
-          ← Orders
-        </Link>
-      </div>
+      <Breadcrumbs
+        trail={breadcrumbTrail("/admin/published")}
+        current="Published images"
+        className="mb-4"
+      />
+      <h1 className="text-xl font-bold mb-6">Published images</h1>
 
       {images.length === 0 ? (
         <p className="text-text-muted">No published images yet.</p>

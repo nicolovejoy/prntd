@@ -2,7 +2,6 @@
 
 import { Suspense, useState, useRef, useEffect, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
 import {
   sendChatMessage,
   generateDesign,
@@ -21,6 +20,8 @@ import { ChatPanel } from "./chat-panel";
 import { ImageGallery } from "./image-gallery";
 import { ImageLightbox } from "./image-lightbox";
 import { MobileGalleryDrawer } from "./mobile-gallery-drawer";
+import { Breadcrumbs } from "@/components/breadcrumbs";
+import { breadcrumbTrail } from "@/lib/nav";
 
 export default function DesignPage() {
   return (
@@ -227,12 +228,10 @@ function DesignPageInner() {
       {/* Header */}
       <div className="p-4 border-b border-border flex items-center justify-between">
         <div>
-          <Link
-            href="/designs"
-            className="text-sm text-gray-500 hover:underline"
-          >
-            &larr; My Designs
-          </Link>
+          <Breadcrumbs
+            trail={breadcrumbTrail("/design", { id: designId.current })}
+            current="Design"
+          />
           <h1 className="text-lg font-semibold mt-1">Design something</h1>
         </div>
       </div>

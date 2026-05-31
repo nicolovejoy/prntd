@@ -13,6 +13,10 @@ export function Modal({ open, onClose, children, className = "" }: ModalProps) {
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        // preventDefault (not just stopPropagation) so page-level
+        // Escape-to-go-up (Breadcrumbs) skips this keystroke — both listen
+        // on window, where stopPropagation wouldn't separate them.
+        e.preventDefault();
         e.stopPropagation();
         onClose();
       }

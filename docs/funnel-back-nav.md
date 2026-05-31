@@ -2,6 +2,22 @@
 
 Captured 2026-05-05 alongside the design/image data-model gap.
 
+## Resolved 2026-05-30
+
+Built a centralized hierarchy instead of the chip-only middle ground. One
+source of truth — `breadcrumbTrail(pathname, params)` in `src/lib/nav.ts`
+(unit-tested) — drives a shared `<Breadcrumbs>` component: mobile shows a
+single `← Parent` back chip, desktop shows the full trail. Escape navigates
+to the immediate parent via deterministic `router.push` (the old global
+`EscBack` did `router.back()` and is removed). Overlays (modal, lightbox,
+mobile drawer) now `preventDefault` on Escape so close-overlay wins over
+go-up. Detail pages (`/d/[id]`) derive their parent from `?from`, falling
+back to Fresh Prints. `/order/confirm` sends "up" to `/orders`, not the
+stale funnel `/order`. Wired across the funnel, both detail pages, and admin
+detail pages; top-level hubs rely on the global `SiteHeader` nav.
+
+The original analysis below is kept for context.
+
 ## Symptom
 
 Going through `/design` → `/preview` → `/order` → `/order/confirm`,

@@ -28,6 +28,8 @@ export function ImageLightbox({
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        // preventDefault so page-level Escape-to-go-up skips this keystroke.
+        e.preventDefault();
         e.stopPropagation();
         onClose();
       } else if (e.key === "ArrowLeft" && currentIndex > 0) {

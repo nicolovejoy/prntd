@@ -17,6 +17,8 @@ import {
   type AspectRatio,
 } from "@/lib/products";
 import { ProductSilhouette } from "./product-silhouette";
+import { Breadcrumbs } from "@/components/breadcrumbs";
+import { breadcrumbTrail } from "@/lib/nav";
 
 const LOADING_MESSAGES = [
   "Rendering your design…",
@@ -270,20 +272,14 @@ function PreviewPageInner() {
 
   return (
     <div className="min-h-screen flex flex-col items-center py-6 md:py-12 px-4">
-      {/* Breadcrumbs -- hidden on mobile to save space */}
-      <nav className="hidden md:flex w-full max-w-2xl mb-8 gap-2 text-sm text-gray-500">
-        <Link href="/designs" className="hover:underline">
-          My Designs
-        </Link>
-        <span>/</span>
-        <Link href={`/design?id=${designId}`} className="hover:underline">
-          Design
-        </Link>
-        <span>/</span>
-        <span className="text-foreground font-medium">Preview</span>
-        <span>/</span>
-        <span>Order</span>
-      </nav>
+      <Breadcrumbs
+        trail={breadcrumbTrail("/preview", {
+          id: designId ?? undefined,
+          product: productId,
+        })}
+        current="Preview"
+        className="w-full max-w-2xl mb-8"
+      />
 
       <h1 className="text-xl md:text-2xl font-bold mb-4 md:mb-6">
         Preview your {productName}

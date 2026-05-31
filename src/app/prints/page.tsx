@@ -17,7 +17,7 @@ export default async function FreshPrintsPage() {
         </header>
 
         {images.length > 0 ? (
-          <PublishedGrid images={images} />
+          <PublishedGrid images={images} from="/prints" />
         ) : (
           <p className="text-center text-text-muted py-16">
             No published designs yet.

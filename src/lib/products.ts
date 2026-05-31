@@ -423,6 +423,31 @@ export function getColorHex(productId: string | null | undefined, colorName: str
 }
 
 /**
+ * Color palette offered as the storefront backdrop for published designs.
+ * The default product (Classic Tee) carries the broadest set — light and
+ * dark shirts — so we source the picker from it. Color names here resolve
+ * via getColorHex(DEFAULT_PRODUCT_ID, name).
+ */
+export const BACKGROUND_PALETTE: ProductColor[] =
+  getProductOrThrow(DEFAULT_PRODUCT_ID).colors;
+
+/**
+ * Resolves a published design's backdrop. Art is a transparent PNG layered
+ * over either a pinned shirt color (background_color, a name from
+ * BACKGROUND_PALETTE) or — when null — the neutral checkerboard.
+ */
+export function publishedBackdrop(colorName: string | null | undefined): {
+  className: string;
+  style?: { backgroundColor: string };
+} {
+  if (!colorName) return { className: "bg-checkerboard" };
+  return {
+    className: "",
+    style: { backgroundColor: getColorHex(DEFAULT_PRODUCT_ID, colorName) },
+  };
+}
+
+/**
  * The default placement for a product — the first one, by convention "front".
  * In Phase 1 every product has exactly one placement; multi-placement is
  * Phase 4 work (see docs/print-targets-plan.md).

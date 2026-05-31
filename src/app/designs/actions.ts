@@ -182,7 +182,11 @@ export async function publishImage(imageId: string) {
  */
 export async function updatePublishedNaming(
   imageId: string,
-  { title, description }: { title: string; description: string }
+  {
+    title,
+    description,
+    backgroundColor,
+  }: { title: string; description: string; backgroundColor?: string | null }
 ) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) throw new Error("Unauthorized");
@@ -203,9 +207,16 @@ export async function updatePublishedNaming(
 
   await db
     .update(designImageTable)
-    .set({ title: title.trim(), description: description.trim() })
+    .set({
+      title: title.trim(),
+      description: description.trim(),
+      // Only touch the backdrop when the caller sent a value (including
+      // explicit null to clear back to checkerboard); undefined leaves it.
+      ...(backgroundColor !== undefined ? { backgroundColor } : {}),
+    })
     .where(eq(designImageTable.id, imageId));
 
   revalidatePath("/");
+  revalidatePath("/prints");
   revalidatePath(`/d/${imageId}`);
 }

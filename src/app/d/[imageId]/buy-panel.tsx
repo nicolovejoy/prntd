@@ -19,9 +19,12 @@ import { buyPublishedDesign } from "../actions";
 export function BuyPanel({
   imageId,
   isLoggedIn,
+  preferredColor,
 }: {
   imageId: string;
   isLoggedIn: boolean;
+  /** The design's pinned backdrop color; pre-selected when this product carries it. */
+  preferredColor?: string | null;
 }) {
   const [productId, setProductId] = useState(DEFAULT_PRODUCT_ID);
   const product = getProduct(productId);
@@ -29,7 +32,11 @@ export function BuyPanel({
   const colors = product?.colors ?? [];
 
   const [size, setSize] = useState(sizes[1] ?? sizes[0] ?? "M");
-  const [color, setColor] = useState(colors[0]?.name ?? "White");
+  const [color, setColor] = useState(
+    preferredColor && colors.some((c) => c.name === preferredColor)
+      ? preferredColor
+      : colors[0]?.name ?? "White"
+  );
   const [loading, setLoading] = useState(false);
 
   // Switching product can invalidate the current size/color. Clamp both to

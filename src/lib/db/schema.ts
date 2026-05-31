@@ -100,6 +100,10 @@ export const designImage = sqliteTable("design_image", {
   isHidden: integer("is_hidden", { mode: "boolean" }).notNull().default(false),
   title: text("title"),
   description: text("description"),
+  // Storefront backdrop. Published art is a transparent PNG; the owner can
+  // pin a shirt color behind it (a color name from the default product
+  // palette). Null → checkerboard, the neutral default.
+  backgroundColor: text("background_color"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
 

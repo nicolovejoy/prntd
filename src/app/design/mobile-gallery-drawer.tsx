@@ -28,7 +28,11 @@ export function MobileGalleryDrawer({
   useEffect(() => {
     if (!open) return;
     function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        // preventDefault so page-level Escape-to-go-up skips this keystroke.
+        e.preventDefault();
+        onClose();
+      }
     }
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);

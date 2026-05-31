@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import Link from "next/link";
+import { Breadcrumbs } from "@/components/breadcrumbs";
+import { breadcrumbTrail } from "@/lib/nav";
 import {
   getOrderDetail,
   retryPrintfulSubmission,
@@ -145,10 +146,11 @@ export default function OrderDetailPage() {
 
   return (
     <div className="max-w-4xl mx-auto py-8 px-4">
-      {/* Back link */}
-      <Link href="/admin" className="text-sm text-text-muted hover:text-text-primary mb-4 inline-block">
-        &larr; Back to Orders
-      </Link>
+      <Breadcrumbs
+        trail={breadcrumbTrail(`/admin/orders/${params.id}`)}
+        current={`Order ${params.id.slice(0, 8)}`}
+        className="mb-4"
+      />
 
       {/* Header */}
       <div className="flex items-center gap-3 mb-6 flex-wrap">

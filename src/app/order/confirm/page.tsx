@@ -5,6 +5,8 @@ import { useSearchParams } from "next/navigation";
 import { getOrderBySession } from "./actions";
 import Link from "next/link";
 import { Button, Card } from "@/components/ui";
+import { Breadcrumbs } from "@/components/breadcrumbs";
+import { breadcrumbTrail } from "@/lib/nav";
 
 export default function ConfirmPage() {
   return (
@@ -57,7 +59,13 @@ function ConfirmPageInner() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center px-4">
+    <div className="min-h-screen flex flex-col px-4">
+      <Breadcrumbs
+        trail={breadcrumbTrail("/order/confirm")}
+        current="Confirmed"
+        className="py-4"
+      />
+      <div className="flex-1 flex flex-col items-center justify-center">
       <div className="max-w-md w-full text-center space-y-6">
         <div className="text-5xl">&#10003;</div>
         <h1 className="text-2xl font-bold">Order confirmed!</h1>
@@ -97,6 +105,7 @@ function ConfirmPageInner() {
             <Button variant="ghost" className="w-full">Start another design</Button>
           </Link>
         </div>
+      </div>
       </div>
     </div>
   );
