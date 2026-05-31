@@ -75,42 +75,15 @@ export function HomeHero({
           </Link>
         </div>
 
-        {/* Recent designs */}
+        {/* Own designs live under "My Designs" nav; surfaced here only as a
+            link, not a grid (homepage leads with the community feed). */}
         {hasDesigns && (
           <div>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-medium text-text-muted">
-                Recent designs
-              </h2>
-              <Link href="/designs">
-                <Button variant="secondary" size="sm">
-                  View All Designs
-                </Button>
-              </Link>
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {designs.slice(0, 4).map((design) => (
-                <Link
-                  key={design.id}
-                  href={`/design?id=${design.id}`}
-                  className="group"
-                >
-                  <div className="aspect-square rounded-lg border border-border bg-checkerboard overflow-hidden flex items-center justify-center group-hover:border-border-hover transition-colors">
-                    {design.imageUrl ? (
-                      <img
-                        src={design.imageUrl}
-                        alt="Design"
-                        className="w-full h-full object-contain"
-                      />
-                    ) : (
-                      <span className="text-text-faint text-xs">
-                        No image yet
-                      </span>
-                    )}
-                  </div>
-                </Link>
-              ))}
-            </div>
+            <Link href="/designs">
+              <Button variant="secondary" size="sm">
+                View All Designs
+              </Button>
+            </Link>
           </div>
         )}
 

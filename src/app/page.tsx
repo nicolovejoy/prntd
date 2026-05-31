@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { headers } from "next/headers";
+import { auth } from "@/lib/auth";
 import { HomeHero } from "@/components/home-hero";
 import { getUserDesigns } from "./designs/actions";
 import { getDiscoverFeed } from "./d/actions";
@@ -7,10 +9,12 @@ import { getActivePromo } from "@/lib/promotion";
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const [discover, promo] = await Promise.all([
+  const [discover, promo, session] = await Promise.all([
     getDiscoverFeed(24),
     getActivePromo(),
+    auth.api.getSession({ headers: await headers() }),
   ]);
+  const isLoggedIn = !!session;
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -28,43 +32,15 @@ export default async function Home() {
         </section>
       )}
 
-      <section className="py-16 px-4 border-t border-border">
-        <div className="max-w-4xl mx-auto">
-          <h2 className="text-2xl font-bold text-center mb-12">How it works</h2>
-          <div className="grid md:grid-cols-3 gap-8 text-center">
-            <div className="space-y-3">
-              <div className="text-3xl font-bold text-text-faint">1</div>
-              <h3 className="font-semibold text-lg">Describe</h3>
-              <p className="text-text-muted">
-                Type what you want printed. A logo, illustration, text —
-                whatever.
-              </p>
-            </div>
-            <div className="space-y-3">
-              <div className="text-3xl font-bold text-text-faint">2</div>
-              <h3 className="font-semibold text-lg">Refine</h3>
-              <p className="text-text-muted">
-                Preview the design on the product you want. Ask for changes
-                until it looks right.
-              </p>
-            </div>
-            <div className="space-y-3">
-              <div className="text-3xl font-bold text-text-faint">3</div>
-              <h3 className="font-semibold text-lg">Order</h3>
-              <p className="text-text-muted">
-                Pick size and color. Pay. It shows up.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
       {discover.length > 0 && (
         <section className="py-16 px-4 border-t border-border">
           <div className="max-w-6xl mx-auto">
-            <h2 className="text-2xl font-bold text-center mb-8">
-              Recent designs
+            <h2 className="text-2xl font-bold text-center mb-2">
+              Designs from the community
             </h2>
+            <p className="text-text-muted text-center mb-8">
+              Browse and buy designs other makers have published.
+            </p>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
               {discover.map((img) => (
                 <Link
@@ -90,6 +66,41 @@ export default async function Home() {
                   </p>
                 </Link>
               ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {!isLoggedIn && (
+        <section className="py-16 px-4 border-t border-border">
+          <div className="max-w-4xl mx-auto">
+            <h2 className="text-2xl font-bold text-center mb-12">
+              How it works
+            </h2>
+            <div className="grid md:grid-cols-3 gap-8 text-center">
+              <div className="space-y-3">
+                <div className="text-3xl font-bold text-text-faint">1</div>
+                <h3 className="font-semibold text-lg">Describe</h3>
+                <p className="text-text-muted">
+                  Type what you want printed. A logo, illustration, text —
+                  whatever.
+                </p>
+              </div>
+              <div className="space-y-3">
+                <div className="text-3xl font-bold text-text-faint">2</div>
+                <h3 className="font-semibold text-lg">Refine</h3>
+                <p className="text-text-muted">
+                  Preview the design on the product you want. Ask for changes
+                  until it looks right.
+                </p>
+              </div>
+              <div className="space-y-3">
+                <div className="text-3xl font-bold text-text-faint">3</div>
+                <h3 className="font-semibold text-lg">Order</h3>
+                <p className="text-text-muted">
+                  Pick size and color. Pay. It shows up.
+                </p>
+              </div>
             </div>
           </div>
         </section>
