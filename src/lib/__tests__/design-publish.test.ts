@@ -176,6 +176,14 @@ describe("schema columns", () => {
   it("design.forkedFromImageId is nullable", () => {
     expect(design.forkedFromImageId.notNull).toBe(false);
   });
+
+  it("design_image.generator is nullable", () => {
+    expect(designImage.generator.notNull).toBe(false);
+  });
+
+  it("design.activeGeneratorId is nullable", () => {
+    expect(design.activeGeneratorId.notNull).toBe(false);
+  });
 });
 
 describe("dedupeFeedByDesign", () => {
