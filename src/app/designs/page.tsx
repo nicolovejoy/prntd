@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { getUserDesigns, deleteDesign, archiveDesign } from "./actions";
+import { getUserDesigns, deleteDesign, archiveDesign, unpublishImage } from "./actions";
 import { Badge, Button } from "@/components/ui";
 import { PublishModal } from "@/components/publish-modal";
 
@@ -55,6 +55,19 @@ export default function DesignsPage() {
   // the publish and navigates to the new public page.
   function openPublish(imageId: string) {
     setPublishImageId(imageId);
+  }
+
+  // Un-publish flips the card back to its unpublished state in place.
+  async function handleUnpublish(imageId: string, designId: string) {
+    if (!window.confirm("Take this design down from the storefront? You can re-publish it later.")) {
+      return;
+    }
+    await unpublishImage(imageId);
+    setDesigns((prev) =>
+      prev.map((d) =>
+        d.id === designId ? { ...d, primaryImagePublishedAt: null } : d
+      )
+    );
   }
 
   return (
@@ -137,12 +150,23 @@ export default function DesignsPage() {
                   {design.primaryImageId && (
                     <div className="flex items-center gap-2 pt-1 border-t border-border">
                       {design.primaryImagePublishedAt ? (
-                        <Link
-                          href={`/d/${design.primaryImageId}?from=/designs`}
-                          className="text-xs text-text-muted underline hover:no-underline"
-                        >
-                          Published →
-                        </Link>
+                        <div className="flex items-center gap-2">
+                          <Link
+                            href={`/d/${design.primaryImageId}?from=/designs`}
+                            className="text-xs text-text-muted underline hover:no-underline"
+                          >
+                            Published →
+                          </Link>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() =>
+                              handleUnpublish(design.primaryImageId!, design.id)
+                            }
+                          >
+                            Un-publish
+                          </Button>
+                        </div>
                       ) : (
                         <Button
                           variant="secondary"

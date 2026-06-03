@@ -245,3 +245,44 @@ export async function updatePublishedNaming(
   revalidatePath("/prints");
   revalidatePath(`/d/${imageId}`);
 }
+
+/**
+ * Owner takes a published image back down — the reverse of publishImage.
+ * Clears published_at, so the image leaves the discover feed (`/`,
+ * `/prints`), stops being buyable (canBuyPublishedImage), and
+ * /d/[imageId] 404s (getPublishedImage returns null). title /
+ * description / background_color are left intact so re-publishing is one
+ * click and reuses them. A re-published image gets a fresh published_at
+ * and sorts as newly published. No-op if already unpublished.
+ *
+ * Authorizes via the design's userId — the image's owner is the
+ * design's owner.
+ */
+export async function unpublishImage(imageId: string) {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) throw new Error("Unauthorized");
+
+  const image = await db.query.designImage.findFirst({
+    where: eq(designImageTable.id, imageId),
+  });
+  if (!image) throw new Error("Image not found");
+
+  const owner = await db.query.design.findFirst({
+    where: eq(designTable.id, image.designId),
+    columns: { userId: true },
+  });
+  if (!owner || owner.userId !== session.user.id) {
+    throw new Error("Unauthorized");
+  }
+
+  if (!image.publishedAt) return;
+
+  await db
+    .update(designImageTable)
+    .set({ publishedAt: null })
+    .where(eq(designImageTable.id, imageId));
+
+  revalidatePath("/");
+  revalidatePath("/prints");
+  revalidatePath(`/d/${imageId}`);
+}

@@ -1,37 +1,53 @@
 /**
- * Publish/lock helpers for design_image rows.
+ * Publish helpers for design_image rows.
  *
  * Publishing happens at the image level, not the thread level: the
  * conversation that produced an image stays private to the designer;
- * the resulting image is the shareable artifact. An image becomes
- * "locked" the moment it is first published — published_at is set once
- * and the row is immortal from then on (deleteDesignImage refuses).
+ * the resulting image is the shareable artifact. published_at is the
+ * public marker — set it to list the image, clear it to take it down.
+ * Publishing is reversible (see unpublishImage); admin moderation flips
+ * is_hidden independently.
  *
- * There is no separate is_public flag — published_at is the public
- * marker. To remove an image from the discover feed (and lock it,
- * permanently), admin moderation flips is_hidden. We don't offer
- * self-unpublish today.
+ * Deletion is no longer gated on publish state. The real constraint is
+ * order references: an image an order depends on must never be deleted.
+ * See imageReferencedByOrders.
  */
 
-export type ImageLockFields = {
-  publishedAt: Date | null;
+export type OrderPlacementRef = {
+  placements: Record<string, string> | null;
 };
 
-export function isLocked(image: ImageLockFields): boolean {
-  return image.publishedAt !== null;
-}
-
 /**
- * Guard for image-mutation actions (today only deleteDesignImage).
- * Callers already fetch the design_image row for the auth check; pass
- * it in. Throws if the image is locked (published).
+ * Whether deleting `imageId` would orphan an order that depends on it.
+ * Replaces the old "published images are immortal" lock: publishing is
+ * now reversible, so deletion keys off real order references instead.
+ *
+ *  - Direct pin: the image id appears in an order's placements. The
+ *    buy-existing path always sets placements.front = imageId, and
+ *    designed orders pin their placement renders there.
+ *  - Legacy fallback: a pre-Phase-2 order has null/empty placements and
+ *    resolves to the design's primary image, so deleting that primary
+ *    would change what the order displays.
+ *
+ * `orders` must be the orders for the image's own design.
  */
-export function assertNotLocked(image: ImageLockFields): void {
-  if (isLocked(image)) {
-    throw new Error(
-      "Image is locked — published images cannot be deleted."
-    );
+export function imageReferencedByOrders(
+  imageId: string,
+  designPrimaryImageId: string | null,
+  orders: OrderPlacementRef[]
+): boolean {
+  for (const o of orders) {
+    if (o.placements && Object.values(o.placements).includes(imageId)) {
+      return true;
+    }
   }
+  if (imageId === designPrimaryImageId) {
+    const hasFallbackOrder = orders.some(
+      (o) => !o.placements || Object.keys(o.placements).length === 0
+    );
+    if (hasFallbackOrder) return true;
+  }
+  return false;
 }
 
 /**
