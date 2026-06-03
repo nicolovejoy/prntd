@@ -73,9 +73,9 @@ export default function DesignsPage() {
   return (
     <div className="min-h-screen flex flex-col">
       <main className="flex-1 px-6 py-8 max-w-4xl mx-auto w-full">
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-bold">My Designs</h1>
-          <Link href="/design">
+        <div className="flex items-center justify-between gap-3 mb-6">
+          <h1 className="text-xl sm:text-2xl font-bold">My Designs</h1>
+          <Link href="/design" className="shrink-0">
             <Button size="sm">New Design</Button>
           </Link>
         </div>
@@ -112,20 +112,20 @@ export default function DesignsPage() {
                   </div>
                 </Link>
                 <div className="p-3 space-y-2">
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
                     <Badge variant={design.status}>
                       {design.status}
                     </Badge>
-                    <span className="text-xs text-gray-400">
+                    <span className="text-xs text-gray-400 whitespace-nowrap">
                       {timeAgo(new Date(design.updatedAt))}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-500">
-                      {design.generationCount} generation{design.generationCount !== 1 ? "s" : ""}
-                    </span>
+                  <p className="text-xs text-gray-500">
+                    {design.generationCount} generation{design.generationCount !== 1 ? "s" : ""}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
                     {design.status === "ordered" ? (
-                      <div className="flex items-center gap-2">
+                      <>
                         <Link href={`/preview?id=${design.id}`}>
                           <Button size="sm">Reorder</Button>
                         </Link>
@@ -136,7 +136,7 @@ export default function DesignsPage() {
                         >
                           Archive
                         </Button>
-                      </div>
+                      </>
                     ) : (
                       <Button
                         variant="danger"
@@ -148,9 +148,9 @@ export default function DesignsPage() {
                     )}
                   </div>
                   {design.primaryImageId && (
-                    <div className="flex items-center gap-2 pt-1 border-t border-border">
+                    <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-border">
                       {design.primaryImagePublishedAt ? (
-                        <div className="flex items-center gap-2">
+                        <>
                           <Link
                             href={`/d/${design.primaryImageId}?from=/designs`}
                             className="text-xs text-text-muted underline hover:no-underline"
@@ -166,7 +166,7 @@ export default function DesignsPage() {
                           >
                             Un-publish
                           </Button>
-                        </div>
+                        </>
                       ) : (
                         <Button
                           variant="secondary"
