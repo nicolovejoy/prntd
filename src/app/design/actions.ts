@@ -438,10 +438,14 @@ export async function compareGenerators(designId: string, userMessage?: string) 
     content: `Compared ${ok.length} generators — tap one to keep working with it.`,
   });
 
+  // Advance the counter past every slot we *reserved* (one per attempted
+  // adapter), not just the successes — each parallel branch used
+  // generationCount+1+i as its R2 key, so a future generation must start
+  // beyond all of them or it would overwrite a surviving compare image.
   await db
     .update(designTable)
     .set({
-      generationCount: found.generationCount + ok.length,
+      generationCount: found.generationCount + Object.values(GENERATORS).length,
       generationCost: found.generationCost + ok.reduce((sum, r) => sum + r.cost, 0),
       updatedAt: new Date(),
     })
