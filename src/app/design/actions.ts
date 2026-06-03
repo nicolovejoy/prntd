@@ -6,12 +6,13 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
   design as designTable,
+  designImage as designImageTable,
   order as orderTable,
 } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { chatAboutDesign, constructFluxPrompt } from "@/lib/ai";
 import { uploadDesignImage } from "@/lib/r2";
-import { getGenerator } from "@/lib/generators/registry";
+import { getGenerator, GENERATORS, DEFAULT_GENERATOR_ID } from "@/lib/generators/registry";
 import {
   insertDesignImage,
   findDesignImageByUrl,
@@ -363,4 +364,116 @@ export async function approveDesign(designId: string) {
   // picks render instantly. Printful mockups are free so this is pure UX.
   // Best-effort: failures log and are swallowed by prefetchProductMockups.
   after(() => prefetchProductMockups(designId, DEFAULT_PRODUCT_ID));
+}
+
+/**
+ * Run the same Claude-built prompt through every registered generator and
+ * insert one design_image per result, tagged with its generator. Does NOT
+ * change the design's active generator — that happens on adoptGenerator.
+ * Returns the new images (id + url + generator) newest-last.
+ */
+export async function compareGenerators(designId: string, userMessage?: string) {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) throw new Error("Unauthorized");
+
+  const found = await getOrCreateDesign(designId, session.user.id);
+  const messages = await getDesignMessages(designId);
+  const images = await getDesignImagesForAIContext(designId);
+  const messagesForPrompt: ChatMessage[] = userMessage
+    ? [...messages, { id: "pending", designId, role: "user", content: userMessage, imageId: null, createdAt: new Date() }]
+    : messages;
+
+  let aiResponse;
+  try {
+    aiResponse = await constructFluxPrompt(messagesForPrompt, images, userMessage);
+  } catch (err) {
+    console.error("compareGenerators constructFluxPrompt failed:", err);
+    throw new Error("Failed to construct prompt");
+  }
+
+  const anchorUrl =
+    aiResponse.referenceImage != null
+      ? images.find((img) => img.number === aiResponse.referenceImage)?.url
+      : undefined;
+
+  const results = await Promise.all(
+    Object.values(GENERATORS).map(async (g, i) => {
+      try {
+        const url = await g.generate(g.adaptPrompt(aiResponse.fluxPrompt), {
+          aspect: "1:1",
+          referenceImageUrl: anchorUrl,
+          negativePrompt: aiResponse.negativePrompt,
+        });
+        const response = await fetch(url);
+        const buffer = Buffer.from(await response.arrayBuffer());
+        // Distinct generation number per adapter so parallel uploads don't
+        // collide on the R2 key (designs/{id}/{generation}.png).
+        const generation = found.generationCount + 1 + i;
+        const r2Url = await uploadDesignImage(designId, generation, buffer);
+        const imageId = await insertDesignImage({
+          designId,
+          imageUrl: r2Url,
+          aspectRatio: "1:1",
+          prompt: aiResponse.fluxPrompt,
+          generationCost: g.costPerImage,
+          generator: g.id,
+        });
+        return { imageId, imageUrl: r2Url, generator: g.id, cost: g.costPerImage };
+      } catch (err) {
+        console.error(`compareGenerators ${g.id} failed:`, err);
+        return null;
+      }
+    })
+  );
+
+  const ok = results.filter((r): r is NonNullable<typeof r> => r !== null);
+  if (ok.length === 0) throw new Error("All generators failed");
+
+  if (userMessage) {
+    await insertChatMessage({ designId, role: "user", content: userMessage });
+  }
+  await insertChatMessage({
+    designId,
+    role: "assistant",
+    content: `Compared ${ok.length} generators — tap one to keep working with it.`,
+  });
+
+  await db
+    .update(designTable)
+    .set({
+      generationCount: found.generationCount + ok.length,
+      generationCost: found.generationCost + ok.reduce((sum, r) => sum + r.cost, 0),
+      updatedAt: new Date(),
+    })
+    .where(eq(designTable.id, designId));
+
+  return ok;
+}
+
+/**
+ * Adopt a compared image: set the design's active generator to that
+ * image's generator and make it the primary image. Owner-auth.
+ */
+export async function adoptGenerator(designId: string, imageId: string) {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) throw new Error("Unauthorized");
+
+  const found = await db.query.design.findFirst({ where: eq(designTable.id, designId) });
+  if (!found || found.userId !== session.user.id) throw new Error("Unauthorized");
+
+  const image = await db.query.designImage.findFirst({
+    where: eq(designImageTable.id, imageId),
+  });
+  if (!image || image.designId !== designId) throw new Error("Image not found");
+
+  await db
+    .update(designTable)
+    .set({
+      activeGeneratorId: image.generator ?? DEFAULT_GENERATOR_ID,
+      primaryImageId: imageId,
+      updatedAt: new Date(),
+    })
+    .where(eq(designTable.id, designId));
+
+  return { activeGeneratorId: image.generator ?? DEFAULT_GENERATOR_ID };
 }
