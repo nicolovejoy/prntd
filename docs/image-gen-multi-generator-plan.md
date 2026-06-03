@@ -470,6 +470,7 @@ export async function compareGenerators(designId: string, userMessage?: string) 
         const url = await g.generate(g.adaptPrompt(aiResponse.fluxPrompt), {
           aspect: "1:1",
           referenceImageUrl: anchorUrl,
+          negativePrompt: aiResponse.negativePrompt,
         });
         const response = await fetch(url);
         const buffer = Buffer.from(await response.arrayBuffer());

@@ -13,8 +13,10 @@ export const ideogramGenerator: ImageGenerator = {
   label: "Ideogram",
   costPerImage: 0.03,
   adaptPrompt: (base) => base,
-  generate: (prompt, { aspect, referenceImageUrl }) =>
+  generate: (prompt, { aspect, referenceImageUrl, negativePrompt }) =>
     referenceImageUrl
-      ? generateAnchoredTransparent(prompt, referenceImageUrl, aspect)
-      : generateTransparent(prompt, aspect),
+      ? generateAnchoredTransparent(prompt, referenceImageUrl, aspect, negativePrompt)
+      : generateTransparent(prompt, aspect, {
+          negativePrompt: negativePrompt ?? undefined,
+        }),
 };

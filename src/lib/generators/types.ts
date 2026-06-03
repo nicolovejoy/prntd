@@ -7,6 +7,10 @@ export type GenerateOptions = {
   /** Optional continuity anchor for refinements. Adapters that can't
    *  use a style reference ignore it. */
   referenceImageUrl?: string;
+  /** Push the model away from defaults it likes (e.g. "smooth digital
+   *  gradient" when the user asked for raw brush texture). Adapters that
+   *  don't support negative prompts ignore it. */
+  negativePrompt?: string | null;
 };
 
 export interface ImageGenerator {

@@ -30,8 +30,6 @@ import { DEFAULT_PRODUCT_ID } from "@/lib/products";
 import { imageReferencedByOrders } from "@/lib/design-publish";
 import type { ChatMessage } from "@/lib/db/schema";
 
-const COST_PER_GENERATION = 0.03;
-
 async function getOrCreateDesign(designId: string, userId: string) {
   let found = await db.query.design.findFirst({
     where: eq(designTable.id, designId),
@@ -128,6 +126,7 @@ export async function generateDesign(
     imageUrl = await generator.generate(generator.adaptPrompt(aiResponse.fluxPrompt), {
       aspect: "1:1",
       referenceImageUrl: anchorUrl,
+      negativePrompt: aiResponse.negativePrompt,
     });
   } catch (err) {
     console.error("generateDesign image generation failed:", err);
