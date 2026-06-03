@@ -2,9 +2,10 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { updatePublishedNaming } from "@/app/designs/actions";
+import { updatePublishedNaming, unpublishImage } from "@/app/designs/actions";
 import { publishedBackdrop } from "@/lib/products";
 import { BackgroundPicker } from "@/components/background-picker";
+import { Button } from "@/components/ui";
 
 /**
  * The published design's image with its storefront backdrop. The owner gets
@@ -48,6 +49,17 @@ export function PublishedImageView({
     });
   }
 
+  function unpublish() {
+    if (!window.confirm("Take this design down from the storefront? You can re-publish it later.")) {
+      return;
+    }
+    startTransition(async () => {
+      await unpublishImage(imageId);
+      // The page is no longer public — send the owner back to their designs.
+      router.push("/designs");
+    });
+  }
+
   return (
     <div className="space-y-3">
       <div
@@ -59,7 +71,17 @@ export function PublishedImageView({
       </div>
 
       {canEdit && (
-        <BackgroundPicker value={bg} onChange={pick} disabled={pending} />
+        <div className="space-y-3">
+          <BackgroundPicker value={bg} onChange={pick} disabled={pending} />
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={unpublish}
+            disabled={pending}
+          >
+            Un-publish
+          </Button>
+        </div>
       )}
     </div>
   );

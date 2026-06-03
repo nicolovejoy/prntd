@@ -20,7 +20,6 @@ import {
   getDesignPlacementRenders,
   deleteDesignImageRow,
   getDesignDisplayImageUrl,
-  getDesignImageById,
   getDesignMessages,
   insertChatMessage,
   getDesignImagesForAIContext,
@@ -29,7 +28,7 @@ import {
 } from "@/lib/design-images";
 import { prefetchProductMockups } from "@/app/preview/actions";
 import { DEFAULT_PRODUCT_ID } from "@/lib/products";
-import { assertNotLocked } from "@/lib/design-publish";
+import { imageReferencedByOrders } from "@/lib/design-publish";
 import type { ChatMessage } from "@/lib/db/schema";
 
 const COST_PER_GENERATION = 0.03;
@@ -269,22 +268,18 @@ export async function deleteDesignImage(designId: string, imageId: string) {
   if (!found || found.userId !== session.user.id)
     throw new Error("Unauthorized");
 
-  const image = await getDesignImageById(imageId);
-  if (image) assertNotLocked(image);
-
-  // Refuse if any order placement references this image — deleting
-  // would leave the order's thumbnail broken on /orders and /admin.
+  // Publishing is reversible, so deletion is no longer blocked on publish
+  // state — only on real order references. Refuse if an order depends on
+  // this image (pinned in placements, or the primary a legacy order falls
+  // back to); deleting would orphan the order's print/thumbnail.
   const orders = await db
-    .select({ id: orderTable.id, placements: orderTable.placements })
+    .select({ placements: orderTable.placements })
     .from(orderTable)
     .where(eq(orderTable.designId, designId));
 
-  const pinnedBy = orders.find(
-    (o) => o.placements && Object.values(o.placements).includes(imageId)
-  );
-  if (pinnedBy) {
+  if (imageReferencedByOrders(imageId, found.primaryImageId, orders)) {
     throw new Error(
-      "Can't delete this image — it's pinned to an order's thumbnail."
+      "Can't delete this image — it's referenced by an order."
     );
   }
 

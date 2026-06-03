@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  isLocked,
-  assertNotLocked,
+  imageReferencedByOrders,
   canBuyPublishedImage,
   buildForkChain,
   dedupeFeedByDesign,
@@ -9,29 +8,43 @@ import {
 } from "../design-publish";
 import { design, designImage } from "../db/schema";
 
-describe("isLocked", () => {
-  it("returns false when publishedAt is null", () => {
-    expect(isLocked({ publishedAt: null })).toBe(false);
+describe("imageReferencedByOrders", () => {
+  it("returns false when the design has no orders", () => {
+    expect(imageReferencedByOrders("img1", "img1", [])).toBe(false);
   });
 
-  it("returns true when publishedAt is a Date", () => {
-    expect(isLocked({ publishedAt: new Date("2026-05-26T00:00:00Z") })).toBe(true);
+  it("returns true when the image is pinned in an order's placements", () => {
+    expect(
+      imageReferencedByOrders("img1", "other", [
+        { placements: { front: "img1" } },
+      ])
+    ).toBe(true);
   });
 
-  it("returns true even at the epoch (any Date locks)", () => {
-    expect(isLocked({ publishedAt: new Date(0) })).toBe(true);
-  });
-});
-
-describe("assertNotLocked", () => {
-  it("does not throw when publishedAt is null", () => {
-    expect(() => assertNotLocked({ publishedAt: null })).not.toThrow();
+  it("returns false when placements reference a different image", () => {
+    expect(
+      imageReferencedByOrders("img1", "other", [
+        { placements: { front: "img2" } },
+      ])
+    ).toBe(false);
   });
 
-  it("throws when publishedAt is set", () => {
-    expect(() =>
-      assertNotLocked({ publishedAt: new Date("2026-05-26T00:00:00Z") })
-    ).toThrow(/locked/i);
+  it("returns true for the primary image when a legacy order has null placements", () => {
+    expect(
+      imageReferencedByOrders("img1", "img1", [{ placements: null }])
+    ).toBe(true);
+  });
+
+  it("returns true for the primary image when a legacy order has empty placements", () => {
+    expect(
+      imageReferencedByOrders("img1", "img1", [{ placements: {} }])
+    ).toBe(true);
+  });
+
+  it("returns false for a non-primary image when the only order has null placements", () => {
+    expect(
+      imageReferencedByOrders("img2", "img1", [{ placements: null }])
+    ).toBe(false);
   });
 });
 
