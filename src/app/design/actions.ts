@@ -10,9 +10,8 @@ import {
 } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { chatAboutDesign, constructFluxPrompt } from "@/lib/ai";
-import { generateTransparent } from "@/lib/ideogram";
-import { generateAnchoredTransparent } from "@/lib/replicate";
 import { uploadDesignImage } from "@/lib/r2";
+import { getGenerator } from "@/lib/generators/registry";
 import {
   insertDesignImage,
   findDesignImageByUrl,
@@ -117,27 +116,19 @@ export async function generateDesign(
     throw new Error("Failed to construct prompt");
   }
 
-  // When the AI flags a prior generation as the reference (the user is
-  // refining/iterating, not starting fresh), anchor on it visually via
-  // the Replicate path. First-pass generations have no anchor and use
-  // the direct transparent endpoint (single call, native RGBA).
   const anchorUrl =
     aiResponse.referenceImage != null
       ? images.find((img) => img.number === aiResponse.referenceImage)?.url
       : undefined;
 
+  const generator = getGenerator(found.activeGeneratorId);
+
   let imageUrl: string;
   try {
-    imageUrl = anchorUrl
-      ? await generateAnchoredTransparent(
-          aiResponse.fluxPrompt,
-          anchorUrl,
-          "1:1",
-          aiResponse.negativePrompt ?? undefined
-        )
-      : await generateTransparent(aiResponse.fluxPrompt, "1:1", {
-          negativePrompt: aiResponse.negativePrompt ?? undefined,
-        });
+    imageUrl = await generator.generate(generator.adaptPrompt(aiResponse.fluxPrompt), {
+      aspect: "1:1",
+      referenceImageUrl: anchorUrl,
+    });
   } catch (err) {
     console.error("generateDesign image generation failed:", err);
     throw new Error("Image generation failed");
@@ -157,7 +148,8 @@ export async function generateDesign(
     imageUrl: r2Url,
     aspectRatio: "1:1",
     prompt: aiResponse.fluxPrompt,
-    generationCost: COST_PER_GENERATION,
+    generationCost: generator.costPerImage,
+    generator: generator.id,
   });
 
   if (userMessage) {
@@ -175,7 +167,7 @@ export async function generateDesign(
     .set({
       primaryImageId: newImageId,
       generationCount: newGeneration,
-      generationCost: found.generationCost + COST_PER_GENERATION,
+      generationCost: found.generationCost + generator.costPerImage,
       mockupUrls: null,
       updatedAt: new Date(),
     })
