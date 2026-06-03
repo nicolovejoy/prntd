@@ -61,8 +61,7 @@ Read the conversation to understand what the user wants — both the SUBJECT and
 
 Print specifications (always follow these — these are physics, not taste):
 - DTG printing, 12" x 16" print area
-- Design renders on a plain white background (background will be removed before printing)
-- Always include "white background, isolated design" in the prompt
+- The design is generated on a transparent background automatically — do NOT mention backgrounds, "white background", or "isolated design" in the prompt.
 - Favor open, breathable compositions — avoid dense block prints (technical: ink coverage matters for DTG)
 - Output must be a flat graphic / artwork only — NEVER a picture of a t-shirt. Never include "t-shirt" or "shirt" or "mockup" in the prompt. Use "graphic design", "illustration", "artwork", "print design", or the user's stated medium.
 
@@ -294,7 +293,7 @@ export async function constructFluxPrompt(
     console.error("constructFluxPrompt: empty response from Claude");
     return {
       message: "Let me generate that for you.",
-      fluxPrompt: "graphic design illustration, white background, isolated design, high quality, printable",
+      fluxPrompt: "graphic design illustration, high quality, printable",
       negativePrompt: null,
       referenceImage: null,
     };
@@ -317,7 +316,7 @@ export async function constructFluxPrompt(
   } catch {
     return {
       message: text,
-      fluxPrompt: `graphic design illustration, white background, isolated design, high quality, printable`,
+      fluxPrompt: `graphic design illustration, high quality, printable`,
       negativePrompt: null,
       referenceImage: null,
     };

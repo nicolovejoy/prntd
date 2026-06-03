@@ -133,3 +133,46 @@ export async function removeBackground(imageUrl: string): Promise<string> {
     return String(output);
   });
 }
+
+// recraft-v3 takes a WxH size string. 1:1 is the only aspect chat
+// generations use today; the others map to the nearest supported size.
+function toRecraftSize(aspect: AspectRatio): string {
+  switch (aspect) {
+    case "4:5":
+      return "1024x1280";
+    case "1:2":
+      return "1024x2048";
+    default:
+      return "1024x1024";
+  }
+}
+
+/**
+ * Generate via Recraft v3 on Replicate (official model — warm, stable,
+ * reuses REPLICATE_API_TOKEN). vector_illustration style for clean
+ * line/graphic art. Recraft has no native transparent output, so BiRefNet
+ * drops the background afterward.
+ *
+ * NOTE: BiRefNet is subject matting — interior white can stay opaque (the
+ * open white-fill risk). If a line-drawing case shows opaque interior
+ * white and it matters, swap removeBackground for a luminance knockout
+ * here (sealed; no change elsewhere).
+ */
+export async function generateRecraftTransparent(
+  prompt: string,
+  aspect: AspectRatio = "1:1"
+): Promise<string> {
+  const rgbUrl = await withReplicate429Retry("generateRecraftTransparent", async () => {
+    const output = await withTimeout("generateRecraftTransparent", REPLICATE_RUN_TIMEOUT_MS, () =>
+      replicate.run("recraft-ai/recraft-v3", {
+        input: {
+          prompt,
+          style: "vector_illustration",
+          size: toRecraftSize(aspect),
+        },
+      })
+    );
+    return String(output);
+  });
+  return await removeBackground(rgbUrl);
+}
