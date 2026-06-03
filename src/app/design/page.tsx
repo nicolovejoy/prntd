@@ -5,6 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   sendChatMessage,
   generateDesign,
+  compareGenerators,
+  adoptGenerator,
   selectImage,
   deleteDesignImage,
   getDesign,
@@ -45,6 +47,7 @@ function DesignPageInner() {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [publishImageId, setPublishImageId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [activeGenerator, setActiveGenerator] = useState("ideogram");
 
   const refreshGallery = useCallback(async () => {
     const { sources, productGroups } = await getDesignGallery(designId.current);
@@ -55,6 +58,7 @@ function DesignPageInner() {
         url: s.imageUrl,
         prompt: "",
         publishedAt: s.publishedAt,
+        generator: s.generator,
       }))
     );
     setProductGroups(productGroups);
@@ -68,6 +72,7 @@ function DesignPageInner() {
       if (!design) return;
       setMessages(chat);
       setSelectedImage(design.displayImageUrl);
+      setActiveGenerator(design.activeGeneratorId ?? "ideogram");
     });
     refreshGallery();
   }, [id, refreshGallery]);
@@ -133,6 +138,35 @@ function DesignPageInner() {
     } finally {
       setGenerating(false);
     }
+  }
+
+  async function handleCompare(userMessage?: string) {
+    setGenerating(true);
+    if (userMessage) {
+      setMessages((prev) => [...prev, makeOptimisticMessage("user", userMessage)]);
+    }
+    try {
+      const results = await compareGenerators(designId.current, userMessage);
+      setMessages((prev) => [
+        ...prev,
+        makeOptimisticMessage("assistant", `Compared ${results.length} generators — tap one to keep working with it.`),
+      ]);
+      await refreshGallery();
+      if (window.matchMedia("(max-width: 767px)").matches) setDrawerOpen(true);
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        makeOptimisticMessage("assistant", "Comparison failed. Try again?"),
+      ]);
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function handleAdopt(imageId: string, imageUrl: string) {
+    const { activeGeneratorId } = await adoptGenerator(designId.current, imageId);
+    setActiveGenerator(activeGeneratorId);
+    setSelectedImage(imageUrl);
   }
 
   async function handleDeleteImage(imageId: string) {
@@ -243,6 +277,8 @@ function DesignPageInner() {
           generating={generating}
           onSend={handleSend}
           onGenerate={handleGenerate}
+          onCompare={handleCompare}
+          activeGenerator={activeGenerator}
           onUploadImage={handleUploadImage}
         />
         <ImageGallery
@@ -295,6 +331,7 @@ function DesignPageInner() {
           onDelete={handleDeleteImage}
           onMakeProducts={handleMakeProductsForImage}
           onPublish={handlePublishImage}
+          onAdopt={handleAdopt}
         />
       )}
 

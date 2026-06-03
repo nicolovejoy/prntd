@@ -14,6 +14,7 @@ export type DesignImage = {
   url: string;
   prompt: string;
   publishedAt: Date | null;
+  generator: string | null;
 };
 
 /**
@@ -66,6 +67,7 @@ export async function getDesignImagesForAIContext(
     url: s.imageUrl,
     prompt: s.prompt ?? "",
     publishedAt: s.publishedAt,
+    generator: s.generator,
   }));
 }
 
