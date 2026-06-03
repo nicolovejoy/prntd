@@ -18,9 +18,10 @@ Created:
 - `src/lib/generators/types.ts` — `ImageGenerator` interface, `GeneratorId` type.
 - `src/lib/generators/registry.ts` — `GENERATORS`, `DEFAULT_GENERATOR_ID`, `getGenerator`.
 - `src/lib/generators/ideogram-generator.ts` — Ideogram adapter (wraps `lib/ideogram.ts` + `lib/replicate.ts`).
-- `src/lib/generators/recraft-generator.ts` — Recraft adapter.
-- `src/lib/recraft.ts` — low-level Recraft API client.
+- `src/lib/generators/recraft-generator.ts` — Recraft adapter (calls Recraft v3 via Replicate).
 - `src/lib/generators/__tests__/registry.test.ts` — registry + adapter purity tests.
+
+Recraft runs through the existing `lib/replicate.ts` (official Replicate model `recraft-ai/recraft-v3`, reuses `REPLICATE_API_TOKEN` + the timeout/429-retry wrappers). No new credential, no new low-level client file.
 
 Modified:
 - `src/lib/db/schema.ts` — `design_image.generator`, `design.active_generator_id`.
@@ -159,6 +160,8 @@ export type GenerateOptions = {
 export interface ImageGenerator {
   id: GeneratorId;
   label: string;
+  /** Rough internal $/image for accounting (not customer-facing). */
+  costPerImage: number;
   /** v1: identity. Later: per-model prompt shaping, sealed in the adapter. */
   adaptPrompt(base: string): string;
   /** Returns a transparent-PNG URL. Caller downloads bytes immediately. */
@@ -220,6 +223,7 @@ import { generateAnchoredTransparent } from "../replicate";
 export const ideogramGenerator: ImageGenerator = {
   id: "ideogram",
   label: "Ideogram",
+  costPerImage: 0.03,
   adaptPrompt: (base) => base,
   generate: (prompt, { aspect, referenceImageUrl }) =>
     referenceImageUrl
@@ -264,27 +268,24 @@ git commit -m "feat: Ideogram adapter; drop stale white-background prompt"
 
 ---
 
-## Task 4: Recraft adapter
+## Task 4: Recraft adapter (via Replicate)
 
 **Files:**
-- Create: `src/lib/recraft.ts`, `src/lib/generators/recraft-generator.ts`
-- Env: `RECRAFT_API_KEY` (add to `.env.local` + Vercel; document in CLAUDE.md env list)
+- Modify: `src/lib/replicate.ts` (add `generateRecraftTransparent`)
+- Create: `src/lib/generators/recraft-generator.ts`
+- No new env var — uses the existing `REPLICATE_API_TOKEN`.
 
-- [ ] **Step 1: Create the low-level client**
+- [ ] **Step 1: Add the Recraft generation function to `replicate.ts`**
 
-`src/lib/recraft.ts`. Recraft's image generation API returns a hosted image URL; we request a transparent-background vector-illustration style. Verify endpoint/params against https://www.recraft.ai/docs during implementation; this is the v1 shape:
+First Read `src/lib/replicate.ts` to confirm `withReplicate429Retry`, `withTimeout`, `REPLICATE_RUN_TIMEOUT_MS`, `removeBackground`, and the `replicate` client are in scope (they are). Append:
 
 ```ts
 import type { AspectRatio } from "./products";
 
-const ENDPOINT = "https://external.api.recraft.ai/v1/images/generations";
-
-// Recraft uses WxH size strings. Map our aspect ratios to the nearest
-// supported size. 1:1 is the only aspect chat generations use today.
+// recraft-v3 takes a WxH size string. 1:1 is the only aspect chat
+// generations use today; the others map to the nearest supported size.
 function toRecraftSize(aspect: AspectRatio): string {
   switch (aspect) {
-    case "1:1":
-      return "1024x1024";
     case "4:5":
       return "1024x1280";
     case "1:2":
@@ -295,44 +296,38 @@ function toRecraftSize(aspect: AspectRatio): string {
 }
 
 /**
- * Generate a transparent-background image via Recraft. Uses the vector
- * illustration substyle so line art has genuinely empty fills (the
- * garment shows through), then returns the hosted PNG URL.
+ * Generate via Recraft v3 on Replicate (official model — warm, stable,
+ * reuses REPLICATE_API_TOKEN). vector_illustration style for clean
+ * line/graphic art. Recraft has no native transparent output, so BiRefNet
+ * drops the background afterward.
+ *
+ * NOTE: BiRefNet is subject matting — interior white can stay opaque (the
+ * open white-fill risk). Verify on a line-drawing case; if it fails, swap
+ * the removeBackground call for a luminance knockout here (sealed; no
+ * change anywhere else). Confirm the exact input field names on
+ * https://replicate.com/recraft-ai/recraft-v3/api during this step.
  */
 export async function generateRecraftTransparent(
   prompt: string,
   aspect: AspectRatio = "1:1"
 ): Promise<string> {
-  const apiKey = process.env.RECRAFT_API_KEY;
-  if (!apiKey) throw new Error("RECRAFT_API_KEY missing");
-
-  const res = await fetch(ENDPOINT, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      prompt,
-      style: "vector_illustration",
-      size: toRecraftSize(aspect),
-      response_format: "url",
-      // Transparent background. Confirm exact flag name against Recraft
-      // docs during build — recraft exposes a background control on the
-      // vector_illustration style.
-      background: "transparent",
-    }),
+  const rgbUrl = await withReplicate429Retry("generateRecraftTransparent", async () => {
+    const output = await withTimeout("generateRecraftTransparent", REPLICATE_RUN_TIMEOUT_MS, () =>
+      replicate.run("recraft-ai/recraft-v3", {
+        input: {
+          prompt,
+          style: "vector_illustration",
+          size: toRecraftSize(aspect),
+        },
+      })
+    );
+    return String(output);
   });
-
-  if (!res.ok) {
-    throw new Error(`Recraft ${res.status}: ${await res.text()}`);
-  }
-  const data = await res.json();
-  const url = data?.data?.[0]?.url;
-  if (!url) throw new Error(`No URL in Recraft response: ${JSON.stringify(data)}`);
-  return url;
+  return await removeBackground(rgbUrl);
 }
 ```
+
+(If `AspectRatio` is already imported at the top of `replicate.ts`, don't duplicate the import — it is, via `import type { AspectRatio } from "./products"` on line 2. Drop the import line above and just add the functions.)
 
 - [ ] **Step 2: Create the adapter**
 
@@ -340,17 +335,18 @@ export async function generateRecraftTransparent(
 
 ```ts
 import type { ImageGenerator } from "./types";
-import { generateRecraftTransparent } from "../recraft";
+import { generateRecraftTransparent } from "../replicate";
 
 /**
- * Recraft adapter — vector illustration output. Line art renders with
- * empty (transparent) fills, so a garment color shows through; this is the
- * structural fix for the white-fill problem. v1 ignores referenceImageUrl
- * (no style-ref continuity yet); refinements regenerate from the prompt.
+ * Recraft adapter — vector_illustration output via Replicate, background
+ * removed. A second generator for style variety in Compare. v1 ignores
+ * referenceImageUrl (no style-ref continuity yet); refinements regenerate
+ * from the prompt.
  */
 export const recraftGenerator: ImageGenerator = {
   id: "recraft",
   label: "Recraft",
+  costPerImage: 0.08,
   adaptPrompt: (base) => base,
   generate: (prompt, { aspect }) => generateRecraftTransparent(prompt, aspect),
 };
@@ -361,15 +357,11 @@ export const recraftGenerator: ImageGenerator = {
 Run: `npm test -- src/lib/generators/__tests__/registry.test.ts`
 Expected: PASS (all 5).
 
-- [ ] **Step 4: Document the env var**
-
-In `CLAUDE.md`, add `RECRAFT_API_KEY` to the Environment Variables block with comment `# Recraft (vector image generation)`.
-
-- [ ] **Step 5: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add src/lib/recraft.ts src/lib/generators/recraft-generator.ts src/lib/generators/types.ts src/lib/generators/registry.ts src/lib/generators/__tests__/registry.test.ts CLAUDE.md
-git commit -m "feat: Recraft adapter + generator registry"
+git add src/lib/replicate.ts src/lib/generators/recraft-generator.ts src/lib/generators/types.ts src/lib/generators/registry.ts src/lib/generators/__tests__/registry.test.ts
+git commit -m "feat: Recraft adapter via Replicate + generator registry"
 ```
 
 ---
@@ -414,9 +406,9 @@ In `src/app/design/actions.ts` `generateDesign`, replace the image-generation bl
 
 Add import at top: `import { getGenerator } from "@/lib/generators/registry";`. Remove the now-unused `import { generateTransparent } from "@/lib/ideogram";` and `import { generateAnchoredTransparent } from "@/lib/replicate";` (the adapters own those now).
 
-- [ ] **Step 4: Record provenance on the insert**
+- [ ] **Step 4: Record provenance + real cost on the insert**
 
-In the same function, the `insertDesignImage({ ... })` call (line 156): add `generator: generator.id,`.
+In the same function, the `insertDesignImage({ ... })` call (line 156): add `generator: generator.id,` and change `generationCost: COST_PER_GENERATION` to `generationCost: generator.costPerImage`. In the subsequent `designTable` update (line 179), change `generationCost: found.generationCost + COST_PER_GENERATION` to `generationCost: found.generationCost + generator.costPerImage`. (Leave `COST_PER_GENERATION` defined — other paths like preview placement renders still use it.)
 
 - [ ] **Step 5: Type-check + run existing design tests**
 
@@ -490,10 +482,10 @@ export async function compareGenerators(designId: string, userMessage?: string) 
           imageUrl: r2Url,
           aspectRatio: "1:1",
           prompt: aiResponse.fluxPrompt,
-          generationCost: COST_PER_GENERATION,
+          generationCost: g.costPerImage,
           generator: g.id,
         });
-        return { imageId, imageUrl: r2Url, generator: g.id };
+        return { imageId, imageUrl: r2Url, generator: g.id, cost: g.costPerImage };
       } catch (err) {
         console.error(`compareGenerators ${g.id} failed:`, err);
         return null;
@@ -517,7 +509,7 @@ export async function compareGenerators(designId: string, userMessage?: string) 
     .update(designTable)
     .set({
       generationCount: found.generationCount + ok.length,
-      generationCost: found.generationCost + COST_PER_GENERATION * ok.length,
+      generationCost: found.generationCost + ok.reduce((sum, r) => sum + r.cost, 0),
       updatedAt: new Date(),
     })
     .where(eq(designTable.id, designId));
@@ -729,7 +721,7 @@ The lightbox's `image` objects are the same `DesignImage` gallery entries, which
 - [ ] **Step 5: Manual smoke + build**
 
 Run: `npm run build 2>&1 | grep -iE "error" | head`
-Expected: no errors. Then with `RECRAFT_API_KEY` + `IDEOGRAM_API_KEY` set locally, in the running app: chat → Compare → two tagged images appear → tap one → it becomes selected/primary and the active-model title updates → plain Generate now uses the adopted model.
+Expected: no errors. Then with `IDEOGRAM_API_KEY` + `REPLICATE_API_TOKEN` set locally (both already are), in the running app: chat → Compare → two tagged images appear (Ideogram + Recraft) → tap one → it becomes selected/primary and the active-model title updates → plain Generate now uses the adopted model.
 
 - [ ] **Step 6: Commit**
 
@@ -755,7 +747,7 @@ Expected: all pass.
 - [ ] **Step 3: Build**
 
 Run: `npm run build`
-Expected: success (requires `RECRAFT_API_KEY` present locally, like the other module-scope keys).
+Expected: success. (No new env needed — Recraft uses `REPLICATE_API_TOKEN`, checked lazily inside the function, so the build doesn't require it.)
 
 - [ ] **Step 4: Commit any cleanup, open PR**
 
@@ -767,8 +759,8 @@ git add -A && git commit -m "chore: multi-generator cleanup" || true
 
 ## Notes / risks carried from the spec
 
-- **Recraft transparency claim** (Task 4): if `vector_illustration` + `background: transparent` doesn't cleanly give fill-free line art for the line-drawing case, fall back to prompt-fill-free + a luminance white-knockout inside `recraft.ts` (sealed; no architecture change). Verify before relying on it for the original bug.
-- **Recraft API shape** (Task 4 Step 1): endpoint, `background` flag, and size strings are best-effort from memory — confirm against https://www.recraft.ai/docs at build time.
-- **compareGenerators cost**: fans out to every adapter (2 today). Opt-in only. When a 3rd adapter lands, add a selection UI before shipping it (out of scope here).
+- **Recraft does NOT solve the white-fill bug by itself** (corrected after verification): Recraft has no native transparent output; we drop its background with BiRefNet, which is subject matting and can leave interior white opaque — the same issue as the Ideogram-anchored path. So Recraft v1 is a **style-variety** second generator, not the white fix. The reliable garment-shows-through fix is a deterministic **luminance white-knockout** (key near-white → transparent), added later inside the relevant adapter(s) — sealed, no architecture change. Verify Recraft's line-drawing output during Task 4; if interior white persists and matters, that's when the knockout goes in.
+- **Recraft via Replicate** (Task 4): official model `recraft-ai/recraft-v3`, reuses `REPLICATE_API_TOKEN` — no Recraft account/key. Confirm the exact `input` field names on https://replicate.com/recraft-ai/recraft-v3/api during Step 1.
+- **compareGenerators cost**: fans out to every adapter (2 today), each recording its own `costPerImage` (Ideogram $0.03, Recraft $0.08 — Recraft is two Replicate calls: generate + background removal). Opt-in only. When a 3rd adapter lands, add a selection UI before shipping it (out of scope here).
 - **Adopt UX** (Task 9 Step 4): v1 is a minimal "use this" button on a compared image. A richer compare view is a later polish.
 - **Prompt-layer extraction deferred:** the spec floated pulling prompt construction out of the `ai.ts` system-prompt blob into its own unit. This plan delivers the per-model prompt seam via `adaptPrompt` (which is the part the feature needs) and removes the stale instruction, but does NOT restructure `ai.ts` — a broad refactor there is risk the feature doesn't require. Revisit if/when per-model `adaptPrompt` implementations grow enough to want a shared prompt-assembly home.
