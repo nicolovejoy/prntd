@@ -124,11 +124,15 @@ function DesignPageInner() {
         ...prev,
         makeOptimisticMessage("assistant", result.message, result.imageId),
       ]);
-      setSelectedImage(result.imageUrl);
-      await refreshGallery();
-      // Auto-open gallery drawer on mobile
-      if (window.matchMedia("(max-width: 767px)").matches) {
-        setDrawerOpen(true);
+      // Claude may answer with a clarifying question instead of an image
+      // (no imageUrl) — just show the message, no gallery/drawer changes.
+      if (result.imageUrl) {
+        setSelectedImage(result.imageUrl);
+        await refreshGallery();
+        // Auto-open gallery drawer on mobile
+        if (window.matchMedia("(max-width: 767px)").matches) {
+          setDrawerOpen(true);
+        }
       }
     } catch {
       setMessages((prev) => [
@@ -146,13 +150,16 @@ function DesignPageInner() {
       setMessages((prev) => [...prev, makeOptimisticMessage("user", userMessage)]);
     }
     try {
-      const results = await compareGenerators(designId.current, userMessage);
+      const { message, images: compared } = await compareGenerators(designId.current, userMessage);
       setMessages((prev) => [
         ...prev,
-        makeOptimisticMessage("assistant", `Compared ${results.length} generators — tap one to keep working with it.`),
+        makeOptimisticMessage("assistant", message),
       ]);
-      await refreshGallery();
-      if (window.matchMedia("(max-width: 767px)").matches) setDrawerOpen(true);
+      // Empty when Claude asked a clarifying question instead of comparing.
+      if (compared.length) {
+        await refreshGallery();
+        if (window.matchMedia("(max-width: 767px)").matches) setDrawerOpen(true);
+      }
     } catch {
       setMessages((prev) => [
         ...prev,

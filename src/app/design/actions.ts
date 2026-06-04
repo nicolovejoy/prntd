@@ -76,6 +76,31 @@ export async function sendChatMessage(designId: string, userMessage: string) {
   return { message: aiResponse.message };
 }
 
+/**
+ * Claude declines to generate and asks a clarifying question (e.g. when the
+ * user hasn't specified a style) by returning an empty fluxPrompt. Detect
+ * that so we surface the question in chat instead of sending an empty prompt
+ * to the image model, which 400s.
+ */
+function isClarificationOnly(fluxPrompt: string | null | undefined): boolean {
+  return !fluxPrompt || fluxPrompt.trim() === "";
+}
+
+async function persistClarification(
+  designId: string,
+  userMessage: string | undefined,
+  message: string
+) {
+  if (userMessage) {
+    await insertChatMessage({ designId, role: "user", content: userMessage });
+  }
+  await insertChatMessage({ designId, role: "assistant", content: message });
+  await db
+    .update(designTable)
+    .set({ updatedAt: new Date() })
+    .where(eq(designTable.id, designId));
+}
+
 export async function generateDesign(
   designId: string,
   userMessage?: string
@@ -113,6 +138,16 @@ export async function generateDesign(
   } catch (err) {
     console.error("constructFluxPrompt failed:", err);
     throw new Error("Failed to construct prompt");
+  }
+
+  if (isClarificationOnly(aiResponse.fluxPrompt)) {
+    await persistClarification(designId, userMessage, aiResponse.message);
+    return {
+      message: aiResponse.message,
+      imageUrl: null,
+      imageId: null,
+      generationNumber: found.generationCount,
+    };
   }
 
   const anchorUrl =
@@ -391,6 +426,11 @@ export async function compareGenerators(designId: string, userMessage?: string) 
     throw new Error("Failed to construct prompt");
   }
 
+  if (isClarificationOnly(aiResponse.fluxPrompt)) {
+    await persistClarification(designId, userMessage, aiResponse.message);
+    return { message: aiResponse.message, images: [] };
+  }
+
   const anchorUrl =
     aiResponse.referenceImage != null
       ? images.find((img) => img.number === aiResponse.referenceImage)?.url
@@ -429,13 +469,14 @@ export async function compareGenerators(designId: string, userMessage?: string) 
   const ok = results.filter((r): r is NonNullable<typeof r> => r !== null);
   if (ok.length === 0) throw new Error("All generators failed");
 
+  const summary = `Compared ${ok.length} generators — tap one to keep working with it.`;
   if (userMessage) {
     await insertChatMessage({ designId, role: "user", content: userMessage });
   }
   await insertChatMessage({
     designId,
     role: "assistant",
-    content: `Compared ${ok.length} generators — tap one to keep working with it.`,
+    content: summary,
   });
 
   // Advance the counter past every slot we *reserved* (one per attempted
@@ -451,7 +492,7 @@ export async function compareGenerators(designId: string, userMessage?: string) 
     })
     .where(eq(designTable.id, designId));
 
-  return ok;
+  return { message: summary, images: ok };
 }
 
 /**
