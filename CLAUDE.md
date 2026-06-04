@@ -138,6 +138,12 @@ See `docs/next-phase.md` for the full Phase 1/2/3 plan. Top items:
 - DESC/charity work paused as of 2026-05-06. Chain (DESC permission → entity confirmation → #4 ledger infra → first disbursement → homepage re-org) still applies if/when it restarts. (Homepage re-org now tracked under #18/#17; old #5 closed as superseded 2026-05-29.)
 - #10 ~~Order list thumbnails on shirt color~~ — shipped May 1. iPhone case was discontinued 2026-05-26 (soft-discontinue: `discontinued: true` on `clear-case-iphone`, picker uses `ACTIVE_PRODUCTS`; historical orders still resolve via `getProduct()`).
 
+**In progress — 2026-06-04 (branch `feat/multi-generator`)**
+
+- **Thin-prompt 500 fixed (committed `261f5d8`).** When the user hits Generate/Compare on an underspecified design, Claude returns a clarifying question with an empty `fluxPrompt`; both `generateDesign` and `compareGenerators` used to pass that empty string to the image model → Ideogram 400 → 500. Now guarded (`isClarificationOnly`/`persistClarification` in `design/actions.ts`): saves the question to chat, returns no image, no cost. `compareGenerators` now returns `{ message, images }` (was a bare array). Verified working locally (got a real Ideogram render after answering the style question).
+- **Generate-readiness gate — spec'd, NOT implemented (committed `37277b2`).** Soft-nudge UI: grey out Generate + Compare until Claude judges the idea concrete (subject AND style), driven by a Claude-emitted `readyToGenerate` flag on chat replies; still clickable (override preserved). Initial ready = `images.length > 0`. Spec: `docs/superpowers/specs/2026-06-04-generate-readiness-gate-design.md`. Next step: writing-plans → implement.
+- **Still open (the original merge gate):** local `IDEOGRAM_API_KEY` was refreshed and works now. Recraft white-fill verdict still not taken — run Compare on a line drawing, check if the interior white is transparent on a colored shirt. If opaque → deferred luminance white-knockout. See `docs/multi-generator-test-checklist.md`.
+
 **Recently shipped — 2026-06-03**
 
 - **Reversible un-publish (shipped to prod).** Owners can take a published image back down (`unpublishImage` clears `published_at`) and re-publish later, from `/d/[imageId]` or `/designs`. Deletion lock re-keyed off "is published" onto "is referenced by an order" (`imageReferencedByOrders` in `design-publish.ts`) so an ordered image can't be deleted after un-publish. Spec `docs/unpublish-image.md`.
