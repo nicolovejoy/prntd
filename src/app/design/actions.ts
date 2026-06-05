@@ -6,13 +6,13 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
   design as designTable,
+  designImage as designImageTable,
   order as orderTable,
 } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { chatAboutDesign, constructFluxPrompt } from "@/lib/ai";
-import { generateTransparent } from "@/lib/ideogram";
-import { generateAnchoredTransparent } from "@/lib/replicate";
 import { uploadDesignImage } from "@/lib/r2";
+import { getGenerator, GENERATORS, DEFAULT_GENERATOR_ID } from "@/lib/generators/registry";
 import {
   insertDesignImage,
   findDesignImageByUrl,
@@ -30,8 +30,6 @@ import { prefetchProductMockups } from "@/app/preview/actions";
 import { DEFAULT_PRODUCT_ID } from "@/lib/products";
 import { imageReferencedByOrders } from "@/lib/design-publish";
 import type { ChatMessage } from "@/lib/db/schema";
-
-const COST_PER_GENERATION = 0.03;
 
 async function getOrCreateDesign(designId: string, userId: string) {
   let found = await db.query.design.findFirst({
@@ -78,6 +76,31 @@ export async function sendChatMessage(designId: string, userMessage: string) {
   return { message: aiResponse.message };
 }
 
+/**
+ * Claude declines to generate and asks a clarifying question (e.g. when the
+ * user hasn't specified a style) by returning an empty fluxPrompt. Detect
+ * that so we surface the question in chat instead of sending an empty prompt
+ * to the image model, which 400s.
+ */
+function isClarificationOnly(fluxPrompt: string | null | undefined): boolean {
+  return !fluxPrompt || fluxPrompt.trim() === "";
+}
+
+async function persistClarification(
+  designId: string,
+  userMessage: string | undefined,
+  message: string
+) {
+  if (userMessage) {
+    await insertChatMessage({ designId, role: "user", content: userMessage });
+  }
+  await insertChatMessage({ designId, role: "assistant", content: message });
+  await db
+    .update(designTable)
+    .set({ updatedAt: new Date() })
+    .where(eq(designTable.id, designId));
+}
+
 export async function generateDesign(
   designId: string,
   userMessage?: string
@@ -117,27 +140,30 @@ export async function generateDesign(
     throw new Error("Failed to construct prompt");
   }
 
-  // When the AI flags a prior generation as the reference (the user is
-  // refining/iterating, not starting fresh), anchor on it visually via
-  // the Replicate path. First-pass generations have no anchor and use
-  // the direct transparent endpoint (single call, native RGBA).
+  if (isClarificationOnly(aiResponse.fluxPrompt)) {
+    await persistClarification(designId, userMessage, aiResponse.message);
+    return {
+      message: aiResponse.message,
+      imageUrl: null,
+      imageId: null,
+      generationNumber: found.generationCount,
+    };
+  }
+
   const anchorUrl =
     aiResponse.referenceImage != null
       ? images.find((img) => img.number === aiResponse.referenceImage)?.url
       : undefined;
 
+  const generator = getGenerator(found.activeGeneratorId);
+
   let imageUrl: string;
   try {
-    imageUrl = anchorUrl
-      ? await generateAnchoredTransparent(
-          aiResponse.fluxPrompt,
-          anchorUrl,
-          "1:1",
-          aiResponse.negativePrompt ?? undefined
-        )
-      : await generateTransparent(aiResponse.fluxPrompt, "1:1", {
-          negativePrompt: aiResponse.negativePrompt ?? undefined,
-        });
+    imageUrl = await generator.generate(generator.adaptPrompt(aiResponse.fluxPrompt), {
+      aspect: "1:1",
+      referenceImageUrl: anchorUrl,
+      negativePrompt: aiResponse.negativePrompt,
+    });
   } catch (err) {
     console.error("generateDesign image generation failed:", err);
     throw new Error("Image generation failed");
@@ -157,7 +183,8 @@ export async function generateDesign(
     imageUrl: r2Url,
     aspectRatio: "1:1",
     prompt: aiResponse.fluxPrompt,
-    generationCost: COST_PER_GENERATION,
+    generationCost: generator.costPerImage,
+    generator: generator.id,
   });
 
   if (userMessage) {
@@ -175,7 +202,7 @@ export async function generateDesign(
     .set({
       primaryImageId: newImageId,
       generationCount: newGeneration,
-      generationCost: found.generationCost + COST_PER_GENERATION,
+      generationCost: found.generationCost + generator.costPerImage,
       mockupUrls: null,
       updatedAt: new Date(),
     })
@@ -372,4 +399,126 @@ export async function approveDesign(designId: string) {
   // picks render instantly. Printful mockups are free so this is pure UX.
   // Best-effort: failures log and are swallowed by prefetchProductMockups.
   after(() => prefetchProductMockups(designId, DEFAULT_PRODUCT_ID));
+}
+
+/**
+ * Run the same Claude-built prompt through every registered generator and
+ * insert one design_image per result, tagged with its generator. Does NOT
+ * change the design's active generator — that happens on adoptGenerator.
+ * Returns the new images (id + url + generator) newest-last.
+ */
+export async function compareGenerators(designId: string, userMessage?: string) {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) throw new Error("Unauthorized");
+
+  const found = await getOrCreateDesign(designId, session.user.id);
+  const messages = await getDesignMessages(designId);
+  const images = await getDesignImagesForAIContext(designId);
+  const messagesForPrompt: ChatMessage[] = userMessage
+    ? [...messages, { id: "pending", designId, role: "user", content: userMessage, imageId: null, createdAt: new Date() }]
+    : messages;
+
+  let aiResponse;
+  try {
+    aiResponse = await constructFluxPrompt(messagesForPrompt, images, userMessage);
+  } catch (err) {
+    console.error("compareGenerators constructFluxPrompt failed:", err);
+    throw new Error("Failed to construct prompt");
+  }
+
+  if (isClarificationOnly(aiResponse.fluxPrompt)) {
+    await persistClarification(designId, userMessage, aiResponse.message);
+    return { message: aiResponse.message, images: [] };
+  }
+
+  const anchorUrl =
+    aiResponse.referenceImage != null
+      ? images.find((img) => img.number === aiResponse.referenceImage)?.url
+      : undefined;
+
+  const results = await Promise.all(
+    Object.values(GENERATORS).map(async (g, i) => {
+      try {
+        const url = await g.generate(g.adaptPrompt(aiResponse.fluxPrompt), {
+          aspect: "1:1",
+          referenceImageUrl: anchorUrl,
+          negativePrompt: aiResponse.negativePrompt,
+        });
+        const response = await fetch(url);
+        const buffer = Buffer.from(await response.arrayBuffer());
+        // Distinct generation number per adapter so parallel uploads don't
+        // collide on the R2 key (designs/{id}/{generation}.png).
+        const generation = found.generationCount + 1 + i;
+        const r2Url = await uploadDesignImage(designId, generation, buffer);
+        const imageId = await insertDesignImage({
+          designId,
+          imageUrl: r2Url,
+          aspectRatio: "1:1",
+          prompt: aiResponse.fluxPrompt,
+          generationCost: g.costPerImage,
+          generator: g.id,
+        });
+        return { imageId, imageUrl: r2Url, generator: g.id, cost: g.costPerImage };
+      } catch (err) {
+        console.error(`compareGenerators ${g.id} failed:`, err);
+        return null;
+      }
+    })
+  );
+
+  const ok = results.filter((r): r is NonNullable<typeof r> => r !== null);
+  if (ok.length === 0) throw new Error("All generators failed");
+
+  const summary = `Compared ${ok.length} generators — tap one to keep working with it.`;
+  if (userMessage) {
+    await insertChatMessage({ designId, role: "user", content: userMessage });
+  }
+  await insertChatMessage({
+    designId,
+    role: "assistant",
+    content: summary,
+  });
+
+  // Advance the counter past every slot we *reserved* (one per attempted
+  // adapter), not just the successes — each parallel branch used
+  // generationCount+1+i as its R2 key, so a future generation must start
+  // beyond all of them or it would overwrite a surviving compare image.
+  await db
+    .update(designTable)
+    .set({
+      generationCount: found.generationCount + Object.values(GENERATORS).length,
+      generationCost: found.generationCost + ok.reduce((sum, r) => sum + r.cost, 0),
+      updatedAt: new Date(),
+    })
+    .where(eq(designTable.id, designId));
+
+  return { message: summary, images: ok };
+}
+
+/**
+ * Adopt a compared image: set the design's active generator to that
+ * image's generator and make it the primary image. Owner-auth.
+ */
+export async function adoptGenerator(designId: string, imageId: string) {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) throw new Error("Unauthorized");
+
+  const found = await db.query.design.findFirst({ where: eq(designTable.id, designId) });
+  if (!found || found.userId !== session.user.id) throw new Error("Unauthorized");
+
+  const image = await db.query.designImage.findFirst({
+    where: eq(designImageTable.id, imageId),
+  });
+  if (!image || image.designId !== designId) throw new Error("Image not found");
+
+  await db
+    .update(designTable)
+    .set({
+      activeGeneratorId: image.generator ?? DEFAULT_GENERATOR_ID,
+      primaryImageId: imageId,
+      updatedAt: new Date(),
+    })
+    .where(eq(designTable.id, designId));
+
+  return { activeGeneratorId: image.generator ?? DEFAULT_GENERATOR_ID };
 }

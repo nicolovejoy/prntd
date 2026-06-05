@@ -62,6 +62,10 @@ export const design = sqliteTable("design", {
   // attribution lookups don't have to walk the chain.
   originalDesignerId: text("original_designer_id"),
   forkedFromImageId: text("forked_from_image_id"),
+  // Multi-generator: the thread's active image generator (adapter id).
+  // Null resolves to DEFAULT_GENERATOR_ID. Set when the user adopts a
+  // compared image.
+  activeGeneratorId: text("active_generator_id"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
@@ -104,6 +108,9 @@ export const designImage = sqliteTable("design_image", {
   // pin a shirt color behind it (a color name from the default product
   // palette). Null → checkerboard, the neutral default.
   backgroundColor: text("background_color"),
+  // Multi-generator: which adapter produced this image ("ideogram",
+  // "recraft"). Null on historical rows (pre-feature).
+  generator: text("generator"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
 

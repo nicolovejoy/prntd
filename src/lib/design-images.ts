@@ -14,6 +14,7 @@ export type DesignImage = {
   url: string;
   prompt: string;
   publishedAt: Date | null;
+  generator: string | null;
 };
 
 /**
@@ -66,6 +67,7 @@ export async function getDesignImagesForAIContext(
     url: s.imageUrl,
     prompt: s.prompt ?? "",
     publishedAt: s.publishedAt,
+    generator: s.generator,
   }));
 }
 
@@ -82,6 +84,7 @@ export async function insertDesignImage(params: {
   generationCost: number;
   productId?: string | null;
   placementId?: string | null;
+  generator?: string | null;
 }): Promise<string> {
   const latest = await db
     .select({ id: designImageTable.id })
@@ -101,6 +104,7 @@ export async function insertDesignImage(params: {
     imageUrl: params.imageUrl,
     prompt: params.prompt ?? null,
     generationCost: params.generationCost,
+    generator: params.generator ?? null,
     isApproved: false,
   });
   return id;
@@ -249,6 +253,7 @@ export type SourceImage = {
   prompt: string | null;
   createdAt: Date;
   publishedAt: Date | null;
+  generator: string | null;
 };
 
 /**
@@ -267,6 +272,7 @@ export async function getDesignSourceImages(
       prompt: designImageTable.prompt,
       createdAt: designImageTable.createdAt,
       publishedAt: designImageTable.publishedAt,
+      generator: designImageTable.generator,
     })
     .from(designImageTable)
     .where(
@@ -284,6 +290,7 @@ export async function getDesignSourceImages(
     prompt: r.prompt,
     createdAt: r.createdAt,
     publishedAt: r.publishedAt,
+    generator: r.generator,
   }));
 }
 

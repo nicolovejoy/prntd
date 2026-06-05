@@ -46,3 +46,6 @@ yarn-error.log*
 next-env.d.ts
 .env*.local
 ci-skip.db
+
+# Playwright MCP artifacts
+.playwright-mcp/

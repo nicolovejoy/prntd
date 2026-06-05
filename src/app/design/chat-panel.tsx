@@ -53,6 +53,8 @@ export function ChatPanel({
   generating,
   onSend,
   onGenerate,
+  onCompare,
+  activeGenerator,
   onUploadImage,
 }: {
   messages: ChatMessage[];
@@ -61,6 +63,8 @@ export function ChatPanel({
   generating: boolean;
   onSend: (message: string) => void;
   onGenerate: (message?: string) => void;
+  onCompare: (message?: string) => void;
+  activeGenerator: string;
   onUploadImage: (base64: string, fileName: string) => void;
 }) {
   const urlByImageId = useMemo(
@@ -275,6 +279,20 @@ export function ChatPanel({
           disabled={busy || (messages.length === 0 && !input.trim())}
         >
           Generate
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={() => {
+            if (generating) return;
+            const msg = input.trim() || undefined;
+            if (msg) setInput("");
+            onCompare(msg);
+          }}
+          disabled={busy || (messages.length === 0 && !input.trim())}
+          title={`Generate with all models (current: ${activeGenerator})`}
+        >
+          Compare
         </Button>
       </form>
     </div>
