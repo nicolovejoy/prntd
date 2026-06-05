@@ -149,9 +149,9 @@ function toRecraftSize(aspect: AspectRatio): string {
 
 /**
  * Generate via Recraft v3 on Replicate (official model — warm, stable,
- * reuses REPLICATE_API_TOKEN). vector_illustration style for clean
- * line/graphic art. Recraft has no native transparent output, so BiRefNet
- * drops the background afterward.
+ * reuses REPLICATE_API_TOKEN). digital_illustration style (this Replicate
+ * model doesn't expose true vector_illustration). Recraft has no native
+ * transparent output, so BiRefNet drops the background afterward.
  *
  * NOTE: BiRefNet is subject matting — interior white can stay opaque (the
  * open white-fill risk). If a line-drawing case shows opaque interior
@@ -167,7 +167,12 @@ export async function generateRecraftTransparent(
       replicate.run("recraft-ai/recraft-v3", {
         input: {
           prompt,
-          style: "vector_illustration",
+          // Replicate's recraft-v3 does not expose Recraft's
+          // `vector_illustration` style (422s on it). `digital_illustration`
+          // is the closest clean-graphic bucket this model accepts. NOTE:
+          // this is raster, not vector — it does NOT inherently solve the
+          // interior white-fill problem the way true vector output would.
+          style: "digital_illustration",
           size: toRecraftSize(aspect),
         },
       })
