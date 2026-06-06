@@ -139,7 +139,7 @@ export function ChatPanel({
   // Generate sits as a secondary button and a style hint shows — it pops to
   // primary when ready. Always clickable; the fast thin-check catches a
   // too-thin click in ~1s rather than greying the button into looking broken.
-  const notReadyTitle = "Add a style (e.g. watercolor, vintage, bold vector) to sharpen the idea — Generate still works.";
+  const notReadyTitle = "Add a style (e.g. watercolor, vintage, bold vector) to sharpen the idea — Draw it still works.";
   const showStyleHint = !readyToGenerate && messages.length > 0;
 
   if (isEmpty) {
@@ -222,7 +222,7 @@ export function ChatPanel({
           <div className="text-center text-gray-400 mt-20 space-y-4">
             <p className="text-lg">What should your design look like?</p>
             <p className="text-sm">
-              Describe a design. Chat to refine the idea, then hit Generate.
+              Describe a design. Chat to refine the idea, then hit Draw it.
             </p>
             <div className="flex flex-wrap justify-center gap-2 mt-4">
               {EXAMPLES.map((example) => (
@@ -330,7 +330,7 @@ export function ChatPanel({
           disabled={busy || (messages.length === 0 && !input.trim())}
           title={readyToGenerate ? undefined : notReadyTitle}
         >
-          Generate
+          Draw it
         </Button>
         <Button
           type="button"
@@ -344,11 +344,11 @@ export function ChatPanel({
           disabled={busy || (messages.length === 0 && !input.trim())}
           title={
             readyToGenerate
-              ? `Generate with all models (current: ${activeGenerator})`
+              ? `Compare styles across all generators (current: ${activeGenerator})`
               : notReadyTitle
           }
         >
-          Compare
+          Compare styles
         </Button>
       </form>
     </div>
