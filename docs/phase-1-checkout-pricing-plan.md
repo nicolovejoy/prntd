@@ -13,12 +13,18 @@ Consequence: **per-size pricing accuracy is a pricing/revenue question, not a CO
 
 **Hard rule: COGS must keep coming from `printfulOrder.costs`, never from `baseCost`.** Items 3 (tax) and 4 (shipping split) are the ones that genuinely reshape the ledger.
 
-## Open product decisions (resolve before coding)
+## Decisions (locked 2026-06-06 by Nico)
 
-1. **Does customer price change with per-size accuracy?** (a) keep flat price, correct `baseCost` for honest reporting; (b) float price per size (price cut for common S–XL); (c) flat floor + upcharge only 2XL+ (recommended, common retail pattern).
-2. **Tax — merchant of record / do we collect in Stripe?** Printful's fulfillment tax already sits in COGS. Collecting customer tax via Stripe is a registration/nexus question. **Do not enable Stripe `automatic_tax` without confirming registration** — real-world liability. Likely Phase-1 answer: document current state, defer collection.
-3. **Multi-item: cart now, or just make pricing/model multi-item-ready?** Recommend NO cart UI in Phase 1. Codebase is hard single-item (`quantity: 1`, single line item, scalar order columns).
-4. **Shipping: real-time Printful quote or flat estimate?** Recommend flat constant (~$4–5 first-item domestic), reconcile against actual in ledger. Real-time quoting (`/orders/estimate-costs`) is heavier — Phase 2 candidate.
+1. **Price model: flat floor + 2XL+ upcharge.** Keep ~$19.43 for S–XL; add the real cost delta only for 2XL and up. → display price decouples from a pure `baseCost × 1.5`, so add a separate display/floor concept (don't overload `baseCost`).
+2. **Tax: not registered — defer.** Document that Printful's fulfillment tax sits in COGS, add the nullable `taxCollected` column for future use, collect **no** customer tax. Do NOT enable Stripe `automatic_tax`. 1C is doc + schema only.
+3. **Multi-item: model-only (no cart UI).** Make pricing/data forward-compatible; flag the single-item assumptions as the Phase-2 cart surface.
+4. **Shipping: real-time Printful quote** (Nico chose the heavier path over a flat constant). 1B must call Printful **`/orders/estimate-costs` pre-checkout** to get the exact shipping amount, then set it as the Stripe `shipping_option`. This is more work than a flat rate: a synchronous Printful estimate call on the order path before the Stripe redirect, with a sane fallback if the estimate call fails/times out (don't block checkout — fall back to a flat constant and reconcile). Still use `shipping_options` (not a line item) so percentage promos skip shipping.
+
+### Original open-decision notes (superseded by the above, kept for context)
+
+- Per-size: options were (a) flat honest-reporting, (b) float per size, (c) flat floor + 2XL+ upcharge → **(c) chosen.**
+- Tax: register-and-collect vs defer → **defer chosen.**
+- Shipping: flat constant vs real-time quote → **real-time quote chosen.**
 
 ## Data-model implications
 
