@@ -92,7 +92,7 @@ export function ChatPanel({
     if (!loading && !generating) inputRef.current?.focus();
   }, [loading, generating]);
 
-  // Empty state: after 4s of inactivity (input untouched), quietly reveal
+  // Empty state: after 8s of inactivity (input untouched), quietly reveal
   // example chips. The moment the user types, drop them — and don't re-arm
   // once they've engaged.
   useEffect(() => {
