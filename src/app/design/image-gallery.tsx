@@ -94,7 +94,7 @@ export function ImageGallery({
             {generating && (
               <div className="aspect-square rounded-lg border-2 border-border flex items-center justify-center bg-surface">
                 <div className="text-[10px] text-text-faint animate-pulse text-center px-2">
-                  Painting...
+                  Drawing your design…
                 </div>
               </div>
             )}

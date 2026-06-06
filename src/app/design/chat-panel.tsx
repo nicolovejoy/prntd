@@ -6,39 +6,6 @@ import type { ChatMessage } from "@/lib/db/schema";
 import type { DesignImage } from "@/lib/design-images";
 import { Button } from "@/components/ui";
 
-const GENERATING_MESSAGES = [
-  "Mixing paints...",
-  "Sketching ideas...",
-  "Arguing about fonts...",
-  "Consulting the muse...",
-  "Inking the lines...",
-  "Choosing colors...",
-  "Almost there...",
-  "Adding finishing touches...",
-  "Stepping back to admire...",
-  "One more brushstroke...",
-];
-
-function useRotatingMessage(messages: string[], intervalMs: number, active: boolean) {
-  const [index, setIndex] = useState(0);
-  const startIndex = useMemo(
-    () => Math.floor(Math.random() * messages.length),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [active]
-  );
-
-  useEffect(() => {
-    if (!active) return;
-    setIndex(startIndex);
-    const id = setInterval(() => {
-      setIndex((i) => (i + 1) % messages.length);
-    }, intervalMs);
-    return () => clearInterval(id);
-  }, [active, messages.length, intervalMs, startIndex]);
-
-  return messages[index];
-}
-
 const EXAMPLES = [
   "A minimalist mountain landscape in blue and white",
   "A retro sunset with palm tree silhouettes",
@@ -83,7 +50,6 @@ export function ChatPanel({
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounter = useRef(0);
-  const generatingMsg = useRotatingMessage(GENERATING_MESSAGES, 2000, generating);
 
   function handleFiles(files: FileList | null) {
     if (!files) return;
@@ -119,7 +85,7 @@ export function ChatPanel({
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading, generating, generatingMsg]);
+  }, [messages, loading, generating]);
 
   // Auto-focus input on mount and after actions complete
   useEffect(() => {
@@ -311,7 +277,7 @@ export function ChatPanel({
         {generating && (
           <div className="flex justify-start">
             <div className="rounded-lg px-4 py-2 text-text-muted animate-pulse">
-              {generatingMsg}
+              Drawing your design…
             </div>
           </div>
         )}
