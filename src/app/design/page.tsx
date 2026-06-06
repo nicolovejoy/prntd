@@ -48,9 +48,13 @@ function DesignPageInner() {
   const [publishImageId, setPublishImageId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [activeGenerator, setActiveGenerator] = useState("ideogram");
+  // Soft nudge: Generate/Compare dim until Claude judges the idea concrete
+  // (subject + style). A design with existing renders starts ready.
+  const [readyToGenerate, setReadyToGenerate] = useState(false);
 
   const refreshGallery = useCallback(async () => {
     const { sources, productGroups } = await getDesignGallery(designId.current);
+    setReadyToGenerate(sources.length > 0);
     setImages(
       sources.map((s, i) => ({
         id: s.id,
@@ -102,6 +106,7 @@ function DesignPageInner() {
         ...prev,
         makeOptimisticMessage("assistant", result.message),
       ]);
+      setReadyToGenerate(result.readyToGenerate);
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -124,6 +129,7 @@ function DesignPageInner() {
         ...prev,
         makeOptimisticMessage("assistant", result.message, result.imageId),
       ]);
+      setReadyToGenerate(result.readyToGenerate);
       // Claude may answer with a clarifying question instead of an image
       // (no imageUrl) — just show the message, no gallery/drawer changes.
       if (result.imageUrl) {
@@ -150,11 +156,12 @@ function DesignPageInner() {
       setMessages((prev) => [...prev, makeOptimisticMessage("user", userMessage)]);
     }
     try {
-      const { message, images: compared } = await compareGenerators(designId.current, userMessage);
+      const { message, images: compared, readyToGenerate: ready } = await compareGenerators(designId.current, userMessage);
       setMessages((prev) => [
         ...prev,
         makeOptimisticMessage("assistant", message),
       ]);
+      setReadyToGenerate(ready);
       // Empty when Claude asked a clarifying question instead of comparing.
       if (compared.length) {
         await refreshGallery();
@@ -286,6 +293,7 @@ function DesignPageInner() {
           onGenerate={handleGenerate}
           onCompare={handleCompare}
           activeGenerator={activeGenerator}
+          readyToGenerate={readyToGenerate}
           onUploadImage={handleUploadImage}
         />
         <ImageGallery

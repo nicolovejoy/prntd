@@ -77,6 +77,178 @@ describe("chatAboutDesign", () => {
     const userMessages = call.messages.filter((m: any) => m.role === "user");
     expect(userMessages.length).toBeGreaterThanOrEqual(1);
   });
+
+  it("parses message and readyToGenerate from valid JSON", async () => {
+    const mockCreate = await getMockCreate();
+    mockCreate.mockResolvedValue({
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          message: "Watercolor fox, got it. Ready when you are.",
+          readyToGenerate: true,
+        }),
+      }],
+    });
+
+    const { chatAboutDesign } = await import("../ai");
+    const result = await chatAboutDesign("a watercolor fox", [], []);
+
+    expect(result.message).toBe("Watercolor fox, got it. Ready when you are.");
+    expect(result.readyToGenerate).toBe(true);
+  });
+
+  it("returns readyToGenerate false when the idea is still thin", async () => {
+    const mockCreate = await getMockCreate();
+    mockCreate.mockResolvedValue({
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          message: "What style are you after — clean vector, watercolor, vintage?",
+          readyToGenerate: false,
+        }),
+      }],
+    });
+
+    const { chatAboutDesign } = await import("../ai");
+    const result = await chatAboutDesign("a fox", [], []);
+
+    expect(result.message).toContain("What style");
+    expect(result.readyToGenerate).toBe(false);
+  });
+
+  it("parses JSON wrapped in code fences", async () => {
+    const mockCreate = await getMockCreate();
+    mockCreate.mockResolvedValue({
+      content: [{
+        type: "text",
+        text: '```json\n{"message":"ready","readyToGenerate":true}\n```',
+      }],
+    });
+
+    const { chatAboutDesign } = await import("../ai");
+    const result = await chatAboutDesign("anything", [], []);
+
+    expect(result.message).toBe("ready");
+    expect(result.readyToGenerate).toBe(true);
+  });
+
+  it("falls back to raw text and not-ready on non-JSON response", async () => {
+    const mockCreate = await getMockCreate();
+    mockCreate.mockResolvedValue({
+      content: [{ type: "text", text: "Just plain conversational text." }],
+    });
+
+    const { chatAboutDesign } = await import("../ai");
+    const result = await chatAboutDesign("anything", [], []);
+
+    expect(result.message).toBe("Just plain conversational text.");
+    expect(result.readyToGenerate).toBe(false);
+  });
+
+  it("treats a non-boolean readyToGenerate as false", async () => {
+    const mockCreate = await getMockCreate();
+    mockCreate.mockResolvedValue({
+      content: [{
+        type: "text",
+        text: JSON.stringify({ message: "hmm", readyToGenerate: "yes" }),
+      }],
+    });
+
+    const { chatAboutDesign } = await import("../ai");
+    const result = await chatAboutDesign("anything", [], []);
+
+    expect(result.readyToGenerate).toBe(false);
+  });
+});
+
+describe("assessReadiness", () => {
+  beforeEach(async () => {
+    const mockCreate = await getMockCreate();
+    mockCreate.mockReset();
+  });
+
+  it("returns ready=false and a question when the idea is thin", async () => {
+    const mockCreate = await getMockCreate();
+    mockCreate.mockResolvedValue({
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          ready: false,
+          question: "What style — watercolor, vintage, bold vector?",
+        }),
+      }],
+    });
+
+    const { assessReadiness } = await import("../ai");
+    const result = await assessReadiness([], [], "a fox");
+
+    expect(result.ready).toBe(false);
+    expect(result.question).toContain("What style");
+  });
+
+  it("returns ready=true for a concrete subject + style", async () => {
+    const mockCreate = await getMockCreate();
+    mockCreate.mockResolvedValue({
+      content: [{ type: "text", text: JSON.stringify({ ready: true, question: "" }) }],
+    });
+
+    const { assessReadiness } = await import("../ai");
+    const result = await assessReadiness(
+      [],
+      [],
+      "a fierce minimal geometric fox, clean black vector on white"
+    );
+
+    expect(result.ready).toBe(true);
+  });
+
+  it("uses the fast Haiku model, not Sonnet", async () => {
+    const mockCreate = await getMockCreate();
+    mockCreate.mockResolvedValue({
+      content: [{ type: "text", text: JSON.stringify({ ready: true, question: "" }) }],
+    });
+
+    const { assessReadiness } = await import("../ai");
+    await assessReadiness([], [], "anything");
+
+    const call = mockCreate.mock.calls[0][0];
+    expect(call.model).toContain("haiku");
+  });
+
+  it("fails open (ready=true) on a non-JSON response", async () => {
+    const mockCreate = await getMockCreate();
+    mockCreate.mockResolvedValue({
+      content: [{ type: "text", text: "not json at all" }],
+    });
+
+    const { assessReadiness } = await import("../ai");
+    const result = await assessReadiness([], [], "anything");
+
+    expect(result.ready).toBe(true);
+  });
+
+  it("treats a missing ready flag as ready (fail open)", async () => {
+    const mockCreate = await getMockCreate();
+    mockCreate.mockResolvedValue({
+      content: [{ type: "text", text: JSON.stringify({ question: "hmm" }) }],
+    });
+
+    const { assessReadiness } = await import("../ai");
+    const result = await assessReadiness([], [], "anything");
+
+    expect(result.ready).toBe(true);
+  });
+
+  it("fails open (ready=true) when the API call throws", async () => {
+    const mockCreate = await getMockCreate();
+    mockCreate.mockRejectedValue(new Error("Haiku unavailable"));
+
+    const { assessReadiness } = await import("../ai");
+    const result = await assessReadiness([], [], "anything");
+
+    expect(result.ready).toBe(true);
+    expect(result.question).toBe("");
+  });
 });
 
 describe("generateOrderName", () => {

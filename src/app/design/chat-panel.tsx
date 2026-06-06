@@ -55,6 +55,7 @@ export function ChatPanel({
   onGenerate,
   onCompare,
   activeGenerator,
+  readyToGenerate,
   onUploadImage,
 }: {
   messages: ChatMessage[];
@@ -65,6 +66,7 @@ export function ChatPanel({
   onGenerate: (message?: string) => void;
   onCompare: (message?: string) => void;
   activeGenerator: string;
+  readyToGenerate: boolean;
   onUploadImage: (base64: string, fileName: string) => void;
 }) {
   const urlByImageId = useMemo(
@@ -144,6 +146,12 @@ export function ChatPanel({
   }
 
   const busy = loading || generating;
+  // Soft nudge: until Claude judges the idea concrete (subject + style),
+  // Generate sits as a secondary button and a style hint shows — it pops to
+  // primary when ready. Always clickable; the fast thin-check catches a
+  // too-thin click in ~1s rather than greying the button into looking broken.
+  const notReadyTitle = "Add a style (e.g. watercolor, vintage, bold vector) to sharpen the idea — Generate still works.";
+  const showStyleHint = !readyToGenerate && messages.length > 0;
 
   return (
     <div
@@ -243,6 +251,13 @@ export function ChatPanel({
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Style hint — shown while the idea isn't concrete enough yet */}
+      {showStyleHint && (
+        <div className="px-4 pt-2 text-xs text-text-muted">
+          Add a style — watercolor, vintage, bold vector — to sharpen the idea.
+        </div>
+      )}
+
       {/* Input */}
       <form onSubmit={handleSend} className="p-4 border-t border-border flex gap-2">
         <button
@@ -275,8 +290,10 @@ export function ChatPanel({
         </Button>
         <Button
           type="button"
+          variant={readyToGenerate ? "primary" : "secondary"}
           onClick={handleGenerate}
           disabled={busy || (messages.length === 0 && !input.trim())}
+          title={readyToGenerate ? undefined : notReadyTitle}
         >
           Generate
         </Button>
@@ -290,7 +307,11 @@ export function ChatPanel({
             onCompare(msg);
           }}
           disabled={busy || (messages.length === 0 && !input.trim())}
-          title={`Generate with all models (current: ${activeGenerator})`}
+          title={
+            readyToGenerate
+              ? `Generate with all models (current: ${activeGenerator})`
+              : notReadyTitle
+          }
         >
           Compare
         </Button>
