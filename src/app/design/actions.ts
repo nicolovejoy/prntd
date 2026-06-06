@@ -29,6 +29,7 @@ import {
 import { prefetchProductMockups } from "@/app/preview/actions";
 import { DEFAULT_PRODUCT_ID } from "@/lib/products";
 import { imageReferencedByOrders } from "@/lib/design-publish";
+import { compareSummary, dedupeById } from "@/lib/compare";
 import type { ChatMessage } from "@/lib/db/schema";
 
 async function getOrCreateDesign(designId: string, userId: string) {
@@ -402,7 +403,10 @@ export async function getDesignGallery(
     getDesignSourceImages(designId),
     getDesignPlacementRenders(designId),
   ]);
-  return { sources, productGroups };
+  // Guard against a duplicate row ever reaching the gallery — the header
+  // count and the mobile FAB badge both derive from this list, so a dupe
+  // would make them disagree (#19).
+  return { sources: dedupeById(sources), productGroups };
 }
 
 export async function approveDesign(designId: string) {
@@ -497,7 +501,13 @@ export async function compareGenerators(designId: string, userMessage?: string) 
   const ok = results.filter((r): r is NonNullable<typeof r> => r !== null);
   if (ok.length === 0) throw new Error("All generators failed");
 
-  const summary = `Compared ${ok.length} generators — tap one to keep working with it.`;
+  // Summarize honestly: name the styles that didn't come back rather than
+  // silently undercounting (#19 — "Compared 1 generators"). results is
+  // index-aligned with the generators we ran.
+  const gens = Object.values(GENERATORS);
+  const succeeded = gens.filter((_, i) => results[i] !== null).map((g) => g.label);
+  const failed = gens.filter((_, i) => results[i] === null).map((g) => g.label);
+  const summary = compareSummary(succeeded, failed);
   if (userMessage) {
     await insertChatMessage({ designId, role: "user", content: userMessage });
   }
