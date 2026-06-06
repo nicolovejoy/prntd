@@ -208,12 +208,18 @@ The `feat/multi-generator` branch is merged to main and live on prntd.org. Compa
 - **Design loop rethink Phases 0/1/4** shipped (Ideogram native-transparent, advisor negation rewriting, doc updates). Phase 2 (text-as-layer) and Phase 3 (structured brief + batch-of-3) still queued.
 - **Bulk Printful prefetch** on accept and on `/preview` revisit. **deleteDesign** + **deleteDesignImage** order-pin protection. **bella-canvas-3001** expanded 13 → 25 colors. Product catalog process documented in `docs/products.md`.
 
-**Pricing + checkout — backlog**
+**Pricing + checkout — phased plan (2026-06-06)**
 
-- **Per-size pricing accuracy** — entries use flat `baseCost: { "*": 12.95 }`. Real Printful pricing is per-size: $11.69 S–XL, $13.69 2XL, $15.69 3XL, $17.69 4XL, $19.69 5XL on 3001. Acceptable today; revisit if margins tighten or 3XL+ sizes get exposed.
-- **Multi-item shipping savings** — Printful charges less for the 2nd+ tee in one shipment. Single-item orders only today. Shapes pricing logic, not just UI. Part of #11 scope.
-- **Tax** — Printful collects fulfillment sales tax; nothing baked into Stripe checkout. Part of #11 scope.
-- **#11 Printful + checkout deep-dive** (multi-placement, tax, shipping, team orders, safe-area UX) — umbrella ticket; blocks Phase 4 multi-placement UI.
+Three sequenced phases, full plans in `docs/`. Build order **#11 → #25 → #26**, each reusing the prior's shape. Decisions locked with Nico 2026-06-06.
+
+- **Phase 1 — checkout & pricing foundation (#11).** Plan: `docs/phase-1-checkout-pricing-plan.md`. Key reframe: **COGS already comes from Printful's real invoice (`printfulOrder.costs.total`), never from `baseCost`** — so per-size pricing is purely a revenue question.
+  - **1A per-size pricing — SHIPPED to main 2026-06-06.** 3001 `baseCost` → true per-size cost; new optional `Product.retailPrice` override (in `products.ts`, used by `computePrice`). Flat floor + 2XL upcharge: S–XL $19.43, 2XL $21.43. Open knob: 2XL is cost-delta passthrough (+$2.00); marked-up alt = $22.43.
+  - **NEXT — schema migration** (additive nullable `order.shippingPrice`/`taxCollected`/`itemPrice`, no backfill) → **1B real-time shipping quote** (decided: Printful `/orders/estimate-costs` pre-checkout, fallback to flat if it fails) **+ separate Stripe shipping line via `shipping_options`** (NOT a line item — so percentage promos skip shipping; the margin fix). 1B must accept N items even while sending 1 (forward-compat for #26).
+  - **1C tax — defer** (not registered): doc that Printful tax sits in COGS, add nullable `taxCollected`, no Stripe `automatic_tax`. **1D multi-item** — model-only here; full cart is **#26**.
+- **Phase 2 — back-of-shirt printing / multi-placement (#25).** Plan: `docs/phase-2-back-printing-plan.md`. `order.placements` already `Record<string,string>` → **zero DB migration**; runtime plumbing only. Pricing (2.3) blocked on #11's additional-placement cost. Same machinery delivers #17 inside-shirt branding.
+- **Phase 3 — multi-item cart + bundled-shipping savings (#26).** Committed-soon (Nico, 2026-06-06). Multiplies #25's per-item placement model across N items; real-time quote surfaces the bundled-shipping savings. Big surface (cart UX, line-items table vs JSON, single-item assumptions throughout). Depends on #11; coordinates with #25.
+
+**Pending (not code):** ANTHROPIC_API_KEY + REPLICATE_API_TOKEN are Vercel **Production-only** — add them to the **Preview** scope (dashboard → edit each → check Preview) to fix the `/design` Preview 500. IDEOGRAM already in Preview.
 
 **Image-gen style versatility (followup to #8)**
 
