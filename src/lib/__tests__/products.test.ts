@@ -36,10 +36,16 @@ describe("getProductOrThrow", () => {
 });
 
 describe("getBaseCost", () => {
-  it("returns flat cost for product with wildcard pricing", () => {
+  it("returns the real per-size cost for the Classic Tee", () => {
     const product = getProductOrThrow("bella-canvas-3001");
-    expect(getBaseCost(product, "M")).toBe(12.95);
-    expect(getBaseCost(product, "2XL")).toBe(12.95);
+    expect(getBaseCost(product, "M")).toBe(11.69);
+    expect(getBaseCost(product, "2XL")).toBe(13.69);
+  });
+
+  it("falls back to the wildcard default for unlisted sizes", () => {
+    const product = getProductOrThrow("clear-case-iphone");
+    expect(getBaseCost(product, "iPhone 15")).toBe(9.38); // "*" default
+    expect(getBaseCost(product, "iPhone 14")).toBe(10.95); // explicit override
   });
 
   it("returns size-specific cost for per-size pricing", () => {

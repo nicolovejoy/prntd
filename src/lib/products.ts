@@ -66,8 +66,22 @@ export type Product = {
    */
   discontinued?: boolean;
   printfulProductId: number;
-  /** Base cost by size. Use "*" as default for all sizes. */
+  /**
+   * Real Printful base cost by size (the per-size DTG price). Use "*" as
+   * default for all sizes. Drives the customer price only when `retailPrice`
+   * is absent (price = baseCost × MARGIN_MULTIPLIER). NOT the COGS source —
+   * actual COGS is read back from Printful's invoice post-submission
+   * (printfulOrder.costs.total), so this value is safe to keep honest.
+   */
   baseCost: Record<string, number>;
+  /**
+   * Optional fixed customer-facing price by size, overriding baseCost ×
+   * margin. Use "*" as default. Lets a product hold a flat floor on common
+   * sizes and add only the real cost delta on larger ones (e.g. the Classic
+   * Tee keeps $19.43 on S–XL and charges $21.43 on 2XL) instead of letting
+   * price float with cost. Omit to price purely off baseCost.
+   */
+  retailPrice?: Record<string, number>;
   sizes: string[];
   /** Label for the size selector. Defaults to "Size" if omitted. */
   sizeLabel?: string;
@@ -98,7 +112,13 @@ export const PRODUCTS: Product[] = [
     description: "Unisex classic fit",
     type: "shirt",
     printfulProductId: 71,
-    baseCost: { "*": 12.95 },
+    // True Printful per-size cost (S–XL $11.69, 2XL $13.69). Was a flat
+    // $12.95 estimate; corrected for honest margin reporting. COGS still
+    // comes from Printful's invoice, so this is display-input only.
+    baseCost: { S: 11.69, M: 11.69, L: 11.69, XL: 11.69, "2XL": 13.69 },
+    // Flat floor + 2XL upcharge (Nico, 2026-06-06): keep $19.43 on the common
+    // S–XL sizes (no price cut), add the real $2.00 cost delta on 2XL.
+    retailPrice: { "*": 19.43, "2XL": 21.43 },
     sizes: ["S", "M", "L", "XL", "2XL"],
     colors: [
       { name: "White", value: "#ffffff" },
@@ -364,6 +384,17 @@ export function getProductOrThrow(id: string): Product {
 /** Look up the base cost for a specific size (handles per-size and flat pricing). */
 export function getBaseCost(product: Product, size: string): number {
   return product.baseCost[size] ?? product.baseCost["*"] ?? 0;
+}
+
+/**
+ * Fixed customer-facing price for a size, or undefined if the product prices
+ * purely off baseCost. Same "*"-default lookup as getBaseCost.
+ */
+export function getRetailPrice(
+  product: Product,
+  size: string
+): number | undefined {
+  return product.retailPrice?.[size] ?? product.retailPrice?.["*"];
 }
 
 /** Look up a Printful variant ID for a product/color/size combo. */

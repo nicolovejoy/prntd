@@ -1,14 +1,17 @@
 import {
   getProductOrThrow,
   getBaseCost,
+  getRetailPrice,
   DEFAULT_PRODUCT_ID,
-  type Product,
 } from "./products";
 
 export const MARGIN_MULTIPLIER = 1.5;
 
 /**
- * Customer-facing price = baseCost × margin multiplier.
+ * Customer-facing price. A product either prices off its real per-size cost
+ * (total = baseCost × margin, rounded up to the cent) or pins a fixed
+ * `retailPrice` per size, which takes precedence — letting a product hold a
+ * flat floor on common sizes and add only the real cost delta on larger ones.
  *
  * `generationCost` (AI API cost) is passed through for internal tracking only
  * — it does NOT affect the total. It's still returned in the result so admin
@@ -21,8 +24,9 @@ export function computePrice(
 ): { baseCost: number; generationCost: number; total: number } {
   const product = getProductOrThrow(productId);
   const baseCost = getBaseCost(product, size);
-  const subtotal = baseCost * MARGIN_MULTIPLIER;
-  const total = Math.ceil(subtotal * 100) / 100;
+  const retail = getRetailPrice(product, size);
+  const total =
+    retail ?? Math.ceil(baseCost * MARGIN_MULTIPLIER * 100) / 100;
 
   return { baseCost, generationCost, total };
 }
