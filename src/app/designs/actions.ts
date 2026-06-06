@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import {
   design as designTable,
   designImage as designImageTable,
+  chatMessage as chatMessageTable,
   order as orderTable,
 } from "@/lib/db/schema";
 import { eq, desc, and, not, count, inArray } from "drizzle-orm";
@@ -76,10 +77,16 @@ export async function getUserDesigns() {
  * stays "Delete" — the user's intent is "make this go away", and either
  * outcome satisfies that.
  *
+ * Clears every child that foreign-keys design.id — chat_message and
+ * design_image — before the design row itself. Both reference design.id
+ * with no ON DELETE cascade, so skipping either makes the parent delete
+ * fail the FK constraint (this is why deleting a chatted-in draft used to
+ * error out).
+ *
  * Uses db.batch (not db.transaction): libSQL's interactive transactions
- * aren't supported over the serverless HTTP connection, but batch runs
- * both deletes atomically — so we never leave a design row behind with its
- * design_image children already nuked.
+ * aren't supported over the serverless HTTP connection, but batch runs all
+ * the deletes atomically — so we never leave a design row behind with its
+ * children already nuked, or vice versa.
  */
 export async function deleteDesign(designId: string) {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -106,6 +113,7 @@ export async function deleteDesign(designId: string) {
   }
 
   await db.batch([
+    db.delete(chatMessageTable).where(eq(chatMessageTable.designId, designId)),
     db.delete(designImageTable).where(eq(designImageTable.designId, designId)),
     db.delete(designTable).where(eq(designTable.id, designId)),
   ]);
