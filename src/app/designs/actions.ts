@@ -76,9 +76,10 @@ export async function getUserDesigns() {
  * stays "Delete" — the user's intent is "make this go away", and either
  * outcome satisfies that.
  *
- * Wrapped in a transaction so a failure on the parent delete doesn't
- * leave behind a design row with its design_image children already
- * nuked.
+ * Uses db.batch (not db.transaction): libSQL's interactive transactions
+ * aren't supported over the serverless HTTP connection, but batch runs
+ * both deletes atomically — so we never leave a design row behind with its
+ * design_image children already nuked.
  */
 export async function deleteDesign(designId: string) {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -104,12 +105,10 @@ export async function deleteDesign(designId: string) {
     return;
   }
 
-  await db.transaction(async (tx) => {
-    await tx
-      .delete(designImageTable)
-      .where(eq(designImageTable.designId, designId));
-    await tx.delete(designTable).where(eq(designTable.id, designId));
-  });
+  await db.batch([
+    db.delete(designImageTable).where(eq(designImageTable.designId, designId)),
+    db.delete(designTable).where(eq(designTable.id, designId)),
+  ]);
 }
 
 export async function archiveDesign(designId: string) {
