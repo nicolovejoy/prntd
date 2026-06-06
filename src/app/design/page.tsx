@@ -24,6 +24,7 @@ import { ImageLightbox } from "./image-lightbox";
 import { MobileGalleryDrawer } from "./mobile-gallery-drawer";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
+import { isDesignEmpty } from "@/lib/design-view";
 
 export default function DesignPage() {
   return (
@@ -269,6 +270,8 @@ function DesignPageInner() {
     router.push(`/preview?id=${designId.current}&product=${productId}`);
   }
 
+  const empty = isDesignEmpty(messages.length, images.length);
+
   return (
     <div className="h-[calc(100vh-41px)] flex flex-col">
       {/* Header */}
@@ -278,11 +281,13 @@ function DesignPageInner() {
             trail={breadcrumbTrail("/design", { id: designId.current })}
             current="Design"
           />
-          <h1 className="text-lg font-semibold mt-1">Design something</h1>
+          <h1 className="text-lg font-semibold mt-1">
+            {empty ? "Start designing" : "Design something"}
+          </h1>
         </div>
       </div>
 
-      {/* Two-column body */}
+      {/* Body — centered composer when empty, two-column working layout otherwise */}
       <div className="flex-1 flex overflow-hidden">
         <ChatPanel
           messages={messages}
@@ -295,16 +300,19 @@ function DesignPageInner() {
           activeGenerator={activeGenerator}
           readyToGenerate={readyToGenerate}
           onUploadImage={handleUploadImage}
+          isEmpty={empty}
         />
-        <ImageGallery
-          images={images}
-          productGroups={productGroups}
-          selectedImage={selectedImage}
-          generating={generating}
-          onClickImage={(i) => setLightboxIndex(i)}
-          onMakeProducts={handleMakeProducts}
-          onSelectProductVersion={handleSelectProductVersion}
-        />
+        {!empty && (
+          <ImageGallery
+            images={images}
+            productGroups={productGroups}
+            selectedImage={selectedImage}
+            generating={generating}
+            onClickImage={(i) => setLightboxIndex(i)}
+            onMakeProducts={handleMakeProducts}
+            onSelectProductVersion={handleSelectProductVersion}
+          />
+        )}
       </div>
 
       {/* Mobile gallery toggle */}

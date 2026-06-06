@@ -6,39 +6,6 @@ import type { ChatMessage } from "@/lib/db/schema";
 import type { DesignImage } from "@/lib/design-images";
 import { Button } from "@/components/ui";
 
-const GENERATING_MESSAGES = [
-  "Mixing paints...",
-  "Sketching ideas...",
-  "Arguing about fonts...",
-  "Consulting the muse...",
-  "Inking the lines...",
-  "Choosing colors...",
-  "Almost there...",
-  "Adding finishing touches...",
-  "Stepping back to admire...",
-  "One more brushstroke...",
-];
-
-function useRotatingMessage(messages: string[], intervalMs: number, active: boolean) {
-  const [index, setIndex] = useState(0);
-  const startIndex = useMemo(
-    () => Math.floor(Math.random() * messages.length),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [active]
-  );
-
-  useEffect(() => {
-    if (!active) return;
-    setIndex(startIndex);
-    const id = setInterval(() => {
-      setIndex((i) => (i + 1) % messages.length);
-    }, intervalMs);
-    return () => clearInterval(id);
-  }, [active, messages.length, intervalMs, startIndex]);
-
-  return messages[index];
-}
-
 const EXAMPLES = [
   "A minimalist mountain landscape in blue and white",
   "A retro sunset with palm tree silhouettes",
@@ -57,6 +24,7 @@ export function ChatPanel({
   activeGenerator,
   readyToGenerate,
   onUploadImage,
+  isEmpty,
 }: {
   messages: ChatMessage[];
   images: DesignImage[];
@@ -68,18 +36,20 @@ export function ChatPanel({
   activeGenerator: string;
   readyToGenerate: boolean;
   onUploadImage: (base64: string, fileName: string) => void;
+  isEmpty: boolean;
 }) {
   const urlByImageId = useMemo(
     () => new Map(images.map((img) => [img.id, img.url])),
     [images]
   );
   const [input, setInput] = useState("");
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const engagedRef = useRef(false);
   const [dragging, setDragging] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounter = useRef(0);
-  const generatingMsg = useRotatingMessage(GENERATING_MESSAGES, 2000, generating);
 
   function handleFiles(files: FileList | null) {
     if (!files) return;
@@ -115,12 +85,31 @@ export function ChatPanel({
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading, generating, generatingMsg]);
+  }, [messages, loading, generating]);
 
   // Auto-focus input on mount and after actions complete
   useEffect(() => {
     if (!loading && !generating) inputRef.current?.focus();
   }, [loading, generating]);
+
+  // Empty state: after 4s of inactivity (input untouched), quietly reveal
+  // example chips. The moment the user types, drop them — and don't re-arm
+  // once they've engaged.
+  useEffect(() => {
+    if (!isEmpty) return;
+    if (input.length > 0) {
+      engagedRef.current = true;
+      // Hide immediately on the first keystroke; one extra render is fine.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setShowSuggestions(false);
+      return;
+    }
+    if (engagedRef.current) return;
+    // 8s, not 4s: long enough that someone still reading the hero or composing
+    // their first line won't get nudged; short enough to help if they stall.
+    const t = setTimeout(() => setShowSuggestions(true), 8000);
+    return () => clearTimeout(t);
+  }, [isEmpty, input]);
 
   const GENERATE_TRIGGERS = /^(yes|yeah|yep|do it|go|generate|let'?s do it|go ahead|make it|yes please|sure|ok generate)/i;
 
@@ -150,8 +139,54 @@ export function ChatPanel({
   // Generate sits as a secondary button and a style hint shows — it pops to
   // primary when ready. Always clickable; the fast thin-check catches a
   // too-thin click in ~1s rather than greying the button into looking broken.
-  const notReadyTitle = "Add a style (e.g. watercolor, vintage, bold vector) to sharpen the idea — Generate still works.";
+  const notReadyTitle = "Add a style (e.g. watercolor, vintage, bold vector) to sharpen the idea — Draw it still works.";
   const showStyleHint = !readyToGenerate && messages.length > 0;
+
+  if (isEmpty) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center min-w-0 px-6 text-center">
+        <h2 className="text-2xl sm:text-3xl font-semibold text-foreground">
+          What shall we draw together?
+        </h2>
+        <p className="mt-2 text-sm text-text-muted">
+          Describe it in plain words. Refine as we go.
+        </p>
+        <form
+          onSubmit={handleSend}
+          className="mt-6 w-full max-w-xl flex gap-2"
+        >
+          <input
+            ref={inputRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Describe your design..."
+            className="flex-1 px-3 py-2 bg-surface border border-border rounded-md text-white placeholder:text-gray-500 focus:border-border-hover focus:outline-none"
+            disabled={loading}
+          />
+          <Button type="submit" variant="primary" disabled={loading || !input.trim()}>
+            Send
+          </Button>
+        </form>
+        {showSuggestions && (
+          <div className="mt-6 space-y-2">
+            <p className="text-xs text-text-faint">Need a suggestion?</p>
+            <div className="flex flex-wrap justify-center gap-2">
+              {EXAMPLES.slice(0, 3).map((example) => (
+                <button
+                  key={example}
+                  type="button"
+                  onClick={() => setInput(example)}
+                  className="text-xs px-3 py-1.5 border border-border rounded-full text-text-muted hover:text-foreground hover:border-border-hover transition-colors"
+                >
+                  {example}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -187,7 +222,7 @@ export function ChatPanel({
           <div className="text-center text-gray-400 mt-20 space-y-4">
             <p className="text-lg">What should your design look like?</p>
             <p className="text-sm">
-              Describe a design. Chat to refine the idea, then hit Generate.
+              Describe a design. Chat to refine the idea, then hit Draw it.
             </p>
             <div className="flex flex-wrap justify-center gap-2 mt-4">
               {EXAMPLES.map((example) => (
@@ -244,7 +279,7 @@ export function ChatPanel({
         {generating && (
           <div className="flex justify-start">
             <div className="rounded-lg px-4 py-2 text-text-muted animate-pulse">
-              {generatingMsg}
+              Drawing your design…
             </div>
           </div>
         )}
@@ -295,7 +330,7 @@ export function ChatPanel({
           disabled={busy || (messages.length === 0 && !input.trim())}
           title={readyToGenerate ? undefined : notReadyTitle}
         >
-          Generate
+          Draw it
         </Button>
         <Button
           type="button"
@@ -309,11 +344,11 @@ export function ChatPanel({
           disabled={busy || (messages.length === 0 && !input.trim())}
           title={
             readyToGenerate
-              ? `Generate with all models (current: ${activeGenerator})`
+              ? `Compare styles across all generators (current: ${activeGenerator})`
               : notReadyTitle
           }
         >
-          Compare
+          Compare styles
         </Button>
       </form>
     </div>

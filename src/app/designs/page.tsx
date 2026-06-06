@@ -42,7 +42,12 @@ export default function DesignsPage() {
 
   async function handleDelete(id: string) {
     if (!window.confirm("Delete this design?")) return;
-    await deleteDesign(id);
+    try {
+      await deleteDesign(id);
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "Delete failed");
+      return;
+    }
     setDesigns((prev) => prev.filter((d) => d.id !== id));
   }
 
