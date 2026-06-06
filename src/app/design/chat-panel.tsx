@@ -105,7 +105,9 @@ export function ChatPanel({
       return;
     }
     if (engagedRef.current) return;
-    const t = setTimeout(() => setShowSuggestions(true), 4000);
+    // 8s, not 4s: long enough that someone still reading the hero or composing
+    // their first line won't get nudged; short enough to help if they stall.
+    const t = setTimeout(() => setShowSuggestions(true), 8000);
     return () => clearTimeout(t);
   }, [isEmpty, input]);
 
