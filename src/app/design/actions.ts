@@ -10,7 +10,7 @@ import {
   order as orderTable,
 } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { chatAboutDesign, constructFluxPrompt } from "@/lib/ai";
+import { chatAboutDesign, constructFluxPrompt, assessReadiness } from "@/lib/ai";
 import { uploadDesignImage } from "@/lib/r2";
 import { getGenerator, GENERATORS, DEFAULT_GENERATOR_ID } from "@/lib/generators/registry";
 import {
@@ -73,7 +73,10 @@ export async function sendChatMessage(designId: string, userMessage: string) {
     .set({ updatedAt: new Date() })
     .where(eq(designTable.id, designId));
 
-  return { message: aiResponse.message };
+  return {
+    message: aiResponse.message,
+    readyToGenerate: aiResponse.readyToGenerate,
+  };
 }
 
 /**
@@ -128,6 +131,21 @@ export async function generateDesign(
       ]
     : messages;
 
+  // Fast pre-check: if the idea is too thin to render, ask for the missing
+  // piece in ~1s (Haiku) instead of paying the heavy constructFluxPrompt
+  // round-trip just to surface a clarifying question. Fails open.
+  const readiness = await assessReadiness(messagesForPrompt, images, userMessage);
+  if (!readiness.ready) {
+    await persistClarification(designId, userMessage, readiness.question);
+    return {
+      message: readiness.question,
+      imageUrl: null,
+      imageId: null,
+      generationNumber: found.generationCount,
+      readyToGenerate: false,
+    };
+  }
+
   let aiResponse;
   try {
     aiResponse = await constructFluxPrompt(
@@ -147,6 +165,7 @@ export async function generateDesign(
       imageUrl: null,
       imageId: null,
       generationNumber: found.generationCount,
+      readyToGenerate: false,
     };
   }
 
@@ -213,6 +232,7 @@ export async function generateDesign(
     imageUrl: r2Url,
     imageId: newImageId,
     generationNumber: newGeneration,
+    readyToGenerate: true,
   };
 }
 
@@ -418,6 +438,14 @@ export async function compareGenerators(designId: string, userMessage?: string) 
     ? [...messages, { id: "pending", designId, role: "user", content: userMessage, imageId: null, createdAt: new Date() }]
     : messages;
 
+  // Same fast thin-check as generateDesign — Compare runs two models, so a
+  // dead-click here is even costlier; bail in ~1s before any heavy work.
+  const readiness = await assessReadiness(messagesForPrompt, images, userMessage);
+  if (!readiness.ready) {
+    await persistClarification(designId, userMessage, readiness.question);
+    return { message: readiness.question, images: [], readyToGenerate: false };
+  }
+
   let aiResponse;
   try {
     aiResponse = await constructFluxPrompt(messagesForPrompt, images, userMessage);
@@ -428,7 +456,7 @@ export async function compareGenerators(designId: string, userMessage?: string) 
 
   if (isClarificationOnly(aiResponse.fluxPrompt)) {
     await persistClarification(designId, userMessage, aiResponse.message);
-    return { message: aiResponse.message, images: [] };
+    return { message: aiResponse.message, images: [], readyToGenerate: false };
   }
 
   const anchorUrl =
@@ -492,7 +520,7 @@ export async function compareGenerators(designId: string, userMessage?: string) 
     })
     .where(eq(designTable.id, designId));
 
-  return { message: summary, images: ok };
+  return { message: summary, images: ok, readyToGenerate: true };
 }
 
 /**

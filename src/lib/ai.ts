@@ -12,7 +12,17 @@ function buildImageGalleryContext(images: DesignImage[]): string {
 
 const CHAT_SYSTEM_PROMPT = `You are a t-shirt design advisor for PRNTD. Help users refine their design ideas through conversation. You do NOT generate images — the user clicks "Generate" when ready.
 
-Style rules for your responses:
+Output format — respond with raw JSON only (no markdown fences around the JSON itself):
+{
+  "message": "Your conversational reply (this is the field the user reads; it may contain markdown — see style rules below)",
+  "readyToGenerate": true | false
+}
+
+Readiness rubric for "readyToGenerate":
+- Set true ONLY when the conversation has pinned down BOTH a concrete subject (the WHAT — what's depicted) AND a concrete visual style/medium (the HOW — e.g. clean vector, watercolor, vintage screen-print, hand-drawn ink). A subject with no style is NOT ready — that is the case that produces a clarifying question instead of an image.
+- Otherwise set false, and make "message" the question or nudge that moves toward whichever of subject/style is still missing.
+
+Style rules for the "message" field:
 - Be terse and professional. 2-4 short sentences max, then options if relevant.
 - When suggesting directions, ALWAYS number them for easy reference:
   1. Option one
@@ -31,7 +41,7 @@ The image model is text-to-image. It does not subtract — telling it "no X" ten
 - "less busy" → "open composition, clear focal point, generous negative space"
 Acknowledge the user's request in their words ("Got it — closed mouth, no tongue"), but think in affirmative visual targets. Carry the affirmative target forward when reasoning about follow-ups.
 
-CRITICAL: NEVER return JSON, code blocks, or structured data.
+CRITICAL: The "message" field is conversational prose for the user — never put JSON, code blocks, or structured data INSIDE "message". The only JSON is the outer envelope described in Output format.
 
 What the UI actually offers (do NOT invent other features):
 - A chat box (this conversation).
@@ -147,7 +157,7 @@ export async function chatAboutDesign(
   userMessage: string,
   chatHistory: ChatMessage[],
   images: DesignImage[]
-): Promise<{ message: string }> {
+): Promise<{ message: string; readyToGenerate: boolean }> {
   const { messages, galleryContext } = buildMessages(
     chatHistory,
     images,
@@ -161,9 +171,75 @@ export async function chatAboutDesign(
     messages,
   });
 
-  const text =
+  let text =
     response.content[0].type === "text" ? response.content[0].text : "";
-  return { message: text };
+
+  // Strip markdown code fences if present, then parse the JSON envelope.
+  // Parse failure (or a non-boolean flag) degrades safely: show the raw
+  // text and leave the Generate button greyed (readyToGenerate=false).
+  text = text.replace(/^```(?:json)?\s*\n?/m, "").replace(/\n?```\s*$/m, "").trim();
+
+  try {
+    const parsed = JSON.parse(text);
+    return {
+      message: typeof parsed.message === "string" ? parsed.message : text,
+      readyToGenerate: parsed.readyToGenerate === true,
+    };
+  } catch {
+    return { message: text, readyToGenerate: false };
+  }
+}
+
+const READINESS_SYSTEM_PROMPT = `You judge whether a t-shirt design idea is concrete enough to generate an image. Reply with raw JSON only (no markdown fences):
+{ "ready": true | false, "question": "if not ready, ONE short question asking for whichever of subject or style is missing; empty string if ready" }
+
+Ready ONLY when BOTH are clear:
+- SUBJECT — what is depicted.
+- STYLE/medium — e.g. clean vector, watercolor, vintage screen-print, hand-drawn ink, bold graphic.
+A clear subject with no style is NOT ready: set ready=false and ask for the style (you may offer 3-5 style examples). Keep "question" to 1-2 sentences. When genuinely uncertain, lean ready=true — a real idea should never be blocked.`;
+
+/**
+ * Fast pre-check used by Generate/Compare to decide "render vs ask" without
+ * paying the heavy constructFluxPrompt round-trip. Runs on Haiku with a tiny
+ * prompt (~1s) instead of Sonnet + a 45-line system prompt + 1024 tokens
+ * (~6s). Fails OPEN: any parse problem or a missing flag resolves to
+ * ready=true so a concrete prompt is never blocked by a hiccup —
+ * constructFluxPrompt's own clarification guard remains the backstop.
+ */
+export async function assessReadiness(
+  chatHistory: ChatMessage[],
+  images: DesignImage[],
+  userMessage?: string
+): Promise<{ ready: boolean; question: string }> {
+  const { messages, galleryContext } = buildMessages(
+    chatHistory,
+    images,
+    userMessage
+  );
+
+  try {
+    const response = await anthropic.messages.create({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 256,
+      system: READINESS_SYSTEM_PROMPT + galleryContext,
+      messages,
+    });
+
+    let text =
+      response.content?.[0]?.type === "text" ? response.content[0].text : "";
+    text = text.replace(/^```(?:json)?\s*\n?/m, "").replace(/\n?```\s*$/m, "").trim();
+
+    const parsed = JSON.parse(text);
+    return {
+      ready: parsed.ready !== false,
+      question: typeof parsed.question === "string" ? parsed.question : "",
+    };
+  } catch (err) {
+    // Fail open: a parse problem, outage, or model error must never block a
+    // real idea. constructFluxPrompt's own guard remains the backstop.
+    console.error("assessReadiness failed, treating as ready:", err);
+    return { ready: true, question: "" };
+  }
 }
 
 const NAME_SYSTEM_PROMPT = `You name t-shirt designs for an order management system. Look at the image and respond with 2–4 words that identify it at a glance.
