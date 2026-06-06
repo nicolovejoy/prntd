@@ -138,9 +138,15 @@ See `docs/next-phase.md` for the full Phase 1/2/3 plan. Top items:
 - DESC/charity work paused as of 2026-05-06. Chain (DESC permission → entity confirmation → #4 ledger infra → first disbursement → homepage re-org) still applies if/when it restarts. (Homepage re-org now tracked under #18/#17; old #5 closed as superseded 2026-05-29.)
 - #10 ~~Order list thumbnails on shirt color~~ — shipped May 1. iPhone case was discontinued 2026-05-26 (soft-discontinue: `discontinued: true` on `clear-case-iphone`, picker uses `ACTIVE_PRODUCTS`; historical orders still resolve via `getProduct()`).
 
+**Readiness gate + fast thin-check — MERGED + DEPLOYED to prod (2026-06-05, PR #21, merge `cb8b0a5`)**
+
+`feat/readiness-gate` is live on prntd.org. Two things shipped: (1) **Generate-readiness gate** — `chatAboutDesign` returns `{message, readyToGenerate}` (JSON envelope, subject+style rubric, safe-parse fallback); Generate renders as a secondary button that pops to primary when ready, plus a style hint (always clickable, never greyed-into-broken). (2) **Fast `assessReadiness` thin-check** (`src/lib/ai.ts`, Haiku `claude-haiku-4-5-20251001`, ~1s): Generate/Compare bail to a clarifying question in ~1s instead of the ~6s Sonnet builder; **fails open** on any error (constructFluxPrompt's guard is the backstop). 238 tests/lint/build green. Kept as a SOFT nudge (not hard-gate) to protect the type-a-full-idea-and-Generate path.
+
+**NEXT BUILD — /design empty-state redesign (spec'd, NOT implemented).** Approved design in `docs/superpowers/specs/2026-06-05-design-empty-state-redesign.md` (brainstormed with visual companion): **Layout A centered composer** — empty state shows only page title "Start designing", hero "What shall we draw together?", subphrase "Describe it in plain words. Refine as we go.", and the input+Send. No Generations column / no Generate/Compare until there's content. Example chips hidden, revealed after **4s of inactivity** as "Need a suggestion?". Submit = Send (chat-first); first message → existing two-column working view. Generating copy → "Drawing your design…". Next step: writing-plans → implement.
+
 **Multi-generator — MERGED + DEPLOYED to prod (2026-06-05, PR #20, merge `6e23d6e`)**
 
-The `feat/multi-generator` branch is merged to main and live on prntd.org. Gates cleared before merge: lint 0-err, 227 tests, build green, prod Turso confirmed to have both new columns (`scripts/check-multi-generator-schema.ts`), Compare smoke-verified (real Ideogram + Recraft renders). Branch deleted. Remaining open: **#19** (Compare can add duplicate Ideogram images — opt-in, non-destructive, fast-follow) and the **readiness gate** (spec'd, not implemented). White-fill is a standalone followup (luminance knockout), no longer tied to Recraft.
+The `feat/multi-generator` branch is merged to main and live on prntd.org. Compare smoke-verified (real Ideogram + Recraft renders), prod Turso has both new columns (`scripts/check-multi-generator-schema.ts`). Remaining open: **#19** (Compare can add duplicate Ideogram images — opt-in, non-destructive, fast-follow). White-fill is a standalone followup (luminance knockout), no longer tied to Recraft (Replicate's recraft-v3 has no vector output; Recraft is style variety).
 
 **History (pre-merge, branch `feat/multi-generator`)**
 
