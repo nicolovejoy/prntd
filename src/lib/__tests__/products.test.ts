@@ -3,6 +3,7 @@ import {
   getProduct,
   getProductOrThrow,
   getBaseCost,
+  getRetailPrice,
   getVariantId,
   getDefaultPlacement,
   needsAspectRegeneration,
@@ -61,6 +62,26 @@ describe("getBaseCost", () => {
     expect(getBaseCost(product, "iPhone SE")).toBe(9.38);
     // iPhone 14 has explicit pricing
     expect(getBaseCost(product, "iPhone 14")).toBe(10.95);
+  });
+});
+
+describe("getRetailPrice", () => {
+  it("returns the fixed floor for common sizes and the upcharge for 2XL on the Classic Tee", () => {
+    const product = getProductOrThrow("bella-canvas-3001");
+    expect(getRetailPrice(product, "M")).toBe(19.43); // "*" floor
+    expect(getRetailPrice(product, "XL")).toBe(19.43);
+    expect(getRetailPrice(product, "2XL")).toBe(21.43); // explicit override
+  });
+
+  it("falls back to the wildcard default for sizes without an explicit price", () => {
+    const product = getProductOrThrow("bella-canvas-3001");
+    expect(getRetailPrice(product, "S")).toBe(19.43); // not listed → "*"
+  });
+
+  it("returns undefined for a product that prices purely off baseCost", () => {
+    const product = getProductOrThrow("cotton-heritage-mc1087");
+    expect(getRetailPrice(product, "M")).toBeUndefined();
+    expect(getRetailPrice(product, "2XL")).toBeUndefined();
   });
 });
 
@@ -142,6 +163,21 @@ describe("PRODUCTS", () => {
     for (const p of PRODUCTS) {
       expect(p.colors.length).toBeGreaterThan(0);
       expect(p.sizes.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("never prices a size below its estimated Printful cost", () => {
+    // A retailPrice (or baseCost×margin) below baseCost would sell at a
+    // guaranteed loss. baseCost is only an estimate — real COGS comes from
+    // Printful's invoice — but pricing under the estimate is always a typo,
+    // never intentional. Guards against a fat-fingered retailPrice entry.
+    for (const p of PRODUCTS) {
+      for (const size of p.sizes) {
+        const cost = getBaseCost(p, size);
+        const retail = getRetailPrice(p, size);
+        const price = retail ?? Math.ceil(cost * 1.5 * 100) / 100;
+        expect(price).toBeGreaterThanOrEqual(cost);
+      }
     }
   });
 

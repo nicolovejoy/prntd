@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { computePrice, MARGIN_MULTIPLIER } from "../pricing";
+import { PRODUCTS } from "../products";
 
 describe("computePrice", () => {
   it("prices the default Classic Tee at its fixed retail price, ignoring generation cost", () => {
@@ -50,5 +51,18 @@ describe("computePrice", () => {
     const result = computePrice(0, "cotton-heritage-mc1087", "2XL");
     expect(result.baseCost).toBe(19.45);
     expect(result.total).toBe(Math.ceil(19.45 * MARGIN_MULTIPLIER * 100) / 100);
+  });
+
+  it("produces an exact-cent total for every product and size", () => {
+    // Stripe charges integer cents (unit_amount = round(total*100)). A total
+    // with sub-cent precision (e.g. a retailPrice typo of 19.435) would be
+    // silently rounded at checkout, so the displayed and charged prices would
+    // diverge. Assert every catalog price is already at cent precision.
+    for (const p of PRODUCTS) {
+      for (const size of p.sizes) {
+        const { total } = computePrice(0, p.id, size);
+        expect(Math.round(total * 100) / 100).toBe(total);
+      }
+    }
   });
 });

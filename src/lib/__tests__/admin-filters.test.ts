@@ -227,6 +227,24 @@ describe("computeSummary", () => {
     expect(result.grossProfit).toBeCloseTo(27.11 - 1.09 - 18.17);
   });
 
+  it("excludes a tax-type ledger entry from revenue and gross profit", () => {
+    // Phase 1C: collected sales tax is a pass-through liability, never our
+    // revenue. computeSummary only sums sale/refund/stripe_fee/cogs, so a
+    // future `tax` entry must not move grossProfit. Locks that invariant in
+    // before the tax type ships.
+    const orders = [makeOrder({ id: "order-1", classification: "customer" })];
+    const ledger: FilterableLedgerEntry[] = [
+      makeLedger({ orderId: "order-1", type: "sale", amount: 27.11 }),
+      makeLedger({ orderId: "order-1", type: "stripe_fee", amount: -1.09 }),
+      makeLedger({ orderId: "order-1", type: "cogs", amount: -18.17 }),
+      makeLedger({ orderId: "order-1", type: "tax", amount: 2.31 }),
+    ];
+
+    const result = computeSummary(orders, ledger, initialFilterState);
+    expect(result.revenue).toBeCloseTo(27.11); // tax not folded in
+    expect(result.grossProfit).toBeCloseTo(27.11 - 1.09 - 18.17); // tax excluded
+  });
+
   it("sums multiple orders from ledger", () => {
     const orders = [
       makeOrder({ id: "order-1" }),
