@@ -130,6 +130,17 @@ export const order = sqliteTable("order", {
   displayName: text("display_name"),
   quality: text("quality"),  // deprecated — kept for historical orders
   totalPrice: real("total_price").notNull(),
+  // Phase 1B/1C price split. totalPrice stays the grand total (back-compat
+  // for admin margin math); these break it down so it's auditable:
+  // totalPrice = itemPrice + shippingPrice + taxCollected. All nullable —
+  // no backfill (pre-split orders leave these null, same convention as the
+  // April-1 ledger start). shippingPrice = the real-time Printful quote
+  // charged as a separate Stripe shipping line (excluded from % promos).
+  // taxCollected = customer tax (1C — null while unregistered; Printful's
+  // fulfillment tax stays in COGS, never here).
+  itemPrice: real("item_price"),
+  shippingPrice: real("shipping_price"),
+  taxCollected: real("tax_collected"),
   status: text("status", { enum: ["pending", "paid", "submitted", "shipped", "delivered", "canceled"] }).notNull().default("pending"),
   shippingName: text("shipping_name"),
   shippingAddress1: text("shipping_address1"),
