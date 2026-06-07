@@ -238,6 +238,16 @@ export const PRODUCTS: Product[] = [
         printArea: { width: 12, height: 16 },
         required: true,
       },
+      {
+        // Back shares printfile 1 (1800×2400) with front on the mc1087, so it
+        // mirrors the front. Verified via available_placements +
+        // variant_printfiles (scripts/fetch-mockup-templates.ts 917). Optional (#25).
+        id: "back",
+        aspectRatio: "3:4",
+        mockupPosition: { area_width: 1800, area_height: 2400, width: 1800, height: 1800, top: 300, left: 0 },
+        printArea: { width: 12, height: 16 },
+        required: false,
+      },
     ],
     mockupPosition: {
       area_width: 1800,

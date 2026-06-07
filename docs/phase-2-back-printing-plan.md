@@ -17,7 +17,7 @@ Ran `scripts/fetch-mockup-templates.ts 71` (Bella 3001). Authoritative Printful 
 
 **2.0 SHIPPED (`products.ts`):** added the `back` placement to **bella-canvas-3001** (mirrors front, `required: false`); helpers `getPlacement`, `productSupportsPlacement`, `getOptionalPlacements`, and the `multiPlacementEnabled()` kill-switch (`MULTI_PLACEMENT_ENABLED`, default off); 6 tests in `products.test.ts`. Enhanced the fetch script to print `available_placements` + per-variant placement→printfile map.
 
-**Still to do in 2.0:** the other two shirts don't have `back` yet — run `scripts/fetch-mockup-templates.ts 917` (cotton-heritage-mc1087) and `360` (bella-canvas-6400) and add their back placements the same way (don't assume their geometry matches 3001). Additional-placement **cost** for the upcharge is deferred to 2.3 (via `/orders/estimate-costs` front vs front+back delta); 2.0 needs no cost.
+**2.0 COMPLETE — all three shirts have `back`.** 6400 (product 360): back→printfile 9 = front (1500×1800), mirrors front (10×12, 4:5). mc1087 (product 917): back→printfile 1 = front (1800×2400), mirrors front (12×16, 3:4). Phone case stays single-placement. Each back verified via the product's own `available_placements`/`variant_printfiles` (not assumed). Additional-placement **cost** for the upcharge is deferred to 2.3 (via `/orders/estimate-costs` front vs front+back delta); 2.0 needs no cost.
 
 ## Honest framing
 

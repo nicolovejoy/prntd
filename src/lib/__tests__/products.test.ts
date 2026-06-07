@@ -258,7 +258,7 @@ describe("needsAspectRegeneration", () => {
 });
 
 describe("placements (#25 back printing)", () => {
-  it.each(["bella-canvas-3001", "bella-canvas-6400"])(
+  it.each(["bella-canvas-3001", "bella-canvas-6400", "cotton-heritage-mc1087"])(
     "%s exposes an optional back placement mirroring its front",
     (productId) => {
       const product = getProductOrThrow(productId);
