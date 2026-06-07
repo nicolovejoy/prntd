@@ -52,3 +52,6 @@ ci-skip.db
 
 # Superpowers brainstorm artifacts
 .superpowers/
+
+# Test coverage output
+/coverage

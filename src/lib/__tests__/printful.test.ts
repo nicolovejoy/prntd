@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi, type MockInstance } from "vitest";
 import { createOrder, createMockupTask, pollMockupTask } from "../printful";
 
 const params = {
@@ -16,7 +16,7 @@ const params = {
 
 describe("createOrder PRINTFUL_DRY_RUN", () => {
   const originalFlag = process.env.PRINTFUL_DRY_RUN;
-  let fetchSpy: ReturnType<typeof vi.spyOn>;
+  let fetchSpy: MockInstance<any>;
 
   beforeEach(() => {
     fetchSpy = vi.spyOn(global, "fetch");
@@ -65,7 +65,7 @@ describe("createOrder PRINTFUL_DRY_RUN", () => {
 });
 
 describe("createMockupTask", () => {
-  let fetchSpy: ReturnType<typeof vi.spyOn>;
+  let fetchSpy: MockInstance<any>;
   const position = {
     area_width: 1800,
     area_height: 2400,
@@ -106,7 +106,7 @@ describe("createMockupTask", () => {
 });
 
 describe("pollMockupTask", () => {
-  let fetchSpy: ReturnType<typeof vi.spyOn>;
+  let fetchSpy: MockInstance<any>;
 
   beforeEach(() => {
     fetchSpy = vi.spyOn(global, "fetch");

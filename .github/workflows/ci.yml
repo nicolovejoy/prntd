@@ -21,7 +21,11 @@ jobs:
 
       - run: npm run lint
 
-      - run: npm test
+      - run: npm run typecheck
+
+      # Runs the full suite with v8 coverage; the text-summary totals print in
+      # the job log. No coverage threshold gates the build yet (baseline first).
+      - run: npm run test:coverage
 
       # Fake env values just to satisfy SDK constructors that run at module-eval
       # time during Next.js's "collect page data" step. Routes never execute

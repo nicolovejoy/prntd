@@ -416,7 +416,7 @@ describe("constructFluxPrompt", () => {
     });
 
     const images: DesignImage[] = [
-      { id: "img-1", number: 1, url: "https://example.com/1.png", prompt: "sunset" },
+      { id: "img-1", number: 1, url: "https://example.com/1.png", prompt: "sunset", publishedAt: null, generator: null },
     ];
 
     const { constructFluxPrompt } = await import("../ai");
