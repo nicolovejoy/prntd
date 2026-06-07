@@ -39,7 +39,7 @@ AI-rendered text remains available as an opt-in escape hatch (set per generation
 ### Schema
 
 - `src/lib/db/schema.ts` — add `textLayers` column to `designImage` (line 61–78 today).
-- Migration: `npm run db:push` (Drizzle-Kit pushes to Turso directly, no migration file).
+- Migration: `npm run db:push` (Drizzle-Kit pushes to Turso directly, no migration file). Note: `db:push` now targets the `prntd-dev` branch (#27) — push to dev first, then flip `.env.local` to prod and re-run before deploying readers.
 - Existing rows have `textLayers = null` cleanly (column nullable).
 
 ### New modules

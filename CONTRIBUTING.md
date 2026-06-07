@@ -18,6 +18,10 @@ npm run dev
 
 App boots at http://localhost:3000.
 
+## Database
+
+Local dev points at the **`prntd-dev`** Turso branch (a seeded copy of prod), not prod itself — so local experiments and test orders can't touch real data. `npm run db:push` and `npm run db:studio` therefore target dev. To push a schema change to **prod**, temporarily flip the commented `DATABASE_URL`/`DATABASE_AUTH_TOKEN` lines in `.env.local`, run `db:push`, then flip back. Verify which DB you're on with `npx tsx scripts/check-db-isolation.ts`.
+
 ## Before you start
 
 1. Read `CLAUDE.md` and `AGENTS.md` at the repo root. The Next.js version differs from your training data — heed the deprecation notices.

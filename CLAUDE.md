@@ -36,7 +36,7 @@ npm run dev          # Local dev server
 npm run build        # Production build
 npm run lint         # ESLint
 npm test             # Vitest run (no watch)
-npm run db:push      # Push Drizzle schema to Turso
+npm run db:push      # Push Drizzle schema to the .env.local DB (now the prntd-dev branch; flip to prod to push prod — see #27)
 npm run db:studio    # Drizzle Studio (database GUI)
 npm test             # Run all tests (Vitest)
 npm run test:watch   # Vitest in watch mode
@@ -277,7 +277,7 @@ The buy-direct half of the two-flow model: a logged-in user buys a published des
 
 ### Ongoing / low priority
 
-- **#27 dev-DB isolation (higher-priority than it looks):** local dev + `db:push` both read `.env.local` → **prod Turso**, so any local experiment can hit prod data — likely cause of the past `design`/`design_image` wipe. Fix: Turso dev branch (`turso db create prntd-dev --from-db prntd-nicolovejoy`), point `.env.local` at it.
+- **#27 dev-DB isolation — DONE 2026-06-07.** Was: local dev + `db:push` both read `.env.local` → **prod Turso**, so any local experiment (and smoke tests) could hit prod data — likely cause of the past `design`/`design_image` wipe. Fixed: created `prntd-dev` (`turso db create prntd-dev --from-db prntd --group default`, seeded copy: 36 designs / 54 orders), repointed `.env.local` `DATABASE_URL`/`DATABASE_AUTH_TOKEN` at `libsql://prntd-dev-nicolovejoy.aws-us-west-2.turso.io`; prod lines kept commented in `.env.local` for flip-back. Verify with `npx tsx scripts/check-db-isolation.ts` (prints host, expects `prntd-dev-`). **Workflow consequence:** `db:push` and the dev server now target **dev**, not prod. To push a schema change to **prod**, temporarily uncomment the prod `DATABASE_URL`/`DATABASE_AUTH_TOKEN` lines in `.env.local`, run `npm run db:push`, then re-comment. The dev branch is a one-time snapshot (not live-replicating prod) — reseed with a fresh `--from-db prntd` if it drifts.
 - **#28 money-path integration tests:** all order/webhook/ledger tests mock `db`, so a Drizzle column/SQL mismatch passes tests. Add real-DB (file libSQL) integration tests for order→webhook→ledger. (CI now runs lint → **typecheck** → test+**coverage** → build; coverage baseline 24.6% stmts / 85.3% branches, no gate yet.)
 - hledger export script (docs/accounting.md has the architecture)
 - Drag-and-drop image upload not working on some browsers — file picker works
