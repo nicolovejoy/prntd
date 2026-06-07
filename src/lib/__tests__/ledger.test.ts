@@ -1,5 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
-import { calculateStripeFee, recordSale, recordCOGS, recordCancellation } from "../ledger";
+import {
+  calculateStripeFee,
+  recordSale,
+  recordCOGS,
+  recordCancellation,
+  summarizeLedger,
+} from "../ledger";
 
 describe("calculateStripeFee", () => {
   it("calculates fee for a typical order", () => {
@@ -70,5 +76,37 @@ describe("recordCancellation", () => {
     expect(entry.type).toBe("refund");
     expect(entry.amount).toBe(-29);
     expect(entry.orderId).toBe("order-1");
+  });
+});
+
+describe("summarizeLedger", () => {
+  it("computes revenue, fees, cogs, and gross profit", () => {
+    const s = summarizeLedger({ sale: 24.12, stripe_fee: -1.0, cogs: -12.5 });
+    expect(s.revenue).toBe(24.12);
+    expect(s.stripeFees).toBe(-1.0);
+    expect(s.cogs).toBe(12.5); // reported as a positive magnitude
+    expect(s.grossProfit).toBeCloseTo(24.12 - 1.0 - 12.5, 5);
+  });
+
+  it("folds refunds into revenue", () => {
+    const s = summarizeLedger({ sale: 24.12, refund: -24.12 });
+    expect(s.revenue).toBe(0);
+  });
+
+  it("handles an empty ledger", () => {
+    expect(summarizeLedger({})).toEqual({
+      revenue: 0,
+      stripeFees: 0,
+      cogs: 0,
+      grossProfit: 0,
+    });
+  });
+
+  it("excludes a tax pass-through from gross profit (1C)", () => {
+    // Tax collected is a liability we remit, not profit. Adding a `tax` type
+    // must not move grossProfit.
+    const base = { sale: 20, stripe_fee: -0.88, cogs: -10 };
+    const withTax = summarizeLedger({ ...base, tax: 1.65 });
+    expect(withTax.grossProfit).toBe(summarizeLedger(base).grossProfit);
   });
 });

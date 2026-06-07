@@ -17,6 +17,7 @@ import { createOrder } from "@/lib/printful";
 import { generateOrderName } from "@/lib/ai";
 import { getProductOrThrow, getVariantId } from "@/lib/products";
 import { assertTransition } from "@/lib/order-state";
+import { summarizeLedger } from "@/lib/ledger";
 import { ORDER_CLASSIFICATIONS, type OrderClassification } from "@/lib/order-classification";
 import { stripe } from "@/lib/stripe";
 import { handleStripeCheckoutCompleted, type StripeSessionData } from "@/lib/webhook-handlers";
@@ -325,11 +326,6 @@ export async function getFinancialSummary(classificationFilter?: OrderClassifica
     byType[e.type] = parseFloat(e.total ?? "0");
   }
 
-  const sales = byType["sale"] ?? 0;
-  const stripeFees = byType["stripe_fee"] ?? 0;
-  const cogs = byType["cogs"] ?? 0;
-  const refunds = byType["refund"] ?? 0;
-
   const orderConditions = [isNull(orderTable.archivedAt)];
   if (filterClassification) {
     orderConditions.push(eq(orderTable.classification, filterClassification));
@@ -341,15 +337,7 @@ export async function getFinancialSummary(classificationFilter?: OrderClassifica
     .where(and(...orderConditions));
   const orderCount = countRows[0].orderCount;
 
-  const revenue = sales + refunds;
-
-  return {
-    revenue,
-    stripeFees,
-    cogs: Math.abs(cogs),
-    grossProfit: revenue + stripeFees + cogs,
-    orderCount,
-  };
+  return { ...summarizeLedger(byType), orderCount };
 }
 
 export async function setOrderTags(orderId: string, tags: string[]) {

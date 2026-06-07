@@ -1,6 +1,15 @@
 # Phase 2 — Back-of-shirt printing / multi-placement (issue #25)
 
-Plan produced 2026-06-06. Depends on Phase 1 (#11) for per-placement pricing. Reuses the same machinery #17 (inside-shirt branding) needs.
+Plan produced 2026-06-06. Reuses the same machinery #17 (inside-shirt branding) needs.
+
+## Locked decisions (2026-06-07)
+
+- **Not COGS-blocked on #11.** COGS always comes from Printful's post-submission invoice (`printfulOrder.costs.total`), so adding a back file raises COGS automatically — margin stays accurate. The only thing #25 needs is a **pricing decision** (what to *charge* for a back) plus Printful's additional-placement fee to set it sensibly. The earlier "blocked on #11 per-placement cost" conflated COGS with pricing.
+- **Sequencing:** #11 (1C/1D) closed first (2026-06-07); #25 is the next build.
+- **Back image source:** reuse an existing source image from the **same design thread** (`getDesignSourceImages`). No fresh-generate, no published-image fork in this slice (the latter inherits buy-existing royalty questions). [decision 2 → (a)]
+- **Opt-in, not default:** front stays required; back is an explicit "Add a back design" on `/preview`. Protects the phone-first front-only path from doubled render/mockup cost. [decision 1 → opt-in; decision 5 confirmed]
+- **Upcharge rides the product (discountable) Stripe line**, not a separate line — a back is product value, so promos should apply to it. Shipping stays the only non-discountable line. `BACK_PLACEMENT_COST` set from Printful's additional-placement fee (discover in 2.0). [decision 3]
+- **Mockup lazy / back-on-demand** [decision 4 confirmed].
 
 ## Honest framing
 

@@ -73,6 +73,16 @@ describe("computePrice", () => {
     expect(Math.round(b.total * 100) / 100).toBe(b.total);
   });
 
+  it("charges shipping once per order, not per item (#26 contract)", () => {
+    // itemPrice is the summed subtotal; itemCount drives shipping only.
+    // Forward-compat for the multi-item cart (#26): shipping stays flat per
+    // order today, so a 3-item order pays one shipping charge.
+    const b = computeOrderTotal(19.43 * 3, 3);
+    expect(b.item).toBe(19.43 * 3);
+    expect(b.shipping).toBe(FLAT_SHIPPING_USD);
+    expect(b.total).toBe(Math.round((19.43 * 3 + FLAT_SHIPPING_USD) * 100) / 100);
+  });
+
   it("produces an exact-cent total for every product and size", () => {
     // Stripe charges integer cents (unit_amount = round(total*100)). A total
     // with sub-cent precision (e.g. a retailPrice typo of 19.435) would be

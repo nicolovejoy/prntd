@@ -31,6 +31,9 @@ export function buildCheckoutSessionParams(params: {
     shipping_address_collection: {
       allowed_countries: ["US"],
     },
+    // One product line item (the multi-item cart, #26, makes this N lines or
+    // a quantity > 1). Shipping stays a single shipping_option regardless of
+    // item count — see estimateShipping / computeOrderTotal.
     line_items: [
       {
         price_data: {

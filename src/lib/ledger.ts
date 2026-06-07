@@ -10,6 +10,31 @@ export function calculateStripeFee(amount: number): number {
   return Math.round((amount * STRIPE_FEE_RATE + STRIPE_FEE_FIXED) * 100) / 100;
 }
 
+/**
+ * Collapse a ledger's per-type totals into the admin financial summary.
+ * Pure, so it's tested without an admin session (getFinancialSummary wraps
+ * it after auth + the grouped query).
+ *
+ * `grossProfit` sums only sale + refund + stripe_fee + cogs. A `tax`
+ * pass-through (1C — only if collection is ever turned on) is a liability we
+ * remit, not revenue, so it must stay OUT of profit. It's excluded by
+ * omission today; the test locks that so a later refactor can't fold a new
+ * type into the total by accident.
+ */
+export function summarizeLedger(byType: Record<string, number>) {
+  const sales = byType["sale"] ?? 0;
+  const stripeFees = byType["stripe_fee"] ?? 0;
+  const cogs = byType["cogs"] ?? 0;
+  const refunds = byType["refund"] ?? 0;
+  const revenue = sales + refunds;
+  return {
+    revenue,
+    stripeFees,
+    cogs: Math.abs(cogs),
+    grossProfit: revenue + stripeFees + cogs,
+  };
+}
+
 export async function recordSale(
   orderId: string,
   amount: number,

@@ -62,6 +62,9 @@ export async function createOrder(params: {
         country_code: params.countryCode,
         zip: params.zip,
       },
+      // Single line item, quantity 1. The multi-item cart (#26) makes this an
+      // array of {variant_id, quantity, files}; #25 (back printing) extends
+      // the inner `files` array to one entry per placement.
       items: [
         {
           variant_id: params.variantId,
