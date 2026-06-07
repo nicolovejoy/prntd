@@ -315,6 +315,16 @@ export const PRODUCTS: Product[] = [
         printArea: { width: 10, height: 12 },
         required: true,
       },
+      {
+        // Back shares printfile 9 (1500×1800) with front on Bella 6400, so it
+        // mirrors the front. Verified via available_placements +
+        // variant_printfiles (scripts/fetch-mockup-templates.ts 360). Optional (#25).
+        id: "back",
+        aspectRatio: "4:5",
+        mockupPosition: { area_width: 1500, area_height: 1800, width: 1138, height: 1368, top: 372, left: 930 },
+        printArea: { width: 10, height: 12 },
+        required: false,
+      },
     ],
     mockupPosition: {
       area_width: 1500,

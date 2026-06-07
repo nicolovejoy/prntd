@@ -258,15 +258,19 @@ describe("needsAspectRegeneration", () => {
 });
 
 describe("placements (#25 back printing)", () => {
-  it("the Classic Tee exposes an optional back placement", () => {
-    const tee = getProductOrThrow("bella-canvas-3001");
-    expect(productSupportsPlacement(tee, "back")).toBe(true);
-    const back = getPlacement(tee, "back");
-    expect(back.id).toBe("back");
-    expect(back.required).toBe(false);
-    // Back shares the front's printfile/print area on Bella 3001.
-    expect(back.printArea).toEqual(getDefaultPlacement(tee).printArea);
-  });
+  it.each(["bella-canvas-3001", "bella-canvas-6400"])(
+    "%s exposes an optional back placement mirroring its front",
+    (productId) => {
+      const product = getProductOrThrow(productId);
+      expect(productSupportsPlacement(product, "back")).toBe(true);
+      const back = getPlacement(product, "back");
+      expect(back.id).toBe("back");
+      expect(back.required).toBe(false);
+      // Back shares the front's printfile/print area on these tees.
+      expect(back.printArea).toEqual(getDefaultPlacement(product).printArea);
+      expect(back.aspectRatio).toBe(getDefaultPlacement(product).aspectRatio);
+    }
+  );
 
   it("front stays the required default placement", () => {
     const tee = getProductOrThrow("bella-canvas-3001");
