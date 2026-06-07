@@ -89,6 +89,28 @@ async function main() {
     }
   }
 
+  // Authoritative placement keys (e.g. "front", "back") + their labels. These
+  // are the strings the order API (`files[].type`) and mockup generator
+  // (`files[].placement`) expect — don't assume, read them here.
+  if (pfResult.available_placements) {
+    console.log("\n=== Available placements (key → label) ===");
+    for (const [key, label] of Object.entries(pfResult.available_placements)) {
+      console.log(`  ${key} → ${label}`);
+    }
+  }
+
+  // Per-variant placement → printfile map. Confirms which printfile backs each
+  // placement (we saw front=printfile 333, back=printfile 1 in the templates).
+  const sampleVp = pfResult.variant_printfiles?.[0];
+  if (sampleVp) {
+    console.log(
+      `\n=== Variant ${sampleVp.variant_id} placement → printfile ===`
+    );
+    for (const [key, pfId] of Object.entries(sampleVp.placements ?? {})) {
+      console.log(`  ${key} → printfile ${pfId}`);
+    }
+  }
+
   // Dump full JSON for reference
   console.log("\n=== Full response (templates only) ===");
   console.log(JSON.stringify(result.templates?.slice(0, 3), null, 2));

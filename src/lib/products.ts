@@ -182,6 +182,17 @@ export const PRODUCTS: Product[] = [
         printArea: { width: 12, height: 16 },
         required: true,
       },
+      {
+        // Back shares printfile 1 (1800×2400) with front on Bella 3001, so the
+        // print area mirrors the front. Keys/geometry verified against
+        // Printful available_placements + variant_printfiles
+        // (scripts/fetch-mockup-templates.ts 71). Optional add-on (#25).
+        id: "back",
+        aspectRatio: "3:4",
+        mockupPosition: { area_width: 1800, area_height: 2400, width: 1800, height: 1800, top: 300, left: 0 },
+        printArea: { width: 12, height: 16 },
+        required: false,
+      },
     ],
     mockupPosition: {
       area_width: 1800,
@@ -487,6 +498,42 @@ export function getDefaultPlacement(product: Product): Placement {
   const p = product.placements[0];
   if (!p) throw new Error(`Product ${product.id} has no placements defined`);
   return p;
+}
+
+/** Look up a placement by its Printful key (e.g. "front", "back"). Throws if
+ * the product doesn't define it — callers should gate on
+ * productSupportsPlacement first. */
+export function getPlacement(product: Product, placementId: string): Placement {
+  const p = product.placements.find((pl) => pl.id === placementId);
+  if (!p) {
+    throw new Error(
+      `Product ${product.id} has no "${placementId}" placement`
+    );
+  }
+  return p;
+}
+
+export function productSupportsPlacement(
+  product: Product,
+  placementId: string
+): boolean {
+  return product.placements.some((pl) => pl.id === placementId);
+}
+
+/** Placements the customer can optionally add (everything not `required`).
+ * The default front is required, so this is the back / sleeves / labels a
+ * product offers. */
+export function getOptionalPlacements(product: Product): Placement[] {
+  return product.placements.filter((pl) => !pl.required);
+}
+
+/**
+ * Server-side kill-switch for multi-placement (back printing, #25). Off by
+ * default; flip MULTI_PLACEMENT_ENABLED=true once pricing is wired and a
+ * front+back order is verified end-to-end. Gated like PRINTFUL_DRY_RUN.
+ */
+export function multiPlacementEnabled(): boolean {
+  return process.env.MULTI_PLACEMENT_ENABLED === "true";
 }
 
 /** Parse "W:H" into a numeric width/height ratio. */

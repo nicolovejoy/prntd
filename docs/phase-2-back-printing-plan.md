@@ -11,6 +11,14 @@ Plan produced 2026-06-06. Reuses the same machinery #17 (inside-shirt branding) 
 - **Upcharge rides the product (discountable) Stripe line**, not a separate line — a back is product value, so promos should apply to it. Shipping stays the only non-discountable line. `BACK_PLACEMENT_COST` set from Printful's additional-placement fee (discover in 2.0). [decision 3]
 - **Mockup lazy / back-on-demand** [decision 4 confirmed].
 
+## Discovery + 2.0 status (2026-06-07)
+
+Ran `scripts/fetch-mockup-templates.ts 71` (Bella 3001). Authoritative Printful placement keys: `front` (printfile 1, 1800×2400), `front_large` (printfile 333, 2250×2700), **`back` (printfile 1, 1800×2400 — same as front)**, `sleeve_left`/`sleeve_right` (printfile 130), `label_inside` (printfile 71 — this is the #17 inside-branding placement), `label_outside` (printfile 90). Back template print area 1031×1375 @ top 224/left 987 on the 3000×3000 mock canvas; the order/print geometry uses printfile 1 = front's, so the back placement mirrors front (12×16).
+
+**2.0 SHIPPED (`products.ts`):** added the `back` placement to **bella-canvas-3001** (mirrors front, `required: false`); helpers `getPlacement`, `productSupportsPlacement`, `getOptionalPlacements`, and the `multiPlacementEnabled()` kill-switch (`MULTI_PLACEMENT_ENABLED`, default off); 6 tests in `products.test.ts`. Enhanced the fetch script to print `available_placements` + per-variant placement→printfile map.
+
+**Still to do in 2.0:** the other two shirts don't have `back` yet — run `scripts/fetch-mockup-templates.ts 917` (cotton-heritage-mc1087) and `360` (bella-canvas-6400) and add their back placements the same way (don't assume their geometry matches 3001). Additional-placement **cost** for the upcharge is deferred to 2.3 (via `/orders/estimate-costs` front vs front+back delta); 2.0 needs no cost.
+
 ## Honest framing
 
 The **schema is already multi-placement-ready**; the **runtime is hardcoded to `front`**. This phase teaches the runtime to carry a second key, not rebuild the data model.

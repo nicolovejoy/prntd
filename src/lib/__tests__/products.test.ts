@@ -6,6 +6,10 @@ import {
   getRetailPrice,
   getVariantId,
   getDefaultPlacement,
+  getPlacement,
+  getOptionalPlacements,
+  productSupportsPlacement,
+  multiPlacementEnabled,
   needsAspectRegeneration,
   resolveOrderVariant,
   PRODUCTS,
@@ -250,5 +254,52 @@ describe("needsAspectRegeneration", () => {
   it("is true when going between very different aspects", () => {
     expect(needsAspectRegeneration("3:4", "1:2")).toBe(true);
     expect(needsAspectRegeneration("1:2", "2:1")).toBe(true);
+  });
+});
+
+describe("placements (#25 back printing)", () => {
+  it("the Classic Tee exposes an optional back placement", () => {
+    const tee = getProductOrThrow("bella-canvas-3001");
+    expect(productSupportsPlacement(tee, "back")).toBe(true);
+    const back = getPlacement(tee, "back");
+    expect(back.id).toBe("back");
+    expect(back.required).toBe(false);
+    // Back shares the front's printfile/print area on Bella 3001.
+    expect(back.printArea).toEqual(getDefaultPlacement(tee).printArea);
+  });
+
+  it("front stays the required default placement", () => {
+    const tee = getProductOrThrow("bella-canvas-3001");
+    expect(getDefaultPlacement(tee).id).toBe("front");
+    expect(getDefaultPlacement(tee).required).toBe(true);
+  });
+
+  it("getOptionalPlacements returns add-ons, never the required front", () => {
+    const tee = getProductOrThrow("bella-canvas-3001");
+    const optional = getOptionalPlacements(tee);
+    expect(optional.map((p) => p.id)).toContain("back");
+    expect(optional.every((p) => p.required !== true)).toBe(true);
+    expect(optional.map((p) => p.id)).not.toContain("front");
+  });
+
+  it("the phone case supports no back placement", () => {
+    const phone = getProductOrThrow("clear-case-iphone");
+    expect(productSupportsPlacement(phone, "back")).toBe(false);
+    expect(getOptionalPlacements(phone)).toEqual([]);
+  });
+
+  it("getPlacement throws for an unknown placement key", () => {
+    const tee = getProductOrThrow("bella-canvas-3001");
+    expect(() => getPlacement(tee, "sleeve_left")).toThrow();
+  });
+
+  it("multiPlacementEnabled reflects the env flag, default off", () => {
+    const prev = process.env.MULTI_PLACEMENT_ENABLED;
+    delete process.env.MULTI_PLACEMENT_ENABLED;
+    expect(multiPlacementEnabled()).toBe(false);
+    process.env.MULTI_PLACEMENT_ENABLED = "true";
+    expect(multiPlacementEnabled()).toBe(true);
+    if (prev === undefined) delete process.env.MULTI_PLACEMENT_ENABLED;
+    else process.env.MULTI_PLACEMENT_ENABLED = prev;
   });
 });
