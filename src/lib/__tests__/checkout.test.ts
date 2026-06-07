@@ -7,7 +7,8 @@ const base = {
   productName: "Unisex Tee",
   color: "Black",
   size: "L",
-  totalPrice: 19.43,
+  itemPrice: 19.43,
+  shippingPrice: 4.69,
   imageUrl: "https://cdn.example.com/img.png",
   cancelUrl: "https://prntd.org/order?id=design-1",
   appUrl: "https://prntd.org",
@@ -15,7 +16,7 @@ const base = {
 
 describe("buildCheckoutSessionParams", () => {
   it("prices the single line item in cents, rounded", () => {
-    const p = buildCheckoutSessionParams({ ...base, totalPrice: 19.43 });
+    const p = buildCheckoutSessionParams({ ...base, itemPrice: 19.43 });
     const item = p.line_items![0];
     expect(item.quantity).toBe(1);
     expect(item.price_data!.unit_amount).toBe(1943);
@@ -23,8 +24,27 @@ describe("buildCheckoutSessionParams", () => {
   });
 
   it("rounds fractional cents to the nearest integer", () => {
-    const p = buildCheckoutSessionParams({ ...base, totalPrice: 12.005 });
+    const p = buildCheckoutSessionParams({ ...base, itemPrice: 12.005 });
     expect(p.line_items![0].price_data!.unit_amount).toBe(1201);
+  });
+
+  it("charges shipping as a separate shipping_option, never a second line item", () => {
+    // The margin fix: Stripe applies percentage promo codes only to
+    // line_items, so shipping billed via shipping_options is immune. Assert
+    // there's exactly one line item (the product) and shipping lives in
+    // shipping_options at the right amount.
+    const p = buildCheckoutSessionParams(base);
+    expect(p.line_items).toHaveLength(1);
+    const rate = p.shipping_options![0].shipping_rate_data!;
+    expect(rate.type).toBe("fixed_amount");
+    expect(rate.fixed_amount!.amount).toBe(469);
+    expect(rate.fixed_amount!.currency).toBe("usd");
+    expect(rate.display_name).toBe("Standard shipping");
+  });
+
+  it("rounds the shipping amount to integer cents", () => {
+    const p = buildCheckoutSessionParams({ ...base, shippingPrice: 4.695 });
+    expect(p.shipping_options![0].shipping_rate_data!.fixed_amount!.amount).toBe(470);
   });
 
   it("labels the product 'PRNTD <name>' with color / size description", () => {

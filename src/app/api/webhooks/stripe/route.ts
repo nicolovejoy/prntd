@@ -77,6 +77,8 @@ export async function POST(request: NextRequest) {
       metadata: { orderId, designId },
       paymentIntentId,
       amountTotal: fullSession.amount_total,
+      amountSubtotal: fullSession.amount_subtotal,
+      amountShipping: fullSession.total_details?.amount_shipping ?? null,
       discount,
       shipping: shipping
         ? {

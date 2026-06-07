@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui";
 import { SizePicker, ColorPicker } from "@/components/product-options";
 import { ACTIVE_PRODUCTS, DEFAULT_PRODUCT_ID, getProduct } from "@/lib/products";
-import { computePrice } from "@/lib/pricing";
+import { computePrice, computeOrderTotal } from "@/lib/pricing";
 import { buyPublishedDesign } from "../actions";
 
 /**
@@ -51,7 +51,9 @@ export function BuyPanel({
     }
   }
 
-  const total = computePrice(0, productId, size).total;
+  const { item, shipping, total } = computeOrderTotal(
+    computePrice(0, productId, size).total
+  );
 
   async function handleBuy() {
     setLoading(true);
@@ -94,9 +96,19 @@ export function BuyPanel({
       />
       <ColorPicker colors={colors} value={color} onChange={setColor} />
 
-      <div className="flex justify-between text-sm border-t border-border pt-4">
-        <span className="text-text-muted">Total</span>
-        <span className="font-bold">${total.toFixed(2)}</span>
+      <div className="space-y-2 text-sm border-t border-border pt-4">
+        <div className="flex justify-between">
+          <span className="text-text-muted">Design</span>
+          <span>${item.toFixed(2)}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-text-muted">Shipping</span>
+          <span>${shipping.toFixed(2)}</span>
+        </div>
+        <div className="flex justify-between font-bold border-t border-border pt-2">
+          <span>Total</span>
+          <span>${total.toFixed(2)}</span>
+        </div>
       </div>
 
       {isLoggedIn ? (

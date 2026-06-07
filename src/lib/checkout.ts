@@ -17,7 +17,10 @@ export function buildCheckoutSessionParams(params: {
   productName: string;
   color: string;
   size: string;
-  totalPrice: number;
+  /** Product price — the single line item, the only part promos discount. */
+  itemPrice: number;
+  /** Shipping — a separate shipping_options line, excluded from % promos. */
+  shippingPrice: number;
   imageUrl: string | null;
   cancelUrl: string;
   appUrl: string;
@@ -37,9 +40,24 @@ export function buildCheckoutSessionParams(params: {
             description: `${params.color} / ${params.size}`,
             images: params.imageUrl ? [params.imageUrl] : [],
           },
-          unit_amount: Math.round(params.totalPrice * 100),
+          unit_amount: Math.round(params.itemPrice * 100),
         },
         quantity: 1,
+      },
+    ],
+    // Shipping as a shipping_option, NOT a second line item: Stripe applies
+    // percentage promotion codes only to line items, so charging shipping
+    // here keeps a 50%-off code from eating shipping margin to zero.
+    shipping_options: [
+      {
+        shipping_rate_data: {
+          type: "fixed_amount",
+          fixed_amount: {
+            amount: Math.round(params.shippingPrice * 100),
+            currency: "usd",
+          },
+          display_name: "Standard shipping",
+        },
       },
     ],
     metadata: {

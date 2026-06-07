@@ -31,6 +31,11 @@ export type StripeSessionData = {
   metadata: { orderId: string; designId: string };
   paymentIntentId: string | null;
   amountTotal: number | null; // cents — actual amount charged after discounts
+  // cents — Stripe's authoritative breakdown. amountSubtotal = product line
+  // before discount; amountShipping = the separate shipping line (untouched
+  // by % promos). Optional so pre-1B sessions (no shipping line) still parse.
+  amountSubtotal?: number | null;
+  amountShipping?: number | null;
   discount: {
     code: string;
     amount: number; // dollars — discount amount
@@ -81,6 +86,16 @@ export async function handleStripeCheckoutCompleted(
     ? session.amountTotal / 100
     : foundOrder.totalPrice;
 
+  // Reconcile the price split from Stripe's authoritative breakdown when
+  // present (1B+ sessions). Falls back to what we stored at order creation
+  // for pre-1B sessions that carry no shipping line.
+  const itemPrice = session.amountSubtotal != null
+    ? session.amountSubtotal / 100
+    : foundOrder.itemPrice;
+  const shippingPrice = session.amountShipping != null
+    ? session.amountShipping / 100
+    : foundOrder.shippingPrice;
+
   // Mark as paid with shipping details + discount info
   await deps.db
     .update(orderTable)
@@ -90,6 +105,8 @@ export async function handleStripeCheckoutCompleted(
       stripeSessionId: session.id,
       stripePaymentIntentId: session.paymentIntentId,
       totalPrice: actualTotal,
+      itemPrice,
+      shippingPrice,
       discountCode: session.discount?.code ?? null,
       discountAmount: session.discount?.amount ?? null,
       shippingName: session.shipping?.name ?? "",

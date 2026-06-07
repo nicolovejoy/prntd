@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { computePrice, MARGIN_MULTIPLIER } from "../pricing";
+import {
+  computePrice,
+  computeOrderTotal,
+  estimateShipping,
+  FLAT_SHIPPING_USD,
+  MARGIN_MULTIPLIER,
+} from "../pricing";
 import { PRODUCTS } from "../products";
 
 describe("computePrice", () => {
@@ -53,6 +59,20 @@ describe("computePrice", () => {
     expect(result.total).toBe(Math.ceil(19.45 * MARGIN_MULTIPLIER * 100) / 100);
   });
 
+  it("adds flat shipping on top of the product price as the grand total", () => {
+    const b = computeOrderTotal(19.43);
+    expect(b.item).toBe(19.43);
+    expect(b.shipping).toBe(FLAT_SHIPPING_USD);
+    expect(b.total).toBe(Math.round((19.43 + FLAT_SHIPPING_USD) * 100) / 100);
+  });
+
+  it("keeps the grand total at exact cent precision", () => {
+    // item + shipping could introduce a float artifact; the breakdown must
+    // round to cents so it matches what Stripe charges.
+    const b = computeOrderTotal(19.43);
+    expect(Math.round(b.total * 100) / 100).toBe(b.total);
+  });
+
   it("produces an exact-cent total for every product and size", () => {
     // Stripe charges integer cents (unit_amount = round(total*100)). A total
     // with sub-cent precision (e.g. a retailPrice typo of 19.435) would be
@@ -64,5 +84,20 @@ describe("computePrice", () => {
         expect(Math.round(total * 100) / 100).toBe(total);
       }
     }
+  });
+});
+
+describe("estimateShipping", () => {
+  it("is the flat rate for a one-item order (the default)", () => {
+    expect(estimateShipping()).toBe(FLAT_SHIPPING_USD);
+    expect(estimateShipping(1)).toBe(FLAT_SHIPPING_USD);
+  });
+
+  it("is still flat for multiple items today (live quote deferred to #26)", () => {
+    expect(estimateShipping(3)).toBe(FLAT_SHIPPING_USD);
+  });
+
+  it("ships nothing for an empty cart", () => {
+    expect(estimateShipping(0)).toBe(0);
   });
 });

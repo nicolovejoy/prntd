@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { getDesign } from "../design/actions";
 import { generateMockup } from "../preview/actions";
 import { calculatePrice, createCheckoutSession } from "./actions";
+import { computeOrderTotal } from "@/lib/pricing";
 import { Button } from "@/components/ui";
 import { SizePicker, ColorPicker } from "@/components/product-options";
 import { getProduct, DEFAULT_PRODUCT_ID } from "@/lib/products";
@@ -113,6 +114,10 @@ function OrderPageInner() {
 
   const colorHex = colors.find((c) => c.name === color)?.value ?? "#f3f4f6";
 
+  // Product price + shipping → grand total, from the same helper the checkout
+  // choke point charges, so the displayed total matches the Stripe total.
+  const breakdown = pricing ? computeOrderTotal(pricing.total) : null;
+
   return (
     <div className="min-h-screen flex flex-col items-center py-6 md:py-12 px-4 pb-24 md:pb-12">
       <Breadcrumbs
@@ -161,19 +166,19 @@ function OrderPageInner() {
           <ColorPicker colors={colors} value={color} onChange={setColor} />
 
           {/* Pricing */}
-          {pricing && (
+          {breakdown && (
             <div className="border-t border-border pt-4 space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-text-muted">{productName}</span>
-                <span>${pricing.total.toFixed(2)}</span>
+                <span>${breakdown.item.toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-text-muted">Shipping</span>
-                <span className="text-text-muted">Free</span>
+                <span>${breakdown.shipping.toFixed(2)}</span>
               </div>
               <div className="flex justify-between font-bold text-base border-t border-border pt-2">
                 <span>Total</span>
-                <span>${pricing.total.toFixed(2)}</span>
+                <span>${breakdown.total.toFixed(2)}</span>
               </div>
             </div>
           )}
@@ -200,8 +205,8 @@ function OrderPageInner() {
         >
           {loading
             ? "Redirecting..."
-            : pricing
-              ? `Checkout — $${pricing.total.toFixed(2)}`
+            : breakdown
+              ? `Checkout — $${breakdown.total.toFixed(2)}`
               : "Checkout"}
         </Button>
       </div>

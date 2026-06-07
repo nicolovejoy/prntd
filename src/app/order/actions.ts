@@ -6,7 +6,7 @@ import { db } from "@/lib/db";
 import { design as designTable, order as orderTable } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { stripe } from "@/lib/stripe";
-import { computePrice } from "@/lib/pricing";
+import { computePrice, computeOrderTotal } from "@/lib/pricing";
 import { buildCheckoutSessionParams } from "@/lib/checkout";
 import { resolveOrderVariant, DEFAULT_PRODUCT_ID } from "@/lib/products";
 import { getDesignDisplayImageUrl } from "@/lib/design-images";
@@ -59,7 +59,7 @@ export async function createCheckoutSession(params: {
     productId: resolvedProductId,
     size: params.size,
     color: params.color,
-    totalPrice: pricing.total,
+    itemPrice: pricing.total,
     placements: pinnedImageId ? { front: pinnedImageId } : null,
     checkoutImageUrl,
     cancelUrl: `${process.env.NEXT_PUBLIC_APP_URL}/order?id=${params.designId}&size=${encodeURIComponent(params.size)}&color=${encodeURIComponent(params.color)}&product=${resolvedProductId}`,
@@ -80,7 +80,8 @@ export async function createStripeCheckoutForOrder(params: {
   productId: string;
   size: string;
   color: string;
-  totalPrice: number;
+  /** Product price (computePrice total). Shipping is added here. */
+  itemPrice: number;
   placements: { front: string } | null;
   checkoutImageUrl: string | null;
   cancelUrl: string;
@@ -94,6 +95,12 @@ export async function createStripeCheckoutForOrder(params: {
   });
   const productName = product.name;
 
+  // Split the charge: product (the line item promos discount) + shipping
+  // (a separate Stripe line, excluded from % promos). Persist both plus the
+  // grand total; the webhook later reconciles totalPrice to the actual amount
+  // charged (after any discount) from Stripe.
+  const { item, shipping, total } = computeOrderTotal(params.itemPrice);
+
   const [newOrder] = await db
     .insert(orderTable)
     .values({
@@ -102,7 +109,9 @@ export async function createStripeCheckoutForOrder(params: {
       productId: params.productId,
       size: params.size,
       color: params.color,
-      totalPrice: params.totalPrice,
+      totalPrice: total,
+      itemPrice: item,
+      shippingPrice: shipping,
       placements: params.placements,
     })
     .returning();
@@ -114,7 +123,8 @@ export async function createStripeCheckoutForOrder(params: {
       productName,
       color: params.color,
       size: params.size,
-      totalPrice: params.totalPrice,
+      itemPrice: item,
+      shippingPrice: shipping,
       imageUrl: params.checkoutImageUrl,
       cancelUrl: params.cancelUrl,
       appUrl: process.env.NEXT_PUBLIC_APP_URL!,

@@ -228,7 +228,7 @@ export async function buyPublishedDesign(params: {
     productId: resolvedProductId,
     size: params.size,
     color: params.color,
-    totalPrice: pricing.total,
+    itemPrice: pricing.total,
     placements: { front: params.imageId },
     checkoutImageUrl: image.imageUrl,
     cancelUrl: `${process.env.NEXT_PUBLIC_APP_URL}/d/${params.imageId}`,

@@ -169,6 +169,64 @@ describe("handleStripeCheckoutCompleted", () => {
     expect(setCall.discountAmount).toBe(20.0);
   });
 
+  it("persists the item/shipping split from Stripe's breakdown", async () => {
+    const mockDb = createMockDb({
+      orderFindFirst: vi.fn().mockResolvedValue({
+        ...pendingOrder,
+        totalPrice: 24.12,
+        itemPrice: 19.43,
+        shippingPrice: 4.69,
+      }),
+      designFindFirst: vi.fn().mockResolvedValue(designWithImage),
+    });
+    const mockCreateOrder = vi.fn().mockResolvedValue({ id: "pf_split" });
+
+    const session = baseSession({
+      amountTotal: 2412, // $24.12 charged
+      amountSubtotal: 1943, // $19.43 product
+      amountShipping: 469, // $4.69 shipping (untouched by promos)
+    });
+
+    const result = await handleStripeCheckoutCompleted(session, {
+      db: mockDb,
+      createPrintfulOrder: mockCreateOrder,
+      generateOrderName: vi.fn().mockResolvedValue(null),
+      resolveDesignImageUrl: mockResolveImageUrl(),
+    });
+
+    expect(result.action).toBe("submitted");
+    const setCall = mockDb._mocks.updateSet.mock.calls[0][0];
+    expect(setCall.totalPrice).toBe(24.12);
+    expect(setCall.itemPrice).toBe(19.43);
+    expect(setCall.shippingPrice).toBe(4.69);
+  });
+
+  it("falls back to the stored split when Stripe sends no breakdown", async () => {
+    const mockDb = createMockDb({
+      orderFindFirst: vi.fn().mockResolvedValue({
+        ...pendingOrder,
+        totalPrice: 24.12,
+        itemPrice: 19.43,
+        shippingPrice: 4.69,
+      }),
+      designFindFirst: vi.fn().mockResolvedValue(designWithImage),
+    });
+    const mockCreateOrder = vi.fn().mockResolvedValue({ id: "pf_nobreakdown" });
+
+    // Pre-1B session shape: no amountSubtotal/amountShipping fields.
+    const result = await handleStripeCheckoutCompleted(baseSession(), {
+      db: mockDb,
+      createPrintfulOrder: mockCreateOrder,
+      generateOrderName: vi.fn().mockResolvedValue(null),
+      resolveDesignImageUrl: mockResolveImageUrl(),
+    });
+
+    expect(result.action).toBe("submitted");
+    const setCall = mockDb._mocks.updateSet.mock.calls[0][0];
+    expect(setCall.itemPrice).toBe(19.43); // unchanged from stored
+    expect(setCall.shippingPrice).toBe(4.69);
+  });
+
   it("uses original totalPrice when no amountTotal present", async () => {
     const mockDb = createMockDb({
       orderFindFirst: vi.fn().mockResolvedValue({ ...pendingOrder, totalPrice: 40.0 }),
