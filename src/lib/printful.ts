@@ -110,6 +110,88 @@ export async function getOrderStatus(orderId: string) {
   return data.result;
 }
 
+export type EstimatedCosts = {
+  subtotal: number;
+  shipping: number;
+  tax: number;
+  total: number;
+};
+
+/**
+ * Parse the `costs` block from a /orders/estimate-costs response into numbers.
+ * Pure (no network) so it's unit-testable; Printful returns the amounts as
+ * strings. Missing fields default to 0.
+ */
+export function parseEstimateCosts(result: {
+  costs?: Record<string, string | number | undefined>;
+}): EstimatedCosts {
+  const c = result.costs ?? {};
+  const num = (v: string | number | undefined) =>
+    v == null ? 0 : typeof v === "number" ? v : parseFloat(v) || 0;
+  return {
+    subtotal: num(c.subtotal),
+    shipping: num(c.shipping),
+    tax: num(c.tax),
+    total: num(c.total),
+  };
+}
+
+/**
+ * Live cost estimate for an order of N items at a destination — including the
+ * bundled shipping total (2nd+ item ships much cheaper in the same shipment),
+ * which is the savings the cart surfaces (#26). `items` mirror createOrder's
+ * shape (variant + per-placement files). Returns null in dry-run / on error so
+ * callers fall back to the flat estimate (estimateShipping).
+ */
+export async function estimateOrderCosts(params: {
+  recipient: {
+    countryCode: string;
+    stateCode?: string;
+    zip?: string;
+    city?: string;
+    address1?: string;
+  };
+  items: {
+    variantId: number;
+    quantity: number;
+    files?: { placement: string; url: string }[];
+  }[];
+}): Promise<EstimatedCosts | null> {
+  if (params.items.length === 0) return null;
+  if (process.env.PRINTFUL_DRY_RUN === "true") return null;
+
+  try {
+    const data = await printfulFetch("/orders/estimate-costs", {
+      method: "POST",
+      body: JSON.stringify({
+        recipient: {
+          country_code: params.recipient.countryCode,
+          state_code: params.recipient.stateCode ?? "",
+          zip: params.recipient.zip ?? "",
+          city: params.recipient.city ?? "",
+          address1: params.recipient.address1 ?? "",
+        },
+        items: params.items.map((it) => ({
+          variant_id: it.variantId,
+          quantity: it.quantity,
+          ...(it.files
+            ? {
+                files: it.files.map((f) => ({
+                  type: placementToOrderFileType(f.placement),
+                  url: f.url,
+                })),
+              }
+            : {}),
+        })),
+      }),
+    });
+    return parseEstimateCosts(data.result ?? {});
+  } catch (err) {
+    console.error("estimateOrderCosts failed, falling back to flat shipping:", err);
+    return null;
+  }
+}
+
 // -- Mockup Generator --
 
 import type { MockupPosition } from "./products";
