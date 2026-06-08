@@ -25,13 +25,16 @@ function OrderPageInner() {
   const searchParams = useSearchParams();
   const designId = searchParams.get("id");
   const productId = searchParams.get("product") ?? DEFAULT_PRODUCT_ID;
-  const backParam = searchParams.get("back");
   const product = getProduct(productId);
 
-  // Multi-placement kill-switch (#25). A stray `?back=` is ignored until the
-  // flag is on (and the server gates it again at checkout, defense in depth).
+  // Capture the back source once on mount. The URL-sync effect below rewrites
+  // the query string, so reading it live would race the flag load and drop it.
+  const [backImageId] = useState<string | null>(() => searchParams.get("back"));
+  // Multi-placement kill-switch (#25). A stray `?back=` is ignored (no upcharge,
+  // not sent to checkout) until the flag is on; the server gates it again at
+  // checkout, defense in depth.
   const [multiPlacement, setMultiPlacement] = useState(false);
-  const backImageId = multiPlacement ? backParam : null;
+  const backActive = multiPlacement && !!backImageId;
 
   const sizes = product?.sizes ?? [];
   const colors = product?.colors ?? [];
@@ -95,17 +98,17 @@ function OrderPageInner() {
 
   useEffect(() => {
     if (!designId) return;
-    calculatePrice(designId, productId, size, !!backImageId).then(setPricing);
-  }, [designId, productId, size, backImageId]);
+    calculatePrice(designId, productId, size, backActive).then(setPricing);
+  }, [designId, productId, size, backActive]);
 
-  // Sync selections to URL so they survive Stripe cancel → back
+  // Sync selections to URL so they survive Stripe cancel → back. The back
+  // source is preserved verbatim (it's captured once, never cleared here).
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     params.set("size", size);
     params.set("color", color);
     params.set("product", productId);
     if (backImageId) params.set("back", backImageId);
-    else params.delete("back");
     const newUrl = `${window.location.pathname}?${params.toString()}`;
     window.history.replaceState(null, "", newUrl);
   }, [size, color, productId, backImageId]);
@@ -119,7 +122,7 @@ function OrderPageInner() {
         size,
         color,
         productId,
-        ...(backImageId ? { back: backImageId } : {}),
+        ...(backActive ? { back: backImageId! } : {}),
       });
       if (url) window.location.href = url;
     } catch {
@@ -188,10 +191,10 @@ function OrderPageInner() {
                 {/* When a back design is added its +$8 shows as its own line,
                     so the product line stays the front price. */}
                 <span>
-                  ${(backImageId ? breakdown.item - BACK_PLACEMENT_UPCHARGE : breakdown.item).toFixed(2)}
+                  ${(backActive ? breakdown.item - BACK_PLACEMENT_UPCHARGE : breakdown.item).toFixed(2)}
                 </span>
               </div>
-              {backImageId && (
+              {backActive && (
                 <div className="flex justify-between">
                   <span className="text-text-muted">Back design</span>
                   <span>+${BACK_PLACEMENT_UPCHARGE.toFixed(2)}</span>
