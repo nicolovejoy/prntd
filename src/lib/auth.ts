@@ -5,7 +5,11 @@ import { anonymous } from "better-auth/plugins/anonymous";
 import { eq } from "drizzle-orm";
 import { db } from "./db";
 import * as schema from "./db/schema";
-import { design as designTable, order as orderTable } from "./db/schema";
+import {
+  design as designTable,
+  order as orderTable,
+  cartItem as cartItemTable,
+} from "./db/schema";
 import { sendPasswordResetEmail } from "./email";
 
 // The auth client resolves to same-origin, so requests come from whatever
@@ -46,8 +50,8 @@ export const auth = betterAuth({
         const fromId = anonymousUser.user.id;
         const toId = newUser.user.id;
         if (fromId === toId) return;
-        // design_image + chat_message follow via design_id; cart re-parents
-        // here too once Stage B lands.
+        // design_image + chat_message follow via design_id. design, order, and
+        // the persistent cart re-parent by userId.
         await db
           .update(designTable)
           .set({ userId: toId })
@@ -56,6 +60,10 @@ export const auth = betterAuth({
           .update(orderTable)
           .set({ userId: toId })
           .where(eq(orderTable.userId, fromId));
+        await db
+          .update(cartItemTable)
+          .set({ userId: toId })
+          .where(eq(cartItemTable.userId, fromId));
       },
     }),
     nextCookies(),

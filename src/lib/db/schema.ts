@@ -167,6 +167,47 @@ export const order = sqliteTable("order", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
 });
 
+/**
+ * Order line items (#26 Stage B). One row per shirt in a multi-item order:
+ * its own product/size/color/placements and price split. The parent `order`
+ * keeps order-level money (totalPrice, shippingPrice — shipping is charged once
+ * per order, not per item) and the ledger linkage. Single-item orders may keep
+ * using the scalar columns on `order`; the cart flow writes order_item rows.
+ * printfulCost is the per-item COGS read back from Printful's invoice.
+ */
+export const orderItem = sqliteTable("order_item", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  orderId: text("order_id").notNull().references(() => order.id),
+  designId: text("design_id").notNull().references(() => design.id),
+  productId: text("product_id").notNull(),
+  size: text("size").notNull(),
+  color: text("color").notNull(),
+  // placement id → design_image id (front + optional back, #25 shape per item).
+  placements: text("placements", { mode: "json" }).$type<Record<string, string>>(),
+  quantity: integer("quantity").notNull().default(1),
+  itemPrice: real("item_price").notNull(),
+  printfulCost: real("printful_cost"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
+/**
+ * Persistent cart (#26 Stage B). Keyed by user — one cart per account, anon or
+ * real — so it survives the guest→account claim (re-parented in auth.ts's
+ * onLinkAccount alongside design/order). One row per line the customer added;
+ * checkout turns these into an order + order_item rows, then clears them.
+ */
+export const cartItem = sqliteTable("cart_item", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => user.id),
+  designId: text("design_id").notNull().references(() => design.id),
+  productId: text("product_id").notNull(),
+  size: text("size").notNull(),
+  color: text("color").notNull(),
+  placements: text("placements", { mode: "json" }).$type<Record<string, string>>(),
+  quantity: integer("quantity").notNull().default(1),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
 export const ledgerEntry = sqliteTable("ledger_entry", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   orderId: text("order_id").references(() => order.id),
