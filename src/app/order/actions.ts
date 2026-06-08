@@ -8,13 +8,18 @@ import { eq } from "drizzle-orm";
 import { stripe } from "@/lib/stripe";
 import { computePrice, computeOrderTotal } from "@/lib/pricing";
 import { buildCheckoutSessionParams } from "@/lib/checkout";
-import { resolveOrderVariant, DEFAULT_PRODUCT_ID } from "@/lib/products";
+import {
+  resolveOrderVariant,
+  multiPlacementEnabled,
+  DEFAULT_PRODUCT_ID,
+} from "@/lib/products";
 import { getDesignDisplayImageUrl } from "@/lib/design-images";
 
 export async function calculatePrice(
   designId: string,
   productId?: string,
-  size?: string
+  size?: string,
+  back?: boolean
 ) {
   const found = await db.query.design.findFirst({
     where: eq(designTable.id, designId),
@@ -22,7 +27,7 @@ export async function calculatePrice(
 
   if (!found) throw new Error("Design not found");
 
-  return computePrice(found.generationCost, productId, size);
+  return computePrice(found.generationCost, productId, size, { back });
 }
 
 export async function createCheckoutSession(params: {
@@ -30,6 +35,9 @@ export async function createCheckoutSession(params: {
   size: string;
   color: string;
   productId?: string;
+  /** Source design_image id to print on the back (#25). Honored only when
+   * MULTI_PLACEMENT_ENABLED; ignored otherwise (defense in depth). */
+  back?: string;
 }) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) throw new Error("Unauthorized");
@@ -43,7 +51,15 @@ export async function createCheckoutSession(params: {
   }
 
   const resolvedProductId = params.productId ?? DEFAULT_PRODUCT_ID;
-  const pricing = await calculatePrice(params.designId, resolvedProductId, params.size);
+  // Only honor a back design when the flag is on — keeps a stray `?back=` param
+  // from charging the upcharge / pinning a back while the feature is dark.
+  const backImageId = multiPlacementEnabled() ? params.back ?? null : null;
+  const pricing = await calculatePrice(
+    params.designId,
+    resolvedProductId,
+    params.size,
+    !!backImageId
+  );
 
   // Pin the order to the design's current primary image so post-order
   // regenerations don't mutate what this customer's records show.
@@ -53,6 +69,10 @@ export async function createCheckoutSession(params: {
   const pinnedImageId = found.primaryImageId ?? null;
   const checkoutImageUrl = await getDesignDisplayImageUrl(params.designId);
 
+  const placements: Record<string, string> | null = pinnedImageId
+    ? { front: pinnedImageId, ...(backImageId ? { back: backImageId } : {}) }
+    : null;
+
   return createStripeCheckoutForOrder({
     userId: session.user.id,
     designId: params.designId,
@@ -60,9 +80,9 @@ export async function createCheckoutSession(params: {
     size: params.size,
     color: params.color,
     itemPrice: pricing.total,
-    placements: pinnedImageId ? { front: pinnedImageId } : null,
+    placements,
     checkoutImageUrl,
-    cancelUrl: `${process.env.NEXT_PUBLIC_APP_URL}/order?id=${params.designId}&size=${encodeURIComponent(params.size)}&color=${encodeURIComponent(params.color)}&product=${resolvedProductId}`,
+    cancelUrl: `${process.env.NEXT_PUBLIC_APP_URL}/order?id=${params.designId}&size=${encodeURIComponent(params.size)}&color=${encodeURIComponent(params.color)}&product=${resolvedProductId}${backImageId ? `&back=${backImageId}` : ""}`,
   });
 }
 
@@ -82,7 +102,9 @@ export async function createStripeCheckoutForOrder(params: {
   color: string;
   /** Product price (computePrice total). Shipping is added here. */
   itemPrice: number;
-  placements: { front: string } | null;
+  /** placement id → source design_image id. `front` is the pinned primary;
+   * `back` (#25) is present only for multi-placement orders. */
+  placements: Record<string, string> | null;
   checkoutImageUrl: string | null;
   cancelUrl: string;
 }): Promise<{ url: string | null }> {

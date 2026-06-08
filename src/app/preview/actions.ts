@@ -11,6 +11,7 @@ import {
   getProduct,
   getProductOrThrow,
   getPlacement,
+  multiPlacementEnabled,
   needsAspectRegeneration,
   DEFAULT_PRODUCT_ID,
   type AspectRatio,
@@ -25,6 +26,15 @@ import {
 } from "@/lib/design-images";
 
 const COST_PER_GENERATION = 0.03;
+
+/**
+ * Expose the server-side multi-placement kill-switch to client components.
+ * `/preview` and `/order` call this once on mount to decide whether to honor
+ * back-design UI / a `back` URL param. Off by default (#25, until 2.5).
+ */
+export async function isMultiPlacementEnabled(): Promise<boolean> {
+  return multiPlacementEnabled();
+}
 
 export async function generateMockup(
   designId: string,
