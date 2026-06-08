@@ -128,23 +128,43 @@ export async function handleStripeCheckoutCompleted(
     deps.db
   );
 
-  // Submit to Printful. Prefer the image pinned on the order
-  // (placements.front) so we print exactly what the customer bought —
-  // including a published image owned by another designer — and stay
-  // immune to post-purchase regeneration. Fall back to the design's
-  // current display image for orders with no pin.
-  const pinnedImageId = foundOrder.placements?.front ?? null;
-  const designImageUrl =
-    (pinnedImageId && deps.resolveImageUrlById
-      ? await deps.resolveImageUrlById(pinnedImageId)
+  // Resolve one print file per placement on the order. Front prefers the
+  // image pinned on the order (placements.front) so we print exactly what the
+  // customer bought — including a published image owned by another designer —
+  // and stay immune to post-purchase regeneration; it falls back to the
+  // design's current display image for orders with no pin. Non-front
+  // placements (back, #25) resolve only via their pinned image id; a missing
+  // one is logged and dropped, never fatal (we still submit the front).
+  const placements = foundOrder.placements ?? {};
+  const frontImageId = placements.front ?? null;
+  const frontUrl =
+    (frontImageId && deps.resolveImageUrlById
+      ? await deps.resolveImageUrlById(frontImageId)
       : null) ?? (await deps.resolveDesignImageUrl(designId));
 
-  if (!designImageUrl) {
+  if (!frontUrl) {
     console.error(`Order ${orderId}: design ${designId} has no image`);
     return { action: "paid" };
   }
 
-  const displayName = await deps.generateOrderName(designImageUrl);
+  const files: { placement: string; url: string }[] = [
+    { placement: "front", url: frontUrl },
+  ];
+  for (const [placement, imageId] of Object.entries(placements)) {
+    if (placement === "front") continue;
+    const url = deps.resolveImageUrlById
+      ? await deps.resolveImageUrlById(imageId)
+      : null;
+    if (url) {
+      files.push({ placement, url });
+    } else {
+      console.error(
+        `Order ${orderId}: placement "${placement}" image ${imageId} unresolved — submitting without it`
+      );
+    }
+  }
+
+  const displayName = await deps.generateOrderName(frontUrl);
   if (displayName) {
     await deps.db
       .update(orderTable)
@@ -161,7 +181,7 @@ export async function handleStripeCheckoutCompleted(
 
   try {
     const printfulOrder = await deps.createPrintfulOrder({
-      designImageUrl,
+      files,
       size: foundOrder.size,
       color: foundOrder.color,
       variantId,

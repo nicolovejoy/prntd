@@ -316,7 +316,73 @@ describe("handleStripeCheckoutCompleted", () => {
     expect(result.action).toBe("submitted");
     expect(mockResolveById).toHaveBeenCalledWith("img-pinned");
     expect(mockCreateOrder).toHaveBeenCalledWith(
-      expect.objectContaining({ designImageUrl: pinnedUrl })
+      expect.objectContaining({
+        files: [{ placement: "front", url: pinnedUrl }],
+      })
+    );
+  });
+
+  it("submits front+back as two files when the order has a back placement", async () => {
+    const frontUrl = "https://r2.example.com/front.png";
+    const backUrl = "https://r2.example.com/back.png";
+    const mockDb = createMockDb({
+      orderFindFirst: vi.fn().mockResolvedValue({
+        ...pendingOrder,
+        placements: { front: "img-front", back: "img-back" },
+      }),
+      designFindFirst: vi.fn().mockResolvedValue(designWithImage),
+    });
+    const mockCreateOrder = vi.fn().mockResolvedValue({ id: "pf_back" });
+    const mockResolveById = vi.fn(async (id: string) =>
+      id === "img-front" ? frontUrl : id === "img-back" ? backUrl : null
+    );
+
+    const result = await handleStripeCheckoutCompleted(baseSession(), {
+      db: mockDb,
+      createPrintfulOrder: mockCreateOrder,
+      generateOrderName: vi.fn().mockResolvedValue(null),
+      resolveDesignImageUrl: mockResolveImageUrl(),
+      resolveImageUrlById: mockResolveById,
+    });
+
+    expect(result.action).toBe("submitted");
+    expect(mockCreateOrder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        files: [
+          { placement: "front", url: frontUrl },
+          { placement: "back", url: backUrl },
+        ],
+      })
+    );
+  });
+
+  it("drops an unresolvable back placement and submits front-only", async () => {
+    const frontUrl = "https://r2.example.com/front.png";
+    const mockDb = createMockDb({
+      orderFindFirst: vi.fn().mockResolvedValue({
+        ...pendingOrder,
+        placements: { front: "img-front", back: "img-back-missing" },
+      }),
+      designFindFirst: vi.fn().mockResolvedValue(designWithImage),
+    });
+    const mockCreateOrder = vi.fn().mockResolvedValue({ id: "pf_frontonly" });
+    const mockResolveById = vi.fn(async (id: string) =>
+      id === "img-front" ? frontUrl : null
+    );
+
+    const result = await handleStripeCheckoutCompleted(baseSession(), {
+      db: mockDb,
+      createPrintfulOrder: mockCreateOrder,
+      generateOrderName: vi.fn().mockResolvedValue(null),
+      resolveDesignImageUrl: mockResolveImageUrl(),
+      resolveImageUrlById: mockResolveById,
+    });
+
+    expect(result.action).toBe("submitted");
+    expect(mockCreateOrder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        files: [{ placement: "front", url: frontUrl }],
+      })
     );
   });
 
@@ -340,7 +406,11 @@ describe("handleStripeCheckoutCompleted", () => {
 
     expect(result.action).toBe("submitted");
     expect(mockCreateOrder).toHaveBeenCalledWith(
-      expect.objectContaining({ designImageUrl: designWithImage.currentImageUrl })
+      expect.objectContaining({
+        files: [
+          { placement: "front", url: designWithImage.currentImageUrl },
+        ],
+      })
     );
   });
 

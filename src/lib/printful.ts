@@ -23,8 +23,23 @@ export async function getProducts() {
   return data.result;
 }
 
+/**
+ * Map our internal placement key to Printful's order-file `type`. Front keeps
+ * the production-proven "default" type (the main print area); other placements
+ * pass their key through unchanged ("back" → "back", "label_inside" →
+ * "label_inside"). Note this differs from the mockup-generator API, which keys
+ * files by `placement` and accepts "front" literally.
+ */
+function placementToOrderFileType(placement: string): string {
+  return placement === "front" ? "default" : placement;
+}
+
 export async function createOrder(params: {
-  designImageUrl: string;
+  // One print file per placement. `designImageUrl` is the back-compat alias
+  // for a single front file; callers that only print the front can keep using
+  // it. Multi-placement callers (#25) pass `files`.
+  files?: { placement: string; url: string }[];
+  designImageUrl?: string;
   size: string;
   color: string;
   variantId: number;
@@ -36,10 +51,19 @@ export async function createOrder(params: {
   countryCode: string;
   zip: string;
 }) {
+  const files =
+    params.files ??
+    (params.designImageUrl
+      ? [{ placement: "front", url: params.designImageUrl }]
+      : []);
+  if (files.length === 0) {
+    throw new Error("createOrder: no print files supplied");
+  }
+
   if (process.env.PRINTFUL_DRY_RUN === "true") {
     const fakeId = `dry-run-${crypto.randomUUID()}`;
     console.warn(
-      `[PRINTFUL_DRY_RUN] Skipping real order submission. Returning fake id=${fakeId} for ${params.recipientName} variant=${params.variantId}`
+      `[PRINTFUL_DRY_RUN] Skipping real order submission. Returning fake id=${fakeId} for ${params.recipientName} variant=${params.variantId} placements=[${files.map((f) => f.placement).join(",")}]`
     );
     return {
       id: fakeId,
@@ -63,18 +87,16 @@ export async function createOrder(params: {
         zip: params.zip,
       },
       // Single line item, quantity 1. The multi-item cart (#26) makes this an
-      // array of {variant_id, quantity, files}; #25 (back printing) extends
-      // the inner `files` array to one entry per placement.
+      // array of {variant_id, quantity, files}; #25 (back printing) supplies
+      // one `files` entry per placement.
       items: [
         {
           variant_id: params.variantId,
           quantity: 1,
-          files: [
-            {
-              type: "default",
-              url: params.designImageUrl,
-            },
-          ],
+          files: files.map((f) => ({
+            type: placementToOrderFileType(f.placement),
+            url: f.url,
+          })),
         },
       ],
     }),

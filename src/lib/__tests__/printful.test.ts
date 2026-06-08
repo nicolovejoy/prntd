@@ -64,6 +64,60 @@ describe("createOrder PRINTFUL_DRY_RUN", () => {
   });
 });
 
+describe("createOrder file mapping (#25 multi-placement)", () => {
+  const originalFlag = process.env.PRINTFUL_DRY_RUN;
+  let fetchSpy: MockInstance<any>;
+
+  beforeEach(() => {
+    delete process.env.PRINTFUL_DRY_RUN;
+    fetchSpy = vi.spyOn(global, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ result: { id: 1, costs: { total: "5.00" } } }), {
+        status: 200,
+      })
+    );
+  });
+  afterEach(() => {
+    process.env.PRINTFUL_DRY_RUN = originalFlag;
+    fetchSpy.mockRestore();
+  });
+
+  function bodyFiles() {
+    const init = fetchSpy.mock.calls[0]?.[1] as RequestInit;
+    return JSON.parse(String(init.body)).items[0].files as {
+      type: string;
+      url: string;
+    }[];
+  }
+
+  it("maps the designImageUrl alias to a single front file typed 'default'", async () => {
+    await createOrder(params);
+    expect(bodyFiles()).toEqual([
+      { type: "default", url: "https://example.com/img.png" },
+    ]);
+  });
+
+  it("maps a front+back files array to type default + back", async () => {
+    const { designImageUrl: _omit, ...rest } = params;
+    await createOrder({
+      ...rest,
+      files: [
+        { placement: "front", url: "https://example.com/front.png" },
+        { placement: "back", url: "https://example.com/back.png" },
+      ],
+    });
+    expect(bodyFiles()).toEqual([
+      { type: "default", url: "https://example.com/front.png" },
+      { type: "back", url: "https://example.com/back.png" },
+    ]);
+  });
+
+  it("throws when neither files nor designImageUrl is supplied", async () => {
+    const { designImageUrl: _omit, ...rest } = params;
+    await expect(createOrder(rest)).rejects.toThrow(/no print files/);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
 describe("createMockupTask", () => {
   let fetchSpy: MockInstance<any>;
   const position = {
