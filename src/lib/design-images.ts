@@ -85,19 +85,27 @@ export async function insertDesignImage(params: {
   productId?: string | null;
   placementId?: string | null;
   generator?: string | null;
+  /** Explicit anchor. For placement renders (#25) this is the source image the
+   * render was generated from, so a later lookup can match the exact pick.
+   * Omitted for chat-driven generations → defaults to the latest thread image. */
+  parentImageId?: string | null;
 }): Promise<string> {
-  const latest = await db
-    .select({ id: designImageTable.id })
-    .from(designImageTable)
-    .where(eq(designImageTable.designId, params.designId))
-    .orderBy(desc(designImageTable.createdAt))
-    .limit(1);
+  let parentImageId = params.parentImageId ?? null;
+  if (parentImageId === null) {
+    const latest = await db
+      .select({ id: designImageTable.id })
+      .from(designImageTable)
+      .where(eq(designImageTable.designId, params.designId))
+      .orderBy(desc(designImageTable.createdAt))
+      .limit(1);
+    parentImageId = latest[0]?.id ?? null;
+  }
 
   const id = crypto.randomUUID();
   await db.insert(designImageTable).values({
     id,
     designId: params.designId,
-    parentImageId: latest[0]?.id ?? null,
+    parentImageId,
     aspectRatio: params.aspectRatio,
     productId: params.productId ?? null,
     placementId: params.placementId ?? null,
@@ -122,7 +130,12 @@ export async function insertDesignImage(params: {
 export async function findPlacementRender(
   designId: string,
   productId: string,
-  placementId: string
+  placementId: string,
+  /** When set, only match a render anchored on this exact source image (#25).
+   * Non-front placements pick from multiple sources, so the cache must key on
+   * the pick — otherwise two back choices collide on one (design,product,back)
+   * row. Front passes nothing → legacy behavior (one render per product). */
+  sourceImageId?: string
 ): Promise<{ id: string; imageUrl: string; aspectRatio: AspectRatio } | null> {
   const rows = await db
     .select({
@@ -135,7 +148,10 @@ export async function findPlacementRender(
       and(
         eq(designImageTable.designId, designId),
         eq(designImageTable.productId, productId),
-        eq(designImageTable.placementId, placementId)
+        eq(designImageTable.placementId, placementId),
+        ...(sourceImageId
+          ? [eq(designImageTable.parentImageId, sourceImageId)]
+          : [])
       )
     )
     .orderBy(desc(designImageTable.createdAt))

@@ -209,9 +209,15 @@ function PreviewPageInner() {
   async function renderMockupFor(placement: Placement) {
     if (!designId) return;
 
+    // Non-front placements render from the picked source; thread it through so
+    // the mockup matches the pick and the cache key doesn't collide (#25).
+    const sourceImageId = placement === "back" ? backImageId ?? undefined : undefined;
     const scaleKey = Math.round(scale * 100);
-    // Key must match the server's productId:placement:color:scale format (#25 2.1).
-    const cacheKey = `${productId}:${placement}:${colorName}:${scaleKey}`;
+    // Key must match the server's cache key (#25 2.1): front stays
+    // product:placement:color:scale; non-front inserts the source pick.
+    const cacheKey = sourceImageId
+      ? `${productId}:${placement}:${sourceImageId}:${colorName}:${scaleKey}`
+      : `${productId}:${placement}:${colorName}:${scaleKey}`;
 
     const cached = mockupCache.current.get(cacheKey);
     if (cached) {
@@ -228,7 +234,14 @@ function PreviewPageInner() {
       latestProductRef.current === productId &&
       latestPlacementRef.current === placement;
     try {
-      const result = await generateMockup(designId, colorName, productId, scale, placement);
+      const result = await generateMockup(
+        designId,
+        colorName,
+        productId,
+        scale,
+        placement,
+        sourceImageId
+      );
       if (stillCurrent()) {
         mockupCache.current.set(cacheKey, result.mockupUrl);
         setMockups((m) => ({ ...m, [placement]: result.mockupUrl }));

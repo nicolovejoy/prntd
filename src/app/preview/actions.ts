@@ -41,7 +41,11 @@ export async function generateMockup(
   colorName: string,
   productId: string = DEFAULT_PRODUCT_ID,
   scale: number = 1.0,
-  placementId: string = "front"
+  placementId: string = "front",
+  /** Source image the placement render was anchored on (#25). Required for a
+   * non-front placement so the mockup matches the picked source and the cache
+   * key doesn't collide across back choices. Front leaves it undefined. */
+  sourceImageId?: string
 ): Promise<{ mockupUrl: string }> {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) throw new Error("Unauthorized");
@@ -56,10 +60,12 @@ export async function generateMockup(
   const clampedScale = Math.max(0.3, Math.min(1.0, scale));
   const scaleKey = Math.round(clampedScale * 100);
 
-  // Cache key includes product, placement, and scale so different combos
-  // don't collide. Placement was added in #25 2.1 — back didn't exist
-  // before, so the new front keys are still distinct from any old data.
-  const cacheKey = `${productId}:${placementId}:${colorName}:${scaleKey}`;
+  // Cache key includes product, placement, scale, and (for non-front) the
+  // source pick so two back choices don't collide on one key. Placement was
+  // added in #25 2.1; front keys stay `${product}:front:${color}:${scale}`.
+  const cacheKey = sourceImageId
+    ? `${productId}:${placementId}:${sourceImageId}:${colorName}:${scaleKey}`
+    : `${productId}:${placementId}:${colorName}:${scaleKey}`;
   const cached = found.mockupUrls?.[cacheKey];
   if (cached) return { mockupUrl: cached };
 
@@ -76,7 +82,12 @@ export async function generateMockup(
   // otherwise fall back to the design's primary image. After Step 2,
   // getOrCreatePlacementRender always populates this row before
   // generateMockup runs, so the cache hit is the common case.
-  const placementRender = await findPlacementRender(designId, productId, placement.id);
+  const placementRender = await findPlacementRender(
+    designId,
+    productId,
+    placement.id,
+    sourceImageId
+  );
   const sourceImageUrl =
     placementRender?.imageUrl ?? (await getDesignDisplayImageUrl(designId));
   if (!sourceImageUrl) throw new Error("No design image");
@@ -188,7 +199,15 @@ export async function getOrCreatePlacementRender(
     };
   }
 
-  const cached = await findPlacementRender(designId, productId, placement.id);
+  // Match the cache on the anchor too — a non-front placement can be rendered
+  // from any of several sources, so without this a second back pick returns
+  // the first back render (#25 display bug).
+  const cached = await findPlacementRender(
+    designId,
+    productId,
+    placement.id,
+    sourceImageId
+  );
   if (cached) {
     console.log(
       `getOrCreatePlacementRender: cache hit design=${designId} product=${productId} url=${cached.imageUrl}`
@@ -240,6 +259,8 @@ export async function getOrCreatePlacementRender(
     generationCost: COST_PER_GENERATION,
     productId,
     placementId: placement.id,
+    // Anchor the render to its source so a later lookup matches the exact pick.
+    parentImageId: anchorId,
   });
 
   // Bump generation_count + cost so accounting stays accurate. Do NOT
