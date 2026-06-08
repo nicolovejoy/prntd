@@ -5,6 +5,7 @@ import {
   estimateShipping,
   FLAT_SHIPPING_USD,
   MARGIN_MULTIPLIER,
+  BACK_PLACEMENT_UPCHARGE,
 } from "../pricing";
 import { PRODUCTS } from "../products";
 
@@ -81,6 +82,33 @@ describe("computePrice", () => {
     expect(b.item).toBe(19.43 * 3);
     expect(b.shipping).toBe(FLAT_SHIPPING_USD);
     expect(b.total).toBe(Math.round((19.43 * 3 + FLAT_SHIPPING_USD) * 100) / 100);
+  });
+
+  it("leaves the total unchanged when no back design is added (#25)", () => {
+    expect(computePrice(0, "bella-canvas-3001", "M", {}).total).toBe(19.43);
+    expect(computePrice(0, "bella-canvas-3001", "M", { back: false }).total).toBe(
+      19.43
+    );
+  });
+
+  it("adds exactly the back upcharge to the product line (#25)", () => {
+    const front = computePrice(0, "bella-canvas-3001", "M").total;
+    const withBack = computePrice(0, "bella-canvas-3001", "M", { back: true });
+    expect(withBack.total).toBe(
+      Math.round((front + BACK_PLACEMENT_UPCHARGE) * 100) / 100
+    );
+    expect(withBack.total).toBe(27.43);
+  });
+
+  it("applies the back upcharge on the base-cost path too, at cent precision", () => {
+    const front = computePrice(0, "cotton-heritage-mc1087", "M").total;
+    const withBack = computePrice(0, "cotton-heritage-mc1087", "M", {
+      back: true,
+    });
+    expect(withBack.total).toBe(
+      Math.round((front + BACK_PLACEMENT_UPCHARGE) * 100) / 100
+    );
+    expect(Math.round(withBack.total * 100) / 100).toBe(withBack.total);
   });
 
   it("produces an exact-cent total for every product and size", () => {

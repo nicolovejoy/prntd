@@ -8,6 +8,16 @@ import {
 export const MARGIN_MULTIPLIER = 1.5;
 
 /**
+ * Customer upcharge for adding a back design (#25). Flat across products. Rides
+ * the discountable product Stripe line (a back is product value, so % promos
+ * apply to it). The underlying Printful COGS for the extra placement is ~$5.95
+ * flat (measured via /orders/estimate-costs, 2026-06-07, uniform across all
+ * three shirts); the rest is margin. COGS itself is still read back from
+ * Printful's real invoice post-submission, so this constant only sets price.
+ */
+export const BACK_PLACEMENT_UPCHARGE = 8.0;
+
+/**
  * Flat US shipping charged as a SEPARATE Stripe line (shipping_options),
  * not a line item — so percentage promo codes discount only the product,
  * never shipping (the margin fix). A live per-destination Printful quote is
@@ -66,13 +76,17 @@ export function computeOrderTotal(
 export function computePrice(
   generationCost: number,
   productId: string = DEFAULT_PRODUCT_ID,
-  size: string = "M"
+  size: string = "M",
+  opts: { back?: boolean } = {}
 ): { baseCost: number; generationCost: number; total: number } {
   const product = getProductOrThrow(productId);
   const baseCost = getBaseCost(product, size);
   const retail = getRetailPrice(product, size);
+  const front = retail ?? Math.ceil(baseCost * MARGIN_MULTIPLIER * 100) / 100;
+  // Back upcharge adds to the product line (so promos discount it). Rounded to
+  // the cent to stay aligned with the front computation.
   const total =
-    retail ?? Math.ceil(baseCost * MARGIN_MULTIPLIER * 100) / 100;
+    Math.round((front + (opts.back ? BACK_PLACEMENT_UPCHARGE : 0)) * 100) / 100;
 
   return { baseCost, generationCost, total };
 }
