@@ -3,9 +3,9 @@
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getDesign } from "../design/actions";
-import { generateMockup } from "../preview/actions";
+import { generateMockup, isMultiPlacementEnabled } from "../preview/actions";
 import { calculatePrice, createCheckoutSession } from "./actions";
-import { computeOrderTotal } from "@/lib/pricing";
+import { computeOrderTotal, BACK_PLACEMENT_UPCHARGE } from "@/lib/pricing";
 import { Button } from "@/components/ui";
 import { SizePicker, ColorPicker } from "@/components/product-options";
 import { getProduct, DEFAULT_PRODUCT_ID } from "@/lib/products";
@@ -25,7 +25,13 @@ function OrderPageInner() {
   const searchParams = useSearchParams();
   const designId = searchParams.get("id");
   const productId = searchParams.get("product") ?? DEFAULT_PRODUCT_ID;
+  const backParam = searchParams.get("back");
   const product = getProduct(productId);
+
+  // Multi-placement kill-switch (#25). A stray `?back=` is ignored until the
+  // flag is on (and the server gates it again at checkout, defense in depth).
+  const [multiPlacement, setMultiPlacement] = useState(false);
+  const backImageId = multiPlacement ? backParam : null;
 
   const sizes = product?.sizes ?? [];
   const colors = product?.colors ?? [];
@@ -43,6 +49,12 @@ function OrderPageInner() {
     total: number;
   } | null>(null);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    isMultiPlacementEnabled()
+      .then(setMultiPlacement)
+      .catch(() => setMultiPlacement(false));
+  }, []);
 
   useEffect(() => {
     if (!designId) {
@@ -83,8 +95,8 @@ function OrderPageInner() {
 
   useEffect(() => {
     if (!designId) return;
-    calculatePrice(designId, productId, size).then(setPricing);
-  }, [designId, productId, size]);
+    calculatePrice(designId, productId, size, !!backImageId).then(setPricing);
+  }, [designId, productId, size, backImageId]);
 
   // Sync selections to URL so they survive Stripe cancel → back
   useEffect(() => {
@@ -92,9 +104,11 @@ function OrderPageInner() {
     params.set("size", size);
     params.set("color", color);
     params.set("product", productId);
+    if (backImageId) params.set("back", backImageId);
+    else params.delete("back");
     const newUrl = `${window.location.pathname}?${params.toString()}`;
     window.history.replaceState(null, "", newUrl);
-  }, [size, color, productId]);
+  }, [size, color, productId, backImageId]);
 
   async function handleCheckout() {
     if (!designId) return;
@@ -105,6 +119,7 @@ function OrderPageInner() {
         size,
         color,
         productId,
+        ...(backImageId ? { back: backImageId } : {}),
       });
       if (url) window.location.href = url;
     } catch {
@@ -170,8 +185,18 @@ function OrderPageInner() {
             <div className="border-t border-border pt-4 space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-text-muted">{productName}</span>
-                <span>${breakdown.item.toFixed(2)}</span>
+                {/* When a back design is added its +$8 shows as its own line,
+                    so the product line stays the front price. */}
+                <span>
+                  ${(backImageId ? breakdown.item - BACK_PLACEMENT_UPCHARGE : breakdown.item).toFixed(2)}
+                </span>
               </div>
+              {backImageId && (
+                <div className="flex justify-between">
+                  <span className="text-text-muted">Back design</span>
+                  <span>+${BACK_PLACEMENT_UPCHARGE.toFixed(2)}</span>
+                </div>
+              )}
               <div className="flex justify-between">
                 <span className="text-text-muted">Shipping</span>
                 <span>${breakdown.shipping.toFixed(2)}</span>

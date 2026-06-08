@@ -190,6 +190,58 @@ describe("money path — checkout.session.completed", () => {
     expect(entries).toHaveLength(3);
   });
 
+  it("front+back order (#25): submits two print files and a sale at the +$8 total", async () => {
+    // itemPrice already folds in the +$8 back upcharge (19.43 + 8.00); shipping
+    // is charged once per order, not per placement.
+    const { order, design } = await seed(db, {
+      itemPrice: 27.43,
+      shippingPrice: 4.69,
+      totalPrice: 32.12,
+      placements: { front: "img-front", back: "img-back" },
+    });
+
+    const createPrintfulOrder = vi
+      .fn()
+      .mockResolvedValue({ id: 9999, costs: { total: "18.45" } });
+    const resolveImageUrlById = vi
+      .fn()
+      .mockImplementation(async (id: string) =>
+        id === "img-front"
+          ? "https://img.example/front.png"
+          : "https://img.example/back.png"
+      );
+
+    const result = await handleStripeCheckoutCompleted(
+      makeSession(order.id, design.id, {
+        amountSubtotal: 2743,
+        amountShipping: 469,
+        amountTotal: 3212,
+      }),
+      makeDeps(db, { createPrintfulOrder, resolveImageUrlById })
+    );
+    expect(result.action).toBe("submitted");
+
+    // Printful received two files — front and back — keyed by placement.
+    const files = createPrintfulOrder.mock.calls[0][0].files as {
+      placement: string;
+      url: string;
+    }[];
+    expect(files).toHaveLength(2);
+    expect(files.map((f) => f.placement).sort()).toEqual(["back", "front"]);
+    expect(files.find((f) => f.placement === "back")?.url).toBe(
+      "https://img.example/back.png"
+    );
+
+    // Sale reflects the back-inclusive total actually charged.
+    const entries = await ledgerFor(db, order.id);
+    expect(entries.find((e) => e.type === "sale")?.amount).toBe(32.12);
+
+    const updated = await db.query.order.findFirst({
+      where: eq(schema.order.id, order.id),
+    });
+    expect(updated?.itemPrice).toBe(27.43);
+  });
+
   it("Printful failure leaves the order paid with no COGS and design not ordered", async () => {
     const { order, design } = await seed(db);
     const deps = makeDeps(db, {

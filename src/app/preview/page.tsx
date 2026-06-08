@@ -2,11 +2,12 @@
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { getDesign, approveDesign } from "../design/actions";
+import { getDesign, approveDesign, getDesignGallery } from "../design/actions";
 import {
   generateMockup,
   getOrCreatePlacementRender,
   ensureMockupsPrefetched,
+  isMultiPlacementEnabled,
 } from "./actions";
 import Link from "next/link";
 import { Button } from "@/components/ui";
@@ -14,8 +15,11 @@ import {
   getProduct,
   DEFAULT_PRODUCT_ID,
   ACTIVE_PRODUCTS,
+  productSupportsPlacement,
   type AspectRatio,
 } from "@/lib/products";
+import { BACK_PLACEMENT_UPCHARGE } from "@/lib/pricing";
+import type { SourceImage } from "@/lib/design-images";
 import { ProductSilhouette } from "./product-silhouette";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
@@ -26,6 +30,8 @@ const LOADING_MESSAGES = [
   "Almost there…",
   "Adding finishing touches…",
 ];
+
+type Placement = "front" | "back";
 
 // Discriminated union: the placement render is the single source of
 // truth for what's on screen. Drives both the design image and the
@@ -58,7 +64,12 @@ function PreviewPageInner() {
   const [renderNonce, setRenderNonce] = useState(0);
   const [colorName, setColorName] = useState(product?.colors[0]?.name ?? "White");
   const [hoveredColor, setHoveredColor] = useState<string | null>(null);
-  const [mockupUrl, setMockupUrl] = useState<string | null>(null);
+  // Mockup per placement. Front is the phone-first default; back is only
+  // populated once the user opts in and picks a source image.
+  const [mockups, setMockups] = useState<{ front: string | null; back: string | null }>({
+    front: null,
+    back: null,
+  });
   const [mockupLoading, setMockupLoading] = useState(false);
   const [mockupError, setMockupError] = useState(false);
   const [hasPrimary, setHasPrimary] = useState<boolean | null>(null);
@@ -69,16 +80,33 @@ function PreviewPageInner() {
 
   const [loadingMessageIdx, setLoadingMessageIdx] = useState(0);
 
-  // Client-side cache: "productId:colorName:scale" -> mockup R2 URL
+  // Multi-placement (#25). Off-by-default flag keeps the back UI dark in
+  // prod; when off, activePlacement never leaves "front" so the whole flow
+  // is byte-identical to the single-placement version.
+  const [multiPlacement, setMultiPlacement] = useState(false);
+  const [activePlacement, setActivePlacement] = useState<Placement>("front");
+  const [backImageId, setBackImageId] = useState<string | null>(null);
+  const [backSources, setBackSources] = useState<SourceImage[] | null>(null);
+  const [backPickerOpen, setBackPickerOpen] = useState(false);
+
+  // Client-side cache: "productId:placement:colorName:scale" -> mockup R2 URL
   const mockupCache = useRef<Map<string, string>>(new Map());
   // Track the latest requested selection so a stale Printful response
   // (color clicked, then changed) can't overwrite the current one.
   const latestColorRef = useRef(colorName);
   const latestProductRef = useRef(productId);
+  const latestPlacementRef = useRef<Placement>(activePlacement);
 
   const colors = product?.colors ?? [];
   const regenerating = renderState.status === "loading";
   const designImageUrl = renderState.status === "ready" ? renderState.imageUrl : null;
+  const activeMockup = mockups[activePlacement];
+  const showBackToggle =
+    multiPlacement && !!product && productSupportsPlacement(product, "back");
+  // Show the source picker in place of the hero when on Back with no source
+  // yet, or when the user reopened it to swap the back image.
+  const showBackPicker =
+    activePlacement === "back" && (!backImageId || backPickerOpen);
 
   // Load design once. Confirms primary_image_id exists (else send the
   // user back to /design to pick one) and seeds the client mockup cache
@@ -120,15 +148,33 @@ function PreviewPageInner() {
     };
   }, [designId, router]);
 
-  // Resolve the design image to render for the current (designId, productId).
-  // The server returns either a cached design_image row or a fresh anchored
-  // render. State derives from the in-flight call -- the cleanup function
-  // cancels stale resolutions, replacing the old seq-guard ref pattern.
+  // Read the multi-placement kill-switch once on mount (server-only env).
+  useEffect(() => {
+    isMultiPlacementEnabled()
+      .then(setMultiPlacement)
+      .catch(() => setMultiPlacement(false));
+  }, []);
+
+  // Resolve the design image to render for the current
+  // (designId, productId, activePlacement, backImageId). The server returns
+  // either a cached design_image row or a fresh anchored render. State derives
+  // from the in-flight call -- the cleanup cancels stale resolutions.
   useEffect(() => {
     if (!designId || !hasPrimary) return;
+    // Back with no source yet: nothing to render — the hero shows the
+    // source picker instead. Don't fetch.
+    if (activePlacement === "back" && !backImageId) {
+      setRenderState({ status: "idle" });
+      return;
+    }
     let canceled = false;
     setRenderState({ status: "loading" });
-    getOrCreatePlacementRender(designId, productId)
+    const placement = activePlacement;
+    const resolve =
+      placement === "back"
+        ? getOrCreatePlacementRender(designId, productId, "back", backImageId!)
+        : getOrCreatePlacementRender(designId, productId);
+    resolve
       .then((result) => {
         if (canceled) return;
         setRenderState({
@@ -136,12 +182,13 @@ function PreviewPageInner() {
           imageUrl: result.imageUrl,
           aspectRatio: result.aspectRatio,
         });
-        // Fresh placement render invalidates client mockup entries for
-        // this product. Server clears DB mockupUrls on insert.
+        // Fresh placement render invalidates client mockup entries for this
+        // product + placement. Server clears DB mockupUrls on insert.
+        const prefix = `${productId}:${placement}:`;
         for (const key of [...mockupCache.current.keys()]) {
-          if (key.startsWith(`${productId}:`)) mockupCache.current.delete(key);
+          if (key.startsWith(prefix)) mockupCache.current.delete(key);
         }
-        setMockupUrl(null);
+        setMockups((m) => ({ ...m, [placement]: null }));
         setMockupError(false);
       })
       .catch((err) => {
@@ -155,42 +202,42 @@ function PreviewPageInner() {
     return () => {
       canceled = true;
     };
-  }, [designId, productId, hasPrimary, renderNonce]);
+  }, [designId, productId, hasPrimary, renderNonce, activePlacement, backImageId]);
 
-  // Generate mockup on demand (called by "Preview on product" effect)
-  async function handlePreviewOnProduct() {
+  // Generate mockup for a placement on demand (called by the auto-trigger
+  // effect). Caches per productId:placement:color:scale.
+  async function renderMockupFor(placement: Placement) {
     if (!designId) return;
 
     const scaleKey = Math.round(scale * 100);
-    // Front-only until the 2.4 front/back toggle lands. Key must match the
-    // server's productId:placement:color:scale format (#25 2.1).
-    const cacheKey = `${productId}:front:${colorName}:${scaleKey}`;
+    // Key must match the server's productId:placement:color:scale format (#25 2.1).
+    const cacheKey = `${productId}:${placement}:${colorName}:${scaleKey}`;
 
     const cached = mockupCache.current.get(cacheKey);
     if (cached) {
-      setMockupUrl(cached);
+      setMockups((m) => ({ ...m, [placement]: cached }));
       setMockupError(false);
       return;
     }
 
     setMockupLoading(true);
     setMockupError(false);
-    setMockupUrl(null);
+    setMockups((m) => ({ ...m, [placement]: null }));
+    const stillCurrent = () =>
+      latestColorRef.current === colorName &&
+      latestProductRef.current === productId &&
+      latestPlacementRef.current === placement;
     try {
-      const result = await generateMockup(designId, colorName, productId, scale);
-      if (latestColorRef.current === colorName && latestProductRef.current === productId) {
+      const result = await generateMockup(designId, colorName, productId, scale, placement);
+      if (stillCurrent()) {
         mockupCache.current.set(cacheKey, result.mockupUrl);
-        setMockupUrl(result.mockupUrl);
+        setMockups((m) => ({ ...m, [placement]: result.mockupUrl }));
       }
     } catch (err) {
       console.error("Mockup generation failed:", err);
-      if (latestColorRef.current === colorName && latestProductRef.current === productId) {
-        setMockupError(true);
-      }
+      if (stillCurrent()) setMockupError(true);
     } finally {
-      if (latestColorRef.current === colorName && latestProductRef.current === productId) {
-        setMockupLoading(false);
-      }
+      if (stillCurrent()) setMockupLoading(false);
     }
   }
 
@@ -206,20 +253,20 @@ function PreviewPageInner() {
     return () => clearInterval(timer);
   }, [mockupLoading]);
 
-  // Auto-trigger the real Printful mockup whenever the placement render
-  // settles (initial load, color change, product change). The mockup is
-  // the actual product render the user will see in their order.
+  // Auto-trigger the real Printful mockup whenever the active placement's
+  // render settles (initial load, color/product change, placement switch).
   useEffect(() => {
     if (!designImageUrl) return;
-    if (regenerating || mockupLoading || mockupUrl) return;
-    void handlePreviewOnProduct();
+    if (regenerating || mockupLoading || mockups[activePlacement]) return;
+    void renderMockupFor(activePlacement);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [designImageUrl, productId, colorName, regenerating]);
+  }, [designImageUrl, productId, colorName, activePlacement, regenerating]);
 
   function handleColorChange(name: string) {
     setColorName(name);
     latestColorRef.current = name;
-    setMockupUrl(null);
+    // A new color invalidates both placements' mockups.
+    setMockups({ front: null, back: null });
     setMockupError(false);
     setMockupLoading(false);
   }
@@ -233,7 +280,12 @@ function PreviewPageInner() {
     latestProductRef.current = newProductId;
     setColorName(newColor);
     latestColorRef.current = newColor;
-    setMockupUrl(null);
+    // Reset to front: the new product may not support back, and back
+    // renders are product-specific. Keep backImageId (a thread source id).
+    setActivePlacement("front");
+    latestPlacementRef.current = "front";
+    setBackPickerOpen(false);
+    setMockups({ front: null, back: null });
     setMockupError(false);
     setMockupLoading(false);
 
@@ -243,11 +295,46 @@ function PreviewPageInner() {
     );
   }
 
+  function switchPlacement(placement: Placement) {
+    if (placement === activePlacement) return;
+    setActivePlacement(placement);
+    latestPlacementRef.current = placement;
+    setMockupError(false);
+    setMockupLoading(false);
+    if (placement === "back" && !backImageId) {
+      // Lazy-load the source picker the first time Back is opened.
+      void openBackPicker();
+    }
+  }
+
+  async function openBackPicker() {
+    setBackPickerOpen(true);
+    if (backSources || !designId) return;
+    try {
+      const { sources } = await getDesignGallery(designId);
+      setBackSources(sources);
+    } catch (err) {
+      console.error("getDesignGallery failed:", err);
+      setBackSources([]);
+    }
+  }
+
+  function chooseBackSource(id: string) {
+    setBackImageId(id);
+    setBackPickerOpen(false);
+    // New back source invalidates the back mockup only.
+    setMockups((m) => ({ ...m, back: null }));
+    setMockupError(false);
+    setMockupLoading(false);
+  }
+
   async function handleApprove() {
     if (!designId) return;
     await approveDesign(designId);
+    const backParam =
+      multiPlacement && backImageId ? `&back=${backImageId}` : "";
     router.push(
-      `/order?id=${designId}&color=${encodeURIComponent(colorName)}&product=${productId}`
+      `/order?id=${designId}&color=${encodeURIComponent(colorName)}&product=${productId}${backParam}`
     );
   }
 
@@ -271,6 +358,9 @@ function PreviewPageInner() {
   const colorHex =
     colors.find((c) => c.name === colorName)?.value ?? "#ffffff";
   const productName = product?.name ?? "design";
+  // Approve needs the front mockup; a chosen back also needs its mockup.
+  const approveReady =
+    !!mockups.front && (!backImageId || !!mockups.back);
 
   return (
     <div className="min-h-screen flex flex-col items-center py-6 md:py-12 px-4">
@@ -333,66 +423,135 @@ function PreviewPageInner() {
         </>
       )}
 
-      {/* Mockup / Client-side preview */}
-      <button
-        type="button"
-        onClick={() => mockupUrl && !mockupLoading && setLightboxOpen(true)}
-        className={`w-64 h-80 md:w-80 md:h-96 rounded-lg shadow-lg overflow-hidden relative ${
-          mockupUrl && !mockupLoading ? "cursor-zoom-in" : ""
-        }`}
-      >
-        {regenerating && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-surface-alt animate-pulse z-20">
-            <div className="w-12 h-12 border-2 border-accent border-t-transparent rounded-full animate-spin mb-3" />
-            <span className="text-sm text-text-muted text-center px-4">
-              Preparing your design for the {productName}…
-            </span>
+      {/* Front / Back toggle (#25) — only when the flag is on and the product
+          offers a back placement. Front stays the required default. */}
+      {showBackToggle && (
+        <div className="flex flex-col items-center gap-1 mb-4 md:mb-6">
+          <div className="inline-flex rounded-lg border-2 border-border overflow-hidden">
+            {(["front", "back"] as const).map((pl) => (
+              <button
+                key={pl}
+                onClick={() => switchPlacement(pl)}
+                disabled={regenerating || mockupLoading}
+                className={`px-4 py-2 text-sm font-medium capitalize transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                  activePlacement === pl
+                    ? "bg-accent text-accent-fg"
+                    : "text-text-muted hover:text-foreground"
+                }`}
+              >
+                {pl}
+              </button>
+            ))}
           </div>
-        )}
-
-        {renderState.status === "error" && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-surface-alt z-20 px-4 text-center">
-            <span className="text-sm text-text-muted">
-              Couldn&rsquo;t prepare your design for the {productName}.
+          {activePlacement === "back" && (
+            <span className="text-xs text-text-muted">
+              Back design +${BACK_PLACEMENT_UPCHARGE.toFixed(2)}
             </span>
-            <span className="text-xs text-text-faint">
-              Use “Try again” below.
-            </span>
-          </div>
-        )}
+          )}
+        </div>
+      )}
 
-        {!regenerating && mockupLoading && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-surface-alt animate-pulse z-10">
-            <div className="w-12 h-12 border-2 border-accent border-t-transparent rounded-full animate-spin mb-3" />
-            <span className="text-sm text-text-muted transition-opacity">
-              {LOADING_MESSAGES[loadingMessageIdx]}
-            </span>
-          </div>
-        )}
+      {/* Hero: back-source picker (Back, no source) or the mockup/preview */}
+      {showBackPicker ? (
+        <div className="w-64 md:w-80 flex flex-col items-center gap-3">
+          <p className="text-sm text-text-muted text-center">
+            Pick an image from this design to print on the back.
+          </p>
+          {backSources === null ? (
+            <div className="w-12 h-12 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+          ) : backSources.length === 0 ? (
+            <p className="text-sm text-text-faint text-center">
+              No images yet. <Link href={`/design?id=${designId}`} className="underline">Add one in the designer.</Link>
+            </p>
+          ) : (
+            <div className="grid grid-cols-3 gap-2 w-full">
+              {backSources.map((s) => (
+                <button
+                  key={s.id}
+                  onClick={() => chooseBackSource(s.id)}
+                  className="aspect-square rounded-md overflow-hidden border-2 border-border hover:border-accent bg-checkerboard"
+                >
+                  <img
+                    src={s.imageUrl}
+                    alt="Design option"
+                    className="w-full h-full object-contain"
+                  />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => activeMockup && !mockupLoading && setLightboxOpen(true)}
+          className={`w-64 h-80 md:w-80 md:h-96 rounded-lg shadow-lg overflow-hidden relative ${
+            activeMockup && !mockupLoading ? "cursor-zoom-in" : ""
+          }`}
+        >
+          {regenerating && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-surface-alt animate-pulse z-20">
+              <div className="w-12 h-12 border-2 border-accent border-t-transparent rounded-full animate-spin mb-3" />
+              <span className="text-sm text-text-muted text-center px-4">
+                Preparing your design for the {productName}…
+              </span>
+            </div>
+          )}
 
-        {!mockupLoading && mockupUrl && (
-          <img
-            src={mockupUrl}
-            alt={`Your design on a ${colorName} ${productName}`}
-            className="w-full h-full object-cover"
-          />
-        )}
+          {renderState.status === "error" && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-surface-alt z-20 px-4 text-center">
+              <span className="text-sm text-text-muted">
+                Couldn&rsquo;t prepare your design for the {productName}.
+              </span>
+              <span className="text-xs text-text-faint">
+                Use “Try again” below.
+              </span>
+            </div>
+          )}
 
-        {!mockupLoading && !mockupUrl && (
-          <div className="w-full h-full p-2">
-            <ProductSilhouette
-              productType={product?.type ?? "shirt"}
-              color={colorHex}
-              designImageUrl={designImageUrl}
-              scale={scale}
-              printArea={product?.printArea ?? { width: 12, height: 16 }}
+          {!regenerating && mockupLoading && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-surface-alt animate-pulse z-10">
+              <div className="w-12 h-12 border-2 border-accent border-t-transparent rounded-full animate-spin mb-3" />
+              <span className="text-sm text-text-muted transition-opacity">
+                {LOADING_MESSAGES[loadingMessageIdx]}
+              </span>
+            </div>
+          )}
+
+          {!mockupLoading && activeMockup && (
+            <img
+              src={activeMockup}
+              alt={`Your design on a ${colorName} ${productName}`}
+              className="w-full h-full object-cover"
             />
-          </div>
-        )}
-      </button>
+          )}
+
+          {!mockupLoading && !activeMockup && (
+            <div className="w-full h-full p-2">
+              <ProductSilhouette
+                productType={product?.type ?? "shirt"}
+                color={colorHex}
+                designImageUrl={designImageUrl}
+                scale={scale}
+                printArea={product?.printArea ?? { width: 12, height: 16 }}
+              />
+            </div>
+          )}
+        </button>
+      )}
+
+      {/* Change-image affordance once a back source is chosen */}
+      {showBackToggle && activePlacement === "back" && backImageId && !backPickerOpen && (
+        <button
+          onClick={openBackPicker}
+          className="text-sm text-text-muted hover:text-foreground hover:underline mt-3"
+        >
+          Change back image
+        </button>
+      )}
 
       {/* Scale slider */}
-      {!mockupLoading && !mockupUrl && (
+      {!showBackPicker && !mockupLoading && !activeMockup && (
         <div className="w-full max-w-xs mt-4">
           <div className="flex items-center justify-between text-xs text-text-muted mb-1">
             <span>Design size</span>
@@ -410,7 +569,7 @@ function PreviewPageInner() {
       )}
 
       {/* Fullscreen lightbox with zoom + pan */}
-      {lightboxOpen && mockupUrl && (
+      {lightboxOpen && activeMockup && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/90"
           onClick={(e) => {
@@ -454,7 +613,7 @@ function PreviewPageInner() {
             }}
           >
             <img
-              src={mockupUrl}
+              src={activeMockup}
               alt={`Your design on a ${colorName} ${productName}`}
               className="max-w-[90vw] max-h-[90vh] object-contain transition-transform duration-200"
               style={{
@@ -495,7 +654,7 @@ function PreviewPageInner() {
             </Button>
           ) : mockupError ? (
             <Button
-              onClick={handlePreviewOnProduct}
+              onClick={() => renderMockupFor(activePlacement)}
               variant="secondary"
               className="flex-1 md:flex-none"
               disabled={regenerating}
@@ -506,11 +665,11 @@ function PreviewPageInner() {
             <Button
               onClick={handleApprove}
               className="flex-1 md:flex-none"
-              disabled={regenerating || mockupLoading || !mockupUrl}
+              disabled={regenerating || mockupLoading || !approveReady}
             >
               {regenerating
                 ? "Preparing design…"
-                : mockupLoading || !mockupUrl
+                : mockupLoading || !approveReady
                   ? "Rendering preview…"
                   : `Use this design`}
             </Button>
