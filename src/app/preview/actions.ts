@@ -10,7 +10,7 @@ import { createMockupTask, pollMockupTask } from "@/lib/printful";
 import {
   getProduct,
   getProductOrThrow,
-  getDefaultPlacement,
+  getPlacement,
   needsAspectRegeneration,
   DEFAULT_PRODUCT_ID,
   type AspectRatio,
@@ -30,7 +30,8 @@ export async function generateMockup(
   designId: string,
   colorName: string,
   productId: string = DEFAULT_PRODUCT_ID,
-  scale: number = 1.0
+  scale: number = 1.0,
+  placementId: string = "front"
 ): Promise<{ mockupUrl: string }> {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) throw new Error("Unauthorized");
@@ -45,8 +46,10 @@ export async function generateMockup(
   const clampedScale = Math.max(0.3, Math.min(1.0, scale));
   const scaleKey = Math.round(clampedScale * 100);
 
-  // Cache key includes product and scale so different combos don't collide
-  const cacheKey = `${productId}:${colorName}:${scaleKey}`;
+  // Cache key includes product, placement, and scale so different combos
+  // don't collide. Placement was added in #25 2.1 — back didn't exist
+  // before, so the new front keys are still distinct from any old data.
+  const cacheKey = `${productId}:${placementId}:${colorName}:${scaleKey}`;
   const cached = found.mockupUrls?.[cacheKey];
   if (cached) return { mockupUrl: cached };
 
@@ -56,8 +59,7 @@ export async function generateMockup(
   const variantId = colorVariants?.["M"] ?? (colorVariants ? Object.values(colorVariants)[0] : undefined);
   if (!variantId) throw new Error(`No variant for ${colorName} on ${product.name}`);
 
-  const placement = product.placements[0];
-  if (!placement) throw new Error(`Product ${product.id} has no placements defined`);
+  const placement = getPlacement(product, placementId);
 
   // Resolve the image URL to print: use the placement-specific render
   // when one exists (for products whose aspect differs from the source),
@@ -70,7 +72,7 @@ export async function generateMockup(
   if (!sourceImageUrl) throw new Error("No design image");
 
   // Compute scaled position (centered within print area)
-  const base = product.mockupPosition;
+  const base = placement.mockupPosition;
   const scaledWidth = Math.round(base.width * clampedScale);
   const scaledHeight = Math.round(base.height * clampedScale);
   const scaledPosition = {
@@ -99,7 +101,7 @@ export async function generateMockup(
   // Download and persist to R2
   const response = await fetch(tempUrl);
   const buffer = Buffer.from(await response.arrayBuffer());
-  const r2Url = await uploadMockupImage(designId, colorName, buffer);
+  const r2Url = await uploadMockupImage(designId, colorName, buffer, placement.id);
 
   // Re-read before update to avoid clobbering concurrent preloads
   const fresh = await db.query.design.findFirst({
@@ -135,7 +137,9 @@ export async function generateMockup(
  */
 export async function getOrCreatePlacementRender(
   designId: string,
-  productId: string
+  productId: string,
+  placementId: string = "front",
+  sourceImageId?: string
 ): Promise<{ id: string; imageUrl: string; aspectRatio: AspectRatio }> {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) throw new Error("Unauthorized");
@@ -146,15 +150,23 @@ export async function getOrCreatePlacementRender(
   if (!found || found.userId !== session.user.id) {
     throw new Error("Unauthorized");
   }
-  if (!found.primaryImageId) {
-    throw new Error("No primary image — design has no source pick yet");
+
+  // Anchor source: an explicit pick (decision 2a — back reuses a chosen
+  // source image from the same thread) wins; otherwise the design's
+  // primary image (the front default).
+  const anchorId = sourceImageId ?? found.primaryImageId;
+  if (!anchorId) {
+    throw new Error("No source image — design has no source pick yet");
   }
 
-  const primary = await getDesignImageById(found.primaryImageId);
-  if (!primary) throw new Error("Primary image row missing");
+  const primary = await getDesignImageById(anchorId);
+  if (!primary) throw new Error("Source image row missing");
+  if (primary.designId !== designId) {
+    throw new Error("Source image does not belong to this design");
+  }
 
   const product = getProductOrThrow(productId);
-  const placement = getDefaultPlacement(product);
+  const placement = getPlacement(product, placementId);
   const targetAspect = placement.aspectRatio;
 
   // Source aspect already fits → primary IS the placement render.
@@ -308,8 +320,9 @@ export async function prefetchProductMockups(
       return;
     }
 
-    const placement = product.placements[0];
-    if (!placement) return;
+    // Prefetch stays front-only — back renders on demand so we don't
+    // double the bulk mockup cost for the phone-first front path.
+    const placement = getPlacement(product, "front");
 
     // Resolve the source image — same priority as generateMockup: prefer
     // the placement-specific render, fall back to the design's primary
@@ -338,7 +351,7 @@ export async function prefetchProductMockups(
     if (variantToColor.size === 0) return;
 
     // Use the same scaled position the on-demand path uses at scale 1.0.
-    const base = product.mockupPosition;
+    const base = placement.mockupPosition;
     const scaledPosition = {
       area_width: base.area_width,
       area_height: base.area_height,
@@ -372,9 +385,9 @@ export async function prefetchProductMockups(
           const response = await fetch(r.mockupUrl);
           if (!response.ok) throw new Error(`fetch ${response.status}`);
           const buffer = Buffer.from(await response.arrayBuffer());
-          const r2Url = await uploadMockupImage(designId, colorName, buffer);
-          // Cache key matches generateMockup: productId:color:scale (100 = 1.0)
-          newEntries[`${productId}:${colorName}:100`] = r2Url;
+          const r2Url = await uploadMockupImage(designId, colorName, buffer, "front");
+          // Cache key matches generateMockup: productId:placement:color:scale (100 = 1.0)
+          newEntries[`${productId}:front:${colorName}:100`] = r2Url;
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           console.warn(

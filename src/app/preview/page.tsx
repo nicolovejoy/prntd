@@ -162,7 +162,9 @@ function PreviewPageInner() {
     if (!designId) return;
 
     const scaleKey = Math.round(scale * 100);
-    const cacheKey = `${productId}:${colorName}:${scaleKey}`;
+    // Front-only until the 2.4 front/back toggle lands. Key must match the
+    // server's productId:placement:color:scale format (#25 2.1).
+    const cacheKey = `${productId}:front:${colorName}:${scaleKey}`;
 
     const cached = mockupCache.current.get(cacheKey);
     if (cached) {

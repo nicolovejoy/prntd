@@ -103,6 +103,18 @@ describe("createMockupTask", () => {
     const key = await createMockupTask(71, [4012], "https://x/img.png", position, "front");
     expect(key).toBe("task-xyz");
   });
+
+  it("passes a non-front placement through to the Printful file (#25 back)", async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(JSON.stringify({ result: { task_key: "abc123" } }), {
+        status: 200,
+      })
+    );
+    await createMockupTask(71, [4012], "https://x/img.png", position, "back");
+    const init = fetchSpy.mock.calls[0]?.[1] as RequestInit;
+    const body = JSON.parse(String(init.body));
+    expect(body.files[0].placement).toBe("back");
+  });
 });
 
 describe("pollMockupTask", () => {

@@ -40,10 +40,15 @@ export async function uploadDesignImage(
 export async function uploadMockupImage(
   designId: string,
   colorName: string,
-  imageBuffer: Buffer
+  imageBuffer: Buffer,
+  placementId: string = "front"
 ): Promise<string> {
   const slug = colorName.toLowerCase().replace(/\s+/g, "-");
-  const key = `designs/${designId}/mockups/${slug}.jpg`;
+  // Front keeps the legacy `{color}.jpg` key so already-cached URLs stay
+  // valid; other placements get a `-{placement}` suffix so front/back
+  // mockups for the same color don't overwrite each other.
+  const suffix = placementId === "front" ? "" : `-${placementId}`;
+  const key = `designs/${designId}/mockups/${slug}${suffix}.jpg`;
 
   await r2.send(
     new PutObjectCommand({
