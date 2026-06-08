@@ -1,8 +1,11 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
+import { anonymous } from "better-auth/plugins/anonymous";
+import { eq } from "drizzle-orm";
 import { db } from "./db";
 import * as schema from "./db/schema";
+import { design as designTable, order as orderTable } from "./db/schema";
 import { sendPasswordResetEmail } from "./email";
 
 // The auth client resolves to same-origin, so requests come from whatever
@@ -32,5 +35,29 @@ export const auth = betterAuth({
       await sendPasswordResetEmail({ to: user.email, url });
     },
   },
-  plugins: [nextCookies()],
+  plugins: [
+    // Guest funnel (#26): every signed-out browser gets a real lightweight
+    // user row so the design/preview/order surface works without sign-in. The
+    // gate moves to checkout. onLinkAccount re-parents the guest's rows to the
+    // real account on sign-in/up — it runs BEFORE the plugin deletes the anon
+    // user (better-auth 1.5.6 after-hook order), so the FK re-pointing is safe.
+    anonymous({
+      onLinkAccount: async ({ anonymousUser, newUser }) => {
+        const fromId = anonymousUser.user.id;
+        const toId = newUser.user.id;
+        if (fromId === toId) return;
+        // design_image + chat_message follow via design_id; cart re-parents
+        // here too once Stage B lands.
+        await db
+          .update(designTable)
+          .set({ userId: toId })
+          .where(eq(designTable.userId, fromId));
+        await db
+          .update(orderTable)
+          .set({ userId: toId })
+          .where(eq(orderTable.userId, fromId));
+      },
+    }),
+    nextCookies(),
+  ],
 });

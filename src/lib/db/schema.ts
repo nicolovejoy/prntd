@@ -6,6 +6,11 @@ export const user = sqliteTable("user", {
   name: text("name").notNull(),
   emailVerified: integer("email_verified", { mode: "boolean" }).notNull().default(false),
   image: text("image"),
+  // Better-Auth anonymous plugin: true for guest browsers that haven't signed
+  // in yet (#26 guest funnel). On sign-in/up the plugin's onLinkAccount
+  // re-parents their designs/orders to the real account, then deletes the anon
+  // row. Nullable/default-false so existing rows and the plugin agree.
+  isAnonymous: integer("is_anonymous", { mode: "boolean" }).default(false),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
