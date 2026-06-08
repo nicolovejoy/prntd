@@ -4,6 +4,8 @@ import { order as orderTable, user as userTable } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { handlePrintfulEvent } from "@/lib/webhook-handlers";
 import { sendShippingNotification } from "@/lib/email";
+import { resolveHeroImages } from "@/lib/order-emails";
+import { design as designTable } from "@/lib/db/schema";
 
 // Printful webhook events reference:
 // https://developers.printful.com/docs/#tag/Webhooks-API
@@ -31,19 +33,36 @@ export async function POST(request: NextRequest) {
     if (result.action === "shipped" && result.orderId) {
       try {
         const orderWithUser = await db
-          .select({ email: userTable.email, displayName: orderTable.displayName })
+          .select({
+            email: userTable.email,
+            displayName: orderTable.displayName,
+            productId: orderTable.productId,
+            color: orderTable.color,
+            designId: orderTable.designId,
+            placements: orderTable.placements,
+            mockupUrls: designTable.mockupUrls,
+          })
           .from(orderTable)
           .innerJoin(userTable, eq(orderTable.userId, userTable.id))
+          .leftJoin(designTable, eq(orderTable.designId, designTable.id))
           .where(eq(orderTable.id, result.orderId))
           .then((rows) => rows[0]);
 
         if (orderWithUser) {
+          const images = await resolveHeroImages({
+            productId: orderWithUser.productId,
+            color: orderWithUser.color,
+            designId: orderWithUser.designId,
+            placements: orderWithUser.placements ?? null,
+            mockupUrls: orderWithUser.mockupUrls ?? null,
+          });
           await sendShippingNotification({
             to: orderWithUser.email,
             orderId: result.orderId,
             trackingNumber: result.trackingNumber ?? null,
             trackingUrl: result.trackingUrl ?? null,
             displayName: orderWithUser.displayName,
+            images,
           });
           console.log(`Order ${result.orderId}: shipping email sent to ${orderWithUser.email}`);
         }

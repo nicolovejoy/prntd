@@ -10,6 +10,7 @@ function createDeps(overrides: Partial<OrderEmailDeps> = {}): OrderEmailDeps {
       totalPrice: 30.0,
       discountCode: null,
       displayName: null,
+      images: [],
     }),
     sendOrderConfirmation: vi.fn().mockResolvedValue(undefined),
     sendOwnerOrderAlert: vi.fn().mockResolvedValue(undefined),
@@ -30,7 +31,9 @@ describe("sendPostOrderEmails", () => {
       size: "M",
       color: "Black",
       total: 30.0,
+      productName: undefined,
       displayName: null,
+      images: [],
     });
     expect(deps.sendOwnerOrderAlert).toHaveBeenCalledWith({
       orderId: "order-1",
@@ -40,6 +43,7 @@ describe("sendPostOrderEmails", () => {
       total: 30.0,
       discountCode: null,
       displayName: null,
+      images: [],
     });
   });
 
@@ -52,6 +56,7 @@ describe("sendPostOrderEmails", () => {
         totalPrice: 15.0,
         discountCode: "nico-codes",
         displayName: null,
+        images: [],
       }),
     });
 
@@ -71,6 +76,7 @@ describe("sendPostOrderEmails", () => {
         totalPrice: 30.0,
         discountCode: null,
         displayName: "Artificial Idiot",
+        images: [],
       }),
     });
 
