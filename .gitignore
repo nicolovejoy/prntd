@@ -55,3 +55,6 @@ ci-skip.db
 
 # Test coverage output
 /coverage
+
+# Claude Code local settings + runtime files
+.claude/
