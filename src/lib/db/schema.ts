@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const user = sqliteTable("user", {
   id: text("id").primaryKey(),
@@ -177,6 +177,25 @@ export const ledgerEntry = sqliteTable("ledger_entry", {
   metadata: text("metadata", { mode: "json" }).$type<Record<string, unknown>>(),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
+
+/**
+ * Per-day generation counters for the guest-funnel abuse guard (#26 A3).
+ * One row per (bucket, day): bucket is "user:<id>" (the anon or real user) or
+ * "ip:<addr>". Incremented before each Replicate/Anthropic generation; over the
+ * daily cap → the action returns a "sign in to keep designing" message with no
+ * API spend. Ephemeral accounting, not financial — safe to prune old days.
+ */
+export const generationUsage = sqliteTable(
+  "generation_usage",
+  {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    bucket: text("bucket").notNull(),
+    day: text("day").notNull(), // YYYY-MM-DD (UTC)
+    count: integer("count").notNull().default(0),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  },
+  (t) => [uniqueIndex("generation_usage_bucket_day").on(t.bucket, t.day)]
+);
 
 export type ChatMessage = {
   id: string;
