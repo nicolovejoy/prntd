@@ -396,8 +396,7 @@ function PreviewPageInner() {
           <button
             key={p.id}
             onClick={() => handleProductChange(p.id)}
-            disabled={regenerating || mockupLoading}
-            className={`flex-1 px-3 py-2 rounded-lg border-2 text-left transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+            className={`flex-1 px-3 py-2 rounded-lg border-2 text-left transition-colors ${
               productId === p.id
                 ? "border-accent ring-2 ring-accent ring-offset-1 ring-offset-background"
                 : "border-border hover:border-text-muted"

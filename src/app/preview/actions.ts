@@ -77,11 +77,13 @@ export async function generateMockup(
 
   const placement = getPlacement(product, placementId);
 
-  // Resolve the image URL to print: use the placement-specific render
-  // when one exists (for products whose aspect differs from the source),
-  // otherwise fall back to the design's primary image. After Step 2,
-  // getOrCreatePlacementRender always populates this row before
-  // generateMockup runs, so the cache hit is the common case.
+  // Resolve the image URL to print. Prefer the placement-specific render
+  // (products whose aspect differs from the source). With an explicit source
+  // (#25 non-front) and no render row — the case where the source already fits
+  // the placement aspect, so getOrCreatePlacementRender returned it directly —
+  // print that source, NOT the design's display image (which is the front;
+  // using it made a back mockup show the front). Front (no source) keeps the
+  // legacy display-image fallback.
   const placementRender = await findPlacementRender(
     designId,
     productId,
@@ -89,7 +91,10 @@ export async function generateMockup(
     sourceImageId
   );
   const sourceImageUrl =
-    placementRender?.imageUrl ?? (await getDesignDisplayImageUrl(designId));
+    placementRender?.imageUrl ??
+    (sourceImageId
+      ? (await getDesignImageById(sourceImageId))?.imageUrl
+      : await getDesignDisplayImageUrl(designId));
   if (!sourceImageUrl) throw new Error("No design image");
 
   // Compute scaled position (centered within print area)
