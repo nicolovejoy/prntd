@@ -14,10 +14,28 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const siteUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://prntd.org";
+const title = "PRNTD — AI-Powered Custom Design";
+const description =
+  "Design custom apparel and accessories with AI. Describe your idea, generate a unique design, and order it on shirts, phone cases, and more.";
+
 export const metadata: Metadata = {
-  title: "PRNTD — AI-Powered Custom Design",
-  description:
-    "Design custom apparel and accessories with AI. Describe your idea, generate a unique design, and order it on shirts, phone cases, and more.",
+  // Makes opengraph-image / twitter-image resolve to absolute https URLs.
+  metadataBase: new URL(siteUrl),
+  title,
+  description,
+  openGraph: {
+    type: "website",
+    siteName: "PRNTD",
+    url: siteUrl,
+    title,
+    description,
+  },
+  twitter: {
+    card: "summary_large_image",
+    title,
+    description,
+  },
 };
 
 export default function RootLayout({
