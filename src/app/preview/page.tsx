@@ -23,6 +23,7 @@ import type { SourceImage } from "@/lib/design-images";
 import { ProductSilhouette } from "./product-silhouette";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
+import { ensureGuestSession } from "@/lib/ensure-guest-session";
 
 const LOADING_MESSAGES = [
   "Rendering your design…",
@@ -107,6 +108,12 @@ function PreviewPageInner() {
   // yet, or when the user reopened it to swap the back image.
   const showBackPicker =
     activePlacement === "back" && (!backImageId || backPickerOpen);
+
+  // Guest funnel (#26): keep the anonymous session alive on this surface so a
+  // signed-out visitor who deep-links here (or returns) can load their design.
+  useEffect(() => {
+    ensureGuestSession();
+  }, []);
 
   // Load design once. Confirms primary_image_id exists (else send the
   // user back to /design to pick one) and seeds the client mockup cache

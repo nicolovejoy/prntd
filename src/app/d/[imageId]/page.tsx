@@ -2,7 +2,7 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { getPublishedImage } from "../actions";
-import { auth } from "@/lib/auth";
+import { auth, isAnonymousUser } from "@/lib/auth";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
 import { EditableNaming } from "./editable-naming";
@@ -25,7 +25,9 @@ export default async function PublishedImagePage({
   if (!img) notFound();
 
   const session = await auth.api.getSession({ headers: await headers() });
-  const isLoggedIn = Boolean(session);
+  // Anonymous (guest) sessions don't count as logged-in for the buy CTA — the
+  // purchase point requires a real account. A guest sees "Sign in to buy".
+  const isLoggedIn = Boolean(session) && !isAnonymousUser(session?.user);
   const isOwner = session?.user.id === img.designerId;
 
   return (

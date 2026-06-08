@@ -11,6 +11,7 @@ import { SizePicker, ColorPicker } from "@/components/product-options";
 import { getProduct, DEFAULT_PRODUCT_ID } from "@/lib/products";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
+import { ensureGuestSession } from "@/lib/ensure-guest-session";
 
 export default function OrderPage() {
   return (
@@ -52,6 +53,12 @@ function OrderPageInner() {
     total: number;
   } | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // Guest funnel (#26): keep the anonymous session alive so a signed-out
+  // visitor can reach the order page; the auth gate fires at checkout.
+  useEffect(() => {
+    ensureGuestSession();
+  }, []);
 
   useEffect(() => {
     isMultiPlacementEnabled()
@@ -117,13 +124,20 @@ function OrderPageInner() {
     if (!designId) return;
     setLoading(true);
     try {
-      const { url } = await createCheckoutSession({
+      const { url, needsAuth } = await createCheckoutSession({
         designId,
         size,
         color,
         productId,
         ...(backActive ? { back: backImageId! } : {}),
       });
+      // Guest hit the purchase gate — send them to sign-in and back. After
+      // sign-in the anonymous plugin re-parents this design to their account.
+      if (needsAuth) {
+        const next = window.location.pathname + window.location.search;
+        window.location.href = `/sign-in?next=${encodeURIComponent(next)}`;
+        return;
+      }
       if (url) window.location.href = url;
     } catch {
       setLoading(false);

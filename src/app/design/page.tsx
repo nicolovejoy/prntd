@@ -25,6 +25,7 @@ import { MobileGalleryDrawer } from "./mobile-gallery-drawer";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
 import { isDesignEmpty } from "@/lib/design-view";
+import { ensureGuestSession } from "@/lib/ensure-guest-session";
 
 export default function DesignPage() {
   return (
@@ -69,6 +70,13 @@ function DesignPageInner() {
     setProductGroups(productGroups);
   }, []);
 
+  // Guest funnel (#26): mint an anonymous session on entry so a signed-out
+  // visitor can design without hitting the auth wall. No-op when already
+  // signed in; the gate now lives at checkout.
+  useEffect(() => {
+    ensureGuestSession();
+  }, []);
+
   // Load existing design if resuming
   const id = searchParams.get("id");
   useEffect(() => {
@@ -102,6 +110,7 @@ function DesignPageInner() {
     setMessages((prev) => [...prev, makeOptimisticMessage("user", userMessage)]);
 
     try {
+      await ensureGuestSession();
       const result = await sendChatMessage(designId.current, userMessage);
       setMessages((prev) => [
         ...prev,
@@ -125,6 +134,7 @@ function DesignPageInner() {
     }
 
     try {
+      await ensureGuestSession();
       const result = await generateDesign(designId.current, userMessage);
       setMessages((prev) => [
         ...prev,
@@ -157,6 +167,7 @@ function DesignPageInner() {
       setMessages((prev) => [...prev, makeOptimisticMessage("user", userMessage)]);
     }
     try {
+      await ensureGuestSession();
       const { message, images: compared, readyToGenerate: ready } = await compareGenerators(designId.current, userMessage);
       setMessages((prev) => [
         ...prev,
@@ -224,6 +235,7 @@ function DesignPageInner() {
     ]);
 
     try {
+      await ensureGuestSession();
       const result = await uploadReferenceImage(
         designId.current,
         base64,

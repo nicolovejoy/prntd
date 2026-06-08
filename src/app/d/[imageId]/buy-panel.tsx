@@ -58,7 +58,11 @@ export function BuyPanel({
   async function handleBuy() {
     setLoading(true);
     try {
-      const { url } = await buyPublishedDesign({ imageId, productId, size, color });
+      const { url, needsAuth } = await buyPublishedDesign({ imageId, productId, size, color });
+      if (needsAuth) {
+        window.location.href = `/sign-in?next=/d/${imageId}`;
+        return;
+      }
       if (url) window.location.href = url;
     } catch {
       setLoading(false);

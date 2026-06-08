@@ -61,3 +61,15 @@ export const auth = betterAuth({
     nextCookies(),
   ],
 });
+
+/**
+ * True for a guest (anonymous-plugin) session. The funnel lets anonymous users
+ * design/preview/cart, but the purchase point requires a real account — call
+ * this to gate checkout. Tolerates the field being absent (flag off / pre-plugin
+ * sessions) by treating it as not-anonymous.
+ */
+export function isAnonymousUser(
+  user: { isAnonymous?: boolean | null } | null | undefined
+): boolean {
+  return !!user?.isAnonymous;
+}
