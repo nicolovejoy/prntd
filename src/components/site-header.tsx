@@ -11,10 +11,17 @@ export function SiteHeader() {
   const buildDate = process.env.NEXT_PUBLIC_BUILD_DATE ?? "dev";
   const [menuOpen, setMenuOpen] = useState(false);
 
+  // Guest-funnel (#26) anonymous sessions don't count as signed-in for the nav:
+  // a guest sees the signed-out nav ("Sign in"), not "Sign out" + the gated
+  // personal links (/designs, /orders still redirect anon to sign-in).
+  const isAuthed =
+    Boolean(session) &&
+    !(session?.user as { isAnonymous?: boolean } | undefined)?.isAnonymous;
+
   // Fresh Prints (the community storefront) leads for everyone — it's the
   // open buy-existing flow. The design-your-own + personal links are
   // auth-gated.
-  const links: NavLink[] = session
+  const links: NavLink[] = isAuthed
     ? [
         { href: "/prints", label: "Fresh Prints" },
         { href: "/design", label: "New Design" },
@@ -47,7 +54,7 @@ export function SiteHeader() {
               {l.label}
             </Link>
           ))}
-          {session ? (
+          {isAuthed ? (
             <button
               onClick={signOut}
               className="text-xs text-text-faint hover:text-text-muted transition-colors"
@@ -91,7 +98,7 @@ export function SiteHeader() {
               {l.label}
             </Link>
           ))}
-          {session ? (
+          {isAuthed ? (
             <button
               onClick={signOut}
               className="py-2 text-left text-text-faint hover:text-text-muted transition-colors"

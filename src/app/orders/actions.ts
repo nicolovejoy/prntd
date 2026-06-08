@@ -1,7 +1,7 @@
 "use server";
 
 import { headers } from "next/headers";
-import { auth } from "@/lib/auth";
+import { auth, isAnonymousUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
   order as orderTable,
@@ -17,7 +17,8 @@ import { designerAttribution } from "@/lib/order-attribution";
 
 export async function getUserOrders() {
   const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) throw new Error("Unauthorized");
+  // Personal page — anonymous guests (#26) must sign in to see their orders.
+  if (!session || isAnonymousUser(session.user)) throw new Error("Unauthorized");
 
   const rows = await db
     .select({
