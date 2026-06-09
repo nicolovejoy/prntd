@@ -13,6 +13,7 @@ function createMockDb(overrides: {
   designFindFirst?: () => any;
   orderUpdate?: () => any;
   designUpdate?: () => any;
+  orderItemFindMany?: () => any;
 } = {}) {
   const updateSet = vi.fn().mockReturnThis();
   const updateWhere = vi.fn().mockResolvedValue(undefined);
