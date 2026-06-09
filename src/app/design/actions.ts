@@ -2,7 +2,8 @@
 
 import { headers } from "next/headers";
 import { after } from "next/server";
-import { auth } from "@/lib/auth";
+import { auth, isAnonymousUser } from "@/lib/auth";
+import { consumeGenerationQuota } from "@/lib/generation-quota";
 import { db } from "@/lib/db";
 import {
   design as designTable,
@@ -50,6 +51,18 @@ async function getOrCreateDesign(designId: string, userId: string) {
 
   if (found.userId !== userId) throw new Error("Unauthorized");
   return found;
+}
+
+/** First IP from the forwarded-for chain (the client), or null. */
+function clientIp(hdrs: Headers): string | null {
+  return hdrs.get("x-forwarded-for")?.split(",")[0]?.trim() || null;
+}
+
+/** Copy shown when a generation is blocked by the daily cap (#26 A3). */
+function generationLimitMessage(reason: "identity" | "ip" | undefined): string {
+  return reason === "ip"
+    ? "This network has hit today's free design limit. Sign in to keep designing."
+    : "You've reached today's free design limit. Sign in to keep designing.";
 }
 
 export async function sendChatMessage(designId: string, userMessage: string) {
@@ -109,10 +122,29 @@ export async function generateDesign(
   designId: string,
   userMessage?: string
 ) {
-  const session = await auth.api.getSession({ headers: await headers() });
+  const hdrs = await headers();
+  const session = await auth.api.getSession({ headers: hdrs });
   if (!session) throw new Error("Unauthorized");
 
   const found = await getOrCreateDesign(designId, session.user.id);
+
+  // Abuse guard (#26 A3): count this generation against the daily caps before
+  // any paid model call. Over the cap → nudge to sign in, no API spend.
+  const quota = await consumeGenerationQuota({
+    userId: session.user.id,
+    isAnonymous: isAnonymousUser(session.user),
+    ip: clientIp(hdrs),
+  });
+  if (!quota.allowed) {
+    return {
+      message: generationLimitMessage(quota.reason),
+      imageUrl: null,
+      imageId: null,
+      generationNumber: found.generationCount,
+      readyToGenerate: true,
+    };
+  }
+
   const messages = await getDesignMessages(designId);
   const images = await getDesignImagesForAIContext(designId);
 
@@ -432,10 +464,23 @@ export async function approveDesign(designId: string) {
  * Returns the new images (id + url + generator) newest-last.
  */
 export async function compareGenerators(designId: string, userMessage?: string) {
-  const session = await auth.api.getSession({ headers: await headers() });
+  const hdrs = await headers();
+  const session = await auth.api.getSession({ headers: hdrs });
   if (!session) throw new Error("Unauthorized");
 
   const found = await getOrCreateDesign(designId, session.user.id);
+
+  // Abuse guard (#26 A3): Compare runs two paid model calls, so it's the
+  // costliest dead-click — count it against the daily caps before any work.
+  const quota = await consumeGenerationQuota({
+    userId: session.user.id,
+    isAnonymous: isAnonymousUser(session.user),
+    ip: clientIp(hdrs),
+  });
+  if (!quota.allowed) {
+    return { message: generationLimitMessage(quota.reason), images: [], readyToGenerate: true };
+  }
+
   const messages = await getDesignMessages(designId);
   const images = await getDesignImagesForAIContext(designId);
   const messagesForPrompt: ChatMessage[] = userMessage

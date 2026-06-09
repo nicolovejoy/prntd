@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import {
   order as orderTable,
   design as designTable,
+  orderItem as orderItemTable,
 } from "@/lib/db/schema";
 import { getProductOrThrow, getVariantId } from "@/lib/products";
 import { assertTransition } from "@/lib/order-state";
@@ -128,6 +129,16 @@ export async function handleStripeCheckoutCompleted(
     deps.db
   );
 
+  // Multi-item (cart, #26) orders fulfill from order_item rows. Single-item
+  // orders (design-your-own, buy-existing) keep the legacy placements path
+  // below. The sale + price reconciliation above already ran for both.
+  const orderItems = await deps.db.query.orderItem.findMany({
+    where: eq(orderItemTable.orderId, orderId),
+  });
+  if (orderItems.length > 0) {
+    return submitCartOrder(foundOrder, orderItems, session, deps);
+  }
+
   // Resolve one print file per placement on the order. Front prefers the
   // image pinned on the order (placements.front) so we print exactly what the
   // customer bought — including a published image owned by another designer —
@@ -229,6 +240,143 @@ export async function handleStripeCheckoutCompleted(
     return { action: "submitted" };
   } catch (err) {
     console.error(`Order ${orderId}: Printful submission failed:`, err);
+    return { action: "paid_printful_failed" };
+  }
+}
+
+/**
+ * Fulfill a multi-item cart order (#26 B4): resolve files + variant per
+ * order_item, submit one N-item Printful order, record order-level COGS, and
+ * mark every design in the order as ordered. Best-effort per item — an item
+ * with no resolvable front image or variant is logged and dropped rather than
+ * failing the whole order (the customer already paid).
+ */
+async function submitCartOrder(
+  foundOrder: { id: string; totalPrice: number; status: string },
+  orderItems: Array<{
+    designId: string;
+    productId: string;
+    size: string;
+    color: string;
+    quantity: number;
+    placements: Record<string, string> | null;
+  }>,
+  session: StripeSessionData,
+  deps: WebhookDeps
+): Promise<{ action: "skipped" | "paid" | "submitted" | "paid_printful_failed" }> {
+  const orderId = foundOrder.id;
+  const items: {
+    variantId: number;
+    quantity: number;
+    files: { placement: string; url: string }[];
+  }[] = [];
+  let firstFrontUrl: string | null = null;
+
+  for (const item of orderItems) {
+    const placements = item.placements ?? {};
+    const frontImageId = placements.front ?? null;
+    const frontUrl =
+      (frontImageId && deps.resolveImageUrlById
+        ? await deps.resolveImageUrlById(frontImageId)
+        : null) ?? (await deps.resolveDesignImageUrl(item.designId));
+    if (!frontUrl) {
+      console.error(
+        `Order ${orderId}: cart item (design ${item.designId}) has no front image — dropping`
+      );
+      continue;
+    }
+    firstFrontUrl ??= frontUrl;
+
+    const files: { placement: string; url: string }[] = [
+      { placement: "front", url: frontUrl },
+    ];
+    for (const [placement, imageId] of Object.entries(placements)) {
+      if (placement === "front") continue;
+      const url = deps.resolveImageUrlById
+        ? await deps.resolveImageUrlById(imageId)
+        : null;
+      if (url) files.push({ placement, url });
+      else
+        console.error(
+          `Order ${orderId}: cart item placement "${placement}" image ${imageId} unresolved — submitting without it`
+        );
+    }
+
+    const product = getProductOrThrow(item.productId);
+    const variantId = getVariantId(product, item.color, item.size);
+    if (!variantId) {
+      console.error(
+        `Order ${orderId}: no variant for ${item.color} ${item.size} on ${product.name} — dropping item`
+      );
+      continue;
+    }
+    items.push({ variantId, quantity: item.quantity, files });
+  }
+
+  if (items.length === 0) {
+    console.error(`Order ${orderId}: no fulfillable cart items`);
+    return { action: "paid" };
+  }
+
+  if (firstFrontUrl) {
+    const displayName = await deps.generateOrderName(firstFrontUrl);
+    if (displayName) {
+      await deps.db
+        .update(orderTable)
+        .set({ displayName, updatedAt: new Date() })
+        .where(eq(orderTable.id, orderId));
+    }
+  }
+
+  try {
+    const printfulOrder = await deps.createPrintfulOrder({
+      items,
+      recipientName: session.shipping?.name ?? "",
+      address1: session.shipping?.address1 ?? "",
+      address2: session.shipping?.address2 || undefined,
+      city: session.shipping?.city ?? "",
+      stateCode: session.shipping?.state ?? "",
+      countryCode: session.shipping?.country ?? "US",
+      zip: session.shipping?.zip ?? "",
+    });
+
+    assertTransition("paid", "submitted");
+
+    const printfulCost = printfulOrder.costs?.total
+      ? parseFloat(printfulOrder.costs.total)
+      : null;
+
+    await deps.db
+      .update(orderTable)
+      .set({
+        status: "submitted",
+        printfulOrderId: String(printfulOrder.id),
+        printfulCost,
+        updatedAt: new Date(),
+      })
+      .where(eq(orderTable.id, orderId));
+
+    // Mark every distinct design in the order as ordered.
+    const designIds = [...new Set(orderItems.map((i) => i.designId))];
+    for (const designId of designIds) {
+      await deps.db
+        .update(designTable)
+        .set({ status: "ordered", updatedAt: new Date() })
+        .where(eq(designTable.id, designId));
+    }
+
+    if (printfulCost && printfulCost > 0) {
+      await recordCOGS(
+        orderId,
+        printfulCost,
+        `Printful fulfillment PF:${printfulOrder.id} (${items.length} items)`,
+        deps.db
+      );
+    }
+
+    return { action: "submitted" };
+  } catch (err) {
+    console.error(`Order ${orderId}: Printful cart submission failed:`, err);
     return { action: "paid_printful_failed" };
   }
 }

@@ -13,6 +13,7 @@ function createMockDb(overrides: {
   designFindFirst?: () => any;
   orderUpdate?: () => any;
   designUpdate?: () => any;
+  orderItemFindMany?: () => any;
 } = {}) {
   const updateSet = vi.fn().mockReturnThis();
   const updateWhere = vi.fn().mockResolvedValue(undefined);
@@ -25,6 +26,10 @@ function createMockDb(overrides: {
       },
       design: {
         findFirst: overrides.designFindFirst ?? vi.fn().mockResolvedValue(null),
+      },
+      // Default: no cart line items → single-item legacy path (#26 B4).
+      orderItem: {
+        findMany: overrides.orderItemFindMany ?? vi.fn().mockResolvedValue([]),
       },
     },
     update: vi.fn().mockReturnValue({

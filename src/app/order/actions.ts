@@ -1,7 +1,7 @@
 "use server";
 
 import { headers } from "next/headers";
-import { auth } from "@/lib/auth";
+import { auth, isAnonymousUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { design as designTable, order as orderTable } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
@@ -38,9 +38,15 @@ export async function createCheckoutSession(params: {
   /** Source design_image id to print on the back (#25). Honored only when
    * MULTI_PLACEMENT_ENABLED; ignored otherwise (defense in depth). */
   back?: string;
-}) {
+}): Promise<{ url: string | null; needsAuth?: boolean }> {
   const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) throw new Error("Unauthorized");
+  // Purchase point = the funnel's auth gate. Anonymous guests (and the
+  // sessionless) must sign in here; after sign-in the anonymous plugin
+  // re-parents their design to the real account and the retried checkout
+  // passes the ownership check below.
+  if (!session || isAnonymousUser(session.user)) {
+    return { url: null, needsAuth: true };
+  }
 
   const found = await db.query.design.findFirst({
     where: eq(designTable.id, params.designId),

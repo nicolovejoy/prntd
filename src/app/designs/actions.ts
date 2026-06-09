@@ -1,7 +1,7 @@
 "use server";
 
 import { headers } from "next/headers";
-import { auth } from "@/lib/auth";
+import { auth, isAnonymousUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
   design as designTable,
@@ -16,7 +16,9 @@ import { generatePublishedNaming } from "@/lib/ai";
 
 export async function getUserDesigns() {
   const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) throw new Error("Unauthorized");
+  // Personal page — anonymous guests (#26) must sign in; their in-progress
+  // drafts surface here only after they claim them by signing up.
+  if (!session || isAnonymousUser(session.user)) throw new Error("Unauthorized");
 
   const designs = await db.query.design.findMany({
     where: and(

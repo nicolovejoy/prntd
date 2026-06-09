@@ -242,6 +242,96 @@ describe("money path — checkout.session.completed", () => {
     expect(updated?.itemPrice).toBe(27.43);
   });
 
+  it("cart order (#26): submits N items, marks every design ordered, one shipping + one COGS", async () => {
+    // Two-item cart: items priced individually, shipping charged once.
+    const userId = "cart-user";
+    await db
+      .insert(schema.user)
+      .values({ id: userId, email: "cart@example.com", name: "Cart Buyer" });
+    const [d1] = await db.insert(schema.design).values({ userId }).returning();
+    const [d2] = await db.insert(schema.design).values({ userId }).returning();
+    const [order] = await db
+      .insert(schema.order)
+      .values({
+        userId,
+        designId: d1.id, // representative head design
+        productId: "bella-canvas-3001",
+        size: "M",
+        color: "Black",
+        itemPrice: 38.86,
+        shippingPrice: 4.69,
+        totalPrice: 43.55,
+        status: "pending",
+      })
+      .returning();
+    await db.insert(schema.orderItem).values([
+      {
+        orderId: order.id,
+        designId: d1.id,
+        productId: "bella-canvas-3001",
+        size: "M",
+        color: "Black",
+        placements: { front: "img-1" },
+        quantity: 1,
+        itemPrice: 19.43,
+      },
+      {
+        orderId: order.id,
+        designId: d2.id,
+        productId: "bella-canvas-3001",
+        size: "L",
+        color: "White",
+        placements: { front: "img-2" },
+        quantity: 1,
+        itemPrice: 19.43,
+      },
+    ]);
+
+    const createPrintfulOrder = vi
+      .fn()
+      .mockResolvedValue({ id: 8888, costs: { total: "25.00" } });
+    const resolveImageUrlById = vi
+      .fn()
+      .mockImplementation(async (id: string) => `https://img.example/${id}.png`);
+
+    const result = await handleStripeCheckoutCompleted(
+      makeSession(order.id, d1.id, {
+        amountSubtotal: 3886,
+        amountShipping: 469,
+        amountTotal: 4355,
+      }),
+      makeDeps(db, { createPrintfulOrder, resolveImageUrlById })
+    );
+    expect(result.action).toBe("submitted");
+
+    // Printful got a 2-item array, each with its own variant + front file.
+    const items = createPrintfulOrder.mock.calls[0][0].items as {
+      variantId: number;
+      quantity: number;
+      files: { placement: string; url: string }[];
+    }[];
+    expect(items).toHaveLength(2);
+    expect(items.every((i) => typeof i.variantId === "number")).toBe(true);
+    expect(items.every((i) => i.files.some((f) => f.placement === "front"))).toBe(
+      true
+    );
+
+    // Both designs flipped to ordered.
+    for (const id of [d1.id, d2.id]) {
+      const dd = await db.query.design.findFirst({
+        where: eq(schema.design.id, id),
+      });
+      expect(dd?.status).toBe("ordered");
+    }
+
+    // One sale at the cart total, one COGS for the whole order (shipping once).
+    const entries = await ledgerFor(db, order.id);
+    const byType = Object.fromEntries(entries.map((e) => [e.type, e.amount]));
+    expect(byType.sale).toBe(43.55);
+    expect(byType.cogs).toBe(-25.0);
+    expect(entries.filter((e) => e.type === "cogs")).toHaveLength(1);
+  });
+
   it("Printful failure leaves the order paid with no COGS and design not ordered", async () => {
     const { order, design } = await seed(db);
     const deps = makeDeps(db, {

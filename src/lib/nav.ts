@@ -79,6 +79,7 @@ export function breadcrumbTrail(
     return [HOME];
   }
 
+  if (pathname === "/cart") return [HOME];
   if (pathname === "/design") return [HOME, myDesigns];
   if (pathname === "/preview") return [HOME, myDesigns, designStep];
   if (pathname === "/order") return [HOME, myDesigns, designStep, previewStep];

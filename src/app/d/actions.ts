@@ -1,7 +1,7 @@
 "use server";
 
 import { headers } from "next/headers";
-import { auth } from "@/lib/auth";
+import { auth, isAnonymousUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
   design as designTable,
@@ -206,9 +206,14 @@ export async function buyPublishedDesign(params: {
   productId?: string;
   size: string;
   color: string;
-}): Promise<{ url: string | null }> {
+}): Promise<{ url: string | null; needsAuth?: boolean }> {
   const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) throw new Error("Unauthorized");
+  // Purchase point — guests (anonymous-plugin sessions) and the sessionless
+  // must sign in to buy. The buy panel's "Sign in to buy" CTA is the primary
+  // path; this is the server backstop.
+  if (!session || isAnonymousUser(session.user)) {
+    return { url: null, needsAuth: true };
+  }
 
   const image = await db.query.designImage.findFirst({
     where: eq(designImageTable.id, params.imageId),

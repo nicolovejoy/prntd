@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const user = sqliteTable("user", {
   id: text("id").primaryKey(),
@@ -6,6 +6,11 @@ export const user = sqliteTable("user", {
   name: text("name").notNull(),
   emailVerified: integer("email_verified", { mode: "boolean" }).notNull().default(false),
   image: text("image"),
+  // Better-Auth anonymous plugin: true for guest browsers that haven't signed
+  // in yet (#26 guest funnel). On sign-in/up the plugin's onLinkAccount
+  // re-parents their designs/orders to the real account, then deletes the anon
+  // row. Nullable/default-false so existing rows and the plugin agree.
+  isAnonymous: integer("is_anonymous", { mode: "boolean" }).default(false),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
@@ -162,6 +167,47 @@ export const order = sqliteTable("order", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
 });
 
+/**
+ * Order line items (#26 Stage B). One row per shirt in a multi-item order:
+ * its own product/size/color/placements and price split. The parent `order`
+ * keeps order-level money (totalPrice, shippingPrice — shipping is charged once
+ * per order, not per item) and the ledger linkage. Single-item orders may keep
+ * using the scalar columns on `order`; the cart flow writes order_item rows.
+ * printfulCost is the per-item COGS read back from Printful's invoice.
+ */
+export const orderItem = sqliteTable("order_item", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  orderId: text("order_id").notNull().references(() => order.id),
+  designId: text("design_id").notNull().references(() => design.id),
+  productId: text("product_id").notNull(),
+  size: text("size").notNull(),
+  color: text("color").notNull(),
+  // placement id → design_image id (front + optional back, #25 shape per item).
+  placements: text("placements", { mode: "json" }).$type<Record<string, string>>(),
+  quantity: integer("quantity").notNull().default(1),
+  itemPrice: real("item_price").notNull(),
+  printfulCost: real("printful_cost"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
+/**
+ * Persistent cart (#26 Stage B). Keyed by user — one cart per account, anon or
+ * real — so it survives the guest→account claim (re-parented in auth.ts's
+ * onLinkAccount alongside design/order). One row per line the customer added;
+ * checkout turns these into an order + order_item rows, then clears them.
+ */
+export const cartItem = sqliteTable("cart_item", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => user.id),
+  designId: text("design_id").notNull().references(() => design.id),
+  productId: text("product_id").notNull(),
+  size: text("size").notNull(),
+  color: text("color").notNull(),
+  placements: text("placements", { mode: "json" }).$type<Record<string, string>>(),
+  quantity: integer("quantity").notNull().default(1),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
 export const ledgerEntry = sqliteTable("ledger_entry", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   orderId: text("order_id").references(() => order.id),
@@ -172,6 +218,25 @@ export const ledgerEntry = sqliteTable("ledger_entry", {
   metadata: text("metadata", { mode: "json" }).$type<Record<string, unknown>>(),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
+
+/**
+ * Per-day generation counters for the guest-funnel abuse guard (#26 A3).
+ * One row per (bucket, day): bucket is "user:<id>" (the anon or real user) or
+ * "ip:<addr>". Incremented before each Replicate/Anthropic generation; over the
+ * daily cap → the action returns a "sign in to keep designing" message with no
+ * API spend. Ephemeral accounting, not financial — safe to prune old days.
+ */
+export const generationUsage = sqliteTable(
+  "generation_usage",
+  {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    bucket: text("bucket").notNull(),
+    day: text("day").notNull(), // YYYY-MM-DD (UTC)
+    count: integer("count").notNull().default(0),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  },
+  (t) => [uniqueIndex("generation_usage_bucket_day").on(t.bucket, t.day)]
+);
 
 export type ChatMessage = {
   id: string;
