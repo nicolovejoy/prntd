@@ -71,3 +71,61 @@ export function buildCheckoutSessionParams(params: {
     cancel_url: params.cancelUrl,
   };
 }
+
+/**
+ * Multi-item (cart) variant of the above (#26 Stage B). N product line items +
+ * one bundled shipping_option for the whole order — shipping is charged once,
+ * not per item, and stays out of percentage promos (same margin fix). Kept
+ * separate from the single-item builder so that flow's locked shape can't
+ * drift; both share the shipping-as-option pattern and URL/metadata wiring.
+ */
+export function buildCartCheckoutSessionParams(params: {
+  orderId: string;
+  /** Representative design id for metadata (the order spans many designs). */
+  designId: string;
+  lineItems: {
+    name: string;
+    description: string;
+    imageUrl: string | null;
+    /** Per-unit product price (the discountable part). */
+    unitPrice: number;
+    quantity: number;
+  }[];
+  /** Bundled shipping for the whole order — one separate Stripe line. */
+  shippingPrice: number;
+  cancelUrl: string;
+  appUrl: string;
+}): Stripe.Checkout.SessionCreateParams {
+  return {
+    mode: "payment",
+    allow_promotion_codes: true,
+    shipping_address_collection: { allowed_countries: ["US"] },
+    line_items: params.lineItems.map((li) => ({
+      price_data: {
+        currency: "usd",
+        product_data: {
+          name: `PRNTD ${li.name}`,
+          description: li.description,
+          images: li.imageUrl ? [li.imageUrl] : [],
+        },
+        unit_amount: Math.round(li.unitPrice * 100),
+      },
+      quantity: li.quantity,
+    })),
+    shipping_options: [
+      {
+        shipping_rate_data: {
+          type: "fixed_amount",
+          fixed_amount: {
+            amount: Math.round(params.shippingPrice * 100),
+            currency: "usd",
+          },
+          display_name: "Standard shipping",
+        },
+      },
+    ],
+    metadata: { orderId: params.orderId, designId: params.designId },
+    success_url: `${params.appUrl}/order/confirm?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: params.cancelUrl,
+  };
+}

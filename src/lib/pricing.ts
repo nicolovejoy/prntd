@@ -64,6 +64,25 @@ export function computeOrderTotal(
 }
 
 /**
+ * Combine N line-item prices with one order-level shipping charge into the cart
+ * grand total (#26 Stage B). Shipping is charged once per order, not per item —
+ * the bundled-shipping savings — so the caller passes a single shipping value
+ * (the live Printful quote, or the flat fallback). Empty cart → all zeroes.
+ */
+export function computeCartTotal(
+  itemPrices: number[],
+  shipping: number
+): PriceBreakdown {
+  const item = Math.round(itemPrices.reduce((sum, p) => sum + p, 0) * 100) / 100;
+  const ship = itemPrices.length > 0 ? shipping : 0;
+  return {
+    item,
+    shipping: ship,
+    total: Math.round((item + ship) * 100) / 100,
+  };
+}
+
+/**
  * Customer-facing price. A product either prices off its real per-size cost
  * (total = baseCost × margin, rounded up to the cent) or pins a fixed
  * `retailPrice` per size, which takes precedence — letting a product hold a

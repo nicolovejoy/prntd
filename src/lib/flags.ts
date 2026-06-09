@@ -14,3 +14,14 @@
 export function guestFunnelEnabled(): boolean {
   return process.env.GUEST_FUNNEL_ENABLED === "true";
 }
+
+/**
+ * Multi-item cart (#26 Stage B): when on, the nav shows a Cart link and
+ * /preview offers "Add to cart". When off, the cart entry points are hidden and
+ * the single-item Buy-now flow is the only path (the /cart route and actions
+ * still exist but are unreachable from the UI). Default off — flip CART_ENABLED
+ * once the flow is verified.
+ */
+export function cartEnabled(): boolean {
+  return process.env.CART_ENABLED === "true";
+}

@@ -34,15 +34,24 @@ function placementToOrderFileType(placement: string): string {
   return placement === "front" ? "default" : placement;
 }
 
+export type PrintfulOrderItem = {
+  variantId: number;
+  quantity: number;
+  files: { placement: string; url: string }[];
+};
+
 export async function createOrder(params: {
   // One print file per placement. `designImageUrl` is the back-compat alias
   // for a single front file; callers that only print the front can keep using
   // it. Multi-placement callers (#25) pass `files`.
   files?: { placement: string; url: string }[];
   designImageUrl?: string;
-  size: string;
-  color: string;
-  variantId: number;
+  // Multi-item cart (#26): a full array of line items. When present it takes
+  // precedence over the single-item fields below.
+  items?: PrintfulOrderItem[];
+  size?: string;
+  color?: string;
+  variantId?: number;
   recipientName: string;
   address1: string;
   address2?: string;
@@ -51,19 +60,27 @@ export async function createOrder(params: {
   countryCode: string;
   zip: string;
 }) {
-  const files =
-    params.files ??
-    (params.designImageUrl
-      ? [{ placement: "front", url: params.designImageUrl }]
-      : []);
-  if (files.length === 0) {
-    throw new Error("createOrder: no print files supplied");
+  // Build the line-item array. Multi-item callers pass `items`; single-item
+  // callers pass variantId + files (or the designImageUrl alias).
+  let items: PrintfulOrderItem[];
+  if (params.items && params.items.length > 0) {
+    items = params.items;
+  } else {
+    const files =
+      params.files ??
+      (params.designImageUrl
+        ? [{ placement: "front", url: params.designImageUrl }]
+        : []);
+    if (files.length === 0 || params.variantId == null) {
+      throw new Error("createOrder: no print files / variant supplied");
+    }
+    items = [{ variantId: params.variantId, quantity: 1, files }];
   }
 
   if (process.env.PRINTFUL_DRY_RUN === "true") {
     const fakeId = `dry-run-${crypto.randomUUID()}`;
     console.warn(
-      `[PRINTFUL_DRY_RUN] Skipping real order submission. Returning fake id=${fakeId} for ${params.recipientName} variant=${params.variantId} placements=[${files.map((f) => f.placement).join(",")}]`
+      `[PRINTFUL_DRY_RUN] Skipping real order submission. Returning fake id=${fakeId} for ${params.recipientName} items=${items.map((it) => `${it.variantId}×${it.quantity}[${it.files.map((f) => f.placement).join(",")}]`).join(" ")}`
     );
     return {
       id: fakeId,
@@ -86,19 +103,14 @@ export async function createOrder(params: {
         country_code: params.countryCode,
         zip: params.zip,
       },
-      // Single line item, quantity 1. The multi-item cart (#26) makes this an
-      // array of {variant_id, quantity, files}; #25 (back printing) supplies
-      // one `files` entry per placement.
-      items: [
-        {
-          variant_id: params.variantId,
-          quantity: 1,
-          files: files.map((f) => ({
-            type: placementToOrderFileType(f.placement),
-            url: f.url,
-          })),
-        },
-      ],
+      items: items.map((it) => ({
+        variant_id: it.variantId,
+        quantity: it.quantity,
+        files: it.files.map((f) => ({
+          type: placementToOrderFileType(f.placement),
+          url: f.url,
+        })),
+      })),
     }),
   });
 

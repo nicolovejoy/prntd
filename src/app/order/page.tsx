@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { getDesign } from "../design/actions";
 import { generateMockup, isMultiPlacementEnabled } from "../preview/actions";
 import { calculatePrice, createCheckoutSession } from "./actions";
+import { addToCart, isCartEnabled } from "../cart/actions";
 import { computeOrderTotal, BACK_PLACEMENT_UPCHARGE } from "@/lib/pricing";
 import { Button } from "@/components/ui";
 import { SizePicker, ColorPicker } from "@/components/product-options";
@@ -53,11 +54,18 @@ function OrderPageInner() {
     total: number;
   } | null>(null);
   const [loading, setLoading] = useState(false);
+  // Cart (#26 B3): show "Add to cart" alongside Buy-now when CART_ENABLED.
+  const [cartShown, setCartShown] = useState(false);
+  const [addingToCart, setAddingToCart] = useState(false);
 
   // Guest funnel (#26): keep the anonymous session alive so a signed-out
   // visitor can reach the order page; the auth gate fires at checkout.
   useEffect(() => {
     ensureGuestSession();
+  }, []);
+
+  useEffect(() => {
+    isCartEnabled().then(setCartShown).catch(() => setCartShown(false));
   }, []);
 
   useEffect(() => {
@@ -141,6 +149,23 @@ function OrderPageInner() {
       if (url) window.location.href = url;
     } catch {
       setLoading(false);
+    }
+  }
+
+  async function handleAddToCart() {
+    if (!designId) return;
+    setAddingToCart(true);
+    try {
+      await addToCart({
+        designId,
+        size,
+        color,
+        productId,
+        ...(backActive ? { back: backImageId! } : {}),
+      });
+      router.push("/cart");
+    } catch {
+      setAddingToCart(false);
     }
   }
 
@@ -232,13 +257,24 @@ function OrderPageInner() {
             className="hidden md:block w-full"
             size="lg"
           >
-            {loading ? "Redirecting to checkout..." : "Checkout"}
+            {loading ? "Redirecting to checkout..." : "Buy now"}
           </Button>
+          {cartShown && (
+            <Button
+              onClick={handleAddToCart}
+              disabled={addingToCart}
+              variant="secondary"
+              className="hidden md:block w-full mt-3"
+              size="lg"
+            >
+              {addingToCart ? "Adding…" : "Add to cart"}
+            </Button>
+          )}
         </div>
       </div>
 
       {/* Mobile sticky checkout bar */}
-      <div className="fixed bottom-0 left-0 right-0 z-30 md:hidden bg-background border-t border-border p-4">
+      <div className="fixed bottom-0 left-0 right-0 z-30 md:hidden bg-background border-t border-border p-4 space-y-2">
         <Button
           onClick={handleCheckout}
           disabled={loading}
@@ -248,9 +284,20 @@ function OrderPageInner() {
           {loading
             ? "Redirecting..."
             : breakdown
-              ? `Checkout — $${breakdown.total.toFixed(2)}`
-              : "Checkout"}
+              ? `Buy now — $${breakdown.total.toFixed(2)}`
+              : "Buy now"}
         </Button>
+        {cartShown && (
+          <Button
+            onClick={handleAddToCart}
+            disabled={addingToCart}
+            variant="secondary"
+            className="w-full"
+            size="lg"
+          >
+            {addingToCart ? "Adding…" : "Add to cart"}
+          </Button>
+        )}
       </div>
     </div>
   );
