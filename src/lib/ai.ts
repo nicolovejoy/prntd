@@ -105,6 +105,34 @@ Refinements:
 - When refining a previous design, reference its prompt (shown as "Prompt used: ..." in the gallery context). Make only the specific changes requested. Preserve the rest.
 - Set "referenceImage" to the design number being refined — the image will be passed to the model as a visual reference for style and composition consistency.`;
 
+/**
+ * Pull the chat JSON envelope out of a reply that mixes prose with JSON. The
+ * model occasionally emits its conversational text AND the envelope instead
+ * of the envelope alone; the prose is a duplicate of envelope.message, so the
+ * envelope wins. Returns null when no parseable envelope is present.
+ */
+export function extractChatEnvelope(
+  text: string
+): { message: string; readyToGenerate: boolean } | null {
+  const start = text.search(/\{\s*"message"\s*:/);
+  if (start === -1) return null;
+  for (const end of [text.length, text.lastIndexOf("}") + 1]) {
+    if (end <= start) continue;
+    try {
+      const parsed = JSON.parse(text.slice(start, end));
+      if (typeof parsed.message === "string") {
+        return {
+          message: parsed.message,
+          readyToGenerate: parsed.readyToGenerate === true,
+        };
+      }
+    } catch {
+      // try the next candidate slice
+    }
+  }
+  return null;
+}
+
 function buildMessages(
   chatHistory: ChatMessage[],
   images: DesignImage[],
@@ -118,15 +146,20 @@ function buildMessages(
   const promptByImageId = new Map(images.map((img) => [img.id, img.prompt]));
 
   const raw = chatHistory.map((msg) => {
+    // Heal polluted history: an assistant row saved with an embedded JSON
+    // envelope (a past parse failure) teaches the model to imitate the broken
+    // prose+JSON format on every later turn — strip it before it goes back in.
+    const content =
+      msg.role === "assistant"
+        ? (extractChatEnvelope(msg.content)?.message ?? msg.content)
+        : msg.content;
     const fluxPrompt =
       msg.role === "assistant" && msg.imageId
         ? promptByImageId.get(msg.imageId)
         : null;
     return {
       role: msg.role as "user" | "assistant",
-      content: fluxPrompt
-        ? `${msg.content}\n\nPrompt used: ${fluxPrompt}`
-        : msg.content,
+      content: fluxPrompt ? `${content}\n\nPrompt used: ${fluxPrompt}` : content,
     };
   });
 
@@ -186,6 +219,10 @@ export async function chatAboutDesign(
       readyToGenerate: parsed.readyToGenerate === true,
     };
   } catch {
+    // Mixed prose + envelope (the model sometimes emits both) — salvage the
+    // envelope rather than showing the user the raw JSON blob.
+    const envelope = extractChatEnvelope(text);
+    if (envelope) return envelope;
     return { message: text, readyToGenerate: false };
   }
 }

@@ -159,6 +159,65 @@ describe("chatAboutDesign", () => {
 
     expect(result.readyToGenerate).toBe(false);
   });
+
+  it("salvages the envelope when the model emits prose followed by JSON", async () => {
+    const mockCreate = await getMockCreate();
+    const prose = "Got it — yin-yang floss dance.\n\nWhat **style**?";
+    mockCreate.mockResolvedValue({
+      content: [{
+        type: "text",
+        text: `${prose}\n\n${JSON.stringify({ message: prose, readyToGenerate: true })}`,
+      }],
+    });
+
+    const { chatAboutDesign } = await import("../ai");
+    const result = await chatAboutDesign("anything", [], []);
+
+    // The envelope's message only — never the doubled prose+JSON blob.
+    expect(result.message).toBe(prose);
+    expect(result.readyToGenerate).toBe(true);
+  });
+
+  it("strips an embedded envelope from assistant history before resending", async () => {
+    const mockCreate = await getMockCreate();
+    mockCreate.mockResolvedValue({
+      content: [{
+        type: "text",
+        text: '{"message":"ok","readyToGenerate":false}',
+      }],
+    });
+
+    // A polluted row: a past parse failure stored prose + raw envelope.
+    const polluted = `Pick a style.\n\n{ "message": "Pick a style.", "readyToGenerate": false }`;
+    const { chatAboutDesign } = await import("../ai");
+    await chatAboutDesign(
+      "vintage",
+      [msg("user", "a wolf"), msg("assistant", polluted)],
+      []
+    );
+
+    const sent = mockCreate.mock.calls[0][0].messages;
+    const assistant = sent.find((m: { role: string }) => m.role === "assistant");
+    expect(assistant.content).toBe("Pick a style.");
+    expect(assistant.content).not.toContain("readyToGenerate");
+  });
+});
+
+describe("extractChatEnvelope", () => {
+  it("returns null for plain prose", async () => {
+    const { extractChatEnvelope } = await import("../ai");
+    expect(extractChatEnvelope("No JSON here, just chat.")).toBeNull();
+  });
+
+  it("parses an envelope whose message contains braces", async () => {
+    const { extractChatEnvelope } = await import("../ai");
+    const envelope = JSON.stringify({
+      message: "Use {curly} accents",
+      readyToGenerate: false,
+    });
+    const result = extractChatEnvelope(`Lead-in text.\n${envelope}`);
+    expect(result?.message).toBe("Use {curly} accents");
+  });
 });
 
 describe("assessReadiness", () => {
