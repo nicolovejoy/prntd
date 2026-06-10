@@ -58,3 +58,7 @@ ci-skip.db
 
 # Claude Code local settings + runtime files
 .claude/
+
+# Playwright E2E artifacts
+/test-results/
+/playwright-report/
