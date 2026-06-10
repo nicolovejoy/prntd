@@ -67,12 +67,37 @@ jobs:
 
       - run: npm ci
 
+      # Find the preview URL via the GitHub deployments API, then poll it
+      # ready WITH the Deployment Protection bypass header (the off-the-shelf
+      # wait actions probe without it and 401 forever).
       - name: Wait for Vercel preview deploy
         id: preview
-        uses: patrickedqvist/wait-for-vercel-preview@v1.3.2
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          max_timeout: 600
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BYPASS: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          for i in $(seq 1 60); do
+            url=$(gh api "repos/${{ github.repository }}/deployments?sha=$SHA&environment=Preview" \
+              --jq '.[0].id' 2>/dev/null | xargs -I{} gh api \
+              "repos/${{ github.repository }}/deployments/{}/statuses" \
+              --jq '[.[] | select(.state=="success")][0].environment_url' 2>/dev/null)
+            [ -n "$url" ] && [ "$url" != "null" ] && break
+            echo "waiting for preview deployment ($i)…"; sleep 10
+          done
+          if [ -z "$url" ] || [ "$url" = "null" ]; then
+            echo "no successful Preview deployment found for $SHA" >&2; exit 1
+          fi
+          echo "preview: $url"
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" \
+              -H "x-vercel-protection-bypass: $BYPASS" "$url")
+            echo "GET $code ($i)"
+            [ "$code" = "200" ] && break
+            sleep 5
+          done
+          [ "$code" = "200" ] || { echo "preview never returned 200" >&2; exit 1; }
+          echo "url=$url" >> "$GITHUB_OUTPUT"
 
       - run: npx playwright install --with-deps chromium
 
