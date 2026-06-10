@@ -9,11 +9,12 @@ gated on all-green before it can reach prod.
 - **CI** (`.github/workflows/ci.yml`): lint → typecheck → test+coverage → build,
   on every PR + push to main. Solid baseline. Coverage measured, not gated.
 - **Vercel**: preview deploy per PR; prod on merge to main.
-- **DB isolation**: `prntd-dev` Turso branch for local dev (#27); prod separate.
-  Preview deploys currently point at **prod** Turso (risk) and miss Preview-scope
-  API keys (ANTHROPIC/REPLICATE Production-only → `/design` 500s on preview).
-- **Tests**: unit + real-DB integration (in-memory libSQL from live schema).
-  No automated browser E2E — done by hand via Playwright today.
+- **DB isolation**: `prntd-dev` Turso branch for local dev (#27); Preview +
+  Development deploys on an isolated `prntd-preview` branch; only Production
+  touches prod. Preview-scope API keys fixed (Phase 1 done 2026-06-09).
+- **Tests**: unit + real-DB integration (in-memory libSQL from live schema),
+  plus Playwright E2E in `e2e/` (guest funnel + cart, mobile-first projects)
+  run locally via `npm run e2e` and in CI against the PR's preview deploy.
 - **Flags**: `MULTI_PLACEMENT_ENABLED`, `GUEST_FUNNEL_ENABLED`, `CART_ENABLED` —
   env-gated rollout, the right primitive for ship-dark-then-flip.
 
@@ -49,13 +50,22 @@ merge to main
 - A reset helper to truncate transient tables (cart_item, generation_usage,
   test-classified orders) between runs.
 
-### Phase 3 — E2E in CI (code + infra)
-- Add `@playwright/test`; port today's hand-run flows (guest funnel claim, cart
-  → bundled shipping → checkout gate) into `e2e/`.
-- Run E2E against the Vercel preview URL in a `e2e` GitHub job (after deploy),
-  or against `next build && next start` with a seeded ephemeral DB.
-- Per-PR ephemeral Turso branch: `turso db create prntd-pr-<n> --from-db prntd-dev`,
-  seed, run, destroy. Keeps E2E hermetic.
+### Phase 3 — E2E in CI (code + infra) — landed 2026-06-09
+- ✅ `@playwright/test` + `e2e/` suite: guest funnel (anon session, open
+  funnel, gated personal routes) and cart (two items, bundled-shipping
+  invariant, sign-in gate at checkout). Specs seed designs owned by the
+  browser's anonymous user directly in the dev/preview DB
+  (`e2e/helpers/db.ts`, same never-prod guard as the seed script) and clean
+  up after themselves. Two projects: mobile (Pixel 7, primary) + desktop.
+- ✅ `e2e` job in ci.yml: waits for the Vercel preview deploy, runs Playwright
+  against it with the Deployment Protection bypass header. PR-only — note a
+  direct push to main never triggers it. Secrets: `VERCEL_AUTOMATION_BYPASS_SECRET`,
+  `PREVIEW_DATABASE_URL`, `PREVIEW_DATABASE_AUTH_TOKEN` (set 2026-06-09).
+- ✅ `GUEST_FUNNEL_ENABLED`/`CART_ENABLED` added to Vercel Preview scope.
+- Local run: `npm run e2e` (boots `next dev -p 3100` with flags on, dev DB).
+- Still open: per-PR ephemeral Turso branch (`turso db create prntd-pr-<n>
+  --from-db prntd-dev`, seed, run, destroy) — today all PRs share
+  `prntd-preview`; fine while PR volume is one-at-a-time.
 
 ### Phase 4 — gates + ratchet
 - Coverage threshold in `vitest.config` (start at the current baseline, ratchet
