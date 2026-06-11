@@ -133,6 +133,10 @@ PRINTFUL_DRY_RUN        # "true" to short-circuit Printful order submission (loc
 
 See `docs/next-phase.md` for the full Phase 1/2/3 plan. Top items:
 
+**Design system + UX rethink — IN REVIEW (2026-06-10, PR #34, branch `docs/design-system`)**
+
+First draft of `docs/design-system.md` for the UX rethink with Manine (GitHub `manineg`; collaborator invite pending acceptance as of 2026-06-10). Proposes ink/paper design language (chrome monochrome, artwork is the only color, one primary button per screen), shared vocabulary (Studio/Storefront/Stage/Rail/Sheet, Design/Generation/Print), per-page component inventory ranked by job-criticality (incl. admin + auth), and 8 named gaps — notably: body font renders Arial despite Geist being loaded/tokenized (globals.css override), raw `gray-*` classes alongside semantic tokens, 11-hue badge palette, /design composer's three equal-weight buttons, near-invisible selected-image state. Next: Manine reviews in GitHub → incorporate feedback → merge → pick rethink targets.
+
 **Phase 1 — public-facing readiness (on hold)**
 
 - DESC/charity work paused as of 2026-05-06. Chain (DESC permission → entity confirmation → #4 ledger infra → first disbursement → homepage re-org) still applies if/when it restarts. (Homepage re-org now tracked under #18/#17; old #5 closed as superseded 2026-05-29.)
