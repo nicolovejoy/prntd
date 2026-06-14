@@ -144,9 +144,17 @@ See `docs/next-phase.md` for the full Phase 1/2/3 plan. Top items:
 
   **Smoke test:** `scripts/migration-smoke.ts before|after` snapshots row counts around a migration and fails on dropped tables / lost rows (read-only, safe on any target incl. prod). **CI preview auto-apply (Option C) — done:** the e2e job runs `db:migrate` against `prntd-preview` (existing `PREVIEW_DATABASE_*` secrets) before Playwright, so schema-changing PRs keep the shared preview DB current (additive-only until per-PR branches, #31). **Deferred:** the `DB_TARGET` op-resolver + ops-script refactor (the inline-token one-liner made it unnecessary for migrate).
 
-**Design system + UX rethink — IN REVIEW (2026-06-10, PR #34, branch `docs/design-system`)**
+**Design system + UX rethink — IN REVIEW (PR #34, branch `docs/design-system`). Manine reviewed 2026-06-14.**
 
-First draft of `docs/design-system.md` for the UX rethink with Manine (GitHub `manineg`; collaborator invite pending acceptance as of 2026-06-10). Proposes ink/paper design language (chrome monochrome, artwork is the only color, one primary button per screen), shared vocabulary (Studio/Storefront/Stage/Rail/Sheet, Design/Generation/Print), per-page component inventory ranked by job-criticality (incl. admin + auth), and 8 named gaps — notably: body font renders Arial despite Geist being loaded/tokenized (globals.css override), raw `gray-*` classes alongside semantic tokens, 11-hue badge palette, /design composer's three equal-weight buttons, near-invisible selected-image state. Next: Manine reviews in GitHub → incorporate feedback → merge → pick rethink targets.
+First draft of `docs/design-system.md` proposes ink/paper design language, shared vocabulary (Studio/Storefront/Stage/Rail/Sheet), per-page component inventory, and 8 named gaps.
+
+**Manine's review (9 inline comments, 2026-06-14):** her central point — *the product has no persona*; she can't review tone/copy until "who is Fresh Prints" is decided. She framed it by analogy (hip 30-yr-old maker / curated boutique / "Sharper Image of 2-D"). Also: (a) homepage should do different things for recognized vs unrecognized users in different states; (b) the clarify-style-after-text flow frustrates her as a real user — she wants style options shown **up front**, ideally all at once, so the question never gets asked; (c) doc is too abstract/text-only to map to UX.
+
+**Correction:** Manine is **NOT a designer** (Nico, 2026-06-14) — she brings product/brand wisdom in words/analogies; the visual/reference/moodboard half is Claude's job. See memory `reference-manine`.
+
+**Persona plan (agreed 2026-06-14):** persona is upstream of the doc → resolve it first, then rewrite the doc concretely, then Manine re-reviews. Engagement designed to be *good for her*: a ~30-min phone look-together at the live site (her own suggestion), reaction/analogy prompts not a blank brief, Claude captures + translates so she does zero homework. Nico emailed her to schedule. **Blocked until that call** — don't pick rethink targets that depend on identity/copy.
+
+**Mechanical design-system fixes — DONE 2026-06-14 (commit `cbedcbe`, on main).** Persona-independent, so shipped ahead of the call: (1) Geist font restored (globals.css body hard-coded Arial, defeating the loaded font → now `var(--font-geist-sans)`); (2) 40 raw `gray-*` classes swept to semantic tokens across 12 files (the auth-page `gray-600` helper text was a real dark-bg contrast bug; left `bg-gray-900` — intentional dark preview backdrop); (3) 4 undefined tokens rendering as no-ops fixed (`text-text-primary`/`text-text-base`→`foreground`, `border-border-default`→`border`, `bg-surface-base`→`surface`). Still open in the doc's gap list: 11-hue badge palette, composer's three equal-weight buttons, near-invisible selected-image state (these touch identity/UX → after the call).
 
 **Phase 1 — public-facing readiness (on hold)**
 
