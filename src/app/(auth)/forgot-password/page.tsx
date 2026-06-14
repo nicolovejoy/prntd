@@ -38,7 +38,7 @@ export default function ForgotPasswordPage() {
       <div className="min-h-screen flex items-center justify-center">
         <div className="w-full max-w-sm space-y-6 text-center">
           <h1 className="text-2xl font-bold">Check your email</h1>
-          <p className="text-gray-600 text-sm">
+          <p className="text-text-muted text-sm">
             If an account exists with that email, we sent a reset link. It expires in 1 hour.
           </p>
           <Link href="/sign-in" className="text-sm underline">
@@ -53,7 +53,7 @@ export default function ForgotPasswordPage() {
     <div className="min-h-screen flex items-center justify-center">
       <div className="w-full max-w-sm space-y-6">
         <h1 className="text-2xl font-bold text-center">Reset password</h1>
-        <p className="text-gray-600 text-sm text-center">
+        <p className="text-text-muted text-sm text-center">
           Enter your email and we&apos;ll send a reset link.
         </p>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -69,7 +69,7 @@ export default function ForgotPasswordPage() {
             {loading ? "Sending..." : "Send reset link"}
           </Button>
         </form>
-        <p className="text-center text-sm text-gray-600">
+        <p className="text-center text-sm text-text-muted">
           <Link href="/sign-in" className="underline">
             Back to sign in
           </Link>

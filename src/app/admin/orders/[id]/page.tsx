@@ -127,7 +127,7 @@ export default function OrderDetailPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-gray-500">
+      <div className="min-h-screen flex items-center justify-center text-text-faint">
         Loading...
       </div>
     );
@@ -135,7 +135,7 @@ export default function OrderDetailPage() {
 
   if (error || !order) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-gray-500">
+      <div className="min-h-screen flex items-center justify-center text-text-faint">
         {error ?? "Order not found"}
       </div>
     );
@@ -167,7 +167,7 @@ export default function OrderDetailPage() {
         {order.archivedAt && (
           <span className="text-xs text-text-faint">archived</span>
         )}
-        <span className="text-xs text-gray-400 ml-auto">
+        <span className="text-xs text-text-muted ml-auto">
           {order.createdAt ? new Date(order.createdAt).toLocaleString() : "—"}
         </span>
       </div>
@@ -243,7 +243,7 @@ export default function OrderDetailPage() {
                 </div>
               )}
               {profit != null && (
-                <div className="flex justify-between border-t border-border-default pt-1 mt-1">
+                <div className="flex justify-between border-t border-border pt-1 mt-1">
                   <span className="text-text-muted">Profit</span>
                   <span className={profit >= 0 ? "text-green-400" : "text-red-400"}>
                     ${profit.toFixed(2)}
@@ -258,7 +258,7 @@ export default function OrderDetailPage() {
             <h3 className="text-xs text-text-muted uppercase mb-2">Classification & Tags</h3>
             <div className="space-y-2">
               <select
-                className="text-xs px-2 py-1 rounded bg-surface-base border border-border-default text-text-primary cursor-pointer outline-none"
+                className="text-xs px-2 py-1 rounded bg-surface border border-border text-foreground cursor-pointer outline-none"
                 value={order.classification ?? ""}
                 onChange={(e) => {
                   if (e.target.value) handleClassification(e.target.value as OrderClassification);
@@ -347,7 +347,7 @@ export default function OrderDetailPage() {
                       <div className="w-2 h-2 rounded-full bg-border-default mt-1 shrink-0" />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <span className="font-medium text-text-primary">{typeInfo.label}</span>
+                          <span className="font-medium text-foreground">{typeInfo.label}</span>
                           <span className={`font-mono ${typeInfo.color}`}>
                             {entry.amount >= 0 ? "+" : ""}${entry.amount.toFixed(2)}
                           </span>

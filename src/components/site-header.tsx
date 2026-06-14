@@ -95,7 +95,7 @@ export function SiteHeader() {
               Sign in
             </Link>
           )}
-          <span className="text-xs text-gray-400 font-mono">{buildDate}</span>
+          <span className="text-xs text-text-muted font-mono">{buildDate}</span>
         </div>
 
         {/* Mobile: hamburger */}

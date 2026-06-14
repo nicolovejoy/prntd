@@ -30,9 +30,9 @@ function formatDate(date: Date | null) {
 
 const filterBtnBase = "text-xs px-2.5 py-1 rounded transition-colors";
 const filterBtnActive =
-  "bg-surface-raised text-text-primary font-medium border border-border-default";
+  "bg-surface-raised text-foreground font-medium border border-border";
 const filterBtnInactive =
-  "text-text-muted hover:text-text-primary border border-transparent";
+  "text-text-muted hover:text-foreground border border-transparent";
 
 export default function OrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
