@@ -5,8 +5,9 @@ three Turso branches (prntd, prntd-preview, prntd-dev) proven zero-drift and mar
 `0000` already-applied; `db:migrate` wired; prod/preview targeted via inline turso-CLI
 token (the `DB_TARGET` op-resolver in Step 3 was dropped as unnecessary). Backup branch
 `prntd-backup-20260613` retained. Open Qs resolved: Q1 no drift; Q2 B2; Q3 dropped
-resolver; Q4 yes. Steps 5 (migration smoke test) and Option C (CI preview auto-apply)
-deferred. Original plan below for reference.
+resolver; Q4 yes. Step 5 (smoke test → `scripts/migration-smoke.ts before|after`) and
+Option C (CI e2e job runs `db:migrate` vs prntd-preview) both shipped. Original plan
+below for reference.
 
 Companion to `docs/cicd-roadmap.md`
 §"Migration discipline + DB targeting". This file is the step-by-step with gates,
