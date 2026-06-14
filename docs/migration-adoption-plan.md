@@ -1,6 +1,14 @@
 # Migration adoption — execution plan (next session)
 
-Status: **planned, not started.** Companion to `docs/cicd-roadmap.md`
+Status: **DONE 2026-06-13.** Baseline shipped: `drizzle/0000_baseline.sql` committed; all
+three Turso branches (prntd, prntd-preview, prntd-dev) proven zero-drift and marked
+`0000` already-applied; `db:migrate` wired; prod/preview targeted via inline turso-CLI
+token (the `DB_TARGET` op-resolver in Step 3 was dropped as unnecessary). Backup branch
+`prntd-backup-20260613` retained. Open Qs resolved: Q1 no drift; Q2 B2; Q3 dropped
+resolver; Q4 yes. Steps 5 (migration smoke test) and Option C (CI preview auto-apply)
+deferred. Original plan below for reference.
+
+Companion to `docs/cicd-roadmap.md`
 §"Migration discipline + DB targeting". This file is the step-by-step with gates,
 options, and open questions. Goal of the session: prntd stops using `db:push`
 against prod and adopts versioned Drizzle migrations, **without losing data and
