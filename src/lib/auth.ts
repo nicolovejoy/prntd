@@ -9,6 +9,8 @@ import {
   design as designTable,
   order as orderTable,
   cartItem as cartItemTable,
+  store as storeTable,
+  product as productTable,
 } from "./db/schema";
 import { sendPasswordResetEmail } from "./email";
 
@@ -64,6 +66,16 @@ export const auth = betterAuth({
           .update(cartItemTable)
           .set({ userId: toId })
           .where(eq(cartItemTable.userId, fromId));
+        // Organizer pivot (Phase 1): a guest can build a store + products
+        // before signing up; re-parent both by ownerId on claim.
+        await db
+          .update(storeTable)
+          .set({ ownerId: toId })
+          .where(eq(storeTable.ownerId, fromId));
+        await db
+          .update(productTable)
+          .set({ ownerId: toId })
+          .where(eq(productTable.ownerId, fromId));
       },
     }),
     nextCookies(),

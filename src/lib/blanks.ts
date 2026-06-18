@@ -46,12 +46,29 @@ export type AspectRatio =
  * supports multi-placement (front + back, sleeves) — see
  * docs/print-targets.md.
  */
+/**
+ * Printful print methods (their TechniqueEnum). Scopes a placement's design
+ * constraints — dtg is raster/transparency-aware, embroidery is limited thread
+ * colors, sublimation/cut-sew are full-bleed. Everything today is dtg; the
+ * field is the hook for the validity rule and future non-DTG blanks.
+ */
+export type Technique =
+  | "dtg"
+  | "embroidery"
+  | "sublimation"
+  | "cut-sew"
+  | "uv"
+  | "digital"
+  | "dtfilm";
+
 export type Placement = {
   id: string;                   // Printful placement key: "front", "back", "default" (phone cases), etc.
   aspectRatio: AspectRatio;     // generator target
   mockupPosition: MockupPosition;
   printArea: { width: number; height: number };  // inches
   required?: boolean;           // must be filled for fulfillment
+  technique?: Technique;        // print method; defaults to "dtg"
+  dpi?: number;                 // min source resolution at print size; defaults to 150
 };
 
 export type Blank = {
@@ -579,4 +596,106 @@ export function needsAspectRegeneration(
   const r1 = aspectToRatio(sourceAspect);
   const r2 = aspectToRatio(targetAspect);
   return Math.max(r1, r2) / Math.min(r1, r2) >= 1.5;
+}
+
+const DEFAULT_TECHNIQUE: Technique = "dtg";
+const DEFAULT_DPI = 150;
+// Techniques PRNTD can actually fulfill today. Everything is DTG; the rest of
+// Printful's enum is modeled so the validator is ready, but flagged unsupported.
+const SUPPORTED_TECHNIQUES: Technique[] = ["dtg"];
+
+/** A placement's technique, defaulting to dtg when unset. */
+export function placementTechnique(placement: Placement): Technique {
+  return placement.technique ?? DEFAULT_TECHNIQUE;
+}
+
+/** The source artwork a product would print — what the validity rule inspects. */
+export type DesignArtwork = {
+  pixelWidth: number;
+  pixelHeight: number;
+  aspectRatio: AspectRatio;
+  hasTransparency: boolean;
+};
+
+export type FitWarning = {
+  code:
+    | "placement_missing"
+    | "technique_unsupported"
+    | "low_resolution"
+    | "aspect_mismatch"
+    | "needs_transparency";
+  message: string;
+  remediation?: string;
+};
+
+export type FitResult = { ok: boolean; warnings: FitWarning[] };
+
+/**
+ * The validity rule: can this design print on this blank at this placement?
+ * Pure function of (artwork, blank, placement) — the testable core of the
+ * organizer pivot's "Product" object. Policy is **warn + remediate, never
+ * block**: only a missing placement is structurally fatal; everything else is
+ * a warning with a fix hint (regenerate, knock out the background). `ok` means
+ * zero warnings. See docs/organizer-pivot-plan.md.
+ */
+export function validatePlacementFit(params: {
+  blank: Blank;
+  placementId: string;
+  artwork: DesignArtwork;
+  /** Whether the chosen variant is a colored/dark garment (drives the DTG knockout rule). */
+  coloredGarment?: boolean;
+}): FitResult {
+  const { blank, placementId, artwork, coloredGarment } = params;
+  const warnings: FitWarning[] = [];
+
+  if (!productSupportsPlacement(blank, placementId)) {
+    warnings.push({
+      code: "placement_missing",
+      message: `${blank.name} has no "${placementId}" placement.`,
+      remediation: "Pick a different placement or blank.",
+    });
+    return { ok: false, warnings };
+  }
+
+  const placement = getPlacement(blank, placementId);
+  const technique = placementTechnique(placement);
+
+  if (!SUPPORTED_TECHNIQUES.includes(technique)) {
+    warnings.push({
+      code: "technique_unsupported",
+      message: `${technique} printing isn't available yet.`,
+      remediation: "Choose a DTG blank for now.",
+    });
+  }
+
+  const requiredDpi = placement.dpi ?? DEFAULT_DPI;
+  const effectiveDpi = Math.min(
+    artwork.pixelWidth / placement.printArea.width,
+    artwork.pixelHeight / placement.printArea.height
+  );
+  if (effectiveDpi < requiredDpi) {
+    warnings.push({
+      code: "low_resolution",
+      message: `Art is ~${Math.round(effectiveDpi)} DPI at this print size; ${requiredDpi} recommended.`,
+      remediation: "Regenerate at a higher resolution.",
+    });
+  }
+
+  if (needsAspectRegeneration(artwork.aspectRatio, placement.aspectRatio)) {
+    warnings.push({
+      code: "aspect_mismatch",
+      message: `Art is ${artwork.aspectRatio}; ${placementId} prints ${placement.aspectRatio}.`,
+      remediation: "Regenerate at the placement's shape.",
+    });
+  }
+
+  if (technique === "dtg" && coloredGarment && !artwork.hasTransparency) {
+    warnings.push({
+      code: "needs_transparency",
+      message: "A solid background prints as a box on a colored garment.",
+      remediation: "Knock out the background.",
+    });
+  }
+
+  return { ok: warnings.length === 0, warnings };
 }
