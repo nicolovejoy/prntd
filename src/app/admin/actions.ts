@@ -15,7 +15,7 @@ import { alias } from "drizzle-orm/sqlite-core";
 import { revalidatePath } from "next/cache";
 import { createOrder } from "@/lib/printful";
 import { generateOrderName } from "@/lib/ai";
-import { getProductOrThrow, getVariantId } from "@/lib/products";
+import { getBlankOrThrow, getVariantId } from "@/lib/blanks";
 import { assertTransition } from "@/lib/order-state";
 import { summarizeLedger } from "@/lib/ledger";
 import { ORDER_CLASSIFICATIONS, type OrderClassification } from "@/lib/order-classification";
@@ -106,7 +106,7 @@ export async function retryPrintfulSubmission(orderId: string) {
     throw new Error("Design has no image");
   }
 
-  const product = getProductOrThrow(foundOrder.productId ?? "bella-canvas-3001");
+  const product = getBlankOrThrow(foundOrder.productId ?? "bella-canvas-3001");
   const variantId = getVariantId(product, foundOrder.color, foundOrder.size);
   if (!variantId) {
     throw new Error(`No variant for ${foundOrder.color} ${foundOrder.size} on ${product.name}`);

@@ -1,9 +1,9 @@
 import {
-  getProductOrThrow,
+  getBlankOrThrow,
   getBaseCost,
   getRetailPrice,
-  DEFAULT_PRODUCT_ID,
-} from "./products";
+  DEFAULT_BLANK_ID,
+} from "./blanks";
 
 export const MARGIN_MULTIPLIER = 1.5;
 
@@ -94,11 +94,11 @@ export function computeCartTotal(
  */
 export function computePrice(
   generationCost: number,
-  productId: string = DEFAULT_PRODUCT_ID,
+  productId: string = DEFAULT_BLANK_ID,
   size: string = "M",
   opts: { back?: boolean } = {}
 ): { baseCost: number; generationCost: number; total: number } {
-  const product = getProductOrThrow(productId);
+  const product = getBlankOrThrow(productId);
   const baseCost = getBaseCost(product, size);
   const retail = getRetailPrice(product, size);
   const front = retail ?? Math.ceil(baseCost * MARGIN_MULTIPLIER * 100) / 100;

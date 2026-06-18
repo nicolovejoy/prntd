@@ -1,6 +1,6 @@
 "use client";
 
-import type { ProductColor } from "@/lib/products";
+import type { BlankColor } from "@/lib/blanks";
 
 /**
  * Size + color selectors shared by the order flow (`/order`) and the
@@ -50,7 +50,7 @@ export function ColorPicker({
   value,
   onChange,
 }: {
-  colors: ProductColor[];
+  colors: BlankColor[];
   value: string;
   onChange: (color: string) => void;
 }) {

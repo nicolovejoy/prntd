@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { getUserOrders } from "./actions";
 import { Badge, Button, Card } from "@/components/ui";
-import { getColorHex } from "@/lib/products";
+import { getColorHex } from "@/lib/blanks";
 
 type Order = Awaited<ReturnType<typeof getUserOrders>>[number];
 

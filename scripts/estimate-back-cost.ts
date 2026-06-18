@@ -13,7 +13,7 @@
  * Optional args: [productId] [color] [size] [frontUrl] [backUrl]
  *   npx tsx --env-file=.env.local scripts/estimate-back-cost.ts bella-canvas-6400 Black M
  */
-import { getProductOrThrow, getVariantId } from "../src/lib/products";
+import { getBlankOrThrow, getVariantId } from "../src/lib/blanks";
 
 const productId = process.argv[2] ?? "bella-canvas-3001";
 const color = process.argv[3] ?? "Black";
@@ -55,7 +55,7 @@ async function estimate(
 }
 
 async function main() {
-  const product = getProductOrThrow(productId);
+  const product = getBlankOrThrow(productId);
   const variantId = getVariantId(product, color, size);
   if (!variantId)
     throw new Error(`No variant for ${color}/${size} on ${productId}`);

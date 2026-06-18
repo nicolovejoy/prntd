@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui";
 import { SizePicker, ColorPicker } from "@/components/product-options";
-import { ACTIVE_PRODUCTS, DEFAULT_PRODUCT_ID, getProduct } from "@/lib/products";
+import { ACTIVE_BLANKS, DEFAULT_BLANK_ID, getBlank } from "@/lib/blanks";
 import { computePrice, computeOrderTotal } from "@/lib/pricing";
 import { buyPublishedDesign } from "../actions";
 
@@ -26,8 +26,8 @@ export function BuyPanel({
   /** The design's pinned backdrop color; pre-selected when this product carries it. */
   preferredColor?: string | null;
 }) {
-  const [productId, setProductId] = useState(DEFAULT_PRODUCT_ID);
-  const product = getProduct(productId);
+  const [productId, setProductId] = useState(DEFAULT_BLANK_ID);
+  const product = getBlank(productId);
   const sizes = product?.sizes ?? [];
   const colors = product?.colors ?? [];
 
@@ -42,7 +42,7 @@ export function BuyPanel({
   // Switching product can invalidate the current size/color. Clamp both to
   // the new product's options.
   function handleProduct(id: string) {
-    const next = getProduct(id);
+    const next = getBlank(id);
     if (!next) return;
     setProductId(id);
     if (!next.sizes.includes(size)) setSize(next.sizes[1] ?? next.sizes[0]);
@@ -71,11 +71,11 @@ export function BuyPanel({
 
   return (
     <div className="space-y-5 border-t border-border pt-5">
-      {ACTIVE_PRODUCTS.length > 1 && (
+      {ACTIVE_BLANKS.length > 1 && (
         <div>
           <label className="block text-sm font-medium mb-2">Product</label>
           <div className="flex flex-wrap gap-2">
-            {ACTIVE_PRODUCTS.map((p) => (
+            {ACTIVE_BLANKS.map((p) => (
               <button
                 key={p.id}
                 onClick={() => handleProduct(p.id)}

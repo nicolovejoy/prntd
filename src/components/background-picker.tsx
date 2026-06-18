@@ -1,6 +1,6 @@
 "use client";
 
-import { BACKGROUND_PALETTE } from "@/lib/products";
+import { BACKGROUND_PALETTE } from "@/lib/blanks";
 
 /**
  * Backdrop swatches for a published design. "None" clears to the

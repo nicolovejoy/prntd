@@ -12,12 +12,12 @@ import {
 import Link from "next/link";
 import { Button } from "@/components/ui";
 import {
-  getProduct,
-  DEFAULT_PRODUCT_ID,
-  ACTIVE_PRODUCTS,
+  getBlank,
+  DEFAULT_BLANK_ID,
+  ACTIVE_BLANKS,
   productSupportsPlacement,
   type AspectRatio,
-} from "@/lib/products";
+} from "@/lib/blanks";
 import { BACK_PLACEMENT_UPCHARGE } from "@/lib/pricing";
 import type { SourceImage } from "@/lib/design-images";
 import { ProductSilhouette } from "./product-silhouette";
@@ -55,10 +55,10 @@ function PreviewPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const designId = searchParams.get("id");
-  const initialProductId = searchParams.get("product") ?? DEFAULT_PRODUCT_ID;
+  const initialProductId = searchParams.get("product") ?? DEFAULT_BLANK_ID;
 
   const [productId, setProductId] = useState(initialProductId);
-  const product = getProduct(productId);
+  const product = getBlank(productId);
 
   const [renderState, setRenderState] = useState<RenderState>({ status: "idle" });
   // Bumped to re-run the placement-render effect (retry after an error).
@@ -293,7 +293,7 @@ function PreviewPageInner() {
 
   function handleProductChange(newProductId: string) {
     if (newProductId === productId) return;
-    const newProduct = getProduct(newProductId);
+    const newProduct = getBlank(newProductId);
     if (!newProduct) return;
     const newColor = newProduct.colors[0]?.name ?? "White";
     setProductId(newProductId);
@@ -399,7 +399,7 @@ function PreviewPageInner() {
 
       {/* Product selector */}
       <div className="flex gap-2 md:gap-3 mb-4 md:mb-6 w-full max-w-md justify-center">
-        {ACTIVE_PRODUCTS.map((p) => (
+        {ACTIVE_BLANKS.map((p) => (
           <button
             key={p.id}
             onClick={() => handleProductChange(p.id)}

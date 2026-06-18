@@ -1,7 +1,7 @@
 /**
  * Discover mockup templates and printfile dimensions for a Printful product.
  * Use the output to fill in `placements[].mockupPosition` and `printArea` in
- * src/lib/products.ts.
+ * src/lib/blanks.ts.
  *
  * Run with: npx tsx --env-file=.env.local scripts/fetch-mockup-templates.ts <productId>
  * Example:  npx tsx --env-file=.env.local scripts/fetch-mockup-templates.ts 71

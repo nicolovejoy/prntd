@@ -11,8 +11,8 @@ import { buildCheckoutSessionParams } from "@/lib/checkout";
 import {
   resolveOrderVariant,
   multiPlacementEnabled,
-  DEFAULT_PRODUCT_ID,
-} from "@/lib/products";
+  DEFAULT_BLANK_ID,
+} from "@/lib/blanks";
 import { getDesignDisplayImageUrl } from "@/lib/design-images";
 
 export async function calculatePrice(
@@ -56,7 +56,7 @@ export async function createCheckoutSession(params: {
     throw new Error("Design not found");
   }
 
-  const resolvedProductId = params.productId ?? DEFAULT_PRODUCT_ID;
+  const resolvedProductId = params.productId ?? DEFAULT_BLANK_ID;
   // Only honor a back design when the flag is on — keeps a stray `?back=` param
   // from charging the upcharge / pinning a back while the feature is dark.
   const backImageId = multiPlacementEnabled() ? params.back ?? null : null;

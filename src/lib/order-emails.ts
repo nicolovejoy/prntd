@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { order as orderTable, user as userTable, design as designTable } from "@/lib/db/schema";
 import type { db as appDb } from "@/lib/db";
 import type { sendOrderConfirmation, sendOwnerOrderAlert } from "@/lib/email";
-import { getProduct, getColorHex } from "@/lib/products";
+import { getBlank, getColorHex } from "@/lib/blanks";
 import { resolveOrderEmailImages, type EmailImage } from "@/lib/email-images";
 
 export type OrderEmailPayload = {
@@ -145,7 +145,7 @@ export function createDefaultOrderEmailDeps(
       // Resolve product name from the catalog. Falls back to a generic
       // "product" label if a historical order references an id we no
       // longer carry — emails should never break on a missing product.
-      const product = getProduct(row.productId);
+      const product = getBlank(row.productId);
       const images = await resolveHeroImages({
         productId: row.productId,
         color: row.color,

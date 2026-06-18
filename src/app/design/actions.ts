@@ -28,7 +28,7 @@ import {
   type ProductVersionGroup,
 } from "@/lib/design-images";
 import { prefetchProductMockups } from "@/app/preview/actions";
-import { DEFAULT_PRODUCT_ID } from "@/lib/products";
+import { DEFAULT_BLANK_ID } from "@/lib/blanks";
 import { imageReferencedByOrders } from "@/lib/design-publish";
 import { compareSummary, dedupeById } from "@/lib/compare";
 import type { ChatMessage } from "@/lib/db/schema";
@@ -454,7 +454,7 @@ export async function approveDesign(designId: string) {
   // time the user lands on /preview and starts clicking colors, the common
   // picks render instantly. Printful mockups are free so this is pure UX.
   // Best-effort: failures log and are swallowed by prefetchProductMockups.
-  after(() => prefetchProductMockups(designId, DEFAULT_PRODUCT_ID));
+  after(() => prefetchProductMockups(designId, DEFAULT_BLANK_ID));
 }
 
 /**

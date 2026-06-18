@@ -12,12 +12,12 @@ import {
 } from "@/lib/db/schema";
 import { revalidatePath } from "next/cache";
 import {
-  getProduct,
+  getBlank,
   getVariantId,
   resolveOrderVariant,
-} from "@/lib/products";
+} from "@/lib/blanks";
 import { computePrice, computeCartTotal, estimateShipping } from "@/lib/pricing";
-import { multiPlacementEnabled } from "@/lib/products";
+import { multiPlacementEnabled } from "@/lib/blanks";
 import { resolveDesignDisplayImageUrls } from "@/lib/design-images";
 import { estimateOrderCosts } from "@/lib/printful";
 import { stripe } from "@/lib/stripe";
@@ -159,7 +159,7 @@ export async function getCart(): Promise<CartView> {
 
   const items: CartLine[] = [];
   for (const r of rows) {
-    const product = getProduct(r.productId);
+    const product = getBlank(r.productId);
     if (!product) continue; // discontinued / unknown — drop from view
     const hasBack = !!r.placements?.back;
     const unitPrice = computePrice(0, r.productId, r.size, { back: hasBack }).total;
@@ -276,7 +276,7 @@ async function quoteCartShipping(items: CartLine[]): Promise<number> {
 
   const quoteItems: { variantId: number; quantity: number }[] = [];
   for (const i of items) {
-    const product = getProduct(i.productId);
+    const product = getBlank(i.productId);
     if (!product) continue;
     const variantId = getVariantId(product, i.color, i.size);
     if (variantId) quoteItems.push({ variantId, quantity: i.quantity });

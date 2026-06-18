@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updatePublishedNaming, unpublishImage } from "@/app/designs/actions";
-import { publishedBackdrop } from "@/lib/products";
+import { publishedBackdrop } from "@/lib/blanks";
 import { BackgroundPicker } from "@/components/background-picker";
 import { Button } from "@/components/ui";
 

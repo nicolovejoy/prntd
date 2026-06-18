@@ -3,11 +3,11 @@
  *
  * To add a new product:
  * 1. Run the variant discovery script to get Printful variant IDs
- * 2. Add a new entry to PRODUCTS below
+ * 2. Add a new entry to BLANKS below
  * 3. That's it — preview, order, and checkout flows pick it up automatically
  */
 
-export type ProductColor = {
+export type BlankColor = {
   name: string;
   value: string; // hex
 };
@@ -54,14 +54,14 @@ export type Placement = {
   required?: boolean;           // must be filled for fulfillment
 };
 
-export type Product = {
+export type Blank = {
   id: string;
   name: string;
   description: string;
   type: "shirt" | "phone-case";
   /**
    * Hidden from the customer-facing product picker. Historical orders and
-   * design_image rows pinned to this product still resolve via getProduct()
+   * design_image rows pinned to this product still resolve via getBlank()
    * so admin pages render correctly.
    */
   discontinued?: boolean;
@@ -85,7 +85,7 @@ export type Product = {
   sizes: string[];
   /** Label for the size selector. Defaults to "Size" if omitted. */
   sizeLabel?: string;
-  colors: ProductColor[];
+  colors: BlankColor[];
   variants: Record<string, Record<string, number>>; // color → size → variantId
   /**
    * Print regions on this product. First entry is the default ("front").
@@ -105,7 +105,7 @@ export type Product = {
   printArea: { width: number; height: number };
 };
 
-export const PRODUCTS: Product[] = [
+export const BLANKS: Blank[] = [
   {
     id: "bella-canvas-3001",
     name: "Classic Tee",
@@ -397,23 +397,23 @@ export const PRODUCTS: Product[] = [
   },
 ];
 
-export const DEFAULT_PRODUCT_ID = "bella-canvas-3001";
+export const DEFAULT_BLANK_ID = "bella-canvas-3001";
 
 /** Customer-facing catalog — excludes discontinued products. */
-export const ACTIVE_PRODUCTS: Product[] = PRODUCTS.filter((p) => !p.discontinued);
+export const ACTIVE_BLANKS: Blank[] = BLANKS.filter((p) => !p.discontinued);
 
-export function getProduct(id: string): Product | undefined {
-  return PRODUCTS.find((p) => p.id === id);
+export function getBlank(id: string): Blank | undefined {
+  return BLANKS.find((p) => p.id === id);
 }
 
-export function getProductOrThrow(id: string): Product {
-  const product = getProduct(id);
+export function getBlankOrThrow(id: string): Blank {
+  const product = getBlank(id);
   if (!product) throw new Error(`Unknown product: ${id}`);
   return product;
 }
 
 /** Look up the base cost for a specific size (handles per-size and flat pricing). */
-export function getBaseCost(product: Product, size: string): number {
+export function getBaseCost(product: Blank, size: string): number {
   return product.baseCost[size] ?? product.baseCost["*"] ?? 0;
 }
 
@@ -422,7 +422,7 @@ export function getBaseCost(product: Product, size: string): number {
  * purely off baseCost. Same "*"-default lookup as getBaseCost.
  */
 export function getRetailPrice(
-  product: Product,
+  product: Blank,
   size: string
 ): number | undefined {
   return product.retailPrice?.[size] ?? product.retailPrice?.["*"];
@@ -430,7 +430,7 @@ export function getRetailPrice(
 
 /** Look up a Printful variant ID for a product/color/size combo. */
 export function getVariantId(
-  product: Product,
+  product: Blank,
   color: string,
   size: string
 ): number | undefined {
@@ -450,8 +450,8 @@ export function resolveOrderVariant(params: {
   productId: string;
   size: string;
   color: string;
-}): { product: Product; variantId: number } {
-  const product = getProduct(params.productId);
+}): { product: Blank; variantId: number } {
+  const product = getBlank(params.productId);
   if (!product) throw new Error(`Unknown product: ${params.productId}`);
   if (product.discontinued) {
     throw new Error(`Product is no longer available: ${params.productId}`);
@@ -479,7 +479,7 @@ export function resolveOrderVariant(params: {
 export function getColorHex(productId: string | null | undefined, colorName: string | null | undefined): string {
   const FALLBACK = "#e5e5e5";
   if (!productId || !colorName) return FALLBACK;
-  const product = getProduct(productId);
+  const product = getBlank(productId);
   const color = product?.colors.find((c) => c.name === colorName);
   return color?.value ?? FALLBACK;
 }
@@ -488,10 +488,10 @@ export function getColorHex(productId: string | null | undefined, colorName: str
  * Color palette offered as the storefront backdrop for published designs.
  * The default product (Classic Tee) carries the broadest set — light and
  * dark shirts — so we source the picker from it. Color names here resolve
- * via getColorHex(DEFAULT_PRODUCT_ID, name).
+ * via getColorHex(DEFAULT_BLANK_ID, name).
  */
-export const BACKGROUND_PALETTE: ProductColor[] =
-  getProductOrThrow(DEFAULT_PRODUCT_ID).colors;
+export const BACKGROUND_PALETTE: BlankColor[] =
+  getBlankOrThrow(DEFAULT_BLANK_ID).colors;
 
 /**
  * Resolves a published design's backdrop. Art is a transparent PNG layered
@@ -505,7 +505,7 @@ export function publishedBackdrop(colorName: string | null | undefined): {
   if (!colorName) return { className: "bg-checkerboard" };
   return {
     className: "",
-    style: { backgroundColor: getColorHex(DEFAULT_PRODUCT_ID, colorName) },
+    style: { backgroundColor: getColorHex(DEFAULT_BLANK_ID, colorName) },
   };
 }
 
@@ -514,7 +514,7 @@ export function publishedBackdrop(colorName: string | null | undefined): {
  * In Phase 1 every product has exactly one placement; multi-placement is
  * Phase 4 work (see docs/print-targets-plan.md).
  */
-export function getDefaultPlacement(product: Product): Placement {
+export function getDefaultPlacement(product: Blank): Placement {
   const p = product.placements[0];
   if (!p) throw new Error(`Product ${product.id} has no placements defined`);
   return p;
@@ -523,7 +523,7 @@ export function getDefaultPlacement(product: Product): Placement {
 /** Look up a placement by its Printful key (e.g. "front", "back"). Throws if
  * the product doesn't define it — callers should gate on
  * productSupportsPlacement first. */
-export function getPlacement(product: Product, placementId: string): Placement {
+export function getPlacement(product: Blank, placementId: string): Placement {
   const p = product.placements.find((pl) => pl.id === placementId);
   if (!p) {
     throw new Error(
@@ -534,7 +534,7 @@ export function getPlacement(product: Product, placementId: string): Placement {
 }
 
 export function productSupportsPlacement(
-  product: Product,
+  product: Blank,
   placementId: string
 ): boolean {
   return product.placements.some((pl) => pl.id === placementId);
@@ -543,7 +543,7 @@ export function productSupportsPlacement(
 /** Placements the customer can optionally add (everything not `required`).
  * The default front is required, so this is the back / sleeves / labels a
  * product offers. */
-export function getOptionalPlacements(product: Product): Placement[] {
+export function getOptionalPlacements(product: Blank): Placement[] {
   return product.placements.filter((pl) => !pl.required);
 }
 

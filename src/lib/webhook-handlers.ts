@@ -4,7 +4,7 @@ import {
   design as designTable,
   orderItem as orderItemTable,
 } from "@/lib/db/schema";
-import { getProductOrThrow, getVariantId } from "@/lib/products";
+import { getBlankOrThrow, getVariantId } from "@/lib/blanks";
 import { assertTransition } from "@/lib/order-state";
 import { recordSale, recordCOGS, recordCancellation } from "@/lib/ledger";
 import type { createOrder } from "@/lib/printful";
@@ -183,7 +183,7 @@ export async function handleStripeCheckoutCompleted(
       .where(eq(orderTable.id, orderId));
   }
 
-  const product = getProductOrThrow(foundOrder.productId ?? "bella-canvas-3001");
+  const product = getBlankOrThrow(foundOrder.productId ?? "bella-canvas-3001");
   const variantId = getVariantId(product, foundOrder.color, foundOrder.size);
   if (!variantId) {
     console.error(`Order ${orderId}: no variant for ${foundOrder.color} ${foundOrder.size} on ${product.name}`);
@@ -302,7 +302,7 @@ async function submitCartOrder(
         );
     }
 
-    const product = getProductOrThrow(item.productId);
+    const product = getBlankOrThrow(item.productId);
     const variantId = getVariantId(product, item.color, item.size);
     if (!variantId) {
       console.error(

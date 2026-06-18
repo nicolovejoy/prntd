@@ -14,7 +14,7 @@ import {
   setOrderTags,
 } from "../../actions";
 import { Badge, Button, Card } from "@/components/ui";
-import { getColorHex } from "@/lib/products";
+import { getColorHex } from "@/lib/blanks";
 import {
   ORDER_CLASSIFICATIONS,
   CLASSIFICATION_INFO,
