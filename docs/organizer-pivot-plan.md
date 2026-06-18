@@ -1,227 +1,325 @@
 # Organizer pivot — phased TDD implementation plan
 
-2026-06-18. The build plan for the positioning pivot (`docs/positioning-pivot.md`)
-and the design system it implies (`docs/design-system.md`). Phone-first, test-first.
+2026-06-18. Build plan for the positioning pivot (`docs/positioning-pivot.md`) and
+the object model in `docs/design-system.md`. Phone-first, test-first.
 
-**Ground rules**
+## Object model (settled 2026-06-18)
 
-- **TDD.** Every phase lists its tests first. Pure helpers get unit tests; anything
-  touching the DB uses the real-DB integration pattern (`src/lib/__tests__/test-db.ts`
-  derives DDL from `schema.ts` via `drizzle-kit/api` — no migration files, always
-  current, FKs enforced). Don't mock the DB for money or ownership logic.
-- **Phone-first.** Build the phone layout first, widen for desktop. A phase isn't
-  done until it's been driven on a Pixel-7 viewport (Playwright project already
-  exists in `e2e/`). Touch targets ≥ 44px.
-- **Flag-gated.** Each customer-facing phase ships behind an env flag (pattern:
-  `GUEST_FUNNEL_ENABLED`, `CART_ENABLED`). New: `STORES_ENABLED`. Merge dark, flip
-  when verified.
-- **Migrations are versioned.** Schema changes go `db:generate` → review SQL in PR
-  → `db:migrate` with inline prod creds. **Never `db:push` to prod** (dev-only). See
-  CLAUDE.md "Migration discipline."
-- **Read the framework docs first.** Per `AGENTS.md`, before writing any route /
-  middleware / server-action code, read the relevant guide under
-  `node_modules/next/dist/docs/`. This is Next.js 16 — don't trust memorized APIs.
+Top (PRNTD catalog) to bottom (organizer's shop). Printful's nouns adopted where
+they have them — research in the PR thread; sources: developers.printful.com v1 +
+v2-beta, Printful Help Center.
 
-The phases are ordered so value lands early and the riskiest schema work is isolated.
-**Phase 0 ships standalone** — it's the mobile fix and needs none of the store work.
+**Catalog — PRNTD-owned**
+
+- **Product offering** *(our noun)* — a category of blanks with an **availability
+  window** (new / seasonal / expiring). Maps to Printful's **category**
+  (`catalog-categories`, nestable via `parent_id`); the dated window is ours
+  (Printful categories have none). Generalizes today's `discontinued` flag.
+- **Blank** = Printful **catalog product** (`catalog-products/{id}`). The rename of
+  today's `Product` type in `products.ts`. Keeps `printfulProductId` as the join
+  key (Printful's own term for a blank is "product", so that field name stays).
+  - **Variant** — color × size SKU (`catalog-variants`). Already modeled.
+  - **Placement** — adopt Printful's exact keys: `front_large` (⚠️ not today's
+    stale `"front"`), `back`, `sleeve_left`, `sleeve_right`, `label_inside`,
+    `label_outside`. Each carries **technique** (`dtg` default; also `embroidery`,
+    `sublimation`, `cut-sew`, `uv`, `digital`, `dtfilm`), print-area inches,
+    printfile pixels, and **DPI**.
+
+**Organizer-owned**
+
+- **Design** — artwork: the PNG + real pixel dims + transparency flag + aspect.
+  (Today's `design` / `design_image`; pixel-res and alpha flag are new metadata.)
+- **Product** — Design × Blank × Placement(s) + price. The new *persisted*
+  sellable; today this config is assembled at `/preview → /order` and thrown away.
+  One design → many products.
+- **Collection** *(backlog, no build)* — a grouping of products for any reason
+  (girls/boys team, last-year's-vs-this-year's), discount optional, **no URL**.
+- **Store** — the shareable shop with a public URL. **Many per organizer,
+  optimized for one** (model supports N; UX defaults hard to one).
+
+### The validity rule
+
+A **Product is valid** iff, for its chosen placement on its blank:
+
+1. the placement exists on the blank (`productSupportsPlacement`);
+2. the design's technique-suitability matches the placement's **technique**;
+3. `design pixels ÷ print-area inches ≥ placement DPI` (resolution check — new;
+   today DPI is implicit and never validated);
+4. aspect within tolerance (existing `needsAspectRegeneration`, 1.5× threshold);
+5. if `dtg` on a colored variant, the design has transparency (the knockout we
+   already do).
+
+Pure function of (design props, placement constraints) — the testable core.
+**Policy: warn + auto-remediate, never hard-block** — a non-designer organizer
+gets "this needs reshaping for the mug → fix it" (regenerate at right aspect /
+knockout), not a dead end.
+
+### Catalog gaps to close (`products.ts`, all additive / v1-safe except 4)
+
+1. add **`technique`** to `Placement` (default `"dtg"`);
+2. add **`dpi`** to placement geometry + validate source resolution against it;
+3. add a **product-offering / category** layer above blanks (today's `Product.type`
+   is a hand-rolled stand-in);
+4. migrate literal `"front"` → `"front_large"` — coupled to a v1→v2 Printful API
+   move; v1 still accepts `"front"` for our three shirts, so **not urgent**.
+
+---
+
+## Ground rules
+
+- **TDD.** Tests first. Pure helpers get unit tests; anything touching the DB uses
+  the real-DB integration pattern (`src/lib/__tests__/test-db.ts` derives DDL from
+  `schema.ts` via `drizzle-kit/api` — always current, FKs enforced). Never mock the
+  DB for money or ownership logic.
+- **Phone-first.** Build the phone layout first; widen for desktop. Not done until
+  driven on a Pixel-7 viewport (Playwright project exists in `e2e/`). Targets ≥44px.
+- **Flag-gated.** New customer-facing surfaces ship behind `STORES_ENABLED`
+  (pattern: `GUEST_FUNNEL_ENABLED`, `CART_ENABLED`). Merge dark, flip when verified.
+- **Versioned migrations.** `db:generate` → review SQL in PR → `db:migrate` with
+  inline prod creds. **Never `db:push` to prod** (dev-only). See CLAUDE.md.
+- **Read framework docs first.** Per `AGENTS.md`, before any route / middleware /
+  server-action code read the relevant guide under `node_modules/next/dist/docs/`.
+  This is Next.js 16 — don't trust memorized APIs.
+
+Phases ordered so value lands early and the riskiest schema work is isolated.
+**Phase 0 ships standalone** (the mobile fix, no schema). **Phase 0.5 (rename)
+precedes all schema work** so "product" is free for the organizer sellable.
 
 ---
 
 ## Phase 0 — Tappable chat options (the mobile fix)
 
-**Why first:** highest-value, persona-independent, no schema. Kills the "list that
-looks like buttons but you must type a number" bug. Ships ahead of everything else.
+**Why first:** highest-value, persona-independent, no schema. Kills the "list looks
+like buttons but you must type a number" bug.
 
-**The bug, precisely:** `ai.ts` (CHAT_SYSTEM_PROMPT ~L27-30) tells Claude to *number*
-options; `chat-panel.tsx:256` renders the reply as inert markdown via `react-markdown`;
-no quick-reply component exists. User must type a digit. The composer also crams 5
-controls into one non-wrapping flex row (`chat-panel.tsx:297`).
+**Bug, precisely:** `ai.ts` CHAT_SYSTEM_PROMPT (~L27-30) tells Claude to *number*
+options; `chat-panel.tsx:256` renders the reply as inert markdown; no quick-reply
+component exists. The composer also crams 5 controls into one non-wrapping flex row
+(`chat-panel.tsx:297`).
 
-**Approach:** the chat reply is already a JSON envelope (`extractChatEnvelope`,
-`chatAboutDesign` return `{message, readyToGenerate}`). Extend the envelope with an
-optional `options: {label, value}[]`. The model populates it when it asks a
-multiple-choice question; the UI renders tappable `QuickReply` chips; tapping one
-submits `value` as the user's turn. Stop telling the model to number things in prose.
+**Approach:** the reply is already a JSON envelope (`extractChatEnvelope`,
+`chatAboutDesign` → `{message, readyToGenerate}`). Add optional
+`options: {label, value}[]`. The model fills it for multiple-choice questions; the
+UI renders tappable `QuickReply` chips; tap submits `value` as the user's turn.
+Stop instructing numbered prose.
 
 **Tests first**
 
-- `extractChatEnvelope` parses `options` when present; tolerates absent (back-compat);
-  salvages from mixed prose+JSON output (existing failure mode).
-- `buildMessages` strips embedded option-blocks from assistant history (don't teach
-  the model to re-emit them as text — same cascade fix already done for envelopes).
-- Pure: a `quickReplyFromOptions` mapper (option → chip props), incl. empty/over-long
-  label handling.
-- Component test (`QuickReply`): renders ≥44px chips, tap fires `onSelect(value)`.
+- `extractChatEnvelope` parses `options`; tolerates absent (back-compat); salvages
+  from mixed prose+JSON (existing failure mode).
+- `buildMessages` strips embedded option-blocks from assistant history (same
+  cascade fix already done for envelopes — don't teach the model to re-emit them).
+- Pure `quickReplyFromOptions` mapper (empty / over-long label handling).
+- `QuickReply` component: renders ≥44px chips; tap fires `onSelect(value)`.
 
 **Build**
 
 1. `QuickReply` in `src/components/ui/` + index export + test.
-2. Envelope type + parser changes in `ai.ts`; update CHAT_SYSTEM_PROMPT to return
-   structured `options` instead of numbered prose; update READINESS_SYSTEM_PROMPT's
-   "3-5 style examples" the same way.
-3. `chat-panel.tsx`: render `options` as a QuickReply row under the assistant bubble;
-   tapping submits the turn. Remove reliance on numbered markdown.
-4. Composer relayout: one input + one primary ("Draw it" / Send merged per design
-   system), Compare demoted to overflow/gallery. Phone row wraps; ≥44px targets.
+2. Envelope type + parser in `ai.ts`; CHAT_SYSTEM_PROMPT + READINESS_SYSTEM_PROMPT
+   return structured `options` instead of numbered prose.
+3. `chat-panel.tsx`: render `options` as a chip row under the assistant bubble; tap
+   submits the turn.
+4. Composer relayout: one input + one primary (Send/Draw-it merged per design
+   system), Compare demoted to overflow. Phone row wraps; ≥44px targets.
 
-**Done when:** on a Pixel-7 viewport, asking the assistant a style question yields
-tappable chips; no numbered-list typing anywhere; composer doesn't overflow. Playwright
-mobile spec covers the tap-to-answer path.
+**Done:** on Pixel-7, a style question yields tappable chips; no numbered-list
+typing; composer doesn't overflow. Playwright mobile spec covers tap-to-answer.
 
 ---
 
-## Phase 1 — Store data model (schema only, no UI)
+## Phase 0.5 — Rename `product` → `blank` (standalone, no behavior change)
 
-**Why isolated:** the one migration. Land it, prove zero-drift, before any surface
-depends on it.
+**Why:** frees the noun "product" for the organizer's sellable before any schema
+uses it. Pure mechanical rename; merge-before-Phase-1.
 
-**Schema** (`src/lib/db/schema.ts`): new `store` table —
+**Scope (code symbols only — NOT DB columns, NOT `printfulProductId`)**
+
+- `products.ts` → `blanks.ts`; `Product` type → `Blank`; `ProductColor` →
+  `BlankColor`; `PRODUCTS` → `BLANKS`; `ACTIVE_PRODUCTS` → `ACTIVE_BLANKS`;
+  `DEFAULT_PRODUCT_ID` → `DEFAULT_BLANK_ID`; `getProduct[OrThrow]` →
+  `getBlank[OrThrow]`. Update ~18 importer files.
+- **Leave alone:** `printfulProductId` (Printful's own term for a blank), and the
+  DB columns `order.product_id` / `design_image.product_id` / `order_item.*` /
+  `cart_item.*` (renaming columns is a separate, later, destructive migration —
+  documented as "stores a blank id" for now).
+
+**Tests:** the full suite + `build` are the spec — a pure rename keeps every test
+green. No new tests; CI proves no behavior changed.
+
+**Done:** lint + 238-ish tests + build green; zero functional diff; "product" no
+longer means a blank anywhere in code.
+
+---
+
+## Phase 1 — Store + product object model (schema only, no UI)
+
+**Why isolated:** the migrations. Land + prove zero-drift before any surface
+depends on them.
+
+**New tables** (`src/lib/db/schema.ts`):
 
 ```
 store
   id            text pk
-  ownerId       text  → user.id   (the organizer; re-parented on claim like design/order)
-  slug          text  unique, url-safe
+  ownerId       text  → user.id      (re-parented on claim, like design/order)
+  slug          text  unique          url-safe; slugify(name) + collision suffix
   name          text
   description    text  nullable
-  accentColor   text  nullable    (the one per-store brand color)
-  status        enum  draft | live | hidden   default draft
+  accentColor   text  nullable         the one per-store brand color
+  status        enum  draft|live|hidden  default draft
+  createdAt, updatedAt
+
+product_offering                        (catalog category + availability window)
+  id            text pk
+  name          text
+  printfulCategoryId  int  nullable     join to Printful catalog-categories
+  availableFrom integer timestamp nullable
+  availableUntil integer timestamp nullable   null = always on
+  sortOrder     int  default 0
+  createdAt, updatedAt
+
+product                                 (organizer's sellable: design × blank × placements)
+  id            text pk
+  ownerId       text  → user.id        (re-parented on claim)
+  storeId       text  → store.id  nullable   loose products allowed
+  designId      text  → design.id
+  blankId       text                    catalog blank id (e.g. "bella-canvas-3001")
+  placements    json  {placementKey: imageId}   front_large/back/… → design_image
+  price         real  nullable          organizer override; null = computed default
+  status        enum  draft|listed|hidden  default draft
+  position      int   default 0
   createdAt, updatedAt
 ```
 
-Linking designs → store. Decision: **join table `store_listing`** (not a `storeId`
-on `design`) so a design can appear in more than one store and a store can order its
-listings independently of design identity:
+Order linkage (Phase 3, but additive now): nullable `order.storeId`,
+`order.productId` *(the new product, distinct from the blank — naming resolved by
+Phase 0.5)* so a sale attributes to a store + product.
 
-```
-store_listing
-  id          text pk
-  storeId     text → store.id
-  designId    text → design.id
-  imageId     text → design_image.id   (the exact published image to sell)
-  position    int                       (manual ordering)
-  createdAt
-  unique(storeId, imageId)
-```
+**Tests first** (real-DB integration via `test-db.ts`)
 
-**Tests first** (real-DB integration, `test-db.ts`)
+- store: slug uniqueness; FK to user; status default `draft`.
+- product: FK to design + store; placements JSON round-trips; loose product
+  (`storeId` null) allowed; reject a blank the design's owner can't use.
+- **validity helper** (pure, no DB): `validateProduct(design, blank, placement)` →
+  the 5-rule matrix above; warns (not throws) with a remediation hint.
+- `slugify(name)`: collision suffixing, unicode/emoji strip, max length.
+- re-parent: a guest's store + product move to the real account on
+  `onLinkAccount` (extend the existing claim test in `auth`).
 
-- Create store; slug uniqueness enforced; FK to user enforced.
-- Add/remove listings; `unique(storeId, imageId)`; cascade/cleanup on design delete.
-- Re-parent: a guest's store + listings move to the real account on `onLinkAccount`
-  (extend the existing claim test).
-- Pure `slugify(name)` helper: collision suffixing, unicode/emoji stripping, max len.
+**Build:** schema edit → `db:generate` (review `000N_*.sql` in PR) → migrate dev
+only. **No prod migrate until a UI phase flips the flag.** Extend `onLinkAccount`
+(`auth.ts`) to re-parent `store` + `product` alongside design/order/cart. Add
+`technique` + `dpi` to the `Placement` type + `validateProduct` helper in
+`blanks.ts`.
 
-**Build:** schema edit → `db:generate` (review the `000N_*.sql` in the PR) → migrate
-dev. **No prod migrate until a UI phase is ready to flip.** Extend `onLinkAccount`
-(`auth.ts`) to re-parent `store` + `store_listing`.
-
-**Done when:** integration tests green; migration SQL reviewed; dev DB has the tables;
-claim re-parents stores.
+**Done:** integration tests green; migration SQL reviewed; dev DB has the tables;
+claim re-parents stores + products.
 
 ---
 
 ## Phase 2 — Organizer setup flow (`STORES_ENABLED`, default off)
 
-**Why:** the primary entry point. Create a named shop, add designs, get a link.
+**Why:** the primary entry point — name a shop, add products, get a link.
 
 **Surfaces**
 
-- `/dashboard` — organizer back office. Shop card with **Copy link** (the load-bearing
-  control), sales summary, designs-in-shop manager, **Create a shop** primary.
-- Store create/edit — name, slug (auto from name, editable), accent color (from the
-  shirt palette), add listings from the user's designs.
-- `actions.ts`: `createStore`, `updateStore`, `addListing`, `removeListing`,
-  `reorderListings`, `getMyStores`, `getStore`.
+- `/dashboard` — organizer back office. Shop card with **Copy link** (the
+  load-bearing control), sales summary, products-in-shop manager, **Create a shop**
+  primary. Defaults to the single store; "create another" only when >0 exist.
+- Store create/edit — name, slug (auto, editable), accent color (from the shirt
+  palette).
+- Product compose — pick a design, a blank, placement(s), price; live validity
+  (warn + fix). Reuses `/preview` mockup machinery.
+- `actions.ts`: `createStore`, `updateStore`, `createProduct`, `updateProduct`,
+  `addProductToStore`, `reorderProducts`, `getMyStores`, `getStore`.
 
 **Tests first**
 
-- Pure: `slugify` (from Phase 1), share-link builder (`storeShareUrl(slug)` off
-  request origin, not hardcoded `NEXT_PUBLIC_APP_URL` — the preview-checkout-bounces-
-  to-prod lesson), `canManageStore(user, store)` ownership guard.
-- Integration: createStore writes a draft + unique slug; addListing rejects an image
-  the user doesn't own; reorder persists position.
-- Playwright (mobile + desktop): create shop → add two designs → copy link → link
-  resolves. Anonymous organizer can build a shop and it claims on sign-up.
+- Pure: `slugify`, `storeShareUrl(slug)` off request origin (NOT hardcoded
+  `NEXT_PUBLIC_APP_URL` — the preview-checkout-bounces-to-prod lesson),
+  `canManageStore(user, store)` ownership guard, `validateProduct` in the compose UI.
+- Integration: createStore writes a draft + unique slug; createProduct rejects an
+  unowned design; reorder persists.
+- Playwright (mobile + desktop): create shop → add two products → copy link →
+  link resolves. Anonymous organizer builds a shop; it claims on sign-up.
 
 **Build:** read `node_modules/next/dist/docs/` for App-Router route + server-action
-specifics first. Phone layout first. Anonymous-plugin lets an organizer build before
-signing up; checkout/sign-up triggers claim. Nav gains **Dashboard** for organizers
-(IA in the design system).
+specifics first. Phone layout first. Nav gains **Dashboard** for organizers.
 
-**Done when:** an organizer on a phone makes a named shop, adds designs, copies a
+**Done:** an organizer on a phone makes a named shop, adds products, copies a
 working link; anon→account claim verified; flag still off in prod.
 
 ---
 
 ## Phase 3 — Buyer storefront (`STORES_ENABLED`)
 
-**Why:** the shared link's destination. Generalizes `/prints` + `/d/[imageId]` to one
-organizer's shop.
+**Why:** the shared link's destination. Generalizes `/prints` + `/d/[imageId]` to
+one organizer's shop.
 
 **Surfaces**
 
-- `/shop/[slug]` — shop header (name, accent, one line), listing grid, per-listing
+- `/shop/[slug]` — shop header (name, accent, one line), product grid, per-product
   buy (size/color/price), one **Buy** primary. Account demanded only at checkout
   (anonymous plugin). No studio chrome.
-- Reuse `BuyPanel`, `SizePicker`, `ColorPicker`, `computeOrderTotal`, the existing
-  checkout choke point (`createStripeCheckoutForOrder` / `buildCheckoutSessionParams`)
-  — the buy path is solved; this scopes it to a store and tags the order with `storeId`.
+- Reuse `BuyPanel`, `SizePicker`, `ColorPicker`, `computeOrderTotal`, the checkout
+  choke point (`createStripeCheckoutForOrder` / `buildCheckoutSessionParams`) — the
+  buy path is solved; this scopes it to a store and tags the order with
+  `storeId` + `productId`.
 
 **Tests first**
 
-- Pure: `getShopListings(slug)` view assembly; sold-out / hidden / draft store
-  visibility rules (`canViewStore`); price unchanged from `computeOrderTotal`.
-- Integration (real-DB money path, extend `money-path.integration.test.ts`): buy a
-  listing from a store → order carries `storeId` → webhook → ledger sale/fee/cogs,
-  one shipping line. Attribution: order records buyer + organizer + original designer.
+- Pure: `getShopListings(slug)` assembly; store visibility (`canViewStore` — draft
+  hidden, live public); price unchanged from `computeOrderTotal`.
+- Integration (extend `money-path.integration.test.ts`): buy a product from a store
+  → order carries `storeId`/`productId` → webhook → ledger sale/fee/cogs, one
+  shipping line. Attribution: buyer + organizer + original designer.
 - Playwright: open `/shop/[slug]` cold (signed out) → pick size → checkout gate →
   sign in → order lands in buyer's `/orders`.
 
-**Build:** add nullable `order.storeId` (additive migration, same discipline). Buyer
-sees only the shop. Confirm bundled-shipping invariant holds (one shipping line per
-order, not per item) — the #26 contract test already locks this.
+**Build:** buyer sees only the shop. Confirm bundled-shipping invariant (one
+shipping line per order, not per item) — the #26 contract test already locks it.
 
-**Done when:** a buyer purchases from a shared shop link end-to-end on a phone; order
+**Done:** a buyer purchases from a shared link end-to-end on a phone; order
 attributes to the organizer; money path integration-tested; flag flippable.
 
 ---
 
 ## Phase 4 — Brand / persona polish
 
-**Why last:** needs the flows to exist before copy and the homepage can be concrete —
-which was Manine's whole point.
+**Why last:** needs the flows to exist before copy + homepage can be concrete —
+Manine's whole point.
 
-- Homepage three-state branch (unrecognized → "set up a shop" + real example;
-  recognized organizer → dashboard; buyer → design/browse). Tested branch, not ad hoc.
-- Newman's-Own voice pass on shop-setup + storefront copy (Manine reviews concretely
-  against live shops, not an abstract doc).
+- Homepage three-state branch (unrecognized → "set up a shop" + a real example;
+  recognized organizer → dashboard; buyer → design/browse). Tested pure function of
+  (session, role, has-store).
+- Newman's-Own voice pass on shop-setup + storefront copy (Manine reviews against
+  live shops, not an abstract doc).
 - Badge palette 11 hues → 4 semantic tokens; per-store accent token.
 - Nav IA finalized: Dashboard-first for organizers.
-
-**Tests:** homepage-state selection is a pure function of (session, role, has-store) →
-unit-tested. Visual/copy is Manine's review loop, not an automated gate.
 
 ---
 
 ## Sequencing & risk
 
-- **Ship order:** 0 → 1 → 2 → 3 → 4. Phase 0 is independent and ships immediately.
-- **Riskiest:** Phase 1 migration (isolated on purpose) and Phase 3 money path
-  (covered by the real-DB integration pattern, the one place we never mock).
-- **Reuses, doesn't rebuild:** anonymous-plugin claim, checkout choke point, pricing,
-  bundled shipping, ledger, BuyPanel, product options — all already shipped. The pivot
-  is mostly a new *grouping* (the store) and a new *entry point*, not new commerce.
-- **Prod migrate discipline:** back up (`turso db create prntd-backup-<date> --from-db
-  prntd`), `migration-smoke.ts before|after`, then inline-cred `db:migrate`. Manual,
-  not fire-on-merge.
+- **Ship order:** 0 → 0.5 → 1 → 2 → 3 → 4. Phase 0 is independent and ships
+  immediately; 0.5 is a pure rename that must precede schema.
+- **Riskiest:** Phase 1 migration (isolated) and Phase 3 money path (covered by the
+  real-DB pattern — the one place we never mock).
+- **Reuses, doesn't rebuild:** anonymous-plugin claim, checkout choke point,
+  pricing, bundled shipping, ledger, BuyPanel, product options, mockup machinery —
+  all shipped. The pivot is mostly a new *grouping* (store + product) and a new
+  *entry point*, not new commerce.
+- **Prod migrate discipline:** back up (`turso db create prntd-backup-<date>
+  --from-db prntd`), `migration-smoke.ts before|after`, then inline-cred
+  `db:migrate`. Manual, not fire-on-merge.
 
-## Open product questions (don't block Phase 0)
+## Open product questions (don't block the build)
 
-1. Does "Fresh Prints" (the global feed) survive as a curated house store, or retire
-   in favor of per-organizer shops?
-2. Can a design live in multiple shops (join table says yes) — surface it or keep it
-   one-to-one in the UI for now?
-3. Proceeds / pro-social mechanic (Newman's Own): does the organizer set a markup, a
-   donation split, or is it flat? Pricing already supports a per-line markup; the
-   policy is a Nico+Manine decision, not a code blocker.
+1. Does "Fresh Prints" (the global feed) survive as a curated house store, or
+   retire for per-organizer shops?
+2. Collections — surface multi-store membership, or keep one-to-one in UI for now?
+3. Proceeds / pro-social mechanic (Newman's Own): organizer markup, donation split,
+   or flat? Pricing already supports a per-line markup; policy is a Nico+Manine
+   call, not a code blocker.
+4. Embroidery / non-DTG blanks — the `technique` field is in from Phase 1, but the
+   first embroidery offering is its own product+UX effort.

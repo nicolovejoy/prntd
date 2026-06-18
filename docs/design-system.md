@@ -159,19 +159,30 @@ Key IA decisions:
 
 Shared nouns. Code names in parentheses where they differ.
 
-**Objects**
+**Objects** (full model + Printful mapping in `docs/organizer-pivot-plan.md`)
 
-- **Store / Shop** *(new — no table today)* — a named, shareable collection of
-  designs owned by an organizer. Has a slug (`/shop/[slug]`), a name, an optional
-  accent color, and a link. The pivot's central new object.
+- **Product offering** *(new)* — a category of blanks with an availability window
+  (new / seasonal / expiring). Maps to Printful's **category**; the window is ours.
+- **Blank** *(rename of code's `Product`)* — a printable item: tee, mug, cozy. One
+  Printful catalog product; has color × size variants and **placements**.
+- **Placement** — a print location on a blank, Printful's keys verbatim
+  (`front_large`, `back`, `sleeve_left`, `label_inside`, …). Carries a **technique**
+  (`dtg` default), print area, DPI, aspect.
 - **Design** — a thread: the conversation plus its generations. One `design` row,
   one `/design?id=` URL.
 - **Generation** — one numbered render inside a design (`design_image` row).
   Append-only; never replaced.
-- **Listing** — a design placed in a store, buyable. (Today's "Print" — a
-  published `design_image` — generalizes to this.)
-- **Mockup** — a generation placed on a physical product (Printful render).
-- **Backdrop** — the shirt-palette color a listing sits on; checkerboard unset.
+- **Product** *(new — the organizer's sellable)* — a Design on a Blank at a
+  Placement, priced. One design → many products. Persists the config today thrown
+  away at checkout. *(Validity = a pure function of design props × placement
+  constraints; warn + auto-remediate, never block — see the plan.)*
+- **Collection** *(backlog, no URL)* — a grouping of products (teams, seasons),
+  discount optional.
+- **Store / Shop** *(new)* — a named, shareable shop owned by an organizer. Slug
+  (`/shop/[slug]`), name, one accent color, a link. **Many per organizer, optimized
+  for one.** The pivot's central new object.
+- **Mockup** — a generation placed on a blank (Printful render).
+- **Backdrop** — the shirt-palette color a product sits on; checkerboard unset.
 - **Swatch** — a selectable product-color circle.
 
 **Places**
