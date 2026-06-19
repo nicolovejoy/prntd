@@ -25,3 +25,13 @@ export function guestFunnelEnabled(): boolean {
 export function cartEnabled(): boolean {
   return process.env.CART_ENABLED === "true";
 }
+
+/**
+ * Organizer stores (pivot Phase 2): when on, the nav shows a Dashboard link and
+ * the /dashboard back office + /shop/[slug] storefront are reachable. When off,
+ * those surfaces stay hidden and their actions refuse — merge dark, flip
+ * STORES_ENABLED=true once the flow is verified. Default off.
+ */
+export function storesEnabled(): boolean {
+  return process.env.STORES_ENABLED === "true";
+}

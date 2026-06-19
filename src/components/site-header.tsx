@@ -5,6 +5,7 @@ import { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
 import { getCartCount, isCartEnabled } from "@/app/cart/actions";
+import { isStoresEnabled } from "@/app/dashboard/actions";
 
 type NavLink = { href: string; label: string };
 
@@ -29,6 +30,12 @@ export function SiteHeader() {
   }, [pathname, session?.user?.id, showCart]);
   const cartLabel = cartCount > 0 ? `Cart (${cartCount})` : "Cart";
 
+  // Organizer Dashboard (pivot Phase 2) — behind STORES_ENABLED.
+  const [showDashboard, setShowDashboard] = useState(false);
+  useEffect(() => {
+    isStoresEnabled().then(setShowDashboard).catch(() => setShowDashboard(false));
+  }, []);
+
   // Guest-funnel (#26) anonymous sessions don't count as signed-in for the nav:
   // a guest sees the signed-out nav ("Sign in"), not "Sign out" + the gated
   // personal links (/designs, /orders still redirect anon to sign-in).
@@ -43,6 +50,7 @@ export function SiteHeader() {
     ? [
         { href: "/prints", label: "Fresh Prints" },
         { href: "/design", label: "New Design" },
+        ...(showDashboard ? [{ href: "/dashboard", label: "Dashboard" }] : []),
         { href: "/designs", label: "My Designs" },
         { href: "/orders", label: "Orders" },
       ]
