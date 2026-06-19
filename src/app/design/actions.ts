@@ -90,6 +90,7 @@ export async function sendChatMessage(designId: string, userMessage: string) {
   return {
     message: aiResponse.message,
     readyToGenerate: aiResponse.readyToGenerate,
+    options: aiResponse.options,
   };
 }
 
@@ -176,6 +177,7 @@ export async function generateDesign(
       imageId: null,
       generationNumber: found.generationCount,
       readyToGenerate: false,
+      options: readiness.options,
     };
   }
 
@@ -492,7 +494,7 @@ export async function compareGenerators(designId: string, userMessage?: string) 
   const readiness = await assessReadiness(messagesForPrompt, images, userMessage);
   if (!readiness.ready) {
     await persistClarification(designId, userMessage, readiness.question);
-    return { message: readiness.question, images: [], readyToGenerate: false };
+    return { message: readiness.question, images: [], readyToGenerate: false, options: readiness.options };
   }
 
   let aiResponse;
