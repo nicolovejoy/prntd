@@ -323,3 +323,11 @@ Manine's whole point.
    call, not a code blocker.
 4. Embroidery / non-DTG blanks — the `technique` field is in from Phase 1, but the
    first embroidery offering is its own product+UX effort.
+5. `/design` "Generations" column — IA + naming both wrong under the pivot (raised
+   2026-06-18, live on the Phase 0 build). The word is generator-jargon; worse, the
+   column is dead space on an empty design ("No images yet") and its role — a
+   gallery of renders you pick from to "make products" — is the exact seam the
+   pivot reshapes (design → *product* = design × blank × placements). Decide what
+   the column *is* and when it appears, not just a rename. Persona/IA-dependent →
+   resolve with Manine, not ahead of her. A neutral rename ("Drafts"/"Versions") is
+   a safe stopgap if it grates before then.
