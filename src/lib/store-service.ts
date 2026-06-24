@@ -147,6 +147,46 @@ export async function createProduct(
   return created;
 }
 
+export async function getProductById(db: DB, productId: string): Promise<Product | null> {
+  const [p] = await db.select().from(productTable).where(eq(productTable.id, productId));
+  return p ?? null;
+}
+
+export type UpdateProductInput = Partial<{
+  blankId: string;
+  placements: Record<string, string> | null;
+  price: number | null;
+  status: Product["status"];
+}>;
+
+/**
+ * Owner-guarded partial update of a draft/listed product — the compose form's
+ * save. Only the composable fields (blank, placements, price, status) move;
+ * designId, storeId and position are managed elsewhere (createProduct,
+ * addProductToStore, reorderProducts).
+ */
+export async function updateProduct(
+  db: DB,
+  ownerId: string,
+  productId: string,
+  patch: UpdateProductInput
+): Promise<Product> {
+  await assertOwnsProduct(db, ownerId, productId);
+
+  const set: Partial<typeof productTable.$inferInsert> = { updatedAt: new Date() };
+  if (patch.blankId !== undefined) set.blankId = patch.blankId;
+  if (patch.placements !== undefined) set.placements = patch.placements;
+  if (patch.price !== undefined) set.price = patch.price;
+  if (patch.status !== undefined) set.status = patch.status;
+
+  const [updated] = await db
+    .update(productTable)
+    .set(set)
+    .where(eq(productTable.id, productId))
+    .returning();
+  return updated;
+}
+
 /** Products shelved in a store, in display order. */
 export async function getStoreProducts(db: DB, storeId: string): Promise<Product[]> {
   return db

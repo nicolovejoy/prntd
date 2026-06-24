@@ -16,6 +16,8 @@ import {
   getStoreProducts,
   addProductToStore,
   reorderProducts,
+  updateProduct,
+  getProductById,
 } from "@/lib/store-service";
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
@@ -172,5 +174,44 @@ describe("ordering", () => {
 describe("getStoreById", () => {
   it("returns null for a missing store", async () => {
     expect(await getStoreById(db, "nope")).toBeNull();
+  });
+});
+
+describe("updateProduct", () => {
+  async function makeProduct(owner: string) {
+    await makeUser(owner);
+    const d = await makeDesign(owner);
+    return createProduct(db, owner, { designId: d.id, blankId: "bella-canvas-3001" });
+  }
+
+  it("updates price, placements and status on an owned product", async () => {
+    const p = await makeProduct("org-1");
+    const updated = await updateProduct(db, "org-1", p.id, {
+      price: 24.5,
+      placements: { front: "img-9" },
+      status: "listed",
+    });
+    expect(updated.price).toBe(24.5);
+    expect(updated.placements).toEqual({ front: "img-9" });
+    expect(updated.status).toBe("listed");
+  });
+
+  it("can clear a price back to the computed default", async () => {
+    const p = await makeProduct("org-1");
+    await updateProduct(db, "org-1", p.id, { price: 30 });
+    const cleared = await updateProduct(db, "org-1", p.id, { price: null });
+    expect(cleared.price).toBeNull();
+  });
+
+  it("refuses a non-owner", async () => {
+    const p = await makeProduct("org-1");
+    await makeUser("org-2");
+    await expect(
+      updateProduct(db, "org-2", p.id, { price: 99 })
+    ).rejects.toThrow(/unauthorized/i);
+  });
+
+  it("getProductById returns null for a missing product", async () => {
+    expect(await getProductById(db, "nope")).toBeNull();
   });
 });
