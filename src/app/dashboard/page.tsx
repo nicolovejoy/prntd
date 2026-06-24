@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button, Badge } from "@/components/ui";
 import { ensureGuestSession } from "@/lib/ensure-guest-session";
 import {
@@ -114,6 +115,7 @@ function StoreCard({
   store: DashboardStore;
   onToggleLive: () => void;
 }) {
+  const router = useRouter();
   const [copied, setCopied] = useState(false);
 
   async function copyLink() {
@@ -142,6 +144,14 @@ function StoreCard({
         </div>
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
+        <Button
+          type="button"
+          variant="primary"
+          className="min-h-[44px]"
+          onClick={() => router.push(`/dashboard/products/new?store=${store.id}`)}
+        >
+          Add product
+        </Button>
         <Button
           type="button"
           variant="secondary"
