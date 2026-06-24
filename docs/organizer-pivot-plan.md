@@ -230,6 +230,17 @@ claim re-parents stores + products.
   palette).
 - Product compose — pick a design, a blank, placement(s), price; live validity
   (warn + fix). Reuses `/preview` mockup machinery.
+  - **Design source (decided 2026-06-24): A-first-then-B.** Slice 2 ships the
+    picker over the **organizer's own design threads only** (single-owner R2,
+    no attribution tangle, reuses existing render/submit paths). Structure the
+    picker + `createProduct` so a later widening to **any published design** (B)
+    is an additive source, not a rewrite — same isolation #6 used. B is gated on
+    the designer royalty/credit + status-flip-edge decisions still open from #6,
+    so it does not block the compose UI.
+  - **Price (decided 2026-06-24): floor-guarded, soft-warn (option B).** The
+    organizer sets the price; the form shows live **suggested price, est. org
+    proceeds, and a floor**, and warns below the floor (never hard-blocks — the
+    warn+fix policy). The proceeds math is the economics section below.
 - `actions.ts`: `createStore`, `updateStore`, `createProduct`, `updateProduct`,
   `addProductToStore`, `reorderProducts`, `getMyStores`, `getStore`.
 
@@ -248,6 +259,75 @@ specifics first. Phone layout first. Nav gains **Dashboard** for organizers.
 
 **Done:** an organizer on a phone makes a named shop, adds products, copies a
 working link; anon→account claim verified; flag still off in prod.
+
+---
+
+## Phase 2 economics — proceeds split (decided 2026-06-24)
+
+The organizer flow **inverts** the consumer model. Consumer flow: prntd sets the
+price (`baseCost × 1.5`) and keeps all margin. Organizer flow: the **organizer
+sets the price**, prntd takes a **fixed $1/product ops fee**, and **everything
+above costs flows to the organizer's org** (soccer team, PTA, nonprofit).
+
+**Per-product money flow** (one shirt sold):
+
+```
+Customer pays        = P (organizer's item price) + $4.69 shipping
+  − Stripe fee       = 2.9% × (P + 4.69) + $0.30        (cc processing; ledger.ts)
+  − COGS             = Printful invoice total            (garment + print + Printful ship + Printful tax)
+  − PRNTD ops fee    = $1.00                             (fixed; first pass — PRNTD_OPS_FEE constant)
+  ─────────────────────────────────────────────
+  = Org proceeds     → the organizer's org              (floor-guaranteed ≥ $5 — MIN_ORG_PROCEEDS)
+```
+
+Things that matter for getting the math right:
+
+- **No separate customer sales tax.** Per the 1C tax policy, prntd does not
+  collect customer tax (`automatic_tax` off). The only tax in the math is
+  *Printful's*, already inside COGS. So "tax" is **not** a fourth deduction —
+  don't double-count it.
+- **Shipping ≈ pass-through.** We charge $4.69; Printful's real ship cost sits
+  inside COGS, so net ≈ $0. Kept a separate Stripe line so a % promo never eats
+  it (the 1B margin fix).
+- **COGS is only exact after fulfillment.** At compose + checkout we have an
+  *estimate* (`/orders/estimate-costs`); the real figure lands on the invoice
+  post-submission. The org-proceeds figure shown to the organizer is therefore
+  an **estimate**, reconciled to actual at payout. Compose UI labels it "≈".
+
+**Worked example** — Bella 3001, M, single front print, organizer prices at **$25**:
+
+```
+Customer pays     $25.00 + $4.69  = $29.69
+Stripe fee        2.9% × 29.69 + 0.30 = $1.16
+COGS (est.)       ~$17.50   (garment+print ~$12.95 + Printful ship ~$4.55 + tax)
+PRNTD ops fee     $1.00
+────────────────────────────────────────
+Org proceeds      ≈ $10.03  → soccer team
+```
+
+**Floor (the soft-warn threshold).** The floor is the price at which org proceeds
+hit the **$5 minimum** (`MIN_ORG_PROCEEDS`) — not $0. Below it, the org earns less
+than a worthwhile-per-shirt fundraise (and below ~$14.68 prntd would actually
+subsidize the sale). Solving the flow for this blank, the $5-floor lands near
+**$19.82**; below that the form warns "At this price your team receives less than
+$5.00," but still lets it through (warn+fix, never block). The compose form shows,
+live as the organizer types: **suggested price · est. org proceeds · floor.**
+
+Worked floor: `P ≥ (COGS + 1.746) / 0.971` to clear $5 to the org (derived from
+the flow above: the `0.971` is `1 − Stripe 2.9%`; the `1.746` folds in the $0.30
+Stripe fixed fee, the $1 ops fee, the $5 minimum, less the shipping pass-through).
+
+**Open (not slice-2 blockers):**
+
+- **Payout mechanism** — how proceeds actually reach the org (Stripe Connect
+  transfer per sale? periodic manual payout? hold-to-threshold?). Slice 2 only
+  *computes + displays* the split; moving money is its own phase.
+- **Both floors are starting knobs,** not load-bearing — `PRNTD_OPS_FEE` ($1, the
+  prntd cut) and `MIN_ORG_PROCEEDS` ($5, the guaranteed-to-the-org floor). Keep
+  each a single named constant, one-line tunable like `BACK_PLACEMENT_UPCHARGE`.
+  `PRNTD_OPS_FEE` could become a % later.
+- **Per-org receipting** (nonprofit donation receipts / 1099s) — out of scope,
+  flagged for later.
 
 ---
 
@@ -318,9 +398,10 @@ Manine's whole point.
 1. Does "Fresh Prints" (the global feed) survive as a curated house store, or
    retire for per-organizer shops?
 2. Collections — surface multi-store membership, or keep one-to-one in UI for now?
-3. Proceeds / pro-social mechanic (Newman's Own): organizer markup, donation split,
-   or flat? Pricing already supports a per-line markup; policy is a Nico+Manine
-   call, not a code blocker.
+3. ~~Proceeds / pro-social mechanic~~ **RESOLVED 2026-06-24** — see "Phase 2
+   economics" above. Organizer sets price; prntd takes a fixed $1/product ops fee;
+   remainder after Stripe + COGS flows to the org. Floor-guarded soft-warn. Open
+   sub-item moved there: the payout *mechanism* (how money reaches the org).
 4. Embroidery / non-DTG blanks — the `technique` field is in from Phase 1, but the
    first embroidery offering is its own product+UX effort.
 5. `/design` "Generations" column — IA + naming both wrong under the pivot (raised
