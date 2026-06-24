@@ -48,6 +48,7 @@ export default defineConfig({
         env: {
           GUEST_FUNNEL_ENABLED: "true",
           CART_ENABLED: "true",
+          STORES_ENABLED: "true",
         },
       },
 });

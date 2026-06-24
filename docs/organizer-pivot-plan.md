@@ -260,6 +260,30 @@ specifics first. Phone layout first. Nav gains **Dashboard** for organizers.
 **Done:** an organizer on a phone makes a named shop, adds products, copies a
 working link; anon→account claim verified; flag still off in prod.
 
+**Slice 2 status (2026-06-24).** Compose flow built behind `STORES_ENABLED`:
+
+- ✅ **2b.1 proceeds core** (`pricing.ts`, pure): `PRNTD_OPS_FEE` $1, `MIN_ORG_PROCEEDS`
+  $5, `computeProceeds` / `priceForProceeds` / `minViablePrice` / `suggestedPrice`;
+  `calculateStripeFee` moved here as the single source (ledger re-exports).
+- ✅ **2b.2 compose COGS + validity glue**: `estimateComposeCogs` (destination-free
+  baseCost+shipping proxy); `product-compose.ts` `checkProductFit` feeds
+  `validatePlacementFit` from the aspect `design_image` persists today (pixel/alpha
+  deferred → non-warning sentinels).
+- ✅ **2b.3 service**: `updateProduct` + `getProductById`, owner-guarded.
+- ✅ **2b.4 actions**: `getComposableDesigns` (own designs = source A),
+  `createProductDraft`, `saveProduct`, `getProductDraft`.
+- ✅ **2b.5 compose UI** `/dashboard/products/new`: design × blank × placement ×
+  size/color × price; live validity (warn+fix) + live proceeds breakdown computed
+  client-side from the pure helpers; below-floor soft-warn; suggested-price prefill;
+  "Add product" on each store card. Preview = artwork-on-blank-color.
+- ⏭️ **2b.6 store edit** (name/accent/slug) — `updateStore` exists; UI not built.
+- ⏭️ **2b.7 Playwright** — needs a signed-in (claimed, non-anon) e2e helper +
+  store seed; harness `STORES_ENABLED` flag added. Compose needs a real account,
+  which the current anon-only e2e helpers don't mint.
+- ⏭️ **Follow-up:** embed the real Printful `/preview` mockup in the compose
+  preview (currently artwork-on-color); product edit page (reuse the new form);
+  capture design pixel-dims + alpha so the DPI/knockout validity rules light up.
+
 ---
 
 ## Phase 2 economics — proceeds split (decided 2026-06-24)
