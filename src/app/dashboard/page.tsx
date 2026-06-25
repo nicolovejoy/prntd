@@ -37,7 +37,11 @@ export default function DashboardPage() {
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     const trimmed = name.trim();
-    if (!trimmed || creating) return;
+    if (creating) return;
+    if (!trimmed) {
+      setError("Enter a shop name first.");
+      return;
+    }
     setCreating(true);
     setError(null);
     try {
@@ -85,7 +89,7 @@ export default function DashboardPage() {
           type="submit"
           variant="primary"
           className="min-h-[44px]"
-          disabled={creating || !name.trim()}
+          disabled={creating}
         >
           {creating ? "Creating…" : "Create a shop"}
         </Button>
