@@ -43,9 +43,17 @@ ships green.
 
 1a. **Read-side normalizer (no schema change).** Pure `resolveOrderLines(order,
     items)` → `OrderLine[]`: returns `order_item` rows when present, else a
-    single synthetic line built from the legacy scalar columns. Point read sites
-    (orders page, admin, emails, webhook fulfillment) at it. **← first build,
-    this session, TDD.**
+    single synthetic line built from the legacy scalar columns. Exposes the
+    blank id as `blankId` (read-layer half of #2). Point read sites at it.
+    - DONE 2026-06-25: `src/lib/order-lines.ts` (6 unit tests).
+    - DONE: `/orders` wired (`getUserOrders` → per-line thumbnail + attribution;
+      page renders one row per shirt; real-DB integration test). This fixed a
+      latent bug — multi-item cart orders previously showed only item 1.
+    - DONE: `/order/confirm` wired (lists every line).
+    - TODO: admin order detail display + order emails. NOTE: admin's Printful
+      re-submit path (`admin/actions.ts` ~L109) reads the scalar fields for
+      variant resolution — that's fulfillment, handle with care (it becomes a
+      real consumer of lines only in 1b/1c, not the display pass).
 1b. **Write-side: always write `order_item`.** Single-item checkout writes one
     `order_item` row alongside the order (keep scalars dual-written for one
     release so nothing breaks mid-deploy).
