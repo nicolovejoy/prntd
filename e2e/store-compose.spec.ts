@@ -19,7 +19,7 @@ import {
 import { waitForSessionCookie } from "./helpers/session";
 import { signUpFreshAccount } from "./helpers/auth";
 
-test("organizer compose: create shop, add product, proceeds + floor warning, save", async ({
+test("organizer compose: create shop, add product, proceeds + floor warning, save, edit shop", async ({
   page,
 }, testInfo) => {
   const key = `${Date.now()}-${testInfo.project.name}`;
@@ -75,6 +75,17 @@ test("organizer compose: create shop, add product, proceeds + floor warning, sav
     await page.waitForURL(/\/dashboard$/);
     const savedCard = page.locator("div.rounded-lg").filter({ hasText: shopName });
     await expect(savedCard.getByText(/^1 product$/)).toBeVisible({ timeout: 15_000 });
+
+    // Edit the shop: rename it and confirm the slug (shared-link path) is fixed.
+    const slug = (await savedCard.getByText(/^\//).first().innerText()).trim();
+    await savedCard.getByRole("button", { name: "Edit" }).click();
+    const panel = page.locator("div.rounded-lg").filter({ hasText: "Accent color" });
+    const newName = `${shopName} Edited`;
+    await panel.getByRole("textbox").first().fill(newName); // first textbox = name input
+    await panel.getByRole("button", { name: "Save" }).click();
+    const renamed = page.locator("div.rounded-lg").filter({ hasText: newName });
+    await expect(renamed).toBeVisible({ timeout: 15_000 });
+    await expect(renamed.getByText(slug, { exact: true })).toBeVisible(); // slug unchanged
   } finally {
     // Products + stores FK to user, so they go before the user row.
     await cleanupStoresAndProducts(ownerId);

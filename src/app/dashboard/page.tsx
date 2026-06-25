@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Badge } from "@/components/ui";
+import { Button, Badge, Input } from "@/components/ui";
 import { ensureGuestSession } from "@/lib/ensure-guest-session";
 import {
   getDashboard,
@@ -70,6 +70,19 @@ export default function DashboardPage() {
     }
   }
 
+  // Persist a name/description/accent edit, then merge the returned row back in
+  // (slug + shareUrl + productCount stay put — a rename never changes the slug).
+  async function saveEdit(store: DashboardStore, patch: StoreEdit) {
+    const updated = await updateStore(store.id, patch);
+    setStores((prev) =>
+      (prev ?? []).map((s) =>
+        s.id === store.id
+          ? { ...s, name: updated.name, description: updated.description, accentColor: updated.accentColor }
+          : s
+      )
+    );
+  }
+
   return (
     <div className="max-w-2xl mx-auto px-4 py-6">
       <h1 className="text-xl font-semibold">Your shops</h1>
@@ -105,7 +118,12 @@ export default function DashboardPage() {
           </p>
         )}
         {stores?.map((store) => (
-          <StoreCard key={store.id} store={store} onToggleLive={() => toggleLive(store)} />
+          <StoreCard
+            key={store.id}
+            store={store}
+            onToggleLive={() => toggleLive(store)}
+            onSaveEdit={(patch) => saveEdit(store, patch)}
+          />
         ))}
       </div>
     </div>
@@ -115,12 +133,15 @@ export default function DashboardPage() {
 function StoreCard({
   store,
   onToggleLive,
+  onSaveEdit,
 }: {
   store: DashboardStore;
   onToggleLive: () => void;
+  onSaveEdit: (patch: StoreEdit) => Promise<void>;
 }) {
   const router = useRouter();
   const [copied, setCopied] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   async function copyLink() {
     try {
@@ -133,15 +154,38 @@ function StoreCard({
     }
   }
 
+  if (editing) {
+    return (
+      <StoreEditPanel
+        store={store}
+        onCancel={() => setEditing(false)}
+        onSave={async (patch) => {
+          await onSaveEdit(patch);
+          setEditing(false);
+        }}
+      />
+    );
+  }
+
   return (
     <div className="border border-border rounded-lg p-4">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
+            {store.accentColor && (
+              <span
+                className="inline-block w-3 h-3 rounded-full border border-border shrink-0"
+                style={{ backgroundColor: store.accentColor }}
+                aria-hidden
+              />
+            )}
             <h2 className="font-medium truncate">{store.name}</h2>
             <Badge variant={STATUS_VARIANT[store.status]}>{store.status}</Badge>
           </div>
           <p className="mt-0.5 text-xs text-text-faint truncate">/{store.slug}</p>
+          {store.description && (
+            <p className="mt-1 text-xs text-text-muted line-clamp-2">{store.description}</p>
+          )}
           <p className="mt-1 text-xs text-text-muted">
             {store.productCount} {store.productCount === 1 ? "product" : "products"}
           </p>
@@ -168,9 +212,129 @@ function StoreCard({
           type="button"
           variant="ghost"
           className="min-h-[44px]"
+          onClick={() => setEditing(true)}
+        >
+          Edit
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          className="min-h-[44px]"
           onClick={onToggleLive}
         >
           {store.status === "live" ? "Unpublish" : "Publish"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+type StoreEdit = { name: string; description: string | null; accentColor: string | null };
+
+function StoreEditPanel({
+  store,
+  onSave,
+  onCancel,
+}: {
+  store: DashboardStore;
+  onSave: (patch: StoreEdit) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState(store.name);
+  const [description, setDescription] = useState(store.description ?? "");
+  const [accentColor, setAccentColor] = useState<string | null>(store.accentColor);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSave() {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      setError("Enter a shop name.");
+      return;
+    }
+    if (saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave({
+        name: trimmed,
+        description: description.trim() || null,
+        accentColor,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't save changes");
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="border border-border rounded-lg p-4 space-y-3">
+      <div>
+        <label className="block text-sm font-medium mb-1">Shop name</label>
+        <Input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          className="w-full min-h-[44px]"
+        />
+        {/* Slug stays fixed across a rename so any shared links keep working. */}
+        <p className="mt-1 text-xs text-text-faint">Link stays /{store.slug}</p>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium mb-1">Description</label>
+        <textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          rows={2}
+          placeholder="What's this shop about? (optional)"
+          className="w-full px-3 py-2 bg-surface border border-border rounded-md text-foreground placeholder:text-text-faint focus:outline-none focus:border-border-hover"
+        />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium mb-1">Accent color</label>
+        <div className="flex items-center gap-3">
+          <input
+            type="color"
+            value={accentColor ?? "#000000"}
+            onChange={(e) => setAccentColor(e.target.value)}
+            className="w-11 h-11 rounded-md border border-border bg-surface cursor-pointer"
+            aria-label="Accent color"
+          />
+          {accentColor ? (
+            <button
+              type="button"
+              onClick={() => setAccentColor(null)}
+              className="text-xs text-text-muted hover:text-foreground underline"
+            >
+              Clear
+            </button>
+          ) : (
+            <span className="text-xs text-text-faint">No accent — uses the default chrome.</span>
+          )}
+        </div>
+      </div>
+
+      {error && <p className="text-sm text-red-400">{error}</p>}
+
+      <div className="flex flex-wrap gap-2 pt-1">
+        <Button
+          type="button"
+          variant="primary"
+          className="min-h-[44px]"
+          disabled={saving}
+          onClick={handleSave}
+        >
+          {saving ? "Saving…" : "Save"}
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          className="min-h-[44px]"
+          disabled={saving}
+          onClick={onCancel}
+        >
+          Cancel
         </Button>
       </div>
     </div>
