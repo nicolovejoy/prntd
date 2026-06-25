@@ -115,11 +115,15 @@ test("organizer compose: create shop, add + edit product, edit shop, list + publ
     await published;
 
     // Public storefront: sign out, then browse the live shop as a visitor.
-    // Sign-out redirects to "/"; wait for the signed-out nav before navigating
-    // (otherwise goto races the in-flight redirect → ERR_ABORTED).
+    // On mobile the nav (incl. Sign out) lives behind the hamburger — open it
+    // first; on desktop the "Menu" button is hidden so this is a no-op. Sign-out
+    // redirects to "/"; wait for that to land before navigating, otherwise goto
+    // races the in-flight redirect (→ ERR_ABORTED).
     const shopPath = `/shop/${slug.replace(/^\//, "")}`;
+    const menu = page.getByRole("button", { name: "Menu" });
+    if (await menu.isVisible()) await menu.click();
     await page.getByRole("button", { name: "Sign out" }).click();
-    await expect(page.getByRole("link", { name: "Sign in" })).toBeVisible({ timeout: 15_000 });
+    await page.waitForURL((url) => url.pathname === "/", { timeout: 15_000 });
     await page.goto(shopPath);
     await expect(page.getByRole("heading", { name: newName })).toBeVisible({ timeout: 15_000 });
     const productLink = page.getByRole("link").filter({ hasText: "Classic Tee" });

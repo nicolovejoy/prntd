@@ -17,10 +17,10 @@ export default defineConfig({
   testDir: "e2e",
   timeout: 90_000,
   retries: process.env.CI ? 1 : 0,
-  // Against the local `next dev` server (no E2E_BASE_URL), cap parallelism: one
-  // dev server cold-compiling routes under many workers wedges and flakes the
-  // suite. A compiled Vercel preview (CI) scales fine, so leave it unbounded.
-  workers: remoteURL ? undefined : 2,
+  // Default fan-out everywhere. The local server is a *compiled* build (see
+  // webServer below), not `next dev`, so it scales under parallel load the same
+  // way the Vercel preview does in CI — no lazy per-route compilation to wedge.
+  workers: undefined,
   reporter: process.env.CI
     ? [["list"], ["html", { open: "never" }]]
     : [["list"]],
@@ -45,14 +45,23 @@ export default defineConfig({
   webServer: remoteURL
     ? undefined
     : {
-        command: "npm run dev -- -p 3100",
+        // Compiled build, not `next dev`: precompiling every route up front
+        // removes the lazy per-route compilation that wedges a dev server under
+        // parallel load and flaked the heaviest spec. Mirrors CI (compiled
+        // Vercel preview). Kill any stray `next dev` on 3100 first — with
+        // reuseExistingServer it'd be reused instead of building.
+        command: "npm run build && npm run start -- -p 3100",
         url: "http://localhost:3100",
         reuseExistingServer: true,
-        timeout: 120_000,
+        timeout: 240_000,
         env: {
           GUEST_FUNNEL_ENABLED: "true",
           CART_ENABLED: "true",
           STORES_ENABLED: "true",
+          // Compiled build runs as NODE_ENV=production but is served on
+          // localhost; let Better-Auth trust the localhost origin so the
+          // sign-up/sign-in flow (origin-checked) works. Never set in real prod.
+          E2E_TRUST_LOCALHOST: "true",
         },
       },
 });
