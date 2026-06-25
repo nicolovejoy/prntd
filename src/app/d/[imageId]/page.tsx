@@ -30,23 +30,41 @@ export default async function PublishedImagePage({
   const isLoggedIn = Boolean(session) && !isAnonymousUser(session?.user);
   const isOwner = session?.user.id === img.designerId;
 
+  const trail = breadcrumbTrail(`/d/${imageId}`, { from });
+  const up = trail.length > 0 ? trail[trail.length - 1] : null;
+
   return (
     <div className="min-h-screen flex flex-col">
-      <main className="flex-1 px-4 py-8">
-        <div className="max-w-3xl mx-auto space-y-6">
+      <main className="flex-1 px-4 py-6 pb-28 md:py-8 md:pb-8">
+        <div className="max-w-3xl mx-auto space-y-4">
+          {/* Desktop shows the full trail; on mobile the breadcrumb row is
+              dropped to save vertical space — a floating back arrow over the
+              image (below) takes its place. */}
           <Breadcrumbs
-            trail={breadcrumbTrail(`/d/${imageId}`, { from })}
+            trail={trail}
             current={img.title ?? "Design"}
+            className="hidden sm:block"
           />
-          <PublishedImageView
-            imageId={img.imageId}
-            imageUrl={img.imageUrl}
-            alt={img.title ?? "Design"}
-            initialBackgroundColor={img.backgroundColor}
-            canEdit={isOwner}
-          />
+          <div className="relative">
+            {up && (
+              <Link
+                href={up.href}
+                aria-label={`Back to ${up.label}`}
+                className="sm:hidden absolute top-2 left-2 z-10 inline-flex items-center justify-center w-10 h-10 rounded-full bg-black/45 text-white backdrop-blur-sm"
+              >
+                <span aria-hidden>←</span>
+              </Link>
+            )}
+            <PublishedImageView
+              imageId={img.imageId}
+              imageUrl={img.imageUrl}
+              alt={img.title ?? "Design"}
+              initialBackgroundColor={img.backgroundColor}
+              canEdit={isOwner}
+            />
+          </div>
 
-          <div className="space-y-2">
+          <div className="space-y-1">
             <EditableNaming
               imageId={img.imageId}
               title={img.title}

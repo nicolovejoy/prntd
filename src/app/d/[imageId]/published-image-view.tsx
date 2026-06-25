@@ -67,7 +67,11 @@ export function PublishedImageView({
         style={backdrop.style}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={imageUrl} alt={alt} className="w-full h-auto object-contain" />
+        <img
+          src={imageUrl}
+          alt={alt}
+          className="w-full h-auto max-h-[40vh] md:max-h-none object-contain mx-auto"
+        />
       </div>
 
       {canEdit && (

@@ -69,8 +69,20 @@ export function BuyPanel({
     }
   }
 
+  const cta = isLoggedIn ? (
+    <Button onClick={handleBuy} disabled={loading} size="lg" className="w-full">
+      {loading ? "Redirecting…" : `Buy this design — $${total.toFixed(2)}`}
+    </Button>
+  ) : (
+    <Link href={`/sign-in?next=/d/${imageId}`} className="block">
+      <Button size="lg" className="w-full">
+        Sign in to buy
+      </Button>
+    </Link>
+  );
+
   return (
-    <div className="space-y-5 border-t border-border pt-5">
+    <div className="space-y-4 sm:space-y-5 border-t border-border pt-4 sm:pt-5">
       {ACTIVE_BLANKS.length > 1 && (
         <div>
           <label className="block text-sm font-medium mb-2">Product</label>
@@ -115,17 +127,18 @@ export function BuyPanel({
         </div>
       </div>
 
-      {isLoggedIn ? (
-        <Button onClick={handleBuy} disabled={loading} size="lg" className="w-full">
-          {loading ? "Redirecting…" : `Buy this design — $${total.toFixed(2)}`}
-        </Button>
-      ) : (
-        <Link href={`/sign-in?next=/d/${imageId}`} className="block">
-          <Button size="lg" className="w-full">
-            Sign in to buy
-          </Button>
-        </Link>
-      )}
+      {/* Desktop: CTA sits inline below the price breakdown. */}
+      <div className="hidden md:block">{cta}</div>
+
+      {/* Mobile: CTA pinned to the bottom of the viewport so it's always
+          reachable without scrolling the tall image + options column. The
+          page reserves matching bottom padding so nothing hides behind it. */}
+      <div
+        className="md:hidden fixed inset-x-0 bottom-0 z-20 border-t border-border bg-surface px-4 pt-3"
+        style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
+      >
+        {cta}
+      </div>
     </div>
   );
 }

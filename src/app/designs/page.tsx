@@ -143,13 +143,18 @@ export default function DesignsPage() {
                         </Button>
                       </>
                     ) : (
-                      <Button
-                        variant="danger"
-                        size="sm"
-                        onClick={() => handleDelete(design.id)}
-                      >
-                        Delete
-                      </Button>
+                      <>
+                        <Link href={getDesignHref(design)}>
+                          <Button size="sm">Edit</Button>
+                        </Link>
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          onClick={() => handleDelete(design.id)}
+                        >
+                          Delete
+                        </Button>
+                      </>
                     )}
                   </div>
                   {design.primaryImageId && (
