@@ -436,3 +436,50 @@ Manine's whole point.
    the column *is* and when it appears, not just a rename. Persona/IA-dependent →
    resolve with Manine, not ahead of her. A neutral rename ("Drafts"/"Versions") is
    a safe stopgap if it grates before then.
+
+---
+
+## Next-work sequence (resync-verified 2026-06-24)
+
+Ordered. Slice 2 core (2b.1–2b.5) is built + live-verified on branch; main has zero
+stores code (everything is branch-only, not merged). Path to prod:
+
+**A. Close out slice 2**
+
+1. **Signed-in e2e helper + Playwright compose spec** — the one verification gap.
+   Current e2e helpers are anon-only (`e2e/helpers/session.ts` mints an anonymous
+   session); compose needs a *claimed* account + a seeded store + a design with
+   artwork. Build the helper, then a spec: create shop → add product → assert the
+   proceeds box + below-floor warn → save → product count rises. `STORES_ENABLED`
+   is already in the harness env. **Do first** — locks the flow before the storefront
+   builds on it.
+2. **Store-edit UI** — name / accent / slug. `updateStore` exists; pure UI. Small.
+3. **Product-edit page** — reuse the compose form with an initial product;
+   `getProductDraft` + `saveProduct` already exist. Small.
+
+**B. Phase 3 — `/shop/[slug]` storefront** (the Copy-link destination, currently
+404s). Biggest remaining piece. Reuses `BuyPanel`, `SizePicker`/`ColorPicker`,
+`computeOrderTotal`, and the checkout choke point; scopes the order to
+`storeId` + `productId`. This also answers **#6's `/marketplace` need**. Money path
+gets a real-DB integration test (extend `money-path.integration.test.ts`).
+
+**C. Merge gate** — once A+B are verified behind `STORES_ENABLED`: prod Turso backup
+(`turso db create prntd-backup-<date> --from-db prntd`) → `migration-smoke before` →
+inline-cred `db:migrate` (store / product / product_offering tables are NOT on prod
+yet) → `migration-smoke after` → merge → flip `STORES_ENABLED` in prod. **No prod
+migrate until a UI phase is ready.**
+
+**D. Phase 4 — persona/copy with Manine** (blocked on the call). Absorbs **#17**
+(in-product marketing/social proof) and decides design-system **PR #34**'s fate
+(its draft is superseded by this plan's rewrite, but holds Manine's review).
+
+**Independent backlog** (not pivot-blocked, slot anytime):
+
+- **#14** — Box Tee (`cotton-heritage-mc1087`) has only 5 colors with placeholder
+  hex in `blanks.ts`; fix those first (3001=25, 6400=22 are already curated). Quick.
+- **#12** — image export (download-all-as-zip). No code yet.
+- **#31** — per-PR ephemeral Turso branch (CI still uses shared `prntd-preview`).
+- **#4** — charity disbursement infra (paused; no code, no ledger type).
+
+**Recommendation:** start at **A1 (Playwright)** — verification debt on a flow the
+storefront will sit on top of.
