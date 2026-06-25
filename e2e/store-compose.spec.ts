@@ -19,7 +19,7 @@ import {
 import { waitForSessionCookie } from "./helpers/session";
 import { signUpFreshAccount } from "./helpers/auth";
 
-test("organizer compose: create shop, add product, proceeds + floor warning, save, edit shop", async ({
+test("organizer compose: create shop, add + edit product, proceeds + floor warning, edit shop", async ({
   page,
 }, testInfo) => {
   const key = `${Date.now()}-${testInfo.project.name}`;
@@ -78,7 +78,7 @@ test("organizer compose: create shop, add product, proceeds + floor warning, sav
 
     // Edit the shop: rename it and confirm the slug (shared-link path) is fixed.
     const slug = (await savedCard.getByText(/^\//).first().innerText()).trim();
-    await savedCard.getByRole("button", { name: "Edit" }).click();
+    await savedCard.getByRole("button", { name: "Edit shop" }).click();
     const panel = page.locator("div.rounded-lg").filter({ hasText: "Accent color" });
     const newName = `${shopName} Edited`;
     await panel.getByRole("textbox").first().fill(newName); // first textbox = name input
@@ -86,6 +86,19 @@ test("organizer compose: create shop, add product, proceeds + floor warning, sav
     const renamed = page.locator("div.rounded-lg").filter({ hasText: newName });
     await expect(renamed).toBeVisible({ timeout: 15_000 });
     await expect(renamed.getByText(slug, { exact: true })).toBeVisible(); // slug unchanged
+
+    // The product shows its saved price ($25) in the card's product list.
+    await expect(renamed.getByText("$25.00")).toBeVisible();
+
+    // Edit the product: change the price, confirm it round-trips to the list.
+    await renamed.getByRole("button", { name: "Edit", exact: true }).click(); // product Edit link
+    await page.waitForURL(/\/dashboard\/products\/.+\/edit/);
+    await expect(page.getByAltText("preview")).toBeVisible({ timeout: 30_000 });
+    await page.locator('input[type="number"]').fill("30");
+    await page.getByRole("button", { name: "Save changes" }).click();
+    await page.waitForURL(/\/dashboard$/);
+    const finalCard = page.locator("div.rounded-lg").filter({ hasText: newName });
+    await expect(finalCard.getByText("$30.00")).toBeVisible({ timeout: 15_000 });
   } finally {
     // Products + stores FK to user, so they go before the user row.
     await cleanupStoresAndProducts(ownerId);

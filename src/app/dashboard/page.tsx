@@ -191,6 +191,28 @@ function StoreCard({
           </p>
         </div>
       </div>
+
+      {store.products.length > 0 && (
+        <ul className="mt-3 divide-y divide-border border-y border-border">
+          {store.products.map((p) => (
+            <li key={p.id} className="flex items-center justify-between gap-2 py-2">
+              <span className="text-sm truncate">
+                {p.blankName}
+                {p.price != null && (
+                  <span className="ml-2 text-text-muted">${p.price.toFixed(2)}</span>
+                )}
+              </span>
+              <button
+                onClick={() => router.push(`/dashboard/products/${p.id}/edit`)}
+                className="shrink-0 text-sm text-text-muted hover:text-foreground underline"
+              >
+                Edit
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
       <div className="mt-3 flex flex-wrap gap-2">
         <Button
           type="button"
@@ -214,7 +236,7 @@ function StoreCard({
           className="min-h-[44px]"
           onClick={() => setEditing(true)}
         >
-          Edit
+          Edit shop
         </Button>
         <Button
           type="button"
