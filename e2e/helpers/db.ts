@@ -85,3 +85,34 @@ export async function cleanupDesigns(designIds: string[]): Promise<void> {
     args: designIds,
   });
 }
+
+/**
+ * Remove the stores + products an organizer spec built through the UI.
+ * Products first (FK to store + design), then stores. Scoped by owner so a
+ * spec only deletes its own account's rows.
+ */
+export async function cleanupStoresAndProducts(ownerId: string): Promise<void> {
+  if (!ownerId) return;
+  const c = db();
+  await c.execute({
+    sql: "DELETE FROM product WHERE owner_id = ?",
+    args: [ownerId],
+  });
+  await c.execute({
+    sql: "DELETE FROM store WHERE owner_id = ?",
+    args: [ownerId],
+  });
+}
+
+/**
+ * Remove the throwaway account a spec signed up. Session + account rows FK to
+ * user, so they go first. Call AFTER the user's designs/stores/products are
+ * cleaned (those also FK to user).
+ */
+export async function cleanupUser(userId: string): Promise<void> {
+  if (!userId) return;
+  const c = db();
+  await c.execute({ sql: "DELETE FROM session WHERE user_id = ?", args: [userId] });
+  await c.execute({ sql: "DELETE FROM account WHERE user_id = ?", args: [userId] });
+  await c.execute({ sql: "DELETE FROM user WHERE id = ?", args: [userId] });
+}

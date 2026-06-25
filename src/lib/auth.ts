@@ -25,7 +25,12 @@ const trustedOrigins = ["https://prntd-*.vercel.app", "https://*.prntd.org"];
 // (NEXT_PUBLIC_APP_URL), so the origin check would reject local sign-in and
 // auth'd server actions. Trust localhost only in development — never in prod.
 if (process.env.NODE_ENV === "development") {
-  trustedOrigins.push("http://localhost:3000", "http://localhost:3001");
+  // 3100 is the Playwright e2e dev server (playwright.config webServer).
+  trustedOrigins.push(
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "http://localhost:3100"
+  );
 }
 
 export const auth = betterAuth({
