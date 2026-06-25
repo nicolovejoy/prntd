@@ -45,7 +45,17 @@ async function main() {
     await c.execute({ sql: "DELETE FROM user WHERE id = ?", args: [id] });
   }
 
-  // Any stray seeded designs not tied to a surviving user (defensive).
+  // Any stray seeded designs not tied to a surviving user (e.g. anon-owned
+  // designs the cart spec seeds). Drop dependents first — cart_item + order
+  // FK to design, and design_image too — before the design rows themselves.
+  await c.execute({
+    sql: "DELETE FROM cart_item WHERE design_id LIKE 'e2e-%'",
+    args: [],
+  });
+  await c.execute({
+    sql: "DELETE FROM \"order\" WHERE design_id LIKE 'e2e-%'",
+    args: [],
+  });
   const orphanImgs = await c.execute({
     sql: "DELETE FROM design_image WHERE design_id LIKE 'e2e-%'",
     args: [],
