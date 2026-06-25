@@ -1,4 +1,4 @@
-import type { AspectRatio } from "./products";
+import type { AspectRatio } from "./blanks";
 
 const ENDPOINT = "https://api.ideogram.ai/v1/ideogram-v3/generate-transparent";
 

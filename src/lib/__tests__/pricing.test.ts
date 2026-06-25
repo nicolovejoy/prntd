@@ -7,7 +7,7 @@ import {
   MARGIN_MULTIPLIER,
   BACK_PLACEMENT_UPCHARGE,
 } from "../pricing";
-import { PRODUCTS } from "../products";
+import { BLANKS } from "../blanks";
 
 describe("computePrice", () => {
   it("prices the default Classic Tee at its fixed retail price, ignoring generation cost", () => {
@@ -116,7 +116,7 @@ describe("computePrice", () => {
     // with sub-cent precision (e.g. a retailPrice typo of 19.435) would be
     // silently rounded at checkout, so the displayed and charged prices would
     // diverge. Assert every catalog price is already at cent precision.
-    for (const p of PRODUCTS) {
+    for (const p of BLANKS) {
       for (const size of p.sizes) {
         const { total } = computePrice(0, p.id, size);
         expect(Math.round(total * 100) / 100).toBe(total);

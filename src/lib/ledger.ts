@@ -1,14 +1,12 @@
 import type { db } from "@/lib/db";
 import { ledgerEntry } from "@/lib/db/schema";
+import { STRIPE_FEE_RATE, STRIPE_FEE_FIXED, calculateStripeFee } from "@/lib/pricing";
 
-const STRIPE_FEE_RATE = 0.029;
-const STRIPE_FEE_FIXED = 0.30;
+// Re-export so existing `@/lib/ledger` importers (tests, webhook) keep working;
+// the canonical definition now lives in the db-free pricing module.
+export { calculateStripeFee };
 
 type DbInstance = Pick<typeof db, "insert" | "query">;
-
-export function calculateStripeFee(amount: number): number {
-  return Math.round((amount * STRIPE_FEE_RATE + STRIPE_FEE_FIXED) * 100) / 100;
-}
 
 /**
  * Collapse a ledger's per-type totals into the admin financial summary.

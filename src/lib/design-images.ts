@@ -6,7 +6,7 @@ import {
   type ChatMessage,
 } from "@/lib/db/schema";
 import { eq, and, asc, desc, inArray, isNull, isNotNull } from "drizzle-orm";
-import { getProduct, type AspectRatio } from "@/lib/products";
+import { getBlank, type AspectRatio } from "@/lib/blanks";
 
 export type DesignImage = {
   id: string;
@@ -356,7 +356,7 @@ export async function getDesignPlacementRenders(
     if (!r.productId) continue;
     let group = byProduct.get(r.productId);
     if (!group) {
-      const product = getProduct(r.productId);
+      const product = getBlank(r.productId);
       group = {
         productId: r.productId,
         productName: product?.name ?? r.productId,

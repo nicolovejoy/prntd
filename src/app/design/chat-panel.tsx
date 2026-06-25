@@ -3,8 +3,9 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import Markdown from "react-markdown";
 import type { ChatMessage } from "@/lib/db/schema";
+import type { ChatOption } from "@/lib/ai";
 import type { DesignImage } from "@/lib/design-images";
-import { Button } from "@/components/ui";
+import { Button, QuickReply } from "@/components/ui";
 
 const EXAMPLES = [
   "A minimalist mountain landscape in blue and white",
@@ -23,6 +24,7 @@ export function ChatPanel({
   onCompare,
   activeGenerator,
   readyToGenerate,
+  options,
   onUploadImage,
   isEmpty,
 }: {
@@ -35,6 +37,7 @@ export function ChatPanel({
   onCompare: (message?: string) => void;
   activeGenerator: string;
   readyToGenerate: boolean;
+  options: ChatOption[];
   onUploadImage: (base64: string, fileName: string) => void;
   isEmpty: boolean;
 }) {
@@ -113,18 +116,22 @@ export function ChatPanel({
 
   const GENERATE_TRIGGERS = /^(yes|yeah|yep|do it|go|generate|let'?s do it|go ahead|make it|yes please|sure|ok generate)/i;
 
-  function handleSend(e: React.FormEvent) {
-    e.preventDefault();
-    if (!input.trim() || loading || generating) return;
-    const msg = input.trim();
-    // Auto-detect generation intent
+  // Shared submit path for both the composer and a tapped quick-reply chip, so
+  // generate-intent detection and input clearing behave identically.
+  function submitTurn(text: string) {
+    const msg = text.trim();
+    if (!msg || loading || generating) return;
+    setInput("");
     if (GENERATE_TRIGGERS.test(msg) && messages.length > 0) {
-      setInput("");
       onGenerate(msg);
       return;
     }
     onSend(msg);
-    setInput("");
+  }
+
+  function handleSend(e: React.FormEvent) {
+    e.preventDefault();
+    submitTurn(input);
   }
 
   function handleGenerate() {
@@ -286,70 +293,86 @@ export function ChatPanel({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Style hint — shown while the idea isn't concrete enough yet */}
-      {showStyleHint && (
+      {/* Quick-reply chips for the last assistant turn — tap answers the
+          question, no "type a number" needed. Hidden while a turn is in flight. */}
+      {!busy && options.length > 0 && (
+        <div className="px-4 pt-2">
+          <QuickReply options={options} onSelect={submitTurn} disabled={busy} />
+        </div>
+      )}
+
+      {/* Style hint — only when there are no tappable options to offer instead */}
+      {showStyleHint && options.length === 0 && (
         <div className="px-4 pt-2 text-xs text-text-muted">
           Add a style — watercolor, vintage, bold vector — to sharpen the idea.
         </div>
       )}
 
-      {/* Input */}
-      <form onSubmit={handleSend} className="p-4 border-t border-border flex gap-2">
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={busy}
-          className="px-3 py-2 border border-border rounded-md text-text-muted hover:text-white hover:border-border-hover transition-colors disabled:opacity-50"
-          title="Upload image"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-            <circle cx="8.5" cy="8.5" r="1.5" />
-            <polyline points="21 15 16 10 5 21" />
-          </svg>
-        </button>
-        <input
-          ref={inputRef}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Describe your design or drop an image..."
-          className="flex-1 px-3 py-2 bg-surface border border-border rounded-md text-white placeholder:text-text-faint focus:border-border-hover focus:outline-none"
-          disabled={busy}
-        />
-        <Button
-          type="submit"
-          variant="secondary"
-          disabled={busy || !input.trim()}
-        >
-          Send
-        </Button>
-        <Button
-          type="button"
-          variant={readyToGenerate ? "primary" : "secondary"}
-          onClick={handleGenerate}
-          disabled={busy || (messages.length === 0 && !input.trim())}
-          title={readyToGenerate ? undefined : notReadyTitle}
-        >
-          Draw it
-        </Button>
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={() => {
-            if (generating) return;
-            const msg = input.trim() || undefined;
-            if (msg) setInput("");
-            onCompare(msg);
-          }}
-          disabled={busy || (messages.length === 0 && !input.trim())}
-          title={
-            readyToGenerate
-              ? `Compare styles across all generators (current: ${activeGenerator})`
-              : notReadyTitle
-          }
-        >
-          Compare styles
-        </Button>
+      {/* Composer — phone-first: input on its own row, actions wrap below,
+          every control ≥44px. */}
+      <form onSubmit={handleSend} className="p-3 sm:p-4 border-t border-border space-y-2">
+        <div className="flex gap-2 items-stretch">
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={busy}
+            className="flex items-center justify-center min-h-[44px] min-w-[44px] border border-border rounded-md text-text-muted hover:text-white hover:border-border-hover transition-colors disabled:opacity-50"
+            title="Upload image"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+              <circle cx="8.5" cy="8.5" r="1.5" />
+              <polyline points="21 15 16 10 5 21" />
+            </svg>
+          </button>
+          <input
+            ref={inputRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Describe your design or drop an image..."
+            className="flex-1 min-h-[44px] px-3 py-2 bg-surface border border-border rounded-md text-white placeholder:text-text-faint focus:border-border-hover focus:outline-none"
+            disabled={busy}
+          />
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="submit"
+            variant="secondary"
+            className="min-h-[44px] flex-1"
+            disabled={busy || !input.trim()}
+          >
+            Send
+          </Button>
+          <Button
+            type="button"
+            variant={readyToGenerate ? "primary" : "secondary"}
+            className="min-h-[44px] flex-1"
+            onClick={handleGenerate}
+            disabled={busy || (messages.length === 0 && !input.trim())}
+            title={readyToGenerate ? undefined : notReadyTitle}
+          >
+            Draw it
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            className="min-h-[44px]"
+            onClick={() => {
+              if (generating) return;
+              const msg = input.trim() || undefined;
+              if (msg) setInput("");
+              onCompare(msg);
+            }}
+            disabled={busy || (messages.length === 0 && !input.trim())}
+            title={
+              readyToGenerate
+                ? `Compare styles across all generators (current: ${activeGenerator})`
+                : notReadyTitle
+            }
+          >
+            Compare
+          </Button>
+        </div>
       </form>
     </div>
   );

@@ -206,7 +206,7 @@ export async function estimateOrderCosts(params: {
 
 // -- Mockup Generator --
 
-import type { MockupPosition } from "./products";
+import type { MockupPosition } from "./blanks";
 
 /**
  * Submit a mockup-generator task. `variantIds` is an array — Printful

@@ -8,14 +8,14 @@ import { design as designTable } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { createMockupTask, pollMockupTask } from "@/lib/printful";
 import {
-  getProduct,
-  getProductOrThrow,
+  getBlank,
+  getBlankOrThrow,
   getPlacement,
   multiPlacementEnabled,
   needsAspectRegeneration,
-  DEFAULT_PRODUCT_ID,
+  DEFAULT_BLANK_ID,
   type AspectRatio,
-} from "@/lib/products";
+} from "@/lib/blanks";
 import { uploadMockupImage, uploadDesignImage } from "@/lib/r2";
 import { generateAnchoredTransparent } from "@/lib/replicate";
 import {
@@ -39,7 +39,7 @@ export async function isMultiPlacementEnabled(): Promise<boolean> {
 export async function generateMockup(
   designId: string,
   colorName: string,
-  productId: string = DEFAULT_PRODUCT_ID,
+  productId: string = DEFAULT_BLANK_ID,
   scale: number = 1.0,
   placementId: string = "front",
   /** Source image the placement render was anchored on (#25). Required for a
@@ -70,7 +70,7 @@ export async function generateMockup(
   if (cached) return { mockupUrl: cached };
 
   // Look up product and variant — use "M" for apparel, first available for other products
-  const product = getProductOrThrow(productId);
+  const product = getBlankOrThrow(productId);
   const colorVariants = product.variants[colorName];
   const variantId = colorVariants?.["M"] ?? (colorVariants ? Object.values(colorVariants)[0] : undefined);
   if (!variantId) throw new Error(`No variant for ${colorName} on ${product.name}`);
@@ -191,7 +191,7 @@ export async function getOrCreatePlacementRender(
     throw new Error("Source image does not belong to this design");
   }
 
-  const product = getProductOrThrow(productId);
+  const product = getBlankOrThrow(productId);
   const placement = getPlacement(product, placementId);
   const targetAspect = placement.aspectRatio;
 
@@ -313,7 +313,7 @@ export async function getOrCreatePlacementRender(
  */
 export async function ensureMockupsPrefetched(
   designId: string,
-  productId: string = DEFAULT_PRODUCT_ID
+  productId: string = DEFAULT_BLANK_ID
 ): Promise<{ kicked: boolean }> {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) throw new Error("Unauthorized");
@@ -338,10 +338,10 @@ export async function ensureMockupsPrefetched(
 
 export async function prefetchProductMockups(
   designId: string,
-  productId: string = DEFAULT_PRODUCT_ID
+  productId: string = DEFAULT_BLANK_ID
 ): Promise<void> {
   const startedAt = Date.now();
-  const product = getProduct(productId);
+  const product = getBlank(productId);
   if (!product) {
     console.warn(`prefetchProductMockups: unknown product ${productId}`);
     return;

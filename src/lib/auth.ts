@@ -9,6 +9,8 @@ import {
   design as designTable,
   order as orderTable,
   cartItem as cartItemTable,
+  store as storeTable,
+  product as productTable,
 } from "./db/schema";
 import { sendPasswordResetEmail } from "./email";
 
@@ -21,9 +23,19 @@ import { sendPasswordResetEmail } from "./email";
 const trustedOrigins = ["https://prntd-*.vercel.app", "https://*.prntd.org"];
 // In dev the page is served from localhost while baseURL points at prod
 // (NEXT_PUBLIC_APP_URL), so the origin check would reject local sign-in and
-// auth'd server actions. Trust localhost only in development — never in prod.
-if (process.env.NODE_ENV === "development") {
-  trustedOrigins.push("http://localhost:3000", "http://localhost:3001");
+// auth'd server actions. Trust localhost only in development, or when the local
+// e2e harness runs a compiled build (NODE_ENV=production but served on
+// localhost:3100 — see playwright.config webServer). E2E_TRUST_LOCALHOST is
+// never set in real prod, so this never widens the production origin set.
+if (
+  process.env.NODE_ENV === "development" ||
+  process.env.E2E_TRUST_LOCALHOST === "true"
+) {
+  trustedOrigins.push(
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "http://localhost:3100"
+  );
 }
 
 export const auth = betterAuth({
@@ -64,6 +76,16 @@ export const auth = betterAuth({
           .update(cartItemTable)
           .set({ userId: toId })
           .where(eq(cartItemTable.userId, fromId));
+        // Organizer pivot (Phase 1): a guest can build a store + products
+        // before signing up; re-parent both by ownerId on claim.
+        await db
+          .update(storeTable)
+          .set({ ownerId: toId })
+          .where(eq(storeTable.ownerId, fromId));
+        await db
+          .update(productTable)
+          .set({ ownerId: toId })
+          .where(eq(productTable.ownerId, fromId));
       },
     }),
     nextCookies(),

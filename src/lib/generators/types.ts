@@ -1,4 +1,4 @@
-import type { AspectRatio } from "../products";
+import type { AspectRatio } from "../blanks";
 
 export type GeneratorId = "ideogram" | "recraft";
 

@@ -203,6 +203,49 @@ describe("chatAboutDesign", () => {
   });
 });
 
+describe("chatAboutDesign options", () => {
+  beforeEach(async () => {
+    const mockCreate = await getMockCreate();
+    mockCreate.mockReset();
+  });
+
+  it("parses tappable options from the envelope", async () => {
+    const mockCreate = await getMockCreate();
+    mockCreate.mockResolvedValue({
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          message: "What style?",
+          readyToGenerate: false,
+          options: [
+            { label: "Watercolor", value: "Make it watercolor" },
+            { label: "Bold vector", value: "Go bold vector" },
+          ],
+        }),
+      }],
+    });
+
+    const { chatAboutDesign } = await import("../ai");
+    const result = await chatAboutDesign("a fox", [], []);
+
+    expect(result.options).toEqual([
+      { label: "Watercolor", value: "Make it watercolor" },
+      { label: "Bold vector", value: "Go bold vector" },
+    ]);
+  });
+
+  it("returns empty options when the field is absent (back-compat)", async () => {
+    const mockCreate = await getMockCreate();
+    mockCreate.mockResolvedValue({
+      content: [{ type: "text", text: JSON.stringify({ message: "ok", readyToGenerate: true }) }],
+    });
+
+    const { chatAboutDesign } = await import("../ai");
+    const result = await chatAboutDesign("anything", [], []);
+    expect(result.options).toEqual([]);
+  });
+});
+
 describe("extractChatEnvelope", () => {
   it("returns null for plain prose", async () => {
     const { extractChatEnvelope } = await import("../ai");
@@ -217,6 +260,59 @@ describe("extractChatEnvelope", () => {
     });
     const result = extractChatEnvelope(`Lead-in text.\n${envelope}`);
     expect(result?.message).toBe("Use {curly} accents");
+    expect(result?.options).toEqual([]);
+  });
+
+  it("salvages options from mixed prose + JSON", async () => {
+    const { extractChatEnvelope } = await import("../ai");
+    const envelope = JSON.stringify({
+      message: "Pick a style.",
+      readyToGenerate: false,
+      options: [{ label: "Vintage", value: "Vintage screen-print" }],
+    });
+    const result = extractChatEnvelope(`Pick a style.\n\n${envelope}`);
+    expect(result?.options).toEqual([{ label: "Vintage", value: "Vintage screen-print" }]);
+  });
+});
+
+describe("quickReplyFromOptions", () => {
+  it("returns [] for non-arrays", async () => {
+    const { quickReplyFromOptions } = await import("../ai");
+    expect(quickReplyFromOptions(undefined)).toEqual([]);
+    expect(quickReplyFromOptions(null)).toEqual([]);
+    expect(quickReplyFromOptions("nope")).toEqual([]);
+  });
+
+  it("drops entries with no usable label", async () => {
+    const { quickReplyFromOptions } = await import("../ai");
+    const result = quickReplyFromOptions([
+      { label: "", value: "x" },
+      { value: "no label" },
+      { label: "Keep", value: "keep me" },
+    ]);
+    expect(result).toEqual([{ label: "Keep", value: "keep me" }]);
+  });
+
+  it("defaults value to the label when value is missing", async () => {
+    const { quickReplyFromOptions } = await import("../ai");
+    expect(quickReplyFromOptions([{ label: "Watercolor" }])).toEqual([
+      { label: "Watercolor", value: "Watercolor" },
+    ]);
+  });
+
+  it("truncates an over-long display label but keeps the full value", async () => {
+    const { quickReplyFromOptions } = await import("../ai");
+    const long = "x".repeat(60);
+    const [opt] = quickReplyFromOptions([{ label: long }]);
+    expect(opt.label.length).toBeLessThanOrEqual(40);
+    expect(opt.label.endsWith("…")).toBe(true);
+    expect(opt.value).toBe(long);
+  });
+
+  it("caps the number of options at 5", async () => {
+    const { quickReplyFromOptions } = await import("../ai");
+    const many = Array.from({ length: 9 }, (_, i) => ({ label: `o${i}` }));
+    expect(quickReplyFromOptions(many)).toHaveLength(5);
   });
 });
 

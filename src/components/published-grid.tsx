@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { PublishedImage } from "@/app/d/actions";
-import { publishedBackdrop } from "@/lib/products";
+import { publishedBackdrop } from "@/lib/blanks";
 
 /**
  * Shared grid of published ("Fresh Prints") designs. Each card links to the

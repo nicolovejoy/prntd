@@ -1,5 +1,5 @@
 import Replicate from "replicate";
-import type { AspectRatio } from "./products";
+import type { AspectRatio } from "./blanks";
 
 const replicate = new Replicate();
 

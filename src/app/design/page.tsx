@@ -17,6 +17,7 @@ import {
 } from "./actions";
 import { PublishModal } from "@/components/publish-modal";
 import type { ChatMessage } from "@/lib/db/schema";
+import type { ChatOption } from "@/lib/ai";
 import type { DesignImage, ProductVersionGroup } from "@/lib/design-images";
 import { ChatPanel } from "./chat-panel";
 import { ImageGallery } from "./image-gallery";
@@ -53,6 +54,9 @@ function DesignPageInner() {
   // Soft nudge: Generate/Compare dim until Claude judges the idea concrete
   // (subject + style). A design with existing renders starts ready.
   const [readyToGenerate, setReadyToGenerate] = useState(false);
+  // Tappable quick-replies attached to the most recent assistant turn. Cleared
+  // at the start of every new turn so chips never outlive the question.
+  const [options, setOptions] = useState<ChatOption[]>([]);
 
   const refreshGallery = useCallback(async () => {
     const { sources, productGroups } = await getDesignGallery(designId.current);
@@ -107,6 +111,7 @@ function DesignPageInner() {
 
   async function handleSend(userMessage: string) {
     setLoading(true);
+    setOptions([]);
     setMessages((prev) => [...prev, makeOptimisticMessage("user", userMessage)]);
 
     try {
@@ -117,6 +122,7 @@ function DesignPageInner() {
         makeOptimisticMessage("assistant", result.message),
       ]);
       setReadyToGenerate(result.readyToGenerate);
+      setOptions(result.options);
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -129,6 +135,7 @@ function DesignPageInner() {
 
   async function handleGenerate(userMessage?: string) {
     setGenerating(true);
+    setOptions([]);
     if (userMessage) {
       setMessages((prev) => [...prev, makeOptimisticMessage("user", userMessage)]);
     }
@@ -141,6 +148,8 @@ function DesignPageInner() {
         makeOptimisticMessage("assistant", result.message, result.imageId),
       ]);
       setReadyToGenerate(result.readyToGenerate);
+      // A clarifying question (no image) may carry tappable style options.
+      setOptions("options" in result ? (result.options ?? []) : []);
       // Claude may answer with a clarifying question instead of an image
       // (no imageUrl) — just show the message, no gallery/drawer changes.
       if (result.imageUrl) {
@@ -163,17 +172,20 @@ function DesignPageInner() {
 
   async function handleCompare(userMessage?: string) {
     setGenerating(true);
+    setOptions([]);
     if (userMessage) {
       setMessages((prev) => [...prev, makeOptimisticMessage("user", userMessage)]);
     }
     try {
       await ensureGuestSession();
-      const { message, images: compared, readyToGenerate: ready } = await compareGenerators(designId.current, userMessage);
+      const result = await compareGenerators(designId.current, userMessage);
+      const { message, images: compared, readyToGenerate: ready } = result;
       setMessages((prev) => [
         ...prev,
         makeOptimisticMessage("assistant", message),
       ]);
       setReadyToGenerate(ready);
+      setOptions("options" in result ? (result.options ?? []) : []);
       // Empty when Claude asked a clarifying question instead of comparing.
       if (compared.length) {
         await refreshGallery();
@@ -311,6 +323,7 @@ function DesignPageInner() {
           onCompare={handleCompare}
           activeGenerator={activeGenerator}
           readyToGenerate={readyToGenerate}
+          options={options}
           onUploadImage={handleUploadImage}
           isEmpty={empty}
         />

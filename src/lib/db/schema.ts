@@ -132,6 +132,13 @@ export const order = sqliteTable("order", {
   size: text("size").notNull(),
   color: text("color").notNull(),
   productId: text("product_id").notNull().default("bella-canvas-3001"),
+  // Organizer-pivot Phase 3 attribution (nullable, no backfill). A storefront
+  // sale links to the store + the organizer `product` (the design × blank ×
+  // price sellable) so a later payout phase can sum proceeds per org.
+  // `storeProductId` is distinct from the legacy `productId` above, which holds
+  // a *blank* catalog id, not a `product.id`. Null for non-storefront orders.
+  storeId: text("store_id").references(() => store.id),
+  storeProductId: text("store_product_id").references(() => product.id),
   displayName: text("display_name"),
   quality: text("quality"),  // deprecated — kept for historical orders
   totalPrice: real("total_price").notNull(),
@@ -206,6 +213,72 @@ export const cartItem = sqliteTable("cart_item", {
   placements: text("placements", { mode: "json" }).$type<Record<string, string>>(),
   quantity: integer("quantity").notNull().default(1),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
+/**
+ * Organizer-first pivot (Phase 1). A named, shareable shop owned by an
+ * organizer. Many-per-organizer, optimized-for-one: no unique constraint on
+ * ownerId, but the dashboard defaults hard to a single store. `slug` is the
+ * public URL key (/shop/<slug>), unique across all stores. Re-parented to the
+ * real account on the guest→account claim (auth.ts onLinkAccount), alongside
+ * design/order/cart. Object model: docs/organizer-pivot-plan.md.
+ */
+export const store = sqliteTable("store", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  ownerId: text("owner_id").notNull().references(() => user.id),
+  slug: text("slug").notNull().unique(),
+  name: text("name").notNull(),
+  description: text("description"),
+  // The one per-store brand color (a name from the blank palette, or a hex).
+  // Null → falls back to the monochrome chrome.
+  accentColor: text("accent_color"),
+  status: text("status", { enum: ["draft", "live", "hidden"] }).notNull().default("draft"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
+/**
+ * A catalog category of blanks with an availability window (new / seasonal /
+ * expiring). Maps to Printful's catalog-categories; the dated window is ours
+ * and generalizes the per-blank `discontinued` flag. PRNTD-owned (no ownerId).
+ * `availableFrom`/`availableUntil` null → always on.
+ */
+export const productOffering = sqliteTable("product_offering", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  name: text("name").notNull(),
+  // Join to Printful's category id when this mirrors one of theirs.
+  printfulCategoryId: integer("printful_category_id"),
+  availableFrom: integer("available_from", { mode: "timestamp" }),
+  availableUntil: integer("available_until", { mode: "timestamp" }),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
+/**
+ * The organizer's sellable: a design placed on a blank at one or more
+ * placements, priced. Persists the config that today is assembled at
+ * /preview → /order and thrown away. One design → many products. `blankId` is
+ * a catalog blank id (blanks.ts, e.g. "bella-canvas-3001") — NOT a FK, the
+ * catalog is config not a table. `placements` maps a placement key
+ * (front_large/back/…) → the design_image id printed there. `storeId` nullable:
+ * a product can exist loose before it's added to a shop. `price` null → the
+ * computed default (computeOrderTotal). Re-parented on the guest→account claim.
+ */
+export const product = sqliteTable("product", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  ownerId: text("owner_id").notNull().references(() => user.id),
+  storeId: text("store_id").references(() => store.id),
+  designId: text("design_id").notNull().references(() => design.id),
+  blankId: text("blank_id").notNull(),
+  // placement key → design_image id (e.g. { front_large: "<imageId>" }).
+  placements: text("placements", { mode: "json" }).$type<Record<string, string>>(),
+  // Organizer price override; null = computed default at checkout.
+  price: real("price"),
+  status: text("status", { enum: ["draft", "listed", "hidden"] }).notNull().default("draft"),
+  position: integer("position").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
 
 export const ledgerEntry = sqliteTable("ledger_entry", {

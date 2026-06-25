@@ -28,7 +28,7 @@ import {
   type ProductVersionGroup,
 } from "@/lib/design-images";
 import { prefetchProductMockups } from "@/app/preview/actions";
-import { DEFAULT_PRODUCT_ID } from "@/lib/products";
+import { DEFAULT_BLANK_ID } from "@/lib/blanks";
 import { imageReferencedByOrders } from "@/lib/design-publish";
 import { compareSummary, dedupeById } from "@/lib/compare";
 import type { ChatMessage } from "@/lib/db/schema";
@@ -90,6 +90,7 @@ export async function sendChatMessage(designId: string, userMessage: string) {
   return {
     message: aiResponse.message,
     readyToGenerate: aiResponse.readyToGenerate,
+    options: aiResponse.options,
   };
 }
 
@@ -176,6 +177,7 @@ export async function generateDesign(
       imageId: null,
       generationNumber: found.generationCount,
       readyToGenerate: false,
+      options: readiness.options,
     };
   }
 
@@ -454,7 +456,7 @@ export async function approveDesign(designId: string) {
   // time the user lands on /preview and starts clicking colors, the common
   // picks render instantly. Printful mockups are free so this is pure UX.
   // Best-effort: failures log and are swallowed by prefetchProductMockups.
-  after(() => prefetchProductMockups(designId, DEFAULT_PRODUCT_ID));
+  after(() => prefetchProductMockups(designId, DEFAULT_BLANK_ID));
 }
 
 /**
@@ -492,7 +494,7 @@ export async function compareGenerators(designId: string, userMessage?: string) 
   const readiness = await assessReadiness(messagesForPrompt, images, userMessage);
   if (!readiness.ready) {
     await persistClarification(designId, userMessage, readiness.question);
-    return { message: readiness.question, images: [], readyToGenerate: false };
+    return { message: readiness.question, images: [], readyToGenerate: false, options: readiness.options };
   }
 
   let aiResponse;

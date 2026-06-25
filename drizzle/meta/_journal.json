@@ -8,6 +8,20 @@
       "when": 1781399528066,
       "tag": "0000_baseline",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1781821077844,
+      "tag": "0001_curved_jackpot",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1782362549622,
+      "tag": "0002_spicy_harrier",
+      "breakpoints": true
     }
   ]
 }

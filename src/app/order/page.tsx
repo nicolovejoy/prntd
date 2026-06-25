@@ -9,7 +9,7 @@ import { addToCart, isCartEnabled } from "../cart/actions";
 import { computeOrderTotal, BACK_PLACEMENT_UPCHARGE } from "@/lib/pricing";
 import { Button } from "@/components/ui";
 import { SizePicker, ColorPicker } from "@/components/product-options";
-import { getProduct, DEFAULT_PRODUCT_ID } from "@/lib/products";
+import { getBlank, DEFAULT_BLANK_ID } from "@/lib/blanks";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
 import { ensureGuestSession } from "@/lib/ensure-guest-session";
@@ -26,8 +26,8 @@ function OrderPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const designId = searchParams.get("id");
-  const productId = searchParams.get("product") ?? DEFAULT_PRODUCT_ID;
-  const product = getProduct(productId);
+  const productId = searchParams.get("product") ?? DEFAULT_BLANK_ID;
+  const product = getBlank(productId);
 
   // Capture the back source once on mount. The URL-sync effect below rewrites
   // the query string, so reading it live would race the flag load and drop it.
