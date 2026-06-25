@@ -444,18 +444,25 @@ Manine's whole point.
 Ordered. Slice 2 core (2b.1–2b.5) is built + live-verified on branch; main has zero
 stores code (everything is branch-only, not merged). Path to prod:
 
-**A. Close out slice 2**
+**A. Close out slice 2 — DONE 2026-06-24** (branch, behind `STORES_ENABLED`)
 
-1. **Signed-in e2e helper + Playwright compose spec** — the one verification gap.
-   Current e2e helpers are anon-only (`e2e/helpers/session.ts` mints an anonymous
-   session); compose needs a *claimed* account + a seeded store + a design with
-   artwork. Build the helper, then a spec: create shop → add product → assert the
-   proceeds box + below-floor warn → save → product count rises. `STORES_ENABLED`
-   is already in the harness env. **Do first** — locks the flow before the storefront
-   builds on it.
-2. **Store-edit UI** — name / accent / slug. `updateStore` exists; pure UI. Small.
-3. **Product-edit page** — reuse the compose form with an initial product;
-   `getProductDraft` + `saveProduct` already exist. Small.
+1. ✅ **Signed-in e2e helper + Playwright compose spec.** `e2e/helpers/auth.ts`
+   `signUpFreshAccount` mints a *claimed* organizer through `/sign-up` (no
+   verification gate); `db.ts` gained `cleanupStoresAndProducts` + `cleanupUser`.
+   `e2e/store-compose.spec.ts` runs the whole flow (sign up → seed design →
+   create shop → add product → proceeds box + below-floor warn appear/clear →
+   save → count rises) on mobile + desktop. Also added `localhost:3100` (the e2e
+   dev-server port) to dev `trustedOrigins` so sign-up's CSRF check passes.
+2. ✅ **Store-edit UI** — inline Edit panel on each dashboard card: name,
+   description, accent (native color input; null = default chrome). Saves via
+   `updateStore`. **Slug stays immutable across a rename** (shared Copy-link URLs
+   depend on it) — panel shows "Link stays /<slug>". *Open Q: should slug ever be
+   editable? Left immutable to protect distributed links; revisit if needed.*
+3. ✅ **Product-edit page** — `/dashboard/products/[id]/edit` + shared
+   `<ComposeForm>` (lifted out of new-product; new = pickable designs, edit =
+   single locked design, since a product's design is fixed). `getProductForEdit`
+   hydrates the product with its design image. Dashboard cards now list products
+   (blank + price) each linking to edit. Spec extended: edit price round-trips.
 
 **B. Phase 3 — `/shop/[slug]` storefront** (the Copy-link destination, currently
 404s). Biggest remaining piece. Reuses `BuyPanel`, `SizePicker`/`ColorPicker`,
@@ -481,5 +488,6 @@ migrate until a UI phase is ready.**
 - **#31** — per-PR ephemeral Turso branch (CI still uses shared `prntd-preview`).
 - **#4** — charity disbursement infra (paused; no code, no ledger type).
 
-**Recommendation:** start at **A1 (Playwright)** — verification debt on a flow the
-storefront will sit on top of.
+**Recommendation:** ~~start at A1~~ — **A done (A1–A3, 2026-06-24).** Next is **B
+(Phase 3 storefront `/shop/[slug]`)** — the largest remaining piece and the
+Copy-link destination (currently 404s). After B, the merge gate (C).
