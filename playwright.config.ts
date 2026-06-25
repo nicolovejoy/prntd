@@ -17,6 +17,10 @@ export default defineConfig({
   testDir: "e2e",
   timeout: 90_000,
   retries: process.env.CI ? 1 : 0,
+  // Against the local `next dev` server (no E2E_BASE_URL), cap parallelism: one
+  // dev server cold-compiling routes under many workers wedges and flakes the
+  // suite. A compiled Vercel preview (CI) scales fine, so leave it unbounded.
+  workers: remoteURL ? undefined : 2,
   reporter: process.env.CI
     ? [["list"], ["html", { open: "never" }]]
     : [["list"]],

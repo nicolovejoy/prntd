@@ -6,6 +6,8 @@ import {
   canManageStore,
   storeIsPublic,
   canViewStore,
+  productIsListed,
+  canBuyStoreProduct,
 } from "@/lib/stores";
 
 describe("slugify", () => {
@@ -70,5 +72,32 @@ describe("access guards", () => {
     expect(canViewStore(draft, null)).toBe(false); // stranger can't see a draft
     expect(canViewStore(draft, { id: "u1" })).toBe(true); // owner can
     expect(canViewStore(draft, { id: "u2" })).toBe(false);
+  });
+});
+
+describe("storefront buy guards", () => {
+  const liveStore = { id: "s1", status: "live" as const };
+  const draftStore = { id: "s1", status: "draft" as const };
+  const listed = { status: "listed" as const, storeId: "s1" };
+  const draftProduct = { status: "draft" as const, storeId: "s1" };
+
+  it("productIsListed: listed only", () => {
+    expect(productIsListed(listed)).toBe(true);
+    expect(productIsListed(draftProduct)).toBe(false);
+    expect(productIsListed({ status: "hidden" as const })).toBe(false);
+  });
+
+  it("canBuyStoreProduct: listed product in a live store, belonging to it", () => {
+    expect(canBuyStoreProduct(listed, liveStore)).toBe(true);
+  });
+  it("canBuyStoreProduct: rejects a draft product", () => {
+    expect(canBuyStoreProduct(draftProduct, liveStore)).toBe(false);
+  });
+  it("canBuyStoreProduct: rejects a listed product in a non-live store", () => {
+    expect(canBuyStoreProduct(listed, draftStore)).toBe(false);
+  });
+  it("canBuyStoreProduct: rejects a product that isn't in this store", () => {
+    expect(canBuyStoreProduct({ status: "listed" as const, storeId: "other" }, liveStore)).toBe(false);
+    expect(canBuyStoreProduct({ status: "listed" as const, storeId: null }, liveStore)).toBe(false);
   });
 });

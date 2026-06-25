@@ -4,9 +4,10 @@
  * server actions live elsewhere; this is the testable logic the UI and actions
  * both call. Object model: docs/organizer-pivot-plan.md.
  */
-import type { store } from "./db/schema";
+import type { store, product } from "./db/schema";
 
 type Store = typeof store.$inferSelect;
+type Product = typeof product.$inferSelect;
 
 /**
  * Turn a shop name into a URL-safe slug. Strips emoji/punctuation, lowercases,
@@ -68,4 +69,26 @@ export function canViewStore(
   viewer: { id: string } | null | undefined
 ): boolean {
   return storeIsPublic(store) || (!!viewer && viewer.id === store.ownerId);
+}
+
+/** A product shows to the public on a storefront only when it's listed. */
+export function productIsListed(product: Pick<Product, "status">): boolean {
+  return product.status === "listed";
+}
+
+/**
+ * Can a shopper buy this product? It must be `listed` AND its store `live`.
+ * No owner shortcut (the owner buying their own draft would mis-attribute a
+ * sale) — mirrors canBuyPublishedImage's "no owner bypass" stance. The product
+ * must actually belong to the store it's being bought from.
+ */
+export function canBuyStoreProduct(
+  product: Pick<Product, "status" | "storeId">,
+  store: Pick<Store, "id" | "status">
+): boolean {
+  return (
+    product.storeId === store.id &&
+    productIsListed(product) &&
+    storeIsPublic(store)
+  );
 }

@@ -19,7 +19,7 @@ import {
 import { waitForSessionCookie } from "./helpers/session";
 import { signUpFreshAccount } from "./helpers/auth";
 
-test("organizer compose: create shop, add + edit product, proceeds + floor warning, edit shop", async ({
+test("organizer compose: create shop, add + edit product, edit shop, list + publish, public storefront", async ({
   page,
 }, testInfo) => {
   const key = `${Date.now()}-${testInfo.project.name}`;
@@ -99,6 +99,35 @@ test("organizer compose: create shop, add + edit product, proceeds + floor warni
     await page.waitForURL(/\/dashboard$/);
     const finalCard = page.locator("div.rounded-lg").filter({ hasText: newName });
     await expect(finalCard.getByText("$30.00")).toBeVisible({ timeout: 15_000 });
+
+    // List the product + publish the shop. Each toggle is optimistic + fires a
+    // server action; wait for each POST to commit before navigating away (a nav
+    // would abort the in-flight request and lose the write).
+    const dashPost = () =>
+      page.waitForResponse(
+        (r) => r.request().method() === "POST" && r.url().includes("/dashboard")
+      );
+    const listed = dashPost();
+    await finalCard.getByRole("button", { name: "List" }).click();
+    await listed;
+    const published = dashPost();
+    await finalCard.getByRole("button", { name: "Publish" }).click();
+    await published;
+
+    // Public storefront: sign out, then browse the live shop as a visitor.
+    // Sign-out redirects to "/"; wait for the signed-out nav before navigating
+    // (otherwise goto races the in-flight redirect → ERR_ABORTED).
+    const shopPath = `/shop/${slug.replace(/^\//, "")}`;
+    await page.getByRole("button", { name: "Sign out" }).click();
+    await expect(page.getByRole("link", { name: "Sign in" })).toBeVisible({ timeout: 15_000 });
+    await page.goto(shopPath);
+    await expect(page.getByRole("heading", { name: newName })).toBeVisible({ timeout: 15_000 });
+    const productLink = page.getByRole("link").filter({ hasText: "Classic Tee" });
+    await expect(productLink).toBeVisible();
+    await productLink.click();
+    await page.waitForURL(/\/shop\/.+\/.+/);
+    // Browsing is open; the buy gate is sign-in for a signed-out visitor.
+    await expect(page.getByRole("button", { name: "Sign in to buy" })).toBeVisible();
   } finally {
     // Products + stores FK to user, so they go before the user row.
     await cleanupStoresAndProducts(ownerId);

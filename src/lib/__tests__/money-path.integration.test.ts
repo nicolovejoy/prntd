@@ -139,6 +139,73 @@ describe("money path — checkout.session.completed", () => {
     expect(net).toBeCloseTo(24.12 - calculateStripeFee(24.12) - 12.5, 5);
   });
 
+  it("store order (Phase 3): attribution survives the money path; sale/fee/cogs written", async () => {
+    const ownerId = "org-1";
+    await db
+      .insert(schema.user)
+      .values({ id: ownerId, email: "org@example.com", name: "Org" });
+    const [design] = await db
+      .insert(schema.design)
+      .values({ userId: ownerId })
+      .returning();
+    const [store] = await db
+      .insert(schema.store)
+      .values({ ownerId, slug: "club", name: "Club", status: "live" })
+      .returning();
+    const [product] = await db
+      .insert(schema.product)
+      .values({
+        ownerId,
+        storeId: store.id,
+        designId: design.id,
+        blankId: "bella-canvas-3001",
+        price: 25,
+        status: "listed",
+      })
+      .returning();
+    const [order] = await db
+      .insert(schema.order)
+      .values({
+        userId: ownerId,
+        designId: design.id,
+        productId: "bella-canvas-3001",
+        size: "M",
+        color: "Black",
+        totalPrice: 29.69,
+        itemPrice: 25,
+        shippingPrice: 4.69,
+        status: "pending",
+        storeId: store.id,
+        storeProductId: product.id,
+      })
+      .returning();
+
+    const result = await handleStripeCheckoutCompleted(
+      makeSession(order.id, design.id, {
+        amountTotal: 2969,
+        amountSubtotal: 2500,
+        amountShipping: 469,
+      }),
+      makeDeps(db)
+    );
+    expect(result.action).toBe("submitted");
+
+    const updated = await db.query.order.findFirst({
+      where: eq(schema.order.id, order.id),
+    });
+    // The attribution columns are untouched by the webhook — a payout phase can
+    // sum proceeds per store/product from here.
+    expect(updated?.storeId).toBe(store.id);
+    expect(updated?.storeProductId).toBe(product.id);
+    expect(updated?.status).toBe("submitted");
+
+    const entries = await ledgerFor(db, order.id);
+    const byType = Object.fromEntries(entries.map((e) => [e.type, e.amount]));
+    expect(byType.sale).toBe(29.69);
+    expect(byType.stripe_fee).toBe(-calculateStripeFee(29.69));
+    expect(byType.cogs).toBe(-12.5);
+  });
+
   it("Phase 1B invariant: a % promo discounts the item but shipping stays full", async () => {
     const { order, design } = await seed(db);
     // 50% off the $19.43 product only; shipping line is untouched.

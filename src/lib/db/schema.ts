@@ -132,6 +132,13 @@ export const order = sqliteTable("order", {
   size: text("size").notNull(),
   color: text("color").notNull(),
   productId: text("product_id").notNull().default("bella-canvas-3001"),
+  // Organizer-pivot Phase 3 attribution (nullable, no backfill). A storefront
+  // sale links to the store + the organizer `product` (the design × blank ×
+  // price sellable) so a later payout phase can sum proceeds per org.
+  // `storeProductId` is distinct from the legacy `productId` above, which holds
+  // a *blank* catalog id, not a `product.id`. Null for non-storefront orders.
+  storeId: text("store_id").references(() => store.id),
+  storeProductId: text("store_product_id").references(() => product.id),
   displayName: text("display_name"),
   quality: text("quality"),  // deprecated — kept for historical orders
   totalPrice: real("total_price").notNull(),

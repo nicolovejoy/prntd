@@ -47,6 +47,7 @@ export type DashboardProduct = {
   blankId: string;
   blankName: string;
   price: number | null;
+  status: Product["status"];
 };
 export type DashboardStore = Store & {
   shareUrl: string;
@@ -71,6 +72,7 @@ export async function getDashboard(): Promise<DashboardStore[]> {
         blankId: p.blankId,
         blankName: getBlank(p.blankId)?.name ?? p.blankId,
         price: p.price,
+        status: p.status,
       }));
       return {
         ...s,

@@ -8,7 +8,9 @@ import {
   getDashboard,
   createStore,
   updateStore,
+  saveProduct,
   type DashboardStore,
+  type DashboardProduct,
 } from "./actions";
 
 const STATUS_VARIANT: Record<DashboardStore["status"], "draft" | "approved" | "default"> = {
@@ -83,6 +85,31 @@ export default function DashboardPage() {
     );
   }
 
+  // List ↔ unlist a product. Listed products show on the public storefront (when
+  // the store is also live); unlisted (hidden) are owner-only. Optimistic.
+  async function toggleListed(storeId: string, product: DashboardProduct) {
+    const next = product.status === "listed" ? "hidden" : "listed";
+    const patchProduct = (status: DashboardProduct["status"]) =>
+      setStores((prev) =>
+        (prev ?? []).map((s) =>
+          s.id === storeId
+            ? {
+                ...s,
+                products: s.products.map((p) =>
+                  p.id === product.id ? { ...p, status } : p
+                ),
+              }
+            : s
+        )
+      );
+    patchProduct(next);
+    try {
+      await saveProduct(product.id, { status: next });
+    } catch {
+      patchProduct(product.status); // revert
+    }
+  }
+
   return (
     <div className="max-w-2xl mx-auto px-4 py-6">
       <h1 className="text-xl font-semibold">Your shops</h1>
@@ -123,6 +150,7 @@ export default function DashboardPage() {
             store={store}
             onToggleLive={() => toggleLive(store)}
             onSaveEdit={(patch) => saveEdit(store, patch)}
+            onToggleListed={(product) => toggleListed(store.id, product)}
           />
         ))}
       </div>
@@ -134,10 +162,12 @@ function StoreCard({
   store,
   onToggleLive,
   onSaveEdit,
+  onToggleListed,
 }: {
   store: DashboardStore;
   onToggleLive: () => void;
   onSaveEdit: (patch: StoreEdit) => Promise<void>;
+  onToggleListed: (product: DashboardProduct) => void;
 }) {
   const router = useRouter();
   const [copied, setCopied] = useState(false);
@@ -201,13 +231,24 @@ function StoreCard({
                 {p.price != null && (
                   <span className="ml-2 text-text-muted">${p.price.toFixed(2)}</span>
                 )}
+                {p.status !== "listed" && (
+                  <span className="ml-2 text-xs text-text-faint">({p.status})</span>
+                )}
               </span>
-              <button
-                onClick={() => router.push(`/dashboard/products/${p.id}/edit`)}
-                className="shrink-0 text-sm text-text-muted hover:text-foreground underline"
-              >
-                Edit
-              </button>
+              <span className="shrink-0 flex items-center gap-3">
+                <button
+                  onClick={() => onToggleListed(p)}
+                  className="text-sm text-text-muted hover:text-foreground underline"
+                >
+                  {p.status === "listed" ? "Unlist" : "List"}
+                </button>
+                <button
+                  onClick={() => router.push(`/dashboard/products/${p.id}/edit`)}
+                  className="text-sm text-text-muted hover:text-foreground underline"
+                >
+                  Edit
+                </button>
+              </span>
             </li>
           ))}
         </ul>

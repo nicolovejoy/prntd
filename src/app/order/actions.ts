@@ -113,6 +113,10 @@ export async function createStripeCheckoutForOrder(params: {
   placements: Record<string, string> | null;
   checkoutImageUrl: string | null;
   cancelUrl: string;
+  /** Organizer-pivot attribution (Phase 3). Set for storefront sales so the
+   * order ties back to the store + organizer product; null otherwise. */
+  storeId?: string | null;
+  storeProductId?: string | null;
 }): Promise<{ url: string | null }> {
   // Validate product/size/color before taking money — rejects an
   // unknown/discontinued product or a combo with no fulfillable variant.
@@ -141,6 +145,8 @@ export async function createStripeCheckoutForOrder(params: {
       itemPrice: item,
       shippingPrice: shipping,
       placements: params.placements,
+      storeId: params.storeId ?? null,
+      storeProductId: params.storeProductId ?? null,
     })
     .returning();
 
