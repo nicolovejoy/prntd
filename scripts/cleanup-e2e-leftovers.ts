@@ -5,6 +5,8 @@
  * their stores/products/designs/sessions/accounts/user. Same never-prod guard
  * as e2e/helpers/db.ts. Run: `npx tsx --env-file=.env.local scripts/cleanup-e2e-leftovers.ts`
  */
+import { config } from "dotenv";
+config({ path: ".env.local" });
 import { createClient } from "@libsql/client";
 
 const url = process.env.DATABASE_URL ?? "";
