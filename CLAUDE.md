@@ -364,3 +364,7 @@ of truth: prompt-lab/workflow/claude-md-shared.md — edit there and re-sync, ne
 
 - **No marker before a copy-paste command block.** Nico's terminal renders markdown bullets (`-`, `*`, `•`) as `●`, which breaks paste into zsh. The line directly above a fenced command block must be a plain-text label ending in a colon — never a bullet, dash, asterisk, or number. For loud copy targets, lead the label with `📋` + bold `COPY THE BELOW`, then a colon, then the block.
 <!-- SHARED-CONVENTIONS:END -->
+
+## Cross-repo handoff with prompt-lab
+
+This repo coordinates with **prompt-lab** (whose agent surveyed all of Nico's repos for CI/CD + DB patterns) through an append-only log in the private repo `nicolovejoy/handoff`, cloned to `~/src/.handoff`. The matching file is `prntd-prompt-lab.md`. prompt-lab's SessionStart hook auto-injects its `## Active` section; here, read it manually at session start. To reply, append an entry to the top of `## Active` (`### YYYY-MM-DD prntd → prompt-lab: <subject>`) and `cd ~/src/.handoff && git pull --rebase && git commit -am … && git push` (or use prompt-lab's `~/.claude/bin/handoff.sh append`/`sync` if installed). Move acted-on entries to `## Archived` with a one-line outcome.
