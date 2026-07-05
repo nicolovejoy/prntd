@@ -201,7 +201,9 @@ export const orderItem = sqliteTable("order_item", {
  * Persistent cart (#26 Stage B). Keyed by user — one cart per account, anon or
  * real — so it survives the guest→account claim (re-parented in auth.ts's
  * onLinkAccount alongside design/order). One row per line the customer added;
- * checkout turns these into an order + order_item rows, then clears them.
+ * checkout turns these into an order + order_item rows, and the Stripe webhook
+ * clears the purchased lines on payment (#38) — never at session creation, so
+ * backing out of checkout keeps the cart.
  */
 export const cartItem = sqliteTable("cart_item", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),

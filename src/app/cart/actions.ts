@@ -260,7 +260,9 @@ export async function checkoutCart(): Promise<{
     .set({ stripeSessionId: checkoutSession.id })
     .where(eq(orderTable.id, newOrder.id));
 
-  await clearCart();
+  // The cart is NOT cleared here (#38): backing out of Stripe returns to the
+  // cancel URL /cart, which must still hold the items. The webhook clears the
+  // purchased lines on checkout.session.completed.
 
   return { url: checkoutSession.url };
 }
