@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX `ledger_entry_order_type_unique` ON `ledger_entry` (`order_id`,`type`);

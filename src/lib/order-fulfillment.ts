@@ -11,11 +11,15 @@
  * fulfillable lines stays `paid` for admin follow-up.
  */
 import { eq } from "drizzle-orm";
-import { order as orderTable, design as designTable } from "@/lib/db/schema";
+import {
+  order as orderTable,
+  design as designTable,
+  ledgerEntry,
+} from "@/lib/db/schema";
 import { resolveOrderLines, type OrderItemRow } from "@/lib/order-lines";
 import { getBlank, getVariantId } from "@/lib/blanks";
 import { assertTransition } from "@/lib/order-state";
-import { recordCOGS } from "@/lib/ledger";
+import { cogsLedgerRow } from "@/lib/ledger";
 import type { createOrder, PrintfulOrderItem } from "@/lib/printful";
 import type { db as appDb } from "@/lib/db";
 import type { generateOrderName } from "@/lib/ai";
@@ -150,6 +154,10 @@ export async function submitOrderFulfillment(
   try {
     const printfulOrder = await deps.createPrintfulOrder({
       items,
+      // Our order id as Printful's external reference (#37): makes the
+      // Printful order traceable to ours, and a duplicate submission of the
+      // same order gets rejected by Printful instead of printing twice.
+      externalId: orderId,
       recipientName: shipping?.name ?? "",
       address1: shipping?.address1 ?? "",
       address2: shipping?.address2 || undefined,
@@ -165,7 +173,11 @@ export async function submitOrderFulfillment(
       ? parseFloat(printfulOrder.costs.total)
       : null;
 
-    await deps.db
+    // Submitted-update, design flips, and the COGS row commit together (#37):
+    // a crash mid-tail can't leave a submitted order with no COGS on the
+    // books (the gap the admin-retry bug hid until PR #42).
+    const designIds = [...new Set(lines.map((l) => l.designId))];
+    const submittedUpdate = deps.db
       .update(orderTable)
       .set({
         status: "submitted",
@@ -174,23 +186,26 @@ export async function submitOrderFulfillment(
         updatedAt: new Date(),
       })
       .where(eq(orderTable.id, orderId));
-
-    // Mark every distinct design in the order as ordered.
-    const designIds = [...new Set(lines.map((l) => l.designId))];
-    for (const designId of designIds) {
-      await deps.db
+    const designUpdates = designIds.map((designId) =>
+      deps.db
         .update(designTable)
         .set({ status: "ordered", updatedAt: new Date() })
-        .where(eq(designTable.id, designId));
-    }
-
+        .where(eq(designTable.id, designId))
+    );
     if (printfulCost && printfulCost > 0) {
-      await recordCOGS(
-        orderId,
-        printfulCost,
-        `Printful fulfillment PF:${printfulOrder.id}${items.length > 1 ? ` (${items.length} items)` : ""}`,
-        deps.db
-      );
+      await deps.db.batch([
+        submittedUpdate,
+        ...designUpdates,
+        deps.db.insert(ledgerEntry).values(
+          cogsLedgerRow(
+            orderId,
+            printfulCost,
+            `Printful fulfillment PF:${printfulOrder.id}${items.length > 1 ? ` (${items.length} items)` : ""}`
+          )
+        ),
+      ]);
+    } else {
+      await deps.db.batch([submittedUpdate, ...designUpdates]);
     }
 
     return { action: "submitted", printfulOrderId: String(printfulOrder.id) };

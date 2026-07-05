@@ -676,3 +676,257 @@ describe("money path — Printful lifecycle events", () => {
     expect(entries[0].amount).toBe(-24.12);
   });
 });
+
+describe("money path — idempotency (#37)", () => {
+  let db: Db;
+  beforeEach(async () => {
+    db = await createTestDb();
+  });
+
+  it("a redelivery racing the live run rolls back whole: no double claim, no double ledger", async () => {
+    // Simulate the loser of the race: the winner has written the sale/fee rows
+    // but this delivery still read status=pending before the winner's claim
+    // landed. Its batch must trip the (order_id, type) unique index and roll
+    // back the claim with it.
+    const { order, design } = await seed(db);
+    await db.insert(schema.ledgerEntry).values([
+      { orderId: order.id, type: "sale", amount: 24.12, description: "winner" },
+      { orderId: order.id, type: "stripe_fee", amount: -1, description: "winner" },
+    ]);
+
+    const deps = makeDeps(db);
+    const result = await handleStripeCheckoutCompleted(
+      makeSession(order.id, design.id),
+      deps
+    );
+    expect(result.action).toBe("skipped");
+    expect(deps.createPrintfulOrder).not.toHaveBeenCalled();
+
+    // The conditional claim rolled back with the failed inserts.
+    const after = await db.query.order.findFirst({
+      where: eq(schema.order.id, order.id),
+    });
+    expect(after?.status).toBe("pending");
+
+    // Still exactly the winner's rows.
+    const entries = await ledgerFor(db, order.id);
+    expect(entries).toHaveLength(2);
+    expect(entries.every((e) => e.description === "winner")).toBe(true);
+  });
+
+  it("passes the order id to Printful as external_id", async () => {
+    const { order, design } = await seed(db);
+    const deps = makeDeps(db);
+    await handleStripeCheckoutCompleted(makeSession(order.id, design.id), deps);
+    expect(deps.createPrintfulOrder).toHaveBeenCalledWith(
+      expect.objectContaining({ externalId: order.id })
+    );
+  });
+
+  it("promo on a cart order: sale is the discounted total, shipping line intact", async () => {
+    const userId = "promo-cart-user";
+    await db
+      .insert(schema.user)
+      .values({ id: userId, email: "promo@example.com", name: "P" });
+    const [d1] = await db.insert(schema.design).values({ userId }).returning();
+    const [d2] = await db.insert(schema.design).values({ userId }).returning();
+    const [order] = await db
+      .insert(schema.order)
+      .values({
+        userId,
+        designId: d1.id,
+        productId: "bella-canvas-3001",
+        size: "M",
+        color: "Black",
+        itemPrice: 38.86,
+        shippingPrice: 4.69,
+        totalPrice: 43.55,
+        status: "pending",
+      })
+      .returning();
+    await db.insert(schema.orderItem).values([
+      { orderId: order.id, designId: d1.id, productId: "bella-canvas-3001", size: "M", color: "Black", placements: { front: "img-1" }, quantity: 1, itemPrice: 19.43 },
+      { orderId: order.id, designId: d2.id, productId: "bella-canvas-3001", size: "L", color: "White", placements: { front: "img-2" }, quantity: 1, itemPrice: 19.43 },
+    ]);
+
+    // 50% promo discounts the product lines only; shipping stays whole.
+    const result = await handleStripeCheckoutCompleted(
+      makeSession(order.id, d1.id, {
+        amountSubtotal: 1943, // 38.86 → 19.43 after 50%
+        amountShipping: 469,
+        amountTotal: 2412,
+        discount: { code: "HALFOFF", amount: 19.43 },
+      }),
+      makeDeps(db, {
+        resolveImageUrlById: vi
+          .fn()
+          .mockImplementation(async (id: string) => `https://img.example/${id}.png`),
+      })
+    );
+    expect(result.action).toBe("submitted");
+
+    const updated = await db.query.order.findFirst({
+      where: eq(schema.order.id, order.id),
+    });
+    expect(updated?.totalPrice).toBe(24.12);
+    expect(updated?.itemPrice).toBe(19.43);
+    expect(updated?.shippingPrice).toBe(4.69);
+    expect(updated?.discountCode).toBe("HALFOFF");
+
+    const entries = await ledgerFor(db, order.id);
+    const byType = Object.fromEntries(entries.map((e) => [e.type, e.amount]));
+    expect(byType.sale).toBe(24.12);
+    expect(byType.stripe_fee).toBe(-calculateStripeFee(24.12));
+  });
+
+  it("back placement inside a cart line reaches Printful as a second file", async () => {
+    const userId = "back-cart-user";
+    await db
+      .insert(schema.user)
+      .values({ id: userId, email: "back@example.com", name: "B" });
+    const [d1] = await db.insert(schema.design).values({ userId }).returning();
+    const [order] = await db
+      .insert(schema.order)
+      .values({
+        userId,
+        designId: d1.id,
+        productId: "bella-canvas-3001",
+        size: "M",
+        color: "Black",
+        itemPrice: 27.43,
+        shippingPrice: 4.69,
+        totalPrice: 32.12,
+        status: "pending",
+      })
+      .returning();
+    await db.insert(schema.orderItem).values([
+      { orderId: order.id, designId: d1.id, productId: "bella-canvas-3001", size: "M", color: "Black", placements: { front: "img-f", back: "img-b" }, quantity: 1, itemPrice: 27.43 },
+    ]);
+
+    const createPrintfulOrder = vi
+      .fn()
+      .mockResolvedValue({ id: 7777, costs: { total: "18.00" } });
+    const result = await handleStripeCheckoutCompleted(
+      makeSession(order.id, d1.id, {
+        amountSubtotal: 2743,
+        amountShipping: 469,
+        amountTotal: 3212,
+      }),
+      makeDeps(db, {
+        createPrintfulOrder,
+        resolveImageUrlById: vi
+          .fn()
+          .mockImplementation(async (id: string) => `https://img.example/${id}.png`),
+      })
+    );
+    expect(result.action).toBe("submitted");
+
+    const items = createPrintfulOrder.mock.calls[0][0].items as {
+      files: { placement: string; url: string }[];
+    }[];
+    expect(items).toHaveLength(1);
+    const placements = items[0].files.map((f) => f.placement).sort();
+    expect(placements).toEqual(["back", "front"]);
+    expect(items[0].files.find((f) => f.placement === "back")?.url).toBe(
+      "https://img.example/img-b.png"
+    );
+  });
+
+  it("cart order + Printful failure: paid with sale/fee recorded, no COGS, designs not ordered", async () => {
+    const userId = "fail-cart-user";
+    await db
+      .insert(schema.user)
+      .values({ id: userId, email: "fail@example.com", name: "F" });
+    const [d1] = await db.insert(schema.design).values({ userId }).returning();
+    const [d2] = await db.insert(schema.design).values({ userId }).returning();
+    const [order] = await db
+      .insert(schema.order)
+      .values({
+        userId,
+        designId: d1.id,
+        productId: "bella-canvas-3001",
+        size: "M",
+        color: "Black",
+        itemPrice: 38.86,
+        shippingPrice: 4.69,
+        totalPrice: 43.55,
+        status: "pending",
+      })
+      .returning();
+    await db.insert(schema.orderItem).values([
+      { orderId: order.id, designId: d1.id, productId: "bella-canvas-3001", size: "M", color: "Black", placements: { front: "img-1" }, quantity: 1, itemPrice: 19.43 },
+      { orderId: order.id, designId: d2.id, productId: "bella-canvas-3001", size: "L", color: "White", placements: { front: "img-2" }, quantity: 1, itemPrice: 19.43 },
+    ]);
+
+    const result = await handleStripeCheckoutCompleted(
+      makeSession(order.id, d1.id, {
+        amountSubtotal: 3886,
+        amountShipping: 469,
+        amountTotal: 4355,
+      }),
+      makeDeps(db, {
+        createPrintfulOrder: vi.fn().mockRejectedValue(new Error("Printful 500")),
+        resolveImageUrlById: vi
+          .fn()
+          .mockImplementation(async (id: string) => `https://img.example/${id}.png`),
+      })
+    );
+    expect(result.action).toBe("paid_printful_failed");
+
+    const updated = await db.query.order.findFirst({
+      where: eq(schema.order.id, order.id),
+    });
+    expect(updated?.status).toBe("paid");
+
+    for (const id of [d1.id, d2.id]) {
+      const dd = await db.query.design.findFirst({
+        where: eq(schema.design.id, id),
+      });
+      expect(dd?.status).toBe("draft");
+    }
+
+    const entries = await ledgerFor(db, order.id);
+    const types = entries.map((e) => e.type).sort();
+    expect(types).toEqual(["sale", "stripe_fee"]);
+  });
+});
+
+describe("Printful webhook — redelivery (#37)", () => {
+  let db: Db;
+  beforeEach(async () => {
+    db = await createTestDb();
+  });
+
+  it("package_shipped redelivery on a shipped order is acknowledged, not a 400", async () => {
+    const { order } = await seed(db, {
+      status: "shipped",
+      printfulOrderId: "pf-1",
+    });
+    const result = await handlePrintfulEvent(
+      {
+        type: "package_shipped",
+        data: { order: { id: "pf-1" }, shipment: { tracking_number: "T1" } },
+      },
+      { db }
+    );
+    expect(result.action).toBe("ignored");
+    expect(result.orderId).toBe(order.id);
+  });
+
+  it("order_canceled redelivery keeps exactly one refund row", async () => {
+    const { order } = await seed(db, {
+      status: "submitted",
+      printfulOrderId: "pf-2",
+    });
+    const payload = { type: "order_canceled", data: { order: { id: "pf-2" } } };
+
+    const first = await handlePrintfulEvent(payload, { db });
+    expect(first.action).toBe("canceled");
+
+    const second = await handlePrintfulEvent(payload, { db });
+    expect(second.action).toBe("ignored");
+
+    const entries = await ledgerFor(db, order.id);
+    expect(entries.filter((e) => e.type === "refund")).toHaveLength(1);
+  });
+});

@@ -22,6 +22,13 @@
       "when": 1782362549622,
       "tag": "0002_spicy_harrier",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1783284940115,
+      "tag": "0003_wide_sugar_man",
+      "breakpoints": true
     }
   ]
 }
