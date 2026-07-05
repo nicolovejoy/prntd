@@ -7,6 +7,7 @@ import {
   handleStripeCheckoutCompleted,
   type StripeSessionData,
 } from "@/lib/webhook-handlers";
+import { toStripeSessionData } from "@/lib/stripe-session";
 import { sendOrderConfirmation, sendOwnerOrderAlert } from "@/lib/email";
 import { sendPostOrderEmails, createDefaultOrderEmailDeps } from "@/lib/order-emails";
 import { getDesignDisplayImageUrl, getDesignImageById } from "@/lib/design-images";
@@ -38,60 +39,18 @@ export async function POST(request: NextRequest) {
     const fullSession = await stripe.checkout.sessions.retrieve(session.id, {
       expand: ["total_details.breakdown.discounts.discount"],
     });
-    const orderId = fullSession.metadata?.orderId;
-    const designId = fullSession.metadata?.designId;
 
-    if (!orderId || !designId) {
-      console.error(`Stripe event ${event.id}: missing orderId or designId in metadata`);
+    let sessionData: StripeSessionData;
+    try {
+      sessionData = await toStripeSessionData(fullSession, {
+        retrievePromotionCode: async (id) =>
+          (await stripe.promotionCodes.retrieve(id)).code ?? null,
+      });
+    } catch (err) {
+      console.error(`Stripe event ${event.id}:`, err);
       return NextResponse.json({ error: "Missing metadata" }, { status: 400 });
     }
-
-    const shipping = fullSession.collected_information?.shipping_details;
-    const paymentIntentId =
-      typeof fullSession.payment_intent === "string"
-        ? fullSession.payment_intent
-        : fullSession.payment_intent?.id ?? null;
-
-    // Extract discount info if a promotion code was applied
-    const discountEntry = fullSession.total_details?.breakdown?.discounts?.[0];
-    let discount: StripeSessionData["discount"] = null;
-    if (discountEntry && discountEntry.amount > 0) {
-      const promoCodeId = discountEntry.discount.promotion_code;
-      let code = "unknown";
-      if (typeof promoCodeId === "string") {
-        try {
-          const promoCode = await stripe.promotionCodes.retrieve(promoCodeId);
-          code = promoCode.code;
-        } catch (err) {
-          console.error("Failed to retrieve promotion code:", err);
-        }
-      }
-      discount = {
-        code,
-        amount: discountEntry.amount / 100,
-      };
-    }
-
-    const sessionData: StripeSessionData = {
-      id: fullSession.id,
-      metadata: { orderId, designId },
-      paymentIntentId,
-      amountTotal: fullSession.amount_total,
-      amountSubtotal: fullSession.amount_subtotal,
-      amountShipping: fullSession.total_details?.amount_shipping ?? null,
-      discount,
-      shipping: shipping
-        ? {
-            name: shipping.name ?? "",
-            address1: shipping.address?.line1 ?? "",
-            address2: shipping.address?.line2 ?? "",
-            city: shipping.address?.city ?? "",
-            state: shipping.address?.state ?? "",
-            zip: shipping.address?.postal_code ?? "",
-            country: shipping.address?.country ?? "US",
-          }
-        : null,
-    };
+    const orderId = sessionData.metadata.orderId;
 
     try {
       const result = await handleStripeCheckoutCompleted(sessionData, {

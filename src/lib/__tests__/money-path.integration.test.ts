@@ -289,7 +289,7 @@ describe("money path — checkout.session.completed", () => {
     expect(result.action).toBe("submitted");
 
     // Printful received two files — front and back — keyed by placement.
-    const files = createPrintfulOrder.mock.calls[0][0].files as {
+    const files = createPrintfulOrder.mock.calls[0][0].items[0].files as {
       placement: string;
       url: string;
     }[];
@@ -428,10 +428,181 @@ describe("money path — checkout.session.completed", () => {
   });
 });
 
+// Branches migrated from the retired mocked-db suite (webhook-handlers.test.ts)
+// onto the real harness — same scenarios, real rows instead of mock chains.
+describe("money path — edge branches", () => {
+  let db: Db;
+  beforeEach(async () => {
+    db = await createTestDb();
+  });
+
+  it("throws when the order does not exist", async () => {
+    await expect(
+      handleStripeCheckoutCompleted(
+        makeSession("missing-order", "missing-design"),
+        makeDeps(db)
+      )
+    ).rejects.toThrow(/not found/);
+  });
+
+  it("returns paid (no submit) when the design has no image", async () => {
+    const { order, design } = await seed(db);
+    const createPrintfulOrder = vi.fn();
+    const result = await handleStripeCheckoutCompleted(
+      makeSession(order.id, design.id),
+      makeDeps(db, {
+        createPrintfulOrder,
+        resolveDesignImageUrl: vi.fn().mockResolvedValue(null),
+      })
+    );
+
+    expect(result.action).toBe("paid");
+    expect(createPrintfulOrder).not.toHaveBeenCalled();
+
+    // Money moved: order is paid and the sale is in the ledger, no COGS.
+    const updated = await db.query.order.findFirst({
+      where: eq(schema.order.id, order.id),
+    });
+    expect(updated?.status).toBe("paid");
+    const entries = await ledgerFor(db, order.id);
+    expect(entries.map((e) => e.type).sort()).toEqual(["sale", "stripe_fee"]);
+  });
+
+  it("submits successfully when generateOrderName returns null", async () => {
+    const { order, design } = await seed(db);
+    const result = await handleStripeCheckoutCompleted(
+      makeSession(order.id, design.id),
+      makeDeps(db, { generateOrderName: vi.fn().mockResolvedValue(null) })
+    );
+
+    expect(result.action).toBe("submitted");
+    const updated = await db.query.order.findFirst({
+      where: eq(schema.order.id, order.id),
+    });
+    expect(updated?.displayName).toBeNull();
+    expect(updated?.status).toBe("submitted");
+  });
+
+  it("prints the pinned placements.front image over the design display image", async () => {
+    const { order, design } = await seed(db, {
+      placements: { front: "pinned-img" },
+    });
+    const createPrintfulOrder = vi
+      .fn()
+      .mockResolvedValue({ id: 9999, costs: { total: "12.50" } });
+    const resolveImageUrlById = vi
+      .fn()
+      .mockResolvedValue("https://img.example/pinned.png");
+
+    await handleStripeCheckoutCompleted(
+      makeSession(order.id, design.id),
+      makeDeps(db, { createPrintfulOrder, resolveImageUrlById })
+    );
+
+    expect(resolveImageUrlById).toHaveBeenCalledWith("pinned-img");
+    const files = createPrintfulOrder.mock.calls[0][0].items[0].files;
+    expect(files[0].url).toBe("https://img.example/pinned.png");
+  });
+
+  it("falls back to the display image when the pinned image can't resolve", async () => {
+    const { order, design } = await seed(db, {
+      placements: { front: "gone-img" },
+    });
+    const createPrintfulOrder = vi
+      .fn()
+      .mockResolvedValue({ id: 9999, costs: { total: "12.50" } });
+
+    await handleStripeCheckoutCompleted(
+      makeSession(order.id, design.id),
+      makeDeps(db, {
+        createPrintfulOrder,
+        resolveImageUrlById: vi.fn().mockResolvedValue(null),
+      })
+    );
+
+    const files = createPrintfulOrder.mock.calls[0][0].items[0].files;
+    expect(files[0].url).toBe("https://img.example/x.png"); // display image
+  });
+
+  it("drops an unresolvable back placement and submits front-only", async () => {
+    const { order, design } = await seed(db, {
+      placements: { front: "img-front", back: "img-back-gone" },
+    });
+    const createPrintfulOrder = vi
+      .fn()
+      .mockResolvedValue({ id: 9999, costs: { total: "12.50" } });
+    const resolveImageUrlById = vi
+      .fn()
+      .mockImplementation(async (id: string) =>
+        id === "img-front" ? "https://img.example/front.png" : null
+      );
+
+    const result = await handleStripeCheckoutCompleted(
+      makeSession(order.id, design.id),
+      makeDeps(db, { createPrintfulOrder, resolveImageUrlById })
+    );
+
+    expect(result.action).toBe("submitted");
+    const files = createPrintfulOrder.mock.calls[0][0].items[0].files;
+    expect(files).toHaveLength(1);
+    expect(files[0].placement).toBe("front");
+  });
+});
+
 describe("money path — Printful lifecycle events", () => {
   let db: Db;
   beforeEach(async () => {
     db = await createTestDb();
+  });
+
+  it("throws on a missing Printful order ID in the payload", async () => {
+    await expect(
+      handlePrintfulEvent({ type: "package_shipped", data: {} }, { db })
+    ).rejects.toThrow(/Missing Printful order ID/);
+  });
+
+  it("throws when no order matches the Printful ID", async () => {
+    await expect(
+      handlePrintfulEvent(
+        { type: "package_shipped", data: { order: { id: 424242 } } },
+        { db }
+      )
+    ).rejects.toThrow(/No order found/);
+  });
+
+  it("rejects a shipped transition from an invalid state", async () => {
+    await seed(db, { status: "pending", printfulOrderId: "7777" });
+    await expect(
+      handlePrintfulEvent(
+        { type: "package_shipped", data: { order: { id: 7777 } } },
+        { db }
+      )
+    ).rejects.toThrow(/Invalid order transition/);
+  });
+
+  it("logs order_failed without changing status", async () => {
+    const { order } = await seed(db, {
+      status: "submitted",
+      printfulOrderId: "9999",
+    });
+    const result = await handlePrintfulEvent(
+      { type: "order_failed", data: { order: { id: 9999 }, reason: "OOS" } },
+      { db }
+    );
+    expect(result.action).toBe("failed_logged");
+    const updated = await db.query.order.findFirst({
+      where: eq(schema.order.id, order.id),
+    });
+    expect(updated?.status).toBe("submitted");
+  });
+
+  it("ignores unhandled event types", async () => {
+    await seed(db, { status: "submitted", printfulOrderId: "9999" });
+    const result = await handlePrintfulEvent(
+      { type: "stock_updated", data: { order: { id: 9999 } } },
+      { db }
+    );
+    expect(result.action).toBe("ignored");
   });
 
   it("package_shipped sets status + tracking", async () => {

@@ -129,33 +129,63 @@ export async function sendPasswordResetEmail(params: { to: string; url: string }
   });
 }
 
+/**
+ * One purchased line for email display. Multi-item orders (#26) list every
+ * line; legacy single-item orders pass exactly one.
+ */
+export type EmailOrderLine = {
+  productName: string;
+  size: string;
+  color: string;
+  quantity: number;
+};
+
+function lineLabel(line: EmailOrderLine): string {
+  return line.quantity > 1
+    ? `${line.productName} ×${line.quantity}`
+    : line.productName;
+}
+
+/** Compact subject-line summary: first line's color/size, "+N more" beyond. */
+function lineSummary(lines: EmailOrderLine[]): string {
+  const first = lines[0];
+  if (!first) return "";
+  const more = lines.length > 1 ? ` +${lines.length - 1} more` : "";
+  return `${first.color} ${first.size}${more}`;
+}
+
 export async function sendOrderConfirmation(params: {
   to: string;
   orderId: string;
-  size: string;
-  color: string;
   total: number;
-  productName: string;
+  lines: EmailOrderLine[];
   displayName?: string | null;
   images?: EmailImage[];
 }) {
   const shortId = params.orderId.slice(0, 8);
   const label = params.displayName ?? shortId;
+  const firstName = params.lines[0]?.productName ?? "order";
+  const printing =
+    params.lines.length > 1
+      ? `${firstName} and ${params.lines.length - 1} more`
+      : firstName;
   const rows =
     (params.displayName ? detailRow("Design", params.displayName) : "") +
     detailRow("Order", shortId, { mono: true }) +
-    detailRow(params.productName, `${params.color} / ${params.size}`) +
+    params.lines
+      .map((l) => detailRow(lineLabel(l), `${l.color} / ${l.size}`))
+      .join("") +
     detailRow("Total", `$${params.total.toFixed(2)}`, { total: true });
 
   await resend.emails.send({
     from: FROM,
     replyTo: REPLY_TO,
     to: params.to,
-    subject: `Order confirmed — ${label} (${params.color} ${params.size})`,
+    subject: `Order confirmed — ${label} (${lineSummary(params.lines)})`,
     html: emailLayout({
-      preheader: `We're printing your ${params.productName} now.`,
+      preheader: `We're printing your ${printing} now.`,
       heading: "Your order is confirmed",
-      intro: `We're printing your ${params.productName} now. We'll email you again when it ships with tracking.`,
+      intro: `We're printing your ${printing} now. We'll email you again when it ships with tracking.`,
       images: params.images,
       bodyHtml: detailTable(rows),
       ctaLabel: "View your orders",
@@ -167,9 +197,8 @@ export async function sendOrderConfirmation(params: {
 export async function sendOwnerOrderAlert(params: {
   orderId: string;
   customerEmail: string;
-  size: string;
-  color: string;
   total: number;
+  lines: EmailOrderLine[];
   discountCode?: string | null;
   displayName?: string | null;
   images?: EmailImage[];
@@ -179,7 +208,9 @@ export async function sendOwnerOrderAlert(params: {
     (params.displayName ? detailRow("Design", params.displayName) : "") +
     detailRow("Order", shortId, { mono: true }) +
     detailRow("Customer", params.customerEmail) +
-    detailRow("Product", `${params.color} / ${params.size}`) +
+    params.lines
+      .map((l) => detailRow(lineLabel(l), `${l.color} / ${l.size}`))
+      .join("") +
     (params.discountCode ? detailRow("Discount", params.discountCode) : "") +
     detailRow("Total", `$${params.total.toFixed(2)}`, { total: true });
 
@@ -187,7 +218,7 @@ export async function sendOwnerOrderAlert(params: {
     from: FROM,
     replyTo: REPLY_TO,
     to: process.env.OWNER_EMAIL ?? "nico@prntd.org",
-    subject: `New order: ${params.displayName ?? shortId} — ${params.color} ${params.size} — $${params.total.toFixed(2)}`,
+    subject: `New order: ${params.displayName ?? shortId} — ${lineSummary(params.lines)} — $${params.total.toFixed(2)}`,
     html: emailLayout({
       heading: "New order",
       images: params.images,

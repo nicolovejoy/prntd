@@ -1,19 +1,27 @@
 import { eq } from "drizzle-orm";
-import { order as orderTable, user as userTable, design as designTable } from "@/lib/db/schema";
+import {
+  order as orderTable,
+  orderItem as orderItemTable,
+  user as userTable,
+  design as designTable,
+} from "@/lib/db/schema";
 import type { db as appDb } from "@/lib/db";
-import type { sendOrderConfirmation, sendOwnerOrderAlert } from "@/lib/email";
+import type {
+  sendOrderConfirmation,
+  sendOwnerOrderAlert,
+  EmailOrderLine,
+} from "@/lib/email";
 import { getBlank, getColorHex } from "@/lib/blanks";
+import { resolveOrderLines } from "@/lib/order-lines";
 import { resolveOrderEmailImages, type EmailImage } from "@/lib/email-images";
 
 export type OrderEmailPayload = {
   email: string;
-  size: string;
-  color: string;
   totalPrice: number;
-  productId: string;
-  productName: string;
   discountCode: string | null;
   displayName: string | null;
+  /** Every purchased line (order_item rows, or the legacy scalar columns). */
+  lines: EmailOrderLine[];
   images: EmailImage[];
 };
 
@@ -82,10 +90,8 @@ export async function sendPostOrderEmails(
     await deps.sendOrderConfirmation({
       to: payload.email,
       orderId,
-      size: payload.size,
-      color: payload.color,
       total: payload.totalPrice,
-      productName: payload.productName,
+      lines: payload.lines,
       displayName: payload.displayName,
       images: payload.images,
     });
@@ -98,9 +104,8 @@ export async function sendPostOrderEmails(
     await deps.sendOwnerOrderAlert({
       orderId,
       customerEmail: payload.email,
-      size: payload.size,
-      color: payload.color,
       total: payload.totalPrice,
+      lines: payload.lines,
       discountCode: payload.discountCode,
       displayName: payload.displayName,
       images: payload.images,
@@ -129,6 +134,8 @@ export function createDefaultOrderEmailDeps(
           size: orderTable.size,
           color: orderTable.color,
           totalPrice: orderTable.totalPrice,
+          itemPrice: orderTable.itemPrice,
+          printfulCost: orderTable.printfulCost,
           productId: orderTable.productId,
           discountCode: orderTable.discountCode,
           displayName: orderTable.displayName,
@@ -142,21 +149,51 @@ export function createDefaultOrderEmailDeps(
         .where(eq(orderTable.id, orderId));
       const row = rows[0];
       if (!row) return null;
-      // Resolve product name from the catalog. Falls back to a generic
+
+      // Every purchased line: order_item rows for cart orders, the scalar
+      // columns for legacy single-item orders.
+      const items = await db.query.orderItem.findMany({
+        where: eq(orderItemTable.orderId, orderId),
+      });
+      const orderLines = resolveOrderLines(
+        {
+          designId: row.designId,
+          productId: row.productId,
+          size: row.size,
+          color: row.color,
+          placements: row.placements ?? null,
+          itemPrice: row.itemPrice,
+          printfulCost: row.printfulCost,
+        },
+        items
+      );
+      // Resolve product names from the catalog. Falls back to a generic
       // "product" label if a historical order references an id we no
       // longer carry — emails should never break on a missing product.
-      const product = getBlank(row.productId);
+      const lines: EmailOrderLine[] = orderLines.map((l) => ({
+        productName: getBlank(l.blankId)?.name ?? "product",
+        size: l.size,
+        color: l.color,
+        quantity: l.quantity,
+      }));
+
+      // Hero image(s) from the first line. Multi-item orders still lead with
+      // one design; the body lists every line.
+      const first = orderLines[0];
       const images = await resolveHeroImages({
-        productId: row.productId,
-        color: row.color,
-        designId: row.designId,
-        placements: row.placements ?? null,
+        productId: first.blankId,
+        color: first.color,
+        designId: first.designId,
+        placements: first.placements,
         mockupUrls: row.mockupUrls ?? null,
       });
 
       return {
-        ...row,
-        productName: product?.name ?? "product",
+        email: row.email,
+        totalPrice: row.totalPrice,
+        discountCode: row.discountCode,
+        displayName: row.displayName,
+        lines,
         images,
       };
     },
