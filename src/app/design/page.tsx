@@ -81,6 +81,24 @@ function DesignPageInner() {
     ensureGuestSession();
   }, []);
 
+  // Landing seed: /design?prompt=… fires Draw-it once with the seeded idea
+  // (new designs only — never when resuming via ?id=). Ref-guarded so React
+  // Strict Mode's double effect can't fire it twice; the param is stripped
+  // immediately so refresh/back doesn't resubmit — via history.replaceState
+  // (shallow, no router re-render) because a router.replace issued right
+  // before a server-action call gets cancelled by the action. A thin seed is
+  // caught by the fast readiness check inside generateDesign and answered
+  // with a clarifying question instead of a render — no new guard needed.
+  const seedFired = useRef(false);
+  useEffect(() => {
+    const prompt = searchParams.get("prompt");
+    if (!prompt || searchParams.get("id") || seedFired.current) return;
+    seedFired.current = true;
+    window.history.replaceState(null, "", "/design");
+    handleGenerate(prompt);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Load existing design if resuming
   const id = searchParams.get("id");
   useEffect(() => {

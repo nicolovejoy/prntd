@@ -32,27 +32,8 @@ export function HomeHero({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
-  // Logged-out: landing hero
-  if (!session) {
-    return (
-      <main className="flex-1 flex flex-col items-center justify-center px-4">
-        <div className="max-w-2xl text-center space-y-6">
-          <h1 className="text-5xl font-bold tracking-tight">
-            Design custom prints with AI
-          </h1>
-          <p className="text-xl text-text-muted max-w-lg mx-auto">
-            Describe your idea. AI generates an image. Ask for changes, then
-            order it on a shirt, phone case, or more.
-          </p>
-          <Link href="/design">
-            <Button size="lg">Start Designing</Button>
-          </Link>
-        </div>
-      </main>
-    );
-  }
-
-  // Logged-in: personal hero
+  // Signed-in personal hero only — the page renders <MakerHero> for
+  // signed-out visitors (server-side session branch, no client flash).
   const hasDesigns = loaded && designs.length > 0;
 
   return (
