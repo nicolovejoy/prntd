@@ -354,6 +354,16 @@ describe("money path — checkout.session.completed", () => {
       },
     ]);
 
+    // The cart still holds the purchased lines (checkoutCart no longer clears
+    // at session creation, #38) plus one line added mid-checkout that the
+    // webhook must NOT touch.
+    const [d3] = await db.insert(schema.design).values({ userId }).returning();
+    await db.insert(schema.cartItem).values([
+      { userId, designId: d1.id, productId: "bella-canvas-3001", size: "M", color: "Black" },
+      { userId, designId: d2.id, productId: "bella-canvas-3001", size: "L", color: "White" },
+      { userId, designId: d3.id, productId: "bella-canvas-3001", size: "S", color: "Red" },
+    ]);
+
     const createPrintfulOrder = vi
       .fn()
       .mockResolvedValue({ id: 8888, costs: { total: "25.00" } });
@@ -397,6 +407,14 @@ describe("money path — checkout.session.completed", () => {
     expect(byType.sale).toBe(43.55);
     expect(byType.cogs).toBe(-25.0);
     expect(entries.filter((e) => e.type === "cogs")).toHaveLength(1);
+
+    // #38: payment cleared exactly the purchased cart lines; the line added
+    // mid-checkout survives.
+    const remaining = await db.query.cartItem.findMany({
+      where: eq(schema.cartItem.userId, userId),
+    });
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0].designId).toBe(d3.id);
   });
 
   it("Printful failure leaves the order paid with no COGS and design not ordered", async () => {

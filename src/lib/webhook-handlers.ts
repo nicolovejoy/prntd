@@ -1,5 +1,6 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
+  cartItem as cartItemTable,
   order as orderTable,
   orderItem as orderItemTable,
 } from "@/lib/db/schema";
@@ -123,6 +124,23 @@ export async function handleStripeCheckoutCompleted(
   const orderItems = await deps.db.query.orderItem.findMany({
     where: eq(orderItemTable.orderId, orderId),
   });
+
+  // #38: the cart survives Stripe-session creation, so backing out of checkout
+  // returns to an intact /cart. Payment is the point of no return — clear the
+  // purchased lines here, matched per line so a single-item /order purchase
+  // (no order_item rows today) or anything added to the cart mid-checkout is
+  // untouched. Runs even if fulfillment fails below: the customer paid.
+  for (const item of orderItems) {
+    await deps.db.delete(cartItemTable).where(
+      and(
+        eq(cartItemTable.userId, foundOrder.userId),
+        eq(cartItemTable.designId, item.designId),
+        eq(cartItemTable.productId, item.productId),
+        eq(cartItemTable.size, item.size),
+        eq(cartItemTable.color, item.color)
+      )
+    );
+  }
 
   return submitOrderFulfillment(foundOrder, orderItems, session.shipping, deps);
 }
