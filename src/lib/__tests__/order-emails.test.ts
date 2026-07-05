@@ -1,15 +1,18 @@
 import { describe, it, expect, vi } from "vitest";
 import { sendPostOrderEmails, type OrderEmailDeps } from "../order-emails";
 
+const LINES = [
+  { productName: "Classic Tee", size: "M", color: "Black", quantity: 1 },
+];
+
 function createDeps(overrides: Partial<OrderEmailDeps> = {}): OrderEmailDeps {
   return {
     loadOrderForEmail: vi.fn().mockResolvedValue({
       email: "user@example.com",
-      size: "M",
-      color: "Black",
       totalPrice: 30.0,
       discountCode: null,
       displayName: null,
+      lines: LINES,
       images: [],
     }),
     sendOrderConfirmation: vi.fn().mockResolvedValue(undefined),
@@ -28,34 +31,56 @@ describe("sendPostOrderEmails", () => {
     expect(deps.sendOrderConfirmation).toHaveBeenCalledWith({
       to: "user@example.com",
       orderId: "order-1",
-      size: "M",
-      color: "Black",
       total: 30.0,
-      productName: undefined,
+      lines: LINES,
       displayName: null,
       images: [],
     });
     expect(deps.sendOwnerOrderAlert).toHaveBeenCalledWith({
       orderId: "order-1",
       customerEmail: "user@example.com",
-      size: "M",
-      color: "Black",
       total: 30.0,
+      lines: LINES,
       discountCode: null,
       displayName: null,
       images: [],
     });
   });
 
+  it("forwards every line of a multi-item order", async () => {
+    const lines = [
+      { productName: "Classic Tee", size: "M", color: "Black", quantity: 1 },
+      { productName: "Women's Tee", size: "L", color: "White", quantity: 2 },
+    ];
+    const deps = createDeps({
+      loadOrderForEmail: vi.fn().mockResolvedValue({
+        email: "user@example.com",
+        totalPrice: 60.0,
+        discountCode: null,
+        displayName: null,
+        lines,
+        images: [],
+      }),
+    });
+
+    await sendPostOrderEmails("order-cart", deps);
+
+    expect(deps.sendOrderConfirmation).toHaveBeenCalledWith(
+      expect.objectContaining({ lines })
+    );
+    expect(deps.sendOwnerOrderAlert).toHaveBeenCalledWith(
+      expect.objectContaining({ lines })
+    );
+  });
+
   it("forwards discountCode to the owner alert", async () => {
     const deps = createDeps({
       loadOrderForEmail: vi.fn().mockResolvedValue({
         email: "user@example.com",
-        size: "L",
-        color: "White",
         totalPrice: 15.0,
         discountCode: "nico-codes",
         displayName: null,
+        lines: LINES,
         images: [],
       }),
     });
@@ -71,11 +96,10 @@ describe("sendPostOrderEmails", () => {
     const deps = createDeps({
       loadOrderForEmail: vi.fn().mockResolvedValue({
         email: "user@example.com",
-        size: "M",
-        color: "Black",
         totalPrice: 30.0,
         discountCode: null,
         displayName: "Artificial Idiot",
+        lines: LINES,
         images: [],
       }),
     });

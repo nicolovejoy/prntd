@@ -1,0 +1,201 @@
+/**
+ * Shared fulfillment tail for a paid order — the one code path that submits to
+ * Printful. Resolves print files per line (order_item rows when present, else
+ * the legacy scalar columns, via resolveOrderLines), submits a single N-item
+ * Printful order, marks the order submitted + its designs ordered, and records
+ * COGS. Used by the Stripe webhook on fresh payment and by the admin retry, so
+ * the retry can't drift from the webhook (multi-item, pinned placements, COGS).
+ *
+ * Per-line problems (missing image, unknown blank, no variant) drop that line
+ * rather than failing the order — the customer already paid. An order with no
+ * fulfillable lines stays `paid` for admin follow-up.
+ */
+import { eq } from "drizzle-orm";
+import { order as orderTable, design as designTable } from "@/lib/db/schema";
+import { resolveOrderLines, type OrderItemRow } from "@/lib/order-lines";
+import { getBlank, getVariantId } from "@/lib/blanks";
+import { assertTransition } from "@/lib/order-state";
+import { recordCOGS } from "@/lib/ledger";
+import type { createOrder, PrintfulOrderItem } from "@/lib/printful";
+import type { db as appDb } from "@/lib/db";
+import type { generateOrderName } from "@/lib/ai";
+
+export type FulfillmentDeps = {
+  db: typeof appDb;
+  createPrintfulOrder: typeof createOrder;
+  generateOrderName: typeof generateOrderName;
+  resolveDesignImageUrl: (designId: string) => Promise<string | null>;
+  // Resolve a specific design_image id to its URL. Used to print the exact
+  // image pinned on the order (`placements.front`) rather than the design's
+  // current display image — which matters when the order was placed against a
+  // published image owned by someone else, or when the design was regenerated
+  // after purchase. Optional: when absent, lines fall back to
+  // `resolveDesignImageUrl(designId)`.
+  resolveImageUrlById?: (imageId: string) => Promise<string | null>;
+};
+
+export type ShippingAddress = {
+  name: string;
+  address1: string;
+  address2: string;
+  city: string;
+  state: string;
+  zip: string;
+  country: string;
+};
+
+/** The order-row fields fulfillment needs (a subset of the full row). */
+export type FulfillmentOrder = {
+  id: string;
+  designId: string;
+  productId: string;
+  size: string;
+  color: string;
+  placements: Record<string, string> | null;
+  itemPrice: number | null;
+  printfulCost: number | null;
+  displayName: string | null;
+};
+
+export type FulfillmentResult =
+  | { action: "paid" }
+  | { action: "submitted"; printfulOrderId: string }
+  | { action: "paid_printful_failed" };
+
+export async function submitOrderFulfillment(
+  order: FulfillmentOrder,
+  orderItems: OrderItemRow[],
+  shipping: ShippingAddress | null,
+  deps: FulfillmentDeps
+): Promise<FulfillmentResult> {
+  const orderId = order.id;
+  const lines = resolveOrderLines(
+    {
+      designId: order.designId,
+      productId: order.productId,
+      size: order.size,
+      color: order.color,
+      placements: order.placements,
+      itemPrice: order.itemPrice,
+      printfulCost: order.printfulCost,
+    },
+    orderItems
+  );
+
+  // One Printful line item per fulfillable line. Front prefers the image
+  // pinned on the line (placements.front) and falls back to the design's
+  // current display image; non-front placements resolve only via their pinned
+  // image id — a missing one is logged and dropped, never fatal.
+  const items: PrintfulOrderItem[] = [];
+  let firstFrontUrl: string | null = null;
+  for (const line of lines) {
+    const frontImageId = line.placements.front ?? null;
+    const frontUrl =
+      (frontImageId && deps.resolveImageUrlById
+        ? await deps.resolveImageUrlById(frontImageId)
+        : null) ?? (await deps.resolveDesignImageUrl(line.designId));
+    if (!frontUrl) {
+      console.error(
+        `Order ${orderId}: line (design ${line.designId}) has no front image — dropping`
+      );
+      continue;
+    }
+    firstFrontUrl ??= frontUrl;
+
+    const files: { placement: string; url: string }[] = [
+      { placement: "front", url: frontUrl },
+    ];
+    for (const [placement, imageId] of Object.entries(line.placements)) {
+      if (placement === "front") continue;
+      const url = deps.resolveImageUrlById
+        ? await deps.resolveImageUrlById(imageId)
+        : null;
+      if (url) files.push({ placement, url });
+      else
+        console.error(
+          `Order ${orderId}: placement "${placement}" image ${imageId} unresolved — submitting without it`
+        );
+    }
+
+    const product = getBlank(line.blankId);
+    const variantId = product
+      ? getVariantId(product, line.color, line.size)
+      : null;
+    if (!variantId) {
+      console.error(
+        `Order ${orderId}: no variant for ${line.color} ${line.size} on ${product?.name ?? line.blankId} — dropping line`
+      );
+      continue;
+    }
+    items.push({ variantId, quantity: line.quantity, files });
+  }
+
+  if (items.length === 0) {
+    console.error(`Order ${orderId}: no fulfillable lines`);
+    return { action: "paid" };
+  }
+
+  // Name the order once, from the first print file. Skipped when the order
+  // already has a name (e.g. an admin retry after a Printful failure).
+  if (firstFrontUrl && !order.displayName) {
+    const displayName = await deps.generateOrderName(firstFrontUrl);
+    if (displayName) {
+      await deps.db
+        .update(orderTable)
+        .set({ displayName, updatedAt: new Date() })
+        .where(eq(orderTable.id, orderId));
+    }
+  }
+
+  try {
+    const printfulOrder = await deps.createPrintfulOrder({
+      items,
+      recipientName: shipping?.name ?? "",
+      address1: shipping?.address1 ?? "",
+      address2: shipping?.address2 || undefined,
+      city: shipping?.city ?? "",
+      stateCode: shipping?.state ?? "",
+      countryCode: shipping?.country ?? "US",
+      zip: shipping?.zip ?? "",
+    });
+
+    assertTransition("paid", "submitted");
+
+    const printfulCost = printfulOrder.costs?.total
+      ? parseFloat(printfulOrder.costs.total)
+      : null;
+
+    await deps.db
+      .update(orderTable)
+      .set({
+        status: "submitted",
+        printfulOrderId: String(printfulOrder.id),
+        printfulCost,
+        updatedAt: new Date(),
+      })
+      .where(eq(orderTable.id, orderId));
+
+    // Mark every distinct design in the order as ordered.
+    const designIds = [...new Set(lines.map((l) => l.designId))];
+    for (const designId of designIds) {
+      await deps.db
+        .update(designTable)
+        .set({ status: "ordered", updatedAt: new Date() })
+        .where(eq(designTable.id, designId));
+    }
+
+    if (printfulCost && printfulCost > 0) {
+      await recordCOGS(
+        orderId,
+        printfulCost,
+        `Printful fulfillment PF:${printfulOrder.id}${items.length > 1 ? ` (${items.length} items)` : ""}`,
+        deps.db
+      );
+    }
+
+    return { action: "submitted", printfulOrderId: String(printfulOrder.id) };
+  } catch (err) {
+    console.error(`Order ${orderId}: Printful submission failed:`, err);
+    return { action: "paid_printful_failed" };
+  }
+}

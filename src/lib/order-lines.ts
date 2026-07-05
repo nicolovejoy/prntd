@@ -40,7 +40,7 @@ type OrderScalars = {
 };
 
 /** An `order_item` row. */
-type OrderItemRow = {
+export type OrderItemRow = {
   designId: string;
   productId: string;
   size: string;

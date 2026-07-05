@@ -14,7 +14,7 @@ import {
   setOrderTags,
 } from "../../actions";
 import { Badge, Button, Card } from "@/components/ui";
-import { getColorHex } from "@/lib/blanks";
+import { getBlank, getColorHex } from "@/lib/blanks";
 import {
   ORDER_CLASSIFICATIONS,
   CLASSIFICATION_INFO,
@@ -194,14 +194,21 @@ export default function OrderDetailPage() {
             )}
           </Card>
 
-          {/* Product */}
+          {/* Product — every purchased line (cart orders have several) */}
           <Card className="p-4">
-            <h3 className="text-xs text-text-muted uppercase mb-2">Product</h3>
+            <h3 className="text-xs text-text-muted uppercase mb-2">
+              {order.lines.length > 1 ? `Products (${order.lines.length})` : "Product"}
+            </h3>
             <div className="flex gap-3">
               {order.designImageUrl && (
                 <div
                   className="w-20 h-20 rounded p-2 overflow-hidden flex-shrink-0"
-                  style={{ backgroundColor: getColorHex(order.productId, order.color) }}
+                  style={{
+                    backgroundColor: getColorHex(
+                      order.lines[0]?.blankId ?? order.productId,
+                      order.lines[0]?.color ?? order.color
+                    ),
+                  }}
                 >
                   <img
                     src={order.designImageUrl}
@@ -211,9 +218,24 @@ export default function OrderDetailPage() {
                 </div>
               )}
               <div className="text-sm">
-                <p>
-                  {order.size} / {order.color}
-                </p>
+                {order.lines.map((line, i) => {
+                  const extras = Object.keys(line.placements).filter(
+                    (p) => p !== "front"
+                  );
+                  return (
+                    <p key={i}>
+                      {getBlank(line.blankId)?.name ?? line.blankId} —{" "}
+                      {line.size} / {line.color}
+                      {line.quantity > 1 && ` ×${line.quantity}`}
+                      {extras.length > 0 && (
+                        <span className="text-xs text-text-muted">
+                          {" "}
+                          (+{extras.join(", ")})
+                        </span>
+                      )}
+                    </p>
+                  );
+                })}
                 {order.designedByName && (
                   <p className="text-xs text-text-muted mt-1">
                     Designed by {order.designedByName}
