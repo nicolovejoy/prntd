@@ -3,11 +3,12 @@ import {
   computePrice,
   computeOrderTotal,
   estimateShipping,
+  minRetailPrice,
   FLAT_SHIPPING_USD,
   MARGIN_MULTIPLIER,
   BACK_PLACEMENT_UPCHARGE,
 } from "../pricing";
-import { BLANKS } from "../blanks";
+import { ACTIVE_BLANKS, BLANKS } from "../blanks";
 
 describe("computePrice", () => {
   it("prices the default Classic Tee at its fixed retail price, ignoring generation cost", () => {
@@ -137,5 +138,20 @@ describe("estimateShipping", () => {
 
   it("ships nothing for an empty cart", () => {
     expect(estimateShipping(0)).toBe(0);
+  });
+});
+
+describe("minRetailPrice", () => {
+  it("returns the current catalog floor (Classic Tee S–XL retail)", () => {
+    expect(minRetailPrice()).toBe(19.43);
+  });
+
+  it("never exceeds any purchasable price in the active catalog", () => {
+    const floor = minRetailPrice();
+    for (const blank of ACTIVE_BLANKS) {
+      for (const size of blank.sizes) {
+        expect(floor).toBeLessThanOrEqual(computePrice(0, blank.id, size).total);
+      }
+    }
   });
 });

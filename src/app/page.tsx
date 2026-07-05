@@ -2,10 +2,13 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { HomeHero } from "@/components/home-hero";
+import { MakerHero } from "@/components/maker-hero";
 import { PublishedGrid } from "@/components/published-grid";
 import { getUserDesigns } from "./designs/actions";
 import { getDiscoverFeed } from "./d/actions";
 import { getActivePromo } from "@/lib/promotion";
+import { publishedBackdrop } from "@/lib/blanks";
+import { minRetailPrice } from "@/lib/pricing";
 
 export const dynamic = "force-dynamic";
 
@@ -16,10 +19,60 @@ export default async function Home() {
     auth.api.getSession({ headers: await headers() }),
   ]);
   const isLoggedIn = !!session;
+  // Proof strip under the signed-out hero: real published designs, framed as
+  // what chatting here produces. No invented prompts (recovered designs don't
+  // have them); omitted entirely when the feed is empty.
+  const proof = discover.slice(0, 2);
 
   return (
     <div className="min-h-screen flex flex-col">
-      <HomeHero getRecentDesigns={getUserDesigns} />
+      {isLoggedIn ? (
+        <HomeHero getRecentDesigns={getUserDesigns} />
+      ) : (
+        <MakerHero />
+      )}
+
+      {!isLoggedIn && proof.length > 0 && (
+        <section className="py-12 px-4">
+          <div className="max-w-2xl mx-auto">
+            <h2 className="text-lg font-semibold text-center mb-6">
+              Made by chatting here
+            </h2>
+            <div className="grid grid-cols-2 gap-4">
+              {proof.map((img) => {
+                const backdrop = publishedBackdrop(img.backgroundColor);
+                return (
+                  <Link
+                    key={img.imageId}
+                    href={`/d/${img.imageId}`}
+                    className="group block"
+                  >
+                    <div
+                      className={`aspect-square rounded-md overflow-hidden border border-border group-hover:border-accent transition-colors ${backdrop.className}`}
+                      style={backdrop.style}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={img.imageUrl}
+                        alt={img.title ?? "Design"}
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                    {img.title && (
+                      <p className="mt-2 text-sm font-medium truncate">
+                        {img.title}
+                      </p>
+                    )}
+                    <p className="text-xs text-text-muted truncate">
+                      by {img.designerName}
+                    </p>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+      )}
 
       {promo && (
         <section className="py-4 px-4 bg-accent/10 border-y border-accent/20 text-center">
@@ -53,47 +106,15 @@ export default async function Home() {
         </section>
       )}
 
-      {!isLoggedIn && (
-        <section className="py-16 px-4 border-t border-border">
-          <div className="max-w-4xl mx-auto">
-            <h2 className="text-2xl font-bold text-center mb-12">
-              How it works
-            </h2>
-            <div className="grid md:grid-cols-3 gap-8 text-center">
-              <div className="space-y-3">
-                <div className="text-3xl font-bold text-text-faint">1</div>
-                <h3 className="font-semibold text-lg">Describe</h3>
-                <p className="text-text-muted">
-                  Type what you want printed. A logo, illustration, text —
-                  whatever.
-                </p>
-              </div>
-              <div className="space-y-3">
-                <div className="text-3xl font-bold text-text-faint">2</div>
-                <h3 className="font-semibold text-lg">Refine</h3>
-                <p className="text-text-muted">
-                  Preview the design on the product you want. Ask for changes
-                  until it looks right.
-                </p>
-              </div>
-              <div className="space-y-3">
-                <div className="text-3xl font-bold text-text-faint">3</div>
-                <h3 className="font-semibold text-lg">Order</h3>
-                <p className="text-text-muted">
-                  Pick size and color. Pay. It shows up.
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
-      )}
-
       <section className="py-16 px-4 bg-surface">
         <div className="max-w-2xl mx-auto text-center space-y-4">
           <h2 className="text-2xl font-bold">Pricing</h2>
           <p className="text-text-muted">
-            Designing is free. You pay when you order. Products start at{" "}
-            <span className="font-semibold text-foreground">$15</span>.
+            Designing is free. You pay when you order. Tees from{" "}
+            <span className="font-semibold text-foreground">
+              ${minRetailPrice().toFixed(2)}
+            </span>
+            .
           </p>
         </div>
       </section>
@@ -108,6 +129,11 @@ export default async function Home() {
           >
             hello@prntd.org
           </a>
+        </p>
+        <p>
+          <Link href="/dashboard" className="underline hover:text-text-muted">
+            Open a shop →
+          </Link>
         </p>
       </footer>
     </div>

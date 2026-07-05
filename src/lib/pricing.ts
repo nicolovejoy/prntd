@@ -2,6 +2,7 @@ import {
   getBlankOrThrow,
   getBaseCost,
   getRetailPrice,
+  ACTIVE_BLANKS,
   DEFAULT_BLANK_ID,
 } from "./blanks";
 
@@ -131,6 +132,24 @@ export function computePrice(
     Math.round((front + (opts.back ? BACK_PLACEMENT_UPCHARGE : 0)) * 100) / 100;
 
   return { baseCost, generationCost, total };
+}
+
+/**
+ * Cheapest customer-facing price across the active catalog (any blank, any
+ * size, front only). Derived from the same computePrice the checkout charges,
+ * so marketing copy like the landing's "Tees from $X" can never go stale.
+ * (Lives here rather than blanks.ts because it needs the margin computation,
+ * and blanks.ts importing pricing.ts would be circular.)
+ */
+export function minRetailPrice(): number {
+  let min = Infinity;
+  for (const blank of ACTIVE_BLANKS) {
+    for (const size of blank.sizes) {
+      const { total } = computePrice(0, blank.id, size);
+      if (total < min) min = total;
+    }
+  }
+  return min;
 }
 
 export type ProceedsBreakdown = {

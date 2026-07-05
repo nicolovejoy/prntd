@@ -6,13 +6,7 @@ import type { ChatMessage } from "@/lib/db/schema";
 import type { ChatOption } from "@/lib/ai";
 import type { DesignImage } from "@/lib/design-images";
 import { Button, QuickReply } from "@/components/ui";
-
-const EXAMPLES = [
-  "A minimalist mountain landscape in blue and white",
-  "A retro sunset with palm tree silhouettes",
-  "An abstract geometric wolf head",
-  'Bold text saying "HELLO" in a graffiti style',
-];
+import { EXAMPLES } from "@/lib/design-examples";
 
 export function ChatPanel({
   messages,
@@ -249,6 +243,7 @@ export function ChatPanel({
           return (
             <div
               key={msg.id}
+              data-testid={`chat-message-${msg.role}`}
               className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
             >
               <div
