@@ -175,8 +175,8 @@ export default function OrderDetailPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Left column */}
         <div className="space-y-4">
-          {/* Customer */}
-          <Card className="p-4">
+          {/* Customer — data-loop-redact keeps this PII out of feedback page captures */}
+          <Card className="p-4" data-loop-redact="">
             <h3 className="text-xs text-text-muted uppercase mb-2">Customer</h3>
             <p className="text-sm">{order.userEmail}</p>
             {order.shippingName && (

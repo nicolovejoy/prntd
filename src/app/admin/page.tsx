@@ -259,7 +259,8 @@ export default function AdminPage() {
         <p className="text-text-faint">No orders.</p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm text-left">
+          {/* data-loop-redact: rows carry customer names/locations — keep out of feedback page captures */}
+          <table className="w-full text-sm text-left" data-loop-redact="">
             <thead className="border-b text-text-faint text-xs uppercase">
               <tr>
                 <th className="py-3 pr-4">Order</th>
