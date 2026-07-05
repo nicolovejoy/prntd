@@ -283,16 +283,24 @@ export const product = sqliteTable("product", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
 
-export const ledgerEntry = sqliteTable("ledger_entry", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  orderId: text("order_id").references(() => order.id),
-  type: text("type").notNull(), // sale, stripe_fee, cogs, refund, refund_cogs_reversal
-  amount: real("amount").notNull(), // positive = money in, negative = money out
-  currency: text("currency").notNull().default("USD"),
-  description: text("description").notNull(),
-  metadata: text("metadata", { mode: "json" }).$type<Record<string, unknown>>(),
-  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-});
+export const ledgerEntry = sqliteTable(
+  "ledger_entry",
+  {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    orderId: text("order_id").references(() => order.id),
+    type: text("type").notNull(), // sale, stripe_fee, cogs, refund, refund_cogs_reversal
+    amount: real("amount").notNull(), // positive = money in, negative = money out
+    currency: text("currency").notNull().default("USD"),
+    description: text("description").notNull(),
+    metadata: text("metadata", { mode: "json" }).$type<Record<string, unknown>>(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  },
+  // #37 idempotency backstop: every current entry type occurs at most once per
+  // order, so a webhook redelivery that races the live run trips this index and
+  // its whole db.batch rolls back. Rows with NULL order_id (manual entries) are
+  // exempt — SQLite treats NULLs as distinct in unique indexes.
+  (t) => [uniqueIndex("ledger_entry_order_type_unique").on(t.orderId, t.type)]
+);
 
 /**
  * Per-day generation counters for the guest-funnel abuse guard (#26 A3).

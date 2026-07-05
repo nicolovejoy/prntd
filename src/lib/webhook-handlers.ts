@@ -1,11 +1,12 @@
 import { and, eq } from "drizzle-orm";
 import {
   cartItem as cartItemTable,
+  ledgerEntry,
   order as orderTable,
   orderItem as orderItemTable,
 } from "@/lib/db/schema";
 import { assertTransition } from "@/lib/order-state";
-import { recordSale, recordCancellation } from "@/lib/ledger";
+import { saleLedgerRows, refundLedgerRow, isUniqueViolation } from "@/lib/ledger";
 import {
   submitOrderFulfillment,
   type FulfillmentDeps,
@@ -86,37 +87,49 @@ export async function handleStripeCheckoutCompleted(
     ? session.amountShipping / 100
     : foundOrder.shippingPrice;
 
-  // Mark as paid with shipping details + discount info
-  await deps.db
-    .update(orderTable)
-    .set({
-      status: "paid",
-      classification: "customer",
-      stripeSessionId: session.id,
-      stripePaymentIntentId: session.paymentIntentId,
-      totalPrice: actualTotal,
-      itemPrice,
-      shippingPrice,
-      discountCode: session.discount?.code ?? null,
-      discountAmount: session.discount?.amount ?? null,
-      shippingName: session.shipping?.name ?? "",
-      shippingAddress1: session.shipping?.address1 ?? "",
-      shippingAddress2: session.shipping?.address2 ?? "",
-      shippingCity: session.shipping?.city ?? "",
-      shippingState: session.shipping?.state ?? "",
-      shippingZip: session.shipping?.zip ?? "",
-      shippingCountry: session.shipping?.country ?? "US",
-      updatedAt: new Date(),
-    })
-    .where(eq(orderTable.id, orderId));
-
-  // Record sale + Stripe fee in ledger (using actual amount charged)
-  await recordSale(
-    orderId,
-    actualTotal,
-    `Order ${orderId.slice(0, 8)} — ${foundOrder.color} ${foundOrder.size}${session.discount ? ` (${session.discount.code} -$${session.discount.amount.toFixed(2)})` : ""}`,
-    deps.db
-  );
+  // Atomic claim (#37): the paid-update and the sale/fee ledger rows commit
+  // together, and the claim is conditional on status still being `pending` —
+  // so a redelivery racing the live run (Stripe retries past its timeout while
+  // the slow tail is still working) cannot double-process. The loser's batch
+  // trips the ledger_entry (order_id, type) unique index and rolls back whole:
+  // it neither re-marks the order nor doubles the ledger.
+  try {
+    const [claim] = await deps.db.batch([
+      deps.db
+        .update(orderTable)
+        .set({
+          status: "paid",
+          classification: "customer",
+          stripeSessionId: session.id,
+          stripePaymentIntentId: session.paymentIntentId,
+          totalPrice: actualTotal,
+          itemPrice,
+          shippingPrice,
+          discountCode: session.discount?.code ?? null,
+          discountAmount: session.discount?.amount ?? null,
+          shippingName: session.shipping?.name ?? "",
+          shippingAddress1: session.shipping?.address1 ?? "",
+          shippingAddress2: session.shipping?.address2 ?? "",
+          shippingCity: session.shipping?.city ?? "",
+          shippingState: session.shipping?.state ?? "",
+          shippingZip: session.shipping?.zip ?? "",
+          shippingCountry: session.shipping?.country ?? "US",
+          updatedAt: new Date(),
+        })
+        .where(and(eq(orderTable.id, orderId), eq(orderTable.status, "pending"))),
+      deps.db.insert(ledgerEntry).values(
+        saleLedgerRows(
+          orderId,
+          actualTotal,
+          `Order ${orderId.slice(0, 8)} — ${foundOrder.color} ${foundOrder.size}${session.discount ? ` (${session.discount.code} -$${session.discount.amount.toFixed(2)})` : ""}`
+        )
+      ),
+    ]);
+    if (claim.rowsAffected === 0) return { action: "skipped" };
+  } catch (err) {
+    if (isUniqueViolation(err)) return { action: "skipped" };
+    throw err;
+  }
 
   // Fulfillment: one shared tail for single-item (legacy scalar) and cart
   // (order_item) orders — resolveOrderLines inside submitOrderFulfillment
@@ -163,6 +176,12 @@ export async function handlePrintfulEvent(
   }
 
   if (payload.type === "package_shipped") {
+    // Redelivery (#37): Printful retries until it gets a 2xx, and repeated
+    // 400s can get the webhook disabled. Already at (or past) the target
+    // status → acknowledge and do nothing.
+    if (foundOrder.status === "shipped" || foundOrder.status === "delivered") {
+      return { action: "ignored", orderId: foundOrder.id };
+    }
     assertTransition(foundOrder.status, "shipped");
 
     const shipment = payload.data?.shipment;
@@ -183,24 +202,32 @@ export async function handlePrintfulEvent(
   }
 
   if (payload.type === "order_canceled") {
+    // Redelivery (#37): same 200-on-repeat contract as package_shipped, and
+    // it also prevents a doubled refund ledger row.
+    if (foundOrder.status === "canceled") {
+      return { action: "ignored", orderId: foundOrder.id };
+    }
     assertTransition(foundOrder.status, "canceled");
 
-    await deps.db
-      .update(orderTable)
-      .set({
-        status: "canceled",
-        printfulCost: 0,
-        updatedAt: new Date(),
-      })
-      .where(eq(orderTable.id, foundOrder.id));
-
-    // Record cancellation reversal in ledger
-    await recordCancellation(
-      foundOrder.id,
-      foundOrder.totalPrice,
-      `Order ${foundOrder.id.slice(0, 8)} canceled — Printful ${printfulOrderId}`,
+    // Cancel-update + refund ledger row commit together (#37) — a crash
+    // between them can't leave a canceled order with no refund on the books.
+    await deps.db.batch([
       deps.db
-    );
+        .update(orderTable)
+        .set({
+          status: "canceled",
+          printfulCost: 0,
+          updatedAt: new Date(),
+        })
+        .where(eq(orderTable.id, foundOrder.id)),
+      deps.db.insert(ledgerEntry).values(
+        refundLedgerRow(
+          foundOrder.id,
+          foundOrder.totalPrice,
+          `Order ${foundOrder.id.slice(0, 8)} canceled — Printful ${printfulOrderId}`
+        )
+      ),
+    ]);
 
     return { action: "canceled", orderId: foundOrder.id };
   }

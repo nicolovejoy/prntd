@@ -2,16 +2,9 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
 import { anonymous } from "better-auth/plugins/anonymous";
-import { eq } from "drizzle-orm";
 import { db } from "./db";
 import * as schema from "./db/schema";
-import {
-  design as designTable,
-  order as orderTable,
-  cartItem as cartItemTable,
-  store as storeTable,
-  product as productTable,
-} from "./db/schema";
+import { reparentUserData } from "./reparent-user";
 import { sendPasswordResetEmail } from "./email";
 
 // The auth client resolves to same-origin, so requests come from whatever
@@ -58,34 +51,9 @@ export const auth = betterAuth({
     // real account on sign-in/up — it runs BEFORE the plugin deletes the anon
     // user (better-auth 1.5.6 after-hook order), so the FK re-pointing is safe.
     anonymous({
+      // One atomic batch (#37) — see reparentUserData for the why.
       onLinkAccount: async ({ anonymousUser, newUser }) => {
-        const fromId = anonymousUser.user.id;
-        const toId = newUser.user.id;
-        if (fromId === toId) return;
-        // design_image + chat_message follow via design_id. design, order, and
-        // the persistent cart re-parent by userId.
-        await db
-          .update(designTable)
-          .set({ userId: toId })
-          .where(eq(designTable.userId, fromId));
-        await db
-          .update(orderTable)
-          .set({ userId: toId })
-          .where(eq(orderTable.userId, fromId));
-        await db
-          .update(cartItemTable)
-          .set({ userId: toId })
-          .where(eq(cartItemTable.userId, fromId));
-        // Organizer pivot (Phase 1): a guest can build a store + products
-        // before signing up; re-parent both by ownerId on claim.
-        await db
-          .update(storeTable)
-          .set({ ownerId: toId })
-          .where(eq(storeTable.ownerId, fromId));
-        await db
-          .update(productTable)
-          .set({ ownerId: toId })
-          .where(eq(productTable.ownerId, fromId));
+        await reparentUserData(db, anonymousUser.user.id, newUser.user.id);
       },
     }),
     nextCookies(),

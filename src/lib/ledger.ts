@@ -33,15 +33,21 @@ export function summarizeLedger(byType: Record<string, number>) {
   };
 }
 
-export async function recordSale(
+type LedgerRow = typeof ledgerEntry.$inferInsert;
+
+/**
+ * Pure row builders (#37): the values for each once-per-order ledger write,
+ * returned instead of inserted so callers can compose them into a `db.batch`
+ * with the status update they must be atomic with. The record* wrappers below
+ * keep the standalone-insert API for callers with no batching need.
+ */
+export function saleLedgerRows(
   orderId: string,
   amount: number,
-  description: string,
-  db: DbInstance
-) {
+  description: string
+): LedgerRow[] {
   const stripeFee = calculateStripeFee(amount);
-
-  await db.insert(ledgerEntry).values([
+  return [
     {
       orderId,
       type: "sale",
@@ -56,7 +62,43 @@ export async function recordSale(
       description: `Stripe processing fee (2.9% + $0.30)`,
       metadata: { rate: STRIPE_FEE_RATE, fixed: STRIPE_FEE_FIXED },
     },
-  ]);
+  ];
+}
+
+export function cogsLedgerRow(
+  orderId: string,
+  printfulCost: number,
+  description: string
+): LedgerRow {
+  return {
+    orderId,
+    type: "cogs",
+    amount: -printfulCost,
+    description,
+  };
+}
+
+export function refundLedgerRow(
+  orderId: string,
+  originalAmount: number,
+  description: string
+): LedgerRow {
+  return {
+    orderId,
+    type: "refund",
+    amount: -originalAmount,
+    description,
+    metadata: { note: "Order canceled before fulfillment, refund pending" },
+  };
+}
+
+export async function recordSale(
+  orderId: string,
+  amount: number,
+  description: string,
+  db: DbInstance
+) {
+  await db.insert(ledgerEntry).values(saleLedgerRows(orderId, amount, description));
 }
 
 export async function recordCOGS(
@@ -65,12 +107,7 @@ export async function recordCOGS(
   description: string,
   db: DbInstance
 ) {
-  await db.insert(ledgerEntry).values({
-    orderId,
-    type: "cogs",
-    amount: -printfulCost,
-    description,
-  });
+  await db.insert(ledgerEntry).values(cogsLedgerRow(orderId, printfulCost, description));
 }
 
 export async function recordCancellation(
@@ -79,11 +116,15 @@ export async function recordCancellation(
   description: string,
   db: DbInstance
 ) {
-  await db.insert(ledgerEntry).values({
-    orderId,
-    type: "refund",
-    amount: -originalAmount,
-    description,
-    metadata: { note: "Order canceled before fulfillment, refund pending" },
-  });
+  await db.insert(ledgerEntry).values(refundLedgerRow(orderId, originalAmount, description));
+}
+
+/**
+ * True when an error is SQLite/libSQL's unique-constraint rejection — the
+ * signal that a concurrent or redelivered webhook already wrote this order's
+ * ledger rows (the whole batch rolled back; nothing was applied).
+ */
+export function isUniqueViolation(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return /UNIQUE constraint failed/i.test(message);
 }

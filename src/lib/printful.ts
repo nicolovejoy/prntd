@@ -49,6 +49,9 @@ export async function createOrder(params: {
   // Multi-item cart (#26): a full array of line items. When present it takes
   // precedence over the single-item fields below.
   items?: PrintfulOrderItem[];
+  // Our order id, sent as Printful's external_id (#37): traceability plus
+  // Printful-side rejection of a duplicate submission of the same order.
+  externalId?: string;
   size?: string;
   color?: string;
   variantId?: number;
@@ -94,6 +97,7 @@ export async function createOrder(params: {
   const data = await printfulFetch(`/orders${confirm ? "?confirm=true" : ""}`, {
     method: "POST",
     body: JSON.stringify({
+      ...(params.externalId ? { external_id: params.externalId } : {}),
       recipient: {
         name: params.recipientName,
         address1: params.address1,
