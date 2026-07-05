@@ -10,7 +10,8 @@ export function FeedbackLauncher({ projectId }: { projectId: string }) {
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 print:hidden">
+    // data-loop-redact: the launcher is widget chrome — exclude it from its own page capture.
+    <div className="fixed bottom-4 right-4 z-50 print:hidden" data-loop-redact="">
       {open && (
         <div className="mb-2 w-72 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-surface-raised p-4 shadow-lg">
           <div className="mb-3 flex items-center justify-between">

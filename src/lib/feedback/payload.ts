@@ -2,6 +2,8 @@
 // The widget POSTs this shape to https://ibuild4you.com/api/feedback.
 // If the contract changes upstream, update this file to match.
 
+import type { PageCapture } from "./capture";
+
 export type FeedbackType = "bug" | "idea" | "other";
 
 // Mirror the server-side cap (ibuild4you app/api/feedback/route.ts).
@@ -37,6 +39,9 @@ export interface FeedbackPayload {
   viewport: string;
   website: ""; // honeypot — must stay empty; bots fill it
   _ts: number; // render time; server checks min/max age (2s–24h)
+  // Optional structural page capture (./capture.ts). Additive — servers that
+  // predate it ignore it; omitting it is always valid.
+  capture?: PageCapture;
 }
 
 export type ValidationResult =
@@ -76,6 +81,7 @@ export function validateFeedbackInput(input: FeedbackInput): ValidationResult {
 export function buildFeedbackPayload(
   input: FeedbackInput,
   ctx: FeedbackContext,
+  capture?: PageCapture | null,
 ): FeedbackPayload {
   const submitterEmail = input.submitterEmail?.trim().toLowerCase();
   return {
@@ -88,5 +94,6 @@ export function buildFeedbackPayload(
     viewport: ctx.viewport,
     website: "",
     _ts: ctx.renderedAt,
+    ...(capture ? { capture } : {}),
   };
 }
