@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { SiteHeader } from "@/components/site-header";
 import { FeedbackLauncher } from "@/components/feedback-launcher";
+import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -56,6 +57,7 @@ export default function RootLayout({
             process.env.NEXT_PUBLIC_FEEDBACK_PROJECT_ID ?? "prntd-mobile-flow-rethink"
           }
         />
+        <Analytics />
       </body>
     </html>
   );
