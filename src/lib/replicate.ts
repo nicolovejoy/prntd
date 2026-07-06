@@ -1,5 +1,6 @@
 import Replicate from "replicate";
 import type { AspectRatio } from "./blanks";
+import { withTimeout } from "./timeout";
 
 const replicate = new Replicate();
 
@@ -10,30 +11,6 @@ const replicate = new Replicate();
 // spins with no error surfaced (issue #15). This ceiling converts that
 // silent hang into a rejection the UI can show.
 const REPLICATE_RUN_TIMEOUT_MS = 120_000;
-
-/**
- * Reject if `run` hasn't settled within `ms`. Note: this does not cancel
- * the underlying Replicate prediction (Promise.race can't), it just stops
- * the caller from waiting indefinitely so an error state can render.
- */
-async function withTimeout<T>(
-  label: string,
-  ms: number,
-  run: () => Promise<T>
-): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(
-      () => reject(new Error(`${label} timed out after ${ms}ms`)),
-      ms
-    );
-  });
-  try {
-    return await Promise.race([run(), timeout]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
 
 /**
  * Run a Replicate call with one retry on 429 (Replicate throttles to
