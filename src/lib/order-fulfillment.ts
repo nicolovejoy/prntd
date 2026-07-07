@@ -20,9 +20,16 @@ import { resolveOrderLines, type OrderItemRow } from "@/lib/order-lines";
 import { getBlank, getVariantId } from "@/lib/blanks";
 import { assertTransition } from "@/lib/order-state";
 import { cogsLedgerRow } from "@/lib/ledger";
+import { withTimeout } from "@/lib/timeout";
 import type { createOrder, PrintfulOrderItem } from "@/lib/printful";
 import type { db as appDb } from "@/lib/db";
 import type { generateOrderName } from "@/lib/ai";
+
+// Cap on the post-submission order-naming Anthropic call. Long enough for a
+// normal vision response, short enough that a hung call can't push the webhook
+// response past Stripe's ~10s delivery timeout (the order is already submitted
+// to Printful by the time this runs).
+const ORDER_NAME_TIMEOUT_MS = 8_000;
 
 export type FulfillmentDeps = {
   db: typeof appDb;
@@ -139,18 +146,6 @@ export async function submitOrderFulfillment(
     return { action: "paid" };
   }
 
-  // Name the order once, from the first print file. Skipped when the order
-  // already has a name (e.g. an admin retry after a Printful failure).
-  if (firstFrontUrl && !order.displayName) {
-    const displayName = await deps.generateOrderName(firstFrontUrl);
-    if (displayName) {
-      await deps.db
-        .update(orderTable)
-        .set({ displayName, updatedAt: new Date() })
-        .where(eq(orderTable.id, orderId));
-    }
-  }
-
   try {
     const printfulOrder = await deps.createPrintfulOrder({
       items,
@@ -206,6 +201,29 @@ export async function submitOrderFulfillment(
       ]);
     } else {
       await deps.db.batch([submittedUpdate, ...designUpdates]);
+    }
+
+    // Name the order AFTER Printful submission — the shirt never waits on the
+    // LLM (#39). Bounded so a hung Anthropic call can't stall the webhook
+    // response past Stripe's timeout. Skipped when already named (admin retry).
+    // displayName is written before returning so the confirmation email, sent
+    // by the caller after this resolves, still carries the name. Fails soft.
+    if (firstFrontUrl && !order.displayName) {
+      try {
+        const displayName = await withTimeout(
+          "generateOrderName",
+          ORDER_NAME_TIMEOUT_MS,
+          () => deps.generateOrderName(firstFrontUrl!)
+        );
+        if (displayName) {
+          await deps.db
+            .update(orderTable)
+            .set({ displayName, updatedAt: new Date() })
+            .where(eq(orderTable.id, orderId));
+        }
+      } catch (err) {
+        console.error(`Order ${orderId}: order naming failed (non-fatal):`, err);
+      }
     }
 
     return { action: "submitted", printfulOrderId: String(printfulOrder.id) };
