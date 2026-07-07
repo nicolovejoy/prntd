@@ -62,3 +62,6 @@ ci-skip.db
 # Playwright E2E artifacts
 /test-results/
 /playwright-report/
+
+# iBuild4you brief/transcript exports (PII — regenerate via ibuild4you scripts/export-brief.mjs, never commit)
+/ibuild-export/
