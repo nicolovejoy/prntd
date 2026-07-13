@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "ibuild-briefs": {
+      "command": "node",
+      "args": [
+        "/Users/nico/src/ibuild4you/scripts/with-prod-env-ro.mjs",
+        "node",
+        "/Users/nico/src/ibuild4you/scripts/mcp-briefs.mjs",
+        "--repo",
+        "nicolovejoy/prntd"
+      ]
+    }
+  }
+}
