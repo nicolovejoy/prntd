@@ -89,7 +89,7 @@ export default async function Home() {
       {discover.length > 0 && (
         <section className="py-16 px-4 border-t border-border">
           <div className="max-w-6xl mx-auto">
-            <h2 className="text-2xl font-bold text-center mb-2">Fresh Prints</h2>
+            <h2 className="text-2xl font-bold text-center mb-2">Shop</h2>
             <p className="text-text-muted text-center mb-8">
               Browse and buy designs other makers have published.
             </p>
@@ -99,7 +99,7 @@ export default async function Home() {
                 href="/prints"
                 className="text-sm text-text-muted underline hover:text-foreground transition-colors"
               >
-                See all Fresh Prints →
+                See the whole Shop →
               </Link>
             </div>
           </div>

@@ -34,7 +34,7 @@ function query(
 /**
  * A design detail (/d/[id]) is reachable from several hubs. We record the
  * origin in ?from so "up" returns there; shared links with no origin fall
- * back to Fresh Prints, the public storefront.
+ * back to the Shop, the public storefront.
  */
 function detailParent(from: string | undefined): Crumb {
   switch (from) {
@@ -44,7 +44,7 @@ function detailParent(from: string | undefined): Crumb {
       return { label: "Orders", href: "/orders" };
     case "/prints":
     default:
-      return { label: "Fresh Prints", href: "/prints" };
+      return { label: "Shop", href: "/prints" };
   }
 }
 
