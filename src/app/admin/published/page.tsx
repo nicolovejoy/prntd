@@ -43,7 +43,7 @@ export default async function AdminPublishedPage() {
             <div
               key={img.imageId}
               className={`border rounded-md overflow-hidden ${
-                img.isHidden ? "border-red-400 opacity-60" : "border-border"
+                img.isHidden ? "border-negative opacity-60" : "border-border"
               }`}
             >
               <Link

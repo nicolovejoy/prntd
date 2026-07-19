@@ -89,7 +89,7 @@ export function PublishModal({
         <BackgroundPicker value={bg} onChange={setBg} disabled={publishing} />
       </div>
 
-      {error && <p className="text-sm text-red-400 mt-3">{error}</p>}
+      {error && <p className="text-sm text-negative mt-3">{error}</p>}
 
       <div className="flex gap-2 mt-5">
         <Button onClick={confirm} disabled={publishing} className="flex-1">

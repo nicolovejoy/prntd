@@ -12,6 +12,10 @@
   --text-faint: #666666;
   --accent: #ffffff;
   --accent-fg: #000000;
+  /* The one status color pair (Clean Label): money-in/terminal-good vs
+     money-out/destructive. Chrome stays monochrome otherwise. */
+  --positive: #4ade80;
+  --negative: #f87171;
 }
 
 @theme inline {
@@ -25,6 +29,8 @@
   --color-text-faint: var(--text-faint);
   --color-accent: var(--accent);
   --color-accent-fg: var(--accent-fg);
+  --color-positive: var(--positive);
+  --color-negative: var(--negative);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }

@@ -6,7 +6,7 @@ const variants = {
   secondary:
     "border border-border text-text-muted hover:border-border-hover hover:text-foreground",
   danger:
-    "border border-border text-text-muted hover:border-red-500 hover:text-red-400",
+    "border border-border text-text-muted hover:border-negative hover:text-negative",
   ghost:
     "text-text-muted hover:text-foreground",
 } as const;

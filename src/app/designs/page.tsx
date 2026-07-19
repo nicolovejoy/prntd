@@ -90,7 +90,7 @@ export default function DesignsPage() {
           <p className="text-text-faint">Loading…</p>
         ) : loadError ? (
           <div className="text-center py-16 space-y-2">
-            <p className="text-red-400 font-medium">Failed to load designs.</p>
+            <p className="text-negative font-medium">Failed to load designs.</p>
             <p className="text-xs text-text-muted font-mono">{loadError}</p>
           </div>
         ) : designs.length === 0 ? (

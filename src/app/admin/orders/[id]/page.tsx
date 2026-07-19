@@ -25,11 +25,11 @@ import {
 type OrderDetail = Awaited<ReturnType<typeof getOrderDetail>>;
 
 const LEDGER_TYPE_LABELS: Record<string, { label: string; color: string }> = {
-  sale: { label: "Sale", color: "text-green-400" },
-  stripe_fee: { label: "Stripe Fee", color: "text-red-400" },
-  cogs: { label: "COGS", color: "text-red-400" },
-  refund: { label: "Refund", color: "text-red-400" },
-  refund_cogs_reversal: { label: "COGS Reversal", color: "text-green-400" },
+  sale: { label: "Sale", color: "text-positive" },
+  stripe_fee: { label: "Stripe Fee", color: "text-negative" },
+  cogs: { label: "COGS", color: "text-negative" },
+  refund: { label: "Refund", color: "text-negative" },
+  refund_cogs_reversal: { label: "COGS Reversal", color: "text-positive" },
 };
 
 export default function OrderDetailPage() {
@@ -288,13 +288,13 @@ export default function OrderDetailPage() {
               {order.printfulCost != null && (
                 <div className="flex justify-between">
                   <span className="text-text-muted">COGS</span>
-                  <span className="text-red-400">-${order.printfulCost.toFixed(2)}</span>
+                  <span className="text-negative">-${order.printfulCost.toFixed(2)}</span>
                 </div>
               )}
               {profit != null && (
                 <div className="flex justify-between border-t border-border pt-1 mt-1">
                   <span className="text-text-muted">Profit</span>
-                  <span className={profit >= 0 ? "text-green-400" : "text-red-400"}>
+                  <span className={profit >= 0 ? "text-positive" : "text-negative"}>
                     ${profit.toFixed(2)}
                   </span>
                 </div>

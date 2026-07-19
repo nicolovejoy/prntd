@@ -134,7 +134,7 @@ export default function DashboardPage() {
           {creating ? "Creating…" : "Create a shop"}
         </Button>
       </form>
-      {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
+      {error && <p className="mt-2 text-sm text-negative">{error}</p>}
 
       {/* Stores */}
       <div className="mt-6 space-y-3">
@@ -381,7 +381,7 @@ function StoreEditPanel({
         </div>
       </div>
 
-      {error && <p className="text-sm text-red-400">{error}</p>}
+      {error && <p className="text-sm text-negative">{error}</p>}
 
       <div className="flex flex-wrap gap-2 pt-1">
         <Button
