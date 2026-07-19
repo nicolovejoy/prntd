@@ -5,8 +5,34 @@ import {
   chatMessage as chatMessageTable,
   type ChatMessage,
 } from "@/lib/db/schema";
-import { eq, and, asc, desc, inArray, isNull, isNotNull } from "drizzle-orm";
+import { eq, and, asc, desc, inArray, isNull, isNotNull, sql } from "drizzle-orm";
 import { getBlank, type AspectRatio } from "@/lib/blanks";
+
+/**
+ * Atomically reserve `count` generation numbers for a design in a single
+ * `UPDATE ... RETURNING`, returning the reserved numbers ascending. Two
+ * concurrent generations get disjoint ranges, so the R2 keys they derive
+ * (designs/{id}/{n}.png) never collide — the read-modify-write this replaces
+ * let both read N and both write N+1, permanently overwriting one image.
+ *
+ * A generation that fails after reserving leaves its number unused: gaps in
+ * the sequence are expected and harmless (the number only seeds an R2 key, it
+ * is not a dense index).
+ */
+export async function reserveGenerationNumbers(
+  designId: string,
+  count: number
+): Promise<number[]> {
+  const [row] = await db
+    .update(designTable)
+    .set({ generationCount: sql`${designTable.generationCount} + ${count}` })
+    .where(eq(designTable.id, designId))
+    .returning({ generationCount: designTable.generationCount });
+  if (!row) throw new Error("Design not found");
+  const end = row.generationCount;
+  const start = end - count + 1;
+  return Array.from({ length: count }, (_, i) => start + i);
+}
 
 export type DesignImage = {
   id: string;

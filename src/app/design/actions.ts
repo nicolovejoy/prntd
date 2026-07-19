@@ -3,19 +3,24 @@
 import { headers } from "next/headers";
 import { after } from "next/server";
 import { auth, isAnonymousUser } from "@/lib/auth";
-import { consumeGenerationQuota } from "@/lib/generation-quota";
+import {
+  consumeGenerationQuota,
+  refundGenerationQuota,
+} from "@/lib/generation-quota";
 import { db } from "@/lib/db";
 import {
   design as designTable,
   designImage as designImageTable,
+  chatMessage as chatMessageTable,
   order as orderTable,
 } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { chatAboutDesign, constructFluxPrompt, assessReadiness } from "@/lib/ai";
-import { uploadDesignImage } from "@/lib/r2";
+import { uploadDesignImage, deleteDesignImageObject } from "@/lib/r2";
 import { getGenerator, GENERATORS, DEFAULT_GENERATOR_ID } from "@/lib/generators/registry";
 import {
   insertDesignImage,
+  reserveGenerationNumbers,
   findDesignImageByUrl,
   getDesignSourceImages,
   getDesignPlacementRenders,
@@ -128,13 +133,14 @@ export async function generateDesign(
   if (!session) throw new Error("Unauthorized");
 
   const found = await getOrCreateDesign(designId, session.user.id);
+  const ip = clientIp(hdrs);
 
   // Abuse guard (#26 A3): count this generation against the daily caps before
   // any paid model call. Over the cap → nudge to sign in, no API spend.
   const quota = await consumeGenerationQuota({
     userId: session.user.id,
     isAnonymous: isAnonymousUser(session.user),
-    ip: clientIp(hdrs),
+    ip,
   });
   if (!quota.allowed) {
     return {
@@ -146,6 +152,28 @@ export async function generateDesign(
     };
   }
 
+  // Quota is consumed above; if the generation then throws, refund the unit so
+  // a failed render doesn't cost the user a design (guests get only 8/day).
+  // Clarification early-returns below aren't failures — they leave quota spent.
+  try {
+    return await runGenerate({ designId, found, userMessage });
+  } catch (err) {
+    await refundGenerationQuota({ userId: session.user.id, ip }).catch((e) =>
+      console.error("refundGenerationQuota failed:", e)
+    );
+    throw err;
+  }
+}
+
+async function runGenerate({
+  designId,
+  found,
+  userMessage,
+}: {
+  designId: string;
+  found: typeof designTable.$inferSelect;
+  userMessage?: string;
+}) {
   const messages = await getDesignMessages(designId);
   const images = await getDesignImagesForAIContext(designId);
 
@@ -223,52 +251,78 @@ export async function generateDesign(
     throw new Error("Image generation failed");
   }
 
-  // Download and upload to R2
-  const newGeneration = found.generationCount + 1;
+  // Atomically reserve this generation's number so a concurrent generate can't
+  // land on the same R2 key and overwrite our image (reserved once the render
+  // succeeded, so a failed generate rarely leaves a gap).
+  const [newGeneration] = await reserveGenerationNumbers(designId, 1);
   const response = await fetch(imageUrl);
   const buffer = Buffer.from(await response.arrayBuffer());
   const r2Url = await uploadDesignImage(designId, newGeneration, buffer);
 
-  // Phase 2: record this generation as a first-class design_image row.
-  // Aspect is "1:1" here — chat-driven generations are always square;
-  // product-targeted regenerations happen in preview/actions.ts.
-  const newImageId = await insertDesignImage({
-    designId,
-    imageUrl: r2Url,
-    aspectRatio: "1:1",
-    prompt: aiResponse.fluxPrompt,
-    generationCost: generator.costPerImage,
-    generator: generator.id,
-  });
+  try {
+    const newImageId = crypto.randomUUID();
+    // Anchor provenance on the latest image the user's request was built from,
+    // not a "latest by createdAt" re-read that a racing generate could shift.
+    const parentImageId = images[images.length - 1]?.id ?? null;
 
-  if (userMessage) {
-    await insertChatMessage({ designId, role: "user", content: userMessage });
+    // Commit the four writes atomically (db.batch) so a mid-sequence crash can't
+    // leave a design_image with no assistant message, or an orphaned user turn.
+    // Aspect is "1:1" — chat-driven generations are always square; product
+    // regenerations happen in preview/actions.ts. generationCost is an atomic
+    // increment so a concurrent generate's cost isn't clobbered.
+    await db.batch([
+      db.insert(designImageTable).values({
+        id: newImageId,
+        designId,
+        parentImageId,
+        aspectRatio: "1:1",
+        productId: null,
+        placementId: null,
+        imageUrl: r2Url,
+        prompt: aiResponse.fluxPrompt,
+        generationCost: generator.costPerImage,
+        generator: generator.id,
+        isApproved: false,
+      }),
+      ...(userMessage
+        ? [
+            db.insert(chatMessageTable).values({
+              designId,
+              role: "user" as const,
+              content: userMessage,
+            }),
+          ]
+        : []),
+      db.insert(chatMessageTable).values({
+        designId,
+        role: "assistant" as const,
+        content: aiResponse.message,
+        imageId: newImageId,
+      }),
+      db
+        .update(designTable)
+        .set({
+          primaryImageId: newImageId,
+          generationCost: sql`${designTable.generationCost} + ${generator.costPerImage}`,
+          mockupUrls: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(designTable.id, designId)),
+    ]);
+
+    return {
+      message: aiResponse.message,
+      imageUrl: r2Url,
+      imageId: newImageId,
+      generationNumber: newGeneration,
+      readyToGenerate: true,
+    };
+  } catch (err) {
+    // The DB writes failed after the R2 upload; drop the now-orphaned object so
+    // the reserved key doesn't strand a file nothing references. Best-effort.
+    await deleteDesignImageObject(designId, newGeneration).catch(() => {});
+    throw err;
   }
-  await insertChatMessage({
-    designId,
-    role: "assistant",
-    content: aiResponse.message,
-    imageId: newImageId,
-  });
-
-  await db
-    .update(designTable)
-    .set({
-      primaryImageId: newImageId,
-      generationCount: newGeneration,
-      generationCost: found.generationCost + generator.costPerImage,
-      mockupUrls: null,
-      updatedAt: new Date(),
-    })
-    .where(eq(designTable.id, designId));
-
-  return {
-    message: aiResponse.message,
-    imageUrl: r2Url,
-    imageId: newImageId,
-    generationNumber: newGeneration,
-    readyToGenerate: true,
-  };
 }
 
 export async function uploadReferenceImage(
@@ -471,18 +525,37 @@ export async function compareGenerators(designId: string, userMessage?: string) 
   if (!session) throw new Error("Unauthorized");
 
   const found = await getOrCreateDesign(designId, session.user.id);
+  const ip = clientIp(hdrs);
 
   // Abuse guard (#26 A3): Compare runs two paid model calls, so it's the
   // costliest dead-click — count it against the daily caps before any work.
   const quota = await consumeGenerationQuota({
     userId: session.user.id,
     isAnonymous: isAnonymousUser(session.user),
-    ip: clientIp(hdrs),
+    ip,
   });
   if (!quota.allowed) {
     return { message: generationLimitMessage(quota.reason), images: [], readyToGenerate: true };
   }
 
+  // Refund the consumed unit if the whole compare fails (see generateDesign).
+  try {
+    return await runCompare({ designId, userMessage });
+  } catch (err) {
+    await refundGenerationQuota({ userId: session.user.id, ip }).catch((e) =>
+      console.error("refundGenerationQuota failed:", e)
+    );
+    throw err;
+  }
+}
+
+async function runCompare({
+  designId,
+  userMessage,
+}: {
+  designId: string;
+  userMessage?: string;
+}) {
   const messages = await getDesignMessages(designId);
   const images = await getDesignImagesForAIContext(designId);
   const messagesForPrompt: ChatMessage[] = userMessage
@@ -515,8 +588,18 @@ export async function compareGenerators(designId: string, userMessage?: string) 
       ? images.find((img) => img.number === aiResponse.referenceImage)?.url
       : undefined;
 
+  const gens = Object.values(GENERATORS);
+  // Reserve one number per adapter in a single atomic increment, so parallel
+  // uploads (here and across concurrent Compares/Generates) never collide on
+  // the R2 key designs/{id}/{n}.png. Failed adapters leave their number unused.
+  const reserved = await reserveGenerationNumbers(designId, gens.length);
+  // All compared images share the pre-compare latest source as their parent —
+  // anchoring on a fixed pick beats a "latest by createdAt" re-read that the
+  // parallel inserts would race.
+  const parentImageId = images[images.length - 1]?.id ?? null;
+
   const results = await Promise.all(
-    Object.values(GENERATORS).map(async (g, i) => {
+    gens.map(async (g, i) => {
       try {
         const url = await g.generate(g.adaptPrompt(aiResponse.fluxPrompt), {
           aspect: "1:1",
@@ -525,19 +608,15 @@ export async function compareGenerators(designId: string, userMessage?: string) 
         });
         const response = await fetch(url);
         const buffer = Buffer.from(await response.arrayBuffer());
-        // Distinct generation number per adapter so parallel uploads don't
-        // collide on the R2 key (designs/{id}/{generation}.png).
-        const generation = found.generationCount + 1 + i;
-        const r2Url = await uploadDesignImage(designId, generation, buffer);
-        const imageId = await insertDesignImage({
-          designId,
+        const r2Url = await uploadDesignImage(designId, reserved[i], buffer);
+        // Pre-generate the id and defer the DB insert to the batch below, so all
+        // rows commit atomically with the chat message + design update.
+        return {
+          imageId: crypto.randomUUID(),
           imageUrl: r2Url,
-          aspectRatio: "1:1",
-          prompt: aiResponse.fluxPrompt,
-          generationCost: g.costPerImage,
           generator: g.id,
-        });
-        return { imageId, imageUrl: r2Url, generator: g.id, cost: g.costPerImage };
+          cost: g.costPerImage,
+        };
       } catch (err) {
         console.error(`compareGenerators ${g.id} failed:`, err);
         return null;
@@ -551,31 +630,55 @@ export async function compareGenerators(designId: string, userMessage?: string) 
   // Summarize honestly: name the styles that didn't come back rather than
   // silently undercounting (#19 — "Compared 1 generators"). results is
   // index-aligned with the generators we ran.
-  const gens = Object.values(GENERATORS);
   const succeeded = gens.filter((_, i) => results[i] !== null).map((g) => g.label);
   const failed = gens.filter((_, i) => results[i] === null).map((g) => g.label);
   const summary = compareSummary(succeeded, failed);
-  if (userMessage) {
-    await insertChatMessage({ designId, role: "user", content: userMessage });
-  }
-  await insertChatMessage({
-    designId,
-    role: "assistant",
-    content: summary,
-  });
 
-  // Advance the counter past every slot we *reserved* (one per attempted
-  // adapter), not just the successes — each parallel branch used
-  // generationCount+1+i as its R2 key, so a future generation must start
-  // beyond all of them or it would overwrite a surviving compare image.
-  await db
-    .update(designTable)
-    .set({
-      generationCount: found.generationCount + Object.values(GENERATORS).length,
-      generationCost: found.generationCost + ok.reduce((sum, r) => sum + r.cost, 0),
-      updatedAt: new Date(),
-    })
-    .where(eq(designTable.id, designId));
+  // Commit every image row + the summary message + the cost increment together.
+  // generationCount is already reserved above (atomic), so it's not written here;
+  // generationCost is an atomic increment over the successful adapters' cost.
+  const totalCost = ok.reduce((sum, r) => sum + r.cost, 0);
+  // db.batch is atomic, so element order is only for readability (no FK edges
+  // between these rows). Lead with the design update — a fixed first element
+  // keeps this a non-empty tuple for the batch type.
+  await db.batch([
+    db
+      .update(designTable)
+      .set({
+        generationCost: sql`${designTable.generationCost} + ${totalCost}`,
+        updatedAt: new Date(),
+      })
+      .where(eq(designTable.id, designId)),
+    ...ok.map((r) =>
+      db.insert(designImageTable).values({
+        id: r.imageId,
+        designId,
+        parentImageId,
+        aspectRatio: "1:1",
+        productId: null,
+        placementId: null,
+        imageUrl: r.imageUrl,
+        prompt: aiResponse.fluxPrompt,
+        generationCost: r.cost,
+        generator: r.generator,
+        isApproved: false,
+      })
+    ),
+    ...(userMessage
+      ? [
+          db.insert(chatMessageTable).values({
+            designId,
+            role: "user" as const,
+            content: userMessage,
+          }),
+        ]
+      : []),
+    db.insert(chatMessageTable).values({
+      designId,
+      role: "assistant" as const,
+      content: summary,
+    }),
+  ]);
 
   return { message: summary, images: ok, readyToGenerate: true };
 }
