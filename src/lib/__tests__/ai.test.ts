@@ -273,6 +273,27 @@ describe("chatAboutDesign options", () => {
     expect(result.message).toBe("Nice — a fox it is. What style are you after?");
   });
 
+  it("prompts one-question pacing and forbids enumerating choices in prose (with example)", async () => {
+    const mockCreate = await getMockCreate();
+    mockCreate.mockResolvedValue({
+      content: [{ type: "text", text: JSON.stringify({ message: "ok", readyToGenerate: true }) }],
+    });
+
+    const { chatAboutDesign } = await import("../ai");
+    await chatAboutDesign("a frog", [], []);
+
+    const system = mockCreate.mock.calls[0][0].system as string;
+    // Issue #69: options must never be repeated in the message text — not
+    // even mid-sentence — and the prompt carries a wrong-vs-right example.
+    expect(system).toContain("NEVER enumerate choices in prose");
+    expect(system).toContain("not as a list and not mid-sentence");
+    expect(system).toContain("WRONG:");
+    expect(system).toContain("RIGHT:");
+    // Issue #70: subject alone is ready; at most one clarifying question.
+    expect(system).toContain("Style is a refinement, not a gate");
+    expect(system).toContain("at most ONE clarifying question");
+  });
+
   it("never overrides structured options with the prose fallback", async () => {
     const mockCreate = await getMockCreate();
     mockCreate.mockResolvedValue({
@@ -513,6 +534,23 @@ describe("assessReadiness", () => {
     );
 
     expect(result.ready).toBe(true);
+  });
+
+  it("gates on subject only and forbids naming choices in the question", async () => {
+    const mockCreate = await getMockCreate();
+    mockCreate.mockResolvedValue({
+      content: [{ type: "text", text: JSON.stringify({ ready: true, question: "" }) }],
+    });
+
+    const { assessReadiness } = await import("../ai");
+    await assessReadiness([], [], "a frog");
+
+    const system = mockCreate.mock.calls[0][0].system as string;
+    // Issue #70: a clear subject draws immediately — style never blocks.
+    expect(system).toContain("Style/medium is NOT required");
+    expect(system).toContain("at most one clarifying question");
+    // Issue #69: choices live in options, never in the question prose.
+    expect(system).toContain("NEVER name the choices");
   });
 
   it("uses the fast Haiku model, not Sonnet", async () => {
