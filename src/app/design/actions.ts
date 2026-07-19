@@ -1,7 +1,6 @@
 "use server";
 
 import { headers } from "next/headers";
-import { after } from "next/server";
 import { auth, isAnonymousUser } from "@/lib/auth";
 import {
   consumeGenerationQuota,
@@ -32,8 +31,6 @@ import {
   type SourceImage,
   type ProductVersionGroup,
 } from "@/lib/design-images";
-import { prefetchProductMockups } from "@/app/preview/actions";
-import { DEFAULT_BLANK_ID } from "@/lib/blanks";
 import { imageReferencedByOrders } from "@/lib/design-publish";
 import { dedupeById } from "@/lib/design-view";
 import type { ChatMessage } from "@/lib/db/schema";
@@ -497,18 +494,3 @@ export async function getDesignGallery(
   return { sources: dedupeById(sources), productGroups };
 }
 
-export async function approveDesign(designId: string) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) throw new Error("Unauthorized");
-
-  await db
-    .update(designTable)
-    .set({ status: "approved", updatedAt: new Date() })
-    .where(eq(designTable.id, designId));
-
-  // Warm the mockup cache for every color of the default product. By the
-  // time the user lands on /preview and starts clicking colors, the common
-  // picks render instantly. Printful mockups are free so this is pure UX.
-  // Best-effort: failures log and are swallowed by prefetchProductMockups.
-  after(() => prefetchProductMockups(designId, DEFAULT_BLANK_ID));
-}

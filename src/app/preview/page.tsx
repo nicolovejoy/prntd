@@ -2,7 +2,9 @@
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { getDesign, approveDesign } from "../design/actions";
+import { getDesign } from "../design/actions";
+import { calculatePrice, createCheckoutSession } from "../order/actions";
+import { addToCart, isCartEnabled } from "../cart/actions";
 import {
   generateMockup,
   getOrCreatePlacementRender,
@@ -12,6 +14,7 @@ import {
 } from "./actions";
 import Link from "next/link";
 import { Button } from "@/components/ui";
+import { SizePicker, ColorPicker } from "@/components/product-options";
 import {
   getBlank,
   DEFAULT_BLANK_ID,
@@ -19,7 +22,7 @@ import {
   productSupportsPlacement,
   type AspectRatio,
 } from "@/lib/blanks";
-import { BACK_PLACEMENT_UPCHARGE } from "@/lib/pricing";
+import { BACK_PLACEMENT_UPCHARGE, computeOrderTotal } from "@/lib/pricing";
 import type { BackSourceGroup } from "@/lib/back-sources";
 import { createLatestWins } from "@/lib/latest-wins";
 import { ProductSilhouette } from "./product-silhouette";
@@ -59,8 +62,28 @@ function PreviewPageInner() {
   const [renderState, setRenderState] = useState<RenderState>({ status: "idle" });
   // Bumped to re-run the placement-render effect (retry after an error).
   const [renderNonce, setRenderNonce] = useState(0);
-  const [colorName, setColorName] = useState(product?.colors[0]?.name ?? "White");
-  const [hoveredColor, setHoveredColor] = useState<string | null>(null);
+  // Color/size initialize from the URL when valid (Stripe cancel → back, deep
+  // links). No default size (#60): the buy CTAs stay disabled until a pick.
+  const [colorName, setColorName] = useState(() => {
+    const fromUrl = searchParams.get("color");
+    const palette = product?.colors ?? [];
+    return fromUrl && palette.some((c) => c.name === fromUrl)
+      ? fromUrl
+      : palette[0]?.name ?? "White";
+  });
+  const [size, setSize] = useState<string | null>(() => {
+    const fromUrl = searchParams.get("size");
+    return fromUrl && (product?.sizes ?? []).includes(fromUrl) ? fromUrl : null;
+  });
+  const [pricing, setPricing] = useState<{
+    baseCost: number;
+    generationCost: number;
+    total: number;
+  } | null>(null);
+  const [checkingOut, setCheckingOut] = useState(false);
+  // Cart (#26 B3): show "Add to cart" alongside the buy CTA when CART_ENABLED.
+  const [cartShown, setCartShown] = useState(false);
+  const [addingToCart, setAddingToCart] = useState(false);
   // Mockup per placement. Front is the phone-first default; back is only
   // populated once the user opts in and picks a source image.
   const [mockups, setMockups] = useState<{ front: string | null; back: string | null }>({
@@ -143,9 +166,8 @@ function PreviewPageInner() {
           }
         }
         // Warm the mockup cache for this product if nothing's been
-        // prefetched yet — covers existing/already-approved designs that
-        // never went through approveDesign's after() prefetch hook.
-        // Best-effort; no-op when the cache is already populated.
+        // prefetched yet. Best-effort; no-op when the cache is already
+        // populated.
         ensureMockupsPrefetched(designId, productId).catch((err) =>
           console.warn("ensureMockupsPrefetched failed:", err)
         );
@@ -166,6 +188,45 @@ function PreviewPageInner() {
       .then(setMultiPlacement)
       .catch(() => setMultiPlacement(false));
   }, []);
+
+  useEffect(() => {
+    isCartEnabled().then(setCartShown).catch(() => setCartShown(false));
+  }, []);
+
+  // A picked back design prices + checks out only while the flag is on — the
+  // server gates it again at checkout, defense in depth.
+  const backActive = multiPlacement && !!backImageId;
+
+  useEffect(() => {
+    if (!designId || !size) return;
+    let canceled = false;
+    calculatePrice(designId, productId, size, backActive)
+      .then((p) => {
+        if (!canceled) setPricing(p);
+      })
+      .catch((err) => console.error("calculatePrice failed:", err));
+    return () => {
+      canceled = true;
+    };
+  }, [designId, productId, size, backActive]);
+
+  // Sync selections to the URL so they survive Stripe cancel → back and
+  // reloads. replaceState, not router.replace — a router.replace issued next
+  // to a server-action call gets cancelled by the action.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (size) params.set("size", size);
+    else params.delete("size");
+    params.set("color", colorName);
+    params.set("product", productId);
+    if (backImageId) params.set("back", backImageId);
+    else params.delete("back");
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}?${params.toString()}`
+    );
+  }, [size, colorName, productId, backImageId]);
 
   // Resolve the design image to render for the current
   // (designId, productId, activePlacement, backImageId). The server returns
@@ -312,6 +373,9 @@ function PreviewPageInner() {
     mockupReq.invalidate();
     setProductId(newProductId);
     setColorName(newColor);
+    // Keep the size only if the new product offers it; otherwise back to
+    // unselected (#60 — never silently carry an unavailable size).
+    setSize((s) => (s && newProduct.sizes.includes(s) ? s : null));
     // Reset to front: the new product may not support back, and back
     // renders are product-specific. Keep backImageId (a thread source id).
     setActivePlacement("front");
@@ -319,11 +383,7 @@ function PreviewPageInner() {
     setMockups({ front: null, back: null });
     setMockupError(false);
     setMockupLoading(false);
-
-    router.replace(
-      `/preview?id=${designId}&product=${newProductId}`,
-      { scroll: false }
-    );
+    // URL follows via the replaceState sync effect.
   }
 
   function switchPlacement(placement: Placement) {
@@ -367,14 +427,45 @@ function PreviewPageInner() {
     setMockupLoading(false);
   }
 
-  async function handleApprove() {
-    if (!designId) return;
-    await approveDesign(designId);
-    const backParam =
-      multiPlacement && backImageId ? `&back=${backImageId}` : "";
-    router.push(
-      `/order?id=${designId}&color=${encodeURIComponent(colorName)}&product=${productId}${backParam}`
-    );
+  async function handleCheckout() {
+    if (!designId || !size) return;
+    setCheckingOut(true);
+    try {
+      const { url, needsAuth } = await createCheckoutSession({
+        designId,
+        size,
+        color: colorName,
+        productId,
+        ...(backActive ? { back: backImageId! } : {}),
+      });
+      // Guest hit the purchase gate — send them to sign-in and back. After
+      // sign-in the anonymous plugin re-parents this design to their account.
+      if (needsAuth) {
+        const next = window.location.pathname + window.location.search;
+        window.location.href = `/sign-in?next=${encodeURIComponent(next)}`;
+        return;
+      }
+      if (url) window.location.href = url;
+    } catch {
+      setCheckingOut(false);
+    }
+  }
+
+  async function handleAddToCart() {
+    if (!designId || !size) return;
+    setAddingToCart(true);
+    try {
+      await addToCart({
+        designId,
+        size,
+        color: colorName,
+        productId,
+        ...(backActive ? { back: backImageId! } : {}),
+      });
+      router.push("/cart");
+    } catch {
+      setAddingToCart(false);
+    }
   }
 
   if (hasPrimary === null) {
@@ -408,12 +499,15 @@ function PreviewPageInner() {
     mockupError,
     loadedMockupUrl,
   });
-  // Approve needs the front mockup; a chosen back also needs its mockup.
-  const approveReady =
-    !!mockups.front && (!backImageId || !!mockups.back);
+  const sizes = product?.sizes ?? [];
+  const sizeLabel = product?.sizeLabel ?? "Size";
+  // Product price + shipping → grand total, from the same helper the checkout
+  // choke point charges, so the displayed total matches the Stripe total.
+  // Gated on size — price depends on it (2XL upcharge).
+  const breakdown = size && pricing ? computeOrderTotal(pricing.total) : null;
 
   return (
-    <div className="min-h-screen flex flex-col items-center py-6 md:py-12 px-4">
+    <div className="min-h-screen flex flex-col items-center py-6 md:py-12 px-4 pb-40 md:pb-12">
       <Breadcrumbs
         trail={breadcrumbTrail("/preview", {
           id: designId ?? undefined,
@@ -427,205 +521,286 @@ function PreviewPageInner() {
         Preview your {productName}
       </h1>
 
-      {/* Product selector */}
-      <div className="flex gap-2 md:gap-3 mb-4 md:mb-6 w-full max-w-md justify-center">
-        {ACTIVE_BLANKS.map((p) => (
-          <button
-            key={p.id}
-            onClick={() => handleProductChange(p.id)}
-            className={`flex-1 px-3 py-2 rounded-lg border-2 text-left transition-colors ${
-              productId === p.id
-                ? "border-accent ring-2 ring-accent ring-offset-1 ring-offset-background"
-                : "border-border hover:border-text-muted"
-            }`}
-          >
-            <div className="text-sm font-medium truncate">{p.name}</div>
-            <div className="text-xs text-text-muted truncate hidden md:block">
-              {p.description}
-            </div>
-          </button>
-        ))}
-      </div>
-
-      {/* Color picker -- above the preview, hidden when product has only one color */}
-      {colors.length > 1 && (
-        <>
-          <div className="text-sm text-text-muted mb-2 h-5">
-            {hoveredColor ?? colorName}
-          </div>
-          <div className="flex flex-wrap justify-center gap-2 md:gap-3 max-w-xs md:max-w-none mb-4 md:mb-6">
-            {colors.map((c) => (
-              <button
-                key={c.name}
-                onClick={() => handleColorChange(c.name)}
-                onMouseEnter={() => setHoveredColor(c.name)}
-                onMouseLeave={() => setHoveredColor(null)}
-                className={`w-10 h-10 md:w-8 md:h-8 rounded-full border-2 transition-colors ${
-                  colorName === c.name
-                    ? "border-accent ring-2 ring-accent ring-offset-1 ring-offset-background"
-                    : "border-border"
-                }`}
-                style={{ backgroundColor: c.value }}
-              />
-            ))}
-          </div>
-        </>
-      )}
-
-      {/* Front / Back toggle (#25) — only when the flag is on and the product
-          offers a back placement. Front stays the required default. */}
-      {showBackToggle && (
-        <div className="flex flex-col items-center gap-1 mb-4 md:mb-6">
-          <div className="inline-flex rounded-lg border-2 border-border overflow-hidden">
-            {(["front", "back"] as const).map((pl) => (
-              <button
-                key={pl}
-                onClick={() => switchPlacement(pl)}
-                className={`px-4 py-2 text-sm font-medium capitalize transition-colors ${
-                  activePlacement === pl
-                    ? "bg-accent text-accent-fg"
-                    : "text-text-muted hover:text-foreground"
-                }`}
-              >
-                {pl}
-              </button>
-            ))}
-          </div>
-          {activePlacement === "back" && (
-            <span className="text-xs text-text-muted">
-              Back design +${BACK_PLACEMENT_UPCHARGE.toFixed(2)}
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* Hero: back-source picker (Back, no source) or the mockup/preview */}
-      {showBackPicker ? (
-        <div className="w-64 md:w-80 flex flex-col items-center gap-3 max-h-[60vh] overflow-y-auto">
-          <p className="text-sm text-text-muted text-center">
-            Pick an image to print on the back.
-          </p>
-          {backGroups === null ? (
-            <div className="w-12 h-12 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-          ) : backGroups.length === 0 ? (
-            <p className="text-sm text-text-faint text-center">
-              No images yet. <Link href={`/design?id=${designId}`} className="underline">Add one in the designer.</Link>
-            </p>
-          ) : (
-            backGroups.map((group) => (
-              <div key={group.id} className="w-full">
-                <h3 className="text-xs font-medium uppercase tracking-wide text-text-muted mb-1.5">
-                  {group.label}
-                </h3>
-                <div className="grid grid-cols-3 gap-2 w-full">
-                  {group.images.map((s) => (
-                    <button
-                      key={s.id}
-                      onClick={() => chooseBackSource(s.id)}
-                      className={`aspect-square min-h-11 rounded-md overflow-hidden border-2 bg-checkerboard ${
-                        s.id === backImageId
-                          ? "border-accent"
-                          : "border-border hover:border-accent"
-                      }`}
-                    >
-                      <img
-                        src={s.imageUrl}
-                        alt={`${group.label} option`}
-                        className="w-full h-full object-contain"
-                      />
-                    </button>
-                  ))}
-                </div>
+      <div className="w-full max-w-2xl grid md:grid-cols-2 gap-6 md:gap-8">
+        {/* Hero column: placement toggle, mockup, scale slider, retry. Height
+            capped on phones (§1) so the purchase controls below stay reachable. */}
+        <div className="flex flex-col items-center">
+          {/* Front / Back toggle (#25) — only when the flag is on and the product
+              offers a back placement. Front stays the required default. */}
+          {showBackToggle && (
+            <div className="flex flex-col items-center gap-1 mb-4 md:mb-6">
+              <div className="inline-flex rounded-lg border-2 border-border overflow-hidden">
+                {(["front", "back"] as const).map((pl) => (
+                  <button
+                    key={pl}
+                    onClick={() => switchPlacement(pl)}
+                    className={`px-4 py-2 text-sm font-medium capitalize transition-colors ${
+                      activePlacement === pl
+                        ? "bg-accent text-accent-fg"
+                        : "text-text-muted hover:text-foreground"
+                    }`}
+                  >
+                    {pl}
+                  </button>
+                ))}
               </div>
-            ))
-          )}
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => activeMockup && !mockupLoading && setLightboxOpen(true)}
-          className={`w-64 h-80 md:w-80 md:h-96 rounded-lg shadow-lg overflow-hidden relative ${
-            activeMockup && !mockupLoading ? "cursor-zoom-in" : ""
-          }`}
-        >
-          {display.showError && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-surface-alt z-20 px-4 text-center">
-              <span className="text-sm text-text-muted">
-                Couldn&rsquo;t render the preview.
-              </span>
-              <span className="text-xs text-text-faint">
-                Use “Try again” below.
-              </span>
+              {activePlacement === "back" && (
+                <span className="text-xs text-text-muted">
+                  Back design +${BACK_PLACEMENT_UPCHARGE.toFixed(2)}
+                </span>
+              )}
             </div>
           )}
 
-          {/* Instant layer (#57): the design artwork on a shirt-colored
-              silhouette, shown immediately on any product/color/placement
-              change while the exact Printful mockup renders. */}
-          <div className="w-full h-full p-2">
-            <ProductSilhouette
-              productType={product?.type ?? "shirt"}
-              color={colorHex}
-              designImageUrl={display.artworkUrl}
-              scale={scale}
-              printArea={product?.printArea ?? { width: 12, height: 16 }}
-            />
-          </div>
-
-          {/* Exact Printful mockup — crossfades in over the instant layer
-              once its image bytes arrive. */}
-          {display.mockupUrl && (
-            <img
-              key={display.mockupUrl}
-              src={display.mockupUrl}
-              alt={`Your design on a ${colorName} ${productName}`}
-              onLoad={() => setLoadedMockupUrl(display.mockupUrl)}
-              className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
-                display.mockupVisible ? "opacity-100" : "opacity-0"
+          {/* Hero: back-source picker (Back, no source) or the mockup/preview */}
+          {showBackPicker ? (
+            <div className="w-64 md:w-80 flex flex-col items-center gap-3 max-h-[50vh] md:max-h-[60vh] overflow-y-auto">
+              <p className="text-sm text-text-muted text-center">
+                Pick an image to print on the back.
+              </p>
+              {backGroups === null ? (
+                <div className="w-12 h-12 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+              ) : backGroups.length === 0 ? (
+                <p className="text-sm text-text-faint text-center">
+                  No images yet. <Link href={`/design?id=${designId}`} className="underline">Add one in the designer.</Link>
+                </p>
+              ) : (
+                backGroups.map((group) => (
+                  <div key={group.id} className="w-full">
+                    <h3 className="text-xs font-medium uppercase tracking-wide text-text-muted mb-1.5">
+                      {group.label}
+                    </h3>
+                    <div className="grid grid-cols-3 gap-2 w-full">
+                      {group.images.map((s) => (
+                        <button
+                          key={s.id}
+                          onClick={() => chooseBackSource(s.id)}
+                          className={`aspect-square min-h-11 rounded-md overflow-hidden border-2 bg-checkerboard ${
+                            s.id === backImageId
+                              ? "border-accent"
+                              : "border-border hover:border-accent"
+                          }`}
+                        >
+                          <img
+                            src={s.imageUrl}
+                            alt={`${group.label} option`}
+                            className="w-full h-full object-contain"
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => activeMockup && !mockupLoading && setLightboxOpen(true)}
+              className={`w-64 h-80 max-h-[50vh] md:max-h-none md:w-80 md:h-96 rounded-lg shadow-lg overflow-hidden relative ${
+                activeMockup && !mockupLoading ? "cursor-zoom-in" : ""
               }`}
-            />
+            >
+              {display.showError && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-surface-alt z-20 px-4 text-center">
+                  <span className="text-sm text-text-muted">
+                    Couldn&rsquo;t render the preview.
+                  </span>
+                  <span className="text-xs text-text-faint">
+                    Use “Try again” below.
+                  </span>
+                </div>
+              )}
+
+              {/* Instant layer (#57): the design artwork on a shirt-colored
+                  silhouette, shown immediately on any product/color/placement
+                  change while the exact Printful mockup renders. */}
+              <div className="w-full h-full p-2">
+                <ProductSilhouette
+                  productType={product?.type ?? "shirt"}
+                  color={colorHex}
+                  designImageUrl={display.artworkUrl}
+                  scale={scale}
+                  printArea={product?.printArea ?? { width: 12, height: 16 }}
+                />
+              </div>
+
+              {/* Exact Printful mockup — crossfades in over the instant layer
+                  once its image bytes arrive. */}
+              {display.mockupUrl && (
+                <img
+                  key={display.mockupUrl}
+                  src={display.mockupUrl}
+                  alt={`Your design on a ${colorName} ${productName}`}
+                  onLoad={() => setLoadedMockupUrl(display.mockupUrl)}
+                  className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
+                    display.mockupVisible ? "opacity-100" : "opacity-0"
+                  }`}
+                />
+              )}
+
+              {display.pendingExact && (
+                <div className="pointer-events-none absolute inset-x-0 bottom-2 z-10 flex justify-center">
+                  <span className="inline-flex items-center gap-2 rounded-full bg-black/60 px-3 py-1.5 text-xs text-white backdrop-blur-sm">
+                    <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/70 border-t-transparent" />
+                    {regenerating
+                      ? "Preparing…"
+                      : "Rendering preview…"}
+                  </span>
+                </div>
+              )}
+            </button>
           )}
 
-          {display.pendingExact && (
-            <div className="pointer-events-none absolute inset-x-0 bottom-2 z-10 flex justify-center">
-              <span className="inline-flex items-center gap-2 rounded-full bg-black/60 px-3 py-1.5 text-xs text-white backdrop-blur-sm">
-                <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/70 border-t-transparent" />
-                {regenerating
-                  ? "Preparing…"
-                  : "Rendering preview…"}
-              </span>
+          {/* Change-image affordance once a back source is chosen */}
+          {showBackToggle && activePlacement === "back" && backImageId && !backPickerOpen && (
+            <button
+              onClick={openBackPicker}
+              className="text-sm text-text-muted hover:text-foreground hover:underline mt-3"
+            >
+              Change back image
+            </button>
+          )}
+
+          {/* Scale slider */}
+          {!showBackPicker && !mockupLoading && !activeMockup && (
+            <div className="w-full max-w-xs mt-4">
+              <div className="flex items-center justify-between text-xs text-text-muted mb-1">
+                <span>Design size</span>
+                <span>{Math.round(scale * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min={30}
+                max={100}
+                value={Math.round(scale * 100)}
+                onChange={(e) => setScale(Number(e.target.value) / 100)}
+                className="w-full h-2 accent-accent"
+              />
             </div>
           )}
-        </button>
-      )}
 
-      {/* Change-image affordance once a back source is chosen */}
-      {showBackToggle && activePlacement === "back" && backImageId && !backPickerOpen && (
-        <button
-          onClick={openBackPicker}
-          className="text-sm text-text-muted hover:text-foreground hover:underline mt-3"
-        >
-          Change back image
-        </button>
-      )}
-
-      {/* Scale slider */}
-      {!showBackPicker && !mockupLoading && !activeMockup && (
-        <div className="w-full max-w-xs mt-4">
-          <div className="flex items-center justify-between text-xs text-text-muted mb-1">
-            <span>Design size</span>
-            <span>{Math.round(scale * 100)}%</span>
-          </div>
-          <input
-            type="range"
-            min={30}
-            max={100}
-            value={Math.round(scale * 100)}
-            onChange={(e) => setScale(Number(e.target.value) / 100)}
-            className="w-full h-2 accent-accent"
-          />
+          {/* Preview-render recovery. Buying is gated on size only (§8 Q1) —
+              these retry the hero, they never block checkout. */}
+          {renderState.status === "error" && (
+            <Button
+              onClick={() => setRenderNonce((n) => n + 1)}
+              variant="secondary"
+              className="mt-4"
+            >
+              Try again
+            </Button>
+          )}
+          {renderState.status !== "error" && mockupError && (
+            <Button
+              onClick={() => renderMockupFor(activePlacement)}
+              variant="secondary"
+              className="mt-4"
+              disabled={regenerating}
+            >
+              Retry preview
+            </Button>
+          )}
+          {mockupError && (
+            <p className="text-sm text-negative text-center mt-2">
+              Couldn&apos;t render the preview.
+            </p>
+          )}
         </div>
-      )}
+
+        {/* Purchase controls (§1: scroll region on phones, right column on
+            desktop) */}
+        <div className="w-full space-y-5">
+          {/* Product selector */}
+          <div>
+            <label className="block text-sm font-medium mb-2">Product</label>
+            <div className="flex gap-2 md:gap-3">
+              {ACTIVE_BLANKS.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => handleProductChange(p.id)}
+                  className={`flex-1 px-3 py-2 rounded-lg border-2 text-left transition-colors ${
+                    productId === p.id
+                      ? "border-accent ring-2 ring-accent ring-offset-1 ring-offset-background"
+                      : "border-border hover:border-text-muted"
+                  }`}
+                >
+                  <div className="text-sm font-medium truncate">{p.name}</div>
+                  <div className="text-xs text-text-muted truncate hidden md:block">
+                    {p.description}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <ColorPicker colors={colors} value={colorName} onChange={handleColorChange} />
+          <SizePicker sizes={sizes} value={size} onChange={setSize} label={sizeLabel} />
+
+          {/* Pricing (§8 Q4: full breakdown here; the mobile sticky bar repeats
+              only the total) */}
+          {breakdown && (
+            <div className="border-t border-border pt-4 space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-text-muted">{productName}</span>
+                {/* When a back design is added its +$8 shows as its own line,
+                    so the product line stays the front price. */}
+                <span>
+                  ${(backActive ? breakdown.item - BACK_PLACEMENT_UPCHARGE : breakdown.item).toFixed(2)}
+                </span>
+              </div>
+              {backActive && (
+                <div className="flex justify-between">
+                  <span className="text-text-muted">Back design</span>
+                  <span>+${BACK_PLACEMENT_UPCHARGE.toFixed(2)}</span>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <span className="text-text-muted">Shipping</span>
+                <span>${breakdown.shipping.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between font-bold text-base border-t border-border pt-2">
+                <span>Total</span>
+                <span>${breakdown.total.toFixed(2)}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Desktop checkout — mobile uses the sticky bar */}
+          {!size && (
+            <p className="hidden md:block text-sm text-text-muted text-center">
+              Choose a size
+            </p>
+          )}
+          <Button
+            onClick={handleCheckout}
+            disabled={checkingOut || !size}
+            className="hidden md:block w-full"
+            size="lg"
+          >
+            {checkingOut ? "Redirecting…" : "Order"}
+          </Button>
+          {cartShown && (
+            <Button
+              onClick={handleAddToCart}
+              disabled={addingToCart || !size}
+              variant="secondary"
+              className="hidden md:block w-full"
+              size="lg"
+            >
+              {addingToCart ? "Adding…" : "Add to cart"}
+            </Button>
+          )}
+          <div className="text-center">
+            <Link
+              href={`/design?id=${designId}`}
+              className="text-sm text-text-muted hover:text-foreground hover:underline"
+            >
+              Refine design
+            </Link>
+          </div>
+        </div>
+      </div>
 
       {/* Fullscreen lightbox with zoom + pan */}
       {lightboxOpen && activeMockup && (
@@ -696,52 +871,38 @@ function PreviewPageInner() {
         </div>
       )}
 
-      {/* Actions */}
-      <div className="flex flex-col items-center gap-3 mt-6 md:mt-8 w-full max-w-xs md:max-w-none md:w-auto">
-        <div className="flex gap-4 w-full md:w-auto">
-          {/* The order CTA is gated on having a real Printful mockup on
-              screen -- users shouldn't reach checkout without seeing what
-              their product will actually look like. When the mockup
-              errors, the same button becomes the retry. */}
-          {renderState.status === "error" ? (
-            <Button
-              onClick={() => setRenderNonce((n) => n + 1)}
-              variant="secondary"
-              className="flex-1 md:flex-none"
-            >
-              Try again
-            </Button>
-          ) : mockupError ? (
-            <Button
-              onClick={() => renderMockupFor(activePlacement)}
-              variant="secondary"
-              className="flex-1 md:flex-none"
-              disabled={regenerating}
-            >
-              Retry preview
-            </Button>
-          ) : (
-            <Button
-              onClick={handleApprove}
-              className="flex-1 md:flex-none"
-              disabled={regenerating || mockupLoading || !approveReady}
-            >
-              {regenerating
-                ? "Preparing…"
-                : mockupLoading || !approveReady
-                  ? "Rendering preview…"
-                  : `Use this design`}
-            </Button>
-          )}
-        </div>
-        {mockupError && (
-          <p className="text-sm text-negative text-center">
-            Couldn&apos;t render the preview.
-          </p>
+      {/* Mobile sticky checkout bar — total lives here (§8 Q4); the full
+          breakdown is in the scroll region above. Safe-area aware. */}
+      <div
+        className="fixed inset-x-0 bottom-0 z-30 md:hidden bg-background border-t border-border px-4 pt-3 space-y-2"
+        style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
+      >
+        {!size && (
+          <p className="text-sm text-text-muted text-center">Choose a size</p>
         )}
-        <Link href={`/design?id=${designId}`} className="text-sm text-text-muted hover:text-foreground hover:underline">
-          Refine design
-        </Link>
+        <Button
+          onClick={handleCheckout}
+          disabled={checkingOut || !size}
+          className="w-full"
+          size="lg"
+        >
+          {checkingOut
+            ? "Redirecting…"
+            : breakdown
+              ? `Order — $${breakdown.total.toFixed(2)}`
+              : "Order"}
+        </Button>
+        {cartShown && (
+          <Button
+            onClick={handleAddToCart}
+            disabled={addingToCart || !size}
+            variant="secondary"
+            className="w-full"
+            size="lg"
+          >
+            {addingToCart ? "Adding…" : "Add to cart"}
+          </Button>
+        )}
       </div>
     </div>
   );
