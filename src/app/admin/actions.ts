@@ -14,7 +14,7 @@ import {
 import { eq, desc, isNull, isNotNull, sum, count, and } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { revalidatePath } from "next/cache";
-import { createOrder } from "@/lib/printful";
+import { createOrder, getOrderByExternalId } from "@/lib/printful";
 import { generateOrderName } from "@/lib/ai";
 import { assertTransition } from "@/lib/order-state";
 import { summarizeLedger } from "@/lib/ledger";
@@ -25,6 +25,7 @@ import { submitOrderFulfillment } from "@/lib/order-fulfillment";
 import { toStripeSessionData } from "@/lib/stripe-session";
 import { resolveOrderLines } from "@/lib/order-lines";
 import { recoverPendingOrderCore } from "@/lib/recover-pending-order";
+import { refundOrderCore, type RefundOrderResult } from "@/lib/refund-order";
 import { sendPostOrderEmails, createDefaultOrderEmailDeps } from "@/lib/order-emails";
 import { sendOrderConfirmation, sendOwnerOrderAlert } from "@/lib/email";
 import {
@@ -124,6 +125,7 @@ export async function retryPrintfulSubmission(orderId: string) {
     {
       db,
       createPrintfulOrder: createOrder,
+      getPrintfulOrderByExternalId: getOrderByExternalId,
       generateOrderName,
       resolveDesignImageUrl: getDesignDisplayImageUrl,
       resolveImageUrlById: async (imageId) =>
@@ -185,6 +187,7 @@ export async function recoverPendingOrder(
         handleStripeCheckoutCompleted(sessionData, {
           db,
           createPrintfulOrder: createOrder,
+          getPrintfulOrderByExternalId: getOrderByExternalId,
           generateOrderName,
           resolveDesignImageUrl: getDesignDisplayImageUrl,
           resolveImageUrlById: async (imageId) =>
@@ -204,6 +207,38 @@ export async function recoverPendingOrder(
     console.error(`recoverPendingOrder(${orderId}) failed:`, err);
     return { ok: false, reason };
   }
+}
+
+/**
+ * Refund a canceled order's customer (finding #1). Admin-clicked only — a
+ * Printful cancel never auto-refunds. Idempotent: a second click is a no-op
+ * (see refundOrderCore). Returns a result object rather than throwing so the UI
+ * can show why a refund was skipped (already refunded, not canceled, $0, etc.).
+ */
+export async function refundOrder(orderId: string): Promise<RefundOrderResult> {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session || session.user.email !== ADMIN_EMAIL) {
+    throw new Error("Unauthorized");
+  }
+
+  const result = await refundOrderCore(orderId, {
+    db,
+    retrievePaymentIntentId: async (stripeSessionId) => {
+      const s = await stripe.checkout.sessions.retrieve(stripeSessionId);
+      return typeof s.payment_intent === "string"
+        ? s.payment_intent
+        : s.payment_intent?.id ?? null;
+    },
+    createRefund: async (paymentIntentId, idempotencyKey) => {
+      await stripe.refunds.create(
+        { payment_intent: paymentIntentId },
+        { idempotencyKey }
+      );
+    },
+  });
+
+  if (result.ok) revalidatePath(`/admin/orders/${orderId}`);
+  return result;
 }
 
 export async function archiveOrder(orderId: string) {

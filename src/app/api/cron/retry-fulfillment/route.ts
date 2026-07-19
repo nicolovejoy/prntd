@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { createOrder } from "@/lib/printful";
+import { createOrder, getOrderByExternalId } from "@/lib/printful";
 import { generateOrderName } from "@/lib/ai";
 import { retryStuckFulfillments } from "@/lib/retry-fulfillment";
 import { getDesignDisplayImageUrl, getDesignImageById } from "@/lib/design-images";
@@ -27,6 +27,7 @@ export async function GET(request: NextRequest) {
   const result = await retryStuckFulfillments({
     db,
     createPrintfulOrder: createOrder,
+    getPrintfulOrderByExternalId: getOrderByExternalId,
     generateOrderName,
     resolveDesignImageUrl: getDesignDisplayImageUrl,
     resolveImageUrlById: async (imageId) =>

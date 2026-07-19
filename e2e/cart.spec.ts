@@ -51,12 +51,16 @@ test("guest cart: two items, bundled shipping, sign-in gate at checkout", async 
 
     // First item.
     await addToCartFromOrderPage(page, seeded[0]);
-    await expect(page.locator("ul > li")).toHaveCount(1, { timeout: 30_000 });
+    await expect(page.getByTestId("cart-line-item")).toHaveCount(1, {
+      timeout: 30_000,
+    });
     const oneItemShipping = await shippingAmount(page);
 
     // Second item — bundled shipping must not scale with item count.
     await addToCartFromOrderPage(page, seeded[1]);
-    await expect(page.locator("ul > li")).toHaveCount(2, { timeout: 30_000 });
+    await expect(page.getByTestId("cart-line-item")).toHaveCount(2, {
+      timeout: 30_000,
+    });
     const twoItemShipping = await shippingAmount(page);
     expect(twoItemShipping).toBe(oneItemShipping);
 
