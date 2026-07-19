@@ -274,20 +274,24 @@ actions stay.
   color default; `getDesign` backgroundColor plumbing. Independent of slice
   2 — can land in parallel after slice 1.
 
-## 8. Open questions
+## 8. Open questions — resolved (Nico, 2026-07-19)
 
-1. **Buy gate vs mockup.** Today "Use this design" on `/preview` is disabled
-   until the exact Printful mockup renders (`approveReady`), while `/order`'s
-   Buy now never waits. On the combined screen, should Buy now wait for the
-   exact mockup, or is size the only gate (buy while the instant preview is
-   still crossfading)? Waiting preserves "you saw exactly what you bought";
-   not waiting is faster and the webhook pins the primary image regardless.
-2. **`design.status` "approved".** With no approve step, does the status
-   retire (draft → ordered only), flip at buy/add-to-cart intent, or stay
-   as-is unused? It currently feeds the `/designs` status badge, so this is
-   user-visible.
-3. **Scope of remembered defaults.** `/preview` only for now, or also the
-   `/d/[imageId]` and `/shop` buy panels (issue #44's open question 1)?
-4. **Mobile price breakdown.** Full item/shipping/total lines in the scroll
-   region (transparent, taller), or total-only in the sticky bar with the
-   breakdown behind a tap (tighter)?
+1. **Buy gate vs mockup: size is the only gate.** Buy now never waits for
+   the Printful mockup. The instant preview (PR #65) is the buy-ready
+   surface: artwork on the correct shirt color immediately, visibly marked
+   as preliminary, with the "Rendering exact preview…" indicator while the
+   real mockup resolves. The webhook pins the primary image regardless, so
+   what ships is unaffected.
+2. **`design.status` "approved" retires.** Designs are `draft` until
+   `ordered`; nothing sets `approved` anymore. Keep the column value for
+   historical rows (badge may still render it there); the `/designs` badge
+   distinguishes draft vs ordered going forward. `approveDesign` is deleted
+   with its last caller. Chosen over flip-at-buy-intent for simplicity —
+   the intent signal added nothing `ordered` doesn't already capture.
+3. **Remembered defaults apply everywhere** — `/preview`, `/d/[imageId]`,
+   and `/shop` buy panels (closes issue #44's open question 1). Same
+   no-silent-default rule everywhere: remembered values render as visibly
+   selected, first-ever purchase starts unselected.
+4. **Mobile price display:** total in the sticky bar, full
+   item/shipping/total breakdown in the scroll region directly above it —
+   no hidden math at the money moment.
