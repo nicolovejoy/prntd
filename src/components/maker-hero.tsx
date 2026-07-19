@@ -24,12 +24,12 @@ export function MakerHero() {
   }
 
   return (
-    <main className="flex-1 flex flex-col items-center justify-center px-4 py-16 text-center">
-      <div className="w-full max-w-2xl space-y-6">
-        <h1 className="text-4xl sm:text-5xl font-bold tracking-tight">
+    <main className="flex-1 flex flex-col items-center justify-center px-4 py-6 sm:py-16 text-center">
+      <div className="w-full max-w-2xl space-y-4 sm:space-y-6">
+        <h1 className="text-2xl sm:text-5xl font-bold tracking-tight">
           Design a shirt by describing it.
         </h1>
-        <p className="text-lg text-text-muted max-w-lg mx-auto">
+        <p className="text-base sm:text-lg text-text-muted max-w-lg mx-auto">
           Free to design. Generated in seconds. Printed and shipped from $
           {minRetailPrice().toFixed(2)}.
         </p>
@@ -55,13 +55,16 @@ export function MakerHero() {
             Generate
           </Button>
         </form>
-        <div className="flex flex-wrap justify-center gap-2">
+        {/* Mobile: one horizontally scrollable row (bleeds to the screen edge);
+            desktop: centered wrap. Keeps the hero short enough that the Shop
+            feed's first cards stay above the fold on a phone. */}
+        <div className="flex flex-nowrap overflow-x-auto -mx-4 px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:flex-wrap sm:overflow-x-visible sm:mx-0 sm:px-0 sm:justify-center gap-2">
           {EXAMPLES.slice(0, 3).map((example) => (
             <button
               key={example}
               type="button"
               onClick={() => go(example)}
-              className="text-xs px-3 py-2 min-h-[44px] border border-border rounded-full text-text-muted hover:text-foreground hover:border-border-hover transition-colors"
+              className="shrink-0 whitespace-nowrap text-xs px-3 py-2 min-h-[44px] border border-border rounded-full text-text-muted hover:text-foreground hover:border-border-hover transition-colors"
             >
               {example}
             </button>

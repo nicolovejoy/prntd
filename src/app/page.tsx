@@ -33,9 +33,9 @@ export default async function Home() {
       )}
 
       {discover.length > 0 && (
-        <section className="py-16 px-4 border-t border-border">
+        <section className="py-8 sm:py-16 px-4 border-t border-border">
           <div className="max-w-6xl mx-auto">
-            <h2 className="text-2xl font-bold text-center mb-8">Shop</h2>
+            <h2 className="text-2xl font-bold text-center mb-4 sm:mb-8">Shop</h2>
             <PublishedGrid images={discover} />
             <div className="text-center mt-8">
               <Link
