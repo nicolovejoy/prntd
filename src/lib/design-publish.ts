@@ -65,6 +65,38 @@ export function canBuyPublishedImage(image: {
 }
 
 /**
+ * Decide whether an image may be used as a placement source (the back of a
+ * shirt) on an order for `orderDesignId` (#72). Three allowed origins,
+ * matching the /preview picker's groups:
+ *
+ *  - This design: the image belongs to the order's own design thread.
+ *  - My Designs: the requesting user owns the image's design.
+ *  - Shop: the image is published and not admin-hidden (the buy-existing
+ *    surface — same visibility rule as canBuyPublishedImage).
+ *
+ * Checked at the checkout choke points (createCheckoutSession / addToCart)
+ * so a forged image id can't get a private image printed, and at the
+ * preview render/mockup actions so the picker's reach and the guard agree.
+ */
+export function canUseAsPlacementSource(params: {
+  image: {
+    designId: string;
+    publishedAt: Date | null;
+    isHidden: boolean;
+  };
+  /** Owner of the image's design. */
+  imageOwnerId: string;
+  /** The design the order/preview is for. */
+  orderDesignId: string;
+  /** The requesting user. */
+  userId: string;
+}): boolean {
+  if (params.image.designId === params.orderDesignId) return true;
+  if (params.imageOwnerId === params.userId) return true;
+  return params.image.publishedAt !== null && !params.image.isHidden;
+}
+
+/**
  * Collapse a published-image feed to one entry per design. Publishing
  * happens per design_image, so a maker who publishes several generations
  * within one design would otherwise flood the storefront with

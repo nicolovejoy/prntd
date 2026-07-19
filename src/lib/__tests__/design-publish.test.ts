@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   imageReferencedByOrders,
   canBuyPublishedImage,
+  canUseAsPlacementSource,
   buildForkChain,
   dedupeFeedByDesign,
   type ForkChainRow,
@@ -232,5 +233,51 @@ describe("dedupeFeedByDesign", () => {
     ]);
     expect(out).toHaveLength(1);
     expect(out[0].title).toBe("Keep me");
+  });
+});
+
+describe("canUseAsPlacementSource (#72)", () => {
+  const base = { designId: "d-other", publishedAt: null, isHidden: false };
+  const ctx = { imageOwnerId: "owner", orderDesignId: "d-order", userId: "buyer" };
+
+  it("allows an image from the order's own design, even unpublished", () => {
+    expect(
+      canUseAsPlacementSource({
+        image: { ...base, designId: "d-order" },
+        ...ctx,
+      })
+    ).toBe(true);
+  });
+
+  it("allows an image whose design the user owns (My Designs)", () => {
+    expect(
+      canUseAsPlacementSource({
+        image: base,
+        ...ctx,
+        imageOwnerId: "buyer",
+      })
+    ).toBe(true);
+  });
+
+  it("allows a published, not-hidden image from anyone (Shop)", () => {
+    expect(
+      canUseAsPlacementSource({
+        image: { ...base, publishedAt: new Date() },
+        ...ctx,
+      })
+    ).toBe(true);
+  });
+
+  it("rejects a stranger's unpublished image", () => {
+    expect(canUseAsPlacementSource({ image: base, ...ctx })).toBe(false);
+  });
+
+  it("rejects a published-but-hidden image (moderation wins)", () => {
+    expect(
+      canUseAsPlacementSource({
+        image: { ...base, publishedAt: new Date(), isHidden: true },
+        ...ctx,
+      })
+    ).toBe(false);
   });
 });

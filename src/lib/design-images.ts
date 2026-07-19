@@ -223,6 +223,43 @@ export async function getDesignImageById(
 }
 
 /**
+ * Fetch a design_image plus the fields the placement-source guard needs:
+ * publish/moderation state and the owning design's user id (#72). One
+ * joined query so checkout/preview call sites can gate a cross-design
+ * back pick without a second round trip.
+ */
+export async function getDesignImageWithOwner(
+  id: string
+): Promise<{
+  id: string;
+  designId: string;
+  imageUrl: string;
+  aspectRatio: AspectRatio;
+  prompt: string | null;
+  publishedAt: Date | null;
+  isHidden: boolean;
+  ownerId: string;
+} | null> {
+  const rows = await db
+    .select({
+      id: designImageTable.id,
+      designId: designImageTable.designId,
+      imageUrl: designImageTable.imageUrl,
+      aspectRatio: designImageTable.aspectRatio,
+      prompt: designImageTable.prompt,
+      publishedAt: designImageTable.publishedAt,
+      isHidden: designImageTable.isHidden,
+      ownerId: designTable.userId,
+    })
+    .from(designImageTable)
+    .innerJoin(designTable, eq(designTable.id, designImageTable.designId))
+    .where(eq(designImageTable.id, id))
+    .limit(1);
+  if (!rows[0]) return null;
+  return { ...rows[0], aspectRatio: rows[0].aspectRatio as AspectRatio };
+}
+
+/**
  * Find the design_image row whose imageUrl matches a target URL, scoped
  * to a design. Used at order-creation time to pin the order to the
  * specific image that was on screen when the customer clicked checkout.

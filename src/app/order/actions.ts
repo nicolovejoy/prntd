@@ -18,6 +18,7 @@ import {
   DEFAULT_BLANK_ID,
 } from "@/lib/blanks";
 import { getDesignDisplayImageUrl } from "@/lib/design-images";
+import { assertUsableBackImage } from "@/lib/back-sources";
 
 export async function calculatePrice(
   designId: string,
@@ -64,6 +65,9 @@ export async function createCheckoutSession(params: {
   // Only honor a back design when the flag is on — keeps a stray `?back=` param
   // from charging the upcharge / pinning a back while the feature is dark.
   const backImageId = multiPlacementEnabled() ? params.back ?? null : null;
+  if (backImageId) {
+    await assertUsableBackImage(backImageId, params.designId, session.user.id);
+  }
   const pricing = await calculatePrice(
     params.designId,
     resolvedProductId,
