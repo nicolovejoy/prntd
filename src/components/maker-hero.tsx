@@ -7,10 +7,11 @@ import { EXAMPLES } from "@/lib/design-examples";
 import { minRetailPrice } from "@/lib/pricing";
 
 /**
- * Signed-out landing hero — the composer IS the landing. Typing an idea (or
- * tapping a chip) navigates to /design?prompt=…, which auto-fires a
+ * Landing hero for all visitors — the composer IS the landing. Typing an
+ * idea (or tapping a chip) navigates to /design?prompt=…, which auto-fires a
  * generation. Unlike the in-chat chips (which prefill), landing chips
- * navigate immediately: here they demo the product.
+ * navigate immediately: here they demo the product. The sub-line is the
+ * one-line basics of the offer (#75); price comes from minRetailPrice().
  */
 export function MakerHero() {
   const router = useRouter();
@@ -29,7 +30,7 @@ export function MakerHero() {
           Design a shirt by describing it.
         </h1>
         <p className="text-lg text-text-muted max-w-lg mx-auto">
-          Free to design. Printed and shipped from $
+          Free to design. Generated in seconds. Printed and shipped from $
           {minRetailPrice().toFixed(2)}.
         </p>
         <form
