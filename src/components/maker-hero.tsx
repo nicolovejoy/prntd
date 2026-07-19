@@ -27,11 +27,10 @@ export function MakerHero() {
     <main className="flex-1 flex flex-col items-center justify-center px-4 py-6 sm:py-16 text-center">
       <div className="w-full max-w-2xl space-y-4 sm:space-y-6">
         <h1 className="text-2xl sm:text-5xl font-bold tracking-tight">
-          Design a shirt by describing it.
+          Your idea, on a shirt.
         </h1>
         <p className="text-base sm:text-lg text-text-muted max-w-lg mx-auto">
-          Free to design. Generated in seconds. Printed and shipped from $
-          {minRetailPrice().toFixed(2)}.
+          From ${minRetailPrice().toFixed(2)}, shipped.
         </p>
         <form
           onSubmit={(e) => {
