@@ -23,6 +23,7 @@ export function StoreBuyPanel({
   colors,
   isLoggedIn,
   buyable,
+  rememberedSize,
 }: {
   storeSlug: string;
   productId: string;
@@ -32,19 +33,28 @@ export function StoreBuyPanel({
   colors: BlankColor[];
   isLoggedIn: boolean;
   buyable: boolean;
+  /** Last-purchase size (#44); null for guests/first purchase. */
+  rememberedSize?: string | null;
 }) {
-  const [size, setSize] = useState(sizes[1] ?? sizes[0] ?? "M");
+  // No silent size (#60): a remembered size pre-selects a visible chip; with
+  // nothing remembered the buy CTA stays disabled until a pick.
+  const [size, setSize] = useState<string | null>(() =>
+    rememberedSize && sizes.includes(rememberedSize) ? rememberedSize : null
+  );
   const [color, setColor] = useState(colors[0]?.name ?? "White");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const signInHref = `/sign-in?next=/shop/${storeSlug}/${productId}`;
 
-  // Organizer price is size-independent; the computed fallback varies by size.
-  const itemPrice = fixedPrice ?? computePrice(0, blankId, size).total;
+  // Organizer price is size-independent; the computed fallback varies by
+  // size — before a pick it shows the base-size price.
+  const itemPrice =
+    fixedPrice ?? computePrice(0, blankId, size ?? sizes[0] ?? "M").total;
   const { item, shipping, total } = computeOrderTotal(itemPrice);
 
   async function handleBuy() {
+    if (!size) return;
     setLoading(true);
     setError(null);
     try {
@@ -96,9 +106,19 @@ export function StoreBuyPanel({
           Not listed yet — publish the shop and list this product to sell it.
         </p>
       ) : isLoggedIn ? (
-        <Button onClick={handleBuy} disabled={loading} size="lg" className="w-full">
-          {loading ? "Redirecting…" : `Buy — $${total.toFixed(2)}`}
-        </Button>
+        <div className="space-y-1.5">
+          {!size && (
+            <p className="text-sm text-text-muted text-center">Choose a size</p>
+          )}
+          <Button
+            onClick={handleBuy}
+            disabled={loading || !size}
+            size="lg"
+            className="w-full"
+          >
+            {loading ? "Redirecting…" : `Buy — $${total.toFixed(2)}`}
+          </Button>
+        </div>
       ) : (
         <Link href={signInHref} className="block">
           <Button size="lg" className="w-full">

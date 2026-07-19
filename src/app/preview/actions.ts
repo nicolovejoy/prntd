@@ -29,6 +29,8 @@ import {
   getBackSourceGroups,
   type BackSourceGroup,
 } from "@/lib/back-sources";
+import { resolveLastPurchaseDefaults } from "@/lib/last-purchase";
+import type { PurchaseDefaults } from "@/lib/purchase-defaults";
 
 const COST_PER_GENERATION = 0.03;
 
@@ -66,6 +68,18 @@ export async function getBackDesignSources(
     userId: isAnonymousUser(session.user) ? null : session.user.id,
   });
   return { groups };
+}
+
+/**
+ * Remembered defaults (#44, §3): the signed-in user's last purchase seeds
+ * product + size on the buy surfaces (/preview, /d, /shop). Null for guests —
+ * no localStorage fallback. Values are validated against the active catalog
+ * in resolveLastPurchaseDefaults.
+ */
+export async function getLastPurchaseDefaults(): Promise<PurchaseDefaults | null> {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session || isAnonymousUser(session.user)) return null;
+  return resolveLastPurchaseDefaults(db, session.user);
 }
 
 export async function generateMockup(

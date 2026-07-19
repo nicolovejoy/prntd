@@ -11,7 +11,13 @@ import {
   ensureMockupsPrefetched,
   isMultiPlacementEnabled,
   getBackDesignSources,
+  getLastPurchaseDefaults,
 } from "./actions";
+import {
+  resolveProductAndSize,
+  resolveDefaultColor,
+  type PurchaseDefaults,
+} from "@/lib/purchase-defaults";
 import Link from "next/link";
 import { Button } from "@/components/ui";
 import { SizePicker, ColorPicker } from "@/components/product-options";
@@ -55,9 +61,24 @@ function PreviewPageInner() {
   const searchParams = useSearchParams();
   const designId = searchParams.get("id");
   const initialProductId = searchParams.get("product") ?? DEFAULT_BLANK_ID;
+  // URL params as they were on arrival (§3 precedence: URL wins). Captured
+  // once — the replaceState sync below rewrites the URL from state, so the
+  // live params stop meaning "what the link carried".
+  const initialUrl = useRef({
+    product: searchParams.get("product"),
+    size: searchParams.get("size"),
+    color: searchParams.get("color"),
+  }).current;
 
   const [productId, setProductId] = useState(initialProductId);
   const product = getBlank(productId);
+  // Remembered defaults (#44) + the design's pinned backdrop color. Both
+  // arrive async; they only fill selections the URL didn't set and the user
+  // hasn't touched (the *Touched refs).
+  const [remembered, setRemembered] = useState<PurchaseDefaults | null>(null);
+  const [pinnedColor, setPinnedColor] = useState<string | null>(null);
+  const productTouched = useRef(false);
+  const colorTouched = useRef(false);
 
   const [renderState, setRenderState] = useState<RenderState>({ status: "idle" });
   // Bumped to re-run the placement-render effect (retry after an error).
@@ -167,6 +188,7 @@ function PreviewPageInner() {
           return;
         }
         setHasPrimary(true);
+        setPinnedColor(design.backgroundColor ?? null);
         if (design.mockupUrls) {
           for (const [key, url] of Object.entries(design.mockupUrls)) {
             mockupCache.current.set(key, url as string);
@@ -199,6 +221,55 @@ function PreviewPageInner() {
   useEffect(() => {
     isCartEnabled().then(setCartShown).catch(() => setCartShown(false));
   }, []);
+
+  // Fetch remembered defaults once (#44). Null for guests/first purchase.
+  useEffect(() => {
+    getLastPurchaseDefaults()
+      .then((d) => {
+        if (d) setRemembered(d);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Apply remembered product + size when they arrive (§3): URL param >
+  // remembered > static. Remembered size pre-selects a visible chip — never
+  // a silent default (#66); anything the user already picked wins.
+  useEffect(() => {
+    if (!remembered) return;
+    const resolved = resolveProductAndSize({
+      urlProduct: initialUrl.product,
+      urlSize: initialUrl.size,
+      remembered,
+    });
+    if (!productTouched.current && resolved.productId !== productId) {
+      handleProductChange(resolved.productId);
+    }
+    // Validate the size against the product actually on screen — the user
+    // may have switched products before the fetch landed.
+    const effectiveId = productTouched.current ? productId : resolved.productId;
+    const sizes = getBlank(effectiveId)?.sizes ?? [];
+    const candidate =
+      resolved.size && sizes.includes(resolved.size) ? resolved.size : null;
+    if (candidate) setSize((s) => s ?? candidate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remembered]);
+
+  // Color default (§3, not remembered): URL > pinned backdrop > White >
+  // first color. Re-derives when the product changes or the pinned color
+  // loads; a user pick sticks as long as the palette still offers it.
+  useEffect(() => {
+    const palette = product?.colors ?? [];
+    if (palette.length === 0) return;
+    if (colorTouched.current && palette.some((c) => c.name === colorName)) return;
+    colorTouched.current = false;
+    const { color } = resolveDefaultColor({
+      urlColor: initialUrl.color,
+      pinnedColor,
+      palette,
+    });
+    if (color !== colorName) handleColorChange(color);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productId, pinnedColor]);
 
   // A picked back design prices + checks out only while the flag is on — the
   // server gates it again at checkout, defense in depth.
@@ -376,10 +447,15 @@ function PreviewPageInner() {
     if (newProductId === productId) return;
     const newProduct = getBlank(newProductId);
     if (!newProduct) return;
-    const newColor = newProduct.colors[0]?.name ?? "White";
     mockupReq.invalidate();
     setProductId(newProductId);
-    setColorName(newColor);
+    // Keep the color when the new product offers it; otherwise the color-
+    // default effect re-derives (pinned backdrop > White > first).
+    setColorName((c) =>
+      newProduct.colors.some((col) => col.name === c)
+        ? c
+        : newProduct.colors[0]?.name ?? "White"
+    );
     // Keep the size only if the new product offers it; otherwise back to
     // unselected (#60 — never silently carry an unavailable size).
     setSize((s) => (s && newProduct.sizes.includes(s) ? s : null));
@@ -725,7 +801,10 @@ function PreviewPageInner() {
               {ACTIVE_BLANKS.map((p) => (
                 <button
                   key={p.id}
-                  onClick={() => handleProductChange(p.id)}
+                  onClick={() => {
+                    productTouched.current = true;
+                    handleProductChange(p.id);
+                  }}
                   className={`flex-1 px-3 py-2 rounded-lg border-2 text-left transition-colors ${
                     productId === p.id
                       ? "border-accent ring-2 ring-accent ring-offset-1 ring-offset-background"
@@ -741,7 +820,19 @@ function PreviewPageInner() {
             </div>
           </div>
 
-          <ColorPicker colors={colors} value={colorName} onChange={handleColorChange} />
+          <ColorPicker
+            colors={colors}
+            value={colorName}
+            onChange={(name) => {
+              colorTouched.current = true;
+              handleColorChange(name);
+            }}
+            note={
+              pinnedColor && colorName === pinnedColor
+                ? "Designer's pick"
+                : undefined
+            }
+          />
           <SizePicker sizes={sizes} value={size} onChange={setSize} label={sizeLabel} />
 
           {/* Pricing (§8 Q4: full breakdown here; the mobile sticky bar repeats
