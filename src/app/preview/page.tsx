@@ -452,12 +452,18 @@ function PreviewPageInner() {
     if (!newProduct) return;
     mockupReq.invalidate();
     setProductId(newProductId);
-    // Keep the color when the new product offers it; otherwise the color-
-    // default effect re-derives (pinned backdrop > White > first).
+    // Keep the color when the new product offers it; otherwise reset per the
+    // §3 precedence (URL > pinned backdrop > White > first) right here — not
+    // colors[0] — so the swatch selection and the mockup fetch never spend a
+    // frame on a color the precedence wouldn't pick.
     setColorName((c) =>
       newProduct.colors.some((col) => col.name === c)
         ? c
-        : newProduct.colors[0]?.name ?? "White"
+        : resolveDefaultColor({
+            urlColor: initialUrl.color,
+            pinnedColor,
+            palette: newProduct.colors,
+          }).color
     );
     // Keep the size only if the new product offers it; otherwise back to
     // unselected (#60 — never silently carry an unavailable size).
