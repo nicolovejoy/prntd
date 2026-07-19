@@ -6,6 +6,10 @@ export default defineConfig({
   plugins: [react()],
   test: {
     environment: "jsdom",
+    // src/lib/** is pure logic + real-DB integration tests — no DOM needed,
+    // and node is faster/lighter than jsdom for these. Component tests
+    // (src/components/**, src/app/**) keep the jsdom default.
+    environmentMatchGlobs: [["src/lib/**", "node"]],
     setupFiles: "./vitest.setup.ts",
     include: ["src/**/*.test.{ts,tsx}"],
     coverage: {

@@ -5,7 +5,7 @@ import {
   order as orderTable,
   orderItem as orderItemTable,
 } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { resolveOrderLines } from "@/lib/order-lines";
 
 export async function getOrderBySession(stripeSessionId: string) {
@@ -30,7 +30,8 @@ export async function getOrderBySession(stripeSessionId: string) {
       printfulCost: orderItemTable.printfulCost,
     })
     .from(orderItemTable)
-    .where(eq(orderItemTable.orderId, found.id));
+    .where(eq(orderItemTable.orderId, found.id))
+    .orderBy(asc(orderItemTable.createdAt));
 
   const lines = resolveOrderLines(found, items).map((l) => ({
     blankId: l.blankId,

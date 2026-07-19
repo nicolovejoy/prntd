@@ -6,20 +6,12 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { eq } from "drizzle-orm";
 import { createTestDb } from "./test-db";
+import { makeUser, makeDesign } from "./factories";
 import * as schema from "@/lib/db/schema";
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
 
 let db: Db;
-
-async function makeUser(id: string) {
-  await db.insert(schema.user).values({ id, email: `${id}@example.com`, name: id });
-}
-
-async function makeDesign(userId: string) {
-  const [d] = await db.insert(schema.design).values({ userId }).returning();
-  return d;
-}
 
 beforeEach(async () => {
   db = await createTestDb();
@@ -27,7 +19,7 @@ beforeEach(async () => {
 
 describe("store table", () => {
   it("creates a store with status defaulting to draft", async () => {
-    await makeUser("org-1");
+    await makeUser(db, "org-1");
     const [s] = await db
       .insert(schema.store)
       .values({ ownerId: "org-1", slug: "manines-club", name: "Manine's Club" })
@@ -37,8 +29,8 @@ describe("store table", () => {
   });
 
   it("enforces unique slugs across owners", async () => {
-    await makeUser("org-1");
-    await makeUser("org-2");
+    await makeUser(db, "org-1");
+    await makeUser(db, "org-2");
     await db.insert(schema.store).values({ ownerId: "org-1", slug: "dup", name: "A" });
     await expect(
       db.insert(schema.store).values({ ownerId: "org-2", slug: "dup", name: "B" })
@@ -46,7 +38,7 @@ describe("store table", () => {
   });
 
   it("allows many stores per organizer (no ownerId uniqueness)", async () => {
-    await makeUser("org-1");
+    await makeUser(db, "org-1");
     await db.insert(schema.store).values({ ownerId: "org-1", slug: "club", name: "Club" });
     await db.insert(schema.store).values({ ownerId: "org-1", slug: "band", name: "Band" });
     const rows = await db.select().from(schema.store).where(eq(schema.store.ownerId, "org-1"));
@@ -56,8 +48,8 @@ describe("store table", () => {
 
 describe("product table", () => {
   it("persists placements JSON and links design + store", async () => {
-    await makeUser("org-1");
-    const design = await makeDesign("org-1");
+    await makeUser(db, "org-1");
+    const design = await makeDesign(db, "org-1");
     const [store] = await db
       .insert(schema.store)
       .values({ ownerId: "org-1", slug: "club", name: "Club" })
@@ -77,8 +69,8 @@ describe("product table", () => {
   });
 
   it("allows a loose product (no store) before it's shelved", async () => {
-    await makeUser("org-1");
-    const design = await makeDesign("org-1");
+    await makeUser(db, "org-1");
+    const design = await makeDesign(db, "org-1");
     const [p] = await db
       .insert(schema.product)
       .values({ ownerId: "org-1", designId: design.id, blankId: "bella-canvas-3001" })
@@ -87,7 +79,7 @@ describe("product table", () => {
   });
 
   it("rejects a product whose design FK doesn't exist", async () => {
-    await makeUser("org-1");
+    await makeUser(db, "org-1");
     await expect(
       db
         .insert(schema.product)
@@ -98,9 +90,9 @@ describe("product table", () => {
 
 describe("guest → account claim re-parents store + product", () => {
   it("moves both to the real account by ownerId (what onLinkAccount runs)", async () => {
-    await makeUser("guest");
-    await makeUser("real");
-    const design = await makeDesign("guest");
+    await makeUser(db, "guest");
+    await makeUser(db, "real");
+    const design = await makeDesign(db, "guest");
     await db.insert(schema.store).values({ ownerId: "guest", slug: "club", name: "Club" });
     await db
       .insert(schema.product)

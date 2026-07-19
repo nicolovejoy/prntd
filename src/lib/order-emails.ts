@@ -154,6 +154,7 @@ export function createDefaultOrderEmailDeps(
       // columns for legacy single-item orders.
       const items = await db.query.orderItem.findMany({
         where: eq(orderItemTable.orderId, orderId),
+        orderBy: (fields, { asc }) => [asc(fields.createdAt)],
       });
       const orderLines = resolveOrderLines(
         {

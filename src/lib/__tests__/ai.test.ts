@@ -72,10 +72,13 @@ describe("chatAboutDesign", () => {
     await chatAboutDesign("third", history, []);
 
     const call = mockCreate.mock.calls[0][0];
-    // All three user messages should be merged into alternating roles
-    // "first" + "second" merged, then "third" as the new user message
-    const userMessages = call.messages.filter((m: any) => m.role === "user");
-    expect(userMessages.length).toBeGreaterThanOrEqual(1);
+    // "first", "second" (history) and "third" (the new turn) are all user
+    // role with nothing in between, so buildMessages must collapse them into
+    // a single alternating-role message — Anthropic rejects consecutive
+    // same-role messages.
+    expect(call.messages).toHaveLength(1);
+    expect(call.messages[0].role).toBe("user");
+    expect(call.messages[0].content).toBe("first\n\nsecond\n\nthird");
   });
 
   it("parses message and readyToGenerate from valid JSON", async () => {

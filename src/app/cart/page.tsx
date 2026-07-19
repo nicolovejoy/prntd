@@ -76,7 +76,11 @@ export default function CartPage() {
           <>
             <ul className="divide-y divide-border border-y border-border">
               {cart.items.map((item) => (
-                <li key={item.id} className="flex items-center gap-4 py-4">
+                <li
+                  key={item.id}
+                  data-testid="cart-line-item"
+                  className="flex items-center gap-4 py-4"
+                >
                   <div className="w-16 h-16 shrink-0 rounded-md bg-checkerboard overflow-hidden">
                     {item.imageUrl && (
                       // eslint-disable-next-line @next/next/no-img-element
