@@ -3,6 +3,7 @@ import {
   PutObjectCommand,
   GetObjectCommand,
   CopyObjectCommand,
+  DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
 
 const r2 = new S3Client({
@@ -89,6 +90,23 @@ export async function copyDesignImageByUrl(
   );
 
   return `${publicBase}/${destKey}`;
+}
+
+/**
+ * Delete a generation's R2 object by (design, generation number). Best-effort
+ * orphan cleanup: called when a step after the upload fails, so a half-written
+ * generation doesn't leave a stranded object under a reserved key.
+ */
+export async function deleteDesignImageObject(
+  designId: string,
+  generationNumber: number
+): Promise<void> {
+  await r2.send(
+    new DeleteObjectCommand({
+      Bucket: bucket,
+      Key: `designs/${designId}/${generationNumber}.png`,
+    })
+  );
 }
 
 export async function getDesignImage(
