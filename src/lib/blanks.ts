@@ -3,11 +3,11 @@
  *
  * To add a new product:
  * 1. Run the variant discovery script to get Printful variant IDs
- * 2. Add a new entry to PRODUCTS below
+ * 2. Add a new entry to BLANKS below
  * 3. That's it — preview, order, and checkout flows pick it up automatically
  */
 
-export type ProductColor = {
+export type BlankColor = {
   name: string;
   value: string; // hex
 };
@@ -46,22 +46,39 @@ export type AspectRatio =
  * supports multi-placement (front + back, sleeves) — see
  * docs/print-targets.md.
  */
+/**
+ * Printful print methods (their TechniqueEnum). Scopes a placement's design
+ * constraints — dtg is raster/transparency-aware, embroidery is limited thread
+ * colors, sublimation/cut-sew are full-bleed. Everything today is dtg; the
+ * field is the hook for the validity rule and future non-DTG blanks.
+ */
+export type Technique =
+  | "dtg"
+  | "embroidery"
+  | "sublimation"
+  | "cut-sew"
+  | "uv"
+  | "digital"
+  | "dtfilm";
+
 export type Placement = {
   id: string;                   // Printful placement key: "front", "back", "default" (phone cases), etc.
   aspectRatio: AspectRatio;     // generator target
   mockupPosition: MockupPosition;
   printArea: { width: number; height: number };  // inches
   required?: boolean;           // must be filled for fulfillment
+  technique?: Technique;        // print method; defaults to "dtg"
+  dpi?: number;                 // min source resolution at print size; defaults to 150
 };
 
-export type Product = {
+export type Blank = {
   id: string;
   name: string;
   description: string;
   type: "shirt" | "phone-case";
   /**
    * Hidden from the customer-facing product picker. Historical orders and
-   * design_image rows pinned to this product still resolve via getProduct()
+   * design_image rows pinned to this product still resolve via getBlank()
    * so admin pages render correctly.
    */
   discontinued?: boolean;
@@ -85,7 +102,7 @@ export type Product = {
   sizes: string[];
   /** Label for the size selector. Defaults to "Size" if omitted. */
   sizeLabel?: string;
-  colors: ProductColor[];
+  colors: BlankColor[];
   variants: Record<string, Record<string, number>>; // color → size → variantId
   /**
    * Print regions on this product. First entry is the default ("front").
@@ -105,7 +122,7 @@ export type Product = {
   printArea: { width: number; height: number };
 };
 
-export const PRODUCTS: Product[] = [
+export const BLANKS: Blank[] = [
   {
     id: "bella-canvas-3001",
     name: "Classic Tee",
@@ -397,23 +414,23 @@ export const PRODUCTS: Product[] = [
   },
 ];
 
-export const DEFAULT_PRODUCT_ID = "bella-canvas-3001";
+export const DEFAULT_BLANK_ID = "bella-canvas-3001";
 
 /** Customer-facing catalog — excludes discontinued products. */
-export const ACTIVE_PRODUCTS: Product[] = PRODUCTS.filter((p) => !p.discontinued);
+export const ACTIVE_BLANKS: Blank[] = BLANKS.filter((p) => !p.discontinued);
 
-export function getProduct(id: string): Product | undefined {
-  return PRODUCTS.find((p) => p.id === id);
+export function getBlank(id: string): Blank | undefined {
+  return BLANKS.find((p) => p.id === id);
 }
 
-export function getProductOrThrow(id: string): Product {
-  const product = getProduct(id);
+export function getBlankOrThrow(id: string): Blank {
+  const product = getBlank(id);
   if (!product) throw new Error(`Unknown product: ${id}`);
   return product;
 }
 
 /** Look up the base cost for a specific size (handles per-size and flat pricing). */
-export function getBaseCost(product: Product, size: string): number {
+export function getBaseCost(product: Blank, size: string): number {
   return product.baseCost[size] ?? product.baseCost["*"] ?? 0;
 }
 
@@ -422,7 +439,7 @@ export function getBaseCost(product: Product, size: string): number {
  * purely off baseCost. Same "*"-default lookup as getBaseCost.
  */
 export function getRetailPrice(
-  product: Product,
+  product: Blank,
   size: string
 ): number | undefined {
   return product.retailPrice?.[size] ?? product.retailPrice?.["*"];
@@ -430,7 +447,7 @@ export function getRetailPrice(
 
 /** Look up a Printful variant ID for a product/color/size combo. */
 export function getVariantId(
-  product: Product,
+  product: Blank,
   color: string,
   size: string
 ): number | undefined {
@@ -450,8 +467,8 @@ export function resolveOrderVariant(params: {
   productId: string;
   size: string;
   color: string;
-}): { product: Product; variantId: number } {
-  const product = getProduct(params.productId);
+}): { product: Blank; variantId: number } {
+  const product = getBlank(params.productId);
   if (!product) throw new Error(`Unknown product: ${params.productId}`);
   if (product.discontinued) {
     throw new Error(`Product is no longer available: ${params.productId}`);
@@ -479,7 +496,7 @@ export function resolveOrderVariant(params: {
 export function getColorHex(productId: string | null | undefined, colorName: string | null | undefined): string {
   const FALLBACK = "#e5e5e5";
   if (!productId || !colorName) return FALLBACK;
-  const product = getProduct(productId);
+  const product = getBlank(productId);
   const color = product?.colors.find((c) => c.name === colorName);
   return color?.value ?? FALLBACK;
 }
@@ -488,24 +505,36 @@ export function getColorHex(productId: string | null | undefined, colorName: str
  * Color palette offered as the storefront backdrop for published designs.
  * The default product (Classic Tee) carries the broadest set — light and
  * dark shirts — so we source the picker from it. Color names here resolve
- * via getColorHex(DEFAULT_PRODUCT_ID, name).
+ * via getColorHex(DEFAULT_BLANK_ID, name).
  */
-export const BACKGROUND_PALETTE: ProductColor[] =
-  getProductOrThrow(DEFAULT_PRODUCT_ID).colors;
+export const BACKGROUND_PALETTE: BlankColor[] =
+  getBlankOrThrow(DEFAULT_BLANK_ID).colors;
+
+/**
+ * Backdrop color published designs get when the owner didn't pick one.
+ * Transparent art on a checkerboard reads badly in the Shop (#73), so
+ * publish defaults to White and legacy null rows display as White too.
+ */
+export const DEFAULT_PUBLISH_BACKGROUND = "White";
 
 /**
  * Resolves a published design's backdrop. Art is a transparent PNG layered
- * over either a pinned shirt color (background_color, a name from
- * BACKGROUND_PALETTE) or — when null — the neutral checkerboard.
+ * over a pinned shirt color (background_color, a name from
+ * BACKGROUND_PALETTE). Legacy rows with null background_color display on
+ * White — no transparent/checkerboard backdrop in the Shop (#73).
  */
 export function publishedBackdrop(colorName: string | null | undefined): {
   className: string;
   style?: { backgroundColor: string };
 } {
-  if (!colorName) return { className: "bg-checkerboard" };
   return {
     className: "",
-    style: { backgroundColor: getColorHex(DEFAULT_PRODUCT_ID, colorName) },
+    style: {
+      backgroundColor: getColorHex(
+        DEFAULT_BLANK_ID,
+        colorName ?? DEFAULT_PUBLISH_BACKGROUND
+      ),
+    },
   };
 }
 
@@ -514,7 +543,7 @@ export function publishedBackdrop(colorName: string | null | undefined): {
  * In Phase 1 every product has exactly one placement; multi-placement is
  * Phase 4 work (see docs/print-targets-plan.md).
  */
-export function getDefaultPlacement(product: Product): Placement {
+export function getDefaultPlacement(product: Blank): Placement {
   const p = product.placements[0];
   if (!p) throw new Error(`Product ${product.id} has no placements defined`);
   return p;
@@ -523,7 +552,7 @@ export function getDefaultPlacement(product: Product): Placement {
 /** Look up a placement by its Printful key (e.g. "front", "back"). Throws if
  * the product doesn't define it — callers should gate on
  * productSupportsPlacement first. */
-export function getPlacement(product: Product, placementId: string): Placement {
+export function getPlacement(product: Blank, placementId: string): Placement {
   const p = product.placements.find((pl) => pl.id === placementId);
   if (!p) {
     throw new Error(
@@ -534,7 +563,7 @@ export function getPlacement(product: Product, placementId: string): Placement {
 }
 
 export function productSupportsPlacement(
-  product: Product,
+  product: Blank,
   placementId: string
 ): boolean {
   return product.placements.some((pl) => pl.id === placementId);
@@ -543,7 +572,7 @@ export function productSupportsPlacement(
 /** Placements the customer can optionally add (everything not `required`).
  * The default front is required, so this is the back / sleeves / labels a
  * product offers. */
-export function getOptionalPlacements(product: Product): Placement[] {
+export function getOptionalPlacements(product: Blank): Placement[] {
   return product.placements.filter((pl) => !pl.required);
 }
 
@@ -579,4 +608,106 @@ export function needsAspectRegeneration(
   const r1 = aspectToRatio(sourceAspect);
   const r2 = aspectToRatio(targetAspect);
   return Math.max(r1, r2) / Math.min(r1, r2) >= 1.5;
+}
+
+const DEFAULT_TECHNIQUE: Technique = "dtg";
+const DEFAULT_DPI = 150;
+// Techniques PRNTD can actually fulfill today. Everything is DTG; the rest of
+// Printful's enum is modeled so the validator is ready, but flagged unsupported.
+const SUPPORTED_TECHNIQUES: Technique[] = ["dtg"];
+
+/** A placement's technique, defaulting to dtg when unset. */
+export function placementTechnique(placement: Placement): Technique {
+  return placement.technique ?? DEFAULT_TECHNIQUE;
+}
+
+/** The source artwork a product would print — what the validity rule inspects. */
+export type DesignArtwork = {
+  pixelWidth: number;
+  pixelHeight: number;
+  aspectRatio: AspectRatio;
+  hasTransparency: boolean;
+};
+
+export type FitWarning = {
+  code:
+    | "placement_missing"
+    | "technique_unsupported"
+    | "low_resolution"
+    | "aspect_mismatch"
+    | "needs_transparency";
+  message: string;
+  remediation?: string;
+};
+
+export type FitResult = { ok: boolean; warnings: FitWarning[] };
+
+/**
+ * The validity rule: can this design print on this blank at this placement?
+ * Pure function of (artwork, blank, placement) — the testable core of the
+ * organizer pivot's "Product" object. Policy is **warn + remediate, never
+ * block**: only a missing placement is structurally fatal; everything else is
+ * a warning with a fix hint (regenerate, knock out the background). `ok` means
+ * zero warnings. See docs/organizer-pivot-plan.md.
+ */
+export function validatePlacementFit(params: {
+  blank: Blank;
+  placementId: string;
+  artwork: DesignArtwork;
+  /** Whether the chosen variant is a colored/dark garment (drives the DTG knockout rule). */
+  coloredGarment?: boolean;
+}): FitResult {
+  const { blank, placementId, artwork, coloredGarment } = params;
+  const warnings: FitWarning[] = [];
+
+  if (!productSupportsPlacement(blank, placementId)) {
+    warnings.push({
+      code: "placement_missing",
+      message: `${blank.name} has no "${placementId}" placement.`,
+      remediation: "Pick a different placement or blank.",
+    });
+    return { ok: false, warnings };
+  }
+
+  const placement = getPlacement(blank, placementId);
+  const technique = placementTechnique(placement);
+
+  if (!SUPPORTED_TECHNIQUES.includes(technique)) {
+    warnings.push({
+      code: "technique_unsupported",
+      message: `${technique} printing isn't available yet.`,
+      remediation: "Choose a DTG blank for now.",
+    });
+  }
+
+  const requiredDpi = placement.dpi ?? DEFAULT_DPI;
+  const effectiveDpi = Math.min(
+    artwork.pixelWidth / placement.printArea.width,
+    artwork.pixelHeight / placement.printArea.height
+  );
+  if (effectiveDpi < requiredDpi) {
+    warnings.push({
+      code: "low_resolution",
+      message: `Art is ~${Math.round(effectiveDpi)} DPI at this print size; ${requiredDpi} recommended.`,
+      remediation: "Regenerate at a higher resolution.",
+    });
+  }
+
+  if (needsAspectRegeneration(artwork.aspectRatio, placement.aspectRatio)) {
+    warnings.push({
+      code: "aspect_mismatch",
+      message: `Art is ${artwork.aspectRatio}; ${placementId} prints ${placement.aspectRatio}.`,
+      remediation: "Regenerate at the placement's shape.",
+    });
+  }
+
+  if (technique === "dtg" && coloredGarment && !artwork.hasTransparency) {
+    warnings.push({
+      code: "needs_transparency",
+      message: "A solid background prints as a box on a colored garment.",
+      remediation: "Knock out the background.",
+    });
+  }
+
+  return { ok: warnings.length === 0, warnings };
 }

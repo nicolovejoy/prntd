@@ -10,26 +10,36 @@ function buildImageGalleryContext(images: DesignImage[]): string {
   return `\nImages so far:\n${lines.join("\n")}\n\nEntries marked [user upload] are reference images the user provided. Use them as style/content inspiration. When the user references images by number (e.g., "#2"), you know which image they mean.`;
 }
 
-const CHAT_SYSTEM_PROMPT = `You are a t-shirt design advisor for PRNTD. Help users refine their design ideas through conversation. You do NOT generate images — the user clicks "Generate" when ready.
+const CHAT_SYSTEM_PROMPT = `You are a t-shirt design advisor for PRNTD. Help users refine their design ideas through conversation. You do NOT draw images — the user taps "Draw it" when ready. In user-facing copy always say "draw" / "Draw it", never "generate".
 
 Output format — respond with raw JSON only (no markdown fences around the JSON itself):
 {
   "message": "Your conversational reply (this is the field the user reads; it may contain markdown — see style rules below)",
-  "readyToGenerate": true | false
+  "readyToGenerate": true | false,
+  "options": [ { "label": "Watercolor", "value": "Make it a soft watercolor style" } ]
 }
 
-Readiness rubric for "readyToGenerate":
-- Set true ONLY when the conversation has pinned down BOTH a concrete subject (the WHAT — what's depicted) AND a concrete visual style/medium (the HOW — e.g. clean vector, watercolor, vintage screen-print, hand-drawn ink). A subject with no style is NOT ready — that is the case that produces a clarifying question instead of an image.
-- Otherwise set false, and make "message" the question or nudge that moves toward whichever of subject/style is still missing.
+Readiness + pacing for "readyToGenerate":
+- Set true as soon as there is a concrete SUBJECT (the WHAT — what's depicted). Style is a refinement, not a gate: when the subject is clear but style is open, set true, nudge toward Draw it, and put 3-5 style directions in "options" so picking one stays optional.
+- Set false ONLY when the subject itself is too vague to draw anything (e.g. "something cool", "a design for my team") — then "message" is the ONE question that pins it down.
+- Ask at most ONE clarifying question per new idea. Never ask two in a row: if the user's answer is still loose, go with your best interpretation and nudge toward Draw it instead of asking again.
+
+The "options" field (tappable quick-replies — THIS is how you offer choices):
+- Whenever you ask a multiple-choice question or suggest directions to pick from, put each choice in "options" as { "label": short tappable text, "value": the full message sent as the user's reply if they tap it }.
+- "label" is what the user taps — keep it short (1-3 words, e.g. "Watercolor", "Bold vector", "Vintage badge"). "value" is the natural-language turn submitted on tap (e.g. "Let's go with a vintage screen-print look").
+- Offer 2-5 options. The user can still type freely instead — options are a shortcut, not the only path.
+- Ask ONE question per turn. When several things are still open, pick the single most useful one and ask only that, with its choices as options. Do NOT stack multiple questions.
+- NEVER enumerate choices in prose — not as a list and not mid-sentence. The chips render each choice once, right under your message; naming them in "message" too shows everything twice. Ask the question WITHOUT naming the choices:
+  WRONG: "message": "Is it a situational joke (frog in a funny scenario), a pun caption, or a weird absurdist image?"
+  RIGHT: "message": "A funny frog — love it. What's the vibe?" with options Funny scenario / Pun caption / Weird absurdist.
+- No "1. / 2. / 3.", no "a) / b)", no hyphen or bullet lists of choices inside "message" — ever. Choices rendered in prose don't become tappable buttons, which breaks the phone UI. Every choice goes in "options"; "message" carries only the one question (plus a brief lead-in if needed).
+- Omit "options" (or use []) when there's nothing to pick — a plain nudge or acknowledgement.
 
 Style rules for the "message" field:
-- Be terse and professional. 2-4 short sentences max, then options if relevant.
-- When suggesting directions, ALWAYS number them for easy reference:
-  1. Option one
-  2. Option two
-- Use markdown: **bold** for emphasis, numbered lists for options, line breaks between sections.
+- Be terse and professional. 2-4 short sentences max.
+- Use markdown sparingly: **bold** for emphasis, line breaks between sections. No numbered lists of choices — those go in "options".
 - No filler, no flattery, no "great idea!" — just useful input.
-- End with a short question or nudge toward Generate.
+- End with a short question or nudge toward Draw it (e.g. "when you're ready, tap Draw it").
 - Frame your responses as directions to try, not edits to apply. Use "try", "aim for", "this version", "this direction" — not "fix", "remove", "edit".
 
 Handling negations (very important):
@@ -45,7 +55,7 @@ CRITICAL: The "message" field is conversational prose for the user — never put
 
 What the UI actually offers (do NOT invent other features):
 - A chat box (this conversation).
-- A "Generate" button that triggers a new image from the conversation so far.
+- A "Draw it" button that draws a new image from the conversation so far.
 - An image gallery showing past generations, each with a "Use as reference" action to feed it back into the next generation.
 - Buttons to proceed to product preview / order.
 - That's it. There is no "Remove Background" button, no inpainting, no manual editor, no layer tools, no upload-to-edit. If the user asks for something the UI doesn't have, say so plainly — do not invent an interaction. If the user insists a feature exists, do not capitulate; say you don't have a way to do that here.
@@ -63,7 +73,7 @@ const GENERATE_SYSTEM_PROMPT = `You are a t-shirt design assistant for PRNTD. Yo
 
 Read the conversation to understand what the user wants — both the SUBJECT and the AESTHETIC — then respond with raw JSON (no markdown, no code fences):
 {
-  "message": "Brief acknowledgment of what you're generating",
+  "message": "Brief acknowledgment of what you're drawing (user-facing — say 'draw', never 'generate')",
   "fluxPrompt": "Detailed image generation prompt for Ideogram",
   "negativePrompt": "Optional. Things to push the model AWAY from. Use when the user asks for an aesthetic the model tends to ignore (see Style section below). Empty string if not needed.",
   "referenceImage": null or number (e.g. 2) — set this to the # of a previous design if the user is refining/building on it
@@ -79,7 +89,7 @@ Style — be faithful to the user's intent:
 - DO NOT default to clean / vector / digital illustration unless the user asks for it.
 - If the user asks for hand-painted, brushy, watercolor, distressed, screen-print, sumi-e, pen-and-ink, charcoal, vintage, handmade, scratchy, woodcut, lithograph, halftone, riso, zine, etc. — write that into the prompt with concrete texture cues, and use the negativePrompt field to push AWAY from "clean vector, smooth gradients, digital font, polished illustration, perfect curves".
 - If the user asks for clean / minimal / vector / flat / modern / corporate — write that.
-- If the user is silent on style, ASK before generating rather than guessing.
+- If the user is silent on style, pick a style that suits the subject and say which you chose in "message" — do not stop to ask. Only a subject too vague to draw anything warrants a question instead of an image.
 - Style vocabulary translation tips:
   - "brushy" / "hand-painted" → "sumi-e brush strokes, uneven ink pressure, ink pooling at stroke ends, raw bristle texture, imperfect edges"
   - "distressed" / "vintage" → "halftone screen-print, deliberate ink gaps, slight registration offset, worn texture, faded mid-tones"
@@ -105,6 +115,107 @@ Refinements:
 - When refining a previous design, reference its prompt (shown as "Prompt used: ..." in the gallery context). Make only the specific changes requested. Preserve the rest.
 - Set "referenceImage" to the design number being refined — the image will be passed to the model as a visual reference for style and composition consistency.`;
 
+/** A tappable quick-reply chip: what the user sees vs. the turn sent on tap. */
+export type ChatOption = { label: string; value: string };
+
+const MAX_OPTIONS = 5;
+const MAX_OPTION_LABEL = 40;
+
+/**
+ * Normalize the model's "options" field into clean quick-reply chips. The
+ * model can emit junk (missing label, non-string value, too many, over-long
+ * labels) — this is the single sanitizer so the UI never has to guard.
+ * - drops entries with no usable label;
+ * - value defaults to the (full) label when absent;
+ * - truncates the displayed label, but keeps the full text as the submitted value;
+ * - caps the count.
+ */
+export function quickReplyFromOptions(raw: unknown): ChatOption[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ChatOption[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const r = item as { label?: unknown; value?: unknown };
+    const label = typeof r.label === "string" ? r.label.trim() : "";
+    const value =
+      typeof r.value === "string" && r.value.trim() ? r.value.trim() : label;
+    if (!label || !value) continue;
+    const display =
+      label.length > MAX_OPTION_LABEL
+        ? label.slice(0, MAX_OPTION_LABEL - 1).trimEnd() + "…"
+        : label;
+    out.push({ label: display, value });
+    if (out.length >= MAX_OPTIONS) break;
+  }
+  return out;
+}
+
+const PROSE_LIST_ITEM = /^\s*(?:\d{1,2}[.)]\s+|[-*•]\s+)(.+)$/;
+const MAX_PROSE_OPTION_WORDS = 5;
+
+/**
+ * Deterministic fallback for the "numbered list instead of options" failure:
+ * despite the prompt, the model sometimes answers a multiple-choice question
+ * as a numbered/bulleted list in prose, so no chips render. When a reply's
+ * options are empty and the message ENDS with a short list of option-like
+ * fragments, convert those lines into options and strip them from the prose.
+ *
+ * Deliberately conservative — only converts when ALL hold, so numbered
+ * instructions or explanatory lists are left alone:
+ * - the list is the trailing block of the message (nothing after it);
+ * - 2–5 items, every one a short fragment (≤ 40 chars, ≤ 5 words) with no
+ *   sentence-ending punctuation — instructions read as sentences, choices
+ *   read as labels;
+ * - prose remains before the list (the question survives the strip).
+ *
+ * Returns null when the message shouldn't be converted.
+ */
+export function extractProseOptions(
+  text: string
+): { message: string; options: ChatOption[] } | null {
+  const lines = text.trimEnd().split("\n");
+  const items: string[] = [];
+  let i = lines.length - 1;
+  while (i >= 0) {
+    const m = lines[i].match(PROSE_LIST_ITEM);
+    if (!m) break;
+    items.unshift(m[1].trim());
+    i--;
+  }
+  if (items.length < 2 || items.length > MAX_OPTIONS) return null;
+  for (const item of items) {
+    if (
+      !item ||
+      item.length > MAX_OPTION_LABEL ||
+      item.split(/\s+/).length > MAX_PROSE_OPTION_WORDS ||
+      /[.!?:;,]$/.test(item)
+    ) {
+      return null;
+    }
+  }
+  const message = lines.slice(0, i + 1).join("\n").trimEnd();
+  if (!message) return null;
+  return {
+    message,
+    options: quickReplyFromOptions(items.map((label) => ({ label }))),
+  };
+}
+
+/**
+ * Apply the prose-list fallback to a parsed envelope: only when the model
+ * sent no structured options does the message get scanned for a trailing
+ * choice list. Structured options always win untouched.
+ */
+function withProseOptionsFallback<
+  T extends { message: string; options: ChatOption[] },
+>(envelope: T): T {
+  if (envelope.options.length > 0) return envelope;
+  const salvaged = extractProseOptions(envelope.message);
+  return salvaged
+    ? { ...envelope, message: salvaged.message, options: salvaged.options }
+    : envelope;
+}
+
 /**
  * Pull the chat JSON envelope out of a reply that mixes prose with JSON. The
  * model occasionally emits its conversational text AND the envelope instead
@@ -113,7 +224,7 @@ Refinements:
  */
 export function extractChatEnvelope(
   text: string
-): { message: string; readyToGenerate: boolean } | null {
+): { message: string; readyToGenerate: boolean; options: ChatOption[] } | null {
   const start = text.search(/\{\s*"message"\s*:/);
   if (start === -1) return null;
   for (const end of [text.length, text.lastIndexOf("}") + 1]) {
@@ -124,6 +235,7 @@ export function extractChatEnvelope(
         return {
           message: parsed.message,
           readyToGenerate: parsed.readyToGenerate === true,
+          options: quickReplyFromOptions(parsed.options),
         };
       }
     } catch {
@@ -190,7 +302,7 @@ export async function chatAboutDesign(
   userMessage: string,
   chatHistory: ChatMessage[],
   images: DesignImage[]
-): Promise<{ message: string; readyToGenerate: boolean }> {
+): Promise<{ message: string; readyToGenerate: boolean; options: ChatOption[] }> {
   const { messages, galleryContext } = buildMessages(
     chatHistory,
     images,
@@ -214,26 +326,34 @@ export async function chatAboutDesign(
 
   try {
     const parsed = JSON.parse(text);
-    return {
+    return withProseOptionsFallback({
       message: typeof parsed.message === "string" ? parsed.message : text,
       readyToGenerate: parsed.readyToGenerate === true,
-    };
+      options: quickReplyFromOptions(parsed.options),
+    });
   } catch {
     // Mixed prose + envelope (the model sometimes emits both) — salvage the
     // envelope rather than showing the user the raw JSON blob.
     const envelope = extractChatEnvelope(text);
-    if (envelope) return envelope;
-    return { message: text, readyToGenerate: false };
+    if (envelope) return withProseOptionsFallback(envelope);
+    return withProseOptionsFallback({
+      message: text,
+      readyToGenerate: false,
+      options: [],
+    });
   }
 }
 
-const READINESS_SYSTEM_PROMPT = `You judge whether a t-shirt design idea is concrete enough to generate an image. Reply with raw JSON only (no markdown fences):
-{ "ready": true | false, "question": "if not ready, ONE short question asking for whichever of subject or style is missing; empty string if ready" }
+const READINESS_SYSTEM_PROMPT = `You judge whether a t-shirt design idea is concrete enough to draw. Reply with raw JSON only (no markdown fences):
+{
+  "ready": true | false,
+  "question": "if not ready, ONE short question pinning down the subject; empty string if ready",
+  "options": [ { "label": "Funny scenario", "value": "A frog in a funny scenario" } ]
+}
 
-Ready ONLY when BOTH are clear:
-- SUBJECT — what is depicted.
-- STYLE/medium — e.g. clean vector, watercolor, vintage screen-print, hand-drawn ink, bold graphic.
-A clear subject with no style is NOT ready: set ready=false and ask for the style (you may offer 3-5 style examples). Keep "question" to 1-2 sentences. When genuinely uncertain, lean ready=true — a real idea should never be blocked.`;
+Ready as soon as the SUBJECT (what is depicted) is concrete. Style/medium is NOT required — when it's unstated, the drawing step picks a fitting style the user can refine afterward. Not ready ONLY when the subject is too vague to draw anything (e.g. "something cool", "a shirt for my team"): then ask ONE question, with 2-5 likely directions in "options" as tappable chips { "label": short text, "value": the natural-language reply sent on tap }.
+NEVER name the choices inside "question" — not as a numbered/bulleted list and not mid-sentence. "Is it a funny scenario, a pun caption, or something absurdist?" is WRONG; "What's the vibe?" with those three in "options" is RIGHT — chips render each choice once, and prose repeats them.
+Ask at most one clarifying question per idea: if the conversation shows one was already asked, lean ready=true rather than asking another. Omit "options" (or use []) when ready. Keep "question" to 1-2 sentences; in user-facing copy say "draw" / "Draw it", never "generate". When genuinely uncertain, lean ready=true — a real idea should never be blocked.`;
 
 /**
  * Fast pre-check used by Generate/Compare to decide "render vs ask" without
@@ -247,7 +367,7 @@ export async function assessReadiness(
   chatHistory: ChatMessage[],
   images: DesignImage[],
   userMessage?: string
-): Promise<{ ready: boolean; question: string }> {
+): Promise<{ ready: boolean; question: string; options: ChatOption[] }> {
   const { messages, galleryContext } = buildMessages(
     chatHistory,
     images,
@@ -267,15 +387,26 @@ export async function assessReadiness(
     text = text.replace(/^```(?:json)?\s*\n?/m, "").replace(/\n?```\s*$/m, "").trim();
 
     const parsed = JSON.parse(text);
-    return {
+    const result = {
       ready: parsed.ready !== false,
       question: typeof parsed.question === "string" ? parsed.question : "",
+      options: quickReplyFromOptions(parsed.options),
     };
+    // Same prose-list fallback as chat: a clarifying question that enumerates
+    // its choices as a numbered/bulleted list still renders tappable chips.
+    if (!result.ready && result.options.length === 0 && result.question) {
+      const salvaged = extractProseOptions(result.question);
+      if (salvaged) {
+        result.question = salvaged.message;
+        result.options = salvaged.options;
+      }
+    }
+    return result;
   } catch (err) {
     // Fail open: a parse problem, outage, or model error must never block a
     // real idea. constructFluxPrompt's own guard remains the backstop.
     console.error("assessReadiness failed, treating as ready:", err);
-    return { ready: true, question: "" };
+    return { ready: true, question: "", options: [] };
   }
 }
 
@@ -405,7 +536,7 @@ export async function constructFluxPrompt(
   if (!text) {
     console.error("constructFluxPrompt: empty response from Claude");
     return {
-      message: "Let me generate that for you.",
+      message: "Let me draw that for you.",
       fluxPrompt: "graphic design illustration, high quality, printable",
       negativePrompt: null,
       referenceImage: null,

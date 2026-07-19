@@ -2,12 +2,14 @@ import { describe, it, expect } from "vitest";
 import {
   computePrice,
   computeOrderTotal,
+  computeCartTotal,
   estimateShipping,
+  minRetailPrice,
   FLAT_SHIPPING_USD,
   MARGIN_MULTIPLIER,
   BACK_PLACEMENT_UPCHARGE,
 } from "../pricing";
-import { PRODUCTS } from "../products";
+import { ACTIVE_BLANKS, BLANKS } from "../blanks";
 
 describe("computePrice", () => {
   it("prices the default Classic Tee at its fixed retail price, ignoring generation cost", () => {
@@ -116,12 +118,50 @@ describe("computePrice", () => {
     // with sub-cent precision (e.g. a retailPrice typo of 19.435) would be
     // silently rounded at checkout, so the displayed and charged prices would
     // diverge. Assert every catalog price is already at cent precision.
-    for (const p of PRODUCTS) {
+    for (const p of BLANKS) {
       for (const size of p.sizes) {
         const { total } = computePrice(0, p.id, size);
         expect(Math.round(total * 100) / 100).toBe(total);
       }
     }
+  });
+});
+
+describe("computeCartTotal", () => {
+  it("sums N line-item prices with one order-level shipping charge", () => {
+    const b = computeCartTotal([19.43, 19.43, 21.43], FLAT_SHIPPING_USD);
+    expect(b.item).toBe(19.43 + 19.43 + 21.43);
+    expect(b.shipping).toBe(FLAT_SHIPPING_USD);
+    expect(b.total).toBe(
+      Math.round((19.43 + 19.43 + 21.43 + FLAT_SHIPPING_USD) * 100) / 100
+    );
+  });
+
+  it("charges shipping once regardless of item count (bundled-shipping contract)", () => {
+    const one = computeCartTotal([19.43], FLAT_SHIPPING_USD);
+    const three = computeCartTotal([19.43, 19.43, 19.43], FLAT_SHIPPING_USD);
+    expect(one.shipping).toBe(FLAT_SHIPPING_USD);
+    expect(three.shipping).toBe(FLAT_SHIPPING_USD);
+  });
+
+  it("passes through a live (non-flat) shipping quote unchanged", () => {
+    const b = computeCartTotal([19.43, 19.43], 8.5);
+    expect(b.shipping).toBe(8.5);
+    expect(b.total).toBe(Math.round((19.43 + 19.43 + 8.5) * 100) / 100);
+  });
+
+  it("charges no shipping for an empty cart, even if a shipping quote is passed", () => {
+    const b = computeCartTotal([], FLAT_SHIPPING_USD);
+    expect(b.item).toBe(0);
+    expect(b.shipping).toBe(0);
+    expect(b.total).toBe(0);
+  });
+
+  it("rounds the item subtotal to exact cent precision", () => {
+    // Three prices whose float sum can carry sub-cent error.
+    const b = computeCartTotal([19.43, 19.43, 19.43], FLAT_SHIPPING_USD);
+    expect(Math.round(b.item * 100) / 100).toBe(b.item);
+    expect(Math.round(b.total * 100) / 100).toBe(b.total);
   });
 });
 
@@ -137,5 +177,20 @@ describe("estimateShipping", () => {
 
   it("ships nothing for an empty cart", () => {
     expect(estimateShipping(0)).toBe(0);
+  });
+});
+
+describe("minRetailPrice", () => {
+  it("returns the current catalog floor (Classic Tee S–XL retail)", () => {
+    expect(minRetailPrice()).toBe(19.43);
+  });
+
+  it("never exceeds any purchasable price in the active catalog", () => {
+    const floor = minRetailPrice();
+    for (const blank of ACTIVE_BLANKS) {
+      for (const size of blank.sizes) {
+        expect(floor).toBeLessThanOrEqual(computePrice(0, blank.id, size).total);
+      }
+    }
   });
 });

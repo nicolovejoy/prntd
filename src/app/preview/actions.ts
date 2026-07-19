@@ -2,28 +2,33 @@
 
 import { headers } from "next/headers";
 import { after } from "next/server";
-import { auth } from "@/lib/auth";
+import { auth, isAnonymousUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { design as designTable } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { createMockupTask, pollMockupTask } from "@/lib/printful";
 import {
-  getProduct,
-  getProductOrThrow,
+  getBlank,
+  getBlankOrThrow,
   getPlacement,
   multiPlacementEnabled,
   needsAspectRegeneration,
-  DEFAULT_PRODUCT_ID,
+  DEFAULT_BLANK_ID,
   type AspectRatio,
-} from "@/lib/products";
+} from "@/lib/blanks";
 import { uploadMockupImage, uploadDesignImage } from "@/lib/r2";
 import { generateAnchoredTransparent } from "@/lib/replicate";
 import {
   insertDesignImage,
   findPlacementRender,
-  getDesignImageById,
+  getDesignImageWithOwner,
   getDesignDisplayImageUrl,
 } from "@/lib/design-images";
+import { canUseAsPlacementSource } from "@/lib/design-publish";
+import {
+  getBackSourceGroups,
+  type BackSourceGroup,
+} from "@/lib/back-sources";
 
 const COST_PER_GENERATION = 0.03;
 
@@ -36,10 +41,37 @@ export async function isMultiPlacementEnabled(): Promise<boolean> {
   return multiPlacementEnabled();
 }
 
+/**
+ * Source groups for the /preview back-design picker (#72): the current
+ * thread's images, the user's other designs' display images, and published
+ * Shop images. Anonymous guests get This design + Shop only — their other
+ * designs join My Designs once they claim the account.
+ */
+export async function getBackDesignSources(
+  designId: string
+): Promise<{ groups: BackSourceGroup[] }> {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) throw new Error("Unauthorized");
+
+  const found = await db.query.design.findFirst({
+    where: eq(designTable.id, designId),
+    columns: { id: true, userId: true },
+  });
+  if (!found || found.userId !== session.user.id) {
+    throw new Error("Unauthorized");
+  }
+
+  const groups = await getBackSourceGroups({
+    designId,
+    userId: isAnonymousUser(session.user) ? null : session.user.id,
+  });
+  return { groups };
+}
+
 export async function generateMockup(
   designId: string,
   colorName: string,
-  productId: string = DEFAULT_PRODUCT_ID,
+  productId: string = DEFAULT_BLANK_ID,
   scale: number = 1.0,
   placementId: string = "front",
   /** Source image the placement render was anchored on (#25). Required for a
@@ -70,7 +102,7 @@ export async function generateMockup(
   if (cached) return { mockupUrl: cached };
 
   // Look up product and variant — use "M" for apparel, first available for other products
-  const product = getProductOrThrow(productId);
+  const product = getBlankOrThrow(productId);
   const colorVariants = product.variants[colorName];
   const variantId = colorVariants?.["M"] ?? (colorVariants ? Object.values(colorVariants)[0] : undefined);
   if (!variantId) throw new Error(`No variant for ${colorName} on ${product.name}`);
@@ -90,11 +122,25 @@ export async function generateMockup(
     placement.id,
     sourceImageId
   );
-  const sourceImageUrl =
-    placementRender?.imageUrl ??
-    (sourceImageId
-      ? (await getDesignImageById(sourceImageId))?.imageUrl
-      : await getDesignDisplayImageUrl(designId));
+  let sourceImageUrl = placementRender?.imageUrl ?? null;
+  if (!sourceImageUrl && sourceImageId) {
+    // Explicit source pick — may live on another design (#72). Same guard as
+    // getOrCreatePlacementRender so an arbitrary id can't be mocked up.
+    const source = await getDesignImageWithOwner(sourceImageId);
+    if (
+      source &&
+      canUseAsPlacementSource({
+        image: source,
+        imageOwnerId: source.ownerId,
+        orderDesignId: designId,
+        userId: session.user.id,
+      })
+    ) {
+      sourceImageUrl = source.imageUrl;
+    }
+  } else if (!sourceImageUrl) {
+    sourceImageUrl = await getDesignDisplayImageUrl(designId);
+  }
   if (!sourceImageUrl) throw new Error("No design image");
 
   // Compute scaled position (centered within print area)
@@ -185,13 +231,22 @@ export async function getOrCreatePlacementRender(
     throw new Error("No source image — design has no source pick yet");
   }
 
-  const primary = await getDesignImageById(anchorId);
+  const primary = await getDesignImageWithOwner(anchorId);
   if (!primary) throw new Error("Source image row missing");
-  if (primary.designId !== designId) {
-    throw new Error("Source image does not belong to this design");
+  // Cross-design sources are allowed for the origins the back picker offers
+  // (own designs, published Shop images) — anything else is rejected (#72).
+  if (
+    !canUseAsPlacementSource({
+      image: primary,
+      imageOwnerId: primary.ownerId,
+      orderDesignId: designId,
+      userId: session.user.id,
+    })
+  ) {
+    throw new Error("Source image is not available for this design");
   }
 
-  const product = getProductOrThrow(productId);
+  const product = getBlankOrThrow(productId);
   const placement = getPlacement(product, placementId);
   const targetAspect = placement.aspectRatio;
 
@@ -313,7 +368,7 @@ export async function getOrCreatePlacementRender(
  */
 export async function ensureMockupsPrefetched(
   designId: string,
-  productId: string = DEFAULT_PRODUCT_ID
+  productId: string = DEFAULT_BLANK_ID
 ): Promise<{ kicked: boolean }> {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) throw new Error("Unauthorized");
@@ -338,10 +393,10 @@ export async function ensureMockupsPrefetched(
 
 export async function prefetchProductMockups(
   designId: string,
-  productId: string = DEFAULT_PRODUCT_ID
+  productId: string = DEFAULT_BLANK_ID
 ): Promise<void> {
   const startedAt = Date.now();
-  const product = getProduct(productId);
+  const product = getBlank(productId);
   if (!product) {
     console.warn(`prefetchProductMockups: unknown product ${productId}`);
     return;

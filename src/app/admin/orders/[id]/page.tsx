@@ -8,13 +8,14 @@ import {
   getOrderDetail,
   retryPrintfulSubmission,
   recoverPendingOrder,
+  refundOrder,
   archiveOrder,
   unarchiveOrder,
   setOrderClassification,
   setOrderTags,
 } from "../../actions";
 import { Badge, Button, Card } from "@/components/ui";
-import { getColorHex } from "@/lib/products";
+import { getBlank, getColorHex } from "@/lib/blanks";
 import {
   ORDER_CLASSIFICATIONS,
   CLASSIFICATION_INFO,
@@ -38,6 +39,7 @@ export default function OrderDetailPage() {
   const [loading, setLoading] = useState(true);
   const [retrying, setRetrying] = useState(false);
   const [recovering, setRecovering] = useState(false);
+  const [refunding, setRefunding] = useState(false);
 
   async function fetchOrder() {
     const o = await getOrderDetail(params.id);
@@ -85,6 +87,30 @@ export default function OrderDetailPage() {
     }
   }
 
+  async function handleRefund() {
+    if (
+      !window.confirm(
+        "Refund this customer via Stripe? This issues a real refund and cannot be undone."
+      )
+    )
+      return;
+    setRefunding(true);
+    try {
+      const result = await refundOrder(params.id);
+      if (result.ok) {
+        alert(result.refunded ? "Refund issued." : "Already refunded — no action taken.");
+        await fetchOrder();
+      } else {
+        alert(`Cannot refund: ${result.reason}`);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      alert(`Refund failed: ${message}`);
+    } finally {
+      setRefunding(false);
+    }
+  }
+
   async function handleArchive() {
     if (!window.confirm("Archive this order?")) return;
     await archiveOrder(params.id);
@@ -127,7 +153,7 @@ export default function OrderDetailPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-gray-500">
+      <div className="min-h-screen flex items-center justify-center text-text-faint">
         Loading...
       </div>
     );
@@ -135,7 +161,7 @@ export default function OrderDetailPage() {
 
   if (error || !order) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-gray-500">
+      <div className="min-h-screen flex items-center justify-center text-text-faint">
         {error ?? "Order not found"}
       </div>
     );
@@ -143,6 +169,7 @@ export default function OrderDetailPage() {
 
   const profit =
     order.printfulCost != null ? order.totalPrice - order.printfulCost : null;
+  const hasRefund = order.ledger.some((e) => e.type === "refund");
 
   return (
     <div className="max-w-4xl mx-auto py-8 px-4">
@@ -167,7 +194,7 @@ export default function OrderDetailPage() {
         {order.archivedAt && (
           <span className="text-xs text-text-faint">archived</span>
         )}
-        <span className="text-xs text-gray-400 ml-auto">
+        <span className="text-xs text-text-muted ml-auto">
           {order.createdAt ? new Date(order.createdAt).toLocaleString() : "—"}
         </span>
       </div>
@@ -175,8 +202,8 @@ export default function OrderDetailPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Left column */}
         <div className="space-y-4">
-          {/* Customer */}
-          <Card className="p-4">
+          {/* Customer — data-loop-redact keeps this PII out of feedback page captures */}
+          <Card className="p-4" data-loop-redact="">
             <h3 className="text-xs text-text-muted uppercase mb-2">Customer</h3>
             <p className="text-sm">{order.userEmail}</p>
             {order.shippingName && (
@@ -194,14 +221,21 @@ export default function OrderDetailPage() {
             )}
           </Card>
 
-          {/* Product */}
+          {/* Product — every purchased line (cart orders have several) */}
           <Card className="p-4">
-            <h3 className="text-xs text-text-muted uppercase mb-2">Product</h3>
+            <h3 className="text-xs text-text-muted uppercase mb-2">
+              {order.lines.length > 1 ? `Products (${order.lines.length})` : "Product"}
+            </h3>
             <div className="flex gap-3">
               {order.designImageUrl && (
                 <div
                   className="w-20 h-20 rounded p-2 overflow-hidden flex-shrink-0"
-                  style={{ backgroundColor: getColorHex(order.productId, order.color) }}
+                  style={{
+                    backgroundColor: getColorHex(
+                      order.lines[0]?.blankId ?? order.productId,
+                      order.lines[0]?.color ?? order.color
+                    ),
+                  }}
                 >
                   <img
                     src={order.designImageUrl}
@@ -211,9 +245,24 @@ export default function OrderDetailPage() {
                 </div>
               )}
               <div className="text-sm">
-                <p>
-                  {order.size} / {order.color}
-                </p>
+                {order.lines.map((line, i) => {
+                  const extras = Object.keys(line.placements).filter(
+                    (p) => p !== "front"
+                  );
+                  return (
+                    <p key={i}>
+                      {getBlank(line.blankId)?.name ?? line.blankId} —{" "}
+                      {line.size} / {line.color}
+                      {line.quantity > 1 && ` ×${line.quantity}`}
+                      {extras.length > 0 && (
+                        <span className="text-xs text-text-muted">
+                          {" "}
+                          (+{extras.join(", ")})
+                        </span>
+                      )}
+                    </p>
+                  );
+                })}
                 {order.designedByName && (
                   <p className="text-xs text-text-muted mt-1">
                     Designed by {order.designedByName}
@@ -243,7 +292,7 @@ export default function OrderDetailPage() {
                 </div>
               )}
               {profit != null && (
-                <div className="flex justify-between border-t border-border-default pt-1 mt-1">
+                <div className="flex justify-between border-t border-border pt-1 mt-1">
                   <span className="text-text-muted">Profit</span>
                   <span className={profit >= 0 ? "text-green-400" : "text-red-400"}>
                     ${profit.toFixed(2)}
@@ -258,7 +307,7 @@ export default function OrderDetailPage() {
             <h3 className="text-xs text-text-muted uppercase mb-2">Classification & Tags</h3>
             <div className="space-y-2">
               <select
-                className="text-xs px-2 py-1 rounded bg-surface-base border border-border-default text-text-primary cursor-pointer outline-none"
+                className="text-xs px-2 py-1 rounded bg-surface border border-border text-foreground cursor-pointer outline-none"
                 value={order.classification ?? ""}
                 onChange={(e) => {
                   if (e.target.value) handleClassification(e.target.value as OrderClassification);
@@ -310,6 +359,18 @@ export default function OrderDetailPage() {
                 {retrying ? "Retrying..." : "Retry Printful"}
               </Button>
             )}
+            {order.status === "canceled" &&
+              order.totalPrice > 0 &&
+              order.classification !== "test" &&
+              (hasRefund ? (
+                <span className="text-xs text-text-muted self-center">
+                  Refunded ${order.totalPrice.toFixed(2)}
+                </span>
+              ) : (
+                <Button size="sm" onClick={handleRefund} disabled={refunding}>
+                  {refunding ? "Refunding..." : `Refund $${order.totalPrice.toFixed(2)}`}
+                </Button>
+              ))}
             {order.trackingUrl && (
               <a href={order.trackingUrl} target="_blank" rel="noopener noreferrer">
                 <Button size="sm" variant="secondary">
@@ -347,7 +408,7 @@ export default function OrderDetailPage() {
                       <div className="w-2 h-2 rounded-full bg-border-default mt-1 shrink-0" />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <span className="font-medium text-text-primary">{typeInfo.label}</span>
+                          <span className="font-medium text-foreground">{typeInfo.label}</span>
                           <span className={`font-mono ${typeInfo.color}`}>
                             {entry.amount >= 0 ? "+" : ""}${entry.amount.toFixed(2)}
                           </span>

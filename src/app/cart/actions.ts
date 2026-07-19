@@ -12,13 +12,14 @@ import {
 } from "@/lib/db/schema";
 import { revalidatePath } from "next/cache";
 import {
-  getProduct,
+  getBlank,
   getVariantId,
   resolveOrderVariant,
-} from "@/lib/products";
+} from "@/lib/blanks";
 import { computePrice, computeCartTotal, estimateShipping } from "@/lib/pricing";
-import { multiPlacementEnabled } from "@/lib/products";
+import { multiPlacementEnabled } from "@/lib/blanks";
 import { resolveDesignDisplayImageUrls } from "@/lib/design-images";
+import { assertUsableBackImage } from "@/lib/back-sources";
 import { estimateOrderCosts } from "@/lib/printful";
 import { stripe } from "@/lib/stripe";
 import { buildCartCheckoutSessionParams } from "@/lib/checkout";
@@ -96,6 +97,11 @@ export async function addToCart(params: {
   });
   const frontId = design?.primaryImageId ?? null;
   const backId = multiPlacementEnabled() && params.back ? params.back : null;
+  if (backId) {
+    // Same choke-point guard as createCheckoutSession (#72): only this
+    // thread's images, the user's own designs, or published Shop images.
+    await assertUsableBackImage(backId, params.designId, userId);
+  }
   const placements: Record<string, string> | null = frontId
     ? { front: frontId, ...(backId ? { back: backId } : {}) }
     : null;
@@ -159,7 +165,7 @@ export async function getCart(): Promise<CartView> {
 
   const items: CartLine[] = [];
   for (const r of rows) {
-    const product = getProduct(r.productId);
+    const product = getBlank(r.productId);
     if (!product) continue; // discontinued / unknown — drop from view
     const hasBack = !!r.placements?.back;
     const unitPrice = computePrice(0, r.productId, r.size, { back: hasBack }).total;
@@ -191,8 +197,8 @@ export async function getCart(): Promise<CartView> {
  * Turn the cart into an order and a Stripe Checkout session (#26 B4). The auth
  * gate lives here: anonymous guests get { needsAuth } and sign in first (the
  * cart re-parents to them on sign-in, so it survives). Writes the order +
- * order_item rows, charges N product lines + one bundled shipping line, then
- * clears the cart.
+ * order_item rows and charges N product lines + one bundled shipping line;
+ * the cart itself is cleared by the webhook on payment (#38).
  */
 export async function checkoutCart(): Promise<{
   url: string | null;
@@ -210,10 +216,15 @@ export async function checkoutCart(): Promise<{
   // Order-level row. designId/size/color/productId mirror the first line for
   // back-compat with single-item display code; the authoritative per-item data
   // lives in order_item. Price split is order-level (shipping once).
+  // Order + items commit together (#37) — a crash between the two inserts
+  // used to leave an order with no order_item rows, which would fulfill as
+  // single-item once paid. The id is pre-generated so both statements can be
+  // built before the batch.
   const head = view.items[0];
-  const [newOrder] = await db
-    .insert(orderTable)
-    .values({
+  const orderId = crypto.randomUUID();
+  await db.batch([
+    db.insert(orderTable).values({
+      id: orderId,
       userId,
       designId: head.designId,
       productId: head.productId,
@@ -222,25 +233,24 @@ export async function checkoutCart(): Promise<{
       totalPrice: view.total,
       itemPrice: view.itemSubtotal,
       shippingPrice: view.shipping,
-    })
-    .returning();
-
-  await db.insert(orderItemTable).values(
-    view.items.map((i) => ({
-      orderId: newOrder.id,
-      designId: i.designId,
-      productId: i.productId,
-      size: i.size,
-      color: i.color,
-      placements: i.placements,
-      quantity: i.quantity,
-      itemPrice: i.unitPrice,
-    }))
-  );
+    }),
+    db.insert(orderItemTable).values(
+      view.items.map((i) => ({
+        orderId,
+        designId: i.designId,
+        productId: i.productId,
+        size: i.size,
+        color: i.color,
+        placements: i.placements,
+        quantity: i.quantity,
+        itemPrice: i.unitPrice,
+      }))
+    ),
+  ]);
 
   const checkoutSession = await stripe.checkout.sessions.create(
     buildCartCheckoutSessionParams({
-      orderId: newOrder.id,
+      orderId,
       designId: head.designId,
       lineItems: view.items.map((i) => ({
         name: i.productName,
@@ -258,9 +268,11 @@ export async function checkoutCart(): Promise<{
   await db
     .update(orderTable)
     .set({ stripeSessionId: checkoutSession.id })
-    .where(eq(orderTable.id, newOrder.id));
+    .where(eq(orderTable.id, orderId));
 
-  await clearCart();
+  // The cart is NOT cleared here (#38): backing out of Stripe returns to the
+  // cancel URL /cart, which must still hold the items. The webhook clears the
+  // purchased lines on checkout.session.completed.
 
   return { url: checkoutSession.url };
 }
@@ -276,7 +288,7 @@ async function quoteCartShipping(items: CartLine[]): Promise<number> {
 
   const quoteItems: { variantId: number; quantity: number }[] = [];
   for (const i of items) {
-    const product = getProduct(i.productId);
+    const product = getBlank(i.productId);
     if (!product) continue;
     const variantId = getVariantId(product, i.color, i.size);
     if (variantId) quoteItems.push({ variantId, quantity: i.quantity });

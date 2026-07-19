@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Modal, Button } from "@/components/ui";
 import { BackgroundPicker } from "@/components/background-picker";
+import { DEFAULT_PUBLISH_BACKGROUND } from "@/lib/blanks";
 import { publishImage } from "@/app/designs/actions";
 
 /**
@@ -28,7 +29,7 @@ export function PublishModal({
   const router = useRouter();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [bg, setBg] = useState<string | null>(null);
+  const [bg, setBg] = useState<string>(DEFAULT_PUBLISH_BACKGROUND);
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -56,7 +57,7 @@ export function PublishModal({
       onClose={publishing ? () => {} : onClose}
       className="w-[calc(100vw-2rem)] max-w-lg bg-background border border-border rounded-lg p-5 max-h-[90vh] overflow-y-auto"
     >
-      <h2 className="text-lg font-bold">Publish to Fresh Prints</h2>
+      <h2 className="text-lg font-bold">Publish to the Shop</h2>
       <p className="text-sm text-text-muted mt-1">
         Set how your design appears in the storefront. Leave name or
         description blank to auto-generate them.

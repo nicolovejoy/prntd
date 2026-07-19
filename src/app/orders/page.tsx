@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { getUserOrders } from "./actions";
 import { Badge, Button, Card } from "@/components/ui";
-import { getColorHex } from "@/lib/products";
+import { getColorHex } from "@/lib/blanks";
 
 type Order = Awaited<ReturnType<typeof getUserOrders>>[number];
 
@@ -30,9 +30,9 @@ function formatDate(date: Date | null) {
 
 const filterBtnBase = "text-xs px-2.5 py-1 rounded transition-colors";
 const filterBtnActive =
-  "bg-surface-raised text-text-primary font-medium border border-border-default";
+  "bg-surface-raised text-foreground font-medium border border-border";
 const filterBtnInactive =
-  "text-text-muted hover:text-text-primary border border-transparent";
+  "text-text-muted hover:text-foreground border border-transparent";
 
 export default function OrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
@@ -105,78 +105,90 @@ export default function OrdersPage() {
           <div className="space-y-3">
             {filtered.map((order) => (
               <Card key={order.id} className="p-4">
-                <div className="flex gap-4">
-                  {/* Design thumbnail rendered on the product's selected color */}
-                  <div
-                    className="w-16 h-16 rounded p-1.5 flex-shrink-0 overflow-hidden"
-                    style={{
-                      backgroundColor: order.designImageUrl
-                        ? getColorHex(order.productId, order.color)
-                        : undefined,
-                    }}
-                  >
-                    {order.designImageUrl ? (
-                      <img
-                        src={order.designImageUrl}
-                        alt="Design"
-                        className="w-full h-full object-contain"
-                      />
+                {/* Order header: status + name/id (left), total (right) */}
+                <div className="flex items-center justify-between gap-2 mb-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Badge variant={order.status}>
+                      {statusLabel[order.status] ?? order.status}
+                    </Badge>
+                    {order.displayName ? (
+                      <span className="text-sm font-medium truncate">
+                        {order.displayName}
+                      </span>
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center text-text-faint text-xs bg-surface-raised rounded">
-                        —
-                      </div>
+                      <span className="text-xs text-text-faint font-mono">
+                        {order.id.slice(0, 8)}
+                      </span>
+                    )}
+                    {order.displayName && (
+                      <span className="text-xs text-text-faint font-mono">
+                        {order.id.slice(0, 8)}
+                      </span>
                     )}
                   </div>
+                  <span className="text-sm font-medium whitespace-nowrap">
+                    ${order.totalPrice.toFixed(2)}
+                  </span>
+                </div>
 
-                  {/* Order details */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2 mb-1">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <Badge variant={order.status}>
-                          {statusLabel[order.status] ?? order.status}
-                        </Badge>
-                        {order.displayName ? (
-                          <span className="text-sm font-medium truncate">{order.displayName}</span>
+                {/* One row per purchased shirt */}
+                <div className="space-y-2">
+                  {order.lines.map((line, i) => (
+                    <div key={i} className="flex gap-4">
+                      {/* Design thumbnail on the line's selected color */}
+                      <div
+                        className="w-16 h-16 rounded p-1.5 flex-shrink-0 overflow-hidden"
+                        style={{
+                          backgroundColor: line.imageUrl
+                            ? getColorHex(line.blankId, line.color)
+                            : undefined,
+                        }}
+                      >
+                        {line.imageUrl ? (
+                          <img
+                            src={line.imageUrl}
+                            alt="Design"
+                            className="w-full h-full object-contain"
+                          />
                         ) : (
-                          <span className="text-xs text-text-faint font-mono">
-                            {order.id.slice(0, 8)}
-                          </span>
+                          <div className="w-full h-full flex items-center justify-center text-text-faint text-xs bg-surface-raised rounded">
+                            —
+                          </div>
                         )}
                       </div>
-                      <span className="text-sm font-medium">
-                        ${order.totalPrice.toFixed(2)}
-                      </span>
+
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-text-muted">
+                          {line.size} / {line.color}
+                          {line.quantity > 1 && (
+                            <span className="ml-2">×{line.quantity}</span>
+                          )}
+                        </p>
+                        {line.designedByName && (
+                          <p className="text-xs text-text-faint mt-0.5">
+                            Designed by {line.designedByName}
+                          </p>
+                        )}
+                      </div>
                     </div>
+                  ))}
+                </div>
 
-                    <p className="text-sm text-text-muted">
-                      {order.size} / {order.color}
-                      {order.displayName && (
-                        <span className="text-xs text-text-faint font-mono ml-2">{order.id.slice(0, 8)}</span>
-                      )}
-                    </p>
-
-                    {order.designedByName && (
-                      <p className="text-xs text-text-faint mt-0.5">
-                        Designed by {order.designedByName}
-                      </p>
-                    )}
-
-                    <div className="flex items-center justify-between mt-1">
-                      <span className="text-xs text-text-faint">
-                        {formatDate(order.createdAt)}
-                      </span>
-                      {order.trackingUrl && (
-                        <a
-                          href={order.trackingUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs text-accent underline underline-offset-2"
-                        >
-                          Track shipment
-                        </a>
-                      )}
-                    </div>
-                  </div>
+                {/* Order footer: date + tracking */}
+                <div className="flex items-center justify-between mt-3">
+                  <span className="text-xs text-text-faint">
+                    {formatDate(order.createdAt)}
+                  </span>
+                  {order.trackingUrl && (
+                    <a
+                      href={order.trackingUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-accent underline underline-offset-2"
+                    >
+                      Track shipment
+                    </a>
+                  )}
                 </div>
               </Card>
             ))}

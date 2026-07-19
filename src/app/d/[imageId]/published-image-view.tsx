@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updatePublishedNaming, unpublishImage } from "@/app/designs/actions";
-import { publishedBackdrop } from "@/lib/products";
+import { publishedBackdrop, DEFAULT_PUBLISH_BACKGROUND } from "@/lib/blanks";
 import { BackgroundPicker } from "@/components/background-picker";
 import { Button } from "@/components/ui";
 
@@ -31,11 +31,15 @@ export function PublishedImageView({
   canEdit: boolean;
 }) {
   const router = useRouter();
-  const [bg, setBg] = useState<string | null>(initialBackgroundColor);
+  // Legacy rows can carry null; the picker offers no transparent option
+  // (#73), so seed it with the White display default instead.
+  const [bg, setBg] = useState<string>(
+    initialBackgroundColor ?? DEFAULT_PUBLISH_BACKGROUND
+  );
   const [pending, startTransition] = useTransition();
   const backdrop = publishedBackdrop(bg);
 
-  function pick(color: string | null) {
+  function pick(color: string) {
     const prev = bg;
     setBg(color); // optimistic
     startTransition(async () => {
@@ -67,7 +71,11 @@ export function PublishedImageView({
         style={backdrop.style}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={imageUrl} alt={alt} className="w-full h-auto object-contain" />
+        <img
+          src={imageUrl}
+          alt={alt}
+          className="w-full h-auto max-h-[40vh] md:max-h-none object-contain mx-auto"
+        />
       </div>
 
       {canEdit && (

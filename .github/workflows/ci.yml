@@ -67,6 +67,16 @@ jobs:
 
       - run: npm ci
 
+      # Keep the shared prntd-preview schema current with this PR's migrations
+      # before the E2E run hits the deployed preview app. No-op when nothing is
+      # pending. (Per-PR ephemeral branches are #31; preview is shared for now,
+      # so only additive migrations are safe here.)
+      - name: Apply migrations to preview DB
+        run: npm run db:migrate
+        env:
+          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
+          DATABASE_AUTH_TOKEN: ${{ secrets.PREVIEW_DATABASE_AUTH_TOKEN }}
+
       # Find the preview URL via the GitHub deployments API, then poll it
       # ready WITH the Deployment Protection bypass header (the off-the-shelf
       # wait actions probe without it and 401 forever).

@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { sql, and, eq } from "drizzle-orm";
 import type { db as appDb } from "./db";
 import { generationUsage } from "./db/schema";
 import { guestFunnelEnabled } from "./flags";
@@ -83,4 +83,33 @@ export async function consumeGenerationQuota(opts: {
     identityCap,
     ipCap: IP_GEN_DAILY_CAP,
   });
+}
+
+/** Decrement one (bucket, day) counter by 1, floored at 0. */
+async function unbump(bucket: string, day: string, db: AppDb): Promise<void> {
+  await db
+    .update(generationUsage)
+    .set({ count: sql`max(${generationUsage.count} - 1, 0)` })
+    .where(and(eq(generationUsage.bucket, bucket), eq(generationUsage.day, day)));
+}
+
+/**
+ * Give back the quota unit a generation consumed when that generation then
+ * failed, so a user isn't charged a design for an image they never got.
+ * Mirrors consumeGenerationQuota's identity + IP buckets and floors at 0.
+ * No-op when the funnel flag is off (caps aren't enforced there anyway).
+ * Caller should treat this as best-effort — refund failure must not mask the
+ * original generation error.
+ */
+export async function refundGenerationQuota(opts: {
+  userId: string;
+  ip: string | null;
+  now?: Date;
+  db?: AppDb;
+}): Promise<void> {
+  if (!guestFunnelEnabled()) return;
+  const db = opts.db ?? (await import("./db")).db;
+  const day = dayKeyUTC(opts.now ?? new Date());
+  await unbump(`user:${opts.userId}`, day, db);
+  if (opts.ip) await unbump(`ip:${opts.ip}`, day, db);
 }

@@ -9,7 +9,7 @@ import { addToCart, isCartEnabled } from "../cart/actions";
 import { computeOrderTotal, BACK_PLACEMENT_UPCHARGE } from "@/lib/pricing";
 import { Button } from "@/components/ui";
 import { SizePicker, ColorPicker } from "@/components/product-options";
-import { getProduct, DEFAULT_PRODUCT_ID } from "@/lib/products";
+import { getBlank, DEFAULT_BLANK_ID } from "@/lib/blanks";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
 import { ensureGuestSession } from "@/lib/ensure-guest-session";
@@ -26,8 +26,8 @@ function OrderPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const designId = searchParams.get("id");
-  const productId = searchParams.get("product") ?? DEFAULT_PRODUCT_ID;
-  const product = getProduct(productId);
+  const productId = searchParams.get("product") ?? DEFAULT_BLANK_ID;
+  const product = getBlank(productId);
 
   // Capture the back source once on mount. The URL-sync effect below rewrites
   // the query string, so reading it live would race the flag load and drop it.
@@ -46,7 +46,13 @@ function OrderPageInner() {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [mockupUrl, setMockupUrl] = useState<string | null>(null);
   const [mockupLoading, setMockupLoading] = useState(false);
-  const [size, setSize] = useState(searchParams.get("size") ?? sizes[1] ?? sizes[0] ?? "M");
+  // No default size (#60): start unselected unless the URL carries a valid
+  // one (Stripe cancel → back, or an explicit /preview handoff). The buy
+  // buttons stay disabled until a size is picked.
+  const [size, setSize] = useState<string | null>(() => {
+    const fromUrl = searchParams.get("size");
+    return fromUrl && sizes.includes(fromUrl) ? fromUrl : null;
+  });
   const [color, setColor] = useState(searchParams.get("color") ?? colors[0]?.name ?? "White");
   const [pricing, setPricing] = useState<{
     baseCost: number;
@@ -112,7 +118,7 @@ function OrderPageInner() {
   }, [designId, productId, color]);
 
   useEffect(() => {
-    if (!designId) return;
+    if (!designId || !size) return;
     calculatePrice(designId, productId, size, backActive).then(setPricing);
   }, [designId, productId, size, backActive]);
 
@@ -120,7 +126,8 @@ function OrderPageInner() {
   // source is preserved verbatim (it's captured once, never cleared here).
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    params.set("size", size);
+    if (size) params.set("size", size);
+    else params.delete("size");
     params.set("color", color);
     params.set("product", productId);
     if (backImageId) params.set("back", backImageId);
@@ -129,7 +136,7 @@ function OrderPageInner() {
   }, [size, color, productId, backImageId]);
 
   async function handleCheckout() {
-    if (!designId) return;
+    if (!designId || !size) return;
     setLoading(true);
     try {
       const { url, needsAuth } = await createCheckoutSession({
@@ -153,7 +160,7 @@ function OrderPageInner() {
   }
 
   async function handleAddToCart() {
-    if (!designId) return;
+    if (!designId || !size) return;
     setAddingToCart(true);
     try {
       await addToCart({
@@ -251,9 +258,14 @@ function OrderPageInner() {
           )}
 
           {/* Desktop checkout */}
+          {!size && (
+            <p className="hidden md:block text-sm text-text-muted text-center">
+              Choose a size
+            </p>
+          )}
           <Button
             onClick={handleCheckout}
-            disabled={loading}
+            disabled={loading || !size}
             className="hidden md:block w-full"
             size="lg"
           >
@@ -262,7 +274,7 @@ function OrderPageInner() {
           {cartShown && (
             <Button
               onClick={handleAddToCart}
-              disabled={addingToCart}
+              disabled={addingToCart || !size}
               variant="secondary"
               className="hidden md:block w-full mt-3"
               size="lg"
@@ -275,9 +287,12 @@ function OrderPageInner() {
 
       {/* Mobile sticky checkout bar */}
       <div className="fixed bottom-0 left-0 right-0 z-30 md:hidden bg-background border-t border-border p-4 space-y-2">
+        {!size && (
+          <p className="text-sm text-text-muted text-center">Choose a size</p>
+        )}
         <Button
           onClick={handleCheckout}
-          disabled={loading}
+          disabled={loading || !size}
           className="w-full"
           size="lg"
         >
@@ -290,7 +305,7 @@ function OrderPageInner() {
         {cartShown && (
           <Button
             onClick={handleAddToCart}
-            disabled={addingToCart}
+            disabled={addingToCart || !size}
             variant="secondary"
             className="w-full"
             size="lg"

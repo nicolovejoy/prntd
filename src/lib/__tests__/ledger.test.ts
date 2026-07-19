@@ -104,9 +104,23 @@ describe("summarizeLedger", () => {
 
   it("excludes a tax pass-through from gross profit (1C)", () => {
     // Tax collected is a liability we remit, not profit. Adding a `tax` type
-    // must not move grossProfit.
+    // must not move grossProfit. (This is the deliberate carve-out: an UNKNOWN
+    // type stays out of profit — but refund_cogs_reversal is NOT unknown, it's a
+    // COGS correction and is folded in, see the next test.)
     const base = { sale: 20, stripe_fee: -0.88, cogs: -10 };
     const withTax = summarizeLedger({ ...base, tax: 1.65 });
     expect(withTax.grossProfit).toBe(summarizeLedger(base).grossProfit);
+  });
+
+  it("folds refund_cogs_reversal into gross profit and net COGS (cancel correction)", () => {
+    // A submitted-then-canceled order: COGS booked, then reversed. Profit and
+    // reported COGS must land exactly where a never-fulfilled order would —
+    // otherwise the reversed COGS is silently double-counted against profit.
+    const withCogs = { sale: 20, stripe_fee: -0.88, cogs: -10 };
+    const reversed = summarizeLedger({ ...withCogs, refund_cogs_reversal: 10 });
+    const noCogs = summarizeLedger({ sale: 20, stripe_fee: -0.88 });
+
+    expect(reversed.grossProfit).toBeCloseTo(noCogs.grossProfit, 5);
+    expect(reversed.cogs).toBe(0); // net COGS is zero after the reversal
   });
 });

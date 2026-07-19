@@ -1,9 +1,9 @@
 import Link from "next/link";
 import type { PublishedImage } from "@/app/d/actions";
-import { publishedBackdrop } from "@/lib/products";
+import { publishedBackdrop } from "@/lib/blanks";
 
 /**
- * Shared grid of published ("Fresh Prints") designs. Each card links to the
+ * Shared grid of published (Shop, /prints) designs. Each card links to the
  * buy page at /d/[imageId]. The viewer's own designs are tagged "by you"
  * (set on PublishedImage.isOwn by the feed query).
  */

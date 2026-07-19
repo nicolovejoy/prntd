@@ -1,5 +1,6 @@
 import Replicate from "replicate";
-import type { AspectRatio } from "./products";
+import type { AspectRatio } from "./blanks";
+import { withTimeout } from "./timeout";
 
 const replicate = new Replicate();
 
@@ -10,30 +11,6 @@ const replicate = new Replicate();
 // spins with no error surfaced (issue #15). This ceiling converts that
 // silent hang into a rejection the UI can show.
 const REPLICATE_RUN_TIMEOUT_MS = 120_000;
-
-/**
- * Reject if `run` hasn't settled within `ms`. Note: this does not cancel
- * the underlying Replicate prediction (Promise.race can't), it just stops
- * the caller from waiting indefinitely so an error state can render.
- */
-async function withTimeout<T>(
-  label: string,
-  ms: number,
-  run: () => Promise<T>
-): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(
-      () => reject(new Error(`${label} timed out after ${ms}ms`)),
-      ms
-    );
-  });
-  try {
-    return await Promise.race([run(), timeout]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
 
 /**
  * Run a Replicate call with one retry on 429 (Replicate throttles to
@@ -132,52 +109,4 @@ export async function removeBackground(imageUrl: string): Promise<string> {
     );
     return String(output);
   });
-}
-
-// recraft-v3 takes a WxH size string. 1:1 is the only aspect chat
-// generations use today; the others map to the nearest supported size.
-function toRecraftSize(aspect: AspectRatio): string {
-  switch (aspect) {
-    case "4:5":
-      return "1024x1280";
-    case "1:2":
-      return "1024x2048";
-    default:
-      return "1024x1024";
-  }
-}
-
-/**
- * Generate via Recraft v3 on Replicate (official model — warm, stable,
- * reuses REPLICATE_API_TOKEN). digital_illustration style (this Replicate
- * model doesn't expose true vector_illustration). Recraft has no native
- * transparent output, so BiRefNet drops the background afterward.
- *
- * NOTE: BiRefNet is subject matting — interior white can stay opaque (the
- * open white-fill risk). If a line-drawing case shows opaque interior
- * white and it matters, swap removeBackground for a luminance knockout
- * here (sealed; no change elsewhere).
- */
-export async function generateRecraftTransparent(
-  prompt: string,
-  aspect: AspectRatio = "1:1"
-): Promise<string> {
-  const rgbUrl = await withReplicate429Retry("generateRecraftTransparent", async () => {
-    const output = await withTimeout("generateRecraftTransparent", REPLICATE_RUN_TIMEOUT_MS, () =>
-      replicate.run("recraft-ai/recraft-v3", {
-        input: {
-          prompt,
-          // Replicate's recraft-v3 does not expose Recraft's
-          // `vector_illustration` style (422s on it). `digital_illustration`
-          // is the closest clean-graphic bucket this model accepts. NOTE:
-          // this is raster, not vector — it does NOT inherently solve the
-          // interior white-fill problem the way true vector output would.
-          style: "digital_illustration",
-          size: toRecraftSize(aspect),
-        },
-      })
-    );
-    return String(output);
-  });
-  return await removeBackground(rgbUrl);
 }

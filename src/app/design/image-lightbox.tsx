@@ -12,7 +12,6 @@ export function ImageLightbox({
   onDelete,
   onMakeProducts,
   onPublish,
-  onAdopt,
 }: {
   images: DesignImage[];
   currentIndex: number;
@@ -21,7 +20,6 @@ export function ImageLightbox({
   onDelete: (imageId: string) => void;
   onMakeProducts: (imageUrl: string) => void;
   onPublish: (imageId: string) => void | Promise<void>;
-  onAdopt: (imageId: string, imageUrl: string) => void;
 }) {
   const [publishing, setPublishing] = useState(false);
   const image = images[currentIndex];
@@ -62,7 +60,7 @@ export function ImageLightbox({
         {/* Header */}
         <div className="flex items-center justify-between w-full">
           <div className="flex items-center gap-3">
-            <span className="text-sm text-gray-400 font-mono">
+            <span className="text-sm text-text-muted font-mono">
               #{image.number} of {images.length}
             </span>
             <button
@@ -74,7 +72,7 @@ export function ImageLightbox({
           </div>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-white text-2xl leading-none"
+            className="text-text-muted hover:text-white text-2xl leading-none"
           >
             &times;
           </button>
@@ -86,7 +84,7 @@ export function ImageLightbox({
           <button
             onClick={() => currentIndex > 0 && onNavigate(currentIndex - 1)}
             disabled={currentIndex === 0}
-            className="text-3xl text-gray-400 hover:text-white disabled:opacity-20 shrink-0"
+            className="text-3xl text-text-muted hover:text-white disabled:opacity-20 shrink-0"
           >
             &lsaquo;
           </button>
@@ -131,7 +129,7 @@ export function ImageLightbox({
               currentIndex < images.length - 1 && onNavigate(currentIndex + 1)
             }
             disabled={currentIndex === images.length - 1}
-            className="text-3xl text-gray-400 hover:text-white disabled:opacity-20 shrink-0"
+            className="text-3xl text-text-muted hover:text-white disabled:opacity-20 shrink-0"
           >
             &rsaquo;
           </button>
@@ -142,16 +140,6 @@ export function ImageLightbox({
           <Button onClick={() => onMakeProducts(image.url)}>
             Make Products
           </Button>
-          {image.generator && (
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={() => onAdopt(image.id, image.url)}
-            >
-              Use {image.generator}
-            </Button>
-          )}
           {image.publishedAt ? (
             <span className="self-center text-sm text-text-faint">
               Published ·{" "}

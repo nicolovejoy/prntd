@@ -6,7 +6,7 @@
  *
  * Requires PRINTFUL_API_KEY env var.
  *
- * Output is structured for copy-paste into src/lib/products.ts:
+ * Output is structured for copy-paste into src/lib/blanks.ts:
  *   - The "colors" array (name + hex from Printful)
  *   - The "variants" map (color → size → variantId)
  *   - Pricing summary by size
@@ -73,7 +73,7 @@ async function main() {
     });
   }
 
-  // Colors array — copy into PRODUCTS[].colors
+  // Colors array — copy into BLANKS[].colors
   console.log("=== colors (copy into products.ts) ===");
   console.log("colors: [");
   for (const [color, sizes] of Object.entries(byColor)) {
@@ -82,7 +82,7 @@ async function main() {
   }
   console.log("],");
 
-  // Variants map — copy into PRODUCTS[].variants
+  // Variants map — copy into BLANKS[].variants
   console.log("\n=== variants (copy into products.ts) ===");
   console.log("variants: {");
   for (const [color, sizes] of Object.entries(byColor)) {

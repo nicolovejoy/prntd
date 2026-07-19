@@ -3,7 +3,11 @@
 import { headers } from "next/headers";
 import { auth, isAnonymousUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { design as designTable, order as orderTable } from "@/lib/db/schema";
+import {
+  design as designTable,
+  order as orderTable,
+  orderItem as orderItemTable,
+} from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { stripe } from "@/lib/stripe";
 import { computePrice, computeOrderTotal } from "@/lib/pricing";
@@ -11,9 +15,10 @@ import { buildCheckoutSessionParams } from "@/lib/checkout";
 import {
   resolveOrderVariant,
   multiPlacementEnabled,
-  DEFAULT_PRODUCT_ID,
-} from "@/lib/products";
+  DEFAULT_BLANK_ID,
+} from "@/lib/blanks";
 import { getDesignDisplayImageUrl } from "@/lib/design-images";
+import { assertUsableBackImage } from "@/lib/back-sources";
 
 export async function calculatePrice(
   designId: string,
@@ -56,10 +61,13 @@ export async function createCheckoutSession(params: {
     throw new Error("Design not found");
   }
 
-  const resolvedProductId = params.productId ?? DEFAULT_PRODUCT_ID;
+  const resolvedProductId = params.productId ?? DEFAULT_BLANK_ID;
   // Only honor a back design when the flag is on — keeps a stray `?back=` param
   // from charging the upcharge / pinning a back while the feature is dark.
   const backImageId = multiPlacementEnabled() ? params.back ?? null : null;
+  if (backImageId) {
+    await assertUsableBackImage(backImageId, params.designId, session.user.id);
+  }
   const pricing = await calculatePrice(
     params.designId,
     resolvedProductId,
@@ -113,6 +121,10 @@ export async function createStripeCheckoutForOrder(params: {
   placements: Record<string, string> | null;
   checkoutImageUrl: string | null;
   cancelUrl: string;
+  /** Organizer-pivot attribution (Phase 3). Set for storefront sales so the
+   * order ties back to the store + organizer product; null otherwise. */
+  storeId?: string | null;
+  storeProductId?: string | null;
 }): Promise<{ url: string | null }> {
   // Validate product/size/color before taking money — rejects an
   // unknown/discontinued product or a combo with no fulfillable variant.
@@ -129,9 +141,17 @@ export async function createStripeCheckoutForOrder(params: {
   // charged (after any discount) from Stripe.
   const { item, shipping, total } = computeOrderTotal(params.itemPrice);
 
-  const [newOrder] = await db
-    .insert(orderTable)
-    .values({
+  // Phase 1b: every checkout writes an authoritative order_item row, not just
+  // the cart path — so resolveOrderLines has one shape to read and the Stripe
+  // webhook's per-line cart-clear covers single-item /order purchases too. The
+  // scalar columns stay (dropped in 1c). Order + item commit together; the id
+  // is pre-generated so both inserts build before the batch (the checkoutCart
+  // pattern). Single line, quantity 1; itemPrice is the product line (shipping
+  // is order-level, not per item).
+  const orderId = crypto.randomUUID();
+  await db.batch([
+    db.insert(orderTable).values({
+      id: orderId,
       userId: params.userId,
       designId: params.designId,
       productId: params.productId,
@@ -141,12 +161,24 @@ export async function createStripeCheckoutForOrder(params: {
       itemPrice: item,
       shippingPrice: shipping,
       placements: params.placements,
-    })
-    .returning();
+      storeId: params.storeId ?? null,
+      storeProductId: params.storeProductId ?? null,
+    }),
+    db.insert(orderItemTable).values({
+      orderId,
+      designId: params.designId,
+      productId: params.productId,
+      size: params.size,
+      color: params.color,
+      placements: params.placements,
+      quantity: 1,
+      itemPrice: item,
+    }),
+  ]);
 
   const checkoutSession = await stripe.checkout.sessions.create(
     buildCheckoutSessionParams({
-      orderId: newOrder.id,
+      orderId,
       designId: params.designId,
       productName,
       color: params.color,
@@ -162,7 +194,7 @@ export async function createStripeCheckoutForOrder(params: {
   await db
     .update(orderTable)
     .set({ stripeSessionId: checkoutSession.id })
-    .where(eq(orderTable.id, newOrder.id));
+    .where(eq(orderTable.id, orderId));
 
   return { url: checkoutSession.url };
 }

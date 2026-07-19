@@ -132,6 +132,13 @@ export const order = sqliteTable("order", {
   size: text("size").notNull(),
   color: text("color").notNull(),
   productId: text("product_id").notNull().default("bella-canvas-3001"),
+  // Organizer-pivot Phase 3 attribution (nullable, no backfill). A storefront
+  // sale links to the store + the organizer `product` (the design × blank ×
+  // price sellable) so a later payout phase can sum proceeds per org.
+  // `storeProductId` is distinct from the legacy `productId` above, which holds
+  // a *blank* catalog id, not a `product.id`. Null for non-storefront orders.
+  storeId: text("store_id").references(() => store.id),
+  storeProductId: text("store_product_id").references(() => product.id),
   displayName: text("display_name"),
   quality: text("quality"),  // deprecated — kept for historical orders
   totalPrice: real("total_price").notNull(),
@@ -194,7 +201,9 @@ export const orderItem = sqliteTable("order_item", {
  * Persistent cart (#26 Stage B). Keyed by user — one cart per account, anon or
  * real — so it survives the guest→account claim (re-parented in auth.ts's
  * onLinkAccount alongside design/order). One row per line the customer added;
- * checkout turns these into an order + order_item rows, then clears them.
+ * checkout turns these into an order + order_item rows, and the Stripe webhook
+ * clears the purchased lines on payment (#38) — never at session creation, so
+ * backing out of checkout keeps the cart.
  */
 export const cartItem = sqliteTable("cart_item", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -208,16 +217,90 @@ export const cartItem = sqliteTable("cart_item", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
 
-export const ledgerEntry = sqliteTable("ledger_entry", {
+/**
+ * Organizer-first pivot (Phase 1). A named, shareable shop owned by an
+ * organizer. Many-per-organizer, optimized-for-one: no unique constraint on
+ * ownerId, but the dashboard defaults hard to a single store. `slug` is the
+ * public URL key (/shop/<slug>), unique across all stores. Re-parented to the
+ * real account on the guest→account claim (auth.ts onLinkAccount), alongside
+ * design/order/cart. Object model: docs/organizer-pivot-plan.md.
+ */
+export const store = sqliteTable("store", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  orderId: text("order_id").references(() => order.id),
-  type: text("type").notNull(), // sale, stripe_fee, cogs, refund, refund_cogs_reversal
-  amount: real("amount").notNull(), // positive = money in, negative = money out
-  currency: text("currency").notNull().default("USD"),
-  description: text("description").notNull(),
-  metadata: text("metadata", { mode: "json" }).$type<Record<string, unknown>>(),
+  ownerId: text("owner_id").notNull().references(() => user.id),
+  slug: text("slug").notNull().unique(),
+  name: text("name").notNull(),
+  description: text("description"),
+  // The one per-store brand color (a name from the blank palette, or a hex).
+  // Null → falls back to the monochrome chrome.
+  accentColor: text("accent_color"),
+  status: text("status", { enum: ["draft", "live", "hidden"] }).notNull().default("draft"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
+
+/**
+ * A catalog category of blanks with an availability window (new / seasonal /
+ * expiring). Maps to Printful's catalog-categories; the dated window is ours
+ * and generalizes the per-blank `discontinued` flag. PRNTD-owned (no ownerId).
+ * `availableFrom`/`availableUntil` null → always on.
+ */
+export const productOffering = sqliteTable("product_offering", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  name: text("name").notNull(),
+  // Join to Printful's category id when this mirrors one of theirs.
+  printfulCategoryId: integer("printful_category_id"),
+  availableFrom: integer("available_from", { mode: "timestamp" }),
+  availableUntil: integer("available_until", { mode: "timestamp" }),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
+/**
+ * The organizer's sellable: a design placed on a blank at one or more
+ * placements, priced. Persists the config that today is assembled at
+ * /preview → /order and thrown away. One design → many products. `blankId` is
+ * a catalog blank id (blanks.ts, e.g. "bella-canvas-3001") — NOT a FK, the
+ * catalog is config not a table. `placements` maps a placement key
+ * (front_large/back/…) → the design_image id printed there. `storeId` nullable:
+ * a product can exist loose before it's added to a shop. `price` null → the
+ * computed default (computeOrderTotal). Re-parented on the guest→account claim.
+ */
+export const product = sqliteTable("product", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  ownerId: text("owner_id").notNull().references(() => user.id),
+  storeId: text("store_id").references(() => store.id),
+  designId: text("design_id").notNull().references(() => design.id),
+  blankId: text("blank_id").notNull(),
+  // placement key → design_image id (e.g. { front_large: "<imageId>" }).
+  placements: text("placements", { mode: "json" }).$type<Record<string, string>>(),
+  // Organizer price override; null = computed default at checkout.
+  price: real("price"),
+  status: text("status", { enum: ["draft", "listed", "hidden"] }).notNull().default("draft"),
+  position: integer("position").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
+export const ledgerEntry = sqliteTable(
+  "ledger_entry",
+  {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    orderId: text("order_id").references(() => order.id),
+    type: text("type").notNull(), // sale, stripe_fee, cogs, refund, refund_cogs_reversal
+    amount: real("amount").notNull(), // positive = money in, negative = money out
+    currency: text("currency").notNull().default("USD"),
+    description: text("description").notNull(),
+    metadata: text("metadata", { mode: "json" }).$type<Record<string, unknown>>(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  },
+  // #37 idempotency backstop: every current entry type occurs at most once per
+  // order, so a webhook redelivery that races the live run trips this index and
+  // its whole db.batch rolls back. Rows with NULL order_id (manual entries) are
+  // exempt — SQLite treats NULLs as distinct in unique indexes.
+  (t) => [uniqueIndex("ledger_entry_order_type_unique").on(t.orderId, t.type)]
+);
 
 /**
  * Per-day generation counters for the guest-funnel abuse guard (#26 A3).

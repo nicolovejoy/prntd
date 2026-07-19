@@ -5,6 +5,7 @@ import { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
 import { getCartCount, isCartEnabled } from "@/app/cart/actions";
+import { isStoresEnabled } from "@/app/dashboard/actions";
 
 type NavLink = { href: string; label: string };
 
@@ -29,6 +30,12 @@ export function SiteHeader() {
   }, [pathname, session?.user?.id, showCart]);
   const cartLabel = cartCount > 0 ? `Cart (${cartCount})` : "Cart";
 
+  // Organizer Dashboard (pivot Phase 2) — behind STORES_ENABLED.
+  const [showDashboard, setShowDashboard] = useState(false);
+  useEffect(() => {
+    isStoresEnabled().then(setShowDashboard).catch(() => setShowDashboard(false));
+  }, []);
+
   // Guest-funnel (#26) anonymous sessions don't count as signed-in for the nav:
   // a guest sees the signed-out nav ("Sign in"), not "Sign out" + the gated
   // personal links (/designs, /orders still redirect anon to sign-in).
@@ -36,17 +43,18 @@ export function SiteHeader() {
     Boolean(session) &&
     !(session?.user as { isAnonymous?: boolean } | undefined)?.isAnonymous;
 
-  // Fresh Prints (the community storefront) leads for everyone — it's the
+  // Shop (the community storefront, /prints) leads for everyone — it's the
   // open buy-existing flow. The design-your-own + personal links are
   // auth-gated.
   const links: NavLink[] = isAuthed
     ? [
-        { href: "/prints", label: "Fresh Prints" },
+        { href: "/prints", label: "Shop" },
         { href: "/design", label: "New Design" },
+        ...(showDashboard ? [{ href: "/dashboard", label: "Dashboard" }] : []),
         { href: "/designs", label: "My Designs" },
         { href: "/orders", label: "Orders" },
       ]
-    : [{ href: "/prints", label: "Fresh Prints" }];
+    : [{ href: "/prints", label: "Shop" }];
 
   function signOut() {
     authClient.signOut().then(() => {
@@ -95,7 +103,7 @@ export function SiteHeader() {
               Sign in
             </Link>
           )}
-          <span className="text-xs text-gray-400 font-mono">{buildDate}</span>
+          <span className="text-xs text-text-muted font-mono">{buildDate}</span>
         </div>
 
         {/* Mobile: hamburger */}

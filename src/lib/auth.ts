@@ -2,14 +2,9 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
 import { anonymous } from "better-auth/plugins/anonymous";
-import { eq } from "drizzle-orm";
 import { db } from "./db";
 import * as schema from "./db/schema";
-import {
-  design as designTable,
-  order as orderTable,
-  cartItem as cartItemTable,
-} from "./db/schema";
+import { reparentUserData } from "./reparent-user";
 import { sendPasswordResetEmail } from "./email";
 
 // The auth client resolves to same-origin, so requests come from whatever
@@ -21,9 +16,19 @@ import { sendPasswordResetEmail } from "./email";
 const trustedOrigins = ["https://prntd-*.vercel.app", "https://*.prntd.org"];
 // In dev the page is served from localhost while baseURL points at prod
 // (NEXT_PUBLIC_APP_URL), so the origin check would reject local sign-in and
-// auth'd server actions. Trust localhost only in development — never in prod.
-if (process.env.NODE_ENV === "development") {
-  trustedOrigins.push("http://localhost:3000", "http://localhost:3001");
+// auth'd server actions. Trust localhost only in development, or when the local
+// e2e harness runs a compiled build (NODE_ENV=production but served on
+// localhost:3100 — see playwright.config webServer). E2E_TRUST_LOCALHOST is
+// never set in real prod, so this never widens the production origin set.
+if (
+  process.env.NODE_ENV === "development" ||
+  process.env.E2E_TRUST_LOCALHOST === "true"
+) {
+  trustedOrigins.push(
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "http://localhost:3100"
+  );
 }
 
 export const auth = betterAuth({
@@ -46,24 +51,9 @@ export const auth = betterAuth({
     // real account on sign-in/up — it runs BEFORE the plugin deletes the anon
     // user (better-auth 1.5.6 after-hook order), so the FK re-pointing is safe.
     anonymous({
+      // One atomic batch (#37) — see reparentUserData for the why.
       onLinkAccount: async ({ anonymousUser, newUser }) => {
-        const fromId = anonymousUser.user.id;
-        const toId = newUser.user.id;
-        if (fromId === toId) return;
-        // design_image + chat_message follow via design_id. design, order, and
-        // the persistent cart re-parent by userId.
-        await db
-          .update(designTable)
-          .set({ userId: toId })
-          .where(eq(designTable.userId, fromId));
-        await db
-          .update(orderTable)
-          .set({ userId: toId })
-          .where(eq(orderTable.userId, fromId));
-        await db
-          .update(cartItemTable)
-          .set({ userId: toId })
-          .where(eq(cartItemTable.userId, fromId));
+        await reparentUserData(db, anonymousUser.user.id, newUser.user.id);
       },
     }),
     nextCookies(),

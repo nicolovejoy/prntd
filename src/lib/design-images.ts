@@ -5,8 +5,34 @@ import {
   chatMessage as chatMessageTable,
   type ChatMessage,
 } from "@/lib/db/schema";
-import { eq, and, asc, desc, inArray, isNull, isNotNull } from "drizzle-orm";
-import { getProduct, type AspectRatio } from "@/lib/products";
+import { eq, and, asc, desc, inArray, isNull, isNotNull, sql } from "drizzle-orm";
+import { getBlank, type AspectRatio } from "@/lib/blanks";
+
+/**
+ * Atomically reserve `count` generation numbers for a design in a single
+ * `UPDATE ... RETURNING`, returning the reserved numbers ascending. Two
+ * concurrent generations get disjoint ranges, so the R2 keys they derive
+ * (designs/{id}/{n}.png) never collide — the read-modify-write this replaces
+ * let both read N and both write N+1, permanently overwriting one image.
+ *
+ * A generation that fails after reserving leaves its number unused: gaps in
+ * the sequence are expected and harmless (the number only seeds an R2 key, it
+ * is not a dense index).
+ */
+export async function reserveGenerationNumbers(
+  designId: string,
+  count: number
+): Promise<number[]> {
+  const [row] = await db
+    .update(designTable)
+    .set({ generationCount: sql`${designTable.generationCount} + ${count}` })
+    .where(eq(designTable.id, designId))
+    .returning({ generationCount: designTable.generationCount });
+  if (!row) throw new Error("Design not found");
+  const end = row.generationCount;
+  const start = end - count + 1;
+  return Array.from({ length: count }, (_, i) => start + i);
+}
 
 export type DesignImage = {
   id: string;
@@ -14,7 +40,6 @@ export type DesignImage = {
   url: string;
   prompt: string;
   publishedAt: Date | null;
-  generator: string | null;
 };
 
 /**
@@ -67,7 +92,6 @@ export async function getDesignImagesForAIContext(
     url: s.imageUrl,
     prompt: s.prompt ?? "",
     publishedAt: s.publishedAt,
-    generator: s.generator,
   }));
 }
 
@@ -84,7 +108,6 @@ export async function insertDesignImage(params: {
   generationCost: number;
   productId?: string | null;
   placementId?: string | null;
-  generator?: string | null;
   /** Explicit anchor. For placement renders (#25) this is the source image the
    * render was generated from, so a later lookup can match the exact pick.
    * Omitted for chat-driven generations → defaults to the latest thread image. */
@@ -112,7 +135,6 @@ export async function insertDesignImage(params: {
     imageUrl: params.imageUrl,
     prompt: params.prompt ?? null,
     generationCost: params.generationCost,
-    generator: params.generator ?? null,
     isApproved: false,
   });
   return id;
@@ -201,6 +223,43 @@ export async function getDesignImageById(
 }
 
 /**
+ * Fetch a design_image plus the fields the placement-source guard needs:
+ * publish/moderation state and the owning design's user id (#72). One
+ * joined query so checkout/preview call sites can gate a cross-design
+ * back pick without a second round trip.
+ */
+export async function getDesignImageWithOwner(
+  id: string
+): Promise<{
+  id: string;
+  designId: string;
+  imageUrl: string;
+  aspectRatio: AspectRatio;
+  prompt: string | null;
+  publishedAt: Date | null;
+  isHidden: boolean;
+  ownerId: string;
+} | null> {
+  const rows = await db
+    .select({
+      id: designImageTable.id,
+      designId: designImageTable.designId,
+      imageUrl: designImageTable.imageUrl,
+      aspectRatio: designImageTable.aspectRatio,
+      prompt: designImageTable.prompt,
+      publishedAt: designImageTable.publishedAt,
+      isHidden: designImageTable.isHidden,
+      ownerId: designTable.userId,
+    })
+    .from(designImageTable)
+    .innerJoin(designTable, eq(designTable.id, designImageTable.designId))
+    .where(eq(designImageTable.id, id))
+    .limit(1);
+  if (!rows[0]) return null;
+  return { ...rows[0], aspectRatio: rows[0].aspectRatio as AspectRatio };
+}
+
+/**
  * Find the design_image row whose imageUrl matches a target URL, scoped
  * to a design. Used at order-creation time to pin the order to the
  * specific image that was on screen when the customer clicked checkout.
@@ -269,7 +328,6 @@ export type SourceImage = {
   prompt: string | null;
   createdAt: Date;
   publishedAt: Date | null;
-  generator: string | null;
 };
 
 /**
@@ -288,7 +346,6 @@ export async function getDesignSourceImages(
       prompt: designImageTable.prompt,
       createdAt: designImageTable.createdAt,
       publishedAt: designImageTable.publishedAt,
-      generator: designImageTable.generator,
     })
     .from(designImageTable)
     .where(
@@ -306,7 +363,6 @@ export async function getDesignSourceImages(
     prompt: r.prompt,
     createdAt: r.createdAt,
     publishedAt: r.publishedAt,
-    generator: r.generator,
   }));
 }
 
@@ -356,7 +412,7 @@ export async function getDesignPlacementRenders(
     if (!r.productId) continue;
     let group = byProduct.get(r.productId);
     if (!group) {
-      const product = getProduct(r.productId);
+      const product = getBlank(r.productId);
       group = {
         productId: r.productId,
         productName: product?.name ?? r.productId,

@@ -34,7 +34,7 @@ export function ImageGallery({
     <div className={className ?? "w-80 border-l border-border hidden md:flex flex-col"}>
       {/* Header */}
       <div className="p-4 border-b border-border flex items-center justify-between">
-        <h2 className="text-sm font-medium text-gray-300">
+        <h2 className="text-sm font-medium text-foreground">
           Generations{images.length > 0 && ` (${images.length})`}
         </h2>
         {images.length > 0 && (
@@ -60,8 +60,8 @@ export function ImageGallery({
       <div className="flex-1 overflow-y-auto">
         <div className="p-3">
           {images.length === 0 && !generating && (
-            <p className="text-xs text-gray-500 text-center mt-8">
-              No images yet. Chat about your idea, then hit Generate.
+            <p className="text-xs text-text-faint text-center mt-8">
+              No images yet. Chat about your idea, then hit Draw it.
             </p>
           )}
           <div className="grid grid-cols-2 gap-2">
@@ -84,11 +84,6 @@ export function ImageGallery({
                 <span className="absolute top-1 left-1 bg-black/70 text-white text-[10px] font-mono px-1.5 py-0.5 rounded">
                   #{img.number}
                 </span>
-                {img.generator && (
-                  <span className="absolute bottom-1 left-1 bg-black/70 text-white text-[9px] px-1.5 py-0.5 rounded capitalize">
-                    {img.generator}
-                  </span>
-                )}
               </button>
             ))}
             {generating && (
@@ -104,7 +99,7 @@ export function ImageGallery({
         {/* Product versions — placement-targeted renders, grouped by product */}
         {productGroups.length > 0 && (
           <div className="border-t border-border p-3">
-            <h3 className="text-xs font-medium text-gray-400 mb-2">
+            <h3 className="text-xs font-medium text-text-muted mb-2">
               Product versions
             </h3>
             <div className="space-y-3">
@@ -112,7 +107,7 @@ export function ImageGallery({
                 <div key={group.productId}>
                   <button
                     onClick={() => onSelectProductVersion(group.productId)}
-                    className="text-[11px] text-text-muted hover:text-text-base mb-1"
+                    className="text-[11px] text-text-muted hover:text-foreground mb-1"
                   >
                     {group.productName} &rarr;
                   </button>

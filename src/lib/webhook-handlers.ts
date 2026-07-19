@@ -1,30 +1,24 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
+  cartItem as cartItemTable,
+  ledgerEntry,
   order as orderTable,
-  design as designTable,
   orderItem as orderItemTable,
 } from "@/lib/db/schema";
-import { getProductOrThrow, getVariantId } from "@/lib/products";
 import { assertTransition } from "@/lib/order-state";
-import { recordSale, recordCOGS, recordCancellation } from "@/lib/ledger";
-import type { createOrder } from "@/lib/printful";
-import type { db as appDb } from "@/lib/db";
-import type { generateOrderName } from "@/lib/ai";
+import {
+  saleLedgerRows,
+  refundCogsReversalRow,
+  isUniqueViolation,
+} from "@/lib/ledger";
+import {
+  submitOrderFulfillment,
+  type FulfillmentDeps,
+} from "@/lib/order-fulfillment";
 
-// Dependency interface for testability
-export type WebhookDeps = {
-  db: typeof appDb;
-  createPrintfulOrder: typeof createOrder;
-  generateOrderName: typeof generateOrderName;
-  resolveDesignImageUrl: (designId: string) => Promise<string | null>;
-  // Resolve a specific design_image id to its URL. Used to print the
-  // exact image pinned on the order (`placements.front`) rather than the
-  // design's current display image — which matters when the order was
-  // placed against a published image owned by someone else, or when the
-  // design was regenerated after purchase. Optional: when absent, the
-  // handler falls back to `resolveDesignImageUrl(designId)`.
-  resolveImageUrlById?: (imageId: string) => Promise<string | null>;
-};
+// The webhook deps are exactly the fulfillment deps; the alias keeps the
+// established name for the route + admin call sites and their tests.
+export type WebhookDeps = FulfillmentDeps;
 
 // Stripe checkout.session.completed payload (after retrieval)
 export type StripeSessionData = {
@@ -66,7 +60,7 @@ export async function handleStripeCheckoutCompleted(
   session: StripeSessionData,
   deps: WebhookDeps
 ): Promise<{ action: "skipped" | "paid" | "submitted" | "paid_printful_failed" }> {
-  const { orderId, designId } = session.metadata;
+  const { orderId } = session.metadata;
 
   const foundOrder = await deps.db.query.order.findFirst({
     where: eq(orderTable.id, orderId),
@@ -88,297 +82,98 @@ export async function handleStripeCheckoutCompleted(
     : foundOrder.totalPrice;
 
   // Reconcile the price split from Stripe's authoritative breakdown when
-  // present (1B+ sessions). Falls back to what we stored at order creation
-  // for pre-1B sessions that carry no shipping line.
-  const itemPrice = session.amountSubtotal != null
-    ? session.amountSubtotal / 100
-    : foundOrder.itemPrice;
+  // present (1B+ sessions). Shipping is its own Stripe line, untouched by %
+  // promos. itemPrice is the *post-discount* product revenue = total − shipping
+  // (computed in cents to avoid FP drift), NOT the pre-discount amountSubtotal:
+  // a promo discounts only the product line, so amountSubtotal would leave
+  // itemPrice + shippingPrice > totalPrice (finding #5). This keeps the stored
+  // split internally consistent (item + shipping === total). Falls back to what
+  // we stored at order creation for pre-1B sessions that carry no shipping line.
   const shippingPrice = session.amountShipping != null
     ? session.amountShipping / 100
     : foundOrder.shippingPrice;
+  const itemPrice = session.amountTotal != null && session.amountShipping != null
+    ? (session.amountTotal - session.amountShipping) / 100
+    : foundOrder.itemPrice;
 
-  // Mark as paid with shipping details + discount info
-  await deps.db
-    .update(orderTable)
-    .set({
-      status: "paid",
-      classification: "customer",
-      stripeSessionId: session.id,
-      stripePaymentIntentId: session.paymentIntentId,
-      totalPrice: actualTotal,
-      itemPrice,
-      shippingPrice,
-      discountCode: session.discount?.code ?? null,
-      discountAmount: session.discount?.amount ?? null,
-      shippingName: session.shipping?.name ?? "",
-      shippingAddress1: session.shipping?.address1 ?? "",
-      shippingAddress2: session.shipping?.address2 ?? "",
-      shippingCity: session.shipping?.city ?? "",
-      shippingState: session.shipping?.state ?? "",
-      shippingZip: session.shipping?.zip ?? "",
-      shippingCountry: session.shipping?.country ?? "US",
-      updatedAt: new Date(),
-    })
-    .where(eq(orderTable.id, orderId));
+  // Atomic claim (#37): the paid-update and the sale/fee ledger rows commit
+  // together, and the claim is conditional on status still being `pending` —
+  // so a redelivery racing the live run (Stripe retries past its timeout while
+  // the slow tail is still working) cannot double-process. The loser's batch
+  // trips the ledger_entry (order_id, type) unique index and rolls back whole:
+  // it neither re-marks the order nor doubles the ledger.
+  try {
+    const [claim] = await deps.db.batch([
+      deps.db
+        .update(orderTable)
+        .set({
+          status: "paid",
+          classification: "customer",
+          stripeSessionId: session.id,
+          stripePaymentIntentId: session.paymentIntentId,
+          totalPrice: actualTotal,
+          itemPrice,
+          shippingPrice,
+          discountCode: session.discount?.code ?? null,
+          discountAmount: session.discount?.amount ?? null,
+          shippingName: session.shipping?.name ?? "",
+          shippingAddress1: session.shipping?.address1 ?? "",
+          shippingAddress2: session.shipping?.address2 ?? "",
+          shippingCity: session.shipping?.city ?? "",
+          shippingState: session.shipping?.state ?? "",
+          shippingZip: session.shipping?.zip ?? "",
+          shippingCountry: session.shipping?.country ?? "US",
+          updatedAt: new Date(),
+        })
+        .where(and(eq(orderTable.id, orderId), eq(orderTable.status, "pending"))),
+      deps.db.insert(ledgerEntry).values(
+        saleLedgerRows(
+          orderId,
+          actualTotal,
+          `Order ${orderId.slice(0, 8)} — ${foundOrder.color} ${foundOrder.size}${session.discount ? ` (${session.discount.code} -$${session.discount.amount.toFixed(2)})` : ""}`
+        )
+      ),
+    ]);
+    if (claim.rowsAffected === 0) return { action: "skipped" };
+  } catch (err) {
+    if (isUniqueViolation(err)) return { action: "skipped" };
+    throw err;
+  }
 
-  // Record sale + Stripe fee in ledger (using actual amount charged)
-  await recordSale(
-    orderId,
-    actualTotal,
-    `Order ${orderId.slice(0, 8)} — ${foundOrder.color} ${foundOrder.size}${session.discount ? ` (${session.discount.code} -$${session.discount.amount.toFixed(2)})` : ""}`,
-    deps.db
-  );
-
-  // Multi-item (cart, #26) orders fulfill from order_item rows. Single-item
-  // orders (design-your-own, buy-existing) keep the legacy placements path
-  // below. The sale + price reconciliation above already ran for both.
+  // Fulfillment: one shared tail for single-item (legacy scalar) and cart
+  // (order_item) orders — resolveOrderLines inside submitOrderFulfillment
+  // normalizes both.
   const orderItems = await deps.db.query.orderItem.findMany({
     where: eq(orderItemTable.orderId, orderId),
   });
-  if (orderItems.length > 0) {
-    return submitCartOrder(foundOrder, orderItems, session, deps);
-  }
 
-  // Resolve one print file per placement on the order. Front prefers the
-  // image pinned on the order (placements.front) so we print exactly what the
-  // customer bought — including a published image owned by another designer —
-  // and stay immune to post-purchase regeneration; it falls back to the
-  // design's current display image for orders with no pin. Non-front
-  // placements (back, #25) resolve only via their pinned image id; a missing
-  // one is logged and dropped, never fatal (we still submit the front).
-  const placements = foundOrder.placements ?? {};
-  const frontImageId = placements.front ?? null;
-  const frontUrl =
-    (frontImageId && deps.resolveImageUrlById
-      ? await deps.resolveImageUrlById(frontImageId)
-      : null) ?? (await deps.resolveDesignImageUrl(designId));
-
-  if (!frontUrl) {
-    console.error(`Order ${orderId}: design ${designId} has no image`);
-    return { action: "paid" };
-  }
-
-  const files: { placement: string; url: string }[] = [
-    { placement: "front", url: frontUrl },
-  ];
-  for (const [placement, imageId] of Object.entries(placements)) {
-    if (placement === "front") continue;
-    const url = deps.resolveImageUrlById
-      ? await deps.resolveImageUrlById(imageId)
-      : null;
-    if (url) {
-      files.push({ placement, url });
-    } else {
-      console.error(
-        `Order ${orderId}: placement "${placement}" image ${imageId} unresolved — submitting without it`
-      );
-    }
-  }
-
-  const displayName = await deps.generateOrderName(frontUrl);
-  if (displayName) {
-    await deps.db
-      .update(orderTable)
-      .set({ displayName, updatedAt: new Date() })
-      .where(eq(orderTable.id, orderId));
-  }
-
-  const product = getProductOrThrow(foundOrder.productId ?? "bella-canvas-3001");
-  const variantId = getVariantId(product, foundOrder.color, foundOrder.size);
-  if (!variantId) {
-    console.error(`Order ${orderId}: no variant for ${foundOrder.color} ${foundOrder.size} on ${product.name}`);
-    return { action: "paid" };
-  }
-
+  // #38: the cart survives Stripe-session creation, so backing out of checkout
+  // returns to an intact /cart. Payment is the point of no return — clear the
+  // purchased lines here, matched per line so a single-item /order purchase
+  // (no order_item rows today) or anything added to the cart mid-checkout is
+  // untouched. Runs even if fulfillment fails below: the customer paid.
+  //
+  // Wrapped so a cart-cleanup failure never fails the webhook (finding #3b):
+  // the paid-claim already committed, so a throw here would 400 → Stripe
+  // redelivers → skipped (status≠pending) → fulfillment stranded until the
+  // daily cron. A leftover cart row is cosmetic; log and press on to fulfill.
   try {
-    const printfulOrder = await deps.createPrintfulOrder({
-      files,
-      size: foundOrder.size,
-      color: foundOrder.color,
-      variantId,
-      recipientName: session.shipping?.name ?? "",
-      address1: session.shipping?.address1 ?? "",
-      address2: session.shipping?.address2 || undefined,
-      city: session.shipping?.city ?? "",
-      stateCode: session.shipping?.state ?? "",
-      countryCode: session.shipping?.country ?? "US",
-      zip: session.shipping?.zip ?? "",
-    });
-
-    assertTransition("paid", "submitted");
-
-    // Extract Printful fulfillment cost
-    const printfulCost = printfulOrder.costs?.total
-      ? parseFloat(printfulOrder.costs.total)
-      : null;
-
-    await deps.db
-      .update(orderTable)
-      .set({
-        status: "submitted",
-        printfulOrderId: String(printfulOrder.id),
-        printfulCost,
-        updatedAt: new Date(),
-      })
-      .where(eq(orderTable.id, orderId));
-
-    await deps.db
-      .update(designTable)
-      .set({ status: "ordered", updatedAt: new Date() })
-      .where(eq(designTable.id, designId));
-
-    // Record COGS in ledger
-    if (printfulCost && printfulCost > 0) {
-      await recordCOGS(
-        orderId,
-        printfulCost,
-        `Printful fulfillment PF:${printfulOrder.id}`,
-        deps.db
+    for (const item of orderItems) {
+      await deps.db.delete(cartItemTable).where(
+        and(
+          eq(cartItemTable.userId, foundOrder.userId),
+          eq(cartItemTable.designId, item.designId),
+          eq(cartItemTable.productId, item.productId),
+          eq(cartItemTable.size, item.size),
+          eq(cartItemTable.color, item.color)
+        )
       );
     }
-
-    return { action: "submitted" };
   } catch (err) {
-    console.error(`Order ${orderId}: Printful submission failed:`, err);
-    return { action: "paid_printful_failed" };
-  }
-}
-
-/**
- * Fulfill a multi-item cart order (#26 B4): resolve files + variant per
- * order_item, submit one N-item Printful order, record order-level COGS, and
- * mark every design in the order as ordered. Best-effort per item — an item
- * with no resolvable front image or variant is logged and dropped rather than
- * failing the whole order (the customer already paid).
- */
-async function submitCartOrder(
-  foundOrder: { id: string; totalPrice: number; status: string },
-  orderItems: Array<{
-    designId: string;
-    productId: string;
-    size: string;
-    color: string;
-    quantity: number;
-    placements: Record<string, string> | null;
-  }>,
-  session: StripeSessionData,
-  deps: WebhookDeps
-): Promise<{ action: "skipped" | "paid" | "submitted" | "paid_printful_failed" }> {
-  const orderId = foundOrder.id;
-  const items: {
-    variantId: number;
-    quantity: number;
-    files: { placement: string; url: string }[];
-  }[] = [];
-  let firstFrontUrl: string | null = null;
-
-  for (const item of orderItems) {
-    const placements = item.placements ?? {};
-    const frontImageId = placements.front ?? null;
-    const frontUrl =
-      (frontImageId && deps.resolveImageUrlById
-        ? await deps.resolveImageUrlById(frontImageId)
-        : null) ?? (await deps.resolveDesignImageUrl(item.designId));
-    if (!frontUrl) {
-      console.error(
-        `Order ${orderId}: cart item (design ${item.designId}) has no front image — dropping`
-      );
-      continue;
-    }
-    firstFrontUrl ??= frontUrl;
-
-    const files: { placement: string; url: string }[] = [
-      { placement: "front", url: frontUrl },
-    ];
-    for (const [placement, imageId] of Object.entries(placements)) {
-      if (placement === "front") continue;
-      const url = deps.resolveImageUrlById
-        ? await deps.resolveImageUrlById(imageId)
-        : null;
-      if (url) files.push({ placement, url });
-      else
-        console.error(
-          `Order ${orderId}: cart item placement "${placement}" image ${imageId} unresolved — submitting without it`
-        );
-    }
-
-    const product = getProductOrThrow(item.productId);
-    const variantId = getVariantId(product, item.color, item.size);
-    if (!variantId) {
-      console.error(
-        `Order ${orderId}: no variant for ${item.color} ${item.size} on ${product.name} — dropping item`
-      );
-      continue;
-    }
-    items.push({ variantId, quantity: item.quantity, files });
+    console.error(`Order ${orderId}: cart cleanup failed (non-fatal):`, err);
   }
 
-  if (items.length === 0) {
-    console.error(`Order ${orderId}: no fulfillable cart items`);
-    return { action: "paid" };
-  }
-
-  if (firstFrontUrl) {
-    const displayName = await deps.generateOrderName(firstFrontUrl);
-    if (displayName) {
-      await deps.db
-        .update(orderTable)
-        .set({ displayName, updatedAt: new Date() })
-        .where(eq(orderTable.id, orderId));
-    }
-  }
-
-  try {
-    const printfulOrder = await deps.createPrintfulOrder({
-      items,
-      recipientName: session.shipping?.name ?? "",
-      address1: session.shipping?.address1 ?? "",
-      address2: session.shipping?.address2 || undefined,
-      city: session.shipping?.city ?? "",
-      stateCode: session.shipping?.state ?? "",
-      countryCode: session.shipping?.country ?? "US",
-      zip: session.shipping?.zip ?? "",
-    });
-
-    assertTransition("paid", "submitted");
-
-    const printfulCost = printfulOrder.costs?.total
-      ? parseFloat(printfulOrder.costs.total)
-      : null;
-
-    await deps.db
-      .update(orderTable)
-      .set({
-        status: "submitted",
-        printfulOrderId: String(printfulOrder.id),
-        printfulCost,
-        updatedAt: new Date(),
-      })
-      .where(eq(orderTable.id, orderId));
-
-    // Mark every distinct design in the order as ordered.
-    const designIds = [...new Set(orderItems.map((i) => i.designId))];
-    for (const designId of designIds) {
-      await deps.db
-        .update(designTable)
-        .set({ status: "ordered", updatedAt: new Date() })
-        .where(eq(designTable.id, designId));
-    }
-
-    if (printfulCost && printfulCost > 0) {
-      await recordCOGS(
-        orderId,
-        printfulCost,
-        `Printful fulfillment PF:${printfulOrder.id} (${items.length} items)`,
-        deps.db
-      );
-    }
-
-    return { action: "submitted" };
-  } catch (err) {
-    console.error(`Order ${orderId}: Printful cart submission failed:`, err);
-    return { action: "paid_printful_failed" };
-  }
+  return submitOrderFulfillment(foundOrder, orderItems, session.shipping, deps);
 }
 
 export async function handlePrintfulEvent(
@@ -399,6 +194,12 @@ export async function handlePrintfulEvent(
   }
 
   if (payload.type === "package_shipped") {
+    // Redelivery (#37): Printful retries until it gets a 2xx, and repeated
+    // 400s can get the webhook disabled. Already at (or past) the target
+    // status → acknowledge and do nothing.
+    if (foundOrder.status === "shipped" || foundOrder.status === "delivered") {
+      return { action: "ignored", orderId: foundOrder.id };
+    }
     assertTransition(foundOrder.status, "shipped");
 
     const shipment = payload.data?.shipment;
@@ -419,24 +220,45 @@ export async function handlePrintfulEvent(
   }
 
   if (payload.type === "order_canceled") {
+    // Redelivery (#37): same 200-on-repeat contract as package_shipped, and
+    // it also prevents a doubled COGS-reversal ledger row.
+    if (foundOrder.status === "canceled") {
+      return { action: "ignored", orderId: foundOrder.id };
+    }
     assertTransition(foundOrder.status, "canceled");
 
-    await deps.db
+    // A cancel does NOT refund the customer here — that is an admin-clicked
+    // action (refundOrder), never an automatic webhook side effect, so we don't
+    // book a `refund` row for money that hasn't moved. What IS a fact the
+    // moment Printful cancels: their cost is reversed. If this order booked
+    // COGS, offset it with a `refund_cogs_reversal` row so gross profit isn't
+    // understated. Cancel-update + reversal commit together (#37).
+    const cogsEntry = await deps.db.query.ledgerEntry.findFirst({
+      where: and(
+        eq(ledgerEntry.orderId, foundOrder.id),
+        eq(ledgerEntry.type, "cogs")
+      ),
+    });
+
+    const cancelUpdate = deps.db
       .update(orderTable)
-      .set({
-        status: "canceled",
-        printfulCost: 0,
-        updatedAt: new Date(),
-      })
+      .set({ status: "canceled", printfulCost: 0, updatedAt: new Date() })
       .where(eq(orderTable.id, foundOrder.id));
 
-    // Record cancellation reversal in ledger
-    await recordCancellation(
-      foundOrder.id,
-      foundOrder.totalPrice,
-      `Order ${foundOrder.id.slice(0, 8)} canceled — Printful ${printfulOrderId}`,
-      deps.db
-    );
+    if (cogsEntry) {
+      await deps.db.batch([
+        cancelUpdate,
+        deps.db.insert(ledgerEntry).values(
+          refundCogsReversalRow(
+            foundOrder.id,
+            cogsEntry.amount,
+            `Order ${foundOrder.id.slice(0, 8)} canceled — COGS reversed (Printful ${printfulOrderId})`
+          )
+        ),
+      ]);
+    } else {
+      await cancelUpdate;
+    }
 
     return { action: "canceled", orderId: foundOrder.id };
   }

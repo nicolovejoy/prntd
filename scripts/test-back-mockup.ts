@@ -11,7 +11,7 @@
  * Optional args: [productId] [color] [size] [imageUrl]
  *   npx tsx --env-file=.env.local scripts/test-back-mockup.ts bella-canvas-6400 Black M
  */
-import { getProductOrThrow, getVariantId, getPlacement } from "../src/lib/products";
+import { getBlankOrThrow, getVariantId, getPlacement } from "../src/lib/blanks";
 import { createMockupTask, pollMockupTask } from "../src/lib/printful";
 
 const productId = process.argv[2] ?? "bella-canvas-3001";
@@ -22,7 +22,7 @@ const imageUrl =
   "https://pub-7389d029733346daa7c3196cad2f5288.r2.dev/designs/6f5599a3-9736-40a9-903f-892e66de5cf2/1.png";
 
 async function render(placementId: string) {
-  const product = getProductOrThrow(productId);
+  const product = getBlankOrThrow(productId);
   const variantId = getVariantId(product, color, size);
   if (!variantId) throw new Error(`No variant for ${color}/${size} on ${productId}`);
   const placement = getPlacement(product, placementId);

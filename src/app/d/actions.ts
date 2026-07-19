@@ -10,7 +10,7 @@ import {
 } from "@/lib/db/schema";
 import { eq, and, isNotNull, desc } from "drizzle-orm";
 import { computePrice } from "@/lib/pricing";
-import { DEFAULT_PRODUCT_ID } from "@/lib/products";
+import { DEFAULT_BLANK_ID } from "@/lib/blanks";
 import { createStripeCheckoutForOrder } from "@/app/order/actions";
 import {
   canBuyPublishedImage,
@@ -25,7 +25,7 @@ export type PublishedImage = {
   imageUrl: string;
   title: string | null;
   description: string | null;
-  /** Pinned storefront backdrop (a BACKGROUND_PALETTE color name); null → checkerboard. */
+  /** Pinned storefront backdrop (a BACKGROUND_PALETTE color name); legacy null displays as White (#73). */
   backgroundColor: string | null;
   designerName: string;
   designerId: string;
@@ -224,7 +224,7 @@ export async function buyPublishedDesign(params: {
     throw new Error("Image is not available to buy");
   }
 
-  const resolvedProductId = params.productId ?? DEFAULT_PRODUCT_ID;
+  const resolvedProductId = params.productId ?? DEFAULT_BLANK_ID;
   const pricing = computePrice(0, resolvedProductId, params.size);
 
   return createStripeCheckoutForOrder({

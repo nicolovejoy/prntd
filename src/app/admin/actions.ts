@@ -5,6 +5,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
   order as orderTable,
+  orderItem as orderItemTable,
   design as designTable,
   designImage as designImageTable,
   user as userTable,
@@ -13,21 +14,25 @@ import {
 import { eq, desc, isNull, isNotNull, sum, count, and } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { revalidatePath } from "next/cache";
-import { createOrder } from "@/lib/printful";
+import { createOrder, getOrderByExternalId } from "@/lib/printful";
 import { generateOrderName } from "@/lib/ai";
-import { getProductOrThrow, getVariantId } from "@/lib/products";
 import { assertTransition } from "@/lib/order-state";
 import { summarizeLedger } from "@/lib/ledger";
 import { ORDER_CLASSIFICATIONS, type OrderClassification } from "@/lib/order-classification";
 import { stripe } from "@/lib/stripe";
-import { handleStripeCheckoutCompleted, type StripeSessionData } from "@/lib/webhook-handlers";
+import { handleStripeCheckoutCompleted } from "@/lib/webhook-handlers";
+import { submitOrderFulfillment } from "@/lib/order-fulfillment";
+import { toStripeSessionData } from "@/lib/stripe-session";
+import { resolveOrderLines } from "@/lib/order-lines";
 import { recoverPendingOrderCore } from "@/lib/recover-pending-order";
+import { refundOrderCore, type RefundOrderResult } from "@/lib/refund-order";
 import { sendPostOrderEmails, createDefaultOrderEmailDeps } from "@/lib/order-emails";
 import { sendOrderConfirmation, sendOwnerOrderAlert } from "@/lib/email";
 import {
   resolveOrderImageUrls,
   resolveDesignDisplayImageUrls,
   getDesignDisplayImageUrl,
+  getDesignImageById,
 } from "@/lib/design-images";
 import { designerAttribution } from "@/lib/order-attribution";
 
@@ -99,54 +104,44 @@ export async function retryPrintfulSubmission(orderId: string) {
   if (!foundOrder) throw new Error("Order not found");
   assertTransition(foundOrder.status, "submitted");
 
-  // Resolve the design image to print. Prefers the order's pinned
-  // placement (placements.front), falls back to the design's primary.
-  const designImageUrl = await getDesignDisplayImageUrl(foundOrder.designId);
-  if (!designImageUrl) {
-    throw new Error("Design has no image");
-  }
-
-  const product = getProductOrThrow(foundOrder.productId ?? "bella-canvas-3001");
-  const variantId = getVariantId(product, foundOrder.color, foundOrder.size);
-  if (!variantId) {
-    throw new Error(`No variant for ${foundOrder.color} ${foundOrder.size} on ${product.name}`);
-  }
-
-  const printfulOrder = await createOrder({
-    designImageUrl,
-    size: foundOrder.size,
-    color: foundOrder.color,
-    variantId,
-    recipientName: foundOrder.shippingName ?? "",
-    address1: foundOrder.shippingAddress1 ?? "",
-    address2: foundOrder.shippingAddress2 ?? undefined,
-    city: foundOrder.shippingCity ?? "",
-    stateCode: foundOrder.shippingState ?? "",
-    countryCode: foundOrder.shippingCountry ?? "US",
-    zip: foundOrder.shippingZip ?? "",
+  // Delegate to the same fulfillment tail the Stripe webhook uses, so the
+  // retry handles multi-item orders, pinned placements (front + back), and
+  // COGS exactly like a fresh payment would.
+  const items = await db.query.orderItem.findMany({
+    where: eq(orderItemTable.orderId, orderId),
   });
+  const result = await submitOrderFulfillment(
+    foundOrder,
+    items,
+    {
+      name: foundOrder.shippingName ?? "",
+      address1: foundOrder.shippingAddress1 ?? "",
+      address2: foundOrder.shippingAddress2 ?? "",
+      city: foundOrder.shippingCity ?? "",
+      state: foundOrder.shippingState ?? "",
+      zip: foundOrder.shippingZip ?? "",
+      country: foundOrder.shippingCountry ?? "US",
+    },
+    {
+      db,
+      createPrintfulOrder: createOrder,
+      getPrintfulOrderByExternalId: getOrderByExternalId,
+      generateOrderName,
+      resolveDesignImageUrl: getDesignDisplayImageUrl,
+      resolveImageUrlById: async (imageId) =>
+        (await getDesignImageById(imageId))?.imageUrl ?? null,
+    }
+  );
 
-  const printfulCost = printfulOrder.costs?.total
-    ? parseFloat(printfulOrder.costs.total)
-    : null;
+  if (result.action !== "submitted") {
+    throw new Error(
+      result.action === "paid"
+        ? "No fulfillable lines on this order (missing images or variants) — see logs"
+        : "Printful submission failed — see logs"
+    );
+  }
 
-  await db
-    .update(orderTable)
-    .set({
-      status: "submitted",
-      printfulOrderId: String(printfulOrder.id),
-      printfulCost,
-      updatedAt: new Date(),
-    })
-    .where(eq(orderTable.id, orderId));
-
-  // Mark design as ordered
-  await db
-    .update(designTable)
-    .set({ status: "ordered", updatedAt: new Date() })
-    .where(eq(designTable.id, foundOrder.designId));
-
-  return { printfulOrderId: printfulOrder.id };
+  return { printfulOrderId: result.printfulOrderId };
 }
 
 export type RecoverPendingOrderResult =
@@ -176,58 +171,11 @@ export async function recoverPendingOrder(
           expand: ["total_details.breakdown.discounts.discount"],
         });
 
-        const orderIdMeta = fullSession.metadata?.orderId;
-        const designIdMeta = fullSession.metadata?.designId;
-        if (!orderIdMeta || !designIdMeta) {
-          throw new Error(
-            `Stripe session ${stripeSessionId} missing orderId/designId metadata`
-          );
-        }
-
-        const shipping = fullSession.collected_information?.shipping_details;
-        const paymentIntentId =
-          typeof fullSession.payment_intent === "string"
-            ? fullSession.payment_intent
-            : fullSession.payment_intent?.id ?? null;
-
-        // Discount info — same parsing as the live webhook route
-        const discountEntry = fullSession.total_details?.breakdown?.discounts?.[0];
-        let discount: StripeSessionData["discount"] = null;
-        if (discountEntry && discountEntry.amount > 0) {
-          const promoCodeId = discountEntry.discount.promotion_code;
-          let code = "unknown";
-          if (typeof promoCodeId === "string") {
-            try {
-              const promoCode = await stripe.promotionCodes.retrieve(promoCodeId);
-              code = promoCode.code ?? "unknown";
-            } catch (err) {
-              console.error("Failed to retrieve promotion code during recovery:", err);
-            }
-          }
-          discount = {
-            code,
-            amount: discountEntry.amount / 100,
-          };
-        }
-
-        const sessionData: StripeSessionData = {
-          id: fullSession.id,
-          metadata: { orderId: orderIdMeta, designId: designIdMeta },
-          paymentIntentId,
-          amountTotal: fullSession.amount_total,
-          discount,
-          shipping: shipping
-            ? {
-                name: shipping.name ?? "",
-                address1: shipping.address?.line1 ?? "",
-                address2: shipping.address?.line2 ?? "",
-                city: shipping.address?.city ?? "",
-                state: shipping.address?.state ?? "",
-                zip: shipping.address?.postal_code ?? "",
-                country: shipping.address?.country ?? "US",
-              }
-            : null,
-        };
+        // Same translation as the live webhook route — one function, no drift.
+        const sessionData = await toStripeSessionData(fullSession, {
+          retrievePromotionCode: async (id) =>
+            (await stripe.promotionCodes.retrieve(id)).code ?? null,
+        });
 
         return {
           paymentStatus: fullSession.payment_status,
@@ -239,8 +187,11 @@ export async function recoverPendingOrder(
         handleStripeCheckoutCompleted(sessionData, {
           db,
           createPrintfulOrder: createOrder,
+          getPrintfulOrderByExternalId: getOrderByExternalId,
           generateOrderName,
           resolveDesignImageUrl: getDesignDisplayImageUrl,
+          resolveImageUrlById: async (imageId) =>
+            (await getDesignImageById(imageId))?.imageUrl ?? null,
         }),
 
       sendEmails: (id) =>
@@ -256,6 +207,38 @@ export async function recoverPendingOrder(
     console.error(`recoverPendingOrder(${orderId}) failed:`, err);
     return { ok: false, reason };
   }
+}
+
+/**
+ * Refund a canceled order's customer (finding #1). Admin-clicked only — a
+ * Printful cancel never auto-refunds. Idempotent: a second click is a no-op
+ * (see refundOrderCore). Returns a result object rather than throwing so the UI
+ * can show why a refund was skipped (already refunded, not canceled, $0, etc.).
+ */
+export async function refundOrder(orderId: string): Promise<RefundOrderResult> {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session || session.user.email !== ADMIN_EMAIL) {
+    throw new Error("Unauthorized");
+  }
+
+  const result = await refundOrderCore(orderId, {
+    db,
+    retrievePaymentIntentId: async (stripeSessionId) => {
+      const s = await stripe.checkout.sessions.retrieve(stripeSessionId);
+      return typeof s.payment_intent === "string"
+        ? s.payment_intent
+        : s.payment_intent?.id ?? null;
+    },
+    createRefund: async (paymentIntentId, idempotencyKey) => {
+      await stripe.refunds.create(
+        { payment_intent: paymentIntentId },
+        { idempotencyKey }
+      );
+    },
+  });
+
+  if (result.ok) revalidatePath(`/admin/orders/${orderId}`);
+  return result;
 }
 
 export async function archiveOrder(orderId: string) {
@@ -517,6 +500,7 @@ export async function getOrderDetail(orderId: string) {
         productId: orderTable.productId,
         quality: orderTable.quality,
         totalPrice: orderTable.totalPrice,
+        itemPrice: orderTable.itemPrice,
         printfulCost: orderTable.printfulCost,
         printfulOrderId: orderTable.printfulOrderId,
         trackingNumber: orderTable.trackingNumber,
@@ -569,5 +553,23 @@ export async function getOrderDetail(orderId: string) {
     buyerId: orders[0].buyerId,
   });
 
-  return { ...orders[0], designImageUrl, designedByName, ledger };
+  // Every purchased line — order_item rows for cart orders, the scalar
+  // columns for legacy single-item orders.
+  const items = await db.query.orderItem.findMany({
+    where: eq(orderItemTable.orderId, orderId),
+  });
+  const lines = resolveOrderLines(
+    {
+      designId: orders[0].designId,
+      productId: orders[0].productId,
+      size: orders[0].size,
+      color: orders[0].color,
+      placements: orders[0].placements ?? null,
+      itemPrice: orders[0].itemPrice,
+      printfulCost: orders[0].printfulCost,
+    },
+    items
+  );
+
+  return { ...orders[0], designImageUrl, designedByName, lines, ledger };
 }

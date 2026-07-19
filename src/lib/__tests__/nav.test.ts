@@ -55,14 +55,14 @@ describe("breadcrumbTrail", () => {
       href: "/orders",
     });
     expect(breadcrumbTrail("/d/img1", { from: "/prints" }).at(-1)).toEqual({
-      label: "Fresh Prints",
+      label: "Shop",
       href: "/prints",
     });
   });
 
-  it("falls back to Fresh Prints for a design detail with no origin", () => {
+  it("falls back to the Shop for a design detail with no origin", () => {
     expect(breadcrumbTrail("/d/img1").at(-1)).toEqual({
-      label: "Fresh Prints",
+      label: "Shop",
       href: "/prints",
     });
   });

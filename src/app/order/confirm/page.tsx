@@ -23,9 +23,8 @@ function ConfirmPageInner() {
   const [order, setOrder] = useState<{
     id: string;
     status: string;
-    size: string;
-    color: string;
     totalPrice: number;
+    lines: { blankId: string; size: string; color: string; quantity: number }[];
   } | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -49,7 +48,7 @@ function ConfirmPageInner() {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <p className="text-gray-600">Order not found.</p>
+          <p className="text-text-muted">Order not found.</p>
           <Link href="/design" className="mt-4 underline">
             Start a new design
           </Link>
@@ -69,7 +68,7 @@ function ConfirmPageInner() {
       <div className="max-w-md w-full text-center space-y-6">
         <div className="text-5xl">&#10003;</div>
         <h1 className="text-2xl font-bold">Order confirmed!</h1>
-        <p className="text-gray-600">
+        <p className="text-text-muted">
           Your custom t-shirt is being prepared. Check your order status
           anytime on{" "}
           <Link href="/orders" className="underline underline-offset-2">
@@ -83,14 +82,17 @@ function ConfirmPageInner() {
             <span className="text-text-muted">Order ID</span>
             <span className="font-mono">{order.id.slice(0, 8)}</span>
           </div>
-          <div className="flex justify-between">
-            <span className="text-text-muted">Size</span>
-            <span>{order.size}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-text-muted">Color</span>
-            <span>{order.color}</span>
-          </div>
+          {order.lines.map((line, i) => (
+            <div key={i} className="flex justify-between">
+              <span className="text-text-muted">
+                {order.lines.length > 1 ? `Item ${i + 1}` : "Item"}
+              </span>
+              <span>
+                {line.size} / {line.color}
+                {line.quantity > 1 && ` ×${line.quantity}`}
+              </span>
+            </div>
+          ))}
           <div className="flex justify-between font-bold border-t border-border pt-2">
             <span>Total paid</span>
             <span>${order.totalPrice.toFixed(2)}</span>

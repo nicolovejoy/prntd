@@ -11,7 +11,11 @@ describe("getGenerator", () => {
   });
 
   it("returns the requested adapter when known", () => {
-    expect(getGenerator("recraft").id).toBe("recraft");
+    expect(getGenerator("ideogram").id).toBe("ideogram");
+  });
+
+  it("falls back to the default for a removed adapter id (historical rows)", () => {
+    expect(getGenerator("recraft").id).toBe(DEFAULT_GENERATOR_ID);
   });
 
   it("every adapter's adaptPrompt is identity in v1", () => {

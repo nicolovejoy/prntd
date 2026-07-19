@@ -12,7 +12,7 @@ import {
   setOrderClassification,
 } from "./actions";
 import { Badge, Button, Card } from "@/components/ui";
-import { getColorHex } from "@/lib/products";
+import { getColorHex } from "@/lib/blanks";
 import {
   ORDER_CLASSIFICATIONS,
   CLASSIFICATION_INFO,
@@ -145,7 +145,7 @@ export default function AdminPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-gray-500">
+      <div className="min-h-screen flex items-center justify-center text-text-faint">
         Loading...
       </div>
     );
@@ -153,7 +153,7 @@ export default function AdminPage() {
 
   if (error || !data) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-gray-500">
+      <div className="min-h-screen flex items-center justify-center text-text-faint">
         {error ?? "Failed to load"}
       </div>
     );
@@ -220,8 +220,8 @@ export default function AdminPage() {
               onClick={() => dispatch({ type: "SET_ALL_CLASSIFICATIONS" })}
               className={`text-xs px-2.5 py-1 rounded transition-colors ${
                 allSelected
-                  ? "bg-surface-raised text-text-primary font-medium border border-border-default"
-                  : "text-text-muted hover:text-text-primary border border-transparent"
+                  ? "bg-surface-raised text-foreground font-medium border border-border"
+                  : "text-text-muted hover:text-foreground border border-transparent"
               }`}
             >
               All
@@ -232,8 +232,8 @@ export default function AdminPage() {
                 onClick={() => dispatch({ type: "TOGGLE_CLASSIFICATION", classification: c })}
                 className={`text-xs px-2.5 py-1 rounded transition-colors ${
                   filterState.classifications.has(c)
-                    ? "bg-surface-raised text-text-primary font-medium border border-border-default"
-                    : "text-text-muted hover:text-text-primary border border-transparent"
+                    ? "bg-surface-raised text-foreground font-medium border border-border"
+                    : "text-text-muted hover:text-foreground border border-transparent"
                 }`}
               >
                 {CLASSIFICATION_INFO[c].label}
@@ -245,8 +245,8 @@ export default function AdminPage() {
               onClick={() => dispatch({ type: "TOGGLE_ARCHIVED" })}
               className={`text-xs px-2.5 py-1 rounded transition-colors ${
                 filterState.showArchived
-                  ? "bg-surface-raised text-text-primary font-medium border border-border-default"
-                  : "text-text-muted hover:text-text-primary border border-transparent"
+                  ? "bg-surface-raised text-foreground font-medium border border-border"
+                  : "text-text-muted hover:text-foreground border border-transparent"
               }`}
             >
               Archived ({archivedCount})
@@ -256,11 +256,12 @@ export default function AdminPage() {
       </div>
 
       {displayed.length === 0 ? (
-        <p className="text-gray-500">No orders.</p>
+        <p className="text-text-faint">No orders.</p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm text-left">
-            <thead className="border-b text-gray-500 text-xs uppercase">
+          {/* data-loop-redact: rows carry customer names/locations — keep out of feedback page captures */}
+          <table className="w-full text-sm text-left" data-loop-redact="">
+            <thead className="border-b text-text-faint text-xs uppercase">
               <tr>
                 <th className="py-3 pr-4">Order</th>
                 {["Status", "Customer", "Design", "Details", "Shipping", "Revenue", "COGS", "Profit", "Printful", "Date", ""].map(
@@ -277,7 +278,7 @@ export default function AdminPage() {
                     return (
                       <th
                         key={label}
-                        className="py-3 pr-4 cursor-pointer select-none hover:text-text-primary"
+                        className="py-3 pr-4 cursor-pointer select-none hover:text-foreground"
                         onClick={() => dispatch({ type: "SET_SORT", field: sortable.field })}
                       >
                         {label}
@@ -321,7 +322,7 @@ export default function AdminPage() {
                           <span className="text-xs text-text-faint">archived</span>
                         )}
                         <select
-                          className="text-[10px] px-1.5 py-0.5 rounded bg-surface-base border border-border-default text-text-primary cursor-pointer outline-none"
+                          className="text-[10px] px-1.5 py-0.5 rounded bg-surface border border-border text-foreground cursor-pointer outline-none"
                           value={order.classification ?? ""}
                           onChange={(e) => {
                             if (e.target.value) {
@@ -386,7 +387,7 @@ export default function AdminPage() {
                         <>
                           {order.shippingName}
                           <br />
-                          <span className="text-gray-400">
+                          <span className="text-text-muted">
                             {[order.shippingCity, order.shippingState]
                               .filter(Boolean)
                               .join(", ")}
@@ -414,7 +415,7 @@ export default function AdminPage() {
                     <td className="py-3 pr-4 font-mono text-xs text-text-muted">
                       {order.printfulOrderId ?? "—"}
                     </td>
-                    <td className="py-3 pr-4 text-xs text-gray-400 whitespace-nowrap">
+                    <td className="py-3 pr-4 text-xs text-text-muted whitespace-nowrap">
                       {order.createdAt
                         ? new Date(order.createdAt).toLocaleString(undefined, {
                             dateStyle: "short",
@@ -482,7 +483,7 @@ export default function AdminPage() {
 
       {/* Classification reference */}
       <details className="mt-8">
-        <summary className="text-sm text-text-muted cursor-pointer hover:text-text-primary">
+        <summary className="text-sm text-text-muted cursor-pointer hover:text-foreground">
           Classification Reference
         </summary>
         <div className="mt-3 space-y-4">
@@ -491,7 +492,7 @@ export default function AdminPage() {
               const info = CLASSIFICATION_INFO[c];
               return (
                 <div key={c} className="text-xs">
-                  <span className="font-medium text-text-primary">{info.label}</span>
+                  <span className="font-medium text-foreground">{info.label}</span>
                   <span className="text-text-muted ml-2">{info.description}</span>
                   <span className="text-text-faint ml-2">— {info.accountingNote}</span>
                 </div>

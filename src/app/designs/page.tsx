@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { getUserDesigns, deleteDesign, archiveDesign, unpublishImage } from "./actions";
 import { Badge, Button } from "@/components/ui";
 import { PublishModal } from "@/components/publish-modal";
+import { publishedBackdrop } from "@/lib/blanks";
 
 type Design = Awaited<ReturnType<typeof getUserDesigns>>[number];
 
@@ -86,7 +87,7 @@ export default function DesignsPage() {
         </div>
 
         {loading ? (
-          <p className="text-gray-500">Loading...</p>
+          <p className="text-text-faint">Loading...</p>
         ) : loadError ? (
           <div className="text-center py-16 space-y-2">
             <p className="text-red-400 font-medium">Failed to load designs.</p>
@@ -94,17 +95,27 @@ export default function DesignsPage() {
           </div>
         ) : designs.length === 0 ? (
           <div className="text-center py-16 space-y-4">
-            <p className="text-gray-500 text-lg">No designs yet.</p>
+            <p className="text-text-faint text-lg">No designs yet.</p>
             <Link href="/design">
               <Button>Start your first design</Button>
             </Link>
           </div>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            {designs.map((design) => (
+            {designs.map((design) => {
+              // Published designs render over their chosen storefront
+              // backdrop (matching PublishedGrid; null → White, #73);
+              // unpublished ones keep the checkerboard working view.
+              const backdrop = design.primaryImagePublishedAt
+                ? publishedBackdrop(design.primaryImageBackgroundColor)
+                : { className: "bg-checkerboard", style: undefined };
+              return (
               <div key={design.id} className="border rounded-lg overflow-hidden group">
                 <Link href={getDesignHref(design)} className="block">
-                  <div className="aspect-square bg-checkerboard flex items-center justify-center">
+                  <div
+                    className={`aspect-square flex items-center justify-center ${backdrop.className}`}
+                    style={backdrop.style}
+                  >
                     {design.imageUrl ? (
                       <img
                         src={design.imageUrl}
@@ -112,7 +123,7 @@ export default function DesignsPage() {
                         className="w-full h-full object-cover"
                       />
                     ) : (
-                      <span className="text-gray-400 text-sm">No image yet</span>
+                      <span className="text-text-muted text-sm">No image yet</span>
                     )}
                   </div>
                 </Link>
@@ -121,11 +132,11 @@ export default function DesignsPage() {
                     <Badge variant={design.status}>
                       {design.status}
                     </Badge>
-                    <span className="text-xs text-gray-400 whitespace-nowrap">
+                    <span className="text-xs text-text-muted whitespace-nowrap">
                       {timeAgo(new Date(design.updatedAt))}
                     </span>
                   </div>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-text-faint">
                     {design.generationCount} generation{design.generationCount !== 1 ? "s" : ""}
                   </p>
                   <div className="flex flex-wrap items-center gap-2">
@@ -143,13 +154,18 @@ export default function DesignsPage() {
                         </Button>
                       </>
                     ) : (
-                      <Button
-                        variant="danger"
-                        size="sm"
-                        onClick={() => handleDelete(design.id)}
-                      >
-                        Delete
-                      </Button>
+                      <>
+                        <Link href={getDesignHref(design)}>
+                          <Button size="sm">Edit</Button>
+                        </Link>
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          onClick={() => handleDelete(design.id)}
+                        >
+                          Delete
+                        </Button>
+                      </>
                     )}
                   </div>
                   {design.primaryImageId && (
@@ -185,7 +201,8 @@ export default function DesignsPage() {
                   )}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </main>

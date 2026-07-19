@@ -22,7 +22,7 @@ function ResetPasswordForm() {
       <div className="min-h-screen flex items-center justify-center">
         <div className="w-full max-w-sm space-y-6 text-center">
           <h1 className="text-2xl font-bold">Invalid link</h1>
-          <p className="text-gray-600 text-sm">This reset link is missing a token.</p>
+          <p className="text-text-muted text-sm">This reset link is missing a token.</p>
           <Link href="/forgot-password" className="text-sm underline">
             Request a new one
           </Link>
@@ -36,7 +36,7 @@ function ResetPasswordForm() {
       <div className="min-h-screen flex items-center justify-center">
         <div className="w-full max-w-sm space-y-6 text-center">
           <h1 className="text-2xl font-bold">Password updated</h1>
-          <p className="text-gray-600 text-sm">You can now sign in with your new password.</p>
+          <p className="text-text-muted text-sm">You can now sign in with your new password.</p>
           <Link href="/sign-in">
             <Button className="w-full">Sign in</Button>
           </Link>
@@ -107,7 +107,7 @@ function ResetPasswordForm() {
             {loading ? "Updating..." : "Update password"}
           </Button>
         </form>
-        <p className="text-center text-sm text-gray-600">
+        <p className="text-center text-sm text-text-muted">
           <Link href="/sign-in" className="underline">
             Back to sign in
           </Link>

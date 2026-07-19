@@ -25,7 +25,7 @@ export function EditableNaming({ imageId, title, description, canEdit }: Props) 
       <>
         {(title || canEdit) && (
           <div className="flex items-baseline gap-3">
-            <h1 className="text-2xl font-bold">{title ?? "Untitled"}</h1>
+            <h1 className="text-xl sm:text-2xl font-bold">{title ?? "Untitled"}</h1>
             {canEdit && (
               <button
                 onClick={() => setEditing(true)}
@@ -37,7 +37,9 @@ export function EditableNaming({ imageId, title, description, canEdit }: Props) 
           </div>
         )}
         {description && (
-          <p className="text-base leading-relaxed pt-2">{description}</p>
+          <p className="text-sm sm:text-base leading-snug sm:leading-relaxed">
+            {description}
+          </p>
         )}
       </>
     );

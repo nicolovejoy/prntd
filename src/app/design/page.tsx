@@ -5,8 +5,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   sendChatMessage,
   generateDesign,
-  compareGenerators,
-  adoptGenerator,
   selectImage,
   deleteDesignImage,
   getDesign,
@@ -17,6 +15,7 @@ import {
 } from "./actions";
 import { PublishModal } from "@/components/publish-modal";
 import type { ChatMessage } from "@/lib/db/schema";
+import type { ChatOption } from "@/lib/ai";
 import type { DesignImage, ProductVersionGroup } from "@/lib/design-images";
 import { ChatPanel } from "./chat-panel";
 import { ImageGallery } from "./image-gallery";
@@ -49,10 +48,12 @@ function DesignPageInner() {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [publishImageId, setPublishImageId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [activeGenerator, setActiveGenerator] = useState("ideogram");
   // Soft nudge: Generate/Compare dim until Claude judges the idea concrete
   // (subject + style). A design with existing renders starts ready.
   const [readyToGenerate, setReadyToGenerate] = useState(false);
+  // Tappable quick-replies attached to the most recent assistant turn. Cleared
+  // at the start of every new turn so chips never outlive the question.
+  const [options, setOptions] = useState<ChatOption[]>([]);
 
   const refreshGallery = useCallback(async () => {
     const { sources, productGroups } = await getDesignGallery(designId.current);
@@ -64,7 +65,6 @@ function DesignPageInner() {
         url: s.imageUrl,
         prompt: "",
         publishedAt: s.publishedAt,
-        generator: s.generator,
       }))
     );
     setProductGroups(productGroups);
@@ -77,6 +77,24 @@ function DesignPageInner() {
     ensureGuestSession();
   }, []);
 
+  // Landing seed: /design?prompt=… fires Draw-it once with the seeded idea
+  // (new designs only — never when resuming via ?id=). Ref-guarded so React
+  // Strict Mode's double effect can't fire it twice; the param is stripped
+  // immediately so refresh/back doesn't resubmit — via history.replaceState
+  // (shallow, no router re-render) because a router.replace issued right
+  // before a server-action call gets cancelled by the action. A thin seed is
+  // caught by the fast readiness check inside generateDesign and answered
+  // with a clarifying question instead of a render — no new guard needed.
+  const seedFired = useRef(false);
+  useEffect(() => {
+    const prompt = searchParams.get("prompt");
+    if (!prompt || searchParams.get("id") || seedFired.current) return;
+    seedFired.current = true;
+    window.history.replaceState(null, "", "/design");
+    handleGenerate(prompt);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Load existing design if resuming
   const id = searchParams.get("id");
   useEffect(() => {
@@ -85,7 +103,6 @@ function DesignPageInner() {
       if (!design) return;
       setMessages(chat);
       setSelectedImage(design.displayImageUrl);
-      setActiveGenerator(design.activeGeneratorId ?? "ideogram");
     });
     refreshGallery();
   }, [id, refreshGallery]);
@@ -107,6 +124,7 @@ function DesignPageInner() {
 
   async function handleSend(userMessage: string) {
     setLoading(true);
+    setOptions([]);
     setMessages((prev) => [...prev, makeOptimisticMessage("user", userMessage)]);
 
     try {
@@ -117,6 +135,7 @@ function DesignPageInner() {
         makeOptimisticMessage("assistant", result.message),
       ]);
       setReadyToGenerate(result.readyToGenerate);
+      setOptions(result.options);
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -129,6 +148,7 @@ function DesignPageInner() {
 
   async function handleGenerate(userMessage?: string) {
     setGenerating(true);
+    setOptions([]);
     if (userMessage) {
       setMessages((prev) => [...prev, makeOptimisticMessage("user", userMessage)]);
     }
@@ -141,6 +161,8 @@ function DesignPageInner() {
         makeOptimisticMessage("assistant", result.message, result.imageId),
       ]);
       setReadyToGenerate(result.readyToGenerate);
+      // A clarifying question (no image) may carry tappable style options.
+      setOptions("options" in result ? (result.options ?? []) : []);
       // Claude may answer with a clarifying question instead of an image
       // (no imageUrl) — just show the message, no gallery/drawer changes.
       if (result.imageUrl) {
@@ -159,40 +181,6 @@ function DesignPageInner() {
     } finally {
       setGenerating(false);
     }
-  }
-
-  async function handleCompare(userMessage?: string) {
-    setGenerating(true);
-    if (userMessage) {
-      setMessages((prev) => [...prev, makeOptimisticMessage("user", userMessage)]);
-    }
-    try {
-      await ensureGuestSession();
-      const { message, images: compared, readyToGenerate: ready } = await compareGenerators(designId.current, userMessage);
-      setMessages((prev) => [
-        ...prev,
-        makeOptimisticMessage("assistant", message),
-      ]);
-      setReadyToGenerate(ready);
-      // Empty when Claude asked a clarifying question instead of comparing.
-      if (compared.length) {
-        await refreshGallery();
-        if (window.matchMedia("(max-width: 767px)").matches) setDrawerOpen(true);
-      }
-    } catch {
-      setMessages((prev) => [
-        ...prev,
-        makeOptimisticMessage("assistant", "Comparison failed. Try again?"),
-      ]);
-    } finally {
-      setGenerating(false);
-    }
-  }
-
-  async function handleAdopt(imageId: string, imageUrl: string) {
-    const { activeGeneratorId } = await adoptGenerator(designId.current, imageId);
-    setActiveGenerator(activeGeneratorId);
-    setSelectedImage(imageUrl);
   }
 
   async function handleDeleteImage(imageId: string) {
@@ -308,9 +296,8 @@ function DesignPageInner() {
           generating={generating}
           onSend={handleSend}
           onGenerate={handleGenerate}
-          onCompare={handleCompare}
-          activeGenerator={activeGenerator}
           readyToGenerate={readyToGenerate}
+          options={options}
           onUploadImage={handleUploadImage}
           isEmpty={empty}
         />
@@ -366,7 +353,6 @@ function DesignPageInner() {
           onDelete={handleDeleteImage}
           onMakeProducts={handleMakeProductsForImage}
           onPublish={handlePublishImage}
-          onAdopt={handleAdopt}
         />
       )}
 

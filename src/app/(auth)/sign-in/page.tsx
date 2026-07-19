@@ -67,7 +67,7 @@ function SignInForm() {
           />
           {error && <p className="text-red-600 text-sm">{error}</p>}
           <div className="flex justify-end">
-            <Link href="/forgot-password" className="text-sm text-gray-600 underline">
+            <Link href="/forgot-password" className="text-sm text-text-muted underline">
               Forgot password?
             </Link>
           </div>
@@ -75,7 +75,7 @@ function SignInForm() {
             {loading ? "Signing in..." : "Sign in"}
           </Button>
         </form>
-        <p className="text-center text-sm text-gray-600">
+        <p className="text-center text-sm text-text-muted">
           Don&apos;t have an account?{" "}
           <Link href="/sign-up" className="underline">
             Sign up

@@ -49,6 +49,9 @@ export async function createOrder(params: {
   // Multi-item cart (#26): a full array of line items. When present it takes
   // precedence over the single-item fields below.
   items?: PrintfulOrderItem[];
+  // Our order id, sent as Printful's external_id (#37): traceability plus
+  // Printful-side rejection of a duplicate submission of the same order.
+  externalId?: string;
   size?: string;
   color?: string;
   variantId?: number;
@@ -94,6 +97,7 @@ export async function createOrder(params: {
   const data = await printfulFetch(`/orders${confirm ? "?confirm=true" : ""}`, {
     method: "POST",
     body: JSON.stringify({
+      ...(params.externalId ? { external_id: params.externalId } : {}),
       recipient: {
         name: params.recipientName,
         address1: params.address1,
@@ -120,6 +124,25 @@ export async function createOrder(params: {
 export async function getOrderStatus(orderId: string) {
   const data = await printfulFetch(`/orders/${orderId}`);
   return data.result;
+}
+
+/**
+ * Fetch an order by OUR id (sent as external_id on createOrder). Printful's
+ * `@`-prefix on the id path selects by external_id instead of Printful's own
+ * numeric id. Used to recover a stranded submission: a prior fulfillment
+ * attempt created the Printful order but crashed before we persisted its id, so
+ * the resubmit is rejected as a duplicate — we fetch the order Printful already
+ * has and persist it. Returns null on 404 (no such order).
+ */
+export async function getOrderByExternalId(externalId: string) {
+  try {
+    const data = await printfulFetch(`/orders/@${encodeURIComponent(externalId)}`);
+    return data.result as { id: string | number; costs?: { total?: string } | null };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (/\b404\b/.test(message)) return null;
+    throw err;
+  }
 }
 
 export type EstimatedCosts = {
@@ -206,7 +229,7 @@ export async function estimateOrderCosts(params: {
 
 // -- Mockup Generator --
 
-import type { MockupPosition } from "./products";
+import type { MockupPosition } from "./blanks";
 
 /**
  * Submit a mockup-generator task. `variantIds` is an array — Printful
