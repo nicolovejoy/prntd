@@ -19,6 +19,7 @@ import {
 import { computePrice, computeCartTotal, estimateShipping } from "@/lib/pricing";
 import { multiPlacementEnabled } from "@/lib/blanks";
 import { resolveDesignDisplayImageUrls } from "@/lib/design-images";
+import { assertUsableBackImage } from "@/lib/back-sources";
 import { estimateOrderCosts } from "@/lib/printful";
 import { stripe } from "@/lib/stripe";
 import { buildCartCheckoutSessionParams } from "@/lib/checkout";
@@ -96,6 +97,11 @@ export async function addToCart(params: {
   });
   const frontId = design?.primaryImageId ?? null;
   const backId = multiPlacementEnabled() && params.back ? params.back : null;
+  if (backId) {
+    // Same choke-point guard as createCheckoutSession (#72): only this
+    // thread's images, the user's own designs, or published Shop images.
+    await assertUsableBackImage(backId, params.designId, userId);
+  }
   const placements: Record<string, string> | null = frontId
     ? { front: frontId, ...(backId ? { back: backId } : {}) }
     : null;
