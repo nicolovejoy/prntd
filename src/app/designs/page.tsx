@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { getUserDesigns, deleteDesign, archiveDesign, unpublishImage } from "./actions";
 import { Badge, Button } from "@/components/ui";
 import { PublishModal } from "@/components/publish-modal";
+import { publishedBackdrop } from "@/lib/blanks";
 
 type Design = Awaited<ReturnType<typeof getUserDesigns>>[number];
 
@@ -101,10 +102,22 @@ export default function DesignsPage() {
           </div>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            {designs.map((design) => (
+            {designs.map((design) => {
+              // Published designs render over their chosen storefront
+              // backdrop (matching PublishedGrid); unpublished — or a null
+              // backdrop — keep the checkerboard.
+              const backdrop = publishedBackdrop(
+                design.primaryImagePublishedAt
+                  ? design.primaryImageBackgroundColor
+                  : null
+              );
+              return (
               <div key={design.id} className="border rounded-lg overflow-hidden group">
                 <Link href={getDesignHref(design)} className="block">
-                  <div className="aspect-square bg-checkerboard flex items-center justify-center">
+                  <div
+                    className={`aspect-square flex items-center justify-center ${backdrop.className}`}
+                    style={backdrop.style}
+                  >
                     {design.imageUrl ? (
                       <img
                         src={design.imageUrl}
@@ -190,7 +203,8 @@ export default function DesignsPage() {
                   )}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </main>
