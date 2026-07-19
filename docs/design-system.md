@@ -203,6 +203,11 @@ should disappear behind the shops it hosts.
 
 ### Recommendation
 
+> **DECIDED 2026-07-19: Option C — The Clean Label** (Nico). The doc's
+> recommendation was A; C's case — neutrality that holds up as organizer
+> storefronts grow — carried. Copy sweep to C's principles is the next
+> persona task; the sections below are kept as the record of the choice.
+
 **Option A.** Three reasons, none of them "it's what's already there":
 
 1. The maker flow is still the primary product (per the 2026-07-05 direction:
