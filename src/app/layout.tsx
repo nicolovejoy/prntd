@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { SiteHeader } from "@/components/site-header";
 import { FeedbackLauncher } from "@/components/feedback-launcher";
+import { FEEDBACK_PROJECT_ID } from "@/lib/feedback/project-id";
 import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 
@@ -52,11 +53,7 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         <SiteHeader />
         {children}
-        <FeedbackLauncher
-          projectId={
-            process.env.NEXT_PUBLIC_FEEDBACK_PROJECT_ID ?? "prntd-mobile-flow-rethink"
-          }
-        />
+        <FeedbackLauncher projectId={FEEDBACK_PROJECT_ID} />
         <Analytics />
       </body>
     </html>
