@@ -130,15 +130,16 @@ export function SiteHeader() {
         </button>
       </div>
 
-      {/* Mobile dropdown */}
+      {/* Mobile dropdown — anchored to the right edge under the hamburger,
+          solid raised panel so it reads over page content. */}
       {menuOpen && (
-        <div className="sm:hidden mt-2 flex flex-col gap-1 border-t pt-2">
+        <div className="sm:hidden absolute right-2 top-full z-50 mt-1 w-64 max-w-[calc(100vw-1rem)] flex flex-col rounded-md border border-border bg-surface-raised py-1 shadow-lg shadow-black/60">
           {links.map((l) => (
             <Link
               key={l.href}
               href={l.href}
               onClick={() => setMenuOpen(false)}
-              className="py-2 text-text-muted hover:text-foreground transition-colors"
+              className="flex min-h-11 items-center justify-end px-4 text-lg text-foreground hover:bg-surface transition-colors"
             >
               {l.label}
             </Link>
@@ -147,7 +148,7 @@ export function SiteHeader() {
             <Link
               href="/cart"
               onClick={() => setMenuOpen(false)}
-              className="py-2 text-text-muted hover:text-foreground transition-colors"
+              className="flex min-h-11 items-center justify-end px-4 text-lg text-foreground hover:bg-surface transition-colors"
             >
               {cartLabel}
             </Link>
@@ -157,14 +158,14 @@ export function SiteHeader() {
               setMenuOpen(false);
               setFeedbackOpen(true);
             }}
-            className="min-h-11 py-2 text-left text-text-muted hover:text-foreground transition-colors"
+            className="flex min-h-11 items-center justify-end px-4 text-lg text-foreground hover:bg-surface transition-colors"
           >
             Feedback
           </button>
           {isAuthed ? (
             <button
               onClick={signOut}
-              className="py-2 text-left text-text-faint hover:text-text-muted transition-colors"
+              className="flex min-h-11 items-center justify-end px-4 text-lg text-text-muted hover:text-foreground hover:bg-surface transition-colors"
             >
               Sign out
             </button>
@@ -172,7 +173,7 @@ export function SiteHeader() {
             <Link
               href="/sign-in"
               onClick={() => setMenuOpen(false)}
-              className="py-2 text-text-muted hover:text-foreground transition-colors"
+              className="flex min-h-11 items-center justify-end px-4 text-lg text-foreground hover:bg-surface transition-colors"
             >
               Sign in
             </Link>

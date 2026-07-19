@@ -31,11 +31,14 @@ import {
 import { BACK_PLACEMENT_UPCHARGE, computeOrderTotal } from "@/lib/pricing";
 import type { BackSourceGroup } from "@/lib/back-sources";
 import { createLatestWins } from "@/lib/latest-wins";
-import { ProductSilhouette } from "./product-silhouette";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
 import { ensureGuestSession } from "@/lib/ensure-guest-session";
-import { resolveHeroDisplay } from "@/lib/instant-preview";
+import {
+  isDarkShirt,
+  mockupBackdrop,
+  resolveHeroDisplay,
+} from "@/lib/instant-preview";
 
 type Placement = "front" | "back";
 
@@ -695,40 +698,56 @@ function PreviewPageInner() {
                 </div>
               )}
 
-              {/* Instant layer (#57): the design artwork on a shirt-colored
-                  silhouette, shown immediately on any product/color/placement
-                  change while the exact Printful mockup renders. */}
-              <div className="w-full h-full p-2">
-                <ProductSilhouette
-                  productType={product?.type ?? "shirt"}
-                  color={colorHex}
-                  designImageUrl={display.artworkUrl}
-                  scale={scale}
-                  printArea={product?.printArea ?? { width: 12, height: 16 }}
-                />
+              {/* Instant layer (#57): the design artwork centered on a flat
+                  panel of the selected shirt color, shown immediately on any
+                  product/color/placement change while the exact Printful
+                  mockup renders. */}
+              <div
+                className="absolute inset-0 flex items-center justify-center"
+                style={{ backgroundColor: colorHex }}
+              >
+                {display.artworkUrl && (
+                  <img
+                    src={display.artworkUrl}
+                    alt=""
+                    className="object-contain max-h-[70%]"
+                    style={{ width: `${Math.round(scale * 62)}%` }}
+                  />
+                )}
               </div>
 
               {/* Exact Printful mockup — crossfades in over the instant layer
-                  once its image bytes arrive. */}
+                  once its image bytes arrive. The mockup has a white studio
+                  background baked in; mix-blend-multiply over the light
+                  backdrop maps those white pixels to the backdrop color so
+                  the shirt doesn't sit in a stark white box. `isolate` keeps
+                  the blend off the instant layer beneath. */}
               {display.mockupUrl && (
-                <img
+                <div
                   key={display.mockupUrl}
-                  src={display.mockupUrl}
-                  alt={`Your design on a ${colorName} ${productName}`}
-                  onLoad={() => setLoadedMockupUrl(display.mockupUrl)}
-                  className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
+                  className={`absolute inset-0 isolate transition-opacity duration-300 ${
                     display.mockupVisible ? "opacity-100" : "opacity-0"
                   }`}
-                />
+                  style={{ backgroundColor: mockupBackdrop(colorHex) }}
+                >
+                  <img
+                    src={display.mockupUrl}
+                    alt={`Your design on a ${colorName} ${productName}`}
+                    onLoad={() => setLoadedMockupUrl(display.mockupUrl)}
+                    className="w-full h-full object-contain mix-blend-multiply"
+                  />
+                </div>
               )}
 
               {display.pendingExact && (
                 <div className="pointer-events-none absolute inset-x-0 bottom-2 z-10 flex justify-center">
-                  <span className="inline-flex items-center gap-2 rounded-full bg-black/60 px-3 py-1.5 text-xs text-white backdrop-blur-sm">
-                    <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/70 border-t-transparent" />
-                    {regenerating
-                      ? "Preparing…"
-                      : "Rendering preview…"}
+                  <span
+                    className={`inline-flex items-center gap-2 text-xs ${
+                      isDarkShirt(colorHex) ? "text-white/80" : "text-black/60"
+                    }`}
+                  >
+                    <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                    {regenerating ? "Preparing…" : "Final preview loading…"}
                   </span>
                 </div>
               )}
@@ -922,7 +941,8 @@ function PreviewPageInner() {
           aria-label="Mockup fullscreen view"
         >
           <div
-            className="relative max-w-[90vw] max-h-[90vh] overflow-hidden cursor-zoom-in"
+            className="relative max-w-[90vw] max-h-[90vh] overflow-hidden cursor-zoom-in isolate rounded-lg"
+            style={{ backgroundColor: mockupBackdrop(colorHex) }}
             onClick={(e) => {
               e.stopPropagation();
               if (!zoomed) {
@@ -947,7 +967,7 @@ function PreviewPageInner() {
             <img
               src={activeMockup}
               alt={`Your design on a ${colorName} ${productName}`}
-              className="max-w-[90vw] max-h-[90vh] object-contain transition-transform duration-200"
+              className="max-w-[90vw] max-h-[90vh] object-contain mix-blend-multiply transition-transform duration-200"
               style={{
                 transform: zoomed ? "scale(2.5)" : "scale(1)",
                 transformOrigin: `${panOrigin.x}% ${panOrigin.y}%`,
