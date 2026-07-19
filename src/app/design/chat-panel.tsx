@@ -32,6 +32,7 @@ export function ChatPanel({
   options,
   onUploadImage,
   isEmpty,
+  mobileGalleryStrip,
 }: {
   messages: ChatMessage[];
   images: DesignImage[];
@@ -43,6 +44,9 @@ export function ChatPanel({
   options: ChatOption[];
   onUploadImage: (base64: string, fileName: string) => void;
   isEmpty: boolean;
+  // Mobile-only thumbnail strip, docked directly above the composer so it
+  // reserves layout space instead of floating over content.
+  mobileGalleryStrip?: React.ReactNode;
 }) {
   const urlByImageId = useMemo(
     () => new Map(images.map((img) => [img.id, img.url])),
@@ -285,6 +289,8 @@ export function ChatPanel({
           Add more detail, or tap Generate.
         </div>
       )}
+
+      {mobileGalleryStrip}
 
       {/* Composer — phone-first: input on its own row, actions wrap below,
           every control ≥44px. */}

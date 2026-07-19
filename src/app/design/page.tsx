@@ -20,6 +20,7 @@ import { ChatPanel } from "./chat-panel";
 import { ImageGallery } from "./image-gallery";
 import { ImageLightbox } from "./image-lightbox";
 import { MobileGalleryDrawer } from "./mobile-gallery-drawer";
+import { MobileGalleryStrip } from "./mobile-gallery-strip";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
 import { isDesignEmpty } from "@/lib/design-view";
@@ -164,13 +165,11 @@ function DesignPageInner() {
       setOptions("options" in result ? (result.options ?? []) : []);
       // Claude may answer with a clarifying question instead of an image
       // (no imageUrl) — just show the message, no gallery/drawer changes.
+      // The new render lands inline in chat and leads the mobile thumbnail
+      // strip — no drawer auto-open needed.
       if (result.imageUrl) {
         setSelectedImage(result.imageUrl);
         await refreshGallery();
-        // Auto-open gallery drawer on mobile
-        if (window.matchMedia("(max-width: 767px)").matches) {
-          setDrawerOpen(true);
-        }
       }
     } catch {
       setMessages((prev) => [
@@ -294,6 +293,16 @@ function DesignPageInner() {
           options={options}
           onUploadImage={handleUploadImage}
           isEmpty={empty}
+          mobileGalleryStrip={
+            <MobileGalleryStrip
+              images={images}
+              productGroups={productGroups}
+              selectedImage={selectedImage}
+              generating={generating}
+              onClickImage={(i) => setLightboxIndex(i)}
+              onOpenDrawer={() => setDrawerOpen(true)}
+            />
+          }
         />
         {!empty && (
           <ImageGallery
@@ -307,16 +316,6 @@ function DesignPageInner() {
           />
         )}
       </div>
-
-      {/* Mobile gallery toggle */}
-      {(images.length > 0 || productGroups.length > 0) && (
-        <button
-          onClick={() => setDrawerOpen(true)}
-          className="fixed bottom-20 right-4 z-30 md:hidden w-12 h-12 rounded-full bg-accent text-accent-fg shadow-lg flex items-center justify-center"
-        >
-          <span className="text-sm font-bold">{images.length}</span>
-        </button>
-      )}
 
       {/* Mobile gallery drawer */}
       <MobileGalleryDrawer
