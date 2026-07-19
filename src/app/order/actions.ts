@@ -3,7 +3,11 @@
 import { headers } from "next/headers";
 import { auth, isAnonymousUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { design as designTable, order as orderTable } from "@/lib/db/schema";
+import {
+  design as designTable,
+  order as orderTable,
+  orderItem as orderItemTable,
+} from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { stripe } from "@/lib/stripe";
 import { computePrice, computeOrderTotal } from "@/lib/pricing";
@@ -133,9 +137,17 @@ export async function createStripeCheckoutForOrder(params: {
   // charged (after any discount) from Stripe.
   const { item, shipping, total } = computeOrderTotal(params.itemPrice);
 
-  const [newOrder] = await db
-    .insert(orderTable)
-    .values({
+  // Phase 1b: every checkout writes an authoritative order_item row, not just
+  // the cart path — so resolveOrderLines has one shape to read and the Stripe
+  // webhook's per-line cart-clear covers single-item /order purchases too. The
+  // scalar columns stay (dropped in 1c). Order + item commit together; the id
+  // is pre-generated so both inserts build before the batch (the checkoutCart
+  // pattern). Single line, quantity 1; itemPrice is the product line (shipping
+  // is order-level, not per item).
+  const orderId = crypto.randomUUID();
+  await db.batch([
+    db.insert(orderTable).values({
+      id: orderId,
       userId: params.userId,
       designId: params.designId,
       productId: params.productId,
@@ -147,12 +159,22 @@ export async function createStripeCheckoutForOrder(params: {
       placements: params.placements,
       storeId: params.storeId ?? null,
       storeProductId: params.storeProductId ?? null,
-    })
-    .returning();
+    }),
+    db.insert(orderItemTable).values({
+      orderId,
+      designId: params.designId,
+      productId: params.productId,
+      size: params.size,
+      color: params.color,
+      placements: params.placements,
+      quantity: 1,
+      itemPrice: item,
+    }),
+  ]);
 
   const checkoutSession = await stripe.checkout.sessions.create(
     buildCheckoutSessionParams({
-      orderId: newOrder.id,
+      orderId,
       designId: params.designId,
       productName,
       color: params.color,
@@ -168,7 +190,7 @@ export async function createStripeCheckoutForOrder(params: {
   await db
     .update(orderTable)
     .set({ stripeSessionId: checkoutSession.id })
-    .where(eq(orderTable.id, newOrder.id));
+    .where(eq(orderTable.id, orderId));
 
   return { url: checkoutSession.url };
 }

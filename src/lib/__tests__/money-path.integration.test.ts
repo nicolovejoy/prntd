@@ -222,8 +222,16 @@ describe("money path — checkout.session.completed", () => {
       where: eq(schema.order.id, order.id),
     });
     expect(updated?.shippingPrice).toBe(4.69); // the margin-protection point
-    expect(updated?.itemPrice).toBe(19.43);
+    // itemPrice is the POST-discount product revenue (total − shipping), so the
+    // stored split stays internally consistent under a promo (finding #5): it
+    // used to reconcile to the pre-discount $19.43, leaving item + shipping >
+    // total.
+    expect(updated?.itemPrice).toBe(9.72);
     expect(updated?.totalPrice).toBe(14.41); // what was actually charged
+    expect(updated!.itemPrice! + updated!.shippingPrice!).toBeCloseTo(
+      updated!.totalPrice,
+      5
+    );
     expect(updated?.discountCode).toBe("HALF");
     expect(updated?.discountAmount).toBe(9.71);
 
@@ -488,6 +496,49 @@ describe("money path — checkout.session.completed", () => {
       where: eq(schema.order.id, order.id),
     });
     expect(updated?.status).toBe("submitted");
+  });
+
+  it("single-item order (Phase 1b: order_item written) clears its matching cart line on payment", async () => {
+    // Phase 1b removes #38's caveat: a single-item /order purchase now writes an
+    // order_item row (createStripeCheckoutForOrder), so the webhook's per-line
+    // cart-clear matches it. Seed the order + its order_item exactly as that path
+    // now does, add a matching cart line and an unrelated one, and confirm only
+    // the purchased line is removed.
+    const { order, design, userId } = await seed(db);
+    await db.insert(schema.orderItem).values({
+      orderId: order.id,
+      designId: design.id,
+      productId: "bella-canvas-3001",
+      size: "M",
+      color: "Black",
+      placements: { front: "img-1" },
+      quantity: 1,
+      itemPrice: 19.43,
+    });
+
+    const [other] = await db.insert(schema.design).values({ userId }).returning();
+    await db.insert(schema.cartItem).values([
+      // matches the purchased line — must be cleared
+      { userId, designId: design.id, productId: "bella-canvas-3001", size: "M", color: "Black" },
+      // a different line still in the cart — must survive
+      { userId, designId: other.id, productId: "bella-canvas-3001", size: "L", color: "White" },
+    ]);
+
+    const result = await handleStripeCheckoutCompleted(
+      makeSession(order.id, design.id),
+      makeDeps(db, {
+        resolveImageUrlById: vi
+          .fn()
+          .mockImplementation(async (id: string) => `https://img.example/${id}.png`),
+      })
+    );
+    expect(result.action).toBe("submitted");
+
+    const remaining = await db.query.cartItem.findMany({
+      where: eq(schema.cartItem.userId, userId),
+    });
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0].designId).toBe(other.id);
   });
 
   it("Printful failure leaves the order paid with no COGS and design not ordered", async () => {
