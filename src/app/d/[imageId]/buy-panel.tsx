@@ -89,7 +89,7 @@ export function BuyPanel({
         size="lg"
         className="w-full"
       >
-        {loading ? "Redirecting…" : `Buy this design — $${total.toFixed(2)}`}
+        {loading ? "Redirecting…" : `Order — $${total.toFixed(2)}`}
       </Button>
     </div>
   ) : (

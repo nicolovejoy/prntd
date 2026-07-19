@@ -183,9 +183,9 @@ export async function sendOrderConfirmation(params: {
     to: params.to,
     subject: `Order confirmed — ${label} (${lineSummary(params.lines)})`,
     html: emailLayout({
-      preheader: `We're printing your ${printing} now.`,
+      preheader: `Your ${printing} is being printed.`,
       heading: "Your order is confirmed",
-      intro: `We're printing your ${printing} now. We'll email you again when it ships with tracking.`,
+      intro: `Your ${printing} is being printed. You'll get another email with tracking when it ships.`,
       images: params.images,
       bodyHtml: detailTable(rows),
       ctaLabel: "View your orders",

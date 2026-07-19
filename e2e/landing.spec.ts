@@ -1,6 +1,6 @@
 /**
- * Maker landing ("Type It, Wear It"): the signed-out homepage is a composer.
- * Submitting an idea navigates to /design?prompt=…, which auto-fires Draw-it.
+ * Maker landing: the signed-out homepage is a composer. Submitting an idea
+ * navigates to /design?prompt=…, which auto-fires one generation.
  * The thin-prompt test uses a deliberately vague idea so the fast readiness
  * check answers with a clarifying question — CI never pays for a render there.
  */
@@ -10,17 +10,17 @@ import { EXAMPLES } from "../src/lib/design-examples";
 test("signed-out homepage shows the hero composer", async ({ page }) => {
   await page.goto("/");
   await expect(
-    page.getByRole("heading", { name: "Type an idea. Wear it." })
+    page.getByRole("heading", { name: "Design a shirt by describing it." })
   ).toBeVisible();
-  await expect(page.getByPlaceholder(/Describe your design/)).toBeVisible();
+  await expect(page.getByPlaceholder("Describe a design")).toBeVisible();
 });
 
 test("a thin prompt seeds /design and gets a clarifying reply", async ({
   page,
 }) => {
   await page.goto("/");
-  await page.getByPlaceholder(/Describe your design/).fill("something cool");
-  await page.getByRole("button", { name: "Draw it" }).click();
+  await page.getByPlaceholder("Describe a design").fill("something cool");
+  await page.getByRole("button", { name: "Generate" }).click();
 
   await expect(page).toHaveURL(/\/design/);
   // The seed shows up as the first user turn.

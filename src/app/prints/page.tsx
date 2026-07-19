@@ -12,7 +12,7 @@ export default async function ShopPage() {
         <header className="mb-8 text-center">
           <h1 className="text-3xl font-bold">Shop</h1>
           <p className="text-text-muted mt-2">
-            Browse and buy designs other makers have published.
+            Designs published by other makers.
           </p>
         </header>
 

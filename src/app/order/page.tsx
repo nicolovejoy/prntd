@@ -269,7 +269,7 @@ function OrderPageInner() {
             className="hidden md:block w-full"
             size="lg"
           >
-            {loading ? "Redirecting to checkout..." : "Buy now"}
+            {loading ? "Redirecting…" : "Order"}
           </Button>
           {cartShown && (
             <Button
@@ -297,10 +297,10 @@ function OrderPageInner() {
           size="lg"
         >
           {loading
-            ? "Redirecting..."
+            ? "Redirecting…"
             : breakdown
-              ? `Buy now — $${breakdown.total.toFixed(2)}`
-              : "Buy now"}
+              ? `Order — $${breakdown.total.toFixed(2)}`
+              : "Order"}
         </Button>
         {cartShown && (
           <Button

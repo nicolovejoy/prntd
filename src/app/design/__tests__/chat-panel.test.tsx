@@ -1,6 +1,6 @@
-import { render, screen, fireEvent, within, act } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
 import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
-import { ChatPanel, DRAWING_LINES } from "../chat-panel";
+import { ChatPanel } from "../chat-panel";
 import type { ChatMessage } from "@/lib/db/schema";
 
 beforeAll(() => {
@@ -75,19 +75,13 @@ describe("ChatPanel quick-reply placement", () => {
   });
 });
 
-describe("ChatPanel drawing status", () => {
-  it("shows a canned line while generating and rotates it every few seconds (#70)", () => {
-    vi.useFakeTimers();
+describe("ChatPanel generating status", () => {
+  it("shows a single static line while generating (Clean Label)", () => {
     render(
       <ChatPanel {...baseProps} generating messages={[thread[0]]} />
     );
-    const status = screen.getByTestId("drawing-status");
-    const first = status.textContent;
-    expect(DRAWING_LINES).toContain(first);
-    act(() => {
-      vi.advanceTimersByTime(3000);
-    });
-    expect(status.textContent).not.toBe(first);
-    expect(DRAWING_LINES).toContain(status.textContent);
+    expect(screen.getByTestId("drawing-status")).toHaveTextContent(
+      "Generating…"
+    );
   });
 });

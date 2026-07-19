@@ -77,7 +77,7 @@ function DesignPageInner() {
     ensureGuestSession();
   }, []);
 
-  // Landing seed: /design?prompt=… fires Draw-it once with the seeded idea
+  // Landing seed: /design?prompt=… fires one generation with the seeded idea
   // (new designs only — never when resuming via ?id=). Ref-guarded so React
   // Strict Mode's double effect can't fire it twice; the param is stripped
   // immediately so refresh/back doesn't resubmit — via history.replaceState
@@ -139,7 +139,7 @@ function DesignPageInner() {
     } catch {
       setMessages((prev) => [
         ...prev,
-        makeOptimisticMessage("assistant", "Something went wrong. Try again?"),
+        makeOptimisticMessage("assistant", "Something went wrong. Try again."),
       ]);
     } finally {
       setLoading(false);
@@ -176,7 +176,7 @@ function DesignPageInner() {
     } catch {
       setMessages((prev) => [
         ...prev,
-        makeOptimisticMessage("assistant", "Image generation failed. Try again?"),
+        makeOptimisticMessage("assistant", "Generation failed. Try again."),
       ]);
     } finally {
       setGenerating(false);
@@ -243,7 +243,7 @@ function DesignPageInner() {
     } catch {
       setMessages((prev) => [
         ...prev,
-        makeOptimisticMessage("assistant", "Image upload failed. Try again?"),
+        makeOptimisticMessage("assistant", "Upload failed. Try again."),
       ]);
     } finally {
       setLoading(false);

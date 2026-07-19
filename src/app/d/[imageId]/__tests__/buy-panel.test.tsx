@@ -10,7 +10,7 @@ import { buyPublishedDesign } from "../../actions";
 
 function buyButton() {
   // Rendered twice (desktop inline + mobile sticky); both share state.
-  return screen.getAllByRole("button", { name: /Buy this design/ })[0];
+  return screen.getAllByRole("button", { name: /Order — \$/ })[0];
 }
 
 describe("BuyPanel size gate (#60)", () => {
