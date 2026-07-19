@@ -6,6 +6,7 @@ import { Button } from "@/components/ui";
 import { SizePicker, ColorPicker } from "@/components/product-options";
 import { ACTIVE_BLANKS, DEFAULT_BLANK_ID, getBlank } from "@/lib/blanks";
 import { computePrice, computeOrderTotal } from "@/lib/pricing";
+import type { PurchaseDefaults } from "@/lib/purchase-defaults";
 import { buyPublishedDesign } from "../actions";
 
 /**
@@ -20,20 +21,31 @@ export function BuyPanel({
   imageId,
   isLoggedIn,
   preferredColor,
+  remembered,
 }: {
   imageId: string;
   isLoggedIn: boolean;
   /** The design's pinned backdrop color; pre-selected when this product carries it. */
   preferredColor?: string | null;
+  /** Last-purchase defaults (#44); null for guests/first purchase. */
+  remembered?: PurchaseDefaults | null;
 }) {
-  const [productId, setProductId] = useState(DEFAULT_BLANK_ID);
+  // Remembered product wins over the static default (#44). No URL params on
+  // this surface, so precedence is remembered > static.
+  const [productId, setProductId] = useState(
+    () => (remembered && getBlank(remembered.blankId) ? remembered.blankId : DEFAULT_BLANK_ID)
+  );
   const product = getBlank(productId);
   const sizes = product?.sizes ?? [];
   const colors = product?.colors ?? [];
 
-  // No default size (#60): the buyer must pick one before the CTA enables,
-  // so nobody checks out in a size they never chose.
-  const [size, setSize] = useState<string | null>(null);
+  // No silent size (#60): a remembered size pre-selects a *visible* chip the
+  // buyer can change; with nothing remembered the CTA stays disabled until a
+  // pick.
+  const [size, setSize] = useState<string | null>(() => {
+    const s = remembered?.size;
+    return s && (getBlank(productId)?.sizes ?? []).includes(s) ? s : null;
+  });
   // The pinned backdrop color IS defaulted (the design is displayed on it),
   // but labeled below so it's not a silent pick.
   const pinnedColorApplied =

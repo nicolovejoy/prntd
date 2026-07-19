@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { auth, isAnonymousUser } from "@/lib/auth";
 import { getStoreProductForBuy } from "../../actions";
+import { getLastPurchaseDefaults } from "@/app/preview/actions";
 import { StoreBuyPanel } from "./store-buy-panel";
 
 type Params = Promise<{ slug: string; productId: string }>;
@@ -18,6 +19,11 @@ export default async function StoreProductPage({ params }: { params: Params }) {
   // Anonymous (guest) sessions don't count for the buy CTA — purchase needs a
   // real account, same as the published-design buy flow.
   const isLoggedIn = Boolean(session) && !isAnonymousUser(session?.user);
+
+  // Remembered size (#44, §8 Q3) — the blank is fixed here (the organizer
+  // chose it), so only the size default applies; the panel validates it
+  // against this product's sizes.
+  const remembered = await getLastPurchaseDefaults();
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -50,6 +56,7 @@ export default async function StoreProductPage({ params }: { params: Params }) {
             colors={detail.colors}
             isLoggedIn={isLoggedIn}
             buyable={detail.buyable}
+            rememberedSize={remembered?.size ?? null}
           />
         </div>
       </main>

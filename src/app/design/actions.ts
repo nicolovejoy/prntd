@@ -444,7 +444,19 @@ export async function getDesign(designId: string) {
   // consume `displayImageUrl` rather than touching design_image rows
   // directly).
   const displayImageUrl = await getDesignDisplayImageUrl(designId);
-  return { ...found, displayImageUrl };
+
+  // Primary image's pinned backdrop color (#16) — /preview's color default
+  // (§3): the design was published on this color, so show it on it.
+  let backgroundColor: string | null = null;
+  if (found.primaryImageId) {
+    const primary = await db.query.designImage.findFirst({
+      where: eq(designImageTable.id, found.primaryImageId),
+      columns: { backgroundColor: true },
+    });
+    backgroundColor = primary?.backgroundColor ?? null;
+  }
+
+  return { ...found, displayImageUrl, backgroundColor };
 }
 
 /**

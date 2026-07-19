@@ -2,6 +2,7 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { getPublishedImage } from "../actions";
+import { getLastPurchaseDefaults } from "@/app/preview/actions";
 import { auth, isAnonymousUser } from "@/lib/auth";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
@@ -29,6 +30,10 @@ export default async function PublishedImagePage({
   // purchase point requires a real account. A guest sees "Sign in to buy".
   const isLoggedIn = Boolean(session) && !isAnonymousUser(session?.user);
   const isOwner = session?.user.id === img.designerId;
+
+  // Remembered defaults (#44, §8 Q3): last purchase seeds product + size.
+  // Null for guests/first purchase — the panel then starts unselected.
+  const remembered = await getLastPurchaseDefaults();
 
   const trail = breadcrumbTrail(`/d/${imageId}`, { from });
   const up = trail.length > 0 ? trail[trail.length - 1] : null;
@@ -95,6 +100,7 @@ export default async function PublishedImagePage({
             imageId={img.imageId}
             isLoggedIn={isLoggedIn}
             preferredColor={img.backgroundColor}
+            remembered={remembered}
           />
         </div>
       </main>
