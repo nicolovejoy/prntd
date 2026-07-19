@@ -197,7 +197,7 @@ export default function AdminPage() {
         </Card>
         <Card className="p-4">
           <p className="text-xs text-text-muted uppercase">Stripe Fees</p>
-          <p className="text-2xl font-bold mt-1 text-red-400">
+          <p className="text-2xl font-bold mt-1 text-negative">
             ${Math.abs(summary.stripeFees).toFixed(2)}
           </p>
         </Card>
@@ -405,7 +405,7 @@ export default function AdminPage() {
                     </td>
                     <td className="py-3 pr-4 text-xs font-medium">
                       {profit != null ? (
-                        <span className={profit >= 0 ? "text-green-400" : "text-red-400"}>
+                        <span className={profit >= 0 ? "text-positive" : "text-negative"}>
                           ${profit.toFixed(2)}
                         </span>
                       ) : (

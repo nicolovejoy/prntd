@@ -735,7 +735,7 @@ function PreviewPageInner() {
           )}
         </div>
         {mockupError && (
-          <p className="text-sm text-red-400 text-center">
+          <p className="text-sm text-negative text-center">
             Couldn&apos;t render the preview.
           </p>
         )}

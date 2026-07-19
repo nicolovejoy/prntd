@@ -1,17 +1,25 @@
 import { HTMLAttributes, forwardRef } from "react";
 
+// Collapsed palette (Clean Label): neutral + the one status pair. Status is
+// carried by text color on a neutral pill — terminal-good states read
+// positive, canceled reads negative, everything in between stays neutral.
+// Variant names stay 1:1 with status strings so call sites pass them through.
+const neutral = "bg-surface-raised text-text-muted border-border";
+const positive = "bg-surface-raised text-positive border-border";
+const negative = "bg-surface-raised text-negative border-border";
+
 const variants = {
-  default: "bg-surface-raised text-text-muted border-border",
-  pending: "bg-yellow-900/30 text-yellow-400 border-yellow-800",
-  paid: "bg-blue-900/30 text-blue-400 border-blue-800",
-  submitted: "bg-purple-900/30 text-purple-400 border-purple-800",
-  shipped: "bg-green-900/30 text-green-400 border-green-800",
-  delivered: "bg-green-900/50 text-green-300 border-green-700",
-  draft: "bg-surface-raised text-text-muted border-border",
-  approved: "bg-emerald-900/30 text-emerald-400 border-emerald-800",
-  ordered: "bg-blue-900/30 text-blue-400 border-blue-800",
+  default: neutral,
+  pending: neutral,
+  paid: neutral,
+  submitted: neutral,
+  shipped: positive,
+  delivered: positive,
+  draft: neutral,
+  approved: neutral,
+  ordered: neutral,
   archived: "bg-surface-raised text-text-faint border-border",
-  canceled: "bg-red-900/30 text-red-400 border-red-800",
+  canceled: negative,
 } as const;
 
 type BadgeProps = HTMLAttributes<HTMLSpanElement> & {

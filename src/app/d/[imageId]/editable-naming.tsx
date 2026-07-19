@@ -80,7 +80,7 @@ export function EditableNaming({ imageId, title, description, canEdit }: Props) 
         rows={3}
         className="w-full bg-surface border border-border rounded px-3 py-2 text-base leading-relaxed"
       />
-      {error && <p className="text-sm text-red-400">{error}</p>}
+      {error && <p className="text-sm text-negative">{error}</p>}
       <div className="flex gap-2">
         <Button onClick={handleSave} disabled={saving} size="sm">
           {saving ? "Saving…" : "Save"}

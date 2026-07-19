@@ -89,7 +89,7 @@ export function StoreBuyPanel({
         </div>
       </div>
 
-      {error && <p className="text-sm text-red-400">{error}</p>}
+      {error && <p className="text-sm text-negative">{error}</p>}
 
       {!buyable ? (
         <p className="text-sm text-text-faint">

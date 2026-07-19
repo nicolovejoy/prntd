@@ -415,10 +415,12 @@ first draft were fixed on main 2026-06-14 (`cbedcbe`): Geist restored, 40 raw
 `gray-*` classes swept to semantic tokens, 4 dead token names corrected.
 Remaining:
 
-1. **Badge palette is the only chrome color** — 11 variants across 6 hues.
-   Persona-dependent resolution: A and C collapse to neutral + positive +
-   attention + negative; C collapses hardest (neutral + one pair); B keeps
-   the same collapse but may map "attention" onto its ink accent.
+1. ~~**Badge palette is the only chrome color**~~ — RESOLVED 2026-07-19 under
+   C: `--positive`/`--negative` tokens added; badges collapse to a neutral
+   pill with status carried by text color (shipped/delivered = positive,
+   canceled = negative, everything else neutral; no `--attention` — pending
+   states are neutral under C). Raw `green-400`/`red-400` classes swept onto
+   the tokens (admin money coloring, error lines, danger button hover).
 2. **Dark-only is implicit, not declared** — light-mode Tailwind classes
    break on the dark background when they sneak in. Declare dark-only as a
    principle (it's the brand under all three personas) or do real theming.

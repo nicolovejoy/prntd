@@ -298,7 +298,7 @@ export function ComposeForm({
         </dl>
       </section>
 
-      {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
+      {error && <p className="mt-3 text-sm text-negative">{error}</p>}
 
       <div className="mt-5 flex gap-2">
         <Button
