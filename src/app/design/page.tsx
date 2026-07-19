@@ -281,9 +281,7 @@ function DesignPageInner() {
             trail={breadcrumbTrail("/design", { id: designId.current })}
             current="Design"
           />
-          <h1 className="text-lg font-semibold mt-1">
-            {empty ? "Start designing" : "Design something"}
-          </h1>
+          <h1 className="text-lg font-semibold mt-1">Design</h1>
         </div>
       </div>
 
