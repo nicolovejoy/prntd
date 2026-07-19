@@ -87,7 +87,7 @@ export default function DesignsPage() {
         </div>
 
         {loading ? (
-          <p className="text-text-faint">Loading...</p>
+          <p className="text-text-faint">Loading…</p>
         ) : loadError ? (
           <div className="text-center py-16 space-y-2">
             <p className="text-red-400 font-medium">Failed to load designs.</p>
@@ -97,7 +97,7 @@ export default function DesignsPage() {
           <div className="text-center py-16 space-y-4">
             <p className="text-text-faint text-lg">No designs yet.</p>
             <Link href="/design">
-              <Button>Start your first design</Button>
+              <Button>Start a design</Button>
             </Link>
           </div>
         ) : (

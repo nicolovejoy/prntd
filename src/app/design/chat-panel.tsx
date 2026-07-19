@@ -8,36 +8,15 @@ import type { DesignImage } from "@/lib/design-images";
 import { Button, QuickReply } from "@/components/ui";
 import { EXAMPLES } from "@/lib/design-examples";
 
-// Rotating status shown while a render is in flight — a canned client-side
-// set (no API call), randomized start so repeat draws don't always open on
-// the same line. A Haiku-generated riff can replace this later.
-export const DRAWING_LINES = [
-  "Drawing your design…",
-  "Mixing the inks…",
-  "Sketching the outlines…",
-  "Warming up the pens…",
-  "Filling in the colors…",
-  "Stepping back to squint at it…",
-  "Adding the finishing touches…",
-];
-
+// Waiting states name the operation and stop (Clean Label): one static line,
+// no rotation.
 function DrawingStatus() {
-  const [index, setIndex] = useState(() =>
-    Math.floor(Math.random() * DRAWING_LINES.length)
-  );
-  useEffect(() => {
-    const t = setInterval(
-      () => setIndex((i) => (i + 1) % DRAWING_LINES.length),
-      3000
-    );
-    return () => clearInterval(t);
-  }, []);
   return (
     <div
       className="rounded-lg px-4 py-2 text-text-muted animate-pulse"
       data-testid="drawing-status"
     >
-      {DRAWING_LINES[index]}
+      Generating…
     </div>
   );
 }
@@ -70,8 +49,6 @@ export function ChatPanel({
     [images]
   );
   const [input, setInput] = useState("");
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  const engagedRef = useRef(false);
   const [dragging, setDragging] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -119,27 +96,8 @@ export function ChatPanel({
     if (!loading && !generating) inputRef.current?.focus();
   }, [loading, generating]);
 
-  // Empty state: after 8s of inactivity (input untouched), quietly reveal
-  // example chips. The moment the user types, drop them — and don't re-arm
-  // once they've engaged.
-  useEffect(() => {
-    if (!isEmpty) return;
-    if (input.length > 0) {
-      engagedRef.current = true;
-      // Hide immediately on the first keystroke; one extra render is fine.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setShowSuggestions(false);
-      return;
-    }
-    if (engagedRef.current) return;
-    // 8s, not 4s: long enough that someone still reading the hero or composing
-    // their first line won't get nudged; short enough to help if they stall.
-    const t = setTimeout(() => setShowSuggestions(true), 8000);
-    return () => clearTimeout(t);
-  }, [isEmpty, input]);
-
-  // "draw it"/"draw" included: chat copy now nudges "tap Draw it", so typing
-  // it should behave like tapping it.
+  // "draw it"/"draw" kept for muscle memory from the old button label; typing
+  // any of these behaves like tapping Generate.
   const GENERATE_TRIGGERS = /^(yes|yeah|yep|do it|go|generate|draw it|draw|let'?s do it|go ahead|make it|yes please|sure|ok generate)/i;
 
   // Shared submit path for both the composer and a tapped quick-reply chip, so
@@ -168,22 +126,19 @@ export function ChatPanel({
   }
 
   const busy = loading || generating;
-  // Soft nudge: until Claude judges the subject concrete, Draw it sits as a
+  // Soft nudge: until Claude judges the subject concrete, Generate sits as a
   // secondary button and a hint shows — it pops to primary when ready. Always
   // clickable; the fast thin-check catches a too-thin click in ~1s rather
   // than greying the button into looking broken.
-  const notReadyTitle = "Say a bit more about what to draw — Draw it still works.";
+  const notReadyTitle = "Add more detail, or generate anyway.";
   const showStyleHint = !readyToGenerate && messages.length > 0;
 
   if (isEmpty) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center min-w-0 px-6 text-center">
         <h2 className="text-2xl sm:text-3xl font-semibold text-foreground">
-          What shall we draw together?
+          Describe a design
         </h2>
-        <p className="mt-2 text-sm text-text-muted">
-          Describe it in plain words. Refine as we go.
-        </p>
         <form
           onSubmit={handleSend}
           className="mt-6 w-full max-w-xl flex gap-2"
@@ -192,7 +147,7 @@ export function ChatPanel({
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Describe your design..."
+            aria-label="Describe a design"
             className="flex-1 px-3 py-2 bg-surface border border-border rounded-md text-white placeholder:text-text-faint focus:border-border-hover focus:outline-none"
             disabled={loading}
           />
@@ -200,23 +155,19 @@ export function ChatPanel({
             Send
           </Button>
         </form>
-        {showSuggestions && (
-          <div className="mt-6 space-y-2">
-            <p className="text-xs text-text-faint">Need a suggestion?</p>
-            <div className="flex flex-wrap justify-center gap-2">
-              {EXAMPLES.slice(0, 3).map((example) => (
-                <button
-                  key={example}
-                  type="button"
-                  onClick={() => setInput(example)}
-                  className="text-xs px-3 py-1.5 border border-border rounded-full text-text-muted hover:text-foreground hover:border-border-hover transition-colors"
-                >
-                  {example}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
+        {/* Chips always visible, catalog-style (no reveal delay). */}
+        <div className="mt-6 flex flex-wrap justify-center gap-2">
+          {EXAMPLES.slice(0, 3).map((example) => (
+            <button
+              key={example}
+              type="button"
+              onClick={() => setInput(example)}
+              className="text-xs px-3 py-1.5 border border-border rounded-full text-text-muted hover:text-foreground hover:border-border-hover transition-colors"
+            >
+              {example}
+            </button>
+          ))}
+        </div>
       </div>
     );
   }
@@ -254,10 +205,7 @@ export function ChatPanel({
       <div className="flex-1 overflow-y-auto p-4 space-y-4" data-testid="chat-messages">
         {messages.length === 0 && (
           <div className="text-center text-text-muted mt-20 space-y-4">
-            <p className="text-lg">What should your design look like?</p>
-            <p className="text-sm">
-              Describe a design. Chat to refine the idea, then hit Draw it.
-            </p>
+            <p className="text-lg">Describe a design</p>
             <div className="flex flex-wrap justify-center gap-2 mt-4">
               {EXAMPLES.map((example) => (
                 <button
@@ -319,7 +267,7 @@ export function ChatPanel({
         {loading && (
           <div className="flex justify-start">
             <div className="rounded-lg px-4 py-2 text-text-faint">
-              Thinking...
+              Thinking…
             </div>
           </div>
         )}
@@ -334,7 +282,7 @@ export function ChatPanel({
       {/* Not-ready hint — only when there are no tappable options to offer instead */}
       {showStyleHint && options.length === 0 && (
         <div className="px-4 pt-2 text-xs text-text-muted">
-          Say a bit more about what to draw — or just tap Draw it.
+          Add more detail, or tap Generate.
         </div>
       )}
 
@@ -359,7 +307,7 @@ export function ChatPanel({
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Describe your design or drop an image..."
+            placeholder="Describe a design or drop an image"
             className="flex-1 min-h-[44px] px-3 py-2 bg-surface border border-border rounded-md text-white placeholder:text-text-faint focus:border-border-hover focus:outline-none"
             disabled={busy}
           />
@@ -381,7 +329,7 @@ export function ChatPanel({
             disabled={busy || (messages.length === 0 && !input.trim())}
             title={readyToGenerate ? undefined : notReadyTitle}
           >
-            Draw it
+            Generate
           </Button>
         </div>
       </form>

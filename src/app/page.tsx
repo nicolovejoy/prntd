@@ -36,7 +36,7 @@ export default async function Home() {
         <section className="py-12 px-4">
           <div className="max-w-2xl mx-auto">
             <h2 className="text-lg font-semibold text-center mb-6">
-              Made by chatting here
+              Made on PRNTD
             </h2>
             <div className="grid grid-cols-2 gap-4">
               {proof.map((img) => {
@@ -89,17 +89,14 @@ export default async function Home() {
       {discover.length > 0 && (
         <section className="py-16 px-4 border-t border-border">
           <div className="max-w-6xl mx-auto">
-            <h2 className="text-2xl font-bold text-center mb-2">Shop</h2>
-            <p className="text-text-muted text-center mb-8">
-              Browse and buy designs other makers have published.
-            </p>
+            <h2 className="text-2xl font-bold text-center mb-8">Shop</h2>
             <PublishedGrid images={discover} />
             <div className="text-center mt-8">
               <Link
                 href="/prints"
                 className="text-sm text-text-muted underline hover:text-foreground transition-colors"
               >
-                See the whole Shop →
+                See all →
               </Link>
             </div>
           </div>

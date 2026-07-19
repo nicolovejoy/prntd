@@ -11,7 +11,7 @@ test("/design loads for a signed-out visitor", async ({ page }) => {
   await expect(page).not.toHaveURL(/sign-in/);
   // Empty-state hero composer is the whole page when there's no content.
   await expect(
-    page.getByPlaceholder(/Describe your design/).first()
+    page.getByRole("textbox", { name: "Describe a design" }).first()
   ).toBeVisible();
 });
 

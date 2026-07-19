@@ -43,13 +43,8 @@ export function HomeHero({
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">
-              {hasDesigns ? "Welcome back" : "Get started"}
+              {hasDesigns ? "Your designs" : "Start a design"}
             </h1>
-            <p className="text-text-muted mt-1">
-              {hasDesigns
-                ? "Continue a design or start fresh."
-                : "Make your first design."}
-            </p>
           </div>
           <Link href="/design">
             <Button>New Design</Button>
@@ -72,10 +67,10 @@ export function HomeHero({
         {loaded && !hasDesigns && (
           <div className="text-center py-12 border border-border rounded-lg">
             <p className="text-text-muted mb-4">
-              Describe what you want. Chat to refine. Generate when ready.
+              Design a shirt by describing it.
             </p>
             <Link href="/design">
-              <Button>Start your first design</Button>
+              <Button>Start a design</Button>
             </Link>
           </div>
         )}

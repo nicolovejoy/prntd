@@ -551,7 +551,7 @@ function PreviewPageInner() {
           {display.showError && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-surface-alt z-20 px-4 text-center">
               <span className="text-sm text-text-muted">
-                Couldn&rsquo;t prepare your design for the {productName}.
+                Couldn&rsquo;t render the preview.
               </span>
               <span className="text-xs text-text-faint">
                 Use “Try again” below.
@@ -591,8 +591,8 @@ function PreviewPageInner() {
               <span className="inline-flex items-center gap-2 rounded-full bg-black/60 px-3 py-1.5 text-xs text-white backdrop-blur-sm">
                 <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/70 border-t-transparent" />
                 {regenerating
-                  ? `Preparing your design…`
-                  : "Rendering exact preview…"}
+                  ? "Preparing…"
+                  : "Rendering preview…"}
               </span>
             </div>
           )}
@@ -727,7 +727,7 @@ function PreviewPageInner() {
               disabled={regenerating || mockupLoading || !approveReady}
             >
               {regenerating
-                ? "Preparing design…"
+                ? "Preparing…"
                 : mockupLoading || !approveReady
                   ? "Rendering preview…"
                   : `Use this design`}

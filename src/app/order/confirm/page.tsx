@@ -39,7 +39,7 @@ function ConfirmPageInner() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        Loading order details...
+        Loading…
       </div>
     );
   }
@@ -67,15 +67,7 @@ function ConfirmPageInner() {
       <div className="flex-1 flex flex-col items-center justify-center">
       <div className="max-w-md w-full text-center space-y-6">
         <div className="text-5xl">&#10003;</div>
-        <h1 className="text-2xl font-bold">Order confirmed!</h1>
-        <p className="text-text-muted">
-          Your custom t-shirt is being prepared. Check your order status
-          anytime on{" "}
-          <Link href="/orders" className="underline underline-offset-2">
-            My Orders
-          </Link>
-          .
-        </p>
+        <h1 className="text-2xl font-bold">Order confirmed.</h1>
 
         <Card className="p-4 text-sm space-y-2 text-left">
           <div className="flex justify-between">

@@ -1,6 +1,6 @@
 import { ImageResponse } from "next/og";
 
-export const alt = "PRNTD — AI-powered custom apparel";
+export const alt = "PRNTD — Design a shirt by describing it";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -40,7 +40,7 @@ export default function Image() {
             color: "#999999",
           }}
         >
-          AI-powered custom apparel
+          Design a shirt by describing it.
         </div>
         <div
           style={{
@@ -50,7 +50,7 @@ export default function Image() {
             color: "#666666",
           }}
         >
-          Describe it · generate it · wear it · prntd.org
+          prntd.org
         </div>
         {/* accent underline strip */}
         <div

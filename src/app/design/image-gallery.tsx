@@ -61,7 +61,7 @@ export function ImageGallery({
         <div className="p-3">
           {images.length === 0 && !generating && (
             <p className="text-xs text-text-faint text-center mt-8">
-              No images yet. Chat about your idea, then hit Draw it.
+              No images yet.
             </p>
           )}
           <div className="grid grid-cols-2 gap-2">
@@ -89,7 +89,7 @@ export function ImageGallery({
             {generating && (
               <div className="aspect-square rounded-lg border-2 border-border flex items-center justify-center bg-surface">
                 <div className="text-[10px] text-text-faint animate-pulse text-center px-2">
-                  Drawing your design…
+                  Generating…
                 </div>
               </div>
             )}
