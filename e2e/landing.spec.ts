@@ -10,7 +10,7 @@ import { EXAMPLES } from "../src/lib/design-examples";
 test("signed-out homepage shows the hero composer", async ({ page }) => {
   await page.goto("/");
   await expect(
-    page.getByRole("heading", { name: "Design a shirt by describing it." })
+    page.getByRole("heading", { name: "Your idea, on a shirt." })
   ).toBeVisible();
   await expect(page.getByPlaceholder("Describe a design")).toBeVisible();
 });
