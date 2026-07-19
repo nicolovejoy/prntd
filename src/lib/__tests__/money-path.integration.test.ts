@@ -417,6 +417,79 @@ describe("money path — checkout.session.completed", () => {
     expect(remaining[0].designId).toBe(d3.id);
   });
 
+  it("returns submitted even when clearing the cart throws (finding #3b: cart cleanup is non-fatal)", async () => {
+    // A one-line cart order so the post-payment cart-clear loop actually runs.
+    const userId = "clear-throw-user";
+    await db
+      .insert(schema.user)
+      .values({ id: userId, email: "clear@example.com", name: "C" });
+    const [d1] = await db.insert(schema.design).values({ userId }).returning();
+    const [order] = await db
+      .insert(schema.order)
+      .values({
+        userId,
+        designId: d1.id,
+        productId: "bella-canvas-3001",
+        size: "M",
+        color: "Black",
+        itemPrice: 19.43,
+        shippingPrice: 4.69,
+        totalPrice: 24.12,
+        status: "pending",
+      })
+      .returning();
+    await db.insert(schema.orderItem).values({
+      orderId: order.id,
+      designId: d1.id,
+      productId: "bella-canvas-3001",
+      size: "M",
+      color: "Black",
+      placements: { front: "img-1" },
+      quantity: 1,
+      itemPrice: 19.43,
+    });
+    await db.insert(schema.cartItem).values({
+      userId,
+      designId: d1.id,
+      productId: "bella-canvas-3001",
+      size: "M",
+      color: "Black",
+    });
+
+    // Make only db.delete blow up (the cart-clear); every other op passes
+    // through to the real db so the paid-claim + fulfillment still run.
+    const throwingDb = new Proxy(db, {
+      get(target, prop, receiver) {
+        if (prop === "delete") {
+          return () => {
+            throw new Error("cart delete boom");
+          };
+        }
+        const value = Reflect.get(target, prop, receiver);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    }) as unknown as Db;
+
+    const result = await handleStripeCheckoutCompleted(
+      makeSession(order.id, d1.id),
+      makeDeps(throwingDb, {
+        createPrintfulOrder: vi
+          .fn()
+          .mockResolvedValue({ id: 5555, costs: { total: "12.50" } }),
+        resolveImageUrlById: vi
+          .fn()
+          .mockImplementation(async (id: string) => `https://img.example/${id}.png`),
+      })
+    );
+
+    // Fulfillment succeeded despite the cart-clear failure — no 400 to Stripe.
+    expect(result.action).toBe("submitted");
+    const updated = await db.query.order.findFirst({
+      where: eq(schema.order.id, order.id),
+    });
+    expect(updated?.status).toBe("submitted");
+  });
+
   it("Printful failure leaves the order paid with no COGS and design not ordered", async () => {
     const { order, design } = await seed(db);
     const deps = makeDeps(db, {
@@ -652,10 +725,20 @@ describe("money path — Printful lifecycle events", () => {
     expect(updated?.trackingUrl).toBe("https://track/1Z999");
   });
 
-  it("order_canceled records a refund reversal for the full total", async () => {
+  it("cancel after submitted reverses COGS and never books a phantom refund", async () => {
+    // A submitted order has COGS on the books; Printful canceling it reverses
+    // that cost. The customer refund is a separate admin action, so NO `refund`
+    // row is written here (finding #1).
     const { order } = await seed(db, {
       status: "submitted",
       printfulOrderId: "9999",
+      printfulCost: 12.5,
+    });
+    await db.insert(schema.ledgerEntry).values({
+      orderId: order.id,
+      type: "cogs",
+      amount: -12.5,
+      description: "Printful fulfillment PF:9999",
     });
 
     const result = await handlePrintfulEvent(
@@ -671,9 +754,32 @@ describe("money path — Printful lifecycle events", () => {
     expect(updated?.printfulCost).toBe(0);
 
     const entries = await ledgerFor(db, order.id);
-    expect(entries).toHaveLength(1);
-    expect(entries[0].type).toBe("refund");
-    expect(entries[0].amount).toBe(-24.12);
+    const byType = Object.fromEntries(entries.map((e) => [e.type, e.amount]));
+    // COGS reversed (+12.50 offsets the -12.50 row), no refund booked.
+    expect(byType.refund_cogs_reversal).toBe(12.5);
+    expect(byType.refund).toBeUndefined();
+    expect(entries.filter((e) => e.type === "refund")).toHaveLength(0);
+  });
+
+  it("cancel with no COGS on the books writes neither reversal nor refund", async () => {
+    const { order } = await seed(db, {
+      status: "submitted",
+      printfulOrderId: "9999",
+    });
+
+    const result = await handlePrintfulEvent(
+      { type: "order_canceled", data: { order: { id: 9999 } } },
+      { db }
+    );
+
+    expect(result.action).toBe("canceled");
+    const updated = await db.query.order.findFirst({
+      where: eq(schema.order.id, order.id),
+    });
+    expect(updated?.status).toBe("canceled");
+
+    const entries = await ledgerFor(db, order.id);
+    expect(entries).toHaveLength(0);
   });
 });
 
@@ -913,10 +1019,17 @@ describe("Printful webhook — redelivery (#37)", () => {
     expect(result.orderId).toBe(order.id);
   });
 
-  it("order_canceled redelivery keeps exactly one refund row", async () => {
+  it("order_canceled redelivery keeps exactly one COGS-reversal row", async () => {
     const { order } = await seed(db, {
       status: "submitted",
       printfulOrderId: "pf-2",
+      printfulCost: 12.5,
+    });
+    await db.insert(schema.ledgerEntry).values({
+      orderId: order.id,
+      type: "cogs",
+      amount: -12.5,
+      description: "Printful fulfillment PF:pf-2",
     });
     const payload = { type: "order_canceled", data: { order: { id: "pf-2" } } };
 
@@ -927,6 +1040,6 @@ describe("Printful webhook — redelivery (#37)", () => {
     expect(second.action).toBe("ignored");
 
     const entries = await ledgerFor(db, order.id);
-    expect(entries.filter((e) => e.type === "refund")).toHaveLength(1);
+    expect(entries.filter((e) => e.type === "refund_cogs_reversal")).toHaveLength(1);
   });
 });

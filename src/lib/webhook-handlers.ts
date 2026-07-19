@@ -6,7 +6,11 @@ import {
   orderItem as orderItemTable,
 } from "@/lib/db/schema";
 import { assertTransition } from "@/lib/order-state";
-import { saleLedgerRows, refundLedgerRow, isUniqueViolation } from "@/lib/ledger";
+import {
+  saleLedgerRows,
+  refundCogsReversalRow,
+  isUniqueViolation,
+} from "@/lib/ledger";
 import {
   submitOrderFulfillment,
   type FulfillmentDeps,
@@ -143,16 +147,25 @@ export async function handleStripeCheckoutCompleted(
   // purchased lines here, matched per line so a single-item /order purchase
   // (no order_item rows today) or anything added to the cart mid-checkout is
   // untouched. Runs even if fulfillment fails below: the customer paid.
-  for (const item of orderItems) {
-    await deps.db.delete(cartItemTable).where(
-      and(
-        eq(cartItemTable.userId, foundOrder.userId),
-        eq(cartItemTable.designId, item.designId),
-        eq(cartItemTable.productId, item.productId),
-        eq(cartItemTable.size, item.size),
-        eq(cartItemTable.color, item.color)
-      )
-    );
+  //
+  // Wrapped so a cart-cleanup failure never fails the webhook (finding #3b):
+  // the paid-claim already committed, so a throw here would 400 → Stripe
+  // redelivers → skipped (status≠pending) → fulfillment stranded until the
+  // daily cron. A leftover cart row is cosmetic; log and press on to fulfill.
+  try {
+    for (const item of orderItems) {
+      await deps.db.delete(cartItemTable).where(
+        and(
+          eq(cartItemTable.userId, foundOrder.userId),
+          eq(cartItemTable.designId, item.designId),
+          eq(cartItemTable.productId, item.productId),
+          eq(cartItemTable.size, item.size),
+          eq(cartItemTable.color, item.color)
+        )
+      );
+    }
+  } catch (err) {
+    console.error(`Order ${orderId}: cart cleanup failed (non-fatal):`, err);
   }
 
   return submitOrderFulfillment(foundOrder, orderItems, session.shipping, deps);
@@ -203,31 +216,44 @@ export async function handlePrintfulEvent(
 
   if (payload.type === "order_canceled") {
     // Redelivery (#37): same 200-on-repeat contract as package_shipped, and
-    // it also prevents a doubled refund ledger row.
+    // it also prevents a doubled COGS-reversal ledger row.
     if (foundOrder.status === "canceled") {
       return { action: "ignored", orderId: foundOrder.id };
     }
     assertTransition(foundOrder.status, "canceled");
 
-    // Cancel-update + refund ledger row commit together (#37) — a crash
-    // between them can't leave a canceled order with no refund on the books.
-    await deps.db.batch([
-      deps.db
-        .update(orderTable)
-        .set({
-          status: "canceled",
-          printfulCost: 0,
-          updatedAt: new Date(),
-        })
-        .where(eq(orderTable.id, foundOrder.id)),
-      deps.db.insert(ledgerEntry).values(
-        refundLedgerRow(
-          foundOrder.id,
-          foundOrder.totalPrice,
-          `Order ${foundOrder.id.slice(0, 8)} canceled — Printful ${printfulOrderId}`
-        )
+    // A cancel does NOT refund the customer here — that is an admin-clicked
+    // action (refundOrder), never an automatic webhook side effect, so we don't
+    // book a `refund` row for money that hasn't moved. What IS a fact the
+    // moment Printful cancels: their cost is reversed. If this order booked
+    // COGS, offset it with a `refund_cogs_reversal` row so gross profit isn't
+    // understated. Cancel-update + reversal commit together (#37).
+    const cogsEntry = await deps.db.query.ledgerEntry.findFirst({
+      where: and(
+        eq(ledgerEntry.orderId, foundOrder.id),
+        eq(ledgerEntry.type, "cogs")
       ),
-    ]);
+    });
+
+    const cancelUpdate = deps.db
+      .update(orderTable)
+      .set({ status: "canceled", printfulCost: 0, updatedAt: new Date() })
+      .where(eq(orderTable.id, foundOrder.id));
+
+    if (cogsEntry) {
+      await deps.db.batch([
+        cancelUpdate,
+        deps.db.insert(ledgerEntry).values(
+          refundCogsReversalRow(
+            foundOrder.id,
+            cogsEntry.amount,
+            `Order ${foundOrder.id.slice(0, 8)} canceled — COGS reversed (Printful ${printfulOrderId})`
+          )
+        ),
+      ]);
+    } else {
+      await cancelUpdate;
+    }
 
     return { action: "canceled", orderId: foundOrder.id };
   }

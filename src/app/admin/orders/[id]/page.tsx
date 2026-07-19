@@ -8,6 +8,7 @@ import {
   getOrderDetail,
   retryPrintfulSubmission,
   recoverPendingOrder,
+  refundOrder,
   archiveOrder,
   unarchiveOrder,
   setOrderClassification,
@@ -38,6 +39,7 @@ export default function OrderDetailPage() {
   const [loading, setLoading] = useState(true);
   const [retrying, setRetrying] = useState(false);
   const [recovering, setRecovering] = useState(false);
+  const [refunding, setRefunding] = useState(false);
 
   async function fetchOrder() {
     const o = await getOrderDetail(params.id);
@@ -82,6 +84,30 @@ export default function OrderDetailPage() {
       alert(`Recover failed: ${message}`);
     } finally {
       setRecovering(false);
+    }
+  }
+
+  async function handleRefund() {
+    if (
+      !window.confirm(
+        "Refund this customer via Stripe? This issues a real refund and cannot be undone."
+      )
+    )
+      return;
+    setRefunding(true);
+    try {
+      const result = await refundOrder(params.id);
+      if (result.ok) {
+        alert(result.refunded ? "Refund issued." : "Already refunded — no action taken.");
+        await fetchOrder();
+      } else {
+        alert(`Cannot refund: ${result.reason}`);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      alert(`Refund failed: ${message}`);
+    } finally {
+      setRefunding(false);
     }
   }
 
@@ -143,6 +169,7 @@ export default function OrderDetailPage() {
 
   const profit =
     order.printfulCost != null ? order.totalPrice - order.printfulCost : null;
+  const hasRefund = order.ledger.some((e) => e.type === "refund");
 
   return (
     <div className="max-w-4xl mx-auto py-8 px-4">
@@ -332,6 +359,17 @@ export default function OrderDetailPage() {
                 {retrying ? "Retrying..." : "Retry Printful"}
               </Button>
             )}
+            {order.status === "canceled" &&
+              order.totalPrice > 0 &&
+              (hasRefund ? (
+                <span className="text-xs text-text-muted self-center">
+                  Refunded ${order.totalPrice.toFixed(2)}
+                </span>
+              ) : (
+                <Button size="sm" onClick={handleRefund} disabled={refunding}>
+                  {refunding ? "Refunding..." : `Refund $${order.totalPrice.toFixed(2)}`}
+                </Button>
+              ))}
             {order.trackingUrl && (
               <a href={order.trackingUrl} target="_blank" rel="noopener noreferrer">
                 <Button size="sm" variant="secondary">

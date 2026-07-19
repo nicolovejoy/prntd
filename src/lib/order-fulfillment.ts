@@ -21,9 +21,15 @@ import { getBlank, getVariantId } from "@/lib/blanks";
 import { assertTransition } from "@/lib/order-state";
 import { cogsLedgerRow } from "@/lib/ledger";
 import { withTimeout } from "@/lib/timeout";
+import { isDuplicateExternalIdError } from "@/lib/printful";
 import type { createOrder, PrintfulOrderItem } from "@/lib/printful";
 import type { db as appDb } from "@/lib/db";
 import type { generateOrderName } from "@/lib/ai";
+
+// The subset of a Printful order response fulfillment persists — its id and the
+// invoice total that becomes COGS. Matches both createOrder and the
+// external-id getter's return shapes.
+type PrintfulOrderResult = { id: string | number; costs?: { total?: string } | null };
 
 // Cap on the post-submission order-naming Anthropic call. Long enough for a
 // normal vision response, short enough that a hung call can't push the webhook
@@ -43,6 +49,13 @@ export type FulfillmentDeps = {
   // after purchase. Optional: when absent, lines fall back to
   // `resolveDesignImageUrl(designId)`.
   resolveImageUrlById?: (imageId: string) => Promise<string | null>;
+  // Fetch the Printful order Printful already has for OUR order id, when a
+  // resubmit is rejected as a duplicate external_id (finding #2). Optional:
+  // when absent, a duplicate rejection just yields paid_printful_failed (the
+  // pre-recovery behavior). Real call sites inject printful.getOrderByExternalId.
+  getPrintfulOrderByExternalId?: (
+    externalId: string
+  ) => Promise<PrintfulOrderResult | null>;
 };
 
 export type ShippingAddress = {
@@ -93,74 +106,110 @@ export async function submitOrderFulfillment(
     orderItems
   );
 
-  // One Printful line item per fulfillable line. Front prefers the image
-  // pinned on the line (placements.front) and falls back to the design's
-  // current display image; non-front placements resolve only via their pinned
-  // image id — a missing one is logged and dropped, never fatal.
-  const items: PrintfulOrderItem[] = [];
+  // Item-building (image resolution), submission, and persistence all sit under
+  // one try that returns paid_printful_failed on any throw (finding #3a): the
+  // reads used to run before the try, so a transient R2/DB read error threw
+  // unhandled and 400'd the Stripe webhook (→ redelivery skips, cron-only
+  // recovery). paid_printful_failed leaves the order `paid` for the daily cron
+  // to retry. Naming runs after, outside the failure path — it's soft either way.
+  let printfulOrder: PrintfulOrderResult | null = null;
   let firstFrontUrl: string | null = null;
-  for (const line of lines) {
-    const frontImageId = line.placements.front ?? null;
-    const frontUrl =
-      (frontImageId && deps.resolveImageUrlById
-        ? await deps.resolveImageUrlById(frontImageId)
-        : null) ?? (await deps.resolveDesignImageUrl(line.designId));
-    if (!frontUrl) {
-      console.error(
-        `Order ${orderId}: line (design ${line.designId}) has no front image — dropping`
-      );
-      continue;
-    }
-    firstFrontUrl ??= frontUrl;
-
-    const files: { placement: string; url: string }[] = [
-      { placement: "front", url: frontUrl },
-    ];
-    for (const [placement, imageId] of Object.entries(line.placements)) {
-      if (placement === "front") continue;
-      const url = deps.resolveImageUrlById
-        ? await deps.resolveImageUrlById(imageId)
-        : null;
-      if (url) files.push({ placement, url });
-      else
-        console.error(
-          `Order ${orderId}: placement "${placement}" image ${imageId} unresolved — submitting without it`
-        );
-    }
-
-    const product = getBlank(line.blankId);
-    const variantId = product
-      ? getVariantId(product, line.color, line.size)
-      : null;
-    if (!variantId) {
-      console.error(
-        `Order ${orderId}: no variant for ${line.color} ${line.size} on ${product?.name ?? line.blankId} — dropping line`
-      );
-      continue;
-    }
-    items.push({ variantId, quantity: line.quantity, files });
-  }
-
-  if (items.length === 0) {
-    console.error(`Order ${orderId}: no fulfillable lines`);
-    return { action: "paid" };
-  }
-
   try {
-    const printfulOrder = await deps.createPrintfulOrder({
-      items,
-      // Our order id as Printful's external reference (#37): makes the
-      // Printful order traceable to ours, and a duplicate submission of the
-      // same order gets rejected by Printful instead of printing twice.
-      externalId: orderId,
-      recipientName: shipping?.name ?? "",
-      address1: shipping?.address1 ?? "",
-      address2: shipping?.address2 || undefined,
-      city: shipping?.city ?? "",
-      stateCode: shipping?.state ?? "",
-      countryCode: shipping?.country ?? "US",
-      zip: shipping?.zip ?? "",
-    });
+    // One Printful line item per fulfillable line. Front prefers the image
+    // pinned on the line (placements.front) and falls back to the design's
+    // current display image; non-front placements resolve only via their pinned
+    // image id — a missing one is logged and dropped, never fatal.
+    const items: PrintfulOrderItem[] = [];
+    for (const line of lines) {
+      const frontImageId = line.placements.front ?? null;
+      const frontUrl =
+        (frontImageId && deps.resolveImageUrlById
+          ? await deps.resolveImageUrlById(frontImageId)
+          : null) ?? (await deps.resolveDesignImageUrl(line.designId));
+      if (!frontUrl) {
+        console.error(
+          `Order ${orderId}: line (design ${line.designId}) has no front image — dropping`
+        );
+        continue;
+      }
+      firstFrontUrl ??= frontUrl;
+
+      const files: { placement: string; url: string }[] = [
+        { placement: "front", url: frontUrl },
+      ];
+      for (const [placement, imageId] of Object.entries(line.placements)) {
+        if (placement === "front") continue;
+        const url = deps.resolveImageUrlById
+          ? await deps.resolveImageUrlById(imageId)
+          : null;
+        if (url) files.push({ placement, url });
+        else
+          console.error(
+            `Order ${orderId}: placement "${placement}" image ${imageId} unresolved — submitting without it`
+          );
+      }
+
+      const product = getBlank(line.blankId);
+      const variantId = product
+        ? getVariantId(product, line.color, line.size)
+        : null;
+      if (!variantId) {
+        console.error(
+          `Order ${orderId}: no variant for ${line.color} ${line.size} on ${product?.name ?? line.blankId} — dropping line`
+        );
+        continue;
+      }
+      items.push({ variantId, quantity: line.quantity, files });
+    }
+
+    if (items.length === 0) {
+      console.error(`Order ${orderId}: no fulfillable lines`);
+      return { action: "paid" };
+    }
+
+    try {
+      printfulOrder = await deps.createPrintfulOrder({
+        items,
+        // Our order id as Printful's external reference (#37): makes the
+        // Printful order traceable to ours, and a duplicate submission of the
+        // same order gets rejected by Printful instead of printing twice.
+        externalId: orderId,
+        recipientName: shipping?.name ?? "",
+        address1: shipping?.address1 ?? "",
+        address2: shipping?.address2 || undefined,
+        city: shipping?.city ?? "",
+        stateCode: shipping?.state ?? "",
+        countryCode: shipping?.country ?? "US",
+        zip: shipping?.zip ?? "",
+      });
+    } catch (err) {
+      // Recovery (finding #2): a prior attempt created the Printful order but
+      // crashed before persisting its id, so this resubmit is rejected as a
+      // duplicate external_id. Fetch the order Printful already has and persist
+      // it below — otherwise every retry hits the same dedupe forever and the
+      // printed order is stranded `paid` (COGS unbooked, no shipping match).
+      if (isDuplicateExternalIdError(err) && deps.getPrintfulOrderByExternalId) {
+        console.warn(
+          `Order ${orderId}: Printful rejected duplicate external_id — recovering existing order`
+        );
+        const existing = await deps
+          .getPrintfulOrderByExternalId(orderId)
+          .catch((fetchErr) => {
+            console.error(
+              `Order ${orderId}: could not fetch existing Printful order:`,
+              fetchErr
+            );
+            return null;
+          });
+        if (!existing) return { action: "paid_printful_failed" };
+        printfulOrder = existing;
+      } else {
+        throw err;
+      }
+    }
+    // Narrows for the type checker — either branch above set printfulOrder or
+    // already returned/threw.
+    if (!printfulOrder) return { action: "paid_printful_failed" };
 
     assertTransition("paid", "submitted");
 
@@ -202,33 +251,39 @@ export async function submitOrderFulfillment(
     } else {
       await deps.db.batch([submittedUpdate, ...designUpdates]);
     }
-
-    // Name the order AFTER Printful submission — the shirt never waits on the
-    // LLM (#39). Bounded so a hung Anthropic call can't stall the webhook
-    // response past Stripe's timeout. Skipped when already named (admin retry).
-    // displayName is written before returning so the confirmation email, sent
-    // by the caller after this resolves, still carries the name. Fails soft.
-    if (firstFrontUrl && !order.displayName) {
-      try {
-        const displayName = await withTimeout(
-          "generateOrderName",
-          ORDER_NAME_TIMEOUT_MS,
-          () => deps.generateOrderName(firstFrontUrl!)
-        );
-        if (displayName) {
-          await deps.db
-            .update(orderTable)
-            .set({ displayName, updatedAt: new Date() })
-            .where(eq(orderTable.id, orderId));
-        }
-      } catch (err) {
-        console.error(`Order ${orderId}: order naming failed (non-fatal):`, err);
-      }
-    }
-
-    return { action: "submitted", printfulOrderId: String(printfulOrder.id) };
   } catch (err) {
-    console.error(`Order ${orderId}: Printful submission failed:`, err);
+    console.error(`Order ${orderId}: Printful fulfillment failed:`, err);
     return { action: "paid_printful_failed" };
   }
+
+  // Unreachable in practice — every non-submit path above already returned —
+  // but this narrows printfulOrder for the type checker and is a cheap backstop.
+  if (!printfulOrder) return { action: "paid_printful_failed" };
+
+  // Name the order AFTER Printful submission — the shirt never waits on the
+  // LLM (#39). Bounded so a hung Anthropic call can't stall the webhook
+  // response past Stripe's timeout. Skipped when already named (admin retry).
+  // displayName is written before returning so the confirmation email, sent by
+  // the caller after this resolves, still carries the name. Fails soft — and it
+  // sits outside the fulfillment try so a naming hiccup can't undo a submission
+  // that already persisted.
+  if (firstFrontUrl && !order.displayName) {
+    try {
+      const displayName = await withTimeout(
+        "generateOrderName",
+        ORDER_NAME_TIMEOUT_MS,
+        () => deps.generateOrderName(firstFrontUrl!)
+      );
+      if (displayName) {
+        await deps.db
+          .update(orderTable)
+          .set({ displayName, updatedAt: new Date() })
+          .where(eq(orderTable.id, orderId));
+      }
+    } catch (err) {
+      console.error(`Order ${orderId}: order naming failed (non-fatal):`, err);
+    }
+  }
+
+  return { action: "submitted", printfulOrderId: String(printfulOrder.id) };
 }

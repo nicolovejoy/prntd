@@ -88,7 +88,26 @@ export function refundLedgerRow(
     type: "refund",
     amount: -originalAmount,
     description,
-    metadata: { note: "Order canceled before fulfillment, refund pending" },
+    metadata: { note: "Customer refund issued via Stripe" },
+  };
+}
+
+/**
+ * Reverse a booked COGS entry when Printful cancels an order — their cost is no
+ * longer incurred. `cogsAmount` is the (negative) amount on the `cogs` row being
+ * reversed; negating it yields the positive offset. This is a fact independent
+ * of whether the customer is refunded (that's the admin-clicked `refund` row).
+ */
+export function refundCogsReversalRow(
+  orderId: string,
+  cogsAmount: number,
+  description: string
+): LedgerRow {
+  return {
+    orderId,
+    type: "refund_cogs_reversal",
+    amount: -cogsAmount,
+    description,
   };
 }
 

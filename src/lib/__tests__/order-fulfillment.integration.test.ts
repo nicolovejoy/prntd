@@ -245,6 +245,93 @@ describe("submitOrderFulfillment (admin-retry shape)", () => {
     expect(call.items).toHaveLength(1);
   });
 
+  it("recovers a stranded submission: duplicate external_id → fetch existing → submitted + COGS", async () => {
+    // Finding #2: a prior attempt created the Printful order but crashed before
+    // persisting its id, so this resubmit is rejected as a duplicate. The getter
+    // returns the order Printful already has; we persist it instead of leaving
+    // the printed order stuck `paid` forever.
+    const { order } = await seedPaidOrder(db);
+    const createPrintfulOrder = vi
+      .fn()
+      .mockRejectedValue(
+        new Error("Printful API error: 400 External ID (x) is already used by another order")
+      );
+    const getPrintfulOrderByExternalId = vi
+      .fn()
+      .mockResolvedValue({ id: 4242, costs: { total: "13.75" } });
+
+    const result = await submitOrderFulfillment(
+      order,
+      [],
+      SHIPPING,
+      makeDeps(db, { createPrintfulOrder, getPrintfulOrderByExternalId })
+    );
+
+    expect(result.action).toBe("submitted");
+    expect(getPrintfulOrderByExternalId).toHaveBeenCalledWith(order.id);
+
+    const updated = await db.query.order.findFirst({
+      where: eq(schema.order.id, order.id),
+    });
+    expect(updated?.status).toBe("submitted");
+    expect(updated?.printfulOrderId).toBe("4242");
+    expect(updated?.printfulCost).toBe(13.75);
+
+    const entries = await db.query.ledgerEntry.findMany({
+      where: eq(schema.ledgerEntry.orderId, order.id),
+    });
+    expect(entries).toHaveLength(1);
+    expect(entries[0].type).toBe("cogs");
+    expect(entries[0].amount).toBe(-13.75);
+  });
+
+  it("duplicate external_id but no existing order found → paid_printful_failed", async () => {
+    const { order } = await seedPaidOrder(db);
+    const result = await submitOrderFulfillment(
+      order,
+      [],
+      SHIPPING,
+      makeDeps(db, {
+        createPrintfulOrder: vi
+          .fn()
+          .mockRejectedValue(new Error("400 External ID already used")),
+        getPrintfulOrderByExternalId: vi.fn().mockResolvedValue(null),
+      })
+    );
+
+    expect(result.action).toBe("paid_printful_failed");
+    const updated = await db.query.order.findFirst({
+      where: eq(schema.order.id, order.id),
+    });
+    expect(updated?.status).toBe("paid");
+  });
+
+  it("returns paid_printful_failed when image resolution throws (finding #3a: reads inside the try)", async () => {
+    const { order } = await seedPaidOrder(db);
+    const createPrintfulOrder = vi.fn();
+    const result = await submitOrderFulfillment(
+      order,
+      [],
+      SHIPPING,
+      makeDeps(db, {
+        createPrintfulOrder,
+        // A transient R2/DB read error while resolving the print image must not
+        // throw unhandled (that 400s the Stripe webhook) — it yields a
+        // cron-retryable paid_printful_failed instead.
+        resolveDesignImageUrl: vi
+          .fn()
+          .mockRejectedValue(new Error("R2 read timeout")),
+      })
+    );
+
+    expect(result.action).toBe("paid_printful_failed");
+    expect(createPrintfulOrder).not.toHaveBeenCalled();
+    const updated = await db.query.order.findFirst({
+      where: eq(schema.order.id, order.id),
+    });
+    expect(updated?.status).toBe("paid");
+  });
+
   it("returns paid_printful_failed with no COGS when Printful errors", async () => {
     const { order } = await seedPaidOrder(db);
     const result = await submitOrderFulfillment(
