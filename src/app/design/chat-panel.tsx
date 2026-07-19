@@ -15,8 +15,6 @@ export function ChatPanel({
   generating,
   onSend,
   onGenerate,
-  onCompare,
-  activeGenerator,
   readyToGenerate,
   options,
   onUploadImage,
@@ -28,8 +26,6 @@ export function ChatPanel({
   generating: boolean;
   onSend: (message: string) => void;
   onGenerate: (message?: string) => void;
-  onCompare: (message?: string) => void;
-  activeGenerator: string;
   readyToGenerate: boolean;
   options: ChatOption[];
   onUploadImage: (base64: string, fileName: string) => void;
@@ -347,25 +343,6 @@ export function ChatPanel({
             title={readyToGenerate ? undefined : notReadyTitle}
           >
             Draw it
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            className="min-h-[44px]"
-            onClick={() => {
-              if (generating) return;
-              const msg = input.trim() || undefined;
-              if (msg) setInput("");
-              onCompare(msg);
-            }}
-            disabled={busy || (messages.length === 0 && !input.trim())}
-            title={
-              readyToGenerate
-                ? `Compare styles across all generators (current: ${activeGenerator})`
-                : notReadyTitle
-            }
-          >
-            Compare
           </Button>
         </div>
       </form>
