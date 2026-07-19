@@ -104,7 +104,9 @@ export function ChatPanel({
     return () => clearTimeout(t);
   }, [isEmpty, input]);
 
-  const GENERATE_TRIGGERS = /^(yes|yeah|yep|do it|go|generate|let'?s do it|go ahead|make it|yes please|sure|ok generate)/i;
+  // "draw it"/"draw" included: chat copy now nudges "tap Draw it", so typing
+  // it should behave like tapping it.
+  const GENERATE_TRIGGERS = /^(yes|yeah|yep|do it|go|generate|draw it|draw|let'?s do it|go ahead|make it|yes please|sure|ok generate)/i;
 
   // Shared submit path for both the composer and a tapped quick-reply chip, so
   // generate-intent detection and input clearing behave identically.

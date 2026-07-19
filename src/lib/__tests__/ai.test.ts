@@ -247,6 +247,136 @@ describe("chatAboutDesign options", () => {
     const result = await chatAboutDesign("anything", [], []);
     expect(result.options).toEqual([]);
   });
+
+  it("salvages chips when the model lists choices in prose with empty options", async () => {
+    const mockCreate = await getMockCreate();
+    mockCreate.mockResolvedValue({
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          message: "Nice — a fox it is. What style are you after?\n\n1. Watercolor\n2. Vintage\n3. Bold vector",
+          readyToGenerate: false,
+          options: [],
+        }),
+      }],
+    });
+
+    const { chatAboutDesign } = await import("../ai");
+    const result = await chatAboutDesign("a fox", [], []);
+
+    expect(result.options).toEqual([
+      { label: "Watercolor", value: "Watercolor" },
+      { label: "Vintage", value: "Vintage" },
+      { label: "Bold vector", value: "Bold vector" },
+    ]);
+    // The list is stripped from the prose; the question survives.
+    expect(result.message).toBe("Nice — a fox it is. What style are you after?");
+  });
+
+  it("never overrides structured options with the prose fallback", async () => {
+    const mockCreate = await getMockCreate();
+    mockCreate.mockResolvedValue({
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          message: "Pick one:\n1. Watercolor\n2. Vintage",
+          readyToGenerate: false,
+          options: [{ label: "Halftone", value: "Halftone screen-print" }],
+        }),
+      }],
+    });
+
+    const { chatAboutDesign } = await import("../ai");
+    const result = await chatAboutDesign("a fox", [], []);
+
+    expect(result.options).toEqual([
+      { label: "Halftone", value: "Halftone screen-print" },
+    ]);
+    expect(result.message).toContain("1. Watercolor");
+  });
+});
+
+describe("extractProseOptions", () => {
+  it("converts a trailing numbered list of short choices", async () => {
+    const { extractProseOptions } = await import("../ai");
+    const result = extractProseOptions(
+      "What style do you want?\n\n1. Watercolor\n2. Vintage\n3. Bold vector"
+    );
+    expect(result?.message).toBe("What style do you want?");
+    expect(result?.options).toEqual([
+      { label: "Watercolor", value: "Watercolor" },
+      { label: "Vintage", value: "Vintage" },
+      { label: "Bold vector", value: "Bold vector" },
+    ]);
+  });
+
+  it("converts hyphen bullets", async () => {
+    const { extractProseOptions } = await import("../ai");
+    const result = extractProseOptions(
+      "Which direction?\n- Hand-drawn ink\n- Vintage screen-print"
+    );
+    expect(result?.message).toBe("Which direction?");
+    expect(result?.options).toEqual([
+      { label: "Hand-drawn ink", value: "Hand-drawn ink" },
+      { label: "Vintage screen-print", value: "Vintage screen-print" },
+    ]);
+  });
+
+  it('accepts the "1)" marker style', async () => {
+    const { extractProseOptions } = await import("../ai");
+    const result = extractProseOptions("Pick a mood\n1) Playful\n2) Moody");
+    expect(result?.options).toEqual([
+      { label: "Playful", value: "Playful" },
+      { label: "Moody", value: "Moody" },
+    ]);
+  });
+
+  it("leaves numbered instructions alone (sentence-like items)", async () => {
+    const { extractProseOptions } = await import("../ai");
+    // Instruction steps: long, verb-led sentences with punctuation — must NOT
+    // become chips.
+    expect(
+      extractProseOptions(
+        "Here's how it works:\n1. Describe your idea in the chat below.\n2. Tap Draw it to see the first render.\n3. Head to preview once you like it."
+      )
+    ).toBeNull();
+    // Even without terminal periods, long items are not chips.
+    expect(
+      extractProseOptions(
+        "Next steps\n1. Describe the fox you have in mind\n2. Tap the Draw it button when ready"
+      )
+    ).toBeNull();
+  });
+
+  it("returns null for plain prose", async () => {
+    const { extractProseOptions } = await import("../ai");
+    expect(extractProseOptions("A watercolor fox sounds great. Ready?")).toBeNull();
+  });
+
+  it("returns null when the message is nothing but a list", async () => {
+    const { extractProseOptions } = await import("../ai");
+    expect(extractProseOptions("1. Watercolor\n2. Vintage")).toBeNull();
+  });
+
+  it("returns null for a single list line", async () => {
+    const { extractProseOptions } = await import("../ai");
+    expect(extractProseOptions("Try this:\n1. Watercolor")).toBeNull();
+  });
+
+  it("returns null for more than 5 items", async () => {
+    const { extractProseOptions } = await import("../ai");
+    const items = Array.from({ length: 6 }, (_, i) => `${i + 1}. Style ${i + 1}`);
+    expect(extractProseOptions(`Pick one\n${items.join("\n")}`)).toBeNull();
+  });
+
+  it("ignores a list followed by more prose (not trailing)", async () => {
+    const { extractProseOptions } = await import("../ai");
+    expect(
+      extractProseOptions(
+        "Options:\n1. Watercolor\n2. Vintage\nBut honestly the vintage one prints better."
+      )
+    ).toBeNull();
+  });
 });
 
 describe("extractChatEnvelope", () => {
@@ -342,6 +472,31 @@ describe("assessReadiness", () => {
 
     expect(result.ready).toBe(false);
     expect(result.question).toContain("What style");
+  });
+
+  it("salvages chips from a numbered-list clarifying question", async () => {
+    const mockCreate = await getMockCreate();
+    mockCreate.mockResolvedValue({
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          ready: false,
+          question: "What style?\n1. Watercolor\n2. Vintage\n3. Bold vector",
+          options: [],
+        }),
+      }],
+    });
+
+    const { assessReadiness } = await import("../ai");
+    const result = await assessReadiness([], [], "a fox");
+
+    expect(result.ready).toBe(false);
+    expect(result.question).toBe("What style?");
+    expect(result.options).toEqual([
+      { label: "Watercolor", value: "Watercolor" },
+      { label: "Vintage", value: "Vintage" },
+      { label: "Bold vector", value: "Bold vector" },
+    ]);
   });
 
   it("returns ready=true for a concrete subject + style", async () => {
@@ -556,7 +711,7 @@ describe("constructFluxPrompt", () => {
       []
     );
 
-    expect(result.message).toBe("Let me generate that for you.");
+    expect(result.message).toBe("Let me draw that for you.");
     expect(result.fluxPrompt).toContain("graphic design illustration");
   });
 
