@@ -104,13 +104,11 @@ export default function DesignsPage() {
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             {designs.map((design) => {
               // Published designs render over their chosen storefront
-              // backdrop (matching PublishedGrid); unpublished — or a null
-              // backdrop — keep the checkerboard.
-              const backdrop = publishedBackdrop(
-                design.primaryImagePublishedAt
-                  ? design.primaryImageBackgroundColor
-                  : null
-              );
+              // backdrop (matching PublishedGrid; null → White, #73);
+              // unpublished ones keep the checkerboard working view.
+              const backdrop = design.primaryImagePublishedAt
+                ? publishedBackdrop(design.primaryImageBackgroundColor)
+                : { className: "bg-checkerboard", style: undefined };
               return (
               <div key={design.id} className="border rounded-lg overflow-hidden group">
                 <Link href={getDesignHref(design)} className="block">

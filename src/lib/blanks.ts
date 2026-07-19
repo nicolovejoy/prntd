@@ -511,18 +511,30 @@ export const BACKGROUND_PALETTE: BlankColor[] =
   getBlankOrThrow(DEFAULT_BLANK_ID).colors;
 
 /**
+ * Backdrop color published designs get when the owner didn't pick one.
+ * Transparent art on a checkerboard reads badly in the Shop (#73), so
+ * publish defaults to White and legacy null rows display as White too.
+ */
+export const DEFAULT_PUBLISH_BACKGROUND = "White";
+
+/**
  * Resolves a published design's backdrop. Art is a transparent PNG layered
- * over either a pinned shirt color (background_color, a name from
- * BACKGROUND_PALETTE) or — when null — the neutral checkerboard.
+ * over a pinned shirt color (background_color, a name from
+ * BACKGROUND_PALETTE). Legacy rows with null background_color display on
+ * White — no transparent/checkerboard backdrop in the Shop (#73).
  */
 export function publishedBackdrop(colorName: string | null | undefined): {
   className: string;
   style?: { backgroundColor: string };
 } {
-  if (!colorName) return { className: "bg-checkerboard" };
   return {
     className: "",
-    style: { backgroundColor: getColorHex(DEFAULT_BLANK_ID, colorName) },
+    style: {
+      backgroundColor: getColorHex(
+        DEFAULT_BLANK_ID,
+        colorName ?? DEFAULT_PUBLISH_BACKGROUND
+      ),
+    },
   };
 }
 

@@ -13,6 +13,7 @@ import { eq, desc, and, not, count, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { resolveDesignDisplayImageUrls } from "@/lib/design-images";
 import { generatePublishedNaming } from "@/lib/ai";
+import { DEFAULT_PUBLISH_BACKGROUND } from "@/lib/blanks";
 
 export async function getUserDesigns() {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -207,9 +208,9 @@ export async function publishImage(
       publishedAt: new Date(),
       title,
       description,
-      ...(opts.backgroundColor !== undefined
-        ? { backgroundColor: opts.backgroundColor }
-        : {}),
+      // Publish never leaves the backdrop transparent (#73): no pick — or an
+      // explicit null from a legacy caller — persists as White.
+      backgroundColor: opts.backgroundColor ?? DEFAULT_PUBLISH_BACKGROUND,
     })
     .where(eq(designImageTable.id, imageId));
 
@@ -253,8 +254,9 @@ export async function updatePublishedNaming(
 
   // Partial update: only touch fields the caller actually sent. The
   // background control persists backgroundColor alone; the naming editor
-  // sends title + description. backgroundColor can be explicit null (clear
-  // to checkerboard), so the guard is `!== undefined`, not truthiness.
+  // sends title + description. The picker no longer offers a transparent
+  // option (#73); a legacy null still displays as White via
+  // publishedBackdrop, so the guard stays `!== undefined`, not truthiness.
   await db
     .update(designImageTable)
     .set({

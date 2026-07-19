@@ -15,6 +15,9 @@ import {
   BLANKS,
   ACTIVE_BLANKS,
   DEFAULT_BLANK_ID,
+  publishedBackdrop,
+  DEFAULT_PUBLISH_BACKGROUND,
+  BACKGROUND_PALETTE,
 } from "../blanks";
 
 describe("getBlank", () => {
@@ -305,5 +308,31 @@ describe("placements (#25 back printing)", () => {
     expect(multiPlacementEnabled()).toBe(true);
     if (prev === undefined) delete process.env.MULTI_PLACEMENT_ENABLED;
     else process.env.MULTI_PLACEMENT_ENABLED = prev;
+  });
+});
+
+describe("publishedBackdrop", () => {
+  it("resolves a palette color name to its hex", () => {
+    expect(publishedBackdrop("Black")).toEqual({
+      className: "",
+      style: { backgroundColor: "#0c0c0c" },
+    });
+  });
+
+  it("legacy null displays as White, never checkerboard (#73)", () => {
+    expect(publishedBackdrop(null)).toEqual({
+      className: "",
+      style: { backgroundColor: "#ffffff" },
+    });
+    expect(publishedBackdrop(undefined)).toEqual({
+      className: "",
+      style: { backgroundColor: "#ffffff" },
+    });
+  });
+
+  it("the publish default is a real palette color", () => {
+    expect(
+      BACKGROUND_PALETTE.some((c) => c.name === DEFAULT_PUBLISH_BACKGROUND)
+    ).toBe(true);
   });
 });
