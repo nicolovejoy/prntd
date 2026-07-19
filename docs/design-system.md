@@ -1,400 +1,662 @@
-# PRNTD Design System
+# PRNTD Design System — persona + copy proposal
 
-2026-06-18. Rewrite of the 2026-06-10 first draft (PR #34) after the persona
-conversation with Manine. **Supersedes PR #34** — that draft was correct about
-the visual language but couldn't answer Manine's central objection: *the product
-had no persona, so tone and copy couldn't be reviewed.* This version starts
-there.
+2026-07-19 (supersedes the 2026-06-10 abstract draft). Three parts: (1) a
+**persona decision** — three fully-worked options for who PRNTD sounds like,
+with the same copy surfaces written out in each voice so they compare
+line-by-line; (2) the design language + vocabulary; (3) the per-page component
+inventory and gap list, with persona-dependent items marked.
 
-The pivot it encodes: PRNTD is **organizer-first**. The wedge customer is not
-the person buying one shirt — it's the **organizer** who has an audience and
-wants merch without buying inventory. See `docs/positioning-pivot.md`.
+The original review (Manine, 2026-06-14) made one central point: the product
+had no persona, so tone couldn't be judged. That decision is now Nico's +
+Claude's to make. This doc exists so it gets made by picking one of three
+options, not by drifting into one.
 
-Five parts:
-0. **Who it's for** — the persona, concretely. The new foundation.
-1. **Design language** — ink/paper, re-anchored to the persona.
-2. **The two flows** — organizer setup (primary) and buyer (downstream).
-3. **Vocabulary, tokens, components** — the shared kit.
-4. **Page inventory** — every surface, what's built, what's new.
-
-Divergences from current code are marked **[gap]**. Surfaces that don't exist
-yet are marked **[new]**.
+Naming note: the community storefront was renamed from "Fresh Prints" to
+**"Shop"** (2026-07-19). This doc assumes that name throughout.
 
 ---
 
-## Part 0 — Who it's for
+## Part 1 — Persona
 
-### The organizer (primary)
+Three options. Each includes voice principles, copy for the same eight
+surfaces, visual deltas from the ink/paper base (Part 2), implications, and a
+one-line "choose this if". The eight surfaces, in order:
 
-> **Manine runs a youth baseball club.** Thirty families. Every season a parent
-> asks "are we doing shirts this year?" and every season it dies on the logistics:
-> who fronts the money, who collects sizes, who eats the leftover XLs. She is not
-> a designer and doesn't want to become one. She wants to spin up a little shop —
-> *"Manine's Baseball Club"* — pick a couple of designs, and text a link to the
-> team. Parents order their own sizes, pay their own money, shirts show up. She
-> never touches inventory and never fronts a cent.
+1. Landing hero — headline + sub
+2. Composer placeholder
+3. Example chips (3)
+4. Generating state
+5. Empty `/designs` state
+6. Order CTA
+7. Order-confirmation opening line
+8. One error message (failed generation)
 
-That's the customer. Not demographics — the *moment*: someone with a built-in
-audience and a recurring "should we do shirts?" that keeps failing on hassle and
-risk. Clubs, bands, studios, classrooms, reunions, small causes.
+Current live copy for reference (all on the landing shipped 2026-07-05):
+hero "Type an idea. Wear it." / "AI draws your design in seconds. Free to try
+— pay only if you order."; placeholder "Describe your design..."; generating
+"Drawing your design…"; order CTA "Buy now — $X.XX".
 
-What she wants, in priority order:
+### Option A — The Print Shop
 
-1. **No inventory, no money up front.** The fear we remove. Everything else is
-   secondary to this.
-2. **A shareable thing.** A named shop with a link she can drop in a group chat.
-   The link *is* the product to her.
-3. **To not look amateur.** It should feel like she hired someone, not like a
-   form-builder.
-4. **Five minutes, on her phone, between other things.** She's organizing this
-   in a parking lot, not at a desk.
+A neighborhood print shop that happens to have a very good illustrator behind
+the counter. Warm, utilitarian, plainspoken. The current landing and the
+ink/paper direction already lean this way — this is the continuity pick.
 
-What she is **not**: a designer, a power user, someone who will read help text,
-someone at a computer.
+**Voice principles**
 
-### The buyer (secondary, downstream)
+1. Verbs of making: describe, draw, print, wear. Never "generate", "create
+   with AI", "AI-powered" — the tech is the illustrator, not the pitch.
+2. Short declarative sentences, second person, present tense. No exclamation
+   points anywhere.
+3. Whimsy is allowed only inside the drawing moment ("Drawing your design…",
+   "What shall we draw together?"). Nav, checkout, orders, and errors are
+   flat and factual.
+4. State facts plainly — prices, timing, what happened. True claims only
+   ("in seconds" stays because it's true).
+5. When helpful and terse conflict, terse wins; the shop doesn't chat at the
+   register.
 
-The parent who gets the link. Opens it on a phone, sees the team's shirts, picks
-a size, pays. Doesn't make an account until checkout. This is essentially today's
-`/design → preview → order` funnel, but entered *from a store*, not cold. The
-buyer is real volume but not the wedge — we win the buyer by winning the
-organizer.
+**Copy samples**
 
-### Voice
+1. Hero: **"Type an idea. Wear it."** / "Describe a shirt and watch it get
+   drawn. Free to try — pay only if you order."
+2. Placeholder: "Describe your design..."
+3. Chips: "A minimalist mountain landscape in blue and white" · "A retro
+   sunset with palm tree silhouettes" · "An abstract geometric wolf head"
+4. Generating: "Drawing your design…"
+5. Empty `/designs`: "Nothing here yet. Describe an idea and we'll draw it."
+   + [New design]
+6. Order CTA: "Buy now — $19.43"
+7. Confirmation opening: "Order placed. We're printing your shirt."
+8. Error: "The drawing failed. Nothing was charged — try again."
 
-The lens is **Newman's Own**: a real product that stands on its own, where the
-proceeds happen to do good. Not a charity that also sells shirts — a good shirt
-shop that's also pro-social. Keep the do-good light; never lead with it, never
-guilt with it.
+**Visual deltas from ink/paper base**: none. Ink/paper as specified in Part 2
+is this persona's visual half; the two were drafted together.
 
-Three words: **capable, warm, unfussy.**
+**Implications**
 
-Never: salesy, cutesy, "platform"-y, or technical. Never makes the organizer feel
-like she's operating software. No "leverage," no "seamless," no exclamation-mark
-enthusiasm. If a sentence sounds like a SaaS onboarding tooltip, cut it.
+- Lowest churn: the live landing, "Draw it", "Drawing your design…", and the
+  chat empty state already speak this voice. Work is an audit pass, not a
+  rewrite — a dozen or two strings that leak internals or AI-speak (e.g. the
+  Compare tooltip "Compare styles across all generators (current: ideogram)"
+  exposes generator plumbing to customers).
+- Fits "Shop" naming with no friction — a print shop has a shop.
+- Compatible with organizer storefronts: the voice is quiet enough that a
+  bakery's shop page doesn't read as someone else's brand talking.
+- Risk: low. The failure mode is blandness, mitigated by keeping the
+  drawing-moment warmth.
 
-The test for any copy or control: *would Manine-in-a-parking-lot understand it in
-one read, and would it make her feel handled rather than tasked?*
+**Choose this if**: you want the persona decision to mostly ratify what's
+live, ship the audit in a day, and keep the site sounding like the place that
+prints your shirt.
+
+### Option B — The Zine Studio
+
+Small-batch print culture: riso, zines, one-off runs. The copy is dry and a
+little playful; the studio has opinions. More character, more risk.
+
+**Voice principles**
+
+1. Talks like a riso studio's flyer: deadpan, specific, unbothered. Jokes are
+   dry one-liners, never wacky.
+2. Print-craft vocabulary used honestly — runs, pulls, the press — without
+   skeuomorphic cosplay. PRNTD sells a run of one; the copy leans on that.
+3. Money is always straight: checkout, prices, refunds, and payment errors
+   carry zero jokes. Humor stops at the register.
+4. The machine can be a character, sparingly ("the press jammed") — never
+   named, never cute, never apologizing at length.
+5. Short beats clever whenever they conflict.
+
+**Copy samples**
+
+1. Hero: **"One-off shirts from one sentence."** / "Type it, we draw it, you
+   wear it. No minimum run — a run of one."
+2. Placeholder: "what are we printing?"
+3. Chips: "a wolf, but geometric" · "sunset, palm trees, 1983" · "\"HELLO\"
+   in fat graffiti letters"
+4. Generating: "Pulling your print…"
+5. Empty `/designs`: "The flat file is empty. Print something."
+   + [New design]
+6. Order CTA: "Print it — $19.43"
+7. Confirmation opening: "It's on the press. One shirt, run of one."
+8. Error: "The press jammed. Nothing was charged — try again."
+
+**Visual deltas from ink/paper base**
+
+- One ink accent color added — a riso staple (blue or fluorescent-adjacent
+  red), used only for chips, generation numbers, and small marks. This breaks
+  the "white is the only inversion color" rule (gap #8); the primary button
+  stays white-on-ink.
+- Geist Mono promoted: generation numbers, prices, and section labels set in
+  mono, hand-set-type style.
+- Registration-mark / crop-mark motifs allowed as decoration on empty states
+  and the confirmation card — nowhere functional.
+
+**Implications**
+
+- Every customer-facing string is a rewrite, and the voice needs maintenance:
+  each future feature has to decide whether it gets the joke or plays it
+  straight. That's a standing tax.
+- "Shop" naming is a mild mismatch — this persona would rather call it the
+  rack or the wall. Livable, but the neutral name dilutes the voice.
+- Worst fit with organizer storefronts: a Pilates studio's customers land on
+  copy with PRNTD's sense of humor. Until white-label (#45) isolates shop
+  pages, the voice bleeds onto surfaces that belong to organizers.
+- Risk: medium-high. Dry copy misreads for some buyers, and a voice half-
+  applied is worse than none.
+
+**Choose this if**: PRNTD stays maker-first, you want the brand itself to be
+memorable, and you'll pay the ongoing cost of maintaining a voice.
+
+### Option C — The Clean Label
+
+Uniqlo-esque neutrality. Copy is nearly invisible; the product and the
+mockups do the persuading. Least voice, safest, most conventional.
+
+**Voice principles**
+
+1. Every string is the shortest accurate label. Nouns and verbs; no
+   metaphors, no "we".
+2. Microcopy states facts only — price, time, status. It never sells,
+   reassures, or performs.
+3. No whimsy anywhere, including the drawing moment. Waiting states name the
+   operation and stop.
+4. Sentence case, full stops, zero exclamation points, zero jokes.
+5. When a string can be deleted, delete it.
+
+**Copy samples**
+
+1. Hero: **"Design a shirt by describing it."** / "Free to design. Printed
+   and shipped from $19.43."
+2. Placeholder: "Describe a design"
+3. Chips: "Minimalist mountain landscape" · "Retro sunset, palm silhouettes"
+   · "Geometric wolf head"
+4. Generating: "Generating…"
+5. Empty `/designs`: "No designs yet." + [New design]
+6. Order CTA: "Order — $19.43"
+7. Confirmation opening: "Order confirmed."
+8. Error: "Generation failed. You were not charged."
+
+**Visual deltas from ink/paper base**
+
+- Quieter still: no 8s-delay chip reveal (chips always visible, catalog-
+  style), more whitespace, `/shop` grid gets stronger catalog emphasis
+  (bigger cards, less metadata).
+- Badge palette collapses hardest here (neutral + one status color pair).
+- No decorative elements of any kind; checkerboard stays (it's functional).
+
+**Implications**
+
+- Best fit for organizer storefronts and white-label (#45): neutral chrome
+  disappears behind anyone's brand. If organizer stores become the business,
+  this is the persona they'd ask for.
+- Moderate churn — fewer strings change than B, but the changes all point the
+  deflating direction, and "Generating…" trades the product's one warm beat
+  for the same word every AI tool uses. Neutral copy here is, ironically,
+  more generic-AI-flavored than Option A's craft framing.
+- Fits "Shop" naming perfectly.
+- Risk: low operationally, real strategically — nothing about the chrome
+  gives anyone a reason to remember PRNTD.
+
+**Choose this if**: organizer storefronts are the business, and PRNTD chrome
+should disappear behind the shops it hosts.
+
+### Recommendation
+
+**Option A.** Three reasons, none of them "it's what's already there":
+
+1. The maker flow is still the primary product (per the 2026-07-05 direction:
+   maker UX now, organizer readiness rudimentary). A's voice serves makers
+   without alienating storefront buyers — B risks the latter, C flattens the
+   former.
+2. The drawing moment is the product's one differentiated beat, and A is the
+   only option that keeps its warmth while staying cheap to maintain. B keeps
+   it at high upkeep; C deletes it.
+3. The argument for C — neutrality under organizer brands — is better solved
+   by #45's white-label work (shop pages get their own restrained treatment)
+   than by neutering the maker surface sitewide.
+
+The honest counter-case: if the organizer pivot becomes the whole business,
+C wins and this decision should be revisited — the persona applies to PRNTD's
+own surfaces, and those shrink in that future. B is the right pick only if
+brand personality is being bet on as a growth lever; nothing currently
+depends on that bet.
+
+Picking A means: ratify the current voice, run a sitewide string audit
+against A's five principles (the Compare tooltip and a handful of
+internals-leaking strings fail it today), and write new features' copy
+against those principles from now on.
 
 ---
 
-## Part 1 — Design language
+## Part 2 — Design language
 
 ### Direction
 
-PRNTD is a print shop, and the interface is the shop counter: matte black, quiet,
-monochrome. **The artwork is the only color on the screen.** Every hue the chrome
-claims for itself competes with the designs being sold, so the chrome claims none.
-White is the accent; a primary action is an inversion (paper-on-ink), not a
-colored button.
+PRNTD is a print shop. The interface is the shop counter: matte black, quiet,
+monochrome. The customer's artwork is the only color on the screen — every
+hue the chrome claims for itself competes with the design being made, so the
+chrome claims none. White is the accent; a primary action is an inversion
+(paper-on-ink), not a colored button.
 
-This still holds under the organizer pivot, with one addition: **a store can carry
-one accent color** — the organizer's pick, the one place brand color is allowed,
-because it's *her* brand, not ours. Everywhere else stays ink and paper.
+This direction is Option A's visual half and survives unchanged under A or C.
+Option B amends it (one ink accent, mono promotion — see above).
 
 Three principles:
 
-1. **Ink and paper.** Chrome is monochrome. Color belongs to artwork, product
-   swatches, and a store's single chosen accent. Nothing else.
-2. **One primary per screen.** Exactly one inverted (white) button: the next step.
-   Everything else is outline or ghost. (Current violation: the Studio composer
-   offers Send / Draw it / Compare at equal weight — Part 4.)
-3. **Phone-first, one column.** The phone layout *is* the design; desktop gets
-   more room, not more features. The organizer works on her phone — if it's
-   awkward on a phone, it's broken, not "desktop-optimized."
-
-### Type
-
-Geist Sans / Geist Mono, tokenized as `--font-sans` / `--font-mono`. (The Arial
-override was fixed 2026-06-14, commit `cbedcbe`.) Roles:
-
-- `text-3xl/5xl bold` — page hero
-- `text-lg/xl semibold` — screen title
-- `text-sm font-medium` — section labels, card titles
-- `text-sm` — body, chat
-- `text-xs text-text-muted` — metadata
-- `font-mono` — IDs, codes, money references
-
----
-
-## Part 2 — The two flows
-
-This is the information architecture the pivot demands. Today there is one funnel
-(design → buy). The pivot splits the front door in two.
-
-```
-ORGANIZER FLOW (primary entry)          BUYER FLOW (downstream)
-────────────────────────────           ──────────────────────
-Land → "Set up a shop"                  Open shared link
-  → Name it                              → /shop/[slug]  (the store)
-  → Pick / make designs                  → pick a design
-  → Get shareable link  ───────link────▶ → size + color
-  → (optionally buy too)                 → checkout (account at this step)
-        │                                       │
-        ▼                                       ▼
-   Organizer dashboard                     Their /orders
-   (sales, designs, link)
-```
-
-Key IA decisions:
-
-- **The store is the noun.** Designs live *in* a store. "Fresh Prints" (the global
-  feed) becomes one example store among many — or is reframed entirely (Part 4,
-  open question).
-- **The organizer flow is the homepage's primary call.** A recognized organizer
-  lands on their dashboard; an unrecognized visitor lands on "set up a shop" with
-  a real example store as proof. (This answers Manine's "homepage should do
-  different things for different users in different states.")
-- **Auth moves later, again.** Setting up a shop should be possible far into the
-  flow before sign-up is forced — the anonymous-plugin claim machinery already
-  re-parents designs and orders on sign-in; it will re-parent stores the same way.
-- **The buyer never sees the machinery.** No "design studio," no generation
-  counter — just the organizer's shop and a size picker.
-
----
-
-## Part 3 — Vocabulary, tokens, components
+1. **Ink and paper.** Chrome is monochrome. Color belongs to generations,
+   mockups, and product swatches only. (Current exception: status badge hues —
+   see Gaps.)
+2. **One primary per screen.** Each screen has exactly one inverted (white)
+   button: the next step in the funnel. Everything else is outline or ghost.
+   (Current violation: /design's composer offers Send / Draw it / Compare at
+   equal-ish weight.)
+3. **Phone-first, one column.** The phone layout is the design; desktop gets
+   extra space, not extra features. Anything desktop-only (e.g. the
+   Generations rail) must have a phone equivalent (the Sheet), not be dropped.
 
 ### Vocabulary
 
-Shared nouns. Code names in parentheses where they differ.
+Shared nouns for design conversations. Code names in parentheses where they
+differ.
 
-**Objects** (full model + Printful mapping in `docs/organizer-pivot-plan.md`)
+**Objects**
 
-- **Product offering** *(new)* — a category of blanks with an availability window
-  (new / seasonal / expiring). Maps to Printful's **category**; the window is ours.
-- **Blank** *(rename of code's `Product`)* — a printable item: tee, mug, cozy. One
-  Printful catalog product; has color × size variants and **placements**.
-- **Placement** — a print location on a blank, Printful's keys verbatim
-  (`front_large`, `back`, `sleeve_left`, `label_inside`, …). Carries a **technique**
-  (`dtg` default), print area, DPI, aspect.
-- **Design** — a thread: the conversation plus its generations. One `design` row,
-  one `/design?id=` URL.
+- **Design** — a thread: the conversation plus all its generations. One row in
+  `design`, one `/design?id=` URL.
 - **Generation** — one numbered render inside a design (`design_image` row).
   Append-only; never replaced.
-- **Product** *(new — the organizer's sellable)* — a Design on a Blank at a
-  Placement, priced. One design → many products. Persists the config today thrown
-  away at checkout. *(Validity = a pure function of design props × placement
-  constraints; warn + auto-remediate, never block — see the plan.)*
-- **Collection** *(backlog, no URL)* — a grouping of products (teams, seasons),
-  discount optional.
-- **Store / Shop** *(new)* — a named, shareable shop owned by an organizer. Slug
-  (`/shop/[slug]`), name, one accent color, a link. **Many per organizer, optimized
-  for one.** The pivot's central new object.
-- **Mockup** — a generation placed on a blank (Printful render).
-- **Backdrop** — the shirt-palette color a product sits on; checkerboard unset.
-- **Swatch** — a selectable product-color circle.
+- **Print** — a published generation. Lives in the Shop, has a title,
+  description, and backdrop. (`published_at` on `design_image`.)
+- **Mockup** — a generation placed on a physical product (Printful render).
+- **Product version** — a generation re-rendered for a specific product's
+  print area (placement render).
+- **Backdrop** — the shirt-palette color a Print is displayed on; checkerboard
+  when unset.
+- **Swatch** — a selectable product color circle.
 
 **Places**
 
-- **Studio** — `/design`. Where designs are made. (Organizer or designer surface,
-  never the buyer's.)
-- **Shop** — `/shop/[slug]` *(new)*. A single organizer's storefront. What the
-  buyer sees.
-- **Dashboard** — `/dashboard` *(new)*. The organizer's back office: their
-  shop(s), the share link, sales.
-- **Funnel** — Shop → size/color → Order → Confirm. Linear, breadcrumbed.
-- **Shelf** — personal archive: `/designs`, `/orders`.
+- **Studio** — `/design`. Where designs are made.
+- **Shop** — `/prints`, the community storefront (renamed from "Fresh
+  Prints" 2026-07-19). Organizer stores are also shops: `/shop/[slug]`, each
+  a self-contained storefront.
+- **Funnel** — Studio → Preview → Order → Confirm. Linear, breadcrumbed.
+- **Shelf** — the personal archive: `/designs`, `/orders`.
 - **Counter** — `/admin`. Back of shop.
+- **Dashboard** — `/dashboard`. Where organizers run their shops.
 
 **Surfaces & regions**
 
-- **Stage** — the dominant artwork area of a screen.
-- **Composer** — the chat input row in the Studio.
-- **Sheet** — a bottom drawer on phones (the phone's version of a desktop rail).
+- **Stage** — the dominant artwork area of a screen (mockup hero on /preview,
+  image on /d/[id]). One Stage per screen, as large as the viewport allows.
+- **Composer** — the chat input row in the Studio (input + actions). Also the
+  signed-out landing hero (`MakerHero`) — the landing is the composer.
+- **Rail** — the desktop Generations sidebar (320px, right).
+- **Sheet** — a bottom drawer on phones (mobile gallery). The phone's Rail.
 - **Lightbox** — full-screen image overlay with per-image actions.
-- **Sticky bar** — the fixed bottom CTA bar on phone funnel pages.
-- **Chip** — a small pill-shaped tappable element. **Quick reply** *(new)* — a
-  chip that answers the assistant's question with one tap instead of typing a
-  number (Part 4, the mobile bug).
+- **Sticky bar** — the fixed bottom CTA bar on phone funnel pages (/order).
+- **Chip** — a small pill-shaped tappable suggestion (example prompts, filter
+  tabs).
 
 **States**
 
 - **Thinking** — waiting on a chat reply (~3–6s).
-- **Drawing** — waiting on a generation (~6–15s). "Drawing your design…", pulses.
-- **Ready nudge** — Draw it pops secondary→primary when the idea has subject +
-  style. Never blocks.
+- **Drawing** — waiting on a generation (~6–15s). Copy is persona-dependent:
+  A "Drawing your design…" (current), B "Pulling your print…",
+  C "Generating…".
+- **Ready nudge** — the soft readiness signal: Draw it pops secondary→primary
+  when the idea has subject + style. Never blocks.
 
 ### Tokens
 
-`src/app/globals.css` (Tailwind v4 `@theme inline`). Semantic only — components
-use these, never raw `gray-*` / hex. (The 40-class gray sweep landed 2026-06-14.)
+Defined in `src/app/globals.css` (Tailwind v4 `@theme inline`). Semantic, not
+literal — components must use these, never raw `gray-*` / hex.
+
+Elevation (4 steps, all near-black):
 
 ```
 --background      #0a0a0a   page
 --surface         #111111   inputs, wells
 --surface-raised  #1a1a1a   cards
+(overlay)         black/90  modals, lightbox   [gap: not yet a token]
+```
+
+Line + text:
+
+```
 --border          #2e2e2e   resting
 --border-hover    #444444   hover/focus
 --foreground      #ededed   primary text
 --text-muted      #999999   secondary text
 --text-faint      #666666   tertiary/metadata
+```
+
+Accent:
+
+```
 --accent          #ffffff   the one inversion color
 --accent-fg       #000000   text on accent
 ```
 
-`.bg-checkerboard` — transparency indicator for raw PNGs.
+Utility: `.bg-checkerboard` — transparency indicator for raw PNGs (thumbnails,
+unset backdrops).
 
 Proposed additions **[gap]**:
 
 ```
 --overlay         rgba(0,0,0,.9)   tokenize the modal scrim
---positive        green-400-ish    money-in, success
---negative        red-400-ish      money-out, destructive, error
---attention       yellow-400-ish   pending
---store-accent    (per-store)      the organizer's one color, set on a Shop
+--positive        green-400-ish    money-in, success (ledger, profit)
+--negative        red-400-ish      money-out, destructive, errors
+--attention       yellow-400-ish   pending states
 ```
 
-Collapse the 11 badge hues onto `positive / attention / negative / neutral`.
+…and collapse the 11 badge hues (see Gaps) onto those three plus neutral.
+Option B would add one more: `--ink-accent` (riso blue/red). A and C add
+nothing.
+
+### Type
+
+Geist Sans / Geist Mono, tokenized (`--font-sans`, `--font-mono`). The old
+Arial body override was fixed on main 2026-06-14 (`cbedcbe`) — body renders
+Geist now.
+
+Scale in use (Tailwind steps), roles:
+
+- `text-3xl/5xl bold` — page hero (h1 on home, /prints)
+- `text-lg/xl semibold` — screen title
+- `text-sm font-medium` — section labels, card titles
+- `text-sm` — body, chat
+- `text-xs text-text-muted` — metadata
+- `text-xs text-text-faint` / `text-[10px]` — fine print, badges
+- `font-mono` — IDs, codes, money references (Option B widens this role to
+  generation numbers, prices, and labels)
 
 ### Component grammar
 
 Five base components in `src/components/ui/` — the only sanctioned primitives:
-**Button**, **Badge**, **Card**, **Input**, **Modal**. Composites are built from
-these, never from raw markup.
 
-New primitive the pivot needs **[new]**:
+- **Button** (`button.tsx`) — variants `primary` (inverted), `secondary`
+  (outline), `danger` (outline, reddens on hover), `ghost`; sizes sm/md/lg.
+  Rule: one `primary` per screen.
+- **Badge** (`badge.tsx`) — pill, 11 status variants (see Gaps).
+- **Card** (`card.tsx`) — `surface-raised` + border + rounded-lg.
+- **Input** (`input.tsx`) — `surface` well, border-hover focus ring.
+- **Modal** (`modal.tsx`) — black/90 scrim, Escape-closes (wins over
+  Escape-to-go-up).
 
-- **QuickReply** — a tappable chip rendered from a structured option the assistant
-  returns (not parsed out of markdown text). Solves the "type a number" bug. ≥40px
-  tall. Tapping submits the choice as if typed.
+Composites built from these: `SizePicker`/`ColorPicker`
+(`product-options.tsx`), `PublishModal`, `PublishedGrid`, `Breadcrumbs`,
+`BuyPanel`, `MakerHero`, `ComposeForm` (organizer product compose).
 
 Interaction grammar:
 
 - Radius: `rounded-md` controls, `rounded-lg` cards/images, `rounded-full`
-  chips/badges.
-- Spacing: 4px base; `p-4` standard; `gap-2` within a control group, `gap-4`
-  between.
-- **Touch targets ≥ 44px on phone.** (Raised from the old 40px — the organizer is
-  always on a phone; this is non-negotiable, not aspirational.)
-- Motion: `transition-colors` on hover, `animate-pulse` for Drawing. Nothing else.
-- Selection: accent ring/border marks the selected thumbnail/swatch/product.
-- Escape goes **up** one funnel level; overlays eat the first Escape to close.
+  chips/badges/FAB.
+- Spacing: 4px base; `p-4` standard padding; `gap-2` within a control group,
+  `gap-4` between groups.
+- Touch targets ≥ 44px on phone (established rule).
+- Motion: `transition-colors` on hover, `animate-pulse` for Drawing — nothing
+  else. No entrance animations.
+- Selection: accent ring/border (`border-accent` / `ring-accent`) marks the
+  selected thumbnail, swatch, or product.
+- Escape goes **up** one funnel level (breadcrumb parent); overlays eat the
+  first Escape to close themselves.
+
+### Gaps / inconsistencies
+
+Status as of 2026-07-19. Items 1, 2, and the undefined-token no-ops from the
+first draft were fixed on main 2026-06-14 (`cbedcbe`): Geist restored, 40 raw
+`gray-*` classes swept to semantic tokens, 4 dead token names corrected.
+Remaining:
+
+1. **Badge palette is the only chrome color** — 11 variants across 6 hues.
+   Persona-dependent resolution: A and C collapse to neutral + positive +
+   attention + negative; C collapses hardest (neutral + one pair); B keeps
+   the same collapse but may map "attention" onto its ink accent.
+2. **Dark-only is implicit, not declared** — light-mode Tailwind classes
+   break on the dark background when they sneak in. Declare dark-only as a
+   principle (it's the brand under all three personas) or do real theming.
+   No halfway. Persona-independent; decide once.
+3. **Two empty-state implementations** in the Studio (hero composer + an
+   older in-thread variant in `chat-panel.tsx`) — the second is near-dead
+   code. Persona-independent cleanup, but the surviving copy is persona-
+   dependent (see Part 1 samples).
+4. **"Selected image" is load-bearing but nearly invisible** — a 2px border
+   decides what Make Products ships to /preview. Persona-independent problem;
+   B's ink accent gives it a free fix, A/C need a heavier white treatment
+   (thicker ring + dimmed siblings).
+5. **Three composer actions at equal weight** — violates one-primary. The
+   structural fix (what Send / Draw it / Compare collapse into) is persona-
+   independent; the labels are persona-dependent (A keeps "Draw it", B
+   "Print it"-adjacent, C "Generate").
+6. **Accent = white means no brand color exists.** Under A and C this is a
+   stated decision — ink/paper is the brand, nobody "adds some color" ad
+   hoc. Option B is the one persona that amends it (single ink accent, scoped
+   to chips/numbers/marks, never the primary button).
+7. **Internals leak into customer copy** (new) — the Compare tooltip names
+   generators; a few statuses render raw enum-ish strings. Fails all three
+   personas; audit rides along with the persona copy pass.
 
 ---
 
-## Part 4 — Page inventory
+## Part 3 — Page inventory
 
-Every surface, ranked by importance to its job (1 = the page fails without it).
-**[new]** = doesn't exist yet. Mobile/desktop and flag gates noted. Paths relative
-to `src/`.
+Every page, every visible component, ranked by importance to the page's job
+(1 = the page fails without it). Mobile/desktop splits and flag gates noted.
+File paths relative to `src/`. Inventory updated for the maker landing
+(2026-07-05) and organizer pages; copy called out below is persona-dependent
+and covered by Part 1's samples.
 
 ### Global chrome (`app/layout.tsx`)
 
-1. **SiteHeader** (`components/site-header.tsx`) — logo, nav, sign-in/out. Phone:
-   hamburger. The nav must change with the pivot: an organizer's primary nav is
-   **Dashboard / New Design**, not "Fresh Prints / My Designs / Orders." **[gap —
-   nav IA is pivot work.]**
-2. **Breadcrumbs** (`components/breadcrumbs.tsx`) — desktop full trail; phone
-   single `← Parent`. Escape navigates up.
-3. **FeedbackLauncher** — fixed bottom-right FAB.
+1. **SiteHeader** (`components/site-header.tsx`) — logo, nav (Shop /
+   New Design / My Designs / Orders, Dashboard behind `STORES_ENABLED`), cart
+   count (flag `CART_ENABLED`), sign-in/out. Phone: hamburger dropdown. Anon
+   guests read as signed-out.
+2. **Breadcrumbs** (`components/breadcrumbs.tsx`) — desktop: full trail;
+   phone: single `← Parent` chip. Escape navigates up.
+3. **FeedbackLauncher** (`components/feedback-launcher.tsx`) — fixed
+   bottom-right FAB, opens feedback panel. (Competes with /design's gallery
+   FAB for the same corner region.)
+4. Build-date stamp in header (deploy check, desktop only).
 
-### `/` Home (`app/page.tsx`) — **the page the pivot most changes**
+### `/` Home (`app/page.tsx`)
 
-Job: get an organizer to set up a shop; get a returning organizer back to their
-dashboard. Manine's three-states note lives here.
+Job: signed-out, the landing is the composer — start a design in one gesture.
+Signed-in, route back to work.
 
-- **Unrecognized visitor:** lead with **"Set up a shop in five minutes — no
-  inventory, no money up front."** One primary CTA. Below it, a *real* example
-  shop (Manine's-Baseball-Club-style) as living proof, not an abstract "how it
-  works." **[gap — today's home leads with a published-image feed.]**
-- **Recognized organizer:** land on or route straight to the dashboard — their
-  shop, their link, recent sales. No pitch.
-- **Recognized buyer (no shop):** "Start a design" / browse. The current behavior.
+1. **MakerHero** (`components/maker-hero.tsx`) — signed-out hero: headline,
+   input + Draw it, 3 example chips → `/design?prompt=` (auto-fires Draw-it).
+   All copy persona-dependent (Part 1 surfaces 1–3).
+2. **HomeHero** (`components/home-hero.tsx`) — signed-in personal hero.
+3. **Proof strip** — "Made by chatting here": 2 real published designs on
+   their backdrops. Header line persona-dependent.
+4. **Shop teaser** — `PublishedGrid` 12-card feed + "See all" → /prints.
+5. **Promo banner** — conditional, config-driven (`lib/promotion.ts`).
+6. **Pricing line** — driven by `minRetailPrice()`, never hardcoded.
+7. **Footer** — contact email + "Open a shop →" (`/dashboard`).
 
-This three-way split is **[new]** as an explicit, tested branch.
+### `/design` Studio (`app/design/page.tsx`)
 
-### `/dashboard` Organizer back office **[new]**
+Job: turn a described idea into a generation worth ordering.
 
-Job: the organizer's home base.
-
-1. **Shop card(s)** — name, accent, the share link with a one-tap **Copy link**
-   (the single most important control for this persona).
-2. **Sales summary** — units sold, by design. Plain numbers.
-3. **Designs in the shop** — add / remove / reorder.
-4. **Create a shop** (if none) — primary.
-
-### `/shop/[slug]` Storefront **[new]**
-
-Job: the buyer's whole experience. The link the organizer shares lands here.
-
-1. **Shop header** — store name, organizer's accent, one line of description.
-2. **Listing grid** — the shop's designs on their backdrops; tap → buy.
-3. **Per-listing buy** — size + color + price, one **Buy** primary. Account only
-   demanded at checkout (anonymous plugin).
-4. No studio, no chrome that implies "make your own." This is a store.
-
-Generalizes today's `/prints` + `/d/[imageId]`, scoped to one organizer.
-
-### `/design` Studio (`app/design/page.tsx`) — **fixes the mobile bug**
-
-Job: turn a described idea into a generation worth selling.
-
-1. **Composer** (`app/design/chat-panel.tsx`) — today crams upload + input + Send
-   + Draw it + Compare into one non-wrapping row (`chat-panel.tsx:297`). **[gap —
-   collapse to one input + one primary; demote Compare into the gallery/overflow.
-   Phone-first single row that wraps.]**
-2. **Quick replies** — when the assistant asks a multiple-choice question (style,
-   direction), it returns **structured options** the UI renders as tappable
-   **QuickReply** chips. Today the assistant is told to *number* options
-   (`ai.ts:27-30`) and they render as inert markdown text (`chat-panel.tsx:256`),
-   forcing the user to **type a number** — unusable on a phone. **[gap — the
-   highest-value mobile fix; Phase 0 of the plan.]**
-3. **Style up front.** Manine's complaint: being asked "what style?" *after*
-   typing is backwards. Offer styles as quick-reply chips from the first turn, so
-   the question rarely needs asking. **[gap.]**
-4. **Message thread** — user bubbles right, assistant markdown left, inline images.
-5. **Mobile Sheet** + count FAB (`app/design/mobile-gallery-drawer.tsx`) — the
-   phone gallery; auto-opens after each generation.
-6. **Generations Rail** (`app/design/image-gallery.tsx`) — desktop 320px;
-   thumbnails, selection border, **Make Products →** exit.
-7. **Lightbox** (`app/design/image-lightbox.tsx`) — per-image: Make Products,
-   Publish/Add-to-shop, Delete.
-8. **Empty state** — centered hero composer; example chips after 8s idle. (Keep
-   one implementation; the second in-thread variant is near-dead **[gap].**)
+1. **Composer** (in `app/design/chat-panel.tsx`) — input + upload button +
+   Send / **Draw it** / Compare styles. Draw it carries the ready nudge.
+   The single most load-bearing control on the site. Labels persona-dependent
+   (gap #5).
+2. **Message thread** (`chat-panel.tsx`) — user bubbles right, assistant
+   markdown left, inline images ≤200px, Thinking/Drawing indicators
+   (Drawing copy = Part 1 surface 4).
+3. **Generations Rail** (`app/design/image-gallery.tsx`) — desktop only,
+   320px: numbered thumbnail grid, generator badges, selection border,
+   dark/light preview toggle, product-versions section, **Make Products →**
+   pinned at bottom (the funnel exit).
+4. **Mobile Sheet** (`app/design/mobile-gallery-drawer.tsx`) + count FAB —
+   the phone Rail; auto-opens after each generation.
+5. **Empty state** — centered hero composer ("What shall we draw together?"
+   under Option A), example chips after 8s idle (`lib/design-view.ts` drives
+   the split; Option C drops the delay).
+6. **Lightbox** (`app/design/image-lightbox.tsx`) — per-image actions: Make
+   Products (promotes that image), Publish, Adopt generator, Delete.
+7. **PublishModal** (`components/publish-modal.tsx`) — title / description /
+   backdrop on publish.
+8. Drag-drop overlay + hidden file input — reference image upload.
+9. Style-hint line (pre-ready), header title swap, breadcrumb.
 
 ### `/preview` (`app/preview/page.tsx`)
 
-Job: convince that the design works on a real product.
+Job: convince the user the design works on a real product.
 
-1. **Stage / mockup hero** — Printful render; click-to-zoom; error + Try again.
-2. **Use this design →** exit to /order (or **Add to shop** in the organizer flow
-   **[gap]**).
-3. **ColorPicker** + product selector.
-4. Front/Back toggle + back-source picker (flag `MULTI_PLACEMENT_ENABLED`, +$8).
-5. Design-size slider.
+1. **Stage / mockup hero** — Printful render of the design on the chosen
+   product+color; click-to-zoom lightbox; rotating loading copy
+   (persona-dependent); error state with Try again; `ProductSilhouette`
+   fallback.
+2. **Use this design →** CTA (funnel exit to /order; disabled while
+   rendering).
+3. **ColorPicker** (`components/product-options.tsx`) — swatch row.
+4. **Product selector** — one button per active product.
+5. **Front/Back toggle + back-source picker** (flag
+   `MULTI_PLACEMENT_ENABLED`) — "+$8.00" label; picker replaces the Stage
+   while choosing a back image.
+6. **Design size slider** — 30–100% print-area scale.
+7. "Refine design" link back to Studio; breadcrumb.
 
 ### `/order` (`app/order/page.tsx`)
 
-Job: confirm size/price, hand off to Stripe.
+Job: confirm size/price and hand off to Stripe.
 
-1. **Buy now — $X.XX** — phone: **sticky bottom bar**.
-2. **Pricing breakdown** — product, back (+$8 conditional), shipping ($4.69),
-   total.
-3. **SizePicker / ColorPicker** (`components/product-options.tsx`).
-4. **Add to cart** (flag `CART_ENABLED`).
+1. **Order CTA** — desktop inline; phone: **sticky bottom bar** (the
+   phone-first money button). Label = Part 1 surface 6.
+2. **Pricing breakdown** — product, back design (+$8, conditional), shipping
+   line, total. Trust surface; copy stays flat under all three personas.
+3. **SizePicker** / **ColorPicker** (`components/product-options.tsx`).
+4. **Mockup thumbnail** — reassurance, small on phone.
+5. **Add to cart** (flag `CART_ENABLED`) — secondary, both layouts.
+6. Breadcrumb.
 
-### `/order/confirm`, `/cart`, `/designs`, `/orders`, `(auth)`, `/admin*`
+### `/order/confirm` (`app/order/confirm/page.tsx`)
 
-Unchanged in role from the prior draft; see git history of this file for the full
-prior inventory. The pivot touches them only where noted: `/designs` gains an
-**Add to shop** action; `/orders` is the buyer's post-purchase home; admin is
-unaffected.
+Job: confirm the money was well spent; route onward.
 
-### Resolved since the first draft
+1. Confirmation card — checkmark, order ID (mono), size/color/total. Opening
+   line = Part 1 surface 7.
+2. **View My Orders** (primary) + Start another design (ghost).
+3. Loading / order-not-found states.
 
-- Geist font restored (`cbedcbe`).
-- 40 raw `gray-*` + 4 dead tokens swept to semantic (`cbedcbe`).
+### `/cart` (`app/cart/page.tsx`) — flag `CART_ENABLED`
 
-### Open gaps (ranked)
+Job: review the bundle and check out once.
 
-1. **Quick-reply chips** — kill "type a number." Phase 0. *(mobile, highest value)*
-2. **Store entity + organizer flow** — the pivot itself. Phases 1–3 of the plan.
-3. **Homepage three-state branch** — organizer / returning / buyer.
-4. **Composer collapse** — one input, one primary; Compare demoted.
-5. **Style-up-front** — quick-reply styles from turn one.
-6. **Nav IA** — Dashboard-first for organizers.
-7. **Badge palette** — 11 hues → 4 semantic.
-8. **Per-store accent token** — the one sanctioned brand color.
+1. **Checkout — $X.XX** (primary).
+2. **Item list** — thumbnail, product, color/size, front+back marker, qty,
+   unit×qty price, Remove.
+3. **Pricing summary** — items subtotal, bundled shipping, total.
+4. Add another design (secondary); empty state → Start a design.
 
-Implementation sequencing and tests: `docs/organizer-pivot-plan.md`.
+### `/prints` Shop (`app/prints/page.tsx`)
+
+Job: browse Prints, pick one to buy.
+
+1. **PublishedGrid** — 2→4-col cards: image on its backdrop, title, designer
+   ("by you" for own).
+2. Header ("Shop" + one-liner, persona-dependent); empty state.
+
+### `/shop/[slug]` Organizer storefront (`app/shop/[slug]/…`)
+
+Job: sell an organizer's products to their audience. Persona note: this
+surface belongs to the organizer, not PRNTD — chrome copy here should stay at
+Option-C restraint regardless of the sitewide persona choice; white-label
+depth is issue #45.
+
+1. **Product grid** — the organizer's listed products.
+2. **Buy page** (`[productId]`) — mockup Stage, size/color, buy CTA.
+
+### `/dashboard` Organizer dashboard (`app/dashboard/…`) — flag `STORES_ENABLED`
+
+Job: create and run a shop.
+
+1. Create-shop form / shop card — Copy-link, Publish toggle, edit panel.
+2. **Product compose** (`/dashboard/products/new`, shared `ComposeForm`) —
+   design picker, blank, price with live proceeds + floor.
+
+### `/d/[imageId]` Print detail (`app/d/[imageId]/page.tsx`)
+
+Job: sell one Print.
+
+1. **Stage** — `PublishedImageView`: image on its backdrop; owner-only
+   backdrop swatch row (`components/background-picker.tsx`).
+2. **BuyPanel** (`app/d/[imageId]/buy-panel.tsx`) — product / SizePicker /
+   ColorPicker, price breakdown, **Buy now** (or "Sign in to buy" with
+   `?next=`). Phone: image capped 40vh, floating ← back, sticky bottom CTA.
+3. **Title + description** — `EditableNaming`, owner-inline-editable.
+4. Designer attribution + fork-chain line (historical).
+5. Breadcrumb (parent from `?from`).
+
+### `/designs` Shelf (`app/designs/page.tsx`)
+
+Job: re-enter past work.
+
+1. **Design cards grid** (2→3-col) — checkerboard thumbnail linking back into
+   the Studio, status badge, age, generation count, explicit **Edit** on
+   non-ordered cards.
+2. **Per-card actions** — Publish / Un-publish / Published→, Reorder +
+   Archive (ordered), Delete (unordered).
+3. **New Design** button (header).
+4. PublishModal; empty state (= Part 1 surface 5) / loading / error states
+   (error surfaces the message).
+
+### `/orders` Shelf (`app/orders/page.tsx`)
+
+Job: check where my shirt is.
+
+1. **Order cards** — status Badge, per-line thumbnail on shirt color,
+   name/ID, price, size/color, front+back + ×qty markers, date, **Track
+   shipment** link, designer attribution when bought from someone else.
+2. **Filter chips** — Active (N) / Canceled (N) / All (N).
+3. New Design button; empty states.
+
+### Auth (`app/(auth)/…`)
+
+Job: get in fast and get back to what you were doing.
+
+1. The form (email/password; name on sign-up; minLength 8) + single primary
+   submit with busy text.
+2. Cross-links (sign-in ↔ sign-up, forgot password) — honor `?next=`.
+3. Error line (red); forgot/reset success + invalid-token states.
+
+### `/admin` Counter (`app/admin/page.tsx`)
+
+Job: see the business and unstick orders. Persona-independent — internal
+tooling keeps flat factual copy under any option.
+
+1. **Orders table** — sortable columns (order, status, customer, design
+   thumb, details, shipping, revenue, COGS, profit, Printful ID, date);
+   per-row Recover / Retry Printful / Refund (canceled) / Track / Archive.
+2. **Financial summary cards** — orders, revenue, Stripe fees, COGS, gross
+   profit.
+3. **Classification + tags controls** — dropdown per row, tag pills, +tag.
+4. **Filter chips** — All / per-classification / Archived.
+5. Classification legend (collapsible); link to /admin/published.
+   Phone: table scrolls horizontally (tolerated — Counter is desk work).
+
+### `/admin/orders/[id]` (`app/admin/orders/[id]/page.tsx`)
+
+Job: audit and fix one order.
+
+1. **Ledger timeline** — sale / Stripe fee / COGS / refund /
+   refund-COGS-reversal entries, colored amounts, timestamps.
+2. **Action row** — Recover (replay webhook), Retry Printful, Refund, Track,
+   Archive.
+3. **Customer / Product / Financials cards** — email, address, thumbnail,
+   revenue/COGS/profit.
+4. Classification + tags card; References card (Stripe/Printful IDs, mono);
+   header with badges.
+
+### `/admin/published` (`app/admin/published/page.tsx`)
+
+Job: moderate the storefront.
+
+1. **Moderation grid** — Print cards with Hide/Unhide; hidden = red border +
+   dimmed.
+2. Card metadata (title, designer, email, date); empty state.
