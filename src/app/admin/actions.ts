@@ -11,7 +11,7 @@ import {
   user as userTable,
   ledgerEntry,
 } from "@/lib/db/schema";
-import { eq, desc, isNull, isNotNull, sum, count, and } from "drizzle-orm";
+import { eq, desc, asc, isNull, isNotNull, sum, count, and, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { revalidatePath } from "next/cache";
 import { createOrder, getOrderByExternalId } from "@/lib/printful";
@@ -359,6 +359,7 @@ export type AdminPublishedImage = {
   designerEmail: string;
   publishedAt: Date;
   isHidden: boolean;
+  feedRank: number | null;
 };
 
 export async function getRecentPublishedForAdmin(
@@ -369,6 +370,8 @@ export async function getRecentPublishedForAdmin(
     throw new Error("Unauthorized");
   }
 
+  // Same order as the Shop feed (ranked first, then newest) so the admin
+  // grid mirrors what customers see.
   const rows = await db
     .select({
       imageId: designImageTable.id,
@@ -376,6 +379,7 @@ export async function getRecentPublishedForAdmin(
       title: designImageTable.title,
       publishedAt: designImageTable.publishedAt,
       isHidden: designImageTable.isHidden,
+      feedRank: designImageTable.feedRank,
       designerName: userTable.name,
       designerEmail: userTable.email,
     })
@@ -383,7 +387,11 @@ export async function getRecentPublishedForAdmin(
     .innerJoin(designTable, eq(designTable.id, designImageTable.designId))
     .innerJoin(userTable, eq(userTable.id, designTable.userId))
     .where(isNotNull(designImageTable.publishedAt))
-    .orderBy(desc(designImageTable.publishedAt))
+    .orderBy(
+      sql`${designImageTable.feedRank} is null`,
+      asc(designImageTable.feedRank),
+      desc(designImageTable.publishedAt)
+    )
     .limit(limit);
 
   return rows.map((r) => ({
@@ -394,7 +402,40 @@ export async function getRecentPublishedForAdmin(
     designerEmail: r.designerEmail,
     publishedAt: r.publishedAt!,
     isHidden: r.isHidden,
+    feedRank: r.feedRank,
   }));
+}
+
+/**
+ * Set (or clear, with null) an image's Shop feed rank. Lower ranks list
+ * first; unranked images follow in recency order. Ranks need not be
+ * contiguous or unique — equal ranks fall back to recency.
+ */
+export async function setImageFeedRank(
+  imageId: string,
+  feedRank: number | null
+) {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session || session.user.email !== ADMIN_EMAIL) {
+    throw new Error("Unauthorized");
+  }
+
+  if (
+    feedRank !== null &&
+    (!Number.isInteger(feedRank) || feedRank < 1 || feedRank > 9999)
+  ) {
+    throw new Error("Rank must be a whole number between 1 and 9999");
+  }
+
+  await db
+    .update(designImageTable)
+    .set({ feedRank })
+    .where(eq(designImageTable.id, imageId));
+
+  // The Shop feed renders on / and /prints; bust both plus the admin grid.
+  revalidatePath("/");
+  revalidatePath("/prints");
+  revalidatePath("/admin/published");
 }
 
 export async function setImageHidden(imageId: string, hidden: boolean) {

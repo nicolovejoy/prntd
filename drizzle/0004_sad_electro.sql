@@ -1,0 +1,1 @@
+ALTER TABLE `design_image` ADD `feed_rank` integer;

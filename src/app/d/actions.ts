@@ -8,14 +8,14 @@ import {
   designImage as designImageTable,
   user as userTable,
 } from "@/lib/db/schema";
-import { eq, and, isNotNull, desc } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { computePrice } from "@/lib/pricing";
 import { DEFAULT_BLANK_ID } from "@/lib/blanks";
 import { createStripeCheckoutForOrder } from "@/app/order/actions";
+import { getPublishedFeed } from "@/lib/discover-feed";
 import {
   canBuyPublishedImage,
   buildForkChain,
-  dedupeFeedByDesign,
   type ForkChainEntry,
   type ForkChainRow,
 } from "@/lib/design-publish";
@@ -42,8 +42,8 @@ export type PublishedImage = {
 };
 
 /**
- * Public discover feed. Returns published, non-hidden images, newest first.
- * No auth required.
+ * Public discover feed. Returns published, non-hidden images — admin-ranked
+ * first, then newest first (see src/lib/discover-feed.ts). No auth required.
  */
 export async function getDiscoverFeed(limit = 60): Promise<PublishedImage[]> {
   // Identify the viewer so we can tag their own designs "by you". Best-effort:
@@ -56,38 +56,9 @@ export async function getDiscoverFeed(limit = 60): Promise<PublishedImage[]> {
     viewerId = null;
   }
 
-  // The feed is one card per design, but publishing happens per image, so a
-  // design can have several published rows. Over-fetch, then collapse to one
-  // row per design (newest published) before slicing to the requested limit.
-  const rows = await db
-    .select({
-      imageId: designImageTable.id,
-      designId: designImageTable.designId,
-      imageUrl: designImageTable.imageUrl,
-      title: designImageTable.title,
-      description: designImageTable.description,
-      backgroundColor: designImageTable.backgroundColor,
-      publishedAt: designImageTable.publishedAt,
-      designerName: userTable.name,
-      designerId: userTable.id,
-    })
-    .from(designImageTable)
-    .innerJoin(designTable, eq(designTable.id, designImageTable.designId))
-    .innerJoin(userTable, eq(userTable.id, designTable.userId))
-    .where(
-      and(
-        isNotNull(designImageTable.publishedAt),
-        eq(designImageTable.isHidden, false)
-      )
-    )
-    .orderBy(desc(designImageTable.publishedAt))
-    .limit(Math.min(limit * 4, 240));
+  const rows = await getPublishedFeed(limit);
 
-  const deduped = dedupeFeedByDesign(
-    rows.map((r) => ({ ...r, publishedAt: r.publishedAt! }))
-  ).slice(0, limit);
-
-  return deduped.map((r) => ({
+  return rows.map((r) => ({
     imageId: r.imageId,
     imageUrl: r.imageUrl,
     title: r.title,
