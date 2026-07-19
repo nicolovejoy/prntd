@@ -40,36 +40,50 @@ export async function getUserDesigns() {
     designs.map((d) => d.id)
   );
 
-  // Look up publish state for each primary image so the cards can
-  // show Publish vs Published correctly. Best-effort: if this query
+  // Look up publish state (+ chosen storefront backdrop) for each primary
+  // image so the cards can show Publish vs Published correctly and render
+  // published designs over their backdrop color. Best-effort: if this query
   // fails the cards just hide the publish badge — the design list
   // itself must still render.
   const primaryIds = designs
     .map((d) => d.primaryImageId)
     .filter((id): id is string => id !== null);
-  let publishedAtById = new Map<string, Date | null>();
+  let primaryById = new Map<
+    string,
+    { publishedAt: Date | null; backgroundColor: string | null }
+  >();
   if (primaryIds.length) {
     try {
       const primaryRows = await db
         .select({
           id: designImageTable.id,
           publishedAt: designImageTable.publishedAt,
+          backgroundColor: designImageTable.backgroundColor,
         })
         .from(designImageTable)
         .where(inArray(designImageTable.id, primaryIds));
-      publishedAtById = new Map(primaryRows.map((r) => [r.id, r.publishedAt]));
+      primaryById = new Map(
+        primaryRows.map((r) => [
+          r.id,
+          { publishedAt: r.publishedAt, backgroundColor: r.backgroundColor },
+        ])
+      );
     } catch (err) {
       console.error("getUserDesigns: publish-state lookup failed", err);
     }
   }
 
-  return designs.map((d) => ({
-    ...d,
-    imageUrl: imageUrls.get(d.id) ?? null,
-    primaryImagePublishedAt: d.primaryImageId
-      ? publishedAtById.get(d.primaryImageId) ?? null
-      : null,
-  }));
+  return designs.map((d) => {
+    const primary = d.primaryImageId
+      ? primaryById.get(d.primaryImageId)
+      : undefined;
+    return {
+      ...d,
+      imageUrl: imageUrls.get(d.id) ?? null,
+      primaryImagePublishedAt: primary?.publishedAt ?? null,
+      primaryImageBackgroundColor: primary?.backgroundColor ?? null,
+    };
+  });
 }
 
 /**
