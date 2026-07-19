@@ -245,6 +245,91 @@ describe("submitOrderFulfillment (admin-retry shape)", () => {
     expect(call.items).toHaveLength(1);
   });
 
+  it("recovers a stranded submission by probing external_id, regardless of the rejection wording", async () => {
+    // Finding #2: a prior attempt created the Printful order but crashed before
+    // persisting its id, so this resubmit fails. Recovery probes by external_id
+    // rather than matching the error text — so even a generically-worded /
+    // transient failure recovers as long as Printful actually has the order.
+    const { order } = await seedPaidOrder(db);
+    const createPrintfulOrder = vi
+      .fn()
+      .mockRejectedValue(new Error("Printful API error: 500 Internal Server Error"));
+    const getPrintfulOrderByExternalId = vi
+      .fn()
+      .mockResolvedValue({ id: 4242, costs: { total: "13.75" } });
+
+    const result = await submitOrderFulfillment(
+      order,
+      [],
+      SHIPPING,
+      makeDeps(db, { createPrintfulOrder, getPrintfulOrderByExternalId })
+    );
+
+    expect(result.action).toBe("submitted");
+    expect(getPrintfulOrderByExternalId).toHaveBeenCalledWith(order.id);
+
+    const updated = await db.query.order.findFirst({
+      where: eq(schema.order.id, order.id),
+    });
+    expect(updated?.status).toBe("submitted");
+    expect(updated?.printfulOrderId).toBe("4242");
+    expect(updated?.printfulCost).toBe(13.75);
+
+    const entries = await db.query.ledgerEntry.findMany({
+      where: eq(schema.ledgerEntry.orderId, order.id),
+    });
+    expect(entries).toHaveLength(1);
+    expect(entries[0].type).toBe("cogs");
+    expect(entries[0].amount).toBe(-13.75);
+  });
+
+  it("submit fails and the probe finds no existing order → paid_printful_failed", async () => {
+    const { order } = await seedPaidOrder(db);
+    const result = await submitOrderFulfillment(
+      order,
+      [],
+      SHIPPING,
+      makeDeps(db, {
+        createPrintfulOrder: vi
+          .fn()
+          .mockRejectedValue(new Error("Printful API error: 503")),
+        getPrintfulOrderByExternalId: vi.fn().mockResolvedValue(null),
+      })
+    );
+
+    expect(result.action).toBe("paid_printful_failed");
+    const updated = await db.query.order.findFirst({
+      where: eq(schema.order.id, order.id),
+    });
+    expect(updated?.status).toBe("paid");
+  });
+
+  it("returns paid_printful_failed when image resolution throws (finding #3a: reads inside the try)", async () => {
+    const { order } = await seedPaidOrder(db);
+    const createPrintfulOrder = vi.fn();
+    const result = await submitOrderFulfillment(
+      order,
+      [],
+      SHIPPING,
+      makeDeps(db, {
+        createPrintfulOrder,
+        // A transient R2/DB read error while resolving the print image must not
+        // throw unhandled (that 400s the Stripe webhook) — it yields a
+        // cron-retryable paid_printful_failed instead.
+        resolveDesignImageUrl: vi
+          .fn()
+          .mockRejectedValue(new Error("R2 read timeout")),
+      })
+    );
+
+    expect(result.action).toBe("paid_printful_failed");
+    expect(createPrintfulOrder).not.toHaveBeenCalled();
+    const updated = await db.query.order.findFirst({
+      where: eq(schema.order.id, order.id),
+    });
+    expect(updated?.status).toBe("paid");
+  });
+
   it("returns paid_printful_failed with no COGS when Printful errors", async () => {
     const { order } = await seedPaidOrder(db);
     const result = await submitOrderFulfillment(

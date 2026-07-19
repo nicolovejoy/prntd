@@ -126,6 +126,25 @@ export async function getOrderStatus(orderId: string) {
   return data.result;
 }
 
+/**
+ * Fetch an order by OUR id (sent as external_id on createOrder). Printful's
+ * `@`-prefix on the id path selects by external_id instead of Printful's own
+ * numeric id. Used to recover a stranded submission: a prior fulfillment
+ * attempt created the Printful order but crashed before we persisted its id, so
+ * the resubmit is rejected as a duplicate — we fetch the order Printful already
+ * has and persist it. Returns null on 404 (no such order).
+ */
+export async function getOrderByExternalId(externalId: string) {
+  try {
+    const data = await printfulFetch(`/orders/@${encodeURIComponent(externalId)}`);
+    return data.result as { id: string | number; costs?: { total?: string } | null };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (/\b404\b/.test(message)) return null;
+    throw err;
+  }
+}
+
 export type EstimatedCosts = {
   subtotal: number;
   shipping: number;
