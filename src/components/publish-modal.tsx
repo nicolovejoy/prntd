@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Modal, Button } from "@/components/ui";
 import { BackgroundPicker } from "@/components/background-picker";
+import { DEFAULT_PUBLISH_BACKGROUND } from "@/lib/blanks";
 import { publishImage } from "@/app/designs/actions";
 
 /**
@@ -28,7 +29,7 @@ export function PublishModal({
   const router = useRouter();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [bg, setBg] = useState<string | null>(null);
+  const [bg, setBg] = useState<string>(DEFAULT_PUBLISH_BACKGROUND);
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

@@ -25,7 +25,7 @@ export type PublishedImage = {
   imageUrl: string;
   title: string | null;
   description: string | null;
-  /** Pinned storefront backdrop (a BACKGROUND_PALETTE color name); null → checkerboard. */
+  /** Pinned storefront backdrop (a BACKGROUND_PALETTE color name); legacy null displays as White (#73). */
   backgroundColor: string | null;
   designerName: string;
   designerId: string;
