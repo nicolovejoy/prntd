@@ -113,7 +113,14 @@ function PreviewPageInner() {
   // is byte-identical to the single-placement version.
   const [multiPlacement, setMultiPlacement] = useState(false);
   const [activePlacement, setActivePlacement] = useState<Placement>("front");
-  const [backImageId, setBackImageId] = useState<string | null>(null);
+  // Back source from the URL, captured once on mount (Stripe cancel → back,
+  // /order redirects). The URL-sync effect rewrites the query string, so
+  // reading it live would race and drop it. A stray `?back=` stays inert
+  // while the flag is off (`backActive` gates pricing/checkout; the server
+  // gates again at checkout, defense in depth).
+  const [backImageId, setBackImageId] = useState<string | null>(() =>
+    searchParams.get("back")
+  );
   const [backGroups, setBackGroups] = useState<BackSourceGroup[] | null>(null);
   const [backPickerOpen, setBackPickerOpen] = useState(false);
 

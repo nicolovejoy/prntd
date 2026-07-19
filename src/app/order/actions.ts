@@ -96,7 +96,7 @@ export async function createCheckoutSession(params: {
     itemPrice: pricing.total,
     placements,
     checkoutImageUrl,
-    cancelUrl: `${process.env.NEXT_PUBLIC_APP_URL}/order?id=${params.designId}&size=${encodeURIComponent(params.size)}&color=${encodeURIComponent(params.color)}&product=${resolvedProductId}${backImageId ? `&back=${backImageId}` : ""}`,
+    cancelUrl: `${process.env.NEXT_PUBLIC_APP_URL}/preview?id=${params.designId}&size=${encodeURIComponent(params.size)}&color=${encodeURIComponent(params.color)}&product=${resolvedProductId}${backImageId ? `&back=${backImageId}` : ""}`,
   });
 }
 

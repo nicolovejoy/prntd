@@ -1,6 +1,6 @@
 /**
  * Multi-item cart (#26 Stage B), as a guest: seed two designs owned by the
- * browser's anonymous user, add both to the cart from /order, check the
+ * browser's anonymous user, add both to the cart from /preview, check the
  * bundled-shipping invariant (charged once per order, flat across items), and
  * hit the purchase gate (guests are sent to sign-in at checkout).
  */
@@ -22,9 +22,10 @@ async function shippingAmount(page: Page): Promise<number> {
   return Number(match![1]);
 }
 
-async function addToCartFromOrderPage(page: Page, designId: string) {
+async function addToCartFromPreviewPage(page: Page, designId: string) {
+  // URL `size` pre-selects visibly (no silent default), so no extra click.
   await page.goto(
-    `/order?id=${designId}&product=${PRODUCT}&color=Black&size=M`
+    `/preview?id=${designId}&product=${PRODUCT}&color=Black&size=M`
   );
   // Pricing loads via a server action; the button is live before that, so
   // wait for the total row to know the page is fully wired.
@@ -50,14 +51,14 @@ test("guest cart: two items, bundled shipping, sign-in gate at checkout", async 
     seeded.push(await seedDesign(userId, `${key}-b`));
 
     // First item.
-    await addToCartFromOrderPage(page, seeded[0]);
+    await addToCartFromPreviewPage(page, seeded[0]);
     await expect(page.getByTestId("cart-line-item")).toHaveCount(1, {
       timeout: 30_000,
     });
     const oneItemShipping = await shippingAmount(page);
 
     // Second item — bundled shipping must not scale with item count.
-    await addToCartFromOrderPage(page, seeded[1]);
+    await addToCartFromPreviewPage(page, seeded[1]);
     await expect(page.getByTestId("cart-line-item")).toHaveCount(2, {
       timeout: 30_000,
     });

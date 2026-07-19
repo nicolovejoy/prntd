@@ -50,9 +50,10 @@ function detailParent(from: string | undefined): Crumb {
 
 /**
  * Ancestor crumbs for `pathname`, nearest-last. Funnel pages (/design →
- * /preview → /order → /order/confirm) share one spine and thread id /
- * product / color through their hrefs so stepping up lands on a fully-formed
- * URL. Top-level hubs sit directly under Home. Unknown routes return [].
+ * /preview → /order/confirm) share one spine and thread id / product through
+ * their hrefs so stepping up lands on a fully-formed URL. /order itself only
+ * redirects to /preview, so it has no trail. Top-level hubs sit directly
+ * under Home. Unknown routes return [].
  */
 export function breadcrumbTrail(
   pathname: string,
@@ -62,10 +63,6 @@ export function breadcrumbTrail(
   const designStep: Crumb = {
     label: "Design",
     href: `/design${query(params, ["id"])}`,
-  };
-  const previewStep: Crumb = {
-    label: "Preview",
-    href: `/preview${query(params, ["id", "product"])}`,
   };
 
   if (pathname === "/") return [];
@@ -82,9 +79,8 @@ export function breadcrumbTrail(
   if (pathname === "/cart") return [HOME];
   if (pathname === "/design") return [HOME, myDesigns];
   if (pathname === "/preview") return [HOME, myDesigns, designStep];
-  if (pathname === "/order") return [HOME, myDesigns, designStep, previewStep];
   // Terminal success page: its only useful "up" is order history — the
-  // funnel /order needs an id we no longer carry post-checkout.
+  // funnel /preview needs an id we no longer carry post-checkout.
   if (pathname === "/order/confirm")
     return [HOME, { label: "Orders", href: "/orders" }];
 
