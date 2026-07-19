@@ -361,6 +361,7 @@ export default function OrderDetailPage() {
             )}
             {order.status === "canceled" &&
               order.totalPrice > 0 &&
+              order.classification !== "test" &&
               (hasRefund ? (
                 <span className="text-xs text-text-muted self-center">
                   Refunded ${order.totalPrice.toFixed(2)}

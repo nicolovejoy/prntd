@@ -245,17 +245,15 @@ describe("submitOrderFulfillment (admin-retry shape)", () => {
     expect(call.items).toHaveLength(1);
   });
 
-  it("recovers a stranded submission: duplicate external_id → fetch existing → submitted + COGS", async () => {
+  it("recovers a stranded submission by probing external_id, regardless of the rejection wording", async () => {
     // Finding #2: a prior attempt created the Printful order but crashed before
-    // persisting its id, so this resubmit is rejected as a duplicate. The getter
-    // returns the order Printful already has; we persist it instead of leaving
-    // the printed order stuck `paid` forever.
+    // persisting its id, so this resubmit fails. Recovery probes by external_id
+    // rather than matching the error text — so even a generically-worded /
+    // transient failure recovers as long as Printful actually has the order.
     const { order } = await seedPaidOrder(db);
     const createPrintfulOrder = vi
       .fn()
-      .mockRejectedValue(
-        new Error("Printful API error: 400 External ID (x) is already used by another order")
-      );
+      .mockRejectedValue(new Error("Printful API error: 500 Internal Server Error"));
     const getPrintfulOrderByExternalId = vi
       .fn()
       .mockResolvedValue({ id: 4242, costs: { total: "13.75" } });
@@ -285,7 +283,7 @@ describe("submitOrderFulfillment (admin-retry shape)", () => {
     expect(entries[0].amount).toBe(-13.75);
   });
 
-  it("duplicate external_id but no existing order found → paid_printful_failed", async () => {
+  it("submit fails and the probe finds no existing order → paid_printful_failed", async () => {
     const { order } = await seedPaidOrder(db);
     const result = await submitOrderFulfillment(
       order,
@@ -294,7 +292,7 @@ describe("submitOrderFulfillment (admin-retry shape)", () => {
       makeDeps(db, {
         createPrintfulOrder: vi
           .fn()
-          .mockRejectedValue(new Error("400 External ID already used")),
+          .mockRejectedValue(new Error("Printful API error: 503")),
         getPrintfulOrderByExternalId: vi.fn().mockResolvedValue(null),
       })
     );

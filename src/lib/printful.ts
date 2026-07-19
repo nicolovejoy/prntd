@@ -145,19 +145,6 @@ export async function getOrderByExternalId(externalId: string) {
   }
 }
 
-/**
- * True when a createOrder rejection is Printful's "external_id already used"
- * error — the duplicate-submission guard tripping because a prior attempt
- * already created this order. The caller recovers via getOrderByExternalId
- * instead of stranding a printed order as `paid` forever (finding #2).
- */
-export function isDuplicateExternalIdError(err: unknown): boolean {
-  const message = err instanceof Error ? err.message : String(err);
-  return (
-    /external[ _]?id/i.test(message) && /already (used|exist)/i.test(message)
-  );
-}
-
 export type EstimatedCosts = {
   subtotal: number;
   shipping: number;

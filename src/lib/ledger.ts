@@ -13,23 +13,27 @@ type DbInstance = Pick<typeof db, "insert" | "query">;
  * Pure, so it's tested without an admin session (getFinancialSummary wraps
  * it after auth + the grouped query).
  *
- * `grossProfit` sums only sale + refund + stripe_fee + cogs. A `tax`
- * pass-through (1C — only if collection is ever turned on) is a liability we
- * remit, not revenue, so it must stay OUT of profit. It's excluded by
- * omission today; the test locks that so a later refactor can't fold a new
- * type into the total by accident.
+ * `grossProfit` sums sale + refund + stripe_fee + cogs + refund_cogs_reversal.
+ * `refund_cogs_reversal` is a COGS *correction* — booked when Printful cancels a
+ * submitted order, so their cost is no longer incurred — and MUST net against
+ * COGS, or a canceled-with-COGS order permanently understates profit by the full
+ * COGS. A `tax` pass-through (1C — only if collection is ever turned on) is a
+ * different case: a liability we remit, not revenue, so it stays OUT of profit.
+ * The tests lock both: reversal in, tax out.
  */
 export function summarizeLedger(byType: Record<string, number>) {
   const sales = byType["sale"] ?? 0;
   const stripeFees = byType["stripe_fee"] ?? 0;
   const cogs = byType["cogs"] ?? 0;
+  const cogsReversal = byType["refund_cogs_reversal"] ?? 0;
   const refunds = byType["refund"] ?? 0;
+  const netCogs = cogs + cogsReversal; // reversal (+) offsets the cogs row (−)
   const revenue = sales + refunds;
   return {
     revenue,
     stripeFees,
-    cogs: Math.abs(cogs),
-    grossProfit: revenue + stripeFees + cogs,
+    cogs: Math.abs(netCogs),
+    grossProfit: revenue + stripeFees + netCogs,
   };
 }
 

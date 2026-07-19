@@ -88,6 +88,44 @@ describe("refundOrderCore", () => {
     expect(entries.filter((e) => e.type === "refund")).toHaveLength(1);
   });
 
+  it("books the ledger row when Stripe reports the charge is already refunded (crash-replay past the idempotency TTL)", async () => {
+    // A prior click refunded at Stripe but died before booking the ledger row;
+    // the stable idempotency key has since expired, so Stripe now rejects the
+    // replay with charge_already_refunded. The action must treat that as success
+    // and book the missing row — not throw forever.
+    const { order } = await seedCanceledOrder(db);
+    const alreadyRefunded = Object.assign(new Error("Charge already refunded."), {
+      code: "charge_already_refunded",
+    });
+    const deps = makeDeps(db, {
+      createRefund: vi.fn().mockRejectedValue(alreadyRefunded),
+    });
+
+    const result = await refundOrderCore(order.id, deps);
+
+    expect(result).toEqual({ ok: true, refunded: true });
+    const entries = await db.query.ledgerEntry.findMany({
+      where: eq(schema.ledgerEntry.orderId, order.id),
+    });
+    expect(entries.filter((e) => e.type === "refund")).toHaveLength(1);
+    expect(entries[0].amount).toBe(-24.12);
+  });
+
+  it("rethrows a non-benign Stripe error and books nothing", async () => {
+    const { order } = await seedCanceledOrder(db);
+    const deps = makeDeps(db, {
+      createRefund: vi
+        .fn()
+        .mockRejectedValue(Object.assign(new Error("boom"), { code: "card_declined" })),
+    });
+
+    await expect(refundOrderCore(order.id, deps)).rejects.toThrow("boom");
+    const entries = await db.query.ledgerEntry.findMany({
+      where: eq(schema.ledgerEntry.orderId, order.id),
+    });
+    expect(entries).toHaveLength(0);
+  });
+
   it("refuses a non-canceled order without touching Stripe", async () => {
     const { order } = await seedCanceledOrder(db, { status: "submitted" });
     const deps = makeDeps(db);

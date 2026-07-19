@@ -29,6 +29,24 @@ export type RefundOrderResult =
   | { ok: true; refunded: boolean }
   | { ok: false; reason: string };
 
+/**
+ * Stripe raises StripeInvalidRequestError with code `charge_already_refunded`
+ * when the underlying charge is already fully refunded. That is the benign
+ * crash-replay case: a prior click's refunds.create succeeded but the process
+ * died before booking the ledger row, and the stable idempotency key has since
+ * aged past Stripe's TTL (so the replay is treated as fresh and rejected).
+ * Treating it as success lets us book the missing ledger row instead of
+ * throwing forever.
+ */
+export function isChargeAlreadyRefunded(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as { code?: unknown }).code === "charge_already_refunded"
+  );
+}
+
 export async function refundOrderCore(
   orderId: string,
   deps: RefundOrderDeps
@@ -60,7 +78,16 @@ export async function refundOrderCore(
     return { ok: false, reason: "No payment intent on the Stripe session" };
   }
 
-  await deps.createRefund(paymentIntentId, `refund-${orderId}`);
+  try {
+    await deps.createRefund(paymentIntentId, `refund-${orderId}`);
+  } catch (err) {
+    if (!isChargeAlreadyRefunded(err)) throw err;
+    // Refund already happened at Stripe (crash after refund, before ledger,
+    // past the idempotency-key TTL). Fall through to book the missing row.
+    console.warn(
+      `Order ${orderId}: Stripe reports the charge is already refunded — booking the ledger row for the prior refund`
+    );
+  }
 
   try {
     await deps.db.insert(ledgerEntry).values(

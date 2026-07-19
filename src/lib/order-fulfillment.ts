@@ -21,7 +21,6 @@ import { getBlank, getVariantId } from "@/lib/blanks";
 import { assertTransition } from "@/lib/order-state";
 import { cogsLedgerRow } from "@/lib/ledger";
 import { withTimeout } from "@/lib/timeout";
-import { isDuplicateExternalIdError } from "@/lib/printful";
 import type { createOrder, PrintfulOrderItem } from "@/lib/printful";
 import type { db as appDb } from "@/lib/db";
 import type { generateOrderName } from "@/lib/ai";
@@ -182,33 +181,34 @@ export async function submitOrderFulfillment(
         countryCode: shipping?.country ?? "US",
         zip: shipping?.zip ?? "",
       });
-    } catch (err) {
-      // Recovery (finding #2): a prior attempt created the Printful order but
-      // crashed before persisting its id, so this resubmit is rejected as a
-      // duplicate external_id. Fetch the order Printful already has and persist
-      // it below — otherwise every retry hits the same dedupe forever and the
-      // printed order is stranded `paid` (COGS unbooked, no shipping match).
-      if (isDuplicateExternalIdError(err) && deps.getPrintfulOrderByExternalId) {
-        console.warn(
-          `Order ${orderId}: Printful rejected duplicate external_id — recovering existing order`
-        );
-        const existing = await deps
-          .getPrintfulOrderByExternalId(orderId)
-          .catch((fetchErr) => {
+    } catch (createErr) {
+      // Recovery probe (finding #2): a prior attempt may have created the
+      // Printful order but crashed before persisting its id — the resubmit then
+      // fails (duplicate external_id, or any transient error). Probe by
+      // external_id rather than pattern-matching the rejection text: if Printful
+      // already has the order, adopt it and persist it below; otherwise the
+      // printed order is stranded `paid` forever (COGS unbooked, no shipping
+      // match). Phrasing-independent, so a Printful message change can't defeat
+      // it, and it also covers a network error that dropped the create response.
+      // Probe finds nothing (404 → null) or itself fails → rethrow the original
+      // error → paid_printful_failed, cron-retryable.
+      const recovered = deps.getPrintfulOrderByExternalId
+        ? await deps.getPrintfulOrderByExternalId(orderId).catch((probeErr) => {
             console.error(
-              `Order ${orderId}: could not fetch existing Printful order:`,
-              fetchErr
+              `Order ${orderId}: recovery probe (getOrderByExternalId) failed:`,
+              probeErr
             );
             return null;
-          });
-        if (!existing) return { action: "paid_printful_failed" };
-        printfulOrder = existing;
-      } else {
-        throw err;
-      }
+          })
+        : null;
+      if (!recovered) throw createErr;
+      console.warn(
+        `Order ${orderId}: adopting the existing Printful order after a submit failure (recovered by external_id)`
+      );
+      printfulOrder = recovered;
     }
     // Narrows for the type checker — either branch above set printfulOrder or
-    // already returned/threw.
+    // already threw.
     if (!printfulOrder) return { action: "paid_printful_failed" };
 
     assertTransition("paid", "submitted");
@@ -249,6 +249,15 @@ export async function submitOrderFulfillment(
         ),
       ]);
     } else {
+      // printfulCost === null means the Printful response carried no costs.total
+      // — expected for dry-run (0.00 → 0, not null), but on the recovery path a
+      // fetched order can lack costs, so the order goes `submitted` with COGS
+      // unbooked. Log loudly so it's visible for a manual COGS entry.
+      if (printfulCost == null) {
+        console.error(
+          `Order ${orderId}: submitted with NO COGS — Printful response had no costs.total (likely a recovery fetch that omitted costs). Book COGS manually.`
+        );
+      }
       await deps.db.batch([submittedUpdate, ...designUpdates]);
     }
   } catch (err) {

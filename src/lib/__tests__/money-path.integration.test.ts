@@ -9,7 +9,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { createTestDb } from "./test-db";
 import * as schema from "@/lib/db/schema";
-import { calculateStripeFee } from "@/lib/ledger";
+import { calculateStripeFee, summarizeLedger } from "@/lib/ledger";
 import {
   handleStripeCheckoutCompleted,
   handlePrintfulEvent,
@@ -734,12 +734,13 @@ describe("money path — Printful lifecycle events", () => {
       printfulOrderId: "9999",
       printfulCost: 12.5,
     });
-    await db.insert(schema.ledgerEntry).values({
-      orderId: order.id,
-      type: "cogs",
-      amount: -12.5,
-      description: "Printful fulfillment PF:9999",
-    });
+    // A real submitted order's full ledger: sale + fee + cogs.
+    const fee = calculateStripeFee(24.12);
+    await db.insert(schema.ledgerEntry).values([
+      { orderId: order.id, type: "sale", amount: 24.12, description: "sale" },
+      { orderId: order.id, type: "stripe_fee", amount: -fee, description: "fee" },
+      { orderId: order.id, type: "cogs", amount: -12.5, description: "Printful fulfillment PF:9999" },
+    ]);
 
     const result = await handlePrintfulEvent(
       { type: "order_canceled", data: { order: { id: 9999 } } },
@@ -759,6 +760,13 @@ describe("money path — Printful lifecycle events", () => {
     expect(byType.refund_cogs_reversal).toBe(12.5);
     expect(byType.refund).toBeUndefined();
     expect(entries.filter((e) => e.type === "refund")).toHaveLength(0);
+
+    // Summary-level: the reversal must actually move the books. Gross profit
+    // after the cancel equals the never-fulfilled outcome (sale + fee, no COGS)
+    // — this FAILS if summarizeLedger drops refund_cogs_reversal.
+    const summary = summarizeLedger(byType);
+    expect(summary.grossProfit).toBeCloseTo(24.12 - fee, 5);
+    expect(summary.cogs).toBe(0);
   });
 
   it("cancel with no COGS on the books writes neither reversal nor refund", async () => {
