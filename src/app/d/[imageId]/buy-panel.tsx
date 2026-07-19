@@ -31,31 +31,40 @@ export function BuyPanel({
   const sizes = product?.sizes ?? [];
   const colors = product?.colors ?? [];
 
-  const [size, setSize] = useState(sizes[1] ?? sizes[0] ?? "M");
-  const [color, setColor] = useState(
-    preferredColor && colors.some((c) => c.name === preferredColor)
+  // No default size (#60): the buyer must pick one before the CTA enables,
+  // so nobody checks out in a size they never chose.
+  const [size, setSize] = useState<string | null>(null);
+  // The pinned backdrop color IS defaulted (the design is displayed on it),
+  // but labeled below so it's not a silent pick.
+  const pinnedColorApplied =
+    !!preferredColor && colors.some((c) => c.name === preferredColor);
+  const [color, setColor] = useState<string>(
+    pinnedColorApplied && preferredColor
       ? preferredColor
       : colors[0]?.name ?? "White"
   );
   const [loading, setLoading] = useState(false);
 
-  // Switching product can invalidate the current size/color. Clamp both to
-  // the new product's options.
+  // Switching product can invalidate the current size/color. Size resets to
+  // unselected (never silently re-picked); color clamps to the new options.
   function handleProduct(id: string) {
     const next = getBlank(id);
     if (!next) return;
     setProductId(id);
-    if (!next.sizes.includes(size)) setSize(next.sizes[1] ?? next.sizes[0]);
+    if (size && !next.sizes.includes(size)) setSize(null);
     if (!next.colors.some((c) => c.name === color)) {
       setColor(next.colors[0]?.name ?? "White");
     }
   }
 
+  // Price display before a size is picked uses the base size — S–XL share a
+  // price; a 2XL pick updates it live.
   const { item, shipping, total } = computeOrderTotal(
-    computePrice(0, productId, size).total
+    computePrice(0, productId, size ?? sizes[0] ?? "M").total
   );
 
   async function handleBuy() {
+    if (!size) return;
     setLoading(true);
     try {
       const { url, needsAuth } = await buyPublishedDesign({ imageId, productId, size, color });
@@ -70,9 +79,19 @@ export function BuyPanel({
   }
 
   const cta = isLoggedIn ? (
-    <Button onClick={handleBuy} disabled={loading} size="lg" className="w-full">
-      {loading ? "Redirecting…" : `Buy this design — $${total.toFixed(2)}`}
-    </Button>
+    <div className="space-y-1.5">
+      {!size && (
+        <p className="text-sm text-text-muted text-center">Choose a size</p>
+      )}
+      <Button
+        onClick={handleBuy}
+        disabled={loading || !size}
+        size="lg"
+        className="w-full"
+      >
+        {loading ? "Redirecting…" : `Buy this design — $${total.toFixed(2)}`}
+      </Button>
+    </div>
   ) : (
     <Link href={`/sign-in?next=/d/${imageId}`} className="block">
       <Button size="lg" className="w-full">
@@ -110,7 +129,16 @@ export function BuyPanel({
         onChange={setSize}
         label={product?.sizeLabel ?? "Size"}
       />
-      <ColorPicker colors={colors} value={color} onChange={setColor} />
+      <ColorPicker
+        colors={colors}
+        value={color}
+        onChange={setColor}
+        note={
+          pinnedColorApplied
+            ? `Shown in ${preferredColor} — designer's pick`
+            : undefined
+        }
+      />
 
       <div className="space-y-2 text-sm border-t border-border pt-4">
         <div className="flex justify-between">

@@ -5,8 +5,11 @@ import type { BlankColor } from "@/lib/blanks";
 /**
  * Size + color selectors shared by the order flow (`/order`) and the
  * buy-existing flow (`/d/[imageId]`). Presentational only — parents own
- * the selected state and any price/mockup side effects. Phone-first: 40px+
+ * the selected state and any price/mockup side effects. Phone-first: 44px+
  * touch targets per the mobile-UX guidance.
+ *
+ * `value: null` means no size chosen yet (#60) — parents start unselected
+ * and gate their CTA on a pick.
  */
 export function SizePicker({
   sizes,
@@ -15,7 +18,7 @@ export function SizePicker({
   label = "Size",
 }: {
   sizes: string[];
-  value: string;
+  value: string | null;
   onChange: (size: string) => void;
   label?: string;
 }) {
@@ -27,7 +30,8 @@ export function SizePicker({
           <button
             key={s}
             onClick={() => onChange(s)}
-            className={`px-3 py-2.5 md:py-1.5 border-2 rounded-md text-sm transition-colors ${
+            aria-pressed={value === s}
+            className={`min-w-11 min-h-11 md:min-w-0 md:min-h-0 px-3 py-2.5 md:py-1.5 border-2 rounded-md text-sm transition-colors ${
               value === s
                 ? "border-accent bg-accent text-accent-fg font-medium"
                 : "border-border text-text-muted hover:border-border-hover"
@@ -43,16 +47,20 @@ export function SizePicker({
 
 /**
  * Color swatches. Renders nothing when the product has a single color, so
- * callers can drop it in unconditionally.
+ * callers can drop it in unconditionally. `note` renders as small muted text
+ * under the swatches — used to label a non-obvious default (e.g. the
+ * designer-pinned color on the buy page, #60).
  */
 export function ColorPicker({
   colors,
   value,
   onChange,
+  note,
 }: {
   colors: BlankColor[];
   value: string;
   onChange: (color: string) => void;
+  note?: string;
 }) {
   if (colors.length <= 1) return null;
   return (
@@ -73,6 +81,7 @@ export function ColorPicker({
           />
         ))}
       </div>
+      {note && <p className="text-xs text-text-muted mt-2">{note}</p>}
     </div>
   );
 }
