@@ -43,18 +43,18 @@ export function SiteHeader() {
     Boolean(session) &&
     !(session?.user as { isAnonymous?: boolean } | undefined)?.isAnonymous;
 
-  // Fresh Prints (the community storefront) leads for everyone — it's the
+  // Shop (the community storefront, /prints) leads for everyone — it's the
   // open buy-existing flow. The design-your-own + personal links are
   // auth-gated.
   const links: NavLink[] = isAuthed
     ? [
-        { href: "/prints", label: "Fresh Prints" },
+        { href: "/prints", label: "Shop" },
         { href: "/design", label: "New Design" },
         ...(showDashboard ? [{ href: "/dashboard", label: "Dashboard" }] : []),
         { href: "/designs", label: "My Designs" },
         { href: "/orders", label: "Orders" },
       ]
-    : [{ href: "/prints", label: "Fresh Prints" }];
+    : [{ href: "/prints", label: "Shop" }];
 
   function signOut() {
     authClient.signOut().then(() => {
