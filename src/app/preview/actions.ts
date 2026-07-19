@@ -357,9 +357,8 @@ export async function getOrCreatePlacementRender(
 /**
  * Schedule a prefetch via after() if there are no cached mockups yet
  * for this product. Cheap idempotent call — `/preview` invokes it on
- * page load so existing/already-approved designs (which never went
- * through approveDesign's prefetch hook) still warm their cache when
- * the user revisits.
+ * page load, which is the only cache-warming path now that the
+ * approveDesign handoff (and its prefetch hook) is gone.
  *
  * Returns instantly; the actual prefetch runs after the response is
  * sent, scoped to this function invocation's 300s budget. Safe to

@@ -10,7 +10,6 @@ import {
   getDesign,
   getDesignChat,
   getDesignGallery,
-  approveDesign,
   uploadReferenceImage,
 } from "./actions";
 import { PublishModal } from "@/components/publish-modal";
@@ -252,17 +251,14 @@ function DesignPageInner() {
 
   function handleMakeProducts() {
     if (!selectedImage) return;
-    approveDesign(designId.current).then(() => {
-      router.push(`/preview?id=${designId.current}`);
-    });
+    router.push(`/preview?id=${designId.current}`);
   }
 
   async function handleMakeProductsForImage(imageUrl: string) {
-    // selectImage promotes this image to primary_image_id before approve,
-    // so /preview anchors on the user's pick rather than the latest.
+    // selectImage promotes this image to primary_image_id first, so
+    // /preview anchors on the user's pick rather than the latest.
     await selectImage(designId.current, imageUrl);
     setSelectedImage(imageUrl);
-    await approveDesign(designId.current);
     router.push(`/preview?id=${designId.current}`);
   }
 
