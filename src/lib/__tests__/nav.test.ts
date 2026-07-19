@@ -12,7 +12,7 @@ describe("breadcrumbTrail", () => {
     }
   });
 
-  it("builds the funnel spine and threads id/product/color into hrefs", () => {
+  it("builds the funnel spine and threads id into hrefs", () => {
     const params = { id: "abc", product: "bella-canvas-3001", color: "Black" };
 
     expect(breadcrumbTrail("/design", params).map((c) => c.label)).toEqual([
@@ -24,11 +24,10 @@ describe("breadcrumbTrail", () => {
       label: "Design",
       href: "/design?id=abc",
     });
+  });
 
-    expect(breadcrumbTrail("/order", params).at(-1)).toEqual({
-      label: "Preview",
-      href: "/preview?id=abc&product=bella-canvas-3001",
-    });
+  it("has no trail for /order (redirect-only route)", () => {
+    expect(breadcrumbTrail("/order", { id: "abc" })).toEqual([]);
   });
 
   it("sends the terminal confirm page up to order history, not the funnel", () => {
@@ -85,9 +84,9 @@ describe("breadcrumbTrail", () => {
 
 describe("upTarget", () => {
   it("is the immediate parent (last crumb)", () => {
-    expect(upTarget("/order", { id: "x" })).toEqual({
-      label: "Preview",
-      href: "/preview?id=x",
+    expect(upTarget("/preview", { id: "x" })).toEqual({
+      label: "Design",
+      href: "/design?id=x",
     });
   });
 

@@ -10,7 +10,7 @@ const base = {
   itemPrice: 19.43,
   shippingPrice: 4.69,
   imageUrl: "https://cdn.example.com/img.png",
-  cancelUrl: "https://prntd.org/order?id=design-1",
+  cancelUrl: "https://prntd.org/preview?id=design-1",
   appUrl: "https://prntd.org",
 };
 
@@ -75,7 +75,7 @@ describe("buildCheckoutSessionParams", () => {
     expect(p.success_url).toBe(
       "https://prntd.org/order/confirm?session_id={CHECKOUT_SESSION_ID}"
     );
-    expect(p.cancel_url).toBe("https://prntd.org/order?id=design-1");
+    expect(p.cancel_url).toBe("https://prntd.org/preview?id=design-1");
   });
 
   it("is a one-time payment that allows promo codes and collects US shipping", () => {
