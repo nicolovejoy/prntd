@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import { createTestDb } from "./test-db";
-import * as schema from "@/lib/db/schema";
+import { makeUser, makeDesign } from "./factories";
 import {
   createStore,
   getMyStores,
@@ -23,21 +23,13 @@ import {
 type Db = Awaited<ReturnType<typeof createTestDb>>;
 let db: Db;
 
-async function makeUser(id: string) {
-  await db.insert(schema.user).values({ id, email: `${id}@example.com`, name: id });
-}
-async function makeDesign(userId: string) {
-  const [d] = await db.insert(schema.design).values({ userId }).returning();
-  return d;
-}
-
 beforeEach(async () => {
   db = await createTestDb();
 });
 
 describe("createStore", () => {
   it("creates a draft store with a slug derived from the name", async () => {
-    await makeUser("org-1");
+    await makeUser(db, "org-1");
     const s = await createStore(db, "org-1", { name: "Manine's Club!" });
     expect(s.status).toBe("draft");
     expect(s.slug).toBe("manines-club");
@@ -45,8 +37,8 @@ describe("createStore", () => {
   });
 
   it("suffixes the slug on collision", async () => {
-    await makeUser("org-1");
-    await makeUser("org-2");
+    await makeUser(db, "org-1");
+    await makeUser(db, "org-2");
     const a = await createStore(db, "org-1", { name: "Club" });
     const b = await createStore(db, "org-2", { name: "Club" });
     expect(a.slug).toBe("club");
@@ -54,12 +46,12 @@ describe("createStore", () => {
   });
 
   it("rejects a blank name", async () => {
-    await makeUser("org-1");
+    await makeUser(db, "org-1");
     await expect(createStore(db, "org-1", { name: "   " })).rejects.toThrow(/name/i);
   });
 
   it("lists an organizer's stores oldest-first", async () => {
-    await makeUser("org-1");
+    await makeUser(db, "org-1");
     await createStore(db, "org-1", { name: "First" });
     await createStore(db, "org-1", { name: "Second" });
     const mine = await getMyStores(db, "org-1");
@@ -69,7 +61,7 @@ describe("createStore", () => {
 
 describe("updateStore", () => {
   it("applies a partial update and keeps the slug stable on rename", async () => {
-    await makeUser("org-1");
+    await makeUser(db, "org-1");
     const s = await createStore(db, "org-1", { name: "Club" });
     const updated = await updateStore(db, "org-1", s.id, {
       name: "The Club",
@@ -83,8 +75,8 @@ describe("updateStore", () => {
   });
 
   it("refuses a non-owner", async () => {
-    await makeUser("org-1");
-    await makeUser("org-2");
+    await makeUser(db, "org-1");
+    await makeUser(db, "org-2");
     const s = await createStore(db, "org-1", { name: "Club" });
     await expect(updateStore(db, "org-2", s.id, { name: "Hijack" })).rejects.toThrow(/unauthorized/i);
   });
@@ -92,8 +84,8 @@ describe("updateStore", () => {
 
 describe("createProduct", () => {
   it("creates a draft product from an owned design", async () => {
-    await makeUser("org-1");
-    const design = await makeDesign("org-1");
+    await makeUser(db, "org-1");
+    const design = await makeDesign(db, "org-1");
     const store = await createStore(db, "org-1", { name: "Club" });
     const p = await createProduct(db, "org-1", {
       designId: design.id,
@@ -107,17 +99,17 @@ describe("createProduct", () => {
   });
 
   it("rejects a design the organizer doesn't own", async () => {
-    await makeUser("org-1");
-    await makeUser("org-2");
-    const design = await makeDesign("org-2");
+    await makeUser(db, "org-1");
+    await makeUser(db, "org-2");
+    const design = await makeDesign(db, "org-2");
     await expect(
       createProduct(db, "org-1", { designId: design.id, blankId: "bella-canvas-3001" })
     ).rejects.toThrow(/unauthorized/i);
   });
 
   it("allows a loose product with no store", async () => {
-    await makeUser("org-1");
-    const design = await makeDesign("org-1");
+    await makeUser(db, "org-1");
+    const design = await makeDesign(db, "org-1");
     const p = await createProduct(db, "org-1", {
       designId: design.id,
       blankId: "bella-canvas-3001",
@@ -128,11 +120,11 @@ describe("createProduct", () => {
 
 describe("ordering", () => {
   async function seedThree() {
-    await makeUser("org-1");
+    await makeUser(db, "org-1");
     const store = await createStore(db, "org-1", { name: "Club" });
     const ids: string[] = [];
     for (let i = 0; i < 3; i++) {
-      const d = await makeDesign("org-1");
+      const d = await makeDesign(db, "org-1");
       const p = await createProduct(db, "org-1", {
         designId: d.id,
         blankId: "bella-canvas-3001",
@@ -158,11 +150,11 @@ describe("ordering", () => {
   });
 
   it("addProductToStore shelves a loose product at the end", async () => {
-    await makeUser("org-1");
+    await makeUser(db, "org-1");
     const store = await createStore(db, "org-1", { name: "Club" });
-    const d1 = await makeDesign("org-1");
+    const d1 = await makeDesign(db, "org-1");
     await createProduct(db, "org-1", { designId: d1.id, blankId: "bella-canvas-3001", storeId: store.id });
-    const d2 = await makeDesign("org-1");
+    const d2 = await makeDesign(db, "org-1");
     const loose = await createProduct(db, "org-1", { designId: d2.id, blankId: "bella-canvas-3001" });
 
     const shelved = await addProductToStore(db, "org-1", loose.id, store.id);
@@ -179,8 +171,8 @@ describe("getStoreById", () => {
 
 describe("updateProduct", () => {
   async function makeProduct(owner: string) {
-    await makeUser(owner);
-    const d = await makeDesign(owner);
+    await makeUser(db, owner);
+    const d = await makeDesign(db, owner);
     return createProduct(db, owner, { designId: d.id, blankId: "bella-canvas-3001" });
   }
 
@@ -205,7 +197,7 @@ describe("updateProduct", () => {
 
   it("refuses a non-owner", async () => {
     const p = await makeProduct("org-1");
-    await makeUser("org-2");
+    await makeUser(db, "org-2");
     await expect(
       updateProduct(db, "org-2", p.id, { price: 99 })
     ).rejects.toThrow(/unauthorized/i);

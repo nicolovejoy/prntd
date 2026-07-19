@@ -10,7 +10,7 @@ import {
   designImage as designImageTable,
   user as userTable,
 } from "@/lib/db/schema";
-import { eq, desc, inArray } from "drizzle-orm";
+import { eq, asc, desc, inArray } from "drizzle-orm";
 import { resolveDesignDisplayImageUrls } from "@/lib/design-images";
 import { resolveOrderLines } from "@/lib/order-lines";
 import { designerAttribution } from "@/lib/order-attribution";
@@ -59,6 +59,7 @@ export async function getUserOrders() {
         })
         .from(orderItemTable)
         .where(inArray(orderItemTable.orderId, orderIds))
+        .orderBy(asc(orderItemTable.createdAt))
     : [];
   const itemsByOrder = new Map<string, typeof itemRows>();
   for (const it of itemRows) {

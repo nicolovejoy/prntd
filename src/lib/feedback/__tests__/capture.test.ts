@@ -1,3 +1,6 @@
+// @vitest-environment jsdom
+// This lib file is a DOM walker, unlike the rest of src/lib/** (node env) —
+// override back to jsdom.
 import { describe, it, expect, beforeEach } from "vitest";
 import { buildPageCapture, OUTLINE_MAX_CHARS } from "../capture";
 
