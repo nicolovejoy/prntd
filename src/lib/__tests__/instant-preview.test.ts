@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { resolveHeroDisplay, type HeroDisplayInput } from "../instant-preview";
+import {
+  isDarkShirt,
+  mockupBackdrop,
+  relativeLuminance,
+  resolveHeroDisplay,
+  type HeroDisplayInput,
+} from "../instant-preview";
 
 const base: HeroDisplayInput = {
   renderStatus: "ready",
@@ -125,5 +131,36 @@ describe("resolveHeroDisplay", () => {
       mockupUrl: "https://r2/mock.png",
     });
     expect(d.mockupUrl).toBeNull();
+  });
+});
+
+describe("relativeLuminance", () => {
+  it("black is 0, white is 1", () => {
+    expect(relativeLuminance("#000000")).toBe(0);
+    expect(relativeLuminance("#ffffff")).toBeCloseTo(1);
+  });
+
+  it("supports 3-digit hex", () => {
+    expect(relativeLuminance("#fff")).toBeCloseTo(1);
+  });
+
+  it("unparseable input is treated as white (no dark-shirt branch)", () => {
+    expect(relativeLuminance("navy")).toBe(1);
+  });
+});
+
+describe("mockupBackdrop", () => {
+  it("dark shirts get the light-neutral backdrop", () => {
+    expect(isDarkShirt("#000000")).toBe(true);
+    expect(mockupBackdrop("#000000")).toBe("#ececec");
+    // Navy (Bella 3001 palette)
+    expect(mockupBackdrop("#212642")).toBe("#ececec");
+  });
+
+  it("light shirts get near-white so multiply doesn't tint the garment", () => {
+    expect(isDarkShirt("#ffffff")).toBe(false);
+    expect(mockupBackdrop("#ffffff")).toBe("#f7f7f7");
+    // Yellow
+    expect(mockupBackdrop("#ffd667")).toBe("#f7f7f7");
   });
 });
