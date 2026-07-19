@@ -35,6 +35,7 @@ import {
   getDesignImageById,
 } from "@/lib/design-images";
 import { designerAttribution } from "@/lib/order-attribution";
+import { isAdminEmail } from "@/lib/admin";
 
 // Second user join (the design's owner) needs an alias to coexist with the
 // buyer join on the same query.
@@ -43,6 +44,15 @@ const designerUser = alias(userTable, "designer_user");
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
 if (!ADMIN_EMAIL) {
   throw new Error("ADMIN_EMAIL env var is required");
+}
+
+/**
+ * Whether the current session belongs to the admin. Client-readable (drives
+ * the nav's Admin entry) — returns only a boolean, never the admin email.
+ */
+export async function isAdminUser(): Promise<boolean> {
+  const session = await auth.api.getSession({ headers: await headers() });
+  return isAdminEmail(session?.user?.email, ADMIN_EMAIL);
 }
 
 export async function getOrders() {

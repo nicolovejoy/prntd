@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
 import { getCartCount, isCartEnabled } from "@/app/cart/actions";
 import { isStoresEnabled } from "@/app/dashboard/actions";
+import { isAdminUser } from "@/app/admin/actions";
 import { FeedbackPanel } from "@/components/feedback-launcher";
 import { FEEDBACK_PROJECT_ID } from "@/lib/feedback/project-id";
 
@@ -41,6 +42,46 @@ export function SiteHeader() {
     isStoresEnabled().then(setShowDashboard).catch(() => setShowDashboard(false));
   }, []);
 
+  // Admin nav entry — server action returns only a boolean (never the admin
+  // email), so ADMIN_EMAIL stays out of the client bundle. Re-checked when the
+  // session user changes (sign-in/out).
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    isAdminUser().then(setIsAdmin).catch(() => setIsAdmin(false));
+  }, [session?.user?.id]);
+
+  // Outside-click + Escape dismissal for the mobile dropdown. pointerdown so
+  // the menu closes before the tap's click lands elsewhere; the hamburger is
+  // excluded or its toggle would re-open the menu it just closed. Escape
+  // preventDefaults so page-level Escape-to-go-up (Breadcrumbs) skips it.
+  const menuRef = useRef<HTMLDivElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!menuOpen) return;
+    function onPointerDown(e: PointerEvent) {
+      const target = e.target as Node;
+      if (
+        menuRef.current?.contains(target) ||
+        menuButtonRef.current?.contains(target)
+      ) {
+        return;
+      }
+      setMenuOpen(false);
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setMenuOpen(false);
+      }
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [menuOpen]);
+
   // Guest-funnel (#26) anonymous sessions don't count as signed-in for the nav:
   // a guest sees the signed-out nav ("Sign in"), not "Sign out" + the gated
   // personal links (/designs, /orders still redirect anon to sign-in).
@@ -58,6 +99,7 @@ export function SiteHeader() {
         ...(showDashboard ? [{ href: "/dashboard", label: "Dashboard" }] : []),
         { href: "/designs", label: "My Designs" },
         { href: "/orders", label: "Orders" },
+        ...(isAdmin ? [{ href: "/admin", label: "Admin" }] : []),
       ]
     : [{ href: "/prints", label: "Shop" }];
 
@@ -119,6 +161,7 @@ export function SiteHeader() {
 
         {/* Mobile: hamburger */}
         <button
+          ref={menuButtonRef}
           onClick={() => setMenuOpen((o) => !o)}
           aria-label="Menu"
           aria-expanded={menuOpen}
@@ -133,7 +176,10 @@ export function SiteHeader() {
       {/* Mobile dropdown — anchored to the right edge under the hamburger,
           solid raised panel so it reads over page content. */}
       {menuOpen && (
-        <div className="sm:hidden absolute right-2 top-full z-50 mt-1 w-64 max-w-[calc(100vw-1rem)] flex flex-col rounded-md border border-border bg-surface-raised py-1 shadow-lg shadow-black/60">
+        <div
+          ref={menuRef}
+          className="sm:hidden absolute right-2 top-full z-50 mt-1 w-64 max-w-[calc(100vw-1rem)] flex flex-col rounded-md border border-border bg-surface-raised py-1 shadow-lg shadow-black/60"
+        >
           {links.map((l) => (
             <Link
               key={l.href}
@@ -165,7 +211,7 @@ export function SiteHeader() {
           {isAuthed ? (
             <button
               onClick={signOut}
-              className="flex min-h-11 items-center justify-end px-4 text-lg text-text-muted hover:text-foreground hover:bg-surface transition-colors"
+              className="flex min-h-11 items-center justify-end px-4 text-lg text-foreground hover:bg-surface transition-colors"
             >
               Sign out
             </button>
@@ -178,6 +224,9 @@ export function SiteHeader() {
               Sign in
             </Link>
           )}
+          <span className="px-4 pt-2 pb-1 text-right text-[10px] leading-none text-text-faint font-mono">
+            {buildDate}
+          </span>
         </div>
       )}
 
