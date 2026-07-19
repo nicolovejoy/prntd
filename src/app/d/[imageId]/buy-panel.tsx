@@ -6,7 +6,10 @@ import { Button } from "@/components/ui";
 import { SizePicker, ColorPicker } from "@/components/product-options";
 import { ACTIVE_BLANKS, DEFAULT_BLANK_ID, getBlank } from "@/lib/blanks";
 import { computePrice, computeOrderTotal } from "@/lib/pricing";
-import type { PurchaseDefaults } from "@/lib/purchase-defaults";
+import {
+  resolveDefaultColor,
+  type PurchaseDefaults,
+} from "@/lib/purchase-defaults";
 import { buyPublishedDesign } from "../actions";
 
 /**
@@ -51,21 +54,32 @@ export function BuyPanel({
   const pinnedColorApplied =
     !!preferredColor && colors.some((c) => c.name === preferredColor);
   const [color, setColor] = useState<string>(
-    pinnedColorApplied && preferredColor
-      ? preferredColor
-      : colors[0]?.name ?? "White"
+    () =>
+      resolveDefaultColor({
+        urlColor: null,
+        pinnedColor: preferredColor ?? null,
+        palette: colors,
+      }).color
   );
   const [loading, setLoading] = useState(false);
 
   // Switching product can invalidate the current size/color. Size resets to
-  // unselected (never silently re-picked); color clamps to the new options.
+  // unselected (never silently re-picked); an invalidated color resets per
+  // the §3 precedence — pinned backdrop when the new palette has it, else
+  // White, else first — never a carryover from the old palette.
   function handleProduct(id: string) {
     const next = getBlank(id);
     if (!next) return;
     setProductId(id);
     if (size && !next.sizes.includes(size)) setSize(null);
     if (!next.colors.some((c) => c.name === color)) {
-      setColor(next.colors[0]?.name ?? "White");
+      setColor(
+        resolveDefaultColor({
+          urlColor: null,
+          pinnedColor: preferredColor ?? null,
+          palette: next.colors,
+        }).color
+      );
     }
   }
 
