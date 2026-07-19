@@ -8,6 +8,40 @@ import type { DesignImage } from "@/lib/design-images";
 import { Button, QuickReply } from "@/components/ui";
 import { EXAMPLES } from "@/lib/design-examples";
 
+// Rotating status shown while a render is in flight — a canned client-side
+// set (no API call), randomized start so repeat draws don't always open on
+// the same line. A Haiku-generated riff can replace this later.
+export const DRAWING_LINES = [
+  "Drawing your design…",
+  "Mixing the inks…",
+  "Sketching the outlines…",
+  "Warming up the pens…",
+  "Filling in the colors…",
+  "Stepping back to squint at it…",
+  "Adding the finishing touches…",
+];
+
+function DrawingStatus() {
+  const [index, setIndex] = useState(() =>
+    Math.floor(Math.random() * DRAWING_LINES.length)
+  );
+  useEffect(() => {
+    const t = setInterval(
+      () => setIndex((i) => (i + 1) % DRAWING_LINES.length),
+      3000
+    );
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <div
+      className="rounded-lg px-4 py-2 text-text-muted animate-pulse"
+      data-testid="drawing-status"
+    >
+      {DRAWING_LINES[index]}
+    </div>
+  );
+}
+
 export function ChatPanel({
   messages,
   images,
@@ -134,11 +168,11 @@ export function ChatPanel({
   }
 
   const busy = loading || generating;
-  // Soft nudge: until Claude judges the idea concrete (subject + style),
-  // Generate sits as a secondary button and a style hint shows — it pops to
-  // primary when ready. Always clickable; the fast thin-check catches a
-  // too-thin click in ~1s rather than greying the button into looking broken.
-  const notReadyTitle = "Add a style (e.g. watercolor, vintage, bold vector) to sharpen the idea — Draw it still works.";
+  // Soft nudge: until Claude judges the subject concrete, Draw it sits as a
+  // secondary button and a hint shows — it pops to primary when ready. Always
+  // clickable; the fast thin-check catches a too-thin click in ~1s rather
+  // than greying the button into looking broken.
+  const notReadyTitle = "Say a bit more about what to draw — Draw it still works.";
   const showStyleHint = !readyToGenerate && messages.length > 0;
 
   if (isEmpty) {
@@ -215,8 +249,9 @@ export function ChatPanel({
         }}
       />
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      {/* Messages — laid out naturally from the top; the composer stays
+          pinned at the bottom, but content is never spread to fill the gap. */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4" data-testid="chat-messages">
         {messages.length === 0 && (
           <div className="text-center text-text-muted mt-20 space-y-4">
             <p className="text-lg">What should your design look like?</p>
@@ -269,6 +304,18 @@ export function ChatPanel({
             </div>
           );
         })}
+        {/* Quick-reply chips for the latest assistant turn — rendered in the
+            message flow, directly under the question they answer (options
+            state only ever holds the latest turn's chips, so older messages
+            never re-show theirs). Tap answers the question, no "type a
+            number" needed. Hidden while a turn is in flight. */}
+        {!busy && options.length > 0 && (
+          <div className="flex justify-start" data-testid="chat-options">
+            <div className="max-w-[80%] px-4">
+              <QuickReply options={options} onSelect={submitTurn} disabled={busy} />
+            </div>
+          </div>
+        )}
         {loading && (
           <div className="flex justify-start">
             <div className="rounded-lg px-4 py-2 text-text-faint">
@@ -278,26 +325,16 @@ export function ChatPanel({
         )}
         {generating && (
           <div className="flex justify-start">
-            <div className="rounded-lg px-4 py-2 text-text-muted animate-pulse">
-              Drawing your design…
-            </div>
+            <DrawingStatus />
           </div>
         )}
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Quick-reply chips for the last assistant turn — tap answers the
-          question, no "type a number" needed. Hidden while a turn is in flight. */}
-      {!busy && options.length > 0 && (
-        <div className="px-4 pt-2">
-          <QuickReply options={options} onSelect={submitTurn} disabled={busy} />
-        </div>
-      )}
-
-      {/* Style hint — only when there are no tappable options to offer instead */}
+      {/* Not-ready hint — only when there are no tappable options to offer instead */}
       {showStyleHint && options.length === 0 && (
         <div className="px-4 pt-2 text-xs text-text-muted">
-          Add a style — watercolor, vintage, bold vector — to sharpen the idea.
+          Say a bit more about what to draw — or just tap Draw it.
         </div>
       )}
 
