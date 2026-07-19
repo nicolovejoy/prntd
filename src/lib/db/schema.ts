@@ -116,6 +116,10 @@ export const designImage = sqliteTable("design_image", {
   // Multi-generator: which adapter produced this image ("ideogram",
   // "recraft"). Null on historical rows (pre-feature).
   generator: text("generator"),
+  // Admin-controlled Shop feed position. Lower ranks list first; null
+  // (the default) falls back to recency, so unranked images behave as
+  // before. Set from /admin/published.
+  feedRank: integer("feed_rank"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
 

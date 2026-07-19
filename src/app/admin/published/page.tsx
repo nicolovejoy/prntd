@@ -2,8 +2,12 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
-import { getRecentPublishedForAdmin, setImageHidden } from "../actions";
-import { Button } from "@/components/ui";
+import {
+  getRecentPublishedForAdmin,
+  setImageHidden,
+  setImageFeedRank,
+} from "../actions";
+import { Button, Input } from "@/components/ui";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
 
@@ -24,6 +28,13 @@ export default async function AdminPublishedPage() {
     const imageId = String(formData.get("imageId"));
     const hidden = formData.get("hidden") === "true";
     await setImageHidden(imageId, hidden);
+  }
+
+  async function saveRank(formData: FormData) {
+    "use server";
+    const imageId = String(formData.get("imageId"));
+    const raw = String(formData.get("rank") ?? "").trim();
+    await setImageFeedRank(imageId, raw === "" ? null : Number(raw));
   }
 
   return (
@@ -67,6 +78,30 @@ export default async function AdminPublishedPage() {
                 <p className="text-xs text-text-faint">
                   {img.publishedAt.toLocaleDateString()}
                 </p>
+                {/* Shop feed position. Ranked images list first (lowest
+                    number first); blank = unranked, recency order. */}
+                <form action={saveRank} className="flex gap-2">
+                  <input type="hidden" name="imageId" value={img.imageId} />
+                  <Input
+                    type="number"
+                    name="rank"
+                    inputMode="numeric"
+                    min={1}
+                    max={9999}
+                    defaultValue={img.feedRank ?? ""}
+                    placeholder="Rank"
+                    aria-label="Shop feed rank"
+                    className="w-full min-w-0 min-h-11 px-2 text-sm"
+                  />
+                  <Button
+                    type="submit"
+                    variant="secondary"
+                    size="sm"
+                    className="min-h-11 shrink-0"
+                  >
+                    Save
+                  </Button>
+                </form>
                 <form action={toggle}>
                   <input type="hidden" name="imageId" value={img.imageId} />
                   <input
