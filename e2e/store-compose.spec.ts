@@ -44,7 +44,7 @@ test("organizer compose: create shop, add + edit product, edit shop, list + publ
 
     // The new store's card. Scope every later interaction to it so leftover
     // stores from a prior failed run can't shadow the buttons.
-    const card = page.locator("div.rounded-lg").filter({ hasText: shopName });
+    const card = page.getByTestId("store-card").filter({ hasText: shopName });
     await expect(card).toBeVisible({ timeout: 15_000 });
     await expect(card.getByText(/^0 products$/)).toBeVisible();
 
@@ -73,17 +73,17 @@ test("organizer compose: create shop, add + edit product, edit shop, list + publ
     // Save → back to the dashboard, product count rises.
     await page.getByRole("button", { name: "Add to shop" }).click();
     await page.waitForURL(/\/dashboard$/);
-    const savedCard = page.locator("div.rounded-lg").filter({ hasText: shopName });
+    const savedCard = page.getByTestId("store-card").filter({ hasText: shopName });
     await expect(savedCard.getByText(/^1 product$/)).toBeVisible({ timeout: 15_000 });
 
     // Edit the shop: rename it and confirm the slug (shared-link path) is fixed.
     const slug = (await savedCard.getByText(/^\//).first().innerText()).trim();
     await savedCard.getByRole("button", { name: "Edit shop" }).click();
-    const panel = page.locator("div.rounded-lg").filter({ hasText: "Accent color" });
+    const panel = page.getByTestId("store-edit-panel");
     const newName = `${shopName} Edited`;
     await panel.getByRole("textbox").first().fill(newName); // first textbox = name input
     await panel.getByRole("button", { name: "Save" }).click();
-    const renamed = page.locator("div.rounded-lg").filter({ hasText: newName });
+    const renamed = page.getByTestId("store-card").filter({ hasText: newName });
     await expect(renamed).toBeVisible({ timeout: 15_000 });
     await expect(renamed.getByText(slug, { exact: true })).toBeVisible(); // slug unchanged
 
@@ -97,7 +97,7 @@ test("organizer compose: create shop, add + edit product, edit shop, list + publ
     await page.locator('input[type="number"]').fill("30");
     await page.getByRole("button", { name: "Save changes" }).click();
     await page.waitForURL(/\/dashboard$/);
-    const finalCard = page.locator("div.rounded-lg").filter({ hasText: newName });
+    const finalCard = page.getByTestId("store-card").filter({ hasText: newName });
     await expect(finalCard.getByText("$30.00")).toBeVisible({ timeout: 15_000 });
 
     // List the product + publish the shop. Each toggle is optimistic + fires a
