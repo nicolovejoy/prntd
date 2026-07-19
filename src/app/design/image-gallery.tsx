@@ -84,11 +84,6 @@ export function ImageGallery({
                 <span className="absolute top-1 left-1 bg-black/70 text-white text-[10px] font-mono px-1.5 py-0.5 rounded">
                   #{img.number}
                 </span>
-                {img.generator && (
-                  <span className="absolute bottom-1 left-1 bg-black/70 text-white text-[9px] px-1.5 py-0.5 rounded capitalize">
-                    {img.generator}
-                  </span>
-                )}
               </button>
             ))}
             {generating && (

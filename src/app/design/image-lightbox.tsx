@@ -12,7 +12,6 @@ export function ImageLightbox({
   onDelete,
   onMakeProducts,
   onPublish,
-  onAdopt,
 }: {
   images: DesignImage[];
   currentIndex: number;
@@ -21,7 +20,6 @@ export function ImageLightbox({
   onDelete: (imageId: string) => void;
   onMakeProducts: (imageUrl: string) => void;
   onPublish: (imageId: string) => void | Promise<void>;
-  onAdopt: (imageId: string, imageUrl: string) => void;
 }) {
   const [publishing, setPublishing] = useState(false);
   const image = images[currentIndex];
@@ -142,16 +140,6 @@ export function ImageLightbox({
           <Button onClick={() => onMakeProducts(image.url)}>
             Make Products
           </Button>
-          {image.generator && (
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={() => onAdopt(image.id, image.url)}
-            >
-              Use {image.generator}
-            </Button>
-          )}
           {image.publishedAt ? (
             <span className="self-center text-sm text-text-faint">
               Published ·{" "}

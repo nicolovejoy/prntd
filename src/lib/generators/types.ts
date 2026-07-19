@@ -1,6 +1,6 @@
 import type { AspectRatio } from "../blanks";
 
-export type GeneratorId = "ideogram" | "recraft";
+export type GeneratorId = "ideogram";
 
 export type GenerateOptions = {
   aspect: AspectRatio;

@@ -1,12 +1,12 @@
 /**
  * Generation-race regressions (#40, WP2) at the server-action level. Proves the
- * R2 key is derived from the atomically reserved generation number in both the
- * Generate and Compare paths, that two concurrent generates land on distinct
- * keys (no overwrite), that the success-path writes commit as one batch, that a
- * post-upload failure cleans up the orphaned R2 object, and that a failed
- * generation refunds the consumed quota unit.
+ * R2 key is derived from the atomically reserved generation number, that two
+ * concurrent generates land on distinct keys (no overwrite), that the
+ * success-path writes commit as one batch, that a post-upload failure cleans up
+ * the orphaned R2 object, and that a failed generation refunds the consumed
+ * quota unit.
  *
- * The DB is real in-memory libSQL (the #28 pattern); the generator adapters,
+ * The DB is real in-memory libSQL (the #28 pattern); the generator adapter,
  * R2 client, AI, auth, and `fetch` are mocked so nothing hits a live API.
  */
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from "vitest";
@@ -72,31 +72,20 @@ vi.mock("@/lib/generators/registry", () => {
     adaptPrompt: (p: string) => p,
     generate: vi.fn(async () => "https://src/ideogram.png"),
   };
-  const recraft = {
-    id: "recraft",
-    label: "Recraft",
-    costPerImage: 0.04,
-    adaptPrompt: (p: string) => p,
-    generate: vi.fn(async () => "https://src/recraft.png"),
-  };
   return {
     DEFAULT_GENERATOR_ID: "ideogram",
-    GENERATORS: { ideogram, recraft },
-    getGenerator: (id: string | null | undefined) =>
-      id === "recraft" ? recraft : ideogram,
+    GENERATORS: { ideogram },
+    getGenerator: () => ideogram,
   };
 });
 
-const { generateDesign, compareGenerators } = await import(
-  "@/app/design/actions"
-);
+const { generateDesign } = await import("@/app/design/actions");
 const r2 = await import("@/lib/r2");
 const registry = await import("@/lib/generators/registry");
 
 const uploadMock = r2.uploadDesignImage as Mock;
 const deleteMock = r2.deleteDesignImageObject as Mock;
 const ideogramGen = registry.GENERATORS.ideogram.generate as Mock;
-const recraftGen = registry.GENERATORS.recraft.generate as Mock;
 
 async function seedDesign(generationCount = 0): Promise<string> {
   await testDb.insert(schema.user).values({ id: "u1", email: "a@b.c", name: "A" });
@@ -148,7 +137,6 @@ beforeEach(async () => {
   uploadMock.mockClear();
   deleteMock.mockClear();
   ideogramGen.mockReset().mockResolvedValue("https://src/ideogram.png");
-  recraftGen.mockReset().mockResolvedValue("https://src/recraft.png");
   delete process.env.GUEST_FUNNEL_ENABLED;
 });
 
@@ -240,47 +228,5 @@ describe("generateDesign — R2 key derivation", () => {
     // Reservation happens after the render, so a pre-upload failure left no gap.
     expect(uploadMock).not.toHaveBeenCalled();
     expect((await getDesignRow(designId)).generationCount).toBe(0);
-  });
-});
-
-describe("compareGenerators — R2 key derivation", () => {
-  it("gives each adapter a distinct reserved number and batches the rows", async () => {
-    const designId = await seedDesign(5);
-
-    const res = await compareGenerators(designId, "a cat");
-
-    const usedNumbers = uploadMock.mock.calls.map((c) => c[1]).sort();
-    expect(usedNumbers).toEqual([6, 7]);
-    expect(res.images).toHaveLength(2);
-
-    const design = await getDesignRow(designId);
-    expect(design.generationCount).toBe(7);
-    expect(design.generationCost).toBeCloseTo(0.07); // 0.03 + 0.04
-
-    const imgs = await sourceImages(designId);
-    expect(imgs.map((i) => i.imageUrl).sort()).toEqual([
-      `https://r2/${designId}/6.png`,
-      `https://r2/${designId}/7.png`,
-    ]);
-    expect(imgs.map((i) => i.generator).sort()).toEqual(["ideogram", "recraft"]);
-
-    const msgs = await chatMessages(designId);
-    expect(msgs.filter((m) => m.role === "assistant")).toHaveLength(1);
-    expect(msgs.find((m) => m.role === "user")!.content).toBe("a cat");
-  });
-
-  it("advances the counter past every reserved slot even when one adapter fails", async () => {
-    const designId = await seedDesign(0);
-    recraftGen.mockRejectedValue(new Error("recraft down"));
-
-    const res = await compareGenerators(designId, "a cat");
-
-    // One image succeeded, but both slots were reserved — the counter must
-    // clear all of them so a later generation can't reuse the failed slot's key.
-    expect(res.images).toHaveLength(1);
-    expect((await getDesignRow(designId)).generationCount).toBe(2);
-    const imgs = await sourceImages(designId);
-    expect(imgs).toHaveLength(1);
-    expect(imgs[0].imageUrl).toBe(`https://r2/${designId}/1.png`);
   });
 });
