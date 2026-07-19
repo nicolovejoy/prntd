@@ -1,6 +1,6 @@
 import { ImageResponse } from "next/og";
 
-export const alt = "PRNTD — Design a shirt by describing it";
+export const alt = "PRNTD — Your idea, on a shirt";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -40,7 +40,7 @@ export default function Image() {
             color: "#999999",
           }}
         >
-          Design a shirt by describing it.
+          Your idea, on a shirt.
         </div>
         <div
           style={{
