@@ -82,14 +82,19 @@ export async function handleStripeCheckoutCompleted(
     : foundOrder.totalPrice;
 
   // Reconcile the price split from Stripe's authoritative breakdown when
-  // present (1B+ sessions). Falls back to what we stored at order creation
-  // for pre-1B sessions that carry no shipping line.
-  const itemPrice = session.amountSubtotal != null
-    ? session.amountSubtotal / 100
-    : foundOrder.itemPrice;
+  // present (1B+ sessions). Shipping is its own Stripe line, untouched by %
+  // promos. itemPrice is the *post-discount* product revenue = total − shipping
+  // (computed in cents to avoid FP drift), NOT the pre-discount amountSubtotal:
+  // a promo discounts only the product line, so amountSubtotal would leave
+  // itemPrice + shippingPrice > totalPrice (finding #5). This keeps the stored
+  // split internally consistent (item + shipping === total). Falls back to what
+  // we stored at order creation for pre-1B sessions that carry no shipping line.
   const shippingPrice = session.amountShipping != null
     ? session.amountShipping / 100
     : foundOrder.shippingPrice;
+  const itemPrice = session.amountTotal != null && session.amountShipping != null
+    ? (session.amountTotal - session.amountShipping) / 100
+    : foundOrder.itemPrice;
 
   // Atomic claim (#37): the paid-update and the sale/fee ledger rows commit
   // together, and the claim is conditional on status still being `pending` —
