@@ -28,6 +28,7 @@ export function ChatPanel({
   generating,
   onSend,
   onGenerate,
+  onCancelGenerate,
   readyToGenerate,
   options,
   onUploadImage,
@@ -40,6 +41,7 @@ export function ChatPanel({
   generating: boolean;
   onSend: (message: string) => void;
   onGenerate: (message?: string) => void;
+  onCancelGenerate: () => void;
   readyToGenerate: boolean;
   options: ChatOption[];
   onUploadImage: (base64: string, fileName: string) => void;
@@ -95,9 +97,10 @@ export function ChatPanel({
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading, generating]);
 
-  // Auto-focus input on mount and after actions complete
+  // Auto-focus input on mount and after actions complete. A running
+  // generation doesn't lock the composer (#59), so focus stays available.
   useEffect(() => {
-    if (!loading && !generating) inputRef.current?.focus();
+    if (!loading) inputRef.current?.focus();
   }, [loading, generating]);
 
   // "draw it"/"draw" kept for muscle memory from the old button label; typing
@@ -105,12 +108,15 @@ export function ChatPanel({
   const GENERATE_TRIGGERS = /^(yes|yeah|yep|do it|go|generate|draw it|draw|let'?s do it|go ahead|make it|yes please|sure|ok generate)/i;
 
   // Shared submit path for both the composer and a tapped quick-reply chip, so
-  // generate-intent detection and input clearing behave identically.
+  // generate-intent detection and input clearing behave identically. The
+  // composer stays open while a generation runs (#59) — only a chat turn in
+  // flight blocks; generate-intent text during a generation routes to chat
+  // (one generation at a time).
   function submitTurn(text: string) {
     const msg = text.trim();
-    if (!msg || loading || generating) return;
+    if (!msg || loading) return;
     setInput("");
-    if (GENERATE_TRIGGERS.test(msg) && messages.length > 0) {
+    if (!generating && GENERATE_TRIGGERS.test(msg) && messages.length > 0) {
       onGenerate(msg);
       return;
     }
@@ -128,8 +134,6 @@ export function ChatPanel({
     if (msg) setInput("");
     onGenerate(msg);
   }
-
-  const busy = loading || generating;
   // Soft nudge: until Claude judges the subject concrete, Generate sits as a
   // secondary button and a hint shows — it pops to primary when ready. Always
   // clickable; the fast thin-check catches a too-thin click in ~1s rather
@@ -260,11 +264,12 @@ export function ChatPanel({
             message flow, directly under the question they answer (options
             state only ever holds the latest turn's chips, so older messages
             never re-show theirs). Tap answers the question, no "type a
-            number" needed. Hidden while a turn is in flight. */}
-        {!busy && options.length > 0 && (
+            number" needed. Hidden while a chat turn is in flight; a running
+            generation doesn't hide them (#59) — the composer stays usable. */}
+        {!loading && options.length > 0 && (
           <div className="flex justify-start" data-testid="chat-options">
             <div className="max-w-[80%] px-4">
-              <QuickReply options={options} onSelect={submitTurn} disabled={busy} />
+              <QuickReply options={options} onSelect={submitTurn} disabled={loading} />
             </div>
           </div>
         )}
@@ -276,8 +281,17 @@ export function ChatPanel({
           </div>
         )}
         {generating && (
-          <div className="flex justify-start">
+          <div className="flex justify-start items-center gap-2">
             <DrawingStatus />
+            <Button
+              type="button"
+              variant="secondary"
+              className="min-h-[44px]"
+              onClick={onCancelGenerate}
+              data-testid="cancel-generation"
+            >
+              Cancel
+            </Button>
           </div>
         )}
         <div ref={messagesEndRef} />
@@ -299,7 +313,7 @@ export function ChatPanel({
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            disabled={busy}
+            disabled={loading}
             className="flex items-center justify-center min-h-[44px] min-w-[44px] border border-border rounded-md text-text-muted hover:text-white hover:border-border-hover transition-colors disabled:opacity-50"
             title="Upload image"
           >
@@ -315,7 +329,7 @@ export function ChatPanel({
             onChange={(e) => setInput(e.target.value)}
             placeholder="Describe a design or drop an image"
             className="flex-1 min-h-[44px] px-3 py-2 bg-surface border border-border rounded-md text-white placeholder:text-text-faint focus:border-border-hover focus:outline-none"
-            disabled={busy}
+            disabled={loading}
           />
         </div>
         <div className="flex flex-wrap gap-2">
@@ -323,7 +337,7 @@ export function ChatPanel({
             type="submit"
             variant="secondary"
             className="min-h-[44px] flex-1"
-            disabled={busy || !input.trim()}
+            disabled={loading || !input.trim()}
           >
             Send
           </Button>
@@ -332,10 +346,12 @@ export function ChatPanel({
             variant={readyToGenerate ? "primary" : "secondary"}
             className="min-h-[44px] flex-1"
             onClick={handleGenerate}
-            disabled={busy || (messages.length === 0 && !input.trim())}
+            disabled={
+              loading || generating || (messages.length === 0 && !input.trim())
+            }
             title={readyToGenerate ? undefined : notReadyTitle}
           >
-            Generate
+            {generating ? "Generating…" : "Generate"}
           </Button>
         </div>
       </form>
