@@ -240,13 +240,25 @@ describe("canUseAsPlacementSource (#72)", () => {
   const base = { designId: "d-other", publishedAt: null, isHidden: false };
   const ctx = { imageOwnerId: "owner", orderDesignId: "d-order", userId: "buyer" };
 
-  it("allows an image from the order's own design, even unpublished", () => {
+  it("allows an unpublished image from the order's design when the user owns it (This design on /preview)", () => {
+    expect(
+      canUseAsPlacementSource({
+        image: { ...base, designId: "d-order" },
+        ...ctx,
+        imageOwnerId: "buyer",
+      })
+    ).toBe(true);
+  });
+
+  it("rejects a private image from the order's design thread when the user does NOT own it", () => {
+    // The /d cross-owner case: orderDesignId is the SELLER's design, so a
+    // forged id from that thread must not print the seller's private work.
     expect(
       canUseAsPlacementSource({
         image: { ...base, designId: "d-order" },
         ...ctx,
       })
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("allows an image whose design the user owns (My Designs)", () => {

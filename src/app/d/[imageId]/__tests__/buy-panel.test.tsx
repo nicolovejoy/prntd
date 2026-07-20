@@ -5,6 +5,15 @@ import { BuyPanel } from "../buy-panel";
 
 vi.mock("../../actions", () => ({
   buyPublishedDesign: vi.fn().mockResolvedValue({ url: null, needsAuth: false }),
+  getBuyPageBackSources: vi.fn().mockResolvedValue({
+    groups: [
+      {
+        id: "my-designs",
+        label: "My designs",
+        images: [{ id: "back-1", imageUrl: "https://img.example/back-1.png" }],
+      },
+    ],
+  }),
 }));
 
 import { buyPublishedDesign } from "../../actions";
@@ -111,5 +120,56 @@ describe("BuyPanel color palette derives from the selected product", () => {
     fireEvent.click(screen.getByTitle("Black"));
     fireEvent.click(screen.getByRole("button", { name: "Box Tee" }));
     expect(screen.getByText("Color — Black")).toBeInTheDocument();
+  });
+});
+
+describe("BuyPanel back design (#25 on /d)", () => {
+  it("hides the affordance without backEnabled", () => {
+    render(<BuyPanel imageId="img-1" isLoggedIn />);
+    expect(screen.queryByText(/Add a back design/)).not.toBeInTheDocument();
+  });
+
+  async function pickBack() {
+    fireEvent.click(screen.getByText(/Add a back design/));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "My designs option" })
+    );
+  }
+
+  it("picking a source adds the +$8 line and updates the total", async () => {
+    render(<BuyPanel imageId="img-1" isLoggedIn backEnabled />);
+    await pickBack();
+
+    // Both the picked row and the price line label it.
+    expect(screen.getAllByText("Back design").length).toBeGreaterThan(0);
+    expect(screen.getByText("+$8.00")).toBeInTheDocument();
+    // $19.43 front + $8.00 back + $4.69 shipping.
+    fireEvent.click(screen.getByRole("button", { name: "M" }));
+    expect(
+      screen.getAllByRole("button", { name: "Order — $32.12" }).length
+    ).toBeGreaterThan(0);
+  });
+
+  it("passes the picked back image to buyPublishedDesign", async () => {
+    render(<BuyPanel imageId="img-1" isLoggedIn backEnabled />);
+    await pickBack();
+    fireEvent.click(screen.getByRole("button", { name: "M" }));
+    fireEvent.click(buyButton());
+    expect(buyPublishedDesign).toHaveBeenCalledWith(
+      expect.objectContaining({ backImageId: "back-1" })
+    );
+  });
+
+  it("the remove affordance clears the back and the upcharge", async () => {
+    render(<BuyPanel imageId="img-1" isLoggedIn backEnabled />);
+    await pickBack();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove back design" })
+    );
+    expect(screen.queryByText("+$8.00")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "M" }));
+    expect(
+      screen.getAllByRole("button", { name: "Order — $24.12" }).length
+    ).toBeGreaterThan(0);
   });
 });
