@@ -88,3 +88,19 @@ copy-based fork. Moving to B means promoting `design_image` to a standalone
 `image` table and replacing the implicit one-design-owns-its-images link with an
 explicit `conversation_image` join carrying roles. Migration is out of scope
 here.
+
+## Conversation lifecycle (Nico, 2026-07-19)
+
+Direction set during user testing, to fold into the Model B migration:
+
+- Once a conversation is over, its images are used **separately from it** —
+  the image is the artifact that travels (buy pages, back-design picker,
+  products), the conversation is just its provenance.
+- Conversations should be **closeable**: kept on record (viewable history)
+  but closed to further iteration. No re-opening old threads to keep
+  generating in them.
+- Rationale: iteration inside one thread has fast-diminishing returns — if
+  the first few generations aren't good, later ones in the same thread
+  rarely are. The product should favor starting a fresh conversation
+  (optionally seeded by a prior image, which Model B makes a cheap link)
+  over deep iteration in an old one.
