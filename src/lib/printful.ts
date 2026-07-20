@@ -97,7 +97,9 @@ export async function createOrder(params: {
   const data = await printfulFetch(`/orders${confirm ? "?confirm=true" : ""}`, {
     method: "POST",
     body: JSON.stringify({
-      ...(params.externalId ? { external_id: params.externalId } : {}),
+      ...(params.externalId
+        ? { external_id: toPrintfulExternalId(params.externalId) }
+        : {}),
       recipient: {
         name: params.recipientName,
         address1: params.address1,
@@ -127,6 +129,18 @@ export async function getOrderStatus(orderId: string) {
 }
 
 /**
+ * Printful caps external_id at 32 characters; a dashed UUID is 36 and gets a
+ * 400 "Invalid External ID specified" (bit both real orders on 2026-07-19 —
+ * the first live submissions since #37 added external_id). Stripping dashes
+ * yields exactly 32 hex chars. Applied at this boundary on both the send
+ * (createOrder) and lookup (getOrderByExternalId) sides so callers keep
+ * passing the raw order id.
+ */
+export function toPrintfulExternalId(orderId: string): string {
+  return orderId.replace(/-/g, "");
+}
+
+/**
  * Fetch an order by OUR id (sent as external_id on createOrder). Printful's
  * `@`-prefix on the id path selects by external_id instead of Printful's own
  * numeric id. Used to recover a stranded submission: a prior fulfillment
@@ -136,7 +150,9 @@ export async function getOrderStatus(orderId: string) {
  */
 export async function getOrderByExternalId(externalId: string) {
   try {
-    const data = await printfulFetch(`/orders/@${encodeURIComponent(externalId)}`);
+    const data = await printfulFetch(
+      `/orders/@${encodeURIComponent(toPrintfulExternalId(externalId))}`
+    );
     return data.result as { id: string | number; costs?: { total?: string } | null };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
