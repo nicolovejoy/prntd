@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi, type MockInstance } from "vitest";
-import { createOrder, createMockupTask, pollMockupTask } from "../printful";
+import {
+  createOrder,
+  createMockupTask,
+  pollMockupTask,
+  toPrintfulExternalId,
+} from "../printful";
 
 const params = {
   designImageUrl: "https://example.com/img.png",
@@ -61,6 +66,35 @@ describe("createOrder PRINTFUL_DRY_RUN", () => {
     );
     await createOrder(params);
     expect(fetchSpy).toHaveBeenCalledOnce();
+  });
+
+  it("sends external_id stripped of dashes (Printful 32-char cap)", async () => {
+    delete process.env.PRINTFUL_DRY_RUN;
+    fetchSpy.mockResolvedValue(
+      new Response(JSON.stringify({ result: { id: 1, costs: { total: "5.00" } } }), {
+        status: 200,
+      })
+    );
+    await createOrder({
+      ...params,
+      externalId: "854ab0f1-d2e2-44c3-b328-5944fc675c1f",
+    });
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body as string);
+    expect(body.external_id).toBe("854ab0f1d2e244c3b3285944fc675c1f");
+    expect(body.external_id.length).toBeLessThanOrEqual(32);
+  });
+});
+
+describe("toPrintfulExternalId", () => {
+  it("strips dashes from a UUID down to 32 chars", () => {
+    const id = "854ab0f1-d2e2-44c3-b328-5944fc675c1f";
+    expect(id.length).toBe(36);
+    expect(toPrintfulExternalId(id)).toBe("854ab0f1d2e244c3b3285944fc675c1f");
+    expect(toPrintfulExternalId(id).length).toBe(32);
+  });
+
+  it("leaves an already-short id unchanged", () => {
+    expect(toPrintfulExternalId("abc123")).toBe("abc123");
   });
 });
 
