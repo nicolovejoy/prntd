@@ -79,7 +79,8 @@ describe("createOrder PRINTFUL_DRY_RUN", () => {
       ...params,
       externalId: "854ab0f1-d2e2-44c3-b328-5944fc675c1f",
     });
-    const body = JSON.parse(fetchSpy.mock.calls[0][1].body as string);
+    const init = fetchSpy.mock.calls[0]?.[1] as RequestInit;
+    const body = JSON.parse(String(init.body));
     expect(body.external_id).toBe("854ab0f1d2e244c3b3285944fc675c1f");
     expect(body.external_id.length).toBeLessThanOrEqual(32);
   });
