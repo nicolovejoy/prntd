@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { getPublishedImage } from "../actions";
 import { getLastPurchaseDefaults } from "@/app/preview/actions";
 import { auth, isAnonymousUser } from "@/lib/auth";
+import { multiPlacementEnabled } from "@/lib/blanks";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
 import { EditableNaming } from "./editable-naming";
@@ -101,6 +102,10 @@ export default async function PublishedImagePage({
             isLoggedIn={isLoggedIn}
             preferredColor={img.backgroundColor}
             remembered={remembered}
+            // Back affordance is signed-in only (back selection would be lost
+            // through the sign-in redirect anyway) and flag-gated; the server
+            // action re-checks both.
+            backEnabled={isLoggedIn && multiPlacementEnabled()}
           />
         </div>
       </main>

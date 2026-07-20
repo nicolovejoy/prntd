@@ -1,5 +1,6 @@
 /**
- * Back-design source groups for the /preview picker (#72).
+ * Back-design source groups for the /preview picker (#72) and the /d buy
+ * page (getBuyPageBackSourceGroups).
  *
  * The back of a shirt can print any of three image origins:
  *  - This design: the current thread's source images (the original picker).
@@ -27,11 +28,14 @@ import {
 
 /**
  * Validate a back-placement image id before it can reach an order (#72).
- * Allowed origins mirror the picker groups below: the order's own design
- * thread, a design the buyer owns, or a published + not-hidden Shop image.
+ * Allowed origins mirror the picker groups below: a design the buyer owns
+ * (which covers the order's own thread on /preview and /order, where design
+ * ownership is checked first) or a published + not-hidden Shop image.
  * Throws on anything else — called at the checkout choke points
- * (createCheckoutSession, addToCart) so a forged id can't get a private
- * image printed.
+ * (createCheckoutSession, addToCart, buyPublishedDesign) so a forged id
+ * can't get a private image printed. On a /d buy `designId` is the SELLER's
+ * design; the guard deliberately gives that no weight (see
+ * canUseAsPlacementSource).
  */
 export async function assertUsableBackImage(
   backImageId: string,
@@ -100,6 +104,55 @@ export async function getBackSourceGroups(params: {
 }
 
 /**
+ * Picker groups for the published-design buy page (/d/[imageId]). The buyer
+ * usually does NOT own the image's source design, so the groups differ from
+ * /preview's:
+ *
+ *  - This design appears only when the viewer owns the source design — a
+ *    cross-owner buyer must never see the seller's private thread images.
+ *  - My Designs: the viewer's own designs' primary images.
+ *  - Shop: published, not-hidden images. For a non-owner the source design
+ *    is NOT excluded here — its published images (including the one being
+ *    bought) are legitimate back choices and This design won't list them.
+ *
+ * `viewerId` is a signed-in, non-anonymous user (the /d purchase gate);
+ * the action returns no groups for anyone else.
+ */
+export async function getBuyPageBackSourceGroups(params: {
+  /** The published image's source design. */
+  designId: string;
+  viewerId: string;
+}): Promise<BackSourceGroup[]> {
+  const [design] = await db
+    .select({ userId: designTable.userId })
+    .from(designTable)
+    .where(eq(designTable.id, params.designId))
+    .limit(1);
+  if (!design) return [];
+
+  if (design.userId === params.viewerId) {
+    return getBackSourceGroups({
+      designId: params.designId,
+      userId: params.viewerId,
+    });
+  }
+
+  const [myDesigns, shop] = await Promise.all([
+    getOtherDesignPrimaries(params.viewerId, params.designId),
+    getShopImages(null),
+  ]);
+
+  const groups: BackSourceGroup[] = [];
+  if (myDesigns.length > 0) {
+    groups.push({ id: "my-designs", label: "My designs", images: myDesigns });
+  }
+  if (shop.length > 0) {
+    groups.push({ id: "shop", label: "Shop", images: shop });
+  }
+  return groups;
+}
+
+/**
  * Display images of the user's other designs: each design's primary image,
  * most recently touched design first. Designs without a primary (never
  * produced a source image) are skipped.
@@ -146,12 +199,14 @@ async function getOtherDesignPrimaries(
 
 /**
  * Published, not-hidden images — the getDiscoverFeed surface, collapsed to
- * one card per design (dedupeFeedByDesign), newest published first. The
- * current design's own published images are excluded: they already appear
- * under This design.
+ * one card per design (dedupeFeedByDesign), newest published first. Pass
+ * `excludeDesignId` when the caller renders a This-design group (those
+ * published images already appear there); null keeps every design in — the
+ * /d cross-owner case, where the source design's published images are only
+ * reachable through Shop.
  */
 async function getShopImages(
-  excludeDesignId: string
+  excludeDesignId: string | null
 ): Promise<BackSourceImage[]> {
   const rows = await db
     .select({
@@ -165,7 +220,9 @@ async function getShopImages(
       and(
         isNotNull(designImageTable.publishedAt),
         eq(designImageTable.isHidden, false),
-        ne(designImageTable.designId, excludeDesignId)
+        ...(excludeDesignId
+          ? [ne(designImageTable.designId, excludeDesignId)]
+          : [])
       )
     )
     .orderBy(desc(designImageTable.publishedAt))

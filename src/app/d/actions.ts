@@ -10,9 +10,14 @@ import {
 } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { computePrice } from "@/lib/pricing";
-import { DEFAULT_BLANK_ID } from "@/lib/blanks";
+import { DEFAULT_BLANK_ID, multiPlacementEnabled } from "@/lib/blanks";
 import { createStripeCheckoutForOrder } from "@/app/order/actions";
 import { getPublishedFeed } from "@/lib/discover-feed";
+import {
+  assertUsableBackImage,
+  getBuyPageBackSourceGroups,
+  type BackSourceGroup,
+} from "@/lib/back-sources";
 import {
   canBuyPublishedImage,
   buildForkChain,
@@ -159,6 +164,34 @@ export async function getPublishedImage(
 }
 
 /**
+ * Source groups for the /d back-design picker. Same shape as /preview's
+ * getBackDesignSources, scoped for a buyer who usually doesn't own the
+ * image's source design: My Designs + Shop, with This design only for the
+ * owner (getBuyPageBackSourceGroups). Empty when the flag is off or the
+ * viewer isn't a signed-in, non-anonymous user — the buy page hides the
+ * back affordance for both, this is the server backstop.
+ */
+export async function getBuyPageBackSources(
+  imageId: string
+): Promise<{ groups: BackSourceGroup[] }> {
+  if (!multiPlacementEnabled()) return { groups: [] };
+
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session || isAnonymousUser(session.user)) return { groups: [] };
+
+  const image = await db.query.designImage.findFirst({
+    where: eq(designImageTable.id, imageId),
+  });
+  if (!image || !canBuyPublishedImage(image)) return { groups: [] };
+
+  const groups = await getBuyPageBackSourceGroups({
+    designId: image.designId,
+    viewerId: session.user.id,
+  });
+  return { groups };
+}
+
+/**
  * Buy-existing path: a logged-in user purchases a published image from
  * `/d/[imageId]` without designing one. Account-gated by decision (orders
  * must tie to an account so they're trackable in /orders) — the auth check
@@ -177,6 +210,9 @@ export async function buyPublishedDesign(params: {
   productId?: string;
   size: string;
   color: string;
+  /** Source design_image id to print on the back (#25). Honored only when
+   * MULTI_PLACEMENT_ENABLED; ignored otherwise (defense in depth). */
+  backImageId?: string;
 }): Promise<{ url: string | null; needsAuth?: boolean }> {
   const session = await auth.api.getSession({ headers: await headers() });
   // Purchase point — guests (anonymous-plugin sessions) and the sessionless
@@ -195,8 +231,21 @@ export async function buyPublishedDesign(params: {
     throw new Error("Image is not available to buy");
   }
 
+  // Note the order's designId is the SELLER's design here, so the guard's
+  // thread argument gives a cross-owner buyer no extra reach (see
+  // canUseAsPlacementSource) — the back image must be the buyer's own or
+  // published.
+  const backImageId = multiPlacementEnabled()
+    ? params.backImageId ?? null
+    : null;
+  if (backImageId) {
+    await assertUsableBackImage(backImageId, image.designId, session.user.id);
+  }
+
   const resolvedProductId = params.productId ?? DEFAULT_BLANK_ID;
-  const pricing = computePrice(0, resolvedProductId, params.size);
+  const pricing = computePrice(0, resolvedProductId, params.size, {
+    back: !!backImageId,
+  });
 
   return createStripeCheckoutForOrder({
     userId: session.user.id,
@@ -205,7 +254,10 @@ export async function buyPublishedDesign(params: {
     size: params.size,
     color: params.color,
     itemPrice: pricing.total,
-    placements: { front: params.imageId },
+    placements: {
+      front: params.imageId,
+      ...(backImageId ? { back: backImageId } : {}),
+    },
     checkoutImageUrl: image.imageUrl,
     cancelUrl: `${process.env.NEXT_PUBLIC_APP_URL}/d/${params.imageId}`,
   });

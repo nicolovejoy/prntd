@@ -69,14 +69,20 @@ export function canBuyPublishedImage(image: {
  * shirt) on an order for `orderDesignId` (#72). Three allowed origins,
  * matching the /preview picker's groups:
  *
- *  - This design: the image belongs to the order's own design thread.
+ *  - This design: the image belongs to the order's own design thread AND
+ *    the requesting user owns that design. Thread membership alone is not
+ *    enough: on a /d buy (and an unchecked addToCart), orderDesignId is the
+ *    SELLER's design, so an unqualified thread allowance would let a
+ *    cross-owner buyer print the seller's private, unpublished generations
+ *    by forging an image id from that thread.
  *  - My Designs: the requesting user owns the image's design.
  *  - Shop: the image is published and not admin-hidden (the buy-existing
  *    surface — same visibility rule as canBuyPublishedImage).
  *
- * Checked at the checkout choke points (createCheckoutSession / addToCart)
- * so a forged image id can't get a private image printed, and at the
- * preview render/mockup actions so the picker's reach and the guard agree.
+ * Checked at the checkout choke points (createCheckoutSession / addToCart /
+ * buyPublishedDesign) so a forged image id can't get a private image
+ * printed, and at the preview render/mockup actions so the picker's reach
+ * and the guard agree.
  */
 export function canUseAsPlacementSource(params: {
   image: {
@@ -86,12 +92,17 @@ export function canUseAsPlacementSource(params: {
   };
   /** Owner of the image's design. */
   imageOwnerId: string;
-  /** The design the order/preview is for. */
+  /** The design the order/preview is for. No longer grants access on its
+   * own (the cross-owner leak above); kept so call sites keep stating which
+   * order the check is for. */
   orderDesignId: string;
   /** The requesting user. */
   userId: string;
 }): boolean {
-  if (params.image.designId === params.orderDesignId) return true;
+  // Ownership covers the This-design origin too: on /preview and /order the
+  // order's design is verified as the caller's before this guard runs, so its
+  // thread images are the caller's own. There is deliberately NO standalone
+  // `image.designId === orderDesignId` grant — see the docstring.
   if (params.imageOwnerId === params.userId) return true;
   return params.image.publishedAt !== null && !params.image.isHidden;
 }

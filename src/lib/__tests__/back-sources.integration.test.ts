@@ -21,9 +21,11 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 
-const { getBackSourceGroups, assertUsableBackImage } = await import(
-  "@/lib/back-sources"
-);
+const {
+  getBackSourceGroups,
+  getBuyPageBackSourceGroups,
+  assertUsableBackImage,
+} = await import("@/lib/back-sources");
 const { getDesignImageById } = await import("@/lib/design-images");
 
 async function makeDesignWithImage(
@@ -193,6 +195,24 @@ describe("getBackSourceGroups / assertUsableBackImage (#72)", () => {
     ).resolves.toBeUndefined();
   });
 
+  it("rejects a forged private image id from the SELLER's thread for a cross-owner buyer", async () => {
+    // The /d buy case: the order's designId is the seller's design (d1 is
+    // nico's). The stranger, buying nico's published s2, must not be able to
+    // print nico's private s1 by forging its id — thread membership alone
+    // grants nothing (canUseAsPlacementSource tightening).
+    const ids = await seed();
+    await expect(
+      assertUsableBackImage(ids.s1, ids.d1, "stranger")
+    ).rejects.toThrow("Back image is not available");
+  });
+
+  it("allows the seller's PUBLISHED thread image for a cross-owner buyer", async () => {
+    const ids = await seed();
+    await expect(
+      assertUsableBackImage(ids.s2, ids.d1, "stranger")
+    ).resolves.toBeUndefined();
+  });
+
   it("the webhook's id resolver finds a cross-design back image", async () => {
     // Fulfillment resolves placements.back purely by design_image id
     // (getDesignImageById via resolveImageUrlById) with no design scoping, so
@@ -202,5 +222,120 @@ describe("getBackSourceGroups / assertUsableBackImage (#72)", () => {
     const row = await getDesignImageById(ids.pub.imageId);
     expect(row?.imageUrl).toBe(`https://img.example/${ids.pub.designId}.png`);
     expect(row?.designId).not.toBe(ids.d1);
+  });
+});
+
+describe("getBuyPageBackSourceGroups (/d back picker)", () => {
+  beforeEach(async () => {
+    testDb = await createTestDb();
+  });
+
+  async function seedBuyPage() {
+    await makeUser(testDb, "seller");
+    await makeUser(testDb, "buyer");
+
+    // Seller's design being bought: one private + one published image.
+    const [sold] = await testDb
+      .insert(schema.design)
+      .values({ userId: "seller" })
+      .returning();
+    const [privImg] = await testDb
+      .insert(schema.designImage)
+      .values({
+        designId: sold.id,
+        aspectRatio: "1:1",
+        imageUrl: "https://img.example/priv.png",
+      })
+      .returning();
+    const [pubImg] = await testDb
+      .insert(schema.designImage)
+      .values({
+        designId: sold.id,
+        aspectRatio: "1:1",
+        imageUrl: "https://img.example/pub.png",
+        publishedAt: new Date(),
+      })
+      .returning();
+
+    // Buyer's own design with a primary → My Designs.
+    const [mine] = await testDb
+      .insert(schema.design)
+      .values({ userId: "buyer" })
+      .returning();
+    const [mineImg] = await testDb
+      .insert(schema.designImage)
+      .values({
+        designId: mine.id,
+        aspectRatio: "1:1",
+        imageUrl: "https://img.example/mine.png",
+      })
+      .returning();
+    await testDb
+      .update(schema.design)
+      .set({ primaryImageId: mineImg.id })
+      .where(eq(schema.design.id, mine.id));
+
+    return {
+      soldDesignId: sold.id,
+      privImgId: privImg.id,
+      pubImgId: pubImg.id,
+      mineImgId: mineImg.id,
+    };
+  }
+
+  it("a cross-owner buyer gets My Designs + Shop, never the seller's thread", async () => {
+    const ids = await seedBuyPage();
+    const groups = await getBuyPageBackSourceGroups({
+      designId: ids.soldDesignId,
+      viewerId: "buyer",
+    });
+
+    expect(groups.map((g) => g.id)).not.toContain("this-design");
+
+    const byId = new Map(groups.map((g) => [g.id, g]));
+    expect(byId.get("my-designs")?.images.map((i) => i.id)).toEqual([
+      ids.mineImgId,
+    ]);
+    // Shop keeps the sold design's PUBLISHED image (no This-design group to
+    // carry it) and never leaks the private one.
+    expect(byId.get("shop")?.images.map((i) => i.id)).toEqual([ids.pubImgId]);
+    const all = groups.flatMap((g) => g.images.map((i) => i.id));
+    expect(all).not.toContain(ids.privImgId);
+  });
+
+  it("the owner viewing their own listing gets the /preview groups incl. This design", async () => {
+    const ids = await seedBuyPage();
+    const groups = await getBuyPageBackSourceGroups({
+      designId: ids.soldDesignId,
+      viewerId: "seller",
+    });
+    const byId = new Map(groups.map((g) => [g.id, g]));
+    expect(byId.get("this-design")?.images.map((i) => i.id).sort()).toEqual(
+      [ids.privImgId, ids.pubImgId].sort()
+    );
+  });
+
+  it("everything the buy-page groups return passes the checkout guard for that buyer", async () => {
+    const ids = await seedBuyPage();
+    const groups = await getBuyPageBackSourceGroups({
+      designId: ids.soldDesignId,
+      viewerId: "buyer",
+    });
+    for (const g of groups) {
+      for (const img of g.images) {
+        await expect(
+          assertUsableBackImage(img.id, ids.soldDesignId, "buyer")
+        ).resolves.toBeUndefined();
+      }
+    }
+  });
+
+  it("returns no groups for an unknown design", async () => {
+    await seedBuyPage();
+    const groups = await getBuyPageBackSourceGroups({
+      designId: "no-such-design",
+      viewerId: "buyer",
+    });
+    expect(groups).toEqual([]);
   });
 });

@@ -5,12 +5,17 @@ import Link from "next/link";
 import { Button } from "@/components/ui";
 import { SizePicker, ColorPicker } from "@/components/product-options";
 import { ACTIVE_BLANKS, DEFAULT_BLANK_ID, getBlank } from "@/lib/blanks";
-import { computePrice, computeOrderTotal } from "@/lib/pricing";
+import {
+  computePrice,
+  computeOrderTotal,
+  BACK_PLACEMENT_UPCHARGE,
+} from "@/lib/pricing";
 import {
   resolveDefaultColor,
   type PurchaseDefaults,
 } from "@/lib/purchase-defaults";
-import { buyPublishedDesign } from "../actions";
+import type { BackSourceGroup } from "@/lib/back-sources";
+import { buyPublishedDesign, getBuyPageBackSources } from "../actions";
 
 /**
  * Buy-existing UI on `/d/[imageId]`. Logged-in users pick product/size/color
@@ -25,6 +30,7 @@ export function BuyPanel({
   isLoggedIn,
   preferredColor,
   remembered,
+  backEnabled = false,
 }: {
   imageId: string;
   isLoggedIn: boolean;
@@ -32,6 +38,9 @@ export function BuyPanel({
   preferredColor?: string | null;
   /** Last-purchase defaults (#44); null for guests/first purchase. */
   remembered?: PurchaseDefaults | null;
+  /** Multi-placement flag && signed-in (#25/#72 on /d). The server action
+   * re-checks both — this only controls the affordance. */
+  backEnabled?: boolean;
 }) {
   // Remembered product wins over the static default (#44). No URL params on
   // this surface, so precedence is remembered > static.
@@ -63,6 +72,22 @@ export function BuyPanel({
   );
   const [loading, setLoading] = useState(false);
 
+  // Back design (#25 on /d): picked source image, the picker's open state,
+  // and its groups (null until first fetched — one fetch per page view).
+  const [back, setBack] = useState<{ id: string; imageUrl: string } | null>(
+    null
+  );
+  const [backPickerOpen, setBackPickerOpen] = useState(false);
+  const [backGroups, setBackGroups] = useState<BackSourceGroup[] | null>(null);
+
+  function openBackPicker() {
+    setBackPickerOpen(true);
+    if (backGroups !== null) return;
+    getBuyPageBackSources(imageId)
+      .then(({ groups }) => setBackGroups(groups))
+      .catch(() => setBackGroups([]));
+  }
+
   // Switching product can invalidate the current size/color. Size resets to
   // unselected (never silently re-picked); an invalidated color resets per
   // the §3 precedence — pinned backdrop when the new palette has it, else
@@ -84,16 +109,25 @@ export function BuyPanel({
   }
 
   // Price display before a size is picked uses the base size — S–XL share a
-  // price; a 2XL pick updates it live.
-  const { item, shipping, total } = computeOrderTotal(
-    computePrice(0, productId, size ?? sizes[0] ?? "M").total
+  // price; a 2XL pick updates it live. The Design line stays the front-only
+  // price; a picked back design adds its own +$8 line.
+  const sizeForPrice = size ?? sizes[0] ?? "M";
+  const frontPrice = computePrice(0, productId, sizeForPrice).total;
+  const { shipping, total } = computeOrderTotal(
+    computePrice(0, productId, sizeForPrice, { back: !!back }).total
   );
 
   async function handleBuy() {
     if (!size) return;
     setLoading(true);
     try {
-      const { url, needsAuth } = await buyPublishedDesign({ imageId, productId, size, color });
+      const { url, needsAuth } = await buyPublishedDesign({
+        imageId,
+        productId,
+        size,
+        color,
+        backImageId: back?.id,
+      });
       if (needsAuth) {
         window.location.href = `/sign-in?next=/d/${imageId}`;
         return;
@@ -166,11 +200,112 @@ export function BuyPanel({
         }
       />
 
+      {backEnabled && (
+        <div>
+          {back ? (
+            <div className="flex items-center gap-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={back.imageUrl}
+                alt="Back design"
+                className="w-11 h-11 rounded-md border border-border bg-checkerboard object-contain"
+              />
+              <div className="flex-1 text-sm">
+                <p>Back design</p>
+                <button
+                  onClick={openBackPicker}
+                  className="text-text-muted underline"
+                >
+                  Change
+                </button>
+              </div>
+              <button
+                onClick={() => {
+                  setBack(null);
+                  setBackPickerOpen(false);
+                }}
+                aria-label="Remove back design"
+                className="w-11 h-11 flex items-center justify-center rounded-md border border-border text-text-muted hover:border-border-hover"
+              >
+                ×
+              </button>
+            </div>
+          ) : (
+            !backPickerOpen && (
+              <button
+                onClick={openBackPicker}
+                className="min-h-11 text-sm underline text-text-muted hover:text-foreground"
+              >
+                Add a back design (+${BACK_PLACEMENT_UPCHARGE.toFixed(2)})
+              </button>
+            )
+          )}
+
+          {backPickerOpen && (
+            <div className="mt-3 space-y-3 max-h-[50vh] overflow-y-auto border border-border rounded-md p-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-text-muted">
+                  Pick an image to print on the back.
+                </p>
+                <button
+                  onClick={() => setBackPickerOpen(false)}
+                  className="text-sm text-text-muted underline"
+                >
+                  Cancel
+                </button>
+              </div>
+              {backGroups === null ? (
+                <div className="w-8 h-8 mx-auto border-2 border-accent border-t-transparent rounded-full animate-spin" />
+              ) : backGroups.length === 0 ? (
+                <p className="text-sm text-text-faint">No images available.</p>
+              ) : (
+                backGroups.map((group) => (
+                  <div key={group.id}>
+                    <h3 className="text-xs font-medium uppercase tracking-wide text-text-muted mb-1.5">
+                      {group.label}
+                    </h3>
+                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                      {group.images.map((s) => (
+                        <button
+                          key={s.id}
+                          onClick={() => {
+                            setBack({ id: s.id, imageUrl: s.imageUrl });
+                            setBackPickerOpen(false);
+                          }}
+                          className={`aspect-square min-h-11 rounded-md overflow-hidden border-2 bg-checkerboard ${
+                            s.id === back?.id
+                              ? "border-accent"
+                              : "border-border hover:border-accent"
+                          }`}
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={s.imageUrl}
+                            alt={`${group.label} option`}
+                            className="w-full h-full object-contain"
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="space-y-2 text-sm border-t border-border pt-4">
         <div className="flex justify-between">
           <span className="text-text-muted">Design</span>
-          <span>${item.toFixed(2)}</span>
+          <span>${frontPrice.toFixed(2)}</span>
         </div>
+        {back && (
+          <div className="flex justify-between">
+            <span className="text-text-muted">Back design</span>
+            <span>+${BACK_PLACEMENT_UPCHARGE.toFixed(2)}</span>
+          </div>
+        )}
         <div className="flex justify-between">
           <span className="text-text-muted">Shipping</span>
           <span>${shipping.toFixed(2)}</span>
