@@ -16,7 +16,7 @@ import { alias } from "drizzle-orm/sqlite-core";
 import { revalidatePath } from "next/cache";
 import { createOrder, getOrderByExternalId } from "@/lib/printful";
 import { generateOrderName } from "@/lib/ai";
-import { assertTransition } from "@/lib/order-state";
+import { assertTransition, canArchiveOrder } from "@/lib/order-state";
 import { summarizeLedger } from "@/lib/ledger";
 import { ORDER_CLASSIFICATIONS, type OrderClassification } from "@/lib/order-classification";
 import { stripe } from "@/lib/stripe";
@@ -261,7 +261,7 @@ export async function archiveOrder(orderId: string) {
     where: eq(orderTable.id, orderId),
   });
   if (!found) throw new Error("Order not found");
-  if (found.status === "shipped" || found.status === "delivered" || found.trackingNumber || found.printfulOrderId) {
+  if (!canArchiveOrder(found)) {
     throw new Error("Cannot archive orders submitted to Printful");
   }
 

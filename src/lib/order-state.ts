@@ -28,3 +28,22 @@ export function assertTransition(from: string, to: string): void {
     );
   }
 }
+
+/**
+ * Whether an admin may archive this order. Anything already submitted to
+ * Printful (an id or tracking exists) or past it (shipped/delivered) must stay
+ * visible — archiving is for pre-fulfillment dead ends (abandoned pending,
+ * canceled-before-submit, test noise).
+ */
+export function canArchiveOrder(order: {
+  status: string;
+  trackingNumber: string | null;
+  printfulOrderId: string | null;
+}): boolean {
+  return !(
+    order.status === "shipped" ||
+    order.status === "delivered" ||
+    Boolean(order.trackingNumber) ||
+    Boolean(order.printfulOrderId)
+  );
+}
