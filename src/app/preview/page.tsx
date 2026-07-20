@@ -618,8 +618,11 @@ function PreviewPageInner() {
             capped on phones (§1) so the purchase controls below stay reachable. */}
         <div className="flex flex-col items-center">
           {/* Front / Back toggle (#25) — only when the flag is on and the product
-              offers a back placement. Front stays the required default. */}
-          {showBackToggle && (
+              offers a back placement. Front stays the required default. Hidden
+              until a back is in play (#61): with no back chosen the offer is the
+              explicit "Add a back design" button in the purchase controls, not
+              this view switcher. */}
+          {showBackToggle && (!!backImageId || activePlacement === "back") && (
             <div className="flex flex-col items-center gap-1 mb-4 md:mb-6">
               <div className="inline-flex rounded-lg border-2 border-border overflow-hidden">
                 {(["front", "back"] as const).map((pl) => (
@@ -859,6 +862,23 @@ function PreviewPageInner() {
             }
           />
           <SizePicker sizes={sizes} value={size} onChange={setSize} label={sizeLabel} />
+
+          {/* Back-design offer (#61) — same affordance as the /d buy panel.
+              Opens the back-source picker in the hero; once a back is chosen
+              the Front/Back toggle + the price line below take over. */}
+          {showBackToggle && !backImageId && activePlacement === "front" && (
+            <button
+              onClick={() => {
+                switchPlacement("back");
+                // The picker renders in the hero — on phones that's above
+                // the purchase controls, so bring it into view.
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+              className="block min-h-11 text-sm underline text-text-muted hover:text-foreground"
+            >
+              Add a back design (+${BACK_PLACEMENT_UPCHARGE.toFixed(2)})
+            </button>
+          )}
 
           {/* Pricing (§8 Q4: full breakdown here; the mobile sticky bar repeats
               only the total) */}
