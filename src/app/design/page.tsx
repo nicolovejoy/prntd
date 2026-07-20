@@ -24,6 +24,7 @@ import { MobileGalleryStrip } from "./mobile-gallery-strip";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
 import { isDesignEmpty } from "@/lib/design-view";
+import { createTurnTracker } from "@/lib/turn-tracker";
 import { ensureGuestSession } from "@/lib/ensure-guest-session";
 
 export default function DesignPage() {
@@ -54,6 +55,14 @@ function DesignPageInner() {
   // Tappable quick-replies attached to the most recent assistant turn. Cleared
   // at the start of every new turn so chips never outlive the question.
   const [options, setOptions] = useState<ChatOption[]>([]);
+  // #59: chat and generation turns register here. A settling action applies
+  // its full effects (options/readiness/selection) only while it is still the
+  // latest, un-cancelled turn — a cancelled generation's late completion may
+  // append its image/message but never clobbers newer composer state.
+  const turns = useRef(createTurnTracker());
+  // Token of the in-flight generation (one at a time; handleGenerate refuses
+  // re-entry). Null once it settles or the user cancels.
+  const activeGeneration = useRef<number | null>(null);
 
   const refreshGallery = useCallback(async () => {
     const { sources, productGroups } = await getDesignGallery(designId.current);
@@ -123,6 +132,7 @@ function DesignPageInner() {
   }
 
   async function handleSend(userMessage: string) {
+    const token = turns.current.start();
     setLoading(true);
     setOptions([]);
     setMessages((prev) => [...prev, makeOptimisticMessage("user", userMessage)]);
@@ -134,8 +144,10 @@ function DesignPageInner() {
         ...prev,
         makeOptimisticMessage("assistant", result.message),
       ]);
-      setReadyToGenerate(result.readyToGenerate);
-      setOptions(result.options);
+      if (turns.current.isCurrent(token)) {
+        setReadyToGenerate(result.readyToGenerate);
+        setOptions(result.options);
+      }
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -147,6 +159,13 @@ function DesignPageInner() {
   }
 
   async function handleGenerate(userMessage?: string) {
+    // One generation at a time: a second Generate while one is in flight is
+    // refused (the button shows the in-flight state). #40 made server-side
+    // numbering/quota concurrency-safe, but serializing here keeps quota burn
+    // and the strip predictable.
+    if (activeGeneration.current !== null) return;
+    const token = turns.current.start();
+    activeGeneration.current = token;
     setGenerating(true);
     setOptions([]);
     if (userMessage) {
@@ -156,29 +175,56 @@ function DesignPageInner() {
     try {
       await ensureGuestSession();
       const result = await generateDesign(designId.current, userMessage);
+      // The result always lands in chat + gallery — even after a client-side
+      // cancel the server render completed (and the quota unit was spent), so
+      // show the image honestly rather than hiding paid work.
       setMessages((prev) => [
         ...prev,
         makeOptimisticMessage("assistant", result.message, result.imageId),
       ]);
-      setReadyToGenerate(result.readyToGenerate);
-      // A clarifying question (no image) may carry tappable style options.
-      setOptions("options" in result ? (result.options ?? []) : []);
       // Claude may answer with a clarifying question instead of an image
       // (no imageUrl) — just show the message, no gallery/drawer changes.
       // The new render lands inline in chat and leads the mobile thumbnail
       // strip — no drawer auto-open needed.
       if (result.imageUrl) {
-        setSelectedImage(result.imageUrl);
         await refreshGallery();
       }
+      // Composer-adjacent state belongs to the latest turn only: a cancelled
+      // or superseded generation must not reset options, readiness, or the
+      // user's current selection.
+      if (turns.current.isCurrent(token)) {
+        setReadyToGenerate(result.readyToGenerate);
+        // A clarifying question (no image) may carry tappable style options.
+        setOptions("options" in result ? (result.options ?? []) : []);
+        if (result.imageUrl) setSelectedImage(result.imageUrl);
+      }
     } catch {
-      setMessages((prev) => [
-        ...prev,
-        makeOptimisticMessage("assistant", "Generation failed. Try again."),
-      ]);
+      // After a cancel, a failure message is noise — the user moved on.
+      if (!turns.current.isCancelled(token)) {
+        setMessages((prev) => [
+          ...prev,
+          makeOptimisticMessage("assistant", "Generation failed. Try again."),
+        ]);
+      }
     } finally {
-      setGenerating(false);
+      if (activeGeneration.current === token) {
+        activeGeneration.current = null;
+        setGenerating(false);
+      }
     }
+  }
+
+  // #59 client-side cancel: stop waiting on the action and free the composer.
+  // The server action still runs to completion — its image appears in the
+  // strip when it lands (append-only), and the quota unit stays spent because
+  // the render actually ran. True server-side Replicate cancel would need a
+  // predictions.create/cancel refactor — possible follow-up.
+  function handleCancelGenerate() {
+    const token = activeGeneration.current;
+    if (token === null) return;
+    turns.current.cancel(token);
+    activeGeneration.current = null;
+    setGenerating(false);
   }
 
   async function handleDeleteImage(imageId: string) {
@@ -289,6 +335,7 @@ function DesignPageInner() {
           generating={generating}
           onSend={handleSend}
           onGenerate={handleGenerate}
+          onCancelGenerate={handleCancelGenerate}
           readyToGenerate={readyToGenerate}
           options={options}
           onUploadImage={handleUploadImage}
