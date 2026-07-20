@@ -86,6 +86,67 @@ export async function cleanupDesigns(designIds: string[]): Promise<void> {
   });
 }
 
+/** Order row for a Stripe Checkout session id (the Stripe spec extracts
+ * `cs_test_…` from the hosted-checkout URL). */
+export async function orderForStripeSession(
+  sessionId: string
+): Promise<{ id: string; status: string; printfulOrderId: string | null } | null> {
+  const res = await db().execute({
+    sql: `SELECT id, status, printful_order_id FROM "order" WHERE stripe_session_id = ?`,
+    args: [sessionId],
+  });
+  const row = res.rows[0];
+  if (!row) return null;
+  return {
+    id: String(row.id),
+    status: String(row.status),
+    printfulOrderId:
+      row.printful_order_id == null ? null : String(row.printful_order_id),
+  };
+}
+
+/** Ledger entry types booked against an order (sale, stripe_fee, cogs, …). */
+export async function ledgerTypesForOrder(orderId: string): Promise<string[]> {
+  const res = await db().execute({
+    sql: "SELECT type FROM ledger_entry WHERE order_id = ?",
+    args: [orderId],
+  });
+  return res.rows.map((r) => String(r.type));
+}
+
+/**
+ * Remove the orders (+ order_item + ledger rows) a spec's checkout created
+ * against its seeded designs. Dev-DB self-cleanup of the spec's own test-mode
+ * rows — the append-only ledger rule protects real money, not e2e residue.
+ * Ledger + items first (FK to order).
+ */
+export async function cleanupOrdersForDesigns(
+  designIds: string[]
+): Promise<void> {
+  if (designIds.length === 0) return;
+  const c = db();
+  const designPh = designIds.map(() => "?").join(",");
+  const orders = await c.execute({
+    sql: `SELECT id FROM "order" WHERE design_id IN (${designPh})`,
+    args: designIds,
+  });
+  const orderIds = orders.rows.map((r) => String(r.id));
+  if (orderIds.length === 0) return;
+  const orderPh = orderIds.map(() => "?").join(",");
+  await c.execute({
+    sql: `DELETE FROM ledger_entry WHERE order_id IN (${orderPh})`,
+    args: orderIds,
+  });
+  await c.execute({
+    sql: `DELETE FROM order_item WHERE order_id IN (${orderPh})`,
+    args: orderIds,
+  });
+  await c.execute({
+    sql: `DELETE FROM "order" WHERE id IN (${orderPh})`,
+    args: orderIds,
+  });
+}
+
 /**
  * Remove the stores + products an organizer spec built through the UI.
  * Products first (FK to store + design), then stores. Scoped by owner so a

@@ -62,6 +62,11 @@ export default defineConfig({
           // localhost; let Better-Auth trust the localhost origin so the
           // sign-up/sign-in flow (origin-checked) works. Never set in real prod.
           E2E_TRUST_LOCALHOST: "true",
+          // The Stripe money-path spec (e2e:stripe) completes a real test-mode
+          // payment, which drives the webhook into Printful submission — force
+          // dry-run so a local e2e can never place a real Printful order,
+          // whatever .env.local says.
+          PRINTFUL_DRY_RUN: "true",
         },
       },
 });
