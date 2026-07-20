@@ -233,12 +233,12 @@ export const BLANKS: Blank[] = [
     },
     sizes: ["S", "M", "L", "XL", "2XL", "3XL", "4XL"],
     colors: [
-      // Placeholder hex values — will refine after variant discovery
+      // Hex values from Printful catalog (scripts/fetch-variants.ts 917)
       { name: "White", value: "#ffffff" },
-      { name: "Black", value: "#0c0c0c" },
-      { name: "Navy Blazer", value: "#202d4c" },
-      { name: "Vintage Black", value: "#3a3a3a" },
-      { name: "Vintage White", value: "#f5f0e8" },
+      { name: "Black", value: "#0e0e0e" },
+      { name: "Navy Blazer", value: "#1b2229" },
+      { name: "Vintage Black", value: "#363533" },
+      { name: "Vintage White", value: "#fff9f2" },
     ],
     variants: {
       Black: { S: 23577, M: 23578, L: 23579, XL: 23580, "2XL": 23581, "3XL": 23582, "4XL": 23583 },
