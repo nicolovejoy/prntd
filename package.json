@@ -16,7 +16,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "e2e:stripe": "bash scripts/e2e-stripe.sh"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",
