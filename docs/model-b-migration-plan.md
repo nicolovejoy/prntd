@@ -312,6 +312,11 @@ sites don't churn:
 
 ## Open questions for Nico
 
+**DECIDED 2026-07-21: Nico approved all five recommendations as written.**
+Explicit-only close with Reopen allowed; closed blocks chat and generation;
+no table rename in this migration; `primary_image_id` stays. Slices are
+unblocked.
+
 1. **Does anything auto-close a conversation (e.g. placing an order), or is
    close explicit-only?** Recommendation: explicit-only now, with Reopen.
    Auto-close on order would fight the shipped back-design flow (owners
