@@ -26,6 +26,7 @@ import { breadcrumbTrail } from "@/lib/nav";
 import { isDesignEmpty } from "@/lib/design-view";
 import { createTurnTracker } from "@/lib/turn-tracker";
 import { ensureGuestSession } from "@/lib/ensure-guest-session";
+import { readWarmedThread } from "@/lib/design-thread-cache";
 
 export default function DesignPage() {
   return (
@@ -40,10 +41,22 @@ function DesignPageInner() {
   const searchParams = useSearchParams();
   const designId = useRef(searchParams.get("id") ?? crypto.randomUUID());
 
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // #87 warm path: a card on /designs may have prefetched this thread. Hydrate
+  // from the snapshot on first render to skip the empty-composer flash. This is
+  // initial state ONLY — the resume effect below still revalidates fresh, so a
+  // stale or absent snapshot never changes the final rendered thread. Read once
+  // (lazy initializer) so a later warm can't retro-populate a live session.
+  const [warmed] = useState(() => {
+    const resumeId = searchParams.get("id");
+    return resumeId ? readWarmedThread(resumeId) : undefined;
+  });
+
+  const [messages, setMessages] = useState<ChatMessage[]>(warmed?.chat ?? []);
   const [images, setImages] = useState<DesignImage[]>([]);
   const [productGroups, setProductGroups] = useState<ProductVersionGroup[]>([]);
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [selectedImage, setSelectedImage] = useState<string | null>(
+    warmed?.design?.displayImageUrl ?? null
+  );
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
