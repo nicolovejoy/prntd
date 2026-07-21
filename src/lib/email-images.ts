@@ -23,7 +23,9 @@ export type EmailImage = {
  * Find a cached mockup URL by matching key segments, ignoring the trailing
  * scale segment so a mockup rendered at a non-default scale still resolves.
  * Front keys are `${product}:front:${color}:${scale}`; back keys (which pin a
- * source image) are `${product}:back:${sourceId}:${color}:${scale}`.
+ * source image) are `${product}:back:${sourceId}:${color}:${scale}`. Keys
+ * written since #102 lead with a version segment (`v2:…`) — skip it so both
+ * generations resolve: old orders only have old-format entries.
  */
 function findCachedMockup(
   mockupUrls: Record<string, string> | null | undefined,
@@ -31,7 +33,8 @@ function findCachedMockup(
 ): string | null {
   for (const [key, url] of Object.entries(mockupUrls ?? {})) {
     const parts = key.split(":");
-    if (segments.every((seg, i) => parts[i] === seg)) return url;
+    const offset = /^v\d+$/.test(parts[0]) ? 1 : 0;
+    if (segments.every((seg, i) => parts[i + offset] === seg)) return url;
   }
   return null;
 }

@@ -89,6 +89,30 @@ describe("resolveOrderEmailImages", () => {
     expect(images.map((i) => i.label)).toEqual(["Front"]);
   });
 
+  it("matches version-prefixed (v2, #102) cache keys, front and back", () => {
+    const images = resolveOrderEmailImages({
+      ...BASE,
+      placements: { front: "img-front", back: "img-back" },
+      mockupUrls: {
+        "v2:bella-canvas-3001:front:White:100": "https://printful/v2-front.png",
+        "v2:bella-canvas-3001:back:img-back:White:100": "https://printful/v2-back.png",
+      },
+    });
+    expect(images.map((i) => i.url)).toEqual([
+      "https://printful/v2-front.png",
+      "https://printful/v2-back.png",
+    ]);
+  });
+
+  it("a version segment alone is not a match (v2-only entries, old-format lookup misses)", () => {
+    const images = resolveOrderEmailImages({
+      ...BASE,
+      placements: { front: "img-front" },
+      mockupUrls: { "v2:other-product:front:White:100": "https://printful/wrong.png" },
+    });
+    expect(images[0].url).toBe("https://r2/front.png");
+  });
+
   it("omits an image entirely when neither mockup nor artwork is available", () => {
     const images = resolveOrderEmailImages({
       ...BASE,

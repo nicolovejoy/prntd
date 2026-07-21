@@ -17,6 +17,10 @@ import {
   type AspectRatio,
 } from "@/lib/blanks";
 import { uploadMockupImage, uploadDesignImage } from "@/lib/r2";
+import {
+  mockupCacheKey,
+  mockupCacheProductPrefix,
+} from "@/lib/mockup-cache";
 import { generateAnchoredTransparent } from "@/lib/replicate";
 import {
   insertDesignImage,
@@ -107,11 +111,16 @@ export async function generateMockup(
   const scaleKey = Math.round(clampedScale * 100);
 
   // Cache key includes product, placement, scale, and (for non-front) the
-  // source pick so two back choices don't collide on one key. Placement was
-  // added in #25 2.1; front keys stay `${product}:front:${color}:${scale}`.
-  const cacheKey = sourceImageId
-    ? `${productId}:${placementId}:${sourceImageId}:${colorName}:${scaleKey}`
-    : `${productId}:${placementId}:${colorName}:${scaleKey}`;
+  // source pick so two back choices don't collide on one key (#25 2.1). The
+  // shared builder version-bumps the format (#102) so pre-fix entries — whose
+  // URLs point at collided R2 objects — never satisfy a lookup again.
+  const cacheKey = mockupCacheKey({
+    productId,
+    placementId,
+    sourceImageId,
+    colorName,
+    scaleKey,
+  });
   const cached = found.mockupUrls?.[cacheKey];
   if (cached) return { mockupUrl: cached };
 
@@ -187,7 +196,13 @@ export async function generateMockup(
   // Download and persist to R2
   const response = await fetch(tempUrl);
   const buffer = Buffer.from(await response.arrayBuffer());
-  const r2Url = await uploadMockupImage(designId, colorName, buffer, placement.id);
+  const r2Url = await uploadMockupImage(designId, buffer, {
+    productId,
+    placementId: placement.id,
+    sourceImageId,
+    colorName,
+    scaleKey,
+  });
 
   // Re-read before update to avoid clobbering concurrent preloads
   const fresh = await db.query.design.findFirst({
@@ -394,7 +409,9 @@ export async function ensureMockupsPrefetched(
     throw new Error("Unauthorized");
   }
 
-  const prefix = `${productId}:`;
+  // Current-version entries only — pre-#102 entries point at collided
+  // objects, so their presence must not suppress a re-prefetch.
+  const prefix = mockupCacheProductPrefix(productId);
   const hasAny = Object.keys(found.mockupUrls ?? {}).some((k) =>
     k.startsWith(prefix)
   );
@@ -489,9 +506,14 @@ export async function prefetchProductMockups(
           const response = await fetch(r.mockupUrl);
           if (!response.ok) throw new Error(`fetch ${response.status}`);
           const buffer = Buffer.from(await response.arrayBuffer());
-          const r2Url = await uploadMockupImage(designId, colorName, buffer, "front");
-          // Cache key matches generateMockup: productId:placement:color:scale (100 = 1.0)
-          newEntries[`${productId}:front:${colorName}:100`] = r2Url;
+          const parts = {
+            productId,
+            placementId: "front",
+            colorName,
+            scaleKey: 100,
+          };
+          const r2Url = await uploadMockupImage(designId, buffer, parts);
+          newEntries[mockupCacheKey(parts)] = r2Url;
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           console.warn(
