@@ -49,14 +49,53 @@ jobs:
           R2_BUCKET_NAME: ci-skip
           ADMIN_EMAIL: ci-skip@example.com
 
-  # Browser E2E against the Vercel preview deploy (CI/CD roadmap Phase 3).
-  # Not a required check yet — let the suite prove itself stable first
-  # (Phase 4 gates it). Needs three repo secrets:
-  #   VERCEL_AUTOMATION_BYPASS_SECRET — Deployment Protection bypass token
-  #   PREVIEW_DATABASE_URL / PREVIEW_DATABASE_AUTH_TOKEN — prntd-preview Turso
+  # Browser E2E (CI/CD roadmap Phase 3). Not a required check yet — let the
+  # suite prove itself stable first (Phase 4 gates it).
+  #
+  # #31: each PR run gets its OWN ephemeral Turso database, branched from
+  # prntd-preview, so concurrent PR runs never share a DB (the suspected cause
+  # of the cart.spec "0 line items" flake #101 — several preview apps + several
+  # migrate steps hammering one shared branch). Rather than point Playwright at
+  # the Vercel preview (whose Preview-scope env is pinned to prntd-preview and
+  # can't be redirected per-run), the run boots its OWN compiled build via the
+  # playwright.config webServer — exactly like local `npm run e2e` — against the
+  # ephemeral branch. That decouples e2e from the Vercel preview entirely: no
+  # deployment wait, no bypass header, no shared DB.
+  #
+  # The ephemeral DB is named `prntd-preview-ci-<run>-<attempt>` so the
+  # e2e/helpers/db.ts never-prod guard (which allows any URL containing
+  # "prntd-preview") still covers it. It is destroyed in an always() step.
+  #
+  # Needs one new repo secret:
+  #   TURSO_API_TOKEN — a Turso Platform API token (mint at
+  #   https://app.turso.tech → Settings → create token, or
+  #   `turso auth api-tokens mint ci`) for the org that owns prntd-preview.
+  # PREVIEW_DATABASE_* / VERCEL_AUTOMATION_BYPASS_SECRET are no longer used here.
   e2e:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    # Fake vendor creds satisfy SDK constructors that run at module-eval time
+    # during `next build` and at runtime in the compiled server. The e2e specs
+    # never make real vendor calls (guest funnel / cart / storefront exercise DB
+    # + auth only; the Stripe money-path spec self-skips without a real
+    # sk_test_ key). Mirrors the `check` job's build env.
+    env:
+      BETTER_AUTH_SECRET: ci-e2e-secret-not-real
+      NEXT_PUBLIC_APP_URL: http://localhost:3100
+      NEXT_PUBLIC_R2_PUBLIC_URL: https://example.com
+      STRIPE_SECRET_KEY: sk_test_ci_skip
+      STRIPE_WEBHOOK_SECRET: whsec_ci_skip
+      ANTHROPIC_API_KEY: sk-ant-ci-skip
+      REPLICATE_API_TOKEN: r8_ci_skip
+      RESEND_API_KEY: re_ci_skip
+      PRINTFUL_API_KEY: pf_ci_skip
+      R2_ACCOUNT_ID: ci-skip
+      R2_ACCESS_KEY_ID: ci-skip
+      R2_SECRET_ACCESS_KEY: ci-skip
+      R2_BUCKET_NAME: ci-skip
+      ADMIN_EMAIL: ci-skip@example.com
+      # Name carries "prntd-preview" so e2e/helpers/db.ts's guard accepts it.
+      CI_DB_NAME: prntd-preview-ci-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
 
@@ -67,56 +106,43 @@ jobs:
 
       - run: npm ci
 
-      # Keep the shared prntd-preview schema current with this PR's migrations
-      # before the E2E run hits the deployed preview app. No-op when nothing is
-      # pending. (Per-PR ephemeral branches are #31; preview is shared for now,
-      # so only additive migrations are safe here.)
-      - name: Apply migrations to preview DB
-        run: npm run db:migrate
-        env:
-          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
-          DATABASE_AUTH_TOKEN: ${{ secrets.PREVIEW_DATABASE_AUTH_TOKEN }}
-
-      # Find the preview URL via the GitHub deployments API, then poll it
-      # ready WITH the Deployment Protection bypass header (the off-the-shelf
-      # wait actions probe without it and 401 forever).
-      - name: Wait for Vercel preview deploy
-        id: preview
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BYPASS: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
-          SHA: ${{ github.event.pull_request.head.sha }}
+      - name: Install Turso CLI
         run: |
-          for i in $(seq 1 60); do
-            url=$(gh api "repos/${{ github.repository }}/deployments?sha=$SHA&environment=Preview" \
-              --jq '.[0].id' 2>/dev/null | xargs -I{} gh api \
-              "repos/${{ github.repository }}/deployments/{}/statuses" \
-              --jq '[.[] | select(.state=="success")][0].environment_url' 2>/dev/null)
-            [ -n "$url" ] && [ "$url" != "null" ] && break
-            echo "waiting for preview deployment ($i)…"; sleep 10
-          done
-          if [ -z "$url" ] || [ "$url" = "null" ]; then
-            echo "no successful Preview deployment found for $SHA" >&2; exit 1
-          fi
-          echo "preview: $url"
-          for i in $(seq 1 30); do
-            code=$(curl -s -o /dev/null -w "%{http_code}" \
-              -H "x-vercel-protection-bypass: $BYPASS" "$url")
-            echo "GET $code ($i)"
-            [ "$code" = "200" ] && break
-            sleep 5
-          done
-          [ "$code" = "200" ] || { echo "preview never returned 200" >&2; exit 1; }
-          echo "url=$url" >> "$GITHUB_OUTPUT"
+          curl -sSfL https://get.tur.so/install.sh | bash
+          echo "$HOME/.turso" >> "$GITHUB_PATH"
+
+      # Branch a fresh DB from prntd-preview (a seeded copy → schema already
+      # current), then export its creds for the migrate + test steps. Concurrent
+      # PR runs each get an isolated copy, so they can't contend.
+      - name: Create ephemeral Turso branch
+        env:
+          TURSO_API_TOKEN: ${{ secrets.TURSO_API_TOKEN }}
+        run: |
+          turso db create "$CI_DB_NAME" --from-db prntd-preview
+          url=$(turso db show "$CI_DB_NAME" --url)
+          token=$(turso db tokens create "$CI_DB_NAME")
+          echo "::add-mask::$token"
+          echo "DATABASE_URL=$url" >> "$GITHUB_ENV"
+          echo "DATABASE_AUTH_TOKEN=$token" >> "$GITHUB_ENV"
+
+      # Apply any migrations this PR adds on top of the branched-in schema.
+      - name: Apply migrations to ephemeral branch
+        run: npm run db:migrate
 
       - run: npx playwright install --with-deps chromium
 
+      # No E2E_BASE_URL → playwright.config boots the local compiled build
+      # (npm run build && npm run start -p 3100) with the funnel flags on,
+      # against the ephemeral DB in DATABASE_URL/DATABASE_AUTH_TOKEN.
       - run: npx playwright test
+
+      # Always tear the ephemeral DB down — even on failure or cancel — so
+      # branches don't pile up against the Turso account's DB quota.
+      - name: Destroy ephemeral Turso branch
+        if: always()
         env:
-          E2E_BASE_URL: ${{ steps.preview.outputs.url }}
-          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
-          DATABASE_URL: ${{ secrets.PREVIEW_DATABASE_URL }}
-          DATABASE_AUTH_TOKEN: ${{ secrets.PREVIEW_DATABASE_AUTH_TOKEN }}
+          TURSO_API_TOKEN: ${{ secrets.TURSO_API_TOKEN }}
+        run: turso db destroy "$CI_DB_NAME" --yes || true
 
       - uses: actions/upload-artifact@v4
         if: failure()
