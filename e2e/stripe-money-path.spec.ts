@@ -56,12 +56,13 @@ async function fillFirstVisible(
  * present and skipped when not.
  */
 async function completeStripeCheckout(page: Page, email: string) {
-  // The card number field is the last thing to hydrate; once it's visible the
-  // form is interactable.
-  const cardNumber = page
-    .locator("#cardNumber")
-    .or(page.getByPlaceholder("1234 1234 1234 1234"));
-  await expect(cardNumber.first()).toBeVisible({ timeout: 60_000 });
+  // The form is interactable once the email field renders. (The card fields
+  // can't be the readiness signal: payment methods are a collapsed accordion
+  // and the card inputs don't mount until the Card method is expanded.)
+  const emailField = page
+    .locator("#email")
+    .or(page.getByRole("textbox", { name: /email/i }));
+  await expect(emailField.first()).toBeVisible({ timeout: 60_000 });
 
   const filledEmail = await fillFirstVisible(
     [page.locator("#email"), page.getByRole("textbox", { name: /email/i })],
@@ -96,7 +97,36 @@ async function completeStripeCheckout(page: Page, email: string) {
     await stateSelect.selectOption("WA");
   }
 
-  // Card details. The 4242 test card never triggers 3DS.
+  // Card details. Expand the Card accordion first when the inputs aren't
+  // already mounted (Stripe lists Card / Cash App / Klarna / … collapsed).
+  // Every click is bounded: an unbounded click on this accordion hung until
+  // the test timeout once (actionability retried forever on a target that
+  // never stabilized).
+  const cardNumber = page
+    .locator("#cardNumber")
+    .or(page.getByPlaceholder("1234 1234 1234 1234"));
+  const cardExpanders = [
+    page.getByRole("radio", { name: /^Card$/ }),
+    page.getByRole("listitem").filter({ hasText: /^Card\b/ }),
+    page.getByRole("button", { name: /pay with card/i }),
+  ];
+  for (const expander of cardExpanders) {
+    if (await cardNumber.first().isVisible().catch(() => false)) break;
+    const target = expander.first();
+    if (!(await target.isVisible().catch(() => false))) continue;
+    const clicked = await target
+      .click({ timeout: 5_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (!clicked) {
+      // Custom radios are often visually hidden or covered — skip
+      // actionability checks as a last resort.
+      await target.click({ timeout: 5_000, force: true }).catch(() => {});
+    }
+  }
+  await expect(cardNumber.first()).toBeVisible({ timeout: 30_000 });
+
+  // The 4242 test card never triggers 3DS.
   await cardNumber.first().fill(TEST_CARD);
   await fillFirstVisible(
     [page.locator("#cardExpiry"), page.getByPlaceholder("MM / YY")],
@@ -111,9 +141,24 @@ async function completeStripeCheckout(page: Page, email: string) {
     "E2E Stripe Buyer"
   );
 
+  // "Save my information" (Link) is checked by default and makes the empty
+  // phone-number field required — Pay then fails client-side validation and
+  // never navigates. Uncheck it.
+  const saveInfo = page.getByRole("checkbox", { name: /save my information/i });
+  if (await saveInfo.first().isChecked().catch(() => false)) {
+    await saveInfo
+      .first()
+      .uncheck({ timeout: 5_000 })
+      .catch(() =>
+        saveInfo.first().click({ timeout: 5_000, force: true }).catch(() => {})
+      );
+  }
+
+  // /^Pay\b/ would also match the accordion's "Pay with card" / "Pay with
+  // Klarna" buttons, which precede the submit button in the DOM.
   const payButton = page
     .getByTestId("hosted-payment-submit-button")
-    .or(page.getByRole("button", { name: /^Pay/ }));
+    .or(page.getByRole("button", { name: /^Pay(\s*\$[\d.,]+)?$/ }));
   await payButton.first().click({ timeout: 30_000 });
 }
 
