@@ -12,8 +12,11 @@ import {
   designImage as designImageTable,
   chatMessage as chatMessageTable,
   order as orderTable,
+  image as imageTable,
+  conversationImage as conversationImageTable,
 } from "@/lib/db/schema";
 import { eq, sql } from "drizzle-orm";
+import { buildImageRow, buildOutputLinkRow } from "@/lib/model-b-writes";
 import { chatAboutDesign, constructFluxPrompt, assessReadiness } from "@/lib/ai";
 import { uploadDesignImage, deleteDesignImageObject } from "@/lib/r2";
 import { getGenerator } from "@/lib/generators/registry";
@@ -281,6 +284,22 @@ async function runGenerate({
         generator: generator.id,
         isApproved: false,
       }),
+      // Model B dual-write (slice 1): mirror the source artifact into image +
+      // output link, same id. found.userId is the verified design owner.
+      db.insert(imageTable).values(
+        buildImageRow({
+          id: newImageId,
+          ownerId: found.userId,
+          designId,
+          imageUrl: r2Url,
+          aspectRatio: "1:1",
+          prompt: aiResponse.fluxPrompt,
+          generator: generator.id,
+          generationCost: generator.costPerImage,
+          parentImageId,
+        })
+      ),
+      db.insert(conversationImageTable).values(buildOutputLinkRow(designId, newImageId)),
       ...(userMessage
         ? [
             db.insert(chatMessageTable).values({

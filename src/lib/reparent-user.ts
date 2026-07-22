@@ -6,6 +6,7 @@ import {
   cartItem as cartItemTable,
   store as storeTable,
   product as productTable,
+  image as imageTable,
 } from "@/lib/db/schema";
 
 /**
@@ -16,9 +17,11 @@ import {
  * product) for the cleanup to cascade away. Atomic now: all moved or none.
  *
  * design_image + chat_message follow via design_id; everything else owns a
- * user/owner column directly. When the conversation/image migration adds
- * tables, extend this list — the integration test seeds one row per table as
- * the checklist.
+ * user/owner column directly. The Model B `image` table denormalizes owner_id,
+ * so it re-parents directly here (placement_render / conversation_image follow
+ * via design_id, listing via its image). When later migration slices add
+ * user-owned tables, extend this list — the integration test seeds one row per
+ * table as the checklist.
  */
 export async function reparentUserData(
   db: typeof appDb,
@@ -32,5 +35,6 @@ export async function reparentUserData(
     db.update(cartItemTable).set({ userId: toId }).where(eq(cartItemTable.userId, fromId)),
     db.update(storeTable).set({ ownerId: toId }).where(eq(storeTable.ownerId, fromId)),
     db.update(productTable).set({ ownerId: toId }).where(eq(productTable.ownerId, fromId)),
+    db.update(imageTable).set({ ownerId: toId }).where(eq(imageTable.ownerId, fromId)),
   ]);
 }

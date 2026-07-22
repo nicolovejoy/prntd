@@ -11,6 +11,7 @@ import {
   user as userTable,
   ledgerEntry,
 } from "@/lib/db/schema";
+import { listingSyncStatement } from "@/lib/model-b-writes";
 import { eq, desc, asc, isNotNull, sum, count, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { revalidatePath } from "next/cache";
@@ -437,10 +438,14 @@ export async function setImageFeedRank(
     throw new Error("Rank must be a whole number between 1 and 9999");
   }
 
-  await db
-    .update(designImageTable)
-    .set({ feedRank })
-    .where(eq(designImageTable.id, imageId));
+  // Model B dual-write (slice 1): mirror onto the listing (no-op if unpublished).
+  await db.batch([
+    db
+      .update(designImageTable)
+      .set({ feedRank })
+      .where(eq(designImageTable.id, imageId)),
+    listingSyncStatement(db, imageId, { kind: "update", set: { feedRank } }),
+  ]);
 
   // The Shop feed renders on / and /prints; bust both plus the admin grid.
   revalidatePath("/");
@@ -454,10 +459,14 @@ export async function setImageHidden(imageId: string, hidden: boolean) {
     throw new Error("Unauthorized");
   }
 
-  await db
-    .update(designImageTable)
-    .set({ isHidden: hidden })
-    .where(eq(designImageTable.id, imageId));
+  // Model B dual-write (slice 1): mirror onto the listing (no-op if unpublished).
+  await db.batch([
+    db
+      .update(designImageTable)
+      .set({ isHidden: hidden })
+      .where(eq(designImageTable.id, imageId)),
+    listingSyncStatement(db, imageId, { kind: "update", set: { isHidden: hidden } }),
+  ]);
 
   // Discover feed on / and the public /d/[imageId] page both filter
   // by isHidden — bust their caches so the change is visible.

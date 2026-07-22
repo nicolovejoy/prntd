@@ -3,10 +3,18 @@ import {
   design as designTable,
   designImage as designImageTable,
   chatMessage as chatMessageTable,
+  image as imageTable,
+  conversationImage as conversationImageTable,
+  placementRender as placementRenderTable,
   type ChatMessage,
 } from "@/lib/db/schema";
 import { eq, and, asc, desc, inArray, isNull, isNotNull, sql } from "drizzle-orm";
 import { getBlank, type AspectRatio } from "@/lib/blanks";
+import {
+  buildImageRow,
+  buildOutputLinkRow,
+  buildPlacementRenderRow,
+} from "@/lib/model-b-writes";
 
 /**
  * Atomically reserve `count` generation numbers for a design in a single
@@ -125,18 +133,64 @@ export async function insertDesignImage(params: {
   }
 
   const id = crypto.randomUUID();
-  await db.insert(designImageTable).values({
+  const productId = params.productId ?? null;
+  const designImageInsert = db.insert(designImageTable).values({
     id,
     designId: params.designId,
     parentImageId,
     aspectRatio: params.aspectRatio,
-    productId: params.productId ?? null,
+    productId,
     placementId: params.placementId ?? null,
     imageUrl: params.imageUrl,
     prompt: params.prompt ?? null,
     generationCost: params.generationCost,
     isApproved: false,
   });
+
+  // Model B dual-write (slice 1). A row with product_id set is a placement
+  // render (cache) → placement_render; otherwise it's a source artifact →
+  // image + output link. Same id in both so slice-2 readers and pinned order
+  // placements resolve unchanged.
+  if (productId !== null) {
+    await db.batch([
+      designImageInsert,
+      db.insert(placementRenderTable).values(
+        buildPlacementRenderRow({
+          id,
+          designId: params.designId,
+          sourceImageId: parentImageId,
+          blankId: productId,
+          placementId: params.placementId,
+          imageUrl: params.imageUrl,
+          aspectRatio: params.aspectRatio,
+          generationCost: params.generationCost,
+        })
+      ),
+    ]);
+  } else {
+    const [owner] = await db
+      .select({ userId: designTable.userId })
+      .from(designTable)
+      .where(eq(designTable.id, params.designId))
+      .limit(1);
+    if (!owner) throw new Error("Design not found");
+    await db.batch([
+      designImageInsert,
+      db.insert(imageTable).values(
+        buildImageRow({
+          id,
+          ownerId: owner.userId,
+          designId: params.designId,
+          imageUrl: params.imageUrl,
+          aspectRatio: params.aspectRatio,
+          prompt: params.prompt,
+          generationCost: params.generationCost,
+          parentImageId,
+        })
+      ),
+      db.insert(conversationImageTable).values(buildOutputLinkRow(params.designId, id)),
+    ]);
+  }
   return id;
 }
 
@@ -531,14 +585,24 @@ export async function deleteDesignImageRow(
   designId: string,
   imageId: string
 ): Promise<{ newPrimaryId: string | null }> {
-  await db
-    .delete(designImageTable)
-    .where(
-      and(
-        eq(designImageTable.id, imageId),
-        eq(designImageTable.designId, designId)
-      )
-    );
+  // Delete the design_image row and its Model B mirrors (slice 1) atomically.
+  // The id is shared, so the same id addresses the image / placement_render
+  // rows; the output link keys on image_id.
+  await db.batch([
+    db
+      .delete(designImageTable)
+      .where(
+        and(
+          eq(designImageTable.id, imageId),
+          eq(designImageTable.designId, designId)
+        )
+      ),
+    db.delete(imageTable).where(eq(imageTable.id, imageId)),
+    db.delete(placementRenderTable).where(eq(placementRenderTable.id, imageId)),
+    db
+      .delete(conversationImageTable)
+      .where(eq(conversationImageTable.imageId, imageId)),
+  ]);
 
   const remaining = await db
     .select({ id: designImageTable.id })

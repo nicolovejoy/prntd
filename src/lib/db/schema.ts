@@ -325,6 +325,104 @@ export const generationUsage = sqliteTable(
   (t) => [uniqueIndex("generation_usage_bucket_day").on(t.bucket, t.day)]
 );
 
+/**
+ * Model B (conversation/image split, docs/model-b-migration-plan.md). The
+ * standalone artifact: a generated image, owned by a user, reusable across
+ * conversations. On backfill every row keeps its `design_image.id` (id reuse
+ * §2) so order/product/cart placement refs — which store image ids as opaque
+ * strings — never move.
+ *
+ * Slice 1 dual-writes this alongside `design_image` for source generations;
+ * readers stay on `design_image` until slice 2. Immutability guardrail
+ * (§3): nothing may update `imageUrl`/`r2Key`/`prompt` after insert — the
+ * write layer (src/lib/model-b-writes.ts) exposes no such helper, so a listing
+ * that points at a row is a snapshot by construction.
+ *
+ * Image-id columns (parent/seed/original-designer/source-design) are opaque
+ * text, no FK — matching the existing schema (design.forkedFromImageId,
+ * design_image.parentImageId are FK-less) and the id-reuse contract, and
+ * avoiding backfill/dual-write ordering hazards. Only `ownerId` (→ user) is a
+ * FK, so reparenting and owner joins stay sound.
+ */
+export const image = sqliteTable("image", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  ownerId: text("owner_id").notNull().references(() => user.id),
+  // Null when a legacy URL can't be parsed to a key; imageUrl is authoritative
+  // for display, r2Key is best-effort for object operations.
+  r2Key: text("r2_key"),
+  imageUrl: text("image_url").notNull(),
+  aspectRatio: text("aspect_ratio").notNull(),
+  prompt: text("prompt"),
+  generator: text("generator"),
+  generationCost: real("generation_cost").notNull().default(0),
+  // Within-thread iteration chain (was design_image.parentImageId).
+  parentImageId: text("parent_image_id"),
+  // Cross-conversation lineage (was design.forkedFromImageId).
+  seedImageId: text("seed_image_id"),
+  // Denormalized attribution root (was design.originalDesignerId).
+  originalDesignerId: text("original_designer_id"),
+  // The conversation that generated it (mirrors the role=output link).
+  sourceDesignId: text("source_design_id"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
+/**
+ * Model B join between a conversation (`design`) and an `image`. `output` =
+ * the conversation generated it; `seed` = it was carried into the conversation
+ * as a starting point (replaces the copy-based fork in a later slice). Many
+ * conversations can reference one image. `imageId` is opaque text (no FK) per
+ * the id-reuse contract; `designId` FKs `design` (always present).
+ */
+export const conversationImage = sqliteTable(
+  "conversation_image",
+  {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    designId: text("design_id").notNull().references(() => design.id),
+    imageId: text("image_id").notNull(),
+    role: text("role", { enum: ["output", "seed"] }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  },
+  (t) => [uniqueIndex("conversation_image_unique").on(t.designId, t.imageId, t.role)]
+);
+
+/**
+ * Model B published-listing state, split off `design_image` (simplification
+ * item 3). One listing per image (PK = imageId). A row exists iff the image is
+ * published — unpublish deletes it. Naming/hidden/feed-rank edits update it in
+ * lockstep with the `design_image` publish columns during the dual-write
+ * window (risky spot §3). `imageId` is opaque text (no FK).
+ */
+export const listing = sqliteTable("listing", {
+  imageId: text("image_id").primaryKey(),
+  publishedAt: integer("published_at", { mode: "timestamp" }).notNull(),
+  isHidden: integer("is_hidden", { mode: "boolean" }).notNull().default(false),
+  title: text("title"),
+  description: text("description"),
+  backgroundColor: text("background_color"),
+  feedRank: integer("feed_rank"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
+/**
+ * Model B placement-render cache, split off `design_image` (simplification
+ * item 3). These are derived renders (a source image composed onto a blank's
+ * placement), not artifacts — they never appear as `image` rows. On backfill
+ * each keeps its `design_image.id` (id reuse) so orders that pin a render id in
+ * their placements keep resolving. `sourceImageId` is the #25 anchor (was
+ * design_image.parentImageId); `blankId` was design_image.productId.
+ */
+export const placementRender = sqliteTable("placement_render", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  designId: text("design_id").notNull().references(() => design.id),
+  sourceImageId: text("source_image_id"),
+  blankId: text("blank_id").notNull(),
+  placementId: text("placement_id").notNull(),
+  imageUrl: text("image_url").notNull(),
+  aspectRatio: text("aspect_ratio").notNull(),
+  generationCost: real("generation_cost").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
 export type ChatMessage = {
   id: string;
   designId: string;
