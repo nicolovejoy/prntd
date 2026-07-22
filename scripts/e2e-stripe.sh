@@ -13,8 +13,16 @@ if ! command -v stripe >/dev/null 2>&1; then
   exit 1
 fi
 
-if [ ! -f .env.local ]; then
-  echo ".env.local not found — the spec needs the dev DB + test-mode Stripe key" >&2
+# Local dev reads DB creds + STRIPE_SECRET_KEY from .env.local. CI (the
+# nightly stripe-e2e.yml workflow) has none — it exports DATABASE_URL /
+# DATABASE_AUTH_TOKEN / STRIPE_SECRET_KEY as job env instead, so only source
+# the file when it's there.
+if [ -f .env.local ]; then
+  set -a
+  . ./.env.local
+  set +a
+elif [ -z "${DATABASE_URL:-}" ]; then
+  echo ".env.local not found and DATABASE_URL not set — the spec needs the dev/preview DB + test-mode Stripe key" >&2
   exit 1
 fi
 
@@ -25,14 +33,10 @@ if lsof -nP -iTCP:3100 -sTCP:LISTEN >/dev/null 2>&1; then
   exit 1
 fi
 
-set -a
-. ./.env.local
-set +a
-
 case "${STRIPE_SECRET_KEY:-}" in
   sk_test_*) ;;
   *)
-    echo "STRIPE_SECRET_KEY in .env.local is missing or not test-mode (sk_test_…). Refusing to pay." >&2
+    echo "STRIPE_SECRET_KEY is missing or not test-mode (sk_test_…). Refusing to pay." >&2
     exit 1
     ;;
 esac

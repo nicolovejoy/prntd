@@ -44,10 +44,32 @@ and throwaway account are deleted from the dev DB afterward.
 ## Gating
 
 The spec is tagged `@stripe` and skips itself unless `E2E_STRIPE=1`, so plain
-`npm run e2e` and CI never run it. It also skips when `E2E_BASE_URL` is set
-(CI runs against a Vercel preview, where Stripe redirect URLs build from
-`NEXT_PUBLIC_APP_URL` = prod and checkout would bounce off the deployment
-under test) and when `STRIPE_SECRET_KEY` isn't `sk_test_…`.
+`npm run e2e` and the PR `check`/`e2e` jobs never run it. It also skips when
+`E2E_BASE_URL` is set (that means a Vercel preview, where Stripe redirect URLs
+build from `NEXT_PUBLIC_APP_URL` = prod and checkout would bounce off the
+deployment under test) and when `STRIPE_SECRET_KEY` isn't `sk_test_…`.
+
+## Nightly CI run (#104)
+
+`.github/workflows/stripe-e2e.yml` runs this spec on a schedule (nightly) and
+via manual `workflow_dispatch`. It is intentionally **not** wired into
+`pull_request`/`push` — it moves real (test-mode) money through Stripe's
+actual hosted checkout DOM, which is third-party flake every PR shouldn't
+have to eat.
+
+The workflow installs the Stripe CLI, branches an ephemeral Turso DB off
+`prntd-preview` (same mechanism as the per-PR e2e job, #31/#108 — named so it
+contains `prntd-preview`, satisfying `e2e/helpers/db.ts`'s never-prod guard),
+migrates it, then runs `npm run e2e:stripe` exactly as described above —
+`scripts/e2e-stripe.sh` now tolerates having no `.env.local` (CI exports
+`DATABASE_URL`/`DATABASE_AUTH_TOKEN`/`STRIPE_SECRET_KEY` as job env instead;
+it sources `.env.local` only when the file exists). No `E2E_BASE_URL` is set,
+so the spec runs against the workflow's own locally-booted compiled build,
+same code path as local — nothing in the spec's skip logic needed to change.
+
+Repo secrets required: `STRIPE_SECRET_KEY` (test-mode) and `TURSO_API_TOKEN`
+(already added for #108). On failure the job files/comments on a GitHub issue
+labeled `stripe-e2e-nightly` so a red run isn't silent.
 
 ## Troubleshooting
 
