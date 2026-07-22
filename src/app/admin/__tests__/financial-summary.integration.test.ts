@@ -2,10 +2,11 @@
 /**
  * Real-DB integration test for getFinancialSummary (WP5): seeds orders +
  * ledger rows across classifications and asserts the grouped-sum →
- * summarizeLedger math the admin dashboard shows. Asserts CURRENT behavior,
- * including two quirks worth knowing about (documented inline): archived
- * orders drop out of orderCount but their ledger rows still count, and
- * unfiltered summaries include test-classified orders' money.
+ * summarizeLedger math the admin dashboard shows. Asserts CURRENT behavior:
+ * archival is a display/workflow state, never a financial one, so archived
+ * orders count in orderCount just like their ledger rows already count in
+ * revenue (#105); unfiltered summaries include test-classified orders'
+ * money (only an explicit classification filter excludes it).
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { eq } from "drizzle-orm";
@@ -131,33 +132,34 @@ describe("getFinancialSummary", () => {
     await seedOrder({ id: "o-unclassified", classification: null });
   });
 
-  it("unfiltered: sums EVERY ledger row — including test-classified orders — and counts non-archived orders", async () => {
+  it("unfiltered: sums EVERY ledger row — including test-classified orders — and counts every order, archived or not", async () => {
     const summary = await getFinancialSummary();
 
     // Current behavior: no default exclusion of `test` orders (the
-    // docs/test-orders-and-accounting.md proposal would change this), and the
-    // archived order's sale still counts even though the order itself doesn't.
+    // docs/test-orders-and-accounting.md proposal would change this), and
+    // archived orders count in orderCount just like their ledger rows
+    // already count in revenue — money always counts (#105).
     expect(summary.revenue).toBeCloseTo(24.12 + 10.0 + 5.0, 5);
     expect(summary.stripeFees).toBeCloseTo(-1.59, 5);
     expect(summary.cogs).toBeCloseTo(12.5, 5);
     expect(summary.grossProfit).toBeCloseTo(39.12 - 1.59 - 12.5, 5);
-    expect(summary.orderCount).toBe(3); // o-archived excluded, o-unclassified included
+    expect(summary.orderCount).toBe(4); // o-customer, o-test, o-archived, o-unclassified
   });
 
   it('"all" behaves the same as no filter', async () => {
     const summary = await getFinancialSummary("all");
     expect(summary.revenue).toBeCloseTo(39.12, 5);
-    expect(summary.orderCount).toBe(3);
+    expect(summary.orderCount).toBe(4);
   });
 
-  it("customer filter: joins ledger through order classification; archived customer money still counts", async () => {
+  it("customer filter: joins ledger through order classification; archived customer order counts in both revenue and orderCount", async () => {
     const summary = await getFinancialSummary("customer");
 
     expect(summary.revenue).toBeCloseTo(24.12 + 5.0, 5); // o-customer + archived o-archived
     expect(summary.stripeFees).toBeCloseTo(-1.0, 5);
     expect(summary.cogs).toBeCloseTo(12.5, 5);
     expect(summary.grossProfit).toBeCloseTo(29.12 - 1.0 - 12.5, 5);
-    expect(summary.orderCount).toBe(1); // only the non-archived customer order
+    expect(summary.orderCount).toBe(2); // o-customer + archived o-archived
   });
 
   it("test filter: isolates test-order money", async () => {

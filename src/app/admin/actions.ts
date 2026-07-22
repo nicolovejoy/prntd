@@ -11,7 +11,7 @@ import {
   user as userTable,
   ledgerEntry,
 } from "@/lib/db/schema";
-import { eq, desc, asc, isNull, isNotNull, sum, count, and, sql } from "drizzle-orm";
+import { eq, desc, asc, isNotNull, sum, count, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { revalidatePath } from "next/cache";
 import { createOrder, getOrderByExternalId } from "@/lib/printful";
@@ -319,15 +319,15 @@ export async function getFinancialSummary(classificationFilter?: OrderClassifica
     byType[e.type] = parseFloat(e.total ?? "0");
   }
 
-  const orderConditions = [isNull(orderTable.archivedAt)];
-  if (filterClassification) {
-    orderConditions.push(eq(orderTable.classification, filterClassification));
-  }
-
-  const countRows = await db
-    .select({ orderCount: count() })
-    .from(orderTable)
-    .where(and(...orderConditions));
+  // Archival is a display/workflow state, never a financial one — an
+  // archived order's ledger rows already count above, so orderCount must
+  // include it too or the summary's own numbers disagree with each other.
+  const countRows = filterClassification
+    ? await db
+        .select({ orderCount: count() })
+        .from(orderTable)
+        .where(eq(orderTable.classification, filterClassification))
+    : await db.select({ orderCount: count() }).from(orderTable);
   const orderCount = countRows[0].orderCount;
 
   return { ...summarizeLedger(byType), orderCount };
