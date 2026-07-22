@@ -1,0 +1,153 @@
+name: Stripe E2E (nightly)
+
+# The one real-money-path test (e2e/stripe-money-path.spec.ts, docs/stripe-e2e.md)
+# only ever ran when someone remembered `npm run e2e:stripe` locally (#104).
+# This gives it a nightly run + a manual trigger, entirely separate from PR CI:
+# it pays through Stripe's real hosted test checkout and depends on Stripe's
+# live checkout DOM (three layout fixes needed on the first live run,
+# 2026-07-21), so it is deliberately NOT wired into the pull_request/push
+# `check`/`e2e` jobs in ci.yml — that would add third-party flake to every PR.
+
+on:
+  schedule:
+    # 08:23 UTC (off-the-hour, off-peak) — a couple hours after CI's typical
+    # daytime PR traffic. Pick any time; the only requirement is "runs daily
+    # without a human remembering."
+    - cron: "23 8 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+# Serialize: two overlapping runs would both branch a Turso DB and both pay
+# through Stripe test mode. Queue rather than cancel — cancelling mid-payment
+# would leave a stray charge/branch behind.
+concurrency:
+  group: stripe-e2e-nightly
+  cancel-in-progress: false
+
+jobs:
+  stripe-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      # Real secret — the spec refuses anything that isn't sk_test_… (see
+      # scripts/e2e-stripe.sh), but a missing/misconfigured secret must fail
+      # loud, not silently self-skip and report green.
+      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+      # Fake vendor creds for SDK constructors that run at module-eval time
+      # during `next build` / at server boot. The spec never exercises real
+      # Anthropic/Replicate/Printful/R2 calls (Printful stays dry-run;
+      # generateOrderName degrades on failure by design — see CLAUDE.md
+      # 2026-07-21 handoff notes). Mirrors ci.yml's `check`/`e2e` jobs.
+      BETTER_AUTH_SECRET: ci-stripe-e2e-secret-not-real
+      NEXT_PUBLIC_R2_PUBLIC_URL: https://example.com
+      ANTHROPIC_API_KEY: sk-ant-ci-skip
+      REPLICATE_API_TOKEN: r8_ci_skip
+      PRINTFUL_API_KEY: pf_ci_skip
+      R2_ACCOUNT_ID: ci-skip
+      R2_ACCESS_KEY_ID: ci-skip
+      R2_SECRET_ACCESS_KEY: ci-skip
+      R2_BUCKET_NAME: ci-skip
+      ADMIN_EMAIL: ci-skip@example.com
+      # scripts/e2e-stripe.sh exports NEXT_PUBLIC_APP_URL, PRINTFUL_DRY_RUN,
+      # RESEND_API_KEY, E2E_STRIPE, and STRIPE_WEBHOOK_SECRET itself at
+      # runtime (docs/stripe-e2e.md) — don't set them here, the script owns
+      # that sequencing (webhook secret comes from the live `stripe listen`
+      # forwarder it spawns).
+      #
+      # Ephemeral Turso branch, same mechanism ci.yml's `e2e` job uses for
+      # per-PR isolation (#31/#108): named so it contains "prntd-preview",
+      # which e2e/helpers/db.ts's never-prod guard requires.
+      CI_DB_NAME: prntd-preview-stripe-nightly-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Official apt install (docs.stripe.com/stripe-cli/install) — provides
+      # the `stripe listen --print-secret` / `stripe listen --forward-to`
+      # scripts/e2e-stripe.sh needs.
+      - name: Install Stripe CLI
+        run: |
+          curl -s https://packages.stripe.dev/api/security/keypair/stripe-cli-gpg/public | gpg --dearmor | sudo tee /usr/share/keyrings/stripe.gpg > /dev/null
+          echo "deb [signed-by=/usr/share/keyrings/stripe.gpg] https://packages.stripe.dev/stripe-cli-debian-local stable main" | sudo tee -a /etc/apt/sources.list.d/stripe.list
+          sudo apt-get update
+          sudo apt-get install -y stripe
+          stripe --version
+
+      - name: Install Turso CLI
+        run: |
+          curl -sSfL https://get.tur.so/install.sh | bash
+          echo "$HOME/.turso" >> "$GITHUB_PATH"
+
+      # Branch off prntd-preview (schema-current seeded copy) instead of
+      # running against the shared prntd-preview DB or prntd-dev — keeps this
+      # nightly run from contending with anything else (cf. flake #101).
+      - name: Create ephemeral Turso branch
+        env:
+          TURSO_API_TOKEN: ${{ secrets.TURSO_API_TOKEN }}
+        run: |
+          turso db create "$CI_DB_NAME" --from-db prntd-preview --group default
+          url=$(turso db show "$CI_DB_NAME" --url)
+          token=$(turso db tokens create "$CI_DB_NAME")
+          echo "::add-mask::$token"
+          echo "DATABASE_URL=$url" >> "$GITHUB_ENV"
+          echo "DATABASE_AUTH_TOKEN=$token" >> "$GITHUB_ENV"
+
+      - name: Apply migrations to ephemeral branch
+        run: npm run db:migrate
+
+      - run: npx playwright install --with-deps chromium
+
+      # Boots the compiled build on :3100 (playwright.config.ts webServer,
+      # same as local), spawns `stripe listen`, and runs the one @stripe spec.
+      # See docs/stripe-e2e.md for the full sequencing.
+      - name: Run Stripe test-mode e2e
+        run: npm run e2e:stripe
+
+      - name: Destroy ephemeral Turso branch
+        if: always()
+        env:
+          TURSO_API_TOKEN: ${{ secrets.TURSO_API_TOKEN }}
+        run: turso db destroy "$CI_DB_NAME" --yes || true
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: stripe-e2e-playwright-report
+          path: playwright-report
+          retention-days: 7
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: stripe-e2e-playwright-traces
+          path: test-results
+          retention-days: 7
+
+      # A red run must not be silent (that's the whole point of #104) — file
+      # a tracking issue, or comment on the existing one so repeated failures
+      # dedupe into one thread instead of paging with a new issue nightly.
+      - name: Report failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          body="Nightly Stripe e2e failed: $run_url"
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --label stripe-e2e-nightly --state open --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" \
+              --title "Nightly Stripe e2e failed" \
+              --label stripe-e2e-nightly \
+              --body "$body"$'\n\n'"Reruns of this workflow dedupe onto this issue while it stays open. Close it once the underlying cause is fixed."
+          fi
