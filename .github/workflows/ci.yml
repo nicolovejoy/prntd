@@ -134,7 +134,23 @@ jobs:
       # No E2E_BASE_URL → playwright.config boots the local compiled build
       # (npm run build && npm run start -p 3100) with the funnel flags on,
       # against the ephemeral DB in DATABASE_URL/DATABASE_AUTH_TOKEN.
-      - run: npx playwright test
+      #
+      # Flake #101 ("cart: 0 line items") is an intermittent, self-clearing
+      # ~30s stall in the cart page's client-side load (a server action whose
+      # response is occasionally delayed) — it reproduces even for a single
+      # cart test run alone, and recovers on the next attempt, so it is NOT
+      # inter-run DB contention (the per-run ephemeral DB rules that out) nor
+      # project concurrency. The cart page now retries its own load
+      # (src/app/cart/page.tsx); belt-and-suspenders here:
+      #   --workers=1  : serialize the two projects so they don't add load to
+      #                  one self-hosted server (local `npm run e2e` keeps
+      #                  default parallelism — unchanged).
+      #   --retries=2  : 3 attempts; the stall clears between attempts, so the
+      #                  chance of all three landing in a bad window is low
+      #                  (the failing CI run only had 1 retry → both attempts
+      #                  unlucky). On-failure traces upload below to diagnose
+      #                  a recurrence.
+      - run: npx playwright test --workers=1 --retries=2
 
       # Always tear the ephemeral DB down — even on failure or cancel — so
       # branches don't pile up against the Turso account's DB quota.
@@ -149,4 +165,14 @@ jobs:
         with:
           name: playwright-report
           path: playwright-report
+          retention-days: 7
+
+      # Traces (trace: "retain-on-failure") + error-context live under
+      # test-results, not in the HTML report — upload them so a recurrence is
+      # diagnosable from the actual network/timeline, not guesswork.
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-traces
+          path: test-results
           retention-days: 7
