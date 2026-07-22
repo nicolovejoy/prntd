@@ -6,6 +6,7 @@ import { getUserDesigns, deleteDesign, archiveDesign, unpublishImage } from "./a
 import { Badge, Button } from "@/components/ui";
 import { PublishModal } from "@/components/publish-modal";
 import { publishedBackdrop } from "@/lib/blanks";
+import { WarmOnView } from "./warm-on-view";
 
 type Design = Awaited<ReturnType<typeof getUserDesigns>>[number];
 
@@ -110,7 +111,11 @@ export default function DesignsPage() {
                 ? publishedBackdrop(design.primaryImageBackgroundColor)
                 : { className: "bg-checkerboard", style: undefined };
               return (
-              <div key={design.id} className="border rounded-lg overflow-hidden group">
+              <WarmOnView
+                key={design.id}
+                designId={design.id}
+                className="border rounded-lg overflow-hidden group"
+              >
                 <Link href={getDesignHref(design)} className="block">
                   <div
                     className={`aspect-square flex items-center justify-center ${backdrop.className}`}
@@ -200,7 +205,7 @@ export default function DesignsPage() {
                     </div>
                   )}
                 </div>
-              </div>
+              </WarmOnView>
               );
             })}
           </div>
