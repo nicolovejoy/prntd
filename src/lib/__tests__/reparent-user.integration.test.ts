@@ -61,6 +61,15 @@ describe("reparentUserData", () => {
         blankId: "bella-canvas-3001",
       })
       .returning();
+    const [image] = await db
+      .insert(schema.image)
+      .values({
+        ownerId: "anon-1",
+        imageUrl: "https://img/a.png",
+        aspectRatio: "1:1",
+        sourceDesignId: design.id,
+      })
+      .returning();
 
     await reparentUserData(db, "anon-1", "real-1");
 
@@ -82,6 +91,10 @@ describe("reparentUserData", () => {
     ).toBe("real-1");
     expect(
       (await db.query.product.findFirst({ where: eq(schema.product.id, product.id) }))
+        ?.ownerId
+    ).toBe("real-1");
+    expect(
+      (await db.query.image.findFirst({ where: eq(schema.image.id, image.id) }))
         ?.ownerId
     ).toBe("real-1");
 

@@ -8,10 +8,15 @@ import {
   designImage as designImageTable,
   chatMessage as chatMessageTable,
   order as orderTable,
+  image as imageTable,
+  conversationImage as conversationImageTable,
+  placementRender as placementRenderTable,
+  listing as listingTable,
 } from "@/lib/db/schema";
 import { eq, desc, and, not, count, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { resolveDesignDisplayImageUrls } from "@/lib/design-images";
+import { listingSyncStatement, type ListingUpdate } from "@/lib/model-b-writes";
 import { generatePublishedNaming } from "@/lib/ai";
 import { DEFAULT_PUBLISH_BACKGROUND } from "@/lib/blanks";
 
@@ -129,8 +134,32 @@ export async function deleteDesign(designId: string) {
     return;
   }
 
+  // Also clear the Model B mirrors keyed to this design (slice 1). Images and
+  // their output links / listings key on the design's image ids; placement
+  // renders and conversation links key on design_id directly. Slice 4 replaces
+  // the blanket image delete with ref-counting (survive-if-shared); until then
+  // seed links only reference published/own images, so this stays safe.
+  const imageIds = (
+    await db
+      .select({ id: designImageTable.id })
+      .from(designImageTable)
+      .where(eq(designImageTable.designId, designId))
+  ).map((r) => r.id);
+
   await db.batch([
     db.delete(chatMessageTable).where(eq(chatMessageTable.designId, designId)),
+    db
+      .delete(conversationImageTable)
+      .where(eq(conversationImageTable.designId, designId)),
+    db
+      .delete(placementRenderTable)
+      .where(eq(placementRenderTable.designId, designId)),
+    ...(imageIds.length
+      ? [
+          db.delete(imageTable).where(inArray(imageTable.id, imageIds)),
+          db.delete(listingTable).where(inArray(listingTable.imageId, imageIds)),
+        ]
+      : []),
     db.delete(designImageTable).where(eq(designImageTable.designId, designId)),
     db.delete(designTable).where(eq(designTable.id, designId)),
   ]);
@@ -202,17 +231,27 @@ export async function publishImage(
     description = description || gen.description;
   }
 
-  await db
-    .update(designImageTable)
-    .set({
-      publishedAt: new Date(),
-      title,
-      description,
-      // Publish never leaves the backdrop transparent (#73): no pick — or an
-      // explicit null from a legacy caller — persists as White.
-      backgroundColor: opts.backgroundColor ?? DEFAULT_PUBLISH_BACKGROUND,
-    })
-    .where(eq(designImageTable.id, imageId));
+  const publishedAt = new Date();
+  const backgroundColor = opts.backgroundColor ?? DEFAULT_PUBLISH_BACKGROUND;
+  // Publish never leaves the backdrop transparent (#73): no pick — or an
+  // explicit null from a legacy caller — persists as White.
+  await db.batch([
+    db
+      .update(designImageTable)
+      .set({ publishedAt, title, description, backgroundColor })
+      .where(eq(designImageTable.id, imageId)),
+    // Model B dual-write (slice 1): the listing carries the image's current
+    // hidden/feed-rank so it's a faithful snapshot of the publish state.
+    listingSyncStatement(db, imageId, {
+      kind: "publish",
+      publishedAt,
+      isHidden: image.isHidden,
+      title: title ?? null,
+      description: description ?? null,
+      backgroundColor,
+      feedRank: image.feedRank,
+    }),
+  ]);
 
   revalidatePath("/");
   revalidatePath("/prints");
@@ -257,14 +296,17 @@ export async function updatePublishedNaming(
   // sends title + description. The picker no longer offers a transparent
   // option (#73); a legacy null still displays as White via
   // publishedBackdrop, so the guard stays `!== undefined`, not truthiness.
-  await db
-    .update(designImageTable)
-    .set({
-      ...(title !== undefined ? { title: title.trim() } : {}),
-      ...(description !== undefined ? { description: description.trim() } : {}),
-      ...(backgroundColor !== undefined ? { backgroundColor } : {}),
-    })
-    .where(eq(designImageTable.id, imageId));
+  const set: ListingUpdate = {};
+  if (title !== undefined) set.title = title.trim();
+  if (description !== undefined) set.description = description.trim();
+  if (backgroundColor !== undefined) set.backgroundColor = backgroundColor;
+
+  // Model B dual-write (slice 1): the same partial keeps the listing in
+  // lockstep. The listing update no-ops when the image predates its listing row.
+  await db.batch([
+    db.update(designImageTable).set(set).where(eq(designImageTable.id, imageId)),
+    listingSyncStatement(db, imageId, { kind: "update", set }),
+  ]);
 
   revalidatePath("/");
   revalidatePath("/prints");
@@ -302,10 +344,15 @@ export async function unpublishImage(imageId: string) {
 
   if (!image.publishedAt) return;
 
-  await db
-    .update(designImageTable)
-    .set({ publishedAt: null })
-    .where(eq(designImageTable.id, imageId));
+  // Model B dual-write (slice 1): unpublish = delete the listing row, matching
+  // the reversible semantics (title/backdrop stay on design_image for re-publish).
+  await db.batch([
+    db
+      .update(designImageTable)
+      .set({ publishedAt: null })
+      .where(eq(designImageTable.id, imageId)),
+    listingSyncStatement(db, imageId, { kind: "unpublish" }),
+  ]);
 
   revalidatePath("/");
   revalidatePath("/prints");
