@@ -5,6 +5,8 @@ import {
   CopyObjectCommand,
   DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
+import { createHash } from "crypto";
+import { mockupObjectKey, type MockupKeyParts } from "@/lib/mockup-cache";
 
 const r2 = new S3Client({
   region: "auto",
@@ -40,16 +42,19 @@ export async function uploadDesignImage(
 
 export async function uploadMockupImage(
   designId: string,
-  colorName: string,
   imageBuffer: Buffer,
-  placementId: string = "front"
+  parts: MockupKeyParts
 ): Promise<string> {
-  const slug = colorName.toLowerCase().replace(/\s+/g, "-");
-  // Front keeps the legacy `{color}.jpg` key so already-cached URLs stay
-  // valid; other placements get a `-{placement}` suffix so front/back
-  // mockups for the same color don't overwrite each other.
-  const suffix = placementId === "front" ? "" : `-${placementId}`;
-  const key = `designs/${designId}/mockups/${slug}${suffix}.jpg`;
+  // The object key carries every part the mockupUrls cache key distinguishes
+  // (#102: a key of just `{color}-{placement}.jpg` made every back-source /
+  // product / scale choice overwrite one object, so cache entries served the
+  // last-rendered artwork instead of their own). The content hash gives
+  // re-renders a fresh URL so browser caches can't pin stale bytes.
+  const contentHash = createHash("sha256")
+    .update(imageBuffer)
+    .digest("hex")
+    .slice(0, 8);
+  const key = mockupObjectKey(designId, parts, contentHash);
 
   await r2.send(
     new PutObjectCommand({
