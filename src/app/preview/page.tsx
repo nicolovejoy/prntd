@@ -39,6 +39,7 @@ import {
   mockupBackdrop,
   resolveHeroDisplay,
 } from "@/lib/instant-preview";
+import { mockupCacheKey } from "@/lib/mockup-cache";
 
 type Placement = "front" | "back";
 
@@ -372,11 +373,15 @@ function PreviewPageInner() {
     // the mockup matches the pick and the cache key doesn't collide (#25).
     const sourceImageId = placement === "back" ? backImageId ?? undefined : undefined;
     const scaleKey = Math.round(scale * 100);
-    // Key must match the server's cache key (#25 2.1): front stays
-    // product:placement:color:scale; non-front inserts the source pick.
-    const cacheKey = sourceImageId
-      ? `${productId}:${placement}:${sourceImageId}:${colorName}:${scaleKey}`
-      : `${productId}:${placement}:${colorName}:${scaleKey}`;
+    // Shared builder keeps this in lockstep with the server's cache key —
+    // entries warmed from design.mockupUrls only hit when formats match.
+    const cacheKey = mockupCacheKey({
+      productId,
+      placementId: placement,
+      sourceImageId,
+      colorName,
+      scaleKey,
+    });
 
     const cached = mockupCache.current.get(cacheKey);
     if (cached) {
