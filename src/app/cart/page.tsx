@@ -7,7 +7,19 @@ import { getCart, removeCartItem, checkoutCart, type CartView } from "./actions"
 import { Button } from "@/components/ui";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
-import { ensureGuestSession } from "@/lib/ensure-guest-session";
+
+const EMPTY_CART: CartView = { items: [], itemSubtotal: 0, shipping: 0, total: 0 };
+
+/** Reject if `p` doesn't settle within `ms` — so one slow/lost server-action
+ * response doesn't strand the load forever (a retry issues a fresh call). */
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error("getCart timed out")), ms)
+    ),
+  ]);
+}
 
 export default function CartPage() {
   const router = useRouter();
@@ -20,8 +32,30 @@ export default function CartPage() {
   }
 
   useEffect(() => {
-    // Keep the guest session alive, then load the cart it owns.
-    ensureGuestSession().finally(refresh);
+    // Resilient initial load. getCart is a server action whose response can be
+    // slow or lost under concurrent load; a single-shot fetch with no recovery
+    // left the page stuck on "Loading…" (showing 0 items) — the #101 flake.
+    // Retry with a per-attempt timeout until the cart resolves. A genuinely
+    // empty cart is accepted after the first clean read. No ensureGuestSession
+    // here: getCart resolves the existing session server-side and returns an
+    // empty cart for a true guest — minting a fresh anon user client-side only
+    // risked stomping the real session under load.
+    let cancelled = false;
+    (async () => {
+      for (let attempt = 0; attempt < 5 && !cancelled; attempt++) {
+        try {
+          const view = await withTimeout(getCart(), 8000);
+          if (!cancelled) setCart(view);
+          return;
+        } catch {
+          if (attempt === 4 && !cancelled) setCart(EMPTY_CART);
+          else await new Promise((r) => setTimeout(r, 800));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   async function handleRemove(id: string) {

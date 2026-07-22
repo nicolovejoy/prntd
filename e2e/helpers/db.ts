@@ -14,7 +14,10 @@ function db(): Client {
   if (!url) {
     throw new Error("DATABASE_URL not set — e2e needs the dev/preview DB");
   }
-  // Same guard as scripts/seed-dev-db.ts: never touch prod.
+  // Same guard as scripts/seed-dev-db.ts: never touch prod. The CI e2e job
+  // (#31) creates a per-run ephemeral branch named `prntd-preview-ci-<run>-…`,
+  // so the "prntd-preview" substring covers it too — keep that CI naming in
+  // sync with this guard (see .github/workflows/ci.yml → CI_DB_NAME).
   const isSafe =
     url.startsWith("file:") ||
     url.includes("prntd-dev") ||
