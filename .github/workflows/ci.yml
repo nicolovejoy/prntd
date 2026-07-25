@@ -23,6 +23,29 @@ jobs:
 
       - run: npm run typecheck
 
+      # Migration drift gate. Nothing else in CI notices a schema.ts edit with
+      # no matching migration: the test harness derives DDL from schema.ts
+      # directly, so drift only surfaces later, when a manual `db:migrate`
+      # against prod/preview leaves the deployed app on an older schema (what
+      # stranded the #26 launch).
+      #
+      # `drizzle-kit generate` reads schema.ts + drizzle/meta only — no DB
+      # credentials, no network — and writes nothing when the chain is current.
+      # (`drizzle-kit check` in 0.31.x validates journal collisions, not
+      # schema-vs-migration drift, so it can't stand in here.) On a rename it
+      # wants an interactive prompt and exits non-zero rather than hanging.
+      - name: Migration drift check
+        run: |
+          if ! npm run db:generate; then
+            echo "::error::drizzle-kit generate failed. If it asked about a column/table rename, answer it locally with 'npm run db:generate' and commit drizzle/."
+            exit 1
+          fi
+          if [ -n "$(git status --porcelain drizzle/)" ]; then
+            git status --porcelain drizzle/
+            echo "::error::schema.ts changed with no matching migration. Run 'npm run db:generate' and commit drizzle/ (CLAUDE.md → Migration discipline)."
+            exit 1
+          fi
+
       # Runs the full suite with v8 coverage; the text-summary totals print in
       # the job log. No coverage threshold gates the build yet (baseline first).
       - run: npm run test:coverage
