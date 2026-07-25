@@ -11,7 +11,7 @@ import {
   design as designTable,
   designImage as designImageTable,
   chatMessage as chatMessageTable,
-  order as orderTable,
+  orderItem as orderItemTable,
   image as imageTable,
   conversationImage as conversationImageTable,
 } from "@/lib/db/schema";
@@ -404,8 +404,8 @@ export async function selectImage(designId: string, imageUrl: string) {
 }
 
 /**
- * Delete a design_image row by id. Refuses when any order pins the
- * row via placements (e.g. order.placements.front references this id),
+ * Delete a design_image row by id. Refuses when any order line pins the
+ * row via placements (e.g. order_item.placements.front references this id),
  * so a deletion can't orphan an order's recorded thumbnail. Recomputes
  * primary_image_id to the most recent remaining source image when
  * the delete proceeds.
@@ -421,15 +421,15 @@ export async function deleteDesignImage(designId: string, imageId: string) {
     throw new Error("Unauthorized");
 
   // Publishing is reversible, so deletion is no longer blocked on publish
-  // state — only on real order references. Refuse if an order depends on
-  // this image (pinned in placements, or the primary a legacy order falls
-  // back to); deleting would orphan the order's print/thumbnail.
-  const orders = await db
-    .select({ placements: orderTable.placements })
-    .from(orderTable)
-    .where(eq(orderTable.designId, designId));
+  // state — only on real order references. Refuse if an order line depends on
+  // this image (pinned in placements, or the primary a legacy line with no
+  // placements falls back to); deleting would orphan the order's print.
+  const orderLines = await db
+    .select({ placements: orderItemTable.placements })
+    .from(orderItemTable)
+    .where(eq(orderItemTable.designId, designId));
 
-  if (imageReferencedByOrders(imageId, found.primaryImageId, orders)) {
+  if (imageReferencedByOrders(imageId, found.primaryImageId, orderLines)) {
     throw new Error(
       "Can't delete this image — it's referenced by an order."
     );

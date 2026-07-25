@@ -15,9 +15,8 @@ export async function getOrderBySession(stripeSessionId: string) {
 
   if (!found) return null;
 
-  // Cart orders (#26) carry their shirts in order_item; legacy single-item
-  // orders fall back to the scalar columns. resolveOrderLines unifies both so
-  // a multi-item confirmation lists every shirt, not just the first.
+  // Every purchased shirt is an order_item row (authoritative since Phase 1c),
+  // so a multi-item confirmation lists them all, not just the first.
   const items = await db
     .select({
       designId: orderItemTable.designId,
@@ -33,7 +32,7 @@ export async function getOrderBySession(stripeSessionId: string) {
     .where(eq(orderItemTable.orderId, found.id))
     .orderBy(asc(orderItemTable.createdAt));
 
-  const lines = resolveOrderLines(found, items).map((l) => ({
+  const lines = resolveOrderLines(items).map((l) => ({
     blankId: l.blankId,
     size: l.size,
     color: l.color,

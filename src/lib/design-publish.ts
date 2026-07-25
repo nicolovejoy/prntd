@@ -22,14 +22,14 @@ export type OrderPlacementRef = {
  * Replaces the old "published images are immortal" lock: publishing is
  * now reversible, so deletion keys off real order references instead.
  *
- *  - Direct pin: the image id appears in an order's placements. The
+ *  - Direct pin: the image id appears in an order line's placements. The
  *    buy-existing path always sets placements.front = imageId, and
  *    designed orders pin their placement renders there.
  *  - Legacy fallback: a pre-Phase-2 order has null/empty placements and
  *    resolves to the design's primary image, so deleting that primary
  *    would change what the order displays.
  *
- * `orders` must be the orders for the image's own design.
+ * `orders` must be the order_item lines for the image's own design.
  */
 export function imageReferencedByOrders(
   imageId: string,

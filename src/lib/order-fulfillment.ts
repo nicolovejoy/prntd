@@ -1,7 +1,6 @@
 /**
  * Shared fulfillment tail for a paid order — the one code path that submits to
- * Printful. Resolves print files per line (order_item rows when present, else
- * the legacy scalar columns, via resolveOrderLines), submits a single N-item
+ * Printful. Resolves print files per order_item line, submits a single N-item
  * Printful order, marks the order submitted + its designs ordered, and records
  * COGS. Used by the Stripe webhook on fresh payment and by the admin retry, so
  * the retry can't drift from the webhook (multi-item, pinned placements, COGS).
@@ -70,13 +69,6 @@ export type ShippingAddress = {
 /** The order-row fields fulfillment needs (a subset of the full row). */
 export type FulfillmentOrder = {
   id: string;
-  designId: string;
-  productId: string;
-  size: string;
-  color: string;
-  placements: Record<string, string> | null;
-  itemPrice: number | null;
-  printfulCost: number | null;
   displayName: string | null;
 };
 
@@ -92,18 +84,7 @@ export async function submitOrderFulfillment(
   deps: FulfillmentDeps
 ): Promise<FulfillmentResult> {
   const orderId = order.id;
-  const lines = resolveOrderLines(
-    {
-      designId: order.designId,
-      productId: order.productId,
-      size: order.size,
-      color: order.color,
-      placements: order.placements,
-      itemPrice: order.itemPrice,
-      printfulCost: order.printfulCost,
-    },
-    orderItems
-  );
+  const lines = resolveOrderLines(orderItems);
 
   // Item-building (image resolution), submission, and persistence all sit under
   // one try that returns paid_printful_failed on any throw (finding #3a): the

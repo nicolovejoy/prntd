@@ -19,9 +19,14 @@ import {
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
 
+/**
+ * One-line order: header + its single order_item row (authoritative since
+ * Phase 1c — the scalar item columns are gone from `order`).
+ */
 async function seed(
   db: Db,
-  orderOverrides: Partial<typeof schema.order.$inferInsert> = {}
+  orderOverrides: Partial<typeof schema.order.$inferInsert> = {},
+  itemOverrides: Partial<typeof schema.orderItem.$inferInsert> = {}
 ) {
   const userId = "user-1";
   await db
@@ -36,9 +41,6 @@ async function seed(
     .values({
       userId,
       designId: design.id,
-      productId: "bella-canvas-3001",
-      size: "M",
-      color: "Black",
       totalPrice: 24.12,
       itemPrice: 19.43,
       shippingPrice: 4.69,
@@ -46,6 +48,16 @@ async function seed(
       ...orderOverrides,
     })
     .returning();
+  await db.insert(schema.orderItem).values({
+    orderId: order.id,
+    designId: design.id,
+    productId: "bella-canvas-3001",
+    size: "M",
+    color: "Black",
+    quantity: 1,
+    itemPrice: order.itemPrice ?? 19.43,
+    ...itemOverrides,
+  });
   return { userId, design, order };
 }
 
@@ -168,9 +180,6 @@ describe("money path — checkout.session.completed", () => {
       .values({
         userId: ownerId,
         designId: design.id,
-        productId: "bella-canvas-3001",
-        size: "M",
-        color: "Black",
         totalPrice: 29.69,
         itemPrice: 25,
         shippingPrice: 4.69,
@@ -179,6 +188,15 @@ describe("money path — checkout.session.completed", () => {
         storeProductId: product.id,
       })
       .returning();
+    await db.insert(schema.orderItem).values({
+      orderId: order.id,
+      designId: design.id,
+      productId: "bella-canvas-3001",
+      size: "M",
+      color: "Black",
+      quantity: 1,
+      itemPrice: 25,
+    });
 
     const result = await handleStripeCheckoutCompleted(
       makeSession(order.id, design.id, {
@@ -268,12 +286,11 @@ describe("money path — checkout.session.completed", () => {
   it("front+back order (#25): submits two print files and a sale at the +$8 total", async () => {
     // itemPrice already folds in the +$8 back upcharge (19.43 + 8.00); shipping
     // is charged once per order, not per placement.
-    const { order, design } = await seed(db, {
-      itemPrice: 27.43,
-      shippingPrice: 4.69,
-      totalPrice: 32.12,
-      placements: { front: "img-front", back: "img-back" },
-    });
+    const { order, design } = await seed(
+      db,
+      { itemPrice: 27.43, shippingPrice: 4.69, totalPrice: 32.12 },
+      { placements: { front: "img-front", back: "img-back" } }
+    );
 
     const createPrintfulOrder = vi
       .fn()
@@ -330,9 +347,6 @@ describe("money path — checkout.session.completed", () => {
       .values({
         userId,
         designId: d1.id, // representative head design
-        productId: "bella-canvas-3001",
-        size: "M",
-        color: "Black",
         itemPrice: 38.86,
         shippingPrice: 4.69,
         totalPrice: 43.55,
@@ -437,9 +451,6 @@ describe("money path — checkout.session.completed", () => {
       .values({
         userId,
         designId: d1.id,
-        productId: "bella-canvas-3001",
-        size: "M",
-        color: "Black",
         itemPrice: 19.43,
         shippingPrice: 4.69,
         totalPrice: 24.12,
@@ -499,22 +510,16 @@ describe("money path — checkout.session.completed", () => {
   });
 
   it("single-item order (Phase 1b: order_item written) clears its matching cart line on payment", async () => {
-    // Phase 1b removes #38's caveat: a single-item /order purchase now writes an
+    // Phase 1b removes #38's caveat: a single-item /order purchase writes an
     // order_item row (createStripeCheckoutForOrder), so the webhook's per-line
     // cart-clear matches it. Seed the order + its order_item exactly as that path
-    // now does, add a matching cart line and an unrelated one, and confirm only
+    // does, add a matching cart line and an unrelated one, and confirm only
     // the purchased line is removed.
-    const { order, design, userId } = await seed(db);
-    await db.insert(schema.orderItem).values({
-      orderId: order.id,
-      designId: design.id,
-      productId: "bella-canvas-3001",
-      size: "M",
-      color: "Black",
-      placements: { front: "img-1" },
-      quantity: 1,
-      itemPrice: 19.43,
-    });
+    const { order, design, userId } = await seed(
+      db,
+      {},
+      { placements: { front: "img-1" } }
+    );
 
     const [other] = await db.insert(schema.design).values({ userId }).returning();
     await db.insert(schema.cartItem).values([
@@ -626,9 +631,11 @@ describe("money path — edge branches", () => {
   });
 
   it("prints the pinned placements.front image over the design display image", async () => {
-    const { order, design } = await seed(db, {
-      placements: { front: "pinned-img" },
-    });
+    const { order, design } = await seed(
+      db,
+      {},
+      { placements: { front: "pinned-img" } }
+    );
     const createPrintfulOrder = vi
       .fn()
       .mockResolvedValue({ id: 9999, costs: { total: "12.50" } });
@@ -647,9 +654,11 @@ describe("money path — edge branches", () => {
   });
 
   it("falls back to the display image when the pinned image can't resolve", async () => {
-    const { order, design } = await seed(db, {
-      placements: { front: "gone-img" },
-    });
+    const { order, design } = await seed(
+      db,
+      {},
+      { placements: { front: "gone-img" } }
+    );
     const createPrintfulOrder = vi
       .fn()
       .mockResolvedValue({ id: 9999, costs: { total: "12.50" } });
@@ -667,9 +676,11 @@ describe("money path — edge branches", () => {
   });
 
   it("drops an unresolvable back placement and submits front-only", async () => {
-    const { order, design } = await seed(db, {
-      placements: { front: "img-front", back: "img-back-gone" },
-    });
+    const { order, design } = await seed(
+      db,
+      {},
+      { placements: { front: "img-front", back: "img-back-gone" } }
+    );
     const createPrintfulOrder = vi
       .fn()
       .mockResolvedValue({ id: 9999, costs: { total: "12.50" } });
@@ -900,9 +911,6 @@ describe("money path — idempotency (#37)", () => {
       .values({
         userId,
         designId: d1.id,
-        productId: "bella-canvas-3001",
-        size: "M",
-        color: "Black",
         itemPrice: 38.86,
         shippingPrice: 4.69,
         totalPrice: 43.55,
@@ -955,9 +963,6 @@ describe("money path — idempotency (#37)", () => {
       .values({
         userId,
         designId: d1.id,
-        productId: "bella-canvas-3001",
-        size: "M",
-        color: "Black",
         itemPrice: 27.43,
         shippingPrice: 4.69,
         totalPrice: 32.12,
@@ -1009,9 +1014,6 @@ describe("money path — idempotency (#37)", () => {
       .values({
         userId,
         designId: d1.id,
-        productId: "bella-canvas-3001",
-        size: "M",
-        color: "Black",
         itemPrice: 38.86,
         shippingPrice: 4.69,
         totalPrice: 43.55,

@@ -20,7 +20,7 @@ export type OrderEmailPayload = {
   totalPrice: number;
   discountCode: string | null;
   displayName: string | null;
-  /** Every purchased line (order_item rows, or the legacy scalar columns). */
+  /** Every purchased line (order_item rows). */
   lines: EmailOrderLine[];
   images: EmailImage[];
 };
@@ -131,16 +131,10 @@ export function createDefaultOrderEmailDeps(
       const rows = await db
         .select({
           email: userTable.email,
-          size: orderTable.size,
-          color: orderTable.color,
           totalPrice: orderTable.totalPrice,
-          itemPrice: orderTable.itemPrice,
-          printfulCost: orderTable.printfulCost,
-          productId: orderTable.productId,
           discountCode: orderTable.discountCode,
           displayName: orderTable.displayName,
           designId: orderTable.designId,
-          placements: orderTable.placements,
           mockupUrls: designTable.mockupUrls,
         })
         .from(orderTable)
@@ -150,24 +144,12 @@ export function createDefaultOrderEmailDeps(
       const row = rows[0];
       if (!row) return null;
 
-      // Every purchased line: order_item rows for cart orders, the scalar
-      // columns for legacy single-item orders.
+      // Every purchased line (order_item is authoritative since Phase 1c).
       const items = await db.query.orderItem.findMany({
         where: eq(orderItemTable.orderId, orderId),
         orderBy: (fields, { asc }) => [asc(fields.createdAt)],
       });
-      const orderLines = resolveOrderLines(
-        {
-          designId: row.designId,
-          productId: row.productId,
-          size: row.size,
-          color: row.color,
-          placements: row.placements ?? null,
-          itemPrice: row.itemPrice,
-          printfulCost: row.printfulCost,
-        },
-        items
-      );
+      const orderLines = resolveOrderLines(items);
       // Resolve product names from the catalog. Falls back to a generic
       // "product" label if a historical order references an id we no
       // longer carry — emails should never break on a missing product.
@@ -179,15 +161,18 @@ export function createDefaultOrderEmailDeps(
       }));
 
       // Hero image(s) from the first line. Multi-item orders still lead with
-      // one design; the body lists every line.
+      // one design; the body lists every line. An order with no lines shouldn't
+      // exist post-1c, but send text-only rather than throwing on the money path.
       const first = orderLines[0];
-      const images = await resolveHeroImages({
-        productId: first.blankId,
-        color: first.color,
-        designId: first.designId,
-        placements: first.placements,
-        mockupUrls: row.mockupUrls ?? null,
-      });
+      const images = first
+        ? await resolveHeroImages({
+            productId: first.blankId,
+            color: first.color,
+            designId: first.designId,
+            placements: first.placements,
+            mockupUrls: row.mockupUrls ?? null,
+          })
+        : [];
 
       return {
         email: row.email,

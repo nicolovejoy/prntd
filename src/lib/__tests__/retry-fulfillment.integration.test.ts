@@ -42,9 +42,6 @@ async function seedStuck(
     .values({
       userId,
       designId: design.id,
-      productId: "bella-canvas-3001",
-      size: "M",
-      color: "Black",
       totalPrice: 24.12,
       itemPrice: 19.43,
       shippingPrice: 4.69,
@@ -59,6 +56,16 @@ async function seedStuck(
       ...overrides,
     })
     .returning();
+  // Phase 1c: the line is the only record of what to print.
+  await db.insert(schema.orderItem).values({
+    orderId: order.id,
+    designId: design.id,
+    productId: "bella-canvas-3001",
+    size: "M",
+    color: "Black",
+    quantity: 1,
+    itemPrice: 19.43,
+  });
   return { userId, design, order };
 }
 
@@ -160,9 +167,12 @@ describe("order naming off the payment path (#39)", () => {
   });
 
   async function fulfill(order: typeof schema.order.$inferSelect, deps: FulfillmentDeps) {
+    const items = await db.query.orderItem.findMany({
+      where: eq(schema.orderItem.orderId, order.id),
+    });
     return submitOrderFulfillment(
       order,
-      [],
+      items,
       {
         name: "Jane Doe",
         address1: "1 Main St",

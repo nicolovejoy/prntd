@@ -141,26 +141,20 @@ export async function createStripeCheckoutForOrder(params: {
   // charged (after any discount) from Stripe.
   const { item, shipping, total } = computeOrderTotal(params.itemPrice);
 
-  // Phase 1b: every checkout writes an authoritative order_item row, not just
-  // the cart path — so resolveOrderLines has one shape to read and the Stripe
-  // webhook's per-line cart-clear covers single-item /order purchases too. The
-  // scalar columns stay (dropped in 1c). Order + item commit together; the id
-  // is pre-generated so both inserts build before the batch (the checkoutCart
-  // pattern). Single line, quantity 1; itemPrice is the product line (shipping
-  // is order-level, not per item).
+  // Phase 1b/1c: the order_item row is the only record of what was bought —
+  // the header carries order-level money and linkage only. Order + item commit
+  // together; the id is pre-generated so both inserts build before the batch
+  // (the checkoutCart pattern). Single line, quantity 1; itemPrice is the
+  // product line (shipping is order-level, not per item).
   const orderId = crypto.randomUUID();
   await db.batch([
     db.insert(orderTable).values({
       id: orderId,
       userId: params.userId,
       designId: params.designId,
-      productId: params.productId,
-      size: params.size,
-      color: params.color,
       totalPrice: total,
       itemPrice: item,
       shippingPrice: shipping,
-      placements: params.placements,
       storeId: params.storeId ?? null,
       storeProductId: params.storeProductId ?? null,
     }),

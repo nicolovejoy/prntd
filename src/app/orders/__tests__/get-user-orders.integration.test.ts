@@ -67,16 +67,12 @@ describe("getUserOrders", () => {
     const a = await seedDesignWithImage(db, "buyer", "https://r2/a.png");
     const b = await seedDesignWithImage(db, "buyer", "https://r2/b.png");
 
-    // A cart order writes item 1 to the scalar columns AND all items to order_item.
+    // The header carries money + linkage; every shirt is an order_item row.
     const [order] = await db
       .insert(schema.order)
       .values({
         userId: "buyer",
         designId: a.designId,
-        productId: "bella-canvas-3001",
-        size: "M",
-        color: "White",
-        placements: { front: a.imageId },
         totalPrice: 40.0,
         status: "paid",
       })
@@ -115,18 +111,27 @@ describe("getUserOrders", () => {
     expect(orders[0].lines[1].imageUrl).toBe("https://r2/b.png");
   });
 
-  it("synthesizes a single line for a legacy order with no order_item rows", async () => {
+  it("renders a single-line order from its one order_item row", async () => {
     const db = h.db as Db;
     const a = await seedDesignWithImage(db, "buyer", "https://r2/legacy.png");
-    await db.insert(schema.order).values({
-      userId: "buyer",
+    const [order] = await db
+      .insert(schema.order)
+      .values({
+        userId: "buyer",
+        designId: a.designId,
+        totalPrice: 24.12,
+        status: "shipped",
+      })
+      .returning();
+    await db.insert(schema.orderItem).values({
+      orderId: order.id,
       designId: a.designId,
       productId: "bella-canvas-3001",
       size: "L",
       color: "Navy",
+      quantity: 1,
       placements: { front: a.imageId },
-      totalPrice: 24.12,
-      status: "shipped",
+      itemPrice: 19.43,
     });
 
     const orders = await getUserOrders();

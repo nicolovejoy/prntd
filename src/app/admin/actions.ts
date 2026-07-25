@@ -12,7 +12,7 @@ import {
   ledgerEntry,
 } from "@/lib/db/schema";
 import { listingSyncStatement } from "@/lib/model-b-writes";
-import { eq, desc, asc, isNotNull, sum, count, sql } from "drizzle-orm";
+import { eq, desc, asc, inArray, isNotNull, sum, count, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { revalidatePath } from "next/cache";
 import { createOrder, getOrderByExternalId } from "@/lib/printful";
@@ -54,52 +54,6 @@ if (!ADMIN_EMAIL) {
 export async function isAdminUser(): Promise<boolean> {
   const session = await auth.api.getSession({ headers: await headers() });
   return isAdminEmail(session?.user?.email, ADMIN_EMAIL);
-}
-
-export async function getOrders() {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session || session.user.email !== ADMIN_EMAIL) {
-    throw new Error("Unauthorized");
-  }
-
-  const rows = await db
-    .select({
-      id: orderTable.id,
-      status: orderTable.status,
-      size: orderTable.size,
-      color: orderTable.color,
-      totalPrice: orderTable.totalPrice,
-      printfulCost: orderTable.printfulCost,
-      printfulOrderId: orderTable.printfulOrderId,
-      trackingNumber: orderTable.trackingNumber,
-      trackingUrl: orderTable.trackingUrl,
-      shippingName: orderTable.shippingName,
-      shippingAddress1: orderTable.shippingAddress1,
-      shippingCity: orderTable.shippingCity,
-      shippingState: orderTable.shippingState,
-      shippingZip: orderTable.shippingZip,
-      shippingCountry: orderTable.shippingCountry,
-      tags: orderTable.tags,
-      classification: orderTable.classification,
-      archivedAt: orderTable.archivedAt,
-      createdAt: orderTable.createdAt,
-      displayName: orderTable.displayName,
-      userEmail: userTable.email,
-      designId: orderTable.designId,
-      placements: orderTable.placements,
-    })
-    .from(orderTable)
-    .leftJoin(userTable, eq(orderTable.userId, userTable.id))
-    .orderBy(desc(orderTable.createdAt));
-
-  const displayUrls = await resolveDesignDisplayImageUrls(
-    rows.map((r) => r.designId)
-  );
-  const fallback = new Map<string, string | null>(
-    rows.map((r) => [r.designId, displayUrls.get(r.designId) ?? null])
-  );
-  const resolved = await resolveOrderImageUrls(rows, fallback);
-  return rows.map((r) => ({ ...r, designImageUrl: resolved.get(r.id) ?? null }));
 }
 
 export async function retryPrintfulSubmission(orderId: string) {
@@ -486,9 +440,6 @@ export async function getAdminData() {
       .select({
         id: orderTable.id,
         status: orderTable.status,
-        size: orderTable.size,
-        color: orderTable.color,
-        productId: orderTable.productId,
         quality: orderTable.quality,
         totalPrice: orderTable.totalPrice,
         printfulCost: orderTable.printfulCost,
@@ -509,7 +460,6 @@ export async function getAdminData() {
         displayName: orderTable.displayName,
         userEmail: userTable.email,
         designId: orderTable.designId,
-        placements: orderTable.placements,
       })
       .from(orderTable)
       .leftJoin(userTable, eq(orderTable.userId, userTable.id))
@@ -529,14 +479,44 @@ export async function getAdminData() {
       .orderBy(desc(ledgerEntry.createdAt)),
   ]);
 
+  // Purchased lines for every order in one query (order_item is authoritative
+  // since Phase 1c) — the list's thumbnail backdrop and size/color column read
+  // the first line instead of the dropped scalar columns.
+  const orderIds = orders.map((r) => r.id);
+  const itemRows = orderIds.length
+    ? await db
+        .select()
+        .from(orderItemTable)
+        .where(inArray(orderItemTable.orderId, orderIds))
+        .orderBy(asc(orderItemTable.createdAt))
+    : [];
+  const linesByOrder = new Map<string, typeof itemRows>();
+  for (const it of itemRows) {
+    const list = linesByOrder.get(it.orderId) ?? [];
+    list.push(it);
+    linesByOrder.set(it.orderId, list);
+  }
+
+  const ordersWithLines = orders.map((r) => ({
+    ...r,
+    lines: resolveOrderLines(linesByOrder.get(r.id) ?? []),
+  }));
+
   const displayUrls = await resolveDesignDisplayImageUrls(
     orders.map((r) => r.designId)
   );
   const fallback = new Map<string, string | null>(
     orders.map((r) => [r.designId, displayUrls.get(r.designId) ?? null])
   );
-  const resolved = await resolveOrderImageUrls(orders, fallback);
-  const ordersWithPinned = orders.map((r) => ({
+  const resolved = await resolveOrderImageUrls(
+    ordersWithLines.map((r) => ({
+      id: r.id,
+      designId: r.designId,
+      placements: r.lines[0]?.placements ?? null,
+    })),
+    fallback
+  );
+  const ordersWithPinned = ordersWithLines.map((r) => ({
     ...r,
     designImageUrl: resolved.get(r.id) ?? null,
   }));
@@ -555,9 +535,6 @@ export async function getOrderDetail(orderId: string) {
       .select({
         id: orderTable.id,
         status: orderTable.status,
-        size: orderTable.size,
-        color: orderTable.color,
-        productId: orderTable.productId,
         quality: orderTable.quality,
         totalPrice: orderTable.totalPrice,
         itemPrice: orderTable.itemPrice,
@@ -585,7 +562,6 @@ export async function getOrderDetail(orderId: string) {
         designId: orderTable.designId,
         designerId: designTable.userId,
         designerName: designerUser.name,
-        placements: orderTable.placements,
       })
       .from(orderTable)
       .leftJoin(userTable, eq(orderTable.userId, userTable.id))
@@ -600,11 +576,27 @@ export async function getOrderDetail(orderId: string) {
 
   if (orders.length === 0) throw new Error("Order not found");
 
+  // Every purchased line (order_item is authoritative since Phase 1c).
+  const items = await db.query.orderItem.findMany({
+    where: eq(orderItemTable.orderId, orderId),
+    orderBy: (fields, { asc }) => [asc(fields.createdAt)],
+  });
+  const lines = resolveOrderLines(items);
+
   const displayUrl = await getDesignDisplayImageUrl(orders[0].designId);
   const fallback = new Map<string, string | null>([
     [orders[0].designId, displayUrl],
   ]);
-  const resolved = await resolveOrderImageUrls(orders, fallback);
+  const resolved = await resolveOrderImageUrls(
+    [
+      {
+        id: orders[0].id,
+        designId: orders[0].designId,
+        placements: lines[0]?.placements ?? null,
+      },
+    ],
+    fallback
+  );
   const designImageUrl = resolved.get(orders[0].id) ?? null;
 
   const designedByName = designerAttribution({
@@ -612,24 +604,6 @@ export async function getOrderDetail(orderId: string) {
     designerName: orders[0].designerName,
     buyerId: orders[0].buyerId,
   });
-
-  // Every purchased line — order_item rows for cart orders, the scalar
-  // columns for legacy single-item orders.
-  const items = await db.query.orderItem.findMany({
-    where: eq(orderItemTable.orderId, orderId),
-  });
-  const lines = resolveOrderLines(
-    {
-      designId: orders[0].designId,
-      productId: orders[0].productId,
-      size: orders[0].size,
-      color: orders[0].color,
-      placements: orders[0].placements ?? null,
-      itemPrice: orders[0].itemPrice,
-      printfulCost: orders[0].printfulCost,
-    },
-    items
-  );
 
   return { ...orders[0], designImageUrl, designedByName, lines, ledger };
 }

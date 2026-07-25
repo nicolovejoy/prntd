@@ -49,6 +49,7 @@ function request(payload: unknown) {
 
 async function seed(opts: {
   orderOverrides?: Partial<typeof schema.order.$inferInsert>;
+  itemOverrides?: Partial<typeof schema.orderItem.$inferInsert>;
   designOverrides?: Partial<typeof schema.design.$inferInsert>;
 } = {}) {
   const userId = "pf-user";
@@ -64,9 +65,6 @@ async function seed(opts: {
     .values({
       userId,
       designId: design.id,
-      productId: "bella-canvas-3001",
-      size: "M",
-      color: "Black",
       totalPrice: 24.12,
       status: "submitted",
       printfulOrderId: "9999",
@@ -74,6 +72,17 @@ async function seed(opts: {
       ...opts.orderOverrides,
     })
     .returning();
+  // Phase 1c: the shipping-email hero reads the purchased line, not the order.
+  await db().insert(schema.orderItem).values({
+    orderId: order.id,
+    designId: design.id,
+    productId: "bella-canvas-3001",
+    size: "M",
+    color: "Black",
+    quantity: 1,
+    itemPrice: 19.43,
+    ...opts.itemOverrides,
+  });
   return { userId, design, order };
 }
 

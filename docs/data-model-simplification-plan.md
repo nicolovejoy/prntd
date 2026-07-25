@@ -14,6 +14,7 @@ Model B (conversation/image) migration.
    line. Single-item orders use the scalars; cart orders use `order_item`. Two
    representations of "what was bought." Target: `order_item` is authoritative
    (every order has ≥1 line); `order` keeps only order-level money + linkage.
+   **DONE** — see Phase 1 below (1c, migration `0006`).
 
 2. **Rename `productId` → `blankId` where it means a blank.**
    `order.productId`, `order_item.productId`, `cart_item.productId` hold a *blank*
@@ -57,9 +58,22 @@ ships green.
 1b. **Write-side: always write `order_item`.** Single-item checkout writes one
     `order_item` row alongside the order (keep scalars dual-written for one
     release so nothing breaks mid-deploy).
-1c. **Drop the scalar item columns** from `order` once all readers go through the
-    normalizer and all live orders have lines. Migration + backfill synthetic
-    lines for historical orders.
+    - DONE 2026-07-18 (PR #54): `createStripeCheckoutForOrder` batches an
+      `order_item` row with the order insert, so every checkout writes lines.
+1c. **Drop the scalar item columns** from `order`. DONE — migration `0006`.
+    - Dropped: `product_id`, `size`, `color`, `placements`. The migration
+      backfills a line (`id = 'legacy-' || order.id`) for every order without
+      one *before* dropping, so it's self-contained and idempotent on any target.
+    - Kept: `item_price` and `printful_cost`. Both read as order-level money in
+      practice — `item_price` is the product subtotal the Stripe webhook
+      reconciles from `amount_subtotal` (`totalPrice = itemPrice +
+      shippingPrice + taxCollected`), and `printful_cost` is the invoice total
+      for the whole Printful order. `order_item` carries the per-line versions.
+    - `resolveOrderLines` lost its legacy-scalar branch: it now just maps
+      `order_item` rows (still exposing `blankId`).
+    - Also moved off scalars: the Printful shipping-email hero (the last known
+      reader), the sale-ledger description, and the delete-image order-reference
+      guard (now reads `order_item.placements`).
 
 ### Phase 2 — blank rename (#2)
 

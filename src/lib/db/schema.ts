@@ -123,24 +123,27 @@ export const designImage = sqliteTable("design_image", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
 
+/**
+ * Order header. Data-model Phase 1c: what was bought lives ONLY in `order_item`
+ * — the per-item scalar columns (`product_id`, `size`, `color`, `placements`)
+ * were dropped in migration 0006, which first backfilled a line for every order
+ * that lacked one. The header keeps order-level money (totalPrice / itemPrice /
+ * shippingPrice / taxCollected / printfulCost), fulfillment linkage, and the
+ * shipping address. `designId` stays as header linkage (the thread the order
+ * came from, and what the Stripe metadata carries); per-line design ids are on
+ * `order_item`.
+ */
 export const order = sqliteTable("order", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: text("user_id").notNull().references(() => user.id),
   designId: text("design_id").notNull().references(() => design.id),
-  // Phase 2: maps placement id → design_image id. Today only "front" is
-  // populated; multi-placement is Phase 4. Null on pre-Phase-2 orders;
-  // resolution falls back to the design's primary image.
-  placements: text("placements", { mode: "json" }).$type<Record<string, string>>(),
   printfulOrderId: text("printful_order_id"),
   stripeSessionId: text("stripe_session_id"),
-  size: text("size").notNull(),
-  color: text("color").notNull(),
-  productId: text("product_id").notNull().default("bella-canvas-3001"),
   // Organizer-pivot Phase 3 attribution (nullable, no backfill). A storefront
   // sale links to the store + the organizer `product` (the design × blank ×
   // price sellable) so a later payout phase can sum proceeds per org.
-  // `storeProductId` is distinct from the legacy `productId` above, which holds
-  // a *blank* catalog id, not a `product.id`. Null for non-storefront orders.
+  // `storeProductId` points at `product.id` — distinct from `order_item`'s
+  // `productId`, which holds a *blank* catalog id. Null for non-storefront orders.
   storeId: text("store_id").references(() => store.id),
   storeProductId: text("store_product_id").references(() => product.id),
   displayName: text("display_name"),
@@ -179,11 +182,14 @@ export const order = sqliteTable("order", {
 });
 
 /**
- * Order line items (#26 Stage B). One row per shirt in a multi-item order:
- * its own product/size/color/placements and price split. The parent `order`
- * keeps order-level money (totalPrice, shippingPrice — shipping is charged once
- * per order, not per item) and the ledger linkage. Single-item orders may keep
- * using the scalar columns on `order`; the cart flow writes order_item rows.
+ * Order line items (#26 Stage B). One row per shirt in an order: its own
+ * product/size/color/placements and price split. The parent `order` keeps
+ * order-level money (totalPrice, itemPrice, shippingPrice — shipping is charged
+ * once per order, not per item) and the ledger linkage.
+ *
+ * Authoritative since Phase 1c: every order has ≥1 row here, including
+ * single-item ones (migration 0006 backfilled the historical ones from the
+ * scalar columns it then dropped). `productId` holds a *blank* catalog id.
  * printfulCost is the per-item COGS read back from Printful's invoice.
  */
 export const orderItem = sqliteTable("order_item", {
