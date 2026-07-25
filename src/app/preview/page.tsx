@@ -83,6 +83,10 @@ function PreviewPageInner() {
   const [pinnedColor, setPinnedColor] = useState<string | null>(null);
   const productTouched = useRef(false);
   const colorTouched = useRef(false);
+  // Set the moment a navigation away from /preview starts (add-to-cart,
+  // checkout). Late async state must not rewrite history after that — see the
+  // URL-sync effect below (#101).
+  const navigatingAway = useRef(false);
 
   const [renderState, setRenderState] = useState<RenderState>({ status: "idle" });
   // Bumped to re-run the placement-render effect (retry after an error).
@@ -295,7 +299,16 @@ function PreviewPageInner() {
   // Sync selections to the URL so they survive Stripe cancel → back and
   // reloads. replaceState, not router.replace — a router.replace issued next
   // to a server-action call gets cancelled by the action.
+  //
+  // Two guards, both because Next turns every history.replaceState into a
+  // router ACTION_RESTORE for the URL passed in — so a redundant or late call
+  // is a real navigation, not a no-op (the #101 class of bug):
+  //   - skip once a navigation away has started, so late-landing async state
+  //     (remembered defaults, pinned color, a mockup settling) can't restore
+  //     /preview on top of it;
+  //   - skip when the URL already matches, which is most renders.
   useEffect(() => {
+    if (navigatingAway.current) return;
     const params = new URLSearchParams(window.location.search);
     if (size) params.set("size", size);
     else params.delete("size");
@@ -303,11 +316,10 @@ function PreviewPageInner() {
     params.set("product", productId);
     if (backImageId) params.set("back", backImageId);
     else params.delete("back");
-    window.history.replaceState(
-      null,
-      "",
-      `${window.location.pathname}?${params.toString()}`
-    );
+    const next = `${window.location.pathname}?${params.toString()}`;
+    if (next === `${window.location.pathname}${window.location.search}`) return;
+    // Keep the existing history state rather than clearing it to null.
+    window.history.replaceState(window.history.state, "", next);
   }, [size, colorName, productId, backImageId]);
 
   // Resolve the design image to render for the current
@@ -551,6 +563,7 @@ function PreviewPageInner() {
   async function handleAddToCart() {
     if (!designId || !size) return;
     setAddingToCart(true);
+    navigatingAway.current = true;
     try {
       await addToCart({
         designId,
@@ -559,8 +572,15 @@ function PreviewPageInner() {
         productId,
         ...(backActive ? { back: backImageId! } : {}),
       });
-      router.push("/cart");
+      // Hard navigation, not router.push (#101). Next's server-action reducer
+      // finishes every action by navigating to the canonicalUrl the action was
+      // dispatched from. This page always has background actions in flight
+      // (mockup render, price), and any one of them landing after a client-side
+      // push drags the router straight back to /preview — the cart page had
+      // already rendered. A document navigation can't be undone that way.
+      window.location.href = "/cart";
     } catch {
+      navigatingAway.current = false;
       setAddingToCart(false);
     }
   }

@@ -10,7 +10,6 @@ import {
   orderItem as orderItemTable,
   design as designTable,
 } from "@/lib/db/schema";
-import { revalidatePath } from "next/cache";
 import {
   getBlank,
   getVariantId,
@@ -73,6 +72,12 @@ async function currentUserId(): Promise<string | null> {
  * cart re-parents to their account on sign-in. Resolves the front placement
  * from the design's pinned primary image (same as createCheckoutSession), and
  * honors a back image only when MULTI_PLACEMENT_ENABLED.
+ *
+ * No revalidatePath here, nor in removeCartItem/clearCart: nothing renders cart
+ * data on the server. /cart is a client page that calls getCart() itself and
+ * the header count calls getCartCount(), so the only thing the revalidation
+ * bought was a RefreshAll on the navigation Next appends to every server
+ * action.
  */
 export async function addToCart(params: {
   designId: string;
@@ -115,7 +120,6 @@ export async function addToCart(params: {
     placements,
   });
 
-  revalidatePath("/cart");
   return { ok: true, count: await getCartCount() };
 }
 
@@ -126,14 +130,12 @@ export async function removeCartItem(id: string): Promise<void> {
   await db
     .delete(cartItemTable)
     .where(and(eq(cartItemTable.id, id), eq(cartItemTable.userId, userId)));
-  revalidatePath("/cart");
 }
 
 export async function clearCart(): Promise<void> {
   const userId = await currentUserId();
   if (!userId) return;
   await db.delete(cartItemTable).where(eq(cartItemTable.userId, userId));
-  revalidatePath("/cart");
 }
 
 export async function getCartCount(): Promise<number> {
