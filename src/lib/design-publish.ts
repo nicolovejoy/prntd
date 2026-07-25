@@ -85,8 +85,9 @@ export function canBuyPublishedImage(image: {
  * and the guard agree.
  */
 export function canUseAsPlacementSource(params: {
+  /** Publish state only — Model B keeps it in `listing`, and the guard has
+   * never had a thread-membership grant to spend a designId on. */
   image: {
-    designId: string;
     publishedAt: Date | null;
     isHidden: boolean;
   };

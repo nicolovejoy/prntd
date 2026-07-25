@@ -93,6 +93,49 @@ describe("backfillModelB", () => {
     });
   });
 
+  it("carries created_at across, so the slice-2 ordering reads survive", async () => {
+    await seedUser("u1");
+    const [design] = await db
+      .insert(schema.design)
+      .values({ userId: "u1" })
+      .returning();
+    const older = new Date(Date.UTC(2026, 0, 1, 12, 0));
+    const newer = new Date(Date.UTC(2026, 0, 2, 12, 0));
+    const [a] = await db
+      .insert(schema.designImage)
+      .values({
+        designId: design.id,
+        aspectRatio: "1:1",
+        imageUrl: "https://cdn/a.png",
+        createdAt: older,
+      })
+      .returning();
+    const [b] = await db
+      .insert(schema.designImage)
+      .values({
+        designId: design.id,
+        aspectRatio: "1:2",
+        productId: "bella-canvas-3001",
+        placementId: "back",
+        imageUrl: "https://cdn/b.png",
+        createdAt: newer,
+      })
+      .returning();
+
+    await backfillModelB(db);
+
+    const [img] = await db
+      .select()
+      .from(schema.image)
+      .where(eq(schema.image.id, a.id));
+    expect(img.createdAt).toEqual(older);
+    const [pr] = await db
+      .select()
+      .from(schema.placementRender)
+      .where(eq(schema.placementRender.id, b.id));
+    expect(pr.createdAt).toEqual(newer);
+  });
+
   it("coalesces a null placement to 'default'", async () => {
     await seedUser("u1");
     const [design] = await db.insert(schema.design).values({ userId: "u1" }).returning();

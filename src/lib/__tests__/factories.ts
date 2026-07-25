@@ -19,3 +19,86 @@ export async function makeDesign(db: Db, userId: string) {
   const [d] = await db.insert(schema.design).values({ userId }).returning();
   return d;
 }
+
+/**
+ * Seed a source image the way production writes one: `design_image` plus the
+ * Model B mirrors (`image` + `conversation_image(role=output)`, and a
+ * `listing` when published) under one shared id.
+ *
+ * Tests that insert design_image alone are invisible to the slice-2 readers,
+ * so anything exercising a read path seeds through here. `ownerId` must be
+ * the design's owner — image.ownerId is the denormalized copy the guards read.
+ */
+export async function makeSourceImage(
+  db: Db,
+  params: {
+    designId: string;
+    ownerId: string;
+    imageUrl: string;
+    aspectRatio?: string;
+    prompt?: string | null;
+    generationCost?: number;
+    parentImageId?: string | null;
+    seedImageId?: string | null;
+    originalDesignerId?: string | null;
+    createdAt?: Date;
+    publishedAt?: Date | null;
+    isHidden?: boolean;
+    title?: string | null;
+    description?: string | null;
+    backgroundColor?: string | null;
+    feedRank?: number | null;
+  }
+): Promise<string> {
+  const aspectRatio = params.aspectRatio ?? "1:1";
+  const [row] = await db
+    .insert(schema.designImage)
+    .values({
+      designId: params.designId,
+      aspectRatio,
+      imageUrl: params.imageUrl,
+      prompt: params.prompt ?? null,
+      generationCost: params.generationCost ?? 0,
+      parentImageId: params.parentImageId ?? null,
+      publishedAt: params.publishedAt ?? null,
+      isHidden: params.isHidden ?? false,
+      title: params.title ?? null,
+      description: params.description ?? null,
+      backgroundColor: params.backgroundColor ?? null,
+      feedRank: params.feedRank ?? null,
+      ...(params.createdAt ? { createdAt: params.createdAt } : {}),
+    })
+    .returning();
+
+  await db.insert(schema.image).values({
+    id: row.id,
+    ownerId: params.ownerId,
+    imageUrl: params.imageUrl,
+    aspectRatio,
+    prompt: params.prompt ?? null,
+    generationCost: params.generationCost ?? 0,
+    parentImageId: params.parentImageId ?? null,
+    seedImageId: params.seedImageId ?? null,
+    originalDesignerId: params.originalDesignerId ?? null,
+    sourceDesignId: params.designId,
+    ...(params.createdAt ? { createdAt: params.createdAt } : {}),
+  });
+  await db.insert(schema.conversationImage).values({
+    designId: params.designId,
+    imageId: row.id,
+    role: "output",
+  });
+
+  if (params.publishedAt) {
+    await db.insert(schema.listing).values({
+      imageId: row.id,
+      publishedAt: params.publishedAt,
+      isHidden: params.isHidden ?? false,
+      title: params.title ?? null,
+      description: params.description ?? null,
+      backgroundColor: params.backgroundColor ?? null,
+      feedRank: params.feedRank ?? null,
+    });
+  }
+  return row.id;
+}

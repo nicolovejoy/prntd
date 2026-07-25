@@ -60,14 +60,16 @@ export async function getUserDesigns() {
   >();
   if (primaryIds.length) {
     try {
+      // Publish state lives in `listing` now — a row exists iff published, so
+      // an unpublished primary is simply absent from the map.
       const primaryRows = await db
         .select({
-          id: designImageTable.id,
-          publishedAt: designImageTable.publishedAt,
-          backgroundColor: designImageTable.backgroundColor,
+          id: listingTable.imageId,
+          publishedAt: listingTable.publishedAt,
+          backgroundColor: listingTable.backgroundColor,
         })
-        .from(designImageTable)
-        .where(inArray(designImageTable.id, primaryIds));
+        .from(listingTable)
+        .where(inArray(listingTable.imageId, primaryIds));
       primaryById = new Map(
         primaryRows.map((r) => [
           r.id,
@@ -205,6 +207,9 @@ export async function publishImage(
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) throw new Error("Unauthorized");
 
+  // The publish-family actions still read design_image: an unpublished image
+  // has no listing row, so its is_hidden / feed_rank (which the new listing
+  // must snapshot) live nowhere else until the slice-4 writer cutover.
   const image = await db.query.designImage.findFirst({
     where: eq(designImageTable.id, imageId),
   });

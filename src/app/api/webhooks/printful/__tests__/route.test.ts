@@ -11,6 +11,7 @@ import { NextRequest } from "next/server";
 import * as schema from "@/lib/db/schema";
 import { getColorHex } from "@/lib/blanks";
 import { createTestDb } from "@/lib/__tests__/test-db";
+import { makeSourceImage } from "@/lib/__tests__/factories";
 
 const state = vi.hoisted(() => ({
   db: null as unknown,
@@ -151,17 +152,14 @@ describe("Printful webhook route — package_shipped", () => {
 
   it("falls back to the design artwork on a shirt-color backdrop when no mockup is cached", async () => {
     const { design } = await seed();
-    const [image] = await db()
-      .insert(schema.designImage)
-      .values({
-        designId: design.id,
-        aspectRatio: "1:1",
-        imageUrl: "https://img.example/artwork.png",
-      })
-      .returning();
+    const imageId = await makeSourceImage(db(), {
+      designId: design.id,
+      ownerId: design.userId,
+      imageUrl: "https://img.example/artwork.png",
+    });
     await db()
       .update(schema.design)
-      .set({ primaryImageId: image.id })
+      .set({ primaryImageId: imageId })
       .where(eq(schema.design.id, design.id));
 
     const res = await POST(

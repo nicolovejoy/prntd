@@ -64,9 +64,14 @@ export function buildImageRow(params: {
   parentImageId?: string | null;
   seedImageId?: string | null;
   originalDesignerId?: string | null;
+  /** Backfill only: carries the design_image timestamp across, so the
+   * chronological reads (thread gallery order, latest-source fallback) keep
+   * working on rows that predate the table. Live writes omit it → now. */
+  createdAt?: Date;
 }): ImageRow {
   return {
     id: params.id,
+    ...(params.createdAt ? { createdAt: params.createdAt } : {}),
     ownerId: params.ownerId,
     r2Key: r2KeyFromUrl(params.imageUrl),
     imageUrl: params.imageUrl,
@@ -109,9 +114,13 @@ export function buildPlacementRenderRow(params: {
   imageUrl: string;
   aspectRatio: string;
   generationCost: number;
+  /** Backfill only — see buildImageRow. findPlacementRender takes the most
+   * recent match, so the original timestamp has to survive. */
+  createdAt?: Date;
 }): PlacementRenderRow {
   return {
     id: params.id,
+    ...(params.createdAt ? { createdAt: params.createdAt } : {}),
     designId: params.designId,
     sourceImageId: params.sourceImageId ?? null,
     blankId: params.blankId,

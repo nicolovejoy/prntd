@@ -8,11 +8,13 @@ import {
   orderItem as orderItemTable,
   design as designTable,
   designImage as designImageTable,
+  image as imageTable,
+  listing as listingTable,
   user as userTable,
   ledgerEntry,
 } from "@/lib/db/schema";
 import { listingSyncStatement } from "@/lib/model-b-writes";
-import { eq, desc, asc, isNotNull, sum, count, sql } from "drizzle-orm";
+import { eq, desc, asc, sum, count, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { revalidatePath } from "next/cache";
 import { createOrder, getOrderByExternalId } from "@/lib/printful";
@@ -383,25 +385,26 @@ export async function getRecentPublishedForAdmin(
 
   // Same order as the Shop feed (ranked first, then newest) so the admin
   // grid mirrors what customers see.
+  // Published = has a listing row (Model B); hidden ones stay in the grid so
+  // the admin can unhide them.
   const rows = await db
     .select({
-      imageId: designImageTable.id,
-      imageUrl: designImageTable.imageUrl,
-      title: designImageTable.title,
-      publishedAt: designImageTable.publishedAt,
-      isHidden: designImageTable.isHidden,
-      feedRank: designImageTable.feedRank,
+      imageId: imageTable.id,
+      imageUrl: imageTable.imageUrl,
+      title: listingTable.title,
+      publishedAt: listingTable.publishedAt,
+      isHidden: listingTable.isHidden,
+      feedRank: listingTable.feedRank,
       designerName: userTable.name,
       designerEmail: userTable.email,
     })
-    .from(designImageTable)
-    .innerJoin(designTable, eq(designTable.id, designImageTable.designId))
-    .innerJoin(userTable, eq(userTable.id, designTable.userId))
-    .where(isNotNull(designImageTable.publishedAt))
+    .from(listingTable)
+    .innerJoin(imageTable, eq(imageTable.id, listingTable.imageId))
+    .innerJoin(userTable, eq(userTable.id, imageTable.ownerId))
     .orderBy(
-      sql`${designImageTable.feedRank} is null`,
-      asc(designImageTable.feedRank),
-      desc(designImageTable.publishedAt)
+      sql`${listingTable.feedRank} is null`,
+      asc(listingTable.feedRank),
+      desc(listingTable.publishedAt)
     )
     .limit(limit);
 
@@ -411,7 +414,7 @@ export async function getRecentPublishedForAdmin(
     title: r.title,
     designerName: r.designerName,
     designerEmail: r.designerEmail,
-    publishedAt: r.publishedAt!,
+    publishedAt: r.publishedAt,
     isHidden: r.isHidden,
     feedRank: r.feedRank,
   }));

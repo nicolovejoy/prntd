@@ -1,16 +1,14 @@
 "use server";
 
 import { headers } from "next/headers";
-import { eq, inArray } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { auth, isAnonymousUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { storesEnabled } from "@/lib/flags";
 import * as svc from "@/lib/store-service";
 import { canViewStore, canBuyStoreProduct, productIsListed } from "@/lib/stores";
-import {
-  design as designTable,
-  designImage as designImageTable,
-} from "@/lib/db/schema";
+import { design as designTable } from "@/lib/db/schema";
+import { resolveImagesByIds } from "@/lib/design-images";
 import {
   getBlank,
   getColorHex,
@@ -81,13 +79,8 @@ export async function getStorefront(slug: string): Promise<Storefront | null> {
   const imageIds = visible
     .map((p) => (p.placements ? Object.values(p.placements)[0] : undefined))
     .filter((id): id is string => Boolean(id));
-  const imgs = imageIds.length
-    ? await db
-        .select({ id: designImageTable.id, imageUrl: designImageTable.imageUrl })
-        .from(designImageTable)
-        .where(inArray(designImageTable.id, imageIds))
-    : [];
-  const urlById = new Map(imgs.map((r) => [r.id, r.imageUrl]));
+  const imgById = await resolveImagesByIds(imageIds);
+  const urlById = new Map([...imgById].map(([id, img]) => [id, img.imageUrl]));
 
   const products: StorefrontProduct[] = visible.flatMap((p) => {
     const imageId = p.placements ? Object.values(p.placements)[0] : undefined;
@@ -153,13 +146,7 @@ export async function getStoreProductForBuy(
 
   const imageId = await resolveProductImageId(product.placements, product.designId);
   if (!imageId) return null;
-  const [img] = await db
-    .select({
-      imageUrl: designImageTable.imageUrl,
-      aspectRatio: designImageTable.aspectRatio,
-    })
-    .from(designImageTable)
-    .where(eq(designImageTable.id, imageId));
+  const img = (await resolveImagesByIds([imageId])).get(imageId);
   if (!img) return null;
 
   const blank = getBlank(product.blankId);
@@ -171,7 +158,7 @@ export async function getStoreProductForBuy(
     blankId: product.blankId,
     blankName: blank?.name ?? product.blankId,
     imageUrl: img.imageUrl,
-    aspectRatio: img.aspectRatio as AspectRatio,
+    aspectRatio: img.aspectRatio,
     sizes: blank?.sizes ?? [],
     colors: blank?.colors ?? [],
     fixedPrice: product.price,
@@ -205,12 +192,9 @@ export async function buyStoreProduct(params: {
   }
 
   const imageId = await resolveProductImageId(product.placements, product.designId);
-  const [img] = imageId
-    ? await db
-        .select({ imageUrl: designImageTable.imageUrl })
-        .from(designImageTable)
-        .where(eq(designImageTable.id, imageId))
-    : [];
+  const img = imageId
+    ? (await resolveImagesByIds([imageId])).get(imageId)
+    : undefined;
 
   return createStripeCheckoutForOrder({
     userId: session.user.id,
