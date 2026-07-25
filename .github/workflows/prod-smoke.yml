@@ -1,0 +1,122 @@
+name: Prod smoke
+
+# Since #108 the e2e job boots its own compiled server, so no CI job touches a
+# real Vercel deployment. Missing/mis-scoped Production env vars and flags now
+# surface only when a human notices prod is broken. This waits for main's
+# production deploy, then curls the public surface. Public URLs only — no
+# secrets, no bypass header.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  deployments: read
+  issues: write
+
+# Two pushes in quick succession would race for the same domain; queue instead.
+concurrency:
+  group: prod-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      BASE_URL: https://prntd.org
+    steps:
+      # Mirrors the preview wait ci.yml carried before #108: Vercel records a
+      # GitHub deployment per commit and posts a status when the build lands.
+      # No checkout needed — `gh api` works off GITHUB_REPOSITORY.
+      - name: Wait for Vercel production deploy
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+        run: |
+          set +e # "not deployed yet" is the expected case while polling
+          state=""
+          for i in $(seq 1 60); do
+            id=$(gh api "repos/$GITHUB_REPOSITORY/deployments?sha=$SHA&environment=Production" \
+              --jq '.[0].id // empty' 2>/dev/null)
+            if [ -n "$id" ]; then
+              state=$(gh api "repos/$GITHUB_REPOSITORY/deployments/$id/statuses" \
+                --jq '[.[] | select(.state=="success")][0].state // empty' 2>/dev/null)
+              [ "$state" = "success" ] && break
+            fi
+            echo "waiting for production deployment ($i)…"
+            sleep 15
+          done
+          if [ "$state" != "success" ]; then
+            echo "::error::deploy never appeared — no successful Production deployment for $SHA within 15 min (a failed or missing Vercel build is itself the finding)"
+            exit 1
+          fi
+          echo "production deployment succeeded for $SHA"
+
+      # The deployment status fires when the build lands; the prntd.org alias
+      # can take a few more seconds to point at it.
+      - name: Wait for prntd.org to answer
+        run: |
+          for i in $(seq 1 12); do
+            code=$(curl -sS -o /dev/null --max-time 20 -w '%{http_code}' "$BASE_URL/" || echo 000)
+            [ "$code" = "200" ] && exit 0
+            echo "GET / → $code ($i)"
+            sleep 10
+          done
+          echo "::error::$BASE_URL/ never returned 200"
+          exit 1
+
+      # Markers are structural, not marketing copy (copy sweeps rewrite copy):
+      #   /            maker-hero testid — the app rendered at all
+      #   /prints      published-grid testid — only present when the
+      #                server-side feed query returned rows, so it fails on
+      #                broken DATABASE_URL/DATABASE_AUTH_TOKEN (and on an
+      #                unexpectedly empty Shop, which is also worth knowing)
+      #   /robots.txt  the AI-crawler policy is actually served
+      #   /api/auth/…  better-auth mounted and booted (200 + body `null` when
+      #                signed out); catches a missing BETTER_AUTH_SECRET
+      - name: Smoke prntd.org
+        run: |
+          fail=0
+          probe() { # probe <path> [marker]
+            code=$(curl -sS -o /tmp/smoke-body --max-time 20 -w '%{http_code}' "$BASE_URL$1" || echo 000)
+            if [ "$code" != "200" ]; then
+              echo "FAIL $1 → HTTP $code"
+              fail=1
+              return
+            fi
+            if [ -n "${2:-}" ] && ! grep -qF "$2" /tmp/smoke-body; then
+              echo "FAIL $1 → 200 but missing marker: $2"
+              fail=1
+              return
+            fi
+            echo "ok   $1"
+          }
+
+          probe "/" 'data-testid="maker-hero"'
+          probe "/prints" 'data-testid="published-grid"'
+          probe "/robots.txt" "GPTBot"
+          probe "/api/auth/get-session"
+
+          [ "$fail" = "0" ] || { echo "::error::prod smoke failed — see the per-check lines above"; exit 1; }
+
+      # A red smoke must not be silent: file a tracking issue, or comment on
+      # the open one so repeated failures land in a single thread.
+      - name: Report failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          body="Prod smoke failed for ${{ github.sha }}: $run_url"
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --label prod-smoke --state open --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" \
+              --title "Prod smoke failed" \
+              --label prod-smoke \
+              --body "$body"$'\n\n'"Later failures dedupe onto this issue while it stays open. Close it once prntd.org is healthy again."
+          fi

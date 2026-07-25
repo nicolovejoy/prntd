@@ -12,6 +12,10 @@ import { minRetailPrice } from "@/lib/pricing";
  * generation. Unlike the in-chat chips (which prefill), landing chips
  * navigate immediately: here they demo the product. The sub-line is the
  * one-line basics of the offer (#75); price comes from minRetailPrice().
+ *
+ * data-testid="maker-hero" is the post-deploy prod smoke's "the app rendered"
+ * marker (.github/workflows/prod-smoke.yml) — copy sweeps rewrite the
+ * headline, this doesn't.
  */
 export function MakerHero() {
   const router = useRouter();
@@ -24,7 +28,10 @@ export function MakerHero() {
   }
 
   return (
-    <main className="flex-1 flex flex-col items-center justify-center px-4 py-6 sm:py-16 text-center">
+    <main
+      data-testid="maker-hero"
+      className="flex-1 flex flex-col items-center justify-center px-4 py-6 sm:py-16 text-center"
+    >
       <div className="w-full max-w-2xl space-y-4 sm:space-y-6">
         <h1 className="text-2xl sm:text-5xl font-bold tracking-tight">
           Your idea, on a shirt.
