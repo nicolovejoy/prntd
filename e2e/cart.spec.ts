@@ -22,6 +22,14 @@ async function shippingAmount(page: Page): Promise<number> {
   return Number(match![1]);
 }
 
+async function sessionCookie(page: Page): Promise<string> {
+  const cookies = await page.context().cookies();
+  return (
+    cookies.find((c) => c.name.endsWith("better-auth.session_token"))?.value ??
+    ""
+  );
+}
+
 async function addToCartFromPreviewPage(page: Page, designId: string) {
   // URL `size` pre-selects visibly (no silent default), so no extra click.
   await page.goto(
@@ -32,6 +40,14 @@ async function addToCartFromPreviewPage(page: Page, designId: string) {
   await expect(page.getByText("Total")).toBeVisible({ timeout: 30_000 });
   await page.getByRole("button", { name: "Add to cart" }).click();
   await page.waitForURL(/\/cart/);
+
+  // #101 guard. The flake was never "the cart is empty" — the browser landed
+  // on /cart and then bounced back to /preview a beat later, when a /preview
+  // server action that was still in flight resolved and Next navigated to the
+  // URL that action had been dispatched from. Hold the URL for a moment so a
+  // bounce fails here, loudly, instead of as a mystery 0-line-items count.
+  await page.waitForTimeout(1_000);
+  await expect(page).toHaveURL(/\/cart/);
 }
 
 test("guest cart: two items, bundled shipping, sign-in gate at checkout", async ({
@@ -55,6 +71,11 @@ test("guest cart: two items, bundled shipping, sign-in gate at checkout", async 
     await expect(page.getByTestId("cart-line-item")).toHaveCount(1, {
       timeout: 30_000,
     });
+    // The cart is owner-scoped, so a session swap mid-flow reads as an empty
+    // cart. ensureGuestSession used to mint a second anonymous user whenever
+    // the session lookup errored; assert the identity we seeded against is
+    // still the one the cart is read under.
+    expect(await sessionCookie(page)).toBe(cookie);
     const oneItemShipping = await shippingAmount(page);
 
     // Second item — bundled shipping must not scale with item count.

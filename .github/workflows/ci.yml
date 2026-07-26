@@ -158,13 +158,15 @@ jobs:
       # (npm run build && npm run start -p 3100) with the funnel flags on,
       # against the ephemeral DB in DATABASE_URL/DATABASE_AUTH_TOKEN.
       #
-      # Flake #101 ("cart: 0 line items") is an intermittent, self-clearing
-      # ~30s stall in the cart page's client-side load (a server action whose
-      # response is occasionally delayed) — it reproduces even for a single
-      # cart test run alone, and recovers on the next attempt, so it is NOT
-      # inter-run DB contention (the per-run ephemeral DB rules that out) nor
-      # project concurrency. The cart page now retries its own load
-      # (src/app/cart/page.tsx); belt-and-suspenders here:
+      # Flake #101 ("cart: 0 line items") was root-caused from the
+      # run-29888905717 traces and reproduced locally: the cart page loaded fine
+      # (getCart returned in 90ms) and the browser then navigated BACK to
+      # /preview ~200ms later, so the assertion ran against the wrong page.
+      # Next's server-action reducer ends every action by navigating to the
+      # canonicalUrl the action was dispatched from; /preview always has a
+      # background action in flight, and one landing after router.push("/cart")
+      # undoes the push. /preview now leaves via a document navigation
+      # (src/app/preview/page.tsx). These flags stay as belt-and-suspenders:
       #   --workers=1  : serialize the two projects so they don't add load to
       #                  one self-hosted server (local `npm run e2e` keeps
       #                  default parallelism — unchanged).
