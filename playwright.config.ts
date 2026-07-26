@@ -38,9 +38,21 @@ export default defineConfig({
   },
   projects: [
     // Phone-first project: the product principle is mobile wins, so the
-    // primary E2E viewport is a phone.
+    // primary E2E viewport is a phone. Everything runs here.
     { name: "mobile", use: { ...devices["Pixel 7"] } },
-    { name: "desktop", use: { ...devices["Desktop Chrome"] } },
+    // Desktop is a smoke layer, not a second full suite. Running every spec on
+    // both viewports doubled e2e runtime for little marginal signal — the specs
+    // assert flow and data, which are viewport-independent; the layout that
+    // actually differs (mobile hero, wrapped card actions, hamburger nav) is
+    // the phone one, already covered above. Kept here: the landing page (the
+    // one desktop-first surface) and the guest funnel (a representative walk
+    // through /design + the auth gate), enough to catch a desktop-only render
+    // or routing break. Add a spec here only if it can break on desktop alone.
+    {
+      name: "desktop",
+      use: { ...devices["Desktop Chrome"] },
+      testMatch: /(landing|guest-funnel)\.spec\.ts$/,
+    },
   ],
   webServer: remoteURL
     ? undefined
