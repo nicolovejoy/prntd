@@ -6,6 +6,10 @@ import { publishedBackdrop } from "@/lib/blanks";
  * Shared grid of published (Shop, /prints) designs. Each card links to the
  * buy page at /d/[imageId]. The viewer's own designs are tagged "by you"
  * (set on PublishedImage.isOwn by the feed query).
+ *
+ * data-testid="published-grid" is the post-deploy prod smoke's DB canary
+ * (.github/workflows/prod-smoke.yml): it only reaches the HTML when the
+ * server-side feed query returned rows.
  */
 export function PublishedGrid({
   images,
@@ -17,7 +21,10 @@ export function PublishedGrid({
 }) {
   const suffix = from ? `?from=${encodeURIComponent(from)}` : "";
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+    <div
+      data-testid="published-grid"
+      className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4"
+    >
       {images.map((img) => {
         const backdrop = publishedBackdrop(img.backgroundColor);
         return (

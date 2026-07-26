@@ -50,7 +50,15 @@ export async function userIdForSessionCookie(
 
 const PLACEHOLDER_IMAGE = "https://placehold.co/1024x1024/png";
 
-/** Seed a draft design (with a primary image) owned by `userId`. */
+/**
+ * Seed a draft design (with a primary image) owned by `userId`.
+ *
+ * Writes BOTH shapes, exactly like production's dual-write
+ * (src/lib/model-b-writes.ts): design_image for the legacy writers, and
+ * image + conversation_image(role=output) with the same id for the Model B
+ * readers the app is on since slice 2. Seeding only design_image would leave
+ * every spec looking at a design with no images.
+ */
 export async function seedDesign(userId: string, key: string): Promise<string> {
   const designId = `e2e-${key}`;
   const imageId = `e2e-${key}-img`;
@@ -67,6 +75,18 @@ export async function seedDesign(userId: string, key: string): Promise<string> {
           ON CONFLICT(id) DO UPDATE SET image_url = excluded.image_url`,
     args: [imageId, designId, PLACEHOLDER_IMAGE],
   });
+  await c.execute({
+    sql: `INSERT INTO image (id, owner_id, r2_key, image_url, aspect_ratio, generation_cost, source_design_id, created_at)
+          VALUES (?, ?, NULL, ?, '1:1', 0, ?, unixepoch())
+          ON CONFLICT(id) DO UPDATE SET owner_id = excluded.owner_id, image_url = excluded.image_url, source_design_id = excluded.source_design_id`,
+    args: [imageId, userId, PLACEHOLDER_IMAGE, designId],
+  });
+  await c.execute({
+    sql: `INSERT INTO conversation_image (id, design_id, image_id, role, created_at)
+          VALUES (?, ?, ?, 'output', unixepoch())
+          ON CONFLICT(design_id, image_id, role) DO NOTHING`,
+    args: [`${imageId}-link`, designId, imageId],
+  });
   return designId;
 }
 
@@ -77,6 +97,25 @@ export async function cleanupDesigns(designIds: string[]): Promise<void> {
   const placeholders = designIds.map(() => "?").join(",");
   await c.execute({
     sql: `DELETE FROM cart_item WHERE design_id IN (${placeholders})`,
+    args: designIds,
+  });
+  // Model B rows: images key off the design's design_image ids, links and
+  // renders off design_id, listings off the image ids.
+  await c.execute({
+    sql: `DELETE FROM listing WHERE image_id IN (SELECT id FROM design_image WHERE design_id IN (${placeholders}))`,
+    args: designIds,
+  });
+  await c.execute({
+    sql: `DELETE FROM image WHERE id IN (SELECT id FROM design_image WHERE design_id IN (${placeholders}))
+          OR source_design_id IN (${placeholders})`,
+    args: [...designIds, ...designIds],
+  });
+  await c.execute({
+    sql: `DELETE FROM conversation_image WHERE design_id IN (${placeholders})`,
+    args: designIds,
+  });
+  await c.execute({
+    sql: `DELETE FROM placement_render WHERE design_id IN (${placeholders})`,
     args: designIds,
   });
   await c.execute({

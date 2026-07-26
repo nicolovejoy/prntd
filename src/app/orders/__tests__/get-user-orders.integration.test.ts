@@ -9,6 +9,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { createTestDb } from "@/lib/__tests__/test-db";
 import * as schema from "@/lib/db/schema";
+import { makeSourceImage } from "@/lib/__tests__/factories";
 
 const h = vi.hoisted(() => ({
   db: null as unknown,
@@ -42,15 +43,16 @@ async function seedDesignWithImage(
     .insert(schema.design)
     .values({ userId })
     .returning();
-  const [image] = await db
-    .insert(schema.designImage)
-    .values({ designId: design.id, aspectRatio: "1:1", imageUrl })
-    .returning();
+  const imageId = await makeSourceImage(db, {
+    designId: design.id,
+    ownerId: userId,
+    imageUrl,
+  });
   await db
     .update(schema.design)
-    .set({ primaryImageId: image.id })
+    .set({ primaryImageId: imageId })
     .where(eq(schema.design.id, design.id));
-  return { designId: design.id, imageId: image.id };
+  return { designId: design.id, imageId };
 }
 
 beforeEach(async () => {

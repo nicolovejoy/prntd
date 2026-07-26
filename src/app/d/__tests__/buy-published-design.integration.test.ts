@@ -12,7 +12,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { eq as schemaEq } from "drizzle-orm";
 import { createTestDb } from "@/lib/__tests__/test-db";
 import * as schema from "@/lib/db/schema";
-import { makeUser } from "@/lib/__tests__/factories";
+import { makeUser, makeSourceImage } from "@/lib/__tests__/factories";
 
 const h = vi.hoisted(() => ({
   db: null as unknown,
@@ -60,48 +60,39 @@ async function seed(db: Db) {
     .insert(schema.design)
     .values({ userId: "seller" })
     .returning();
-  const [listing] = await db
-    .insert(schema.designImage)
-    .values({
-      designId: sold.id,
-      aspectRatio: "1:1",
-      imageUrl: "https://img.example/listing.png",
-      publishedAt: new Date(),
-    })
-    .returning();
-  const [sellerPrivate] = await db
-    .insert(schema.designImage)
-    .values({
-      designId: sold.id,
-      aspectRatio: "1:1",
-      imageUrl: "https://img.example/seller-private.png",
-    })
-    .returning();
+  const listingId = await makeSourceImage(db, {
+    designId: sold.id,
+    ownerId: "seller",
+    imageUrl: "https://img.example/listing.png",
+    publishedAt: new Date(),
+  });
+  const sellerPrivateId = await makeSourceImage(db, {
+    designId: sold.id,
+    ownerId: "seller",
+    imageUrl: "https://img.example/seller-private.png",
+  });
 
   // The buyer's own design → a legitimate back source.
   const [mine] = await db
     .insert(schema.design)
     .values({ userId: "buyer" })
     .returning();
-  const [myBack] = await db
-    .insert(schema.designImage)
-    .values({
-      designId: mine.id,
-      aspectRatio: "1:1",
-      imageUrl: "https://img.example/my-back.png",
-    })
-    .returning();
+  const myBackId = await makeSourceImage(db, {
+    designId: mine.id,
+    ownerId: "buyer",
+    imageUrl: "https://img.example/my-back.png",
+  });
   // My Designs lists primaries only.
   await db
     .update(schema.design)
-    .set({ primaryImageId: myBack.id })
+    .set({ primaryImageId: myBackId })
     .where(schemaEq(schema.design.id, mine.id));
 
   return {
     soldDesignId: sold.id,
-    listingId: listing.id,
-    sellerPrivateId: sellerPrivate.id,
-    myBackId: myBack.id,
+    listingId,
+    sellerPrivateId,
+    myBackId,
   };
 }
 
@@ -252,5 +243,76 @@ describe("getBuyPageBackSources gating", () => {
     expect(groupIds).not.toContain("this-design");
     expect(groupIds).toContain("my-designs");
     expect(groupIds).toContain("shop");
+  });
+});
+
+/**
+ * The /d page read swap (Model B slice 2): the listing carries the public
+ * copy, and the attribution chain walks image.seed_image_id instead of
+ * design.forked_from_image_id.
+ */
+describe("getPublishedImage (Model B reads)", () => {
+  it("serves the listing's copy and the designer", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    await db
+      .update(schema.listing)
+      .set({ title: "Fox", description: "A fox", backgroundColor: "Black" })
+      .where(schemaEq(schema.listing.imageId, ids.listingId));
+
+    const { getPublishedImage } = await import("@/app/d/actions");
+    const img = await getPublishedImage(ids.listingId);
+    expect(img?.imageUrl).toBe("https://img.example/listing.png");
+    expect(img?.title).toBe("Fox");
+    expect(img?.backgroundColor).toBe("Black");
+    expect(img?.designerName).toBe("seller");
+    expect(img?.forkChain).toEqual([]);
+  });
+
+  it("404s an unpublished image and a hidden one", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    const { getPublishedImage } = await import("@/app/d/actions");
+
+    expect(await getPublishedImage(ids.sellerPrivateId)).toBeNull();
+
+    await db
+      .update(schema.listing)
+      .set({ isHidden: true })
+      .where(schemaEq(schema.listing.imageId, ids.listingId));
+    expect(await getPublishedImage(ids.listingId)).toBeNull();
+  });
+
+  it("walks the attribution chain over image.seed_image_id", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    await db
+      .update(schema.listing)
+      .set({ title: "Seed" })
+      .where(schemaEq(schema.listing.imageId, ids.listingId));
+
+    const [child] = await db
+      .insert(schema.design)
+      .values({ userId: "buyer" })
+      .returning();
+    const childImageId = await makeSourceImage(db, {
+      designId: child.id,
+      ownerId: "buyer",
+      imageUrl: "https://img.example/child.png",
+      seedImageId: ids.listingId,
+      publishedAt: new Date(),
+    });
+
+    const { getPublishedImage } = await import("@/app/d/actions");
+    const img = await getPublishedImage(childImageId);
+    expect(img?.forkChain.map((e) => e.imageId)).toEqual([ids.listingId]);
+    expect(img?.forkChain[0].title).toBe("Seed");
+
+    // Hiding the parent breaks the public chain.
+    await db
+      .update(schema.listing)
+      .set({ isHidden: true })
+      .where(schemaEq(schema.listing.imageId, ids.listingId));
+    expect((await getPublishedImage(childImageId))?.forkChain).toEqual([]);
   });
 });

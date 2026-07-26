@@ -6,8 +6,7 @@
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { createTestDb } from "./test-db";
-import * as schema from "@/lib/db/schema";
-import { makeUser, makeDesign } from "./factories";
+import { makeUser, makeDesign, makeSourceImage } from "./factories";
 import { orderFeedByRank, compareFeedOrder } from "@/lib/discover-feed";
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
@@ -100,19 +99,16 @@ describe("getPublishedFeed (real DB)", () => {
     }
   ) {
     const designId = opts.designId ?? (await makeDesign(testDb, userId)).id;
-    const [img] = await testDb
-      .insert(schema.designImage)
-      .values({
-        designId,
-        aspectRatio: "1:1",
-        imageUrl: `https://img.example/${crypto.randomUUID()}.png`,
-        publishedAt:
-          opts.published === false ? null : at(opts.publishedMinutesAgo),
-        isHidden: opts.hidden ?? false,
-        feedRank: opts.feedRank ?? null,
-      })
-      .returning();
-    return { designId, imageId: img.id };
+    const imageId = await makeSourceImage(testDb, {
+      designId,
+      ownerId: userId,
+      imageUrl: `https://img.example/${crypto.randomUUID()}.png`,
+      publishedAt:
+        opts.published === false ? null : at(opts.publishedMinutesAgo),
+      isHidden: opts.hidden ?? false,
+      feedRank: opts.feedRank ?? null,
+    });
+    return { designId, imageId };
   }
 
   it("serves ranked designs first, then the rest newest first", async () => {

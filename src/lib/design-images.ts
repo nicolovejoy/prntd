@@ -1,3 +1,16 @@
+/**
+ * Image reads + the design_image write choke point.
+ *
+ * Slice 2 of the Model B migration (docs/model-b-migration-plan.md): every read
+ * in here resolves against the new tables — `image` + `conversation_image` for
+ * source artifacts, `placement_render` for the render cache, `listing` for
+ * publish state. Writes still land both shapes (slice 4 is the writer cutover),
+ * so a revert of this file alone restores the old behavior with no data loss.
+ *
+ * Id reuse (§2) is what makes the swap invisible to callers: a pinned
+ * placement id resolves whether it was minted as an artifact or a render, which
+ * is why the id lookups check both tables (resolveImagesByIds).
+ */
 import { db } from "@/lib/db";
 import {
   design as designTable,
@@ -6,15 +19,24 @@ import {
   image as imageTable,
   conversationImage as conversationImageTable,
   placementRender as placementRenderTable,
+  listing as listingTable,
   type ChatMessage,
 } from "@/lib/db/schema";
-import { eq, and, asc, desc, inArray, isNull, isNotNull, sql } from "drizzle-orm";
+import { eq, and, asc, desc, inArray, sql } from "drizzle-orm";
 import { getBlank, type AspectRatio } from "@/lib/blanks";
 import {
   buildImageRow,
   buildOutputLinkRow,
   buildPlacementRenderRow,
 } from "@/lib/model-b-writes";
+
+// created_at is second-resolution, so rows written in the same second tie.
+// rowid breaks the tie by insert order — which is what the old design_image
+// reads got implicitly from the table scan.
+const IMAGE_SEQ_ASC = sql`image.rowid asc`;
+const IMAGE_SEQ_DESC = sql`image.rowid desc`;
+const RENDER_SEQ_ASC = sql`placement_render.rowid asc`;
+const RENDER_SEQ_DESC = sql`placement_render.rowid desc`;
 
 /**
  * Atomically reserve `count` generation numbers for a design in a single
@@ -123,11 +145,19 @@ export async function insertDesignImage(params: {
 }): Promise<string> {
   let parentImageId = params.parentImageId ?? null;
   if (parentImageId === null) {
+    // Latest artifact in the thread. Renders are excluded (they live in
+    // placement_render now) — the provenance chain is between artifacts.
     const latest = await db
-      .select({ id: designImageTable.id })
-      .from(designImageTable)
-      .where(eq(designImageTable.designId, params.designId))
-      .orderBy(desc(designImageTable.createdAt))
+      .select({ id: imageTable.id })
+      .from(conversationImageTable)
+      .innerJoin(imageTable, eq(imageTable.id, conversationImageTable.imageId))
+      .where(
+        and(
+          eq(conversationImageTable.designId, params.designId),
+          eq(conversationImageTable.role, "output")
+        )
+      )
+      .orderBy(desc(imageTable.createdAt), IMAGE_SEQ_DESC)
       .limit(1);
     parentImageId = latest[0]?.id ?? null;
   }
@@ -215,22 +245,22 @@ export async function findPlacementRender(
 ): Promise<{ id: string; imageUrl: string; aspectRatio: AspectRatio } | null> {
   const rows = await db
     .select({
-      id: designImageTable.id,
-      imageUrl: designImageTable.imageUrl,
-      aspectRatio: designImageTable.aspectRatio,
+      id: placementRenderTable.id,
+      imageUrl: placementRenderTable.imageUrl,
+      aspectRatio: placementRenderTable.aspectRatio,
     })
-    .from(designImageTable)
+    .from(placementRenderTable)
     .where(
       and(
-        eq(designImageTable.designId, designId),
-        eq(designImageTable.productId, productId),
-        eq(designImageTable.placementId, placementId),
+        eq(placementRenderTable.designId, designId),
+        eq(placementRenderTable.blankId, productId),
+        eq(placementRenderTable.placementId, placementId),
         ...(sourceImageId
-          ? [eq(designImageTable.parentImageId, sourceImageId)]
+          ? [eq(placementRenderTable.sourceImageId, sourceImageId)]
           : [])
       )
     )
-    .orderBy(desc(designImageTable.createdAt))
+    .orderBy(desc(placementRenderTable.createdAt), RENDER_SEQ_DESC)
     .limit(1);
   if (!rows[0]) return null;
   return {
@@ -240,102 +270,198 @@ export async function findPlacementRender(
   };
 }
 
-/**
- * Fetch a single design_image by id. Returns null if not found.
- */
-export async function getDesignImageById(
-  id: string
-): Promise<{
+export type ImageRef = {
   id: string;
-  designId: string;
+  imageUrl: string;
+  aspectRatio: AspectRatio;
+};
+
+/**
+ * Resolve image ids to their URL + aspect across BOTH artifact tables.
+ *
+ * An id minted by a generation lives in `image`; one minted by a placement
+ * render lives in `placement_render`. Orders, cart lines and organizer
+ * products pin whichever they were shown, and id reuse (§2) means the id
+ * alone doesn't say which — so every id lookup checks both. Missing ids are
+ * simply absent from the map.
+ */
+export async function resolveImagesByIds(
+  ids: string[]
+): Promise<Map<string, ImageRef>> {
+  const out = new Map<string, ImageRef>();
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) return out;
+
+  const artifacts = await db
+    .select({
+      id: imageTable.id,
+      imageUrl: imageTable.imageUrl,
+      aspectRatio: imageTable.aspectRatio,
+    })
+    .from(imageTable)
+    .where(inArray(imageTable.id, unique));
+  for (const r of artifacts) {
+    out.set(r.id, { ...r, aspectRatio: r.aspectRatio as AspectRatio });
+  }
+
+  const missing = unique.filter((id) => !out.has(id));
+  if (missing.length === 0) return out;
+
+  const renders = await db
+    .select({
+      id: placementRenderTable.id,
+      imageUrl: placementRenderTable.imageUrl,
+      aspectRatio: placementRenderTable.aspectRatio,
+    })
+    .from(placementRenderTable)
+    .where(inArray(placementRenderTable.id, missing));
+  for (const r of renders) {
+    out.set(r.id, { ...r, aspectRatio: r.aspectRatio as AspectRatio });
+  }
+  return out;
+}
+
+export type ImageRow = {
+  id: string;
+  /** The conversation that produced it. Null only for an artifact with no
+   * output link and no source design (nothing writes that shape today). */
+  designId: string | null;
   imageUrl: string;
   aspectRatio: AspectRatio;
   prompt: string | null;
   publishedAt: Date | null;
-} | null> {
-  const rows = await db
-    .select({
-      id: designImageTable.id,
-      designId: designImageTable.designId,
-      imageUrl: designImageTable.imageUrl,
-      aspectRatio: designImageTable.aspectRatio,
-      prompt: designImageTable.prompt,
-      publishedAt: designImageTable.publishedAt,
-    })
-    .from(designImageTable)
-    .where(eq(designImageTable.id, id))
-    .limit(1);
-  if (!rows[0]) return null;
+};
+
+/**
+ * Fetch a single image by id — artifact first, then the render cache (id
+ * reuse, see resolveImagesByIds). Returns null if neither has it.
+ */
+export async function getDesignImageById(id: string): Promise<ImageRow | null> {
+  const full = await getDesignImageWithOwner(id);
+  if (!full) return null;
   return {
-    id: rows[0].id,
-    designId: rows[0].designId,
-    imageUrl: rows[0].imageUrl,
-    aspectRatio: rows[0].aspectRatio as AspectRatio,
-    prompt: rows[0].prompt,
-    publishedAt: rows[0].publishedAt,
+    id: full.id,
+    designId: full.designId,
+    imageUrl: full.imageUrl,
+    aspectRatio: full.aspectRatio,
+    prompt: full.prompt,
+    publishedAt: full.publishedAt,
   };
 }
 
 /**
- * Fetch a design_image plus the fields the placement-source guard needs:
- * publish/moderation state and the owning design's user id (#72). One
- * joined query so checkout/preview call sites can gate a cross-design
- * back pick without a second round trip.
+ * Fetch an image plus the fields the placement-source guard needs: publish /
+ * moderation state (from `listing`) and the owner (#72). `image.ownerId` is
+ * denormalized, so the artifact path no longer joins `design`; renders still
+ * do, since only their conversation carries an owner.
  */
 export async function getDesignImageWithOwner(
   id: string
-): Promise<{
-  id: string;
-  designId: string;
-  imageUrl: string;
-  aspectRatio: AspectRatio;
-  prompt: string | null;
-  publishedAt: Date | null;
-  isHidden: boolean;
-  ownerId: string;
-} | null> {
-  const rows = await db
+): Promise<(ImageRow & { isHidden: boolean; ownerId: string }) | null> {
+  const [artifact] = await db
     .select({
-      id: designImageTable.id,
-      designId: designImageTable.designId,
-      imageUrl: designImageTable.imageUrl,
-      aspectRatio: designImageTable.aspectRatio,
-      prompt: designImageTable.prompt,
-      publishedAt: designImageTable.publishedAt,
-      isHidden: designImageTable.isHidden,
+      id: imageTable.id,
+      sourceDesignId: imageTable.sourceDesignId,
+      linkDesignId: conversationImageTable.designId,
+      imageUrl: imageTable.imageUrl,
+      aspectRatio: imageTable.aspectRatio,
+      prompt: imageTable.prompt,
+      ownerId: imageTable.ownerId,
+      publishedAt: listingTable.publishedAt,
+      isHidden: listingTable.isHidden,
+    })
+    .from(imageTable)
+    .leftJoin(
+      conversationImageTable,
+      and(
+        eq(conversationImageTable.imageId, imageTable.id),
+        eq(conversationImageTable.role, "output")
+      )
+    )
+    .leftJoin(listingTable, eq(listingTable.imageId, imageTable.id))
+    .where(eq(imageTable.id, id))
+    .limit(1);
+
+  if (artifact) {
+    return {
+      id: artifact.id,
+      designId: artifact.sourceDesignId ?? artifact.linkDesignId,
+      imageUrl: artifact.imageUrl,
+      aspectRatio: artifact.aspectRatio as AspectRatio,
+      prompt: artifact.prompt,
+      // No listing row = not published. isHidden is listing-only state, so an
+      // unpublished image reads as not hidden — same as the old columns.
+      publishedAt: artifact.publishedAt,
+      isHidden: artifact.isHidden ?? false,
+      ownerId: artifact.ownerId,
+    };
+  }
+
+  const [render] = await db
+    .select({
+      id: placementRenderTable.id,
+      designId: placementRenderTable.designId,
+      imageUrl: placementRenderTable.imageUrl,
+      aspectRatio: placementRenderTable.aspectRatio,
       ownerId: designTable.userId,
     })
-    .from(designImageTable)
-    .innerJoin(designTable, eq(designTable.id, designImageTable.designId))
-    .where(eq(designImageTable.id, id))
+    .from(placementRenderTable)
+    .innerJoin(designTable, eq(designTable.id, placementRenderTable.designId))
+    .where(eq(placementRenderTable.id, id))
     .limit(1);
-  if (!rows[0]) return null;
-  return { ...rows[0], aspectRatio: rows[0].aspectRatio as AspectRatio };
+  if (!render) return null;
+
+  // Renders are never published in their own right.
+  return {
+    id: render.id,
+    designId: render.designId,
+    imageUrl: render.imageUrl,
+    aspectRatio: render.aspectRatio as AspectRatio,
+    prompt: null,
+    publishedAt: null,
+    isHidden: false,
+    ownerId: render.ownerId,
+  };
 }
 
 /**
- * Find the design_image row whose imageUrl matches a target URL, scoped
- * to a design. Used at order-creation time to pin the order to the
- * specific image that was on screen when the customer clicked checkout.
- * Returns null if no matching row (e.g. pre-Phase-2 designs that haven't
- * been backfilled).
+ * Find the image whose imageUrl matches a target URL, scoped to a design.
+ * Used at order-creation time to pin the order to the specific image that was
+ * on screen when the customer clicked checkout. Artifacts first, then the
+ * render cache (a URL can come from either surface). Null if neither matches
+ * (e.g. pre-Phase-2 designs that haven't been backfilled).
  */
 export async function findDesignImageByUrl(
   designId: string,
   imageUrl: string
 ): Promise<string | null> {
-  const rows = await db
-    .select({ id: designImageTable.id })
-    .from(designImageTable)
+  const artifacts = await db
+    .select({ id: imageTable.id })
+    .from(conversationImageTable)
+    .innerJoin(imageTable, eq(imageTable.id, conversationImageTable.imageId))
     .where(
       and(
-        eq(designImageTable.designId, designId),
-        eq(designImageTable.imageUrl, imageUrl)
+        eq(conversationImageTable.designId, designId),
+        eq(conversationImageTable.role, "output"),
+        eq(imageTable.imageUrl, imageUrl)
       )
     )
-    .orderBy(desc(designImageTable.createdAt))
+    .orderBy(desc(imageTable.createdAt), IMAGE_SEQ_DESC)
     .limit(1);
-  return rows[0]?.id ?? null;
+  if (artifacts[0]) return artifacts[0].id;
+
+  const renders = await db
+    .select({ id: placementRenderTable.id })
+    .from(placementRenderTable)
+    .where(
+      and(
+        eq(placementRenderTable.designId, designId),
+        eq(placementRenderTable.imageUrl, imageUrl)
+      )
+    )
+    .orderBy(desc(placementRenderTable.createdAt), RENDER_SEQ_DESC)
+    .limit(1);
+  return renders[0]?.id ?? null;
 }
 
 /**
@@ -359,17 +485,12 @@ export async function resolveOrderImageUrls(
     .map((o) => o.placements?.front)
     .filter((v): v is string => Boolean(v));
 
-  const imageRows =
-    imageIds.length > 0
-      ? await db
-          .select({ id: designImageTable.id, imageUrl: designImageTable.imageUrl })
-          .from(designImageTable)
-          .where(inArray(designImageTable.id, imageIds))
-      : [];
-  const byId = new Map(imageRows.map((r) => [r.id, r.imageUrl]));
+  const byId = await resolveImagesByIds(imageIds);
 
   for (const o of orders) {
-    const pinned = o.placements?.front ? byId.get(o.placements.front) : undefined;
+    const pinned = o.placements?.front
+      ? byId.get(o.placements.front)?.imageUrl
+      : undefined;
     out.set(o.id, pinned ?? fallback.get(o.designId) ?? null);
   }
   return out;
@@ -385,30 +506,32 @@ export type SourceImage = {
 };
 
 /**
- * Fetch all source images for a design (rows with product_id IS NULL —
- * the exploratory 1:1 generations and user uploads). Ordered oldest →
- * newest so the chat-thread gallery scrolls forward in time.
+ * Fetch all source images for a design — the conversation's `output` links
+ * (exploratory 1:1 generations and user uploads). Ordered oldest → newest so
+ * the chat-thread gallery scrolls forward in time.
  */
 export async function getDesignSourceImages(
   designId: string
 ): Promise<SourceImage[]> {
   const rows = await db
     .select({
-      id: designImageTable.id,
-      imageUrl: designImageTable.imageUrl,
-      aspectRatio: designImageTable.aspectRatio,
-      prompt: designImageTable.prompt,
-      createdAt: designImageTable.createdAt,
-      publishedAt: designImageTable.publishedAt,
+      id: imageTable.id,
+      imageUrl: imageTable.imageUrl,
+      aspectRatio: imageTable.aspectRatio,
+      prompt: imageTable.prompt,
+      createdAt: imageTable.createdAt,
+      publishedAt: listingTable.publishedAt,
     })
-    .from(designImageTable)
+    .from(conversationImageTable)
+    .innerJoin(imageTable, eq(imageTable.id, conversationImageTable.imageId))
+    .leftJoin(listingTable, eq(listingTable.imageId, imageTable.id))
     .where(
       and(
-        eq(designImageTable.designId, designId),
-        isNull(designImageTable.productId)
+        eq(conversationImageTable.designId, designId),
+        eq(conversationImageTable.role, "output")
       )
     )
-    .orderBy(asc(designImageTable.createdAt));
+    .orderBy(asc(imageTable.createdAt), IMAGE_SEQ_ASC);
 
   return rows.map((r) => ({
     id: r.id,
@@ -435,50 +558,43 @@ export type ProductVersionGroup = {
 };
 
 /**
- * Fetch placement-targeted renders for a design (rows with non-null
- * product_id), grouped by product. Each group's `images` is ordered
- * oldest → newest. Products with no renders for this design are
- * omitted entirely.
+ * Fetch placement-targeted renders for a design, grouped by blank. Each
+ * group's `images` is ordered oldest → newest. Blanks with no renders for
+ * this design are omitted entirely.
  */
 export async function getDesignPlacementRenders(
   designId: string
 ): Promise<ProductVersionGroup[]> {
   const rows = await db
     .select({
-      id: designImageTable.id,
-      imageUrl: designImageTable.imageUrl,
-      aspectRatio: designImageTable.aspectRatio,
-      productId: designImageTable.productId,
-      placementId: designImageTable.placementId,
-      createdAt: designImageTable.createdAt,
+      id: placementRenderTable.id,
+      imageUrl: placementRenderTable.imageUrl,
+      aspectRatio: placementRenderTable.aspectRatio,
+      blankId: placementRenderTable.blankId,
+      placementId: placementRenderTable.placementId,
+      createdAt: placementRenderTable.createdAt,
     })
-    .from(designImageTable)
-    .where(
-      and(
-        eq(designImageTable.designId, designId),
-        isNotNull(designImageTable.productId)
-      )
-    )
-    .orderBy(asc(designImageTable.createdAt));
+    .from(placementRenderTable)
+    .where(eq(placementRenderTable.designId, designId))
+    .orderBy(asc(placementRenderTable.createdAt), RENDER_SEQ_ASC);
 
   const byProduct = new Map<string, ProductVersionGroup>();
   for (const r of rows) {
-    if (!r.productId) continue;
-    let group = byProduct.get(r.productId);
+    let group = byProduct.get(r.blankId);
     if (!group) {
-      const product = getBlank(r.productId);
+      const product = getBlank(r.blankId);
       group = {
-        productId: r.productId,
-        productName: product?.name ?? r.productId,
+        productId: r.blankId,
+        productName: product?.name ?? r.blankId,
         images: [],
       };
-      byProduct.set(r.productId, group);
+      byProduct.set(r.blankId, group);
     }
     group.images.push({
       id: r.id,
       imageUrl: r.imageUrl,
       aspectRatio: r.aspectRatio as AspectRatio,
-      placementId: r.placementId ?? "default",
+      placementId: r.placementId,
       createdAt: r.createdAt,
     });
   }
@@ -525,23 +641,13 @@ export async function resolveDesignDisplayImageUrls(
     .map((d) => d.primaryImageId)
     .filter((v): v is string => Boolean(v));
 
-  const primaryRows =
-    primaryIds.length > 0
-      ? await db
-          .select({
-            id: designImageTable.id,
-            imageUrl: designImageTable.imageUrl,
-          })
-          .from(designImageTable)
-          .where(inArray(designImageTable.id, primaryIds))
-      : [];
-  const urlByImageId = new Map(primaryRows.map((r) => [r.id, r.imageUrl]));
+  const urlByImageId = await resolveImagesByIds(primaryIds);
 
   // First pass: pick up everything with a working primary pointer.
   const needFallback: string[] = [];
   for (const d of designRows) {
     const url = d.primaryImageId
-      ? urlByImageId.get(d.primaryImageId)
+      ? urlByImageId.get(d.primaryImageId)?.imageUrl
       : undefined;
     if (url) {
       out.set(d.id, url);
@@ -550,22 +656,22 @@ export async function resolveDesignDisplayImageUrls(
     }
   }
 
-  // Fallback: latest source image (product_id IS NULL) per design.
+  // Fallback: the design's latest output artifact.
   if (needFallback.length > 0) {
     const fallbackRows = await db
       .select({
-        designId: designImageTable.designId,
-        imageUrl: designImageTable.imageUrl,
-        createdAt: designImageTable.createdAt,
+        designId: conversationImageTable.designId,
+        imageUrl: imageTable.imageUrl,
       })
-      .from(designImageTable)
+      .from(conversationImageTable)
+      .innerJoin(imageTable, eq(imageTable.id, conversationImageTable.imageId))
       .where(
         and(
-          inArray(designImageTable.designId, needFallback),
-          isNull(designImageTable.productId)
+          inArray(conversationImageTable.designId, needFallback),
+          eq(conversationImageTable.role, "output")
         )
       )
-      .orderBy(desc(designImageTable.createdAt));
+      .orderBy(desc(imageTable.createdAt), IMAGE_SEQ_DESC);
 
     for (const r of fallbackRows) {
       if (!out.has(r.designId)) out.set(r.designId, r.imageUrl);
@@ -605,15 +711,16 @@ export async function deleteDesignImageRow(
   ]);
 
   const remaining = await db
-    .select({ id: designImageTable.id })
-    .from(designImageTable)
+    .select({ id: imageTable.id })
+    .from(conversationImageTable)
+    .innerJoin(imageTable, eq(imageTable.id, conversationImageTable.imageId))
     .where(
       and(
-        eq(designImageTable.designId, designId),
-        isNull(designImageTable.productId)
+        eq(conversationImageTable.designId, designId),
+        eq(conversationImageTable.role, "output")
       )
     )
-    .orderBy(desc(designImageTable.createdAt))
+    .orderBy(desc(imageTable.createdAt), IMAGE_SEQ_DESC)
     .limit(1);
 
   return { newPrimaryId: remaining[0]?.id ?? null };

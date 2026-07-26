@@ -7,11 +7,13 @@ import {
   order as orderTable,
   orderItem as orderItemTable,
   design as designTable,
-  designImage as designImageTable,
   user as userTable,
 } from "@/lib/db/schema";
 import { eq, asc, desc, inArray } from "drizzle-orm";
-import { resolveDesignDisplayImageUrls } from "@/lib/design-images";
+import {
+  resolveDesignDisplayImageUrls,
+  resolveImagesByIds,
+} from "@/lib/design-images";
 import { resolveOrderLines } from "@/lib/order-lines";
 import { designerAttribution } from "@/lib/order-attribution";
 
@@ -96,13 +98,10 @@ export async function getUserOrders() {
   // purchase time) over the design's current display image, so historical
   // orders keep showing what was actually printed.
   const fallbackUrls = await resolveDesignDisplayImageUrls(lineDesignIds);
-  const pinnedRows = pinnedImageIds.length
-    ? await db
-        .select({ id: designImageTable.id, imageUrl: designImageTable.imageUrl })
-        .from(designImageTable)
-        .where(inArray(designImageTable.id, pinnedImageIds))
-    : [];
-  const pinnedUrlById = new Map(pinnedRows.map((r) => [r.id, r.imageUrl]));
+  const pinnedById = await resolveImagesByIds(pinnedImageIds);
+  const pinnedUrlById = new Map(
+    [...pinnedById].map(([id, img]) => [id, img.imageUrl])
+  );
 
   const designerRows = lineDesignIds.length
     ? await db

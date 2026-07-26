@@ -2,18 +2,17 @@
  * Shop feed query + ordering.
  *
  * The feed (homepage grid + /prints) lists published, non-hidden images,
- * one card per design. Position is admin-controlled via
- * `design_image.feed_rank` (/admin/published): ranked images list first,
- * lowest rank first; unranked images follow, newest published first —
- * exactly the pre-rank behavior.
+ * one card per design. Position is admin-controlled via `listing.feed_rank`
+ * (/admin/published): ranked images list first, lowest rank first; unranked
+ * images follow, newest published first — exactly the pre-rank behavior.
  */
 import { db } from "@/lib/db";
 import {
-  design as designTable,
-  designImage as designImageTable,
+  image as imageTable,
+  listing as listingTable,
   user as userTable,
 } from "@/lib/db/schema";
-import { eq, and, isNotNull, desc, asc, sql } from "drizzle-orm";
+import { eq, desc, asc, sql } from "drizzle-orm";
 
 export type FeedRow = {
   imageId: string;
@@ -71,36 +70,35 @@ export function orderFeedByRank<
  * ranked rows are never cut off by the over-fetch window.
  */
 export async function getPublishedFeed(limit = 60): Promise<FeedRow[]> {
+  // A listing row exists iff the image is published, so the join replaces the
+  // old published_at IS NOT NULL filter. The designer comes off image.ownerId
+  // (denormalized in Model B) — no design join left.
   const rows = await db
     .select({
-      imageId: designImageTable.id,
-      designId: designImageTable.designId,
-      imageUrl: designImageTable.imageUrl,
-      title: designImageTable.title,
-      description: designImageTable.description,
-      backgroundColor: designImageTable.backgroundColor,
-      publishedAt: designImageTable.publishedAt,
-      feedRank: designImageTable.feedRank,
+      imageId: imageTable.id,
+      designId: imageTable.sourceDesignId,
+      imageUrl: imageTable.imageUrl,
+      title: listingTable.title,
+      description: listingTable.description,
+      backgroundColor: listingTable.backgroundColor,
+      publishedAt: listingTable.publishedAt,
+      feedRank: listingTable.feedRank,
       designerName: userTable.name,
       designerId: userTable.id,
     })
-    .from(designImageTable)
-    .innerJoin(designTable, eq(designTable.id, designImageTable.designId))
-    .innerJoin(userTable, eq(userTable.id, designTable.userId))
-    .where(
-      and(
-        isNotNull(designImageTable.publishedAt),
-        eq(designImageTable.isHidden, false)
-      )
-    )
+    .from(listingTable)
+    .innerJoin(imageTable, eq(imageTable.id, listingTable.imageId))
+    .innerJoin(userTable, eq(userTable.id, imageTable.ownerId))
+    .where(eq(listingTable.isHidden, false))
     .orderBy(
-      sql`${designImageTable.feedRank} is null`,
-      asc(designImageTable.feedRank),
-      desc(designImageTable.publishedAt)
+      sql`${listingTable.feedRank} is null`,
+      asc(listingTable.feedRank),
+      desc(listingTable.publishedAt)
     )
     .limit(Math.min(limit * 4, 240));
 
+  // An image with no source conversation is its own dedupe group.
   return orderFeedByRank(
-    rows.map((r) => ({ ...r, publishedAt: r.publishedAt! }))
+    rows.map((r) => ({ ...r, designId: r.designId ?? r.imageId }))
   ).slice(0, limit);
 }

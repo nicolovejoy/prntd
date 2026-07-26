@@ -1,21 +1,44 @@
+import { withTimeout } from "./timeout";
+
 const PRINTFUL_API = "https://api.printful.com";
 
-async function printfulFetch(path: string, options?: RequestInit) {
-  const res = await fetch(`${PRINTFUL_API}${path}`, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${process.env.PRINTFUL_API_KEY}`,
-      "Content-Type": "application/json",
-      ...options?.headers,
-    },
+/**
+ * Upper bound on any single Printful call. Generous on purpose: order
+ * submission is the one call we must not cut short, and Printful's mockup
+ * endpoints are slow by design. The point is that a hung connection can't
+ * stall a request forever — every caller that renders a page (cart shipping
+ * quote, mockups) sits behind this.
+ */
+const PRINTFUL_TIMEOUT_MS = 30_000;
+
+/** Tighter bound for calls that render a page and have a graceful fallback. */
+const QUOTE_TIMEOUT_MS = 10_000;
+
+async function printfulFetch(
+  path: string,
+  options?: RequestInit,
+  timeoutMs: number = PRINTFUL_TIMEOUT_MS
+) {
+  return withTimeout(`printful ${path}`, timeoutMs, async () => {
+    const res = await fetch(`${PRINTFUL_API}${path}`, {
+      // AbortSignal actually cancels the socket; withTimeout is what stops the
+      // caller waiting (it also covers a stalled body read).
+      signal: AbortSignal.timeout(timeoutMs),
+      ...options,
+      headers: {
+        Authorization: `Bearer ${process.env.PRINTFUL_API_KEY}`,
+        "Content-Type": "application/json",
+        ...options?.headers,
+      },
+    });
+
+    if (!res.ok) {
+      const error = await res.text();
+      throw new Error(`Printful API error: ${res.status} ${error}`);
+    }
+
+    return res.json();
   });
-
-  if (!res.ok) {
-    const error = await res.text();
-    throw new Error(`Printful API error: ${res.status} ${error}`);
-  }
-
-  return res.json();
 }
 
 export async function getProducts() {
@@ -212,7 +235,9 @@ export async function estimateOrderCosts(params: {
   if (process.env.PRINTFUL_DRY_RUN === "true") return null;
 
   try {
-    const data = await printfulFetch("/orders/estimate-costs", {
+    const data = await printfulFetch(
+      "/orders/estimate-costs",
+      {
       method: "POST",
       body: JSON.stringify({
         recipient: {
@@ -235,7 +260,11 @@ export async function estimateOrderCosts(params: {
             : {}),
         })),
       }),
-    });
+      },
+      // This one sits on a page render (cart shipping row) and degrades to
+      // flat shipping, so it gets a tighter bound than the 30s default.
+      QUOTE_TIMEOUT_MS
+    );
     return parseEstimateCosts(data.result ?? {});
   } catch (err) {
     console.error("estimateOrderCosts failed, falling back to flat shipping:", err);

@@ -8,8 +8,6 @@ import { Button } from "@/components/ui";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
 
-const EMPTY_CART: CartView = { items: [], itemSubtotal: 0, shipping: 0, total: 0 };
-
 /** Reject if `p` doesn't settle within `ms` — so one slow/lost server-action
  * response doesn't strand the load forever (a retry issues a fresh call). */
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
@@ -24,6 +22,11 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 export default function CartPage() {
   const router = useRouter();
   const [cart, setCart] = useState<CartView | null>(null);
+  // A failed load is its own state. Falling back to an empty cart made a
+  // broken load look identical to "you have nothing in your cart" — wrong for
+  // tests and worse for a customer who is about to walk away.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const [removing, setRemoving] = useState<string | null>(null);
   const [checkingOut, setCheckingOut] = useState(false);
 
@@ -32,31 +35,29 @@ export default function CartPage() {
   }
 
   useEffect(() => {
-    // Resilient initial load. getCart is a server action whose response can be
-    // slow or lost under concurrent load; a single-shot fetch with no recovery
-    // left the page stuck on "Loading…" (showing 0 items) — the #101 flake.
-    // Retry with a per-attempt timeout until the cart resolves. A genuinely
-    // empty cart is accepted after the first clean read. No ensureGuestSession
-    // here: getCart resolves the existing session server-side and returns an
-    // empty cart for a true guest — minting a fresh anon user client-side only
-    // risked stomping the real session under load.
+    // getCart is a server action whose response can be slow or lost; one silent
+    // retry absorbs that, and anything past it surfaces as an error the visitor
+    // can act on. No ensureGuestSession here: getCart resolves the existing
+    // session server-side and returns an empty cart for a true guest — minting
+    // a fresh anon user client-side only risked stomping the real session.
     let cancelled = false;
+    setLoadFailed(false);
     (async () => {
-      for (let attempt = 0; attempt < 5 && !cancelled; attempt++) {
+      for (let i = 0; i < 2 && !cancelled; i++) {
         try {
           const view = await withTimeout(getCart(), 8000);
           if (!cancelled) setCart(view);
           return;
         } catch {
-          if (attempt === 4 && !cancelled) setCart(EMPTY_CART);
-          else await new Promise((r) => setTimeout(r, 800));
+          if (i === 0) await new Promise((r) => setTimeout(r, 800));
         }
       }
+      if (!cancelled) setLoadFailed(true);
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [attempt]);
 
   async function handleRemove(id: string) {
     setRemoving(id);
@@ -82,7 +83,7 @@ export default function CartPage() {
     }
   }
 
-  const empty = cart !== null && cart.items.length === 0;
+  const empty = !loadFailed && cart !== null && cart.items.length === 0;
 
   return (
     <div className="min-h-screen flex flex-col items-center py-6 md:py-12 px-4 pb-24 md:pb-12">
@@ -95,7 +96,21 @@ export default function CartPage() {
       <div className="w-full max-w-2xl">
         <h1 className="text-xl font-semibold mb-6">Your cart</h1>
 
-        {cart === null && <p className="text-text-muted">Loading…</p>}
+        {cart === null && !loadFailed && (
+          <p className="text-text-muted">Loading…</p>
+        )}
+
+        {loadFailed && (
+          <div
+            data-testid="cart-load-error"
+            className="text-center py-12 space-y-4"
+          >
+            <p className="text-text-muted">Couldn&apos;t load your cart.</p>
+            <Button size="lg" onClick={() => setAttempt((n) => n + 1)}>
+              Retry
+            </Button>
+          </div>
+        )}
 
         {empty && (
           <div className="text-center py-12 space-y-4">
