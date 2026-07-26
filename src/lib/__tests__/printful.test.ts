@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi, type MockInstance } fr
 import {
   createOrder,
   createMockupTask,
+  deleteOrder,
   pollMockupTask,
   toPrintfulExternalId,
 } from "../printful";
@@ -83,6 +84,68 @@ describe("createOrder PRINTFUL_DRY_RUN", () => {
     const body = JSON.parse(String(init.body));
     expect(body.external_id).toBe("854ab0f1d2e244c3b3285944fc675c1f");
     expect(body.external_id.length).toBeLessThanOrEqual(32);
+  });
+});
+
+describe("createOrder confirm flag", () => {
+  const originalFlag = process.env.PRINTFUL_DRY_RUN;
+  const originalAuto = process.env.PRINTFUL_AUTO_CONFIRM;
+  let fetchSpy: MockInstance<any>;
+
+  beforeEach(() => {
+    delete process.env.PRINTFUL_DRY_RUN;
+    delete process.env.PRINTFUL_AUTO_CONFIRM;
+    fetchSpy = vi.spyOn(global, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ result: { id: 1, costs: { total: "5.00" } } }), {
+        status: 200,
+      })
+    );
+  });
+  afterEach(() => {
+    process.env.PRINTFUL_DRY_RUN = originalFlag;
+    if (originalAuto === undefined) delete process.env.PRINTFUL_AUTO_CONFIRM;
+    else process.env.PRINTFUL_AUTO_CONFIRM = originalAuto;
+    fetchSpy.mockRestore();
+  });
+
+  it("confirms by default (production submits for fulfillment)", async () => {
+    await createOrder(params);
+    expect(fetchSpy.mock.calls[0]?.[0]).toBe(
+      "https://api.printful.com/orders?confirm=true"
+    );
+  });
+
+  it("omits the confirm param when the caller passes confirm:false", async () => {
+    await createOrder({ ...params, confirm: false });
+    expect(fetchSpy.mock.calls[0]?.[0]).toBe("https://api.printful.com/orders");
+  });
+
+  it("confirm:false wins over PRINTFUL_AUTO_CONFIRM", async () => {
+    process.env.PRINTFUL_AUTO_CONFIRM = "true";
+    await createOrder({ ...params, confirm: false });
+    expect(String(fetchSpy.mock.calls[0]?.[0])).not.toContain("confirm");
+  });
+});
+
+describe("deleteOrder", () => {
+  let fetchSpy: MockInstance<any>;
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(global, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ result: {} }), { status: 200 })
+    );
+  });
+  afterEach(() => fetchSpy.mockRestore());
+
+  it("issues DELETE /orders/{id}", async () => {
+    await deleteOrder(987654);
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://api.printful.com/orders/987654");
+    expect(init.method).toBe("DELETE");
+  });
+
+  it("throws on a non-ok response so cleanup failures are visible", async () => {
+    fetchSpy.mockResolvedValue(new Response("nope", { status: 404 }));
+    await expect(deleteOrder("abc")).rejects.toThrow(/404/);
   });
 });
 

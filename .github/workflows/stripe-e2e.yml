@@ -112,6 +112,28 @@ jobs:
       - name: Run Stripe test-mode e2e
         run: npm run e2e:stripe
 
+      # Separate step, after the Stripe spec, so a Printful-side failure is
+      # obvious in the job log rather than buried in a Playwright report. The
+      # step-level env is the ONLY place the real Printful key exists — the
+      # job-level PRINTFUL_API_KEY placeholder above keeps the Playwright
+      # webServer (and its PRINTFUL_DRY_RUN=true) unable to reach Printful at
+      # all, and this step runs no server.
+      #
+      # It creates ONE real but UNCONFIRMED Printful order (a draft: no charge,
+      # no fulfillment) and deletes it. PRINTFUL_DRY_RUN is deliberately unset
+      # here — a dry run would assert nothing, which is the gap this closes.
+      # See docs/stripe-e2e.md and scripts/printful-contract-check.ts.
+      - name: Printful API contract check (unconfirmed order)
+        # Runs even if the Stripe spec failed — Stripe's hosted checkout DOM is
+        # the flaky part of this job, and a flake there shouldn't hide a
+        # Printful contract regression. Either step failing fails the job.
+        if: ${{ !cancelled() }}
+        env:
+          PRINTFUL_API_KEY: ${{ secrets.PRINTFUL_API_KEY }}
+          # Belt for the request's own confirm:false suspenders.
+          PRINTFUL_AUTO_CONFIRM: "false"
+        run: npm run printful:contract
+
       - name: Destroy ephemeral Turso branch
         if: always()
         env:

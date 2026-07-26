@@ -52,6 +52,12 @@ export async function createOrder(params: {
   // Our order id, sent as Printful's external_id (#37): traceability plus
   // Printful-side rejection of a duplicate submission of the same order.
   externalId?: string;
+  // Explicit override of the confirm flag. Omitted, it follows
+  // PRINTFUL_AUTO_CONFIRM (default: confirm, i.e. the order goes to
+  // fulfillment). `false` forces an UNCONFIRMED draft — no charge, no print.
+  // Only the contract check (scripts/printful-contract-check.ts) passes it,
+  // and it passes `false`; product code must never pass `true`.
+  confirm?: boolean;
   size?: string;
   color?: string;
   variantId?: number;
@@ -93,7 +99,7 @@ export async function createOrder(params: {
     };
   }
 
-  const confirm = process.env.PRINTFUL_AUTO_CONFIRM !== "false";
+  const confirm = params.confirm ?? process.env.PRINTFUL_AUTO_CONFIRM !== "false";
   const data = await printfulFetch(`/orders${confirm ? "?confirm=true" : ""}`, {
     method: "POST",
     body: JSON.stringify({
@@ -159,6 +165,20 @@ export async function getOrderByExternalId(externalId: string) {
     if (/\b404\b/.test(message)) return null;
     throw err;
   }
+}
+
+/**
+ * Delete a Printful order by its Printful id. Only meaningful for orders that
+ * were never confirmed — a draft is removed outright. Used by the nightly
+ * contract check (scripts/printful-contract-check.ts) to clean up the
+ * unconfirmed order it creates; nothing in the product flow deletes orders
+ * (a real order is canceled through Printful, which we hear about on the
+ * order_canceled webhook).
+ */
+export async function deleteOrder(orderId: string | number) {
+  await printfulFetch(`/orders/${encodeURIComponent(String(orderId))}`, {
+    method: "DELETE",
+  });
 }
 
 export type EstimatedCosts = {
