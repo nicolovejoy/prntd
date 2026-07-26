@@ -237,13 +237,13 @@ describe("dedupeFeedByDesign", () => {
 });
 
 describe("canUseAsPlacementSource (#72)", () => {
-  const base = { designId: "d-other", publishedAt: null, isHidden: false };
+  const base = { publishedAt: null, isHidden: false };
   const ctx = { imageOwnerId: "owner", orderDesignId: "d-order", userId: "buyer" };
 
   it("allows an unpublished image from the order's design when the user owns it (This design on /preview)", () => {
     expect(
       canUseAsPlacementSource({
-        image: { ...base, designId: "d-order" },
+        image: base,
         ...ctx,
         imageOwnerId: "buyer",
       })
@@ -255,7 +255,7 @@ describe("canUseAsPlacementSource (#72)", () => {
     // forged id from that thread must not print the seller's private work.
     expect(
       canUseAsPlacementSource({
-        image: { ...base, designId: "d-order" },
+        image: base,
         ...ctx,
       })
     ).toBe(false);

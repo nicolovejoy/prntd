@@ -14,12 +14,14 @@
 import { db } from "@/lib/db";
 import {
   design as designTable,
-  designImage as designImageTable,
+  image as imageTable,
+  listing as listingTable,
 } from "@/lib/db/schema";
-import { eq, and, ne, desc, inArray, isNotNull } from "drizzle-orm";
+import { eq, and, ne, desc, isNotNull } from "drizzle-orm";
 import {
   getDesignSourceImages,
   getDesignImageWithOwner,
+  resolveImagesByIds,
 } from "@/lib/design-images";
 import {
   dedupeFeedByDesign,
@@ -182,16 +184,12 @@ async function getOtherDesignPrimaries(
     .filter((v): v is string => Boolean(v));
   if (primaryIds.length === 0) return [];
 
-  const imageRows = await db
-    .select({ id: designImageTable.id, imageUrl: designImageTable.imageUrl })
-    .from(designImageTable)
-    .where(inArray(designImageTable.id, primaryIds));
-  const byId = new Map(imageRows.map((r) => [r.id, r.imageUrl]));
+  const byId = await resolveImagesByIds(primaryIds);
 
   // Preserve the designs' recency order; drop dangling primary pointers.
   const out: BackSourceImage[] = [];
   for (const d of designs) {
-    const url = d.primaryImageId ? byId.get(d.primaryImageId) : undefined;
+    const url = d.primaryImageId ? byId.get(d.primaryImageId)?.imageUrl : undefined;
     if (d.primaryImageId && url) out.push({ id: d.primaryImageId, imageUrl: url });
   }
   return out;
@@ -210,25 +208,30 @@ async function getShopImages(
 ): Promise<BackSourceImage[]> {
   const rows = await db
     .select({
-      id: designImageTable.id,
-      designId: designImageTable.designId,
-      imageUrl: designImageTable.imageUrl,
-      publishedAt: designImageTable.publishedAt,
+      id: imageTable.id,
+      designId: imageTable.sourceDesignId,
+      imageUrl: imageTable.imageUrl,
+      publishedAt: listingTable.publishedAt,
     })
-    .from(designImageTable)
+    .from(listingTable)
+    .innerJoin(imageTable, eq(imageTable.id, listingTable.imageId))
     .where(
       and(
-        isNotNull(designImageTable.publishedAt),
-        eq(designImageTable.isHidden, false),
+        eq(listingTable.isHidden, false),
         ...(excludeDesignId
-          ? [ne(designImageTable.designId, excludeDesignId)]
+          ? [ne(imageTable.sourceDesignId, excludeDesignId)]
           : [])
       )
     )
-    .orderBy(desc(designImageTable.publishedAt))
+    .orderBy(desc(listingTable.publishedAt))
     .limit(GROUP_LIMIT * 4);
 
-  return dedupeFeedByDesign(rows.map((r) => ({ ...r, publishedAt: r.publishedAt! })))
+  // A listing row exists iff the image is published, so the old
+  // published_at IS NOT NULL filter is the join itself. An image with no
+  // source conversation is its own dedupe group.
+  return dedupeFeedByDesign(
+    rows.map((r) => ({ ...r, designId: r.designId ?? r.id }))
+  )
     .slice(0, GROUP_LIMIT)
     .map((r) => ({ id: r.id, imageUrl: r.imageUrl }));
 }

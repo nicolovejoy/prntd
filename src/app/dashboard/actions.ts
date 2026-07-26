@@ -2,7 +2,7 @@
 
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
-import { and, desc, eq, inArray, not } from "drizzle-orm";
+import { and, desc, eq, not } from "drizzle-orm";
 import { auth, isAnonymousUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { storesEnabled } from "@/lib/flags";
@@ -12,8 +12,8 @@ import {
   store as storeTable,
   product as productTable,
   design as designTable,
-  designImage as designImageTable,
 } from "@/lib/db/schema";
+import { resolveImagesByIds } from "@/lib/design-images";
 import { getBlank, type AspectRatio } from "@/lib/blanks";
 
 type Store = typeof storeTable.$inferSelect;
@@ -143,15 +143,7 @@ export async function getComposableDesigns(): Promise<ComposableDesign[]> {
     .filter((id): id is string => id !== null);
   if (primaryIds.length === 0) return [];
 
-  const imgs = await db
-    .select({
-      id: designImageTable.id,
-      imageUrl: designImageTable.imageUrl,
-      aspectRatio: designImageTable.aspectRatio,
-    })
-    .from(designImageTable)
-    .where(inArray(designImageTable.id, primaryIds));
-  const byId = new Map(imgs.map((r) => [r.id, r]));
+  const byId = await resolveImagesByIds(primaryIds);
 
   return designs.flatMap((d) => {
     const img = d.primaryImageId ? byId.get(d.primaryImageId) : undefined;
@@ -161,7 +153,7 @@ export async function getComposableDesigns(): Promise<ComposableDesign[]> {
         designId: d.id,
         imageId: img.id,
         imageUrl: img.imageUrl,
-        aspectRatio: img.aspectRatio as AspectRatio,
+        aspectRatio: img.aspectRatio,
       },
     ];
   });
@@ -243,14 +235,7 @@ export async function getProductForEdit(
   const imageId = placedImageId ?? d?.primaryImageId ?? null;
   if (!imageId) return null;
 
-  const [img] = await db
-    .select({
-      id: designImageTable.id,
-      imageUrl: designImageTable.imageUrl,
-      aspectRatio: designImageTable.aspectRatio,
-    })
-    .from(designImageTable)
-    .where(eq(designImageTable.id, imageId));
+  const img = (await resolveImagesByIds([imageId])).get(imageId);
   if (!img) return null;
 
   return {
@@ -264,7 +249,7 @@ export async function getProductForEdit(
       designId: product.designId,
       imageId: img.id,
       imageUrl: img.imageUrl,
-      aspectRatio: img.aspectRatio as AspectRatio,
+      aspectRatio: img.aspectRatio,
     },
   };
 }

@@ -8,7 +8,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { createTestDb } from "./test-db";
 import * as schema from "@/lib/db/schema";
-import { makeUser } from "./factories";
+import { makeUser, makeSourceImage } from "./factories";
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
 let testDb: Db;
@@ -37,17 +37,14 @@ async function makeDesignWithImage(
     .insert(schema.design)
     .values({ userId })
     .returning();
-  const [image] = await db
-    .insert(schema.designImage)
-    .values({
-      designId: design.id,
-      aspectRatio: "1:1",
-      imageUrl: `https://img.example/${design.id}.png`,
-      publishedAt: opts.published ? new Date() : null,
-      isHidden: opts.hidden ?? false,
-    })
-    .returning();
-  return { designId: design.id, imageId: image.id };
+  const imageId = await makeSourceImage(db, {
+    designId: design.id,
+    ownerId: userId,
+    imageUrl: `https://img.example/${design.id}.png`,
+    publishedAt: opts.published ? new Date() : null,
+    isHidden: opts.hidden ?? false,
+  });
+  return { designId: design.id, imageId };
 }
 
 describe("getBackSourceGroups / assertUsableBackImage (#72)", () => {
@@ -64,40 +61,31 @@ describe("getBackSourceGroups / assertUsableBackImage (#72)", () => {
       .insert(schema.design)
       .values({ userId: "nico" })
       .returning();
-    const [s1] = await testDb
-      .insert(schema.designImage)
-      .values({
-        designId: d1.id,
-        aspectRatio: "1:1",
-        imageUrl: "https://img.example/s1.png",
-      })
-      .returning();
-    const [s2] = await testDb
-      .insert(schema.designImage)
-      .values({
-        designId: d1.id,
-        aspectRatio: "1:1",
-        imageUrl: "https://img.example/s2.png",
-        publishedAt: new Date(),
-      })
-      .returning();
+    const s1 = await makeSourceImage(testDb, {
+      designId: d1.id,
+      ownerId: "nico",
+      imageUrl: "https://img.example/s1.png",
+    });
+    const s2 = await makeSourceImage(testDb, {
+      designId: d1.id,
+      ownerId: "nico",
+      imageUrl: "https://img.example/s2.png",
+      publishedAt: new Date(),
+    });
 
     // Another design of nico's, with a primary → My Designs.
     const [d2] = await testDb
       .insert(schema.design)
       .values({ userId: "nico" })
       .returning();
-    const [p2] = await testDb
-      .insert(schema.designImage)
-      .values({
-        designId: d2.id,
-        aspectRatio: "1:1",
-        imageUrl: "https://img.example/p2.png",
-      })
-      .returning();
+    const p2 = await makeSourceImage(testDb, {
+      designId: d2.id,
+      ownerId: "nico",
+      imageUrl: "https://img.example/p2.png",
+    });
     await testDb
       .update(schema.design)
-      .set({ primaryImageId: p2.id })
+      .set({ primaryImageId: p2 })
       .where(eq(schema.design.id, d2.id));
 
     // Nico design with no primary → excluded from My Designs.
@@ -113,7 +101,7 @@ describe("getBackSourceGroups / assertUsableBackImage (#72)", () => {
     });
     const priv = await makeDesignWithImage(testDb, "stranger", {});
 
-    return { d1: d1.id, s1: s1.id, s2: s2.id, d2: d2.id, p2: p2.id, pub, hidden, priv };
+    return { d1: d1.id, s1, s2, d2: d2.id, p2, pub, hidden, priv };
   }
 
   it("returns the three groups, scoped and filtered", async () => {
@@ -239,47 +227,38 @@ describe("getBuyPageBackSourceGroups (/d back picker)", () => {
       .insert(schema.design)
       .values({ userId: "seller" })
       .returning();
-    const [privImg] = await testDb
-      .insert(schema.designImage)
-      .values({
-        designId: sold.id,
-        aspectRatio: "1:1",
-        imageUrl: "https://img.example/priv.png",
-      })
-      .returning();
-    const [pubImg] = await testDb
-      .insert(schema.designImage)
-      .values({
-        designId: sold.id,
-        aspectRatio: "1:1",
-        imageUrl: "https://img.example/pub.png",
-        publishedAt: new Date(),
-      })
-      .returning();
+    const privImgId = await makeSourceImage(testDb, {
+      designId: sold.id,
+      ownerId: "seller",
+      imageUrl: "https://img.example/priv.png",
+    });
+    const pubImgId = await makeSourceImage(testDb, {
+      designId: sold.id,
+      ownerId: "seller",
+      imageUrl: "https://img.example/pub.png",
+      publishedAt: new Date(),
+    });
 
     // Buyer's own design with a primary → My Designs.
     const [mine] = await testDb
       .insert(schema.design)
       .values({ userId: "buyer" })
       .returning();
-    const [mineImg] = await testDb
-      .insert(schema.designImage)
-      .values({
-        designId: mine.id,
-        aspectRatio: "1:1",
-        imageUrl: "https://img.example/mine.png",
-      })
-      .returning();
+    const mineImgId = await makeSourceImage(testDb, {
+      designId: mine.id,
+      ownerId: "buyer",
+      imageUrl: "https://img.example/mine.png",
+    });
     await testDb
       .update(schema.design)
-      .set({ primaryImageId: mineImg.id })
+      .set({ primaryImageId: mineImgId })
       .where(eq(schema.design.id, mine.id));
 
     return {
       soldDesignId: sold.id,
-      privImgId: privImg.id,
-      pubImgId: pubImg.id,
-      mineImgId: mineImg.id,
+      privImgId,
+      pubImgId,
+      mineImgId,
     };
   }
 

@@ -4,11 +4,12 @@ import { headers } from "next/headers";
 import { auth, isAnonymousUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
-  design as designTable,
-  designImage as designImageTable,
+  image as imageTable,
+  listing as listingTable,
   user as userTable,
 } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
+import { getDesignImageWithOwner } from "@/lib/design-images";
 import { computePrice } from "@/lib/pricing";
 import { DEFAULT_BLANK_ID, multiPlacementEnabled } from "@/lib/blanks";
 import { createStripeCheckoutForOrder } from "@/app/order/actions";
@@ -82,19 +83,22 @@ export async function getDiscoverFeed(limit = 60): Promise<PublishedImage[]> {
  * and user so we can render the chain without further round-trips.
  */
 async function fetchForkChainRow(imageId: string): Promise<ForkChainRow | null> {
+  // Lineage now lives on the image graph (image.seed_image_id), not on the
+  // conversation. Publish state comes from the listing — a left join, so an
+  // unpublished hop still returns a row and buildForkChain stops on it.
   const rows = await db
     .select({
-      imageId: designImageTable.id,
-      title: designImageTable.title,
-      publishedAt: designImageTable.publishedAt,
-      isHidden: designImageTable.isHidden,
+      imageId: imageTable.id,
+      title: listingTable.title,
+      publishedAt: listingTable.publishedAt,
+      isHidden: listingTable.isHidden,
       designerName: userTable.name,
-      forkedFromImageId: designTable.forkedFromImageId,
+      forkedFromImageId: imageTable.seedImageId,
     })
-    .from(designImageTable)
-    .innerJoin(designTable, eq(designTable.id, designImageTable.designId))
-    .innerJoin(userTable, eq(userTable.id, designTable.userId))
-    .where(eq(designImageTable.id, imageId))
+    .from(imageTable)
+    .innerJoin(userTable, eq(userTable.id, imageTable.ownerId))
+    .leftJoin(listingTable, eq(listingTable.imageId, imageTable.id))
+    .where(eq(imageTable.id, imageId))
     .limit(1);
   const r = rows[0];
   if (!r) return null;
@@ -104,7 +108,7 @@ async function fetchForkChainRow(imageId: string): Promise<ForkChainRow | null> 
     designerName: r.designerName,
     forkedFromImageId: r.forkedFromImageId,
     publishedAt: r.publishedAt,
-    isHidden: r.isHidden,
+    isHidden: r.isHidden ?? false,
   };
 }
 
@@ -117,25 +121,25 @@ export async function getPublishedImage(
 ): Promise<PublishedImage | null> {
   const rows = await db
     .select({
-      imageId: designImageTable.id,
-      imageUrl: designImageTable.imageUrl,
-      title: designImageTable.title,
-      description: designImageTable.description,
-      backgroundColor: designImageTable.backgroundColor,
-      publishedAt: designImageTable.publishedAt,
-      isHidden: designImageTable.isHidden,
+      imageId: imageTable.id,
+      imageUrl: imageTable.imageUrl,
+      title: listingTable.title,
+      description: listingTable.description,
+      backgroundColor: listingTable.backgroundColor,
+      publishedAt: listingTable.publishedAt,
+      isHidden: listingTable.isHidden,
       designerName: userTable.name,
       designerId: userTable.id,
-      forkedFromImageId: designTable.forkedFromImageId,
+      forkedFromImageId: imageTable.seedImageId,
     })
-    .from(designImageTable)
-    .innerJoin(designTable, eq(designTable.id, designImageTable.designId))
-    .innerJoin(userTable, eq(userTable.id, designTable.userId))
-    .where(eq(designImageTable.id, imageId))
+    .from(listingTable)
+    .innerJoin(imageTable, eq(imageTable.id, listingTable.imageId))
+    .innerJoin(userTable, eq(userTable.id, imageTable.ownerId))
+    .where(eq(imageTable.id, imageId))
     .limit(1);
 
   const r = rows[0];
-  if (!r || !r.publishedAt || r.isHidden) return null;
+  if (!r || r.isHidden) return null;
 
   // Walk forkedFromImageId upward, stopping at the first invisible
   // parent so admin moderation also breaks the public chain.
@@ -179,10 +183,10 @@ export async function getBuyPageBackSources(
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session || isAnonymousUser(session.user)) return { groups: [] };
 
-  const image = await db.query.designImage.findFirst({
-    where: eq(designImageTable.id, imageId),
-  });
-  if (!image || !canBuyPublishedImage(image)) return { groups: [] };
+  const image = await getDesignImageWithOwner(imageId);
+  if (!image || !image.designId || !canBuyPublishedImage(image)) {
+    return { groups: [] };
+  }
 
   const groups = await getBuyPageBackSourceGroups({
     designId: image.designId,
@@ -222,10 +226,8 @@ export async function buyPublishedDesign(params: {
     return { url: null, needsAuth: true };
   }
 
-  const image = await db.query.designImage.findFirst({
-    where: eq(designImageTable.id, params.imageId),
-  });
-  if (!image) throw new Error("Image not found");
+  const image = await getDesignImageWithOwner(params.imageId);
+  if (!image || !image.designId) throw new Error("Image not found");
 
   if (!canBuyPublishedImage(image)) {
     throw new Error("Image is not available to buy");

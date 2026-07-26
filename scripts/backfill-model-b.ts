@@ -11,6 +11,10 @@
  * role=seed link, and its images carry seed_image_id / original_designer_id
  * from the design (provenance moves onto the image graph, item 4).
  *
+ * Timestamps carry across (createdAt), because the slice-2 readers order the
+ * thread gallery and the render cache by them — without it every backfilled
+ * row would share the run's timestamp.
+ *
  * Idempotent: every insert is ON CONFLICT DO NOTHING (PKs + the
  * conversation_image unique index), so re-runs are safe and chunked in bulk
  * statements (never db.transaction — libSQL serverless HTTP).
@@ -89,6 +93,7 @@ export async function backfillModelB(
           parentImageId: r.parentImageId,
           seedImageId: design.forkedFromImageId,
           originalDesignerId: design.originalDesignerId,
+          createdAt: r.createdAt,
         })
       );
       outputLinks.push(buildOutputLinkRow(r.designId, r.id));
@@ -103,6 +108,7 @@ export async function backfillModelB(
           imageUrl: r.imageUrl,
           aspectRatio: r.aspectRatio,
           generationCost: r.generationCost,
+          createdAt: r.createdAt,
         })
       );
     }

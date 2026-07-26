@@ -11,6 +11,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from "vitest";
 import { createTestDb } from "@/lib/__tests__/test-db";
+import { makeSourceImage } from "@/lib/__tests__/factories";
 import * as schema from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 
@@ -97,11 +98,11 @@ async function seedDesign(generationCount = 0): Promise<string> {
 }
 
 async function seedSourceImage(designId: string, url: string): Promise<string> {
-  const [row] = await testDb
-    .insert(schema.designImage)
-    .values({ designId, aspectRatio: "1:1", imageUrl: url })
-    .returning();
-  return row.id;
+  return makeSourceImage(testDb, {
+    designId,
+    ownerId: "u1",
+    imageUrl: url,
+  });
 }
 
 async function sourceImages(designId: string) {

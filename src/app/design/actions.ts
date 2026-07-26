@@ -14,6 +14,7 @@ import {
   order as orderTable,
   image as imageTable,
   conversationImage as conversationImageTable,
+  listing as listingTable,
 } from "@/lib/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { buildImageRow, buildOutputLinkRow } from "@/lib/model-b-writes";
@@ -466,12 +467,15 @@ export async function getDesign(designId: string) {
 
   // Primary image's pinned backdrop color (#16) — /preview's color default
   // (§3): the design was published on this color, so show it on it.
+  // Read from the listing — it exists only while the image is published,
+  // which is exactly when the pinned backdrop applies.
   let backgroundColor: string | null = null;
   if (found.primaryImageId) {
-    const primary = await db.query.designImage.findFirst({
-      where: eq(designImageTable.id, found.primaryImageId),
-      columns: { backgroundColor: true },
-    });
+    const [primary] = await db
+      .select({ backgroundColor: listingTable.backgroundColor })
+      .from(listingTable)
+      .where(eq(listingTable.imageId, found.primaryImageId))
+      .limit(1);
     backgroundColor = primary?.backgroundColor ?? null;
   }
 

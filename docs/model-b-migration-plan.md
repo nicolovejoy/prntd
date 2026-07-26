@@ -244,6 +244,28 @@ sites don't churn:
 - Revert: readers flip back; dual-write kept both shapes current, so
   reverting loses nothing.
 
+**Slice 2 status (built 2026-07-25).** Done as scoped. Two things the plan
+didn't anticipate:
+
+- The backfill has to carry `created_at` onto `image` / `placement_render`.
+  The slice-2 readers order the thread gallery, the latest-artifact fallback
+  and the render cache by it, and without the carry every backfilled row would
+  share the backfill run's timestamp. `buildImageRow` /
+  `buildPlacementRenderRow` take an optional `createdAt` (backfill only; live
+  writes still default to now). **Consequence: the prod backfill must be run
+  from this slice's code, not slice 1's** — the inserts are
+  `onConflictDoNothing`, so re-running after the fix would not correct rows
+  already written with a run timestamp.
+- `created_at` is second-resolution, so two rows written in the same second
+  tie. The ordering reads add `rowid` as the tiebreaker, which is the insert
+  order the old `design_image` scans got implicitly.
+
+Publish-family actions (`publishImage` / `unpublishImage` /
+`updatePublishedNaming` / `setImageHidden` / `setImageFeedRank`) deliberately
+keep reading `design_image`: an unpublished image has no listing row, so the
+`is_hidden` / `feed_rank` a new listing must snapshot live nowhere else until
+the slice-4 writer cutover.
+
 ### Slice 3 — lifecycle + fresh-start
 
 - `design.closed_at` (migration `0006`, additive).
