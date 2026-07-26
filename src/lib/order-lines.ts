@@ -1,18 +1,17 @@
 /**
  * One source of truth for "what was bought" on an order.
  *
- * Orders carry purchased items two ways today: legacy single-item orders store
- * the item in scalar columns on `order` (size/color/productId/placements/…),
- * while cart orders (#26) store one `order_item` row per shirt. This normalizer
- * collapses both into a single `OrderLine[]` so read sites — orders page, admin,
- * emails, fulfillment — don't branch on which representation an order uses.
+ * `order_item` is authoritative (data-model Phase 1c): every order carries one
+ * row per shirt, and the per-item scalar columns that used to sit on `order`
+ * are gone (migration 0006 backfilled a line for every order that lacked one,
+ * then dropped them). This maps those rows to the shape read sites use.
  *
- * It also exposes the blank catalog id as `blankId` rather than the legacy
+ * It exposes the blank catalog id as `blankId` rather than the legacy
  * `productId` name (the column holds a *blank* id, e.g. "bella-canvas-3001",
  * not a `product.id`). This is the read-layer half of the productId→blankId
  * rename — see docs/data-model-simplification-plan.md.
  *
- * Pure: no DB access. Callers pass the order row + its order_item rows.
+ * Pure: no DB access. Callers pass the order's order_item rows.
  */
 
 export type OrderLine = {
@@ -24,17 +23,6 @@ export type OrderLine = {
   quantity: number;
   /** placement key → design_image id. Defaults to {} when unset. */
   placements: Record<string, string>;
-  itemPrice: number | null;
-  printfulCost: number | null;
-};
-
-/** The legacy scalar item fields carried on the `order` row. */
-type OrderScalars = {
-  designId: string;
-  productId: string;
-  size: string;
-  color: string;
-  placements: Record<string, string> | null;
   itemPrice: number | null;
   printfulCost: number | null;
 };
@@ -51,35 +39,15 @@ export type OrderItemRow = {
   printfulCost: number | null;
 };
 
-export function resolveOrderLines(
-  order: OrderScalars,
-  items: OrderItemRow[]
-): OrderLine[] {
-  // order_item rows are authoritative when present; the scalar columns are the
-  // legacy single-item fallback.
-  if (items.length > 0) {
-    return items.map((item) => ({
-      designId: item.designId,
-      blankId: item.productId,
-      size: item.size,
-      color: item.color,
-      quantity: item.quantity,
-      placements: item.placements ?? {},
-      itemPrice: item.itemPrice,
-      printfulCost: item.printfulCost,
-    }));
-  }
-
-  return [
-    {
-      designId: order.designId,
-      blankId: order.productId,
-      size: order.size,
-      color: order.color,
-      quantity: 1,
-      placements: order.placements ?? {},
-      itemPrice: order.itemPrice,
-      printfulCost: order.printfulCost,
-    },
-  ];
+export function resolveOrderLines(items: OrderItemRow[]): OrderLine[] {
+  return items.map((item) => ({
+    designId: item.designId,
+    blankId: item.productId,
+    size: item.size,
+    color: item.color,
+    quantity: item.quantity,
+    placements: item.placements ?? {},
+    itemPrice: item.itemPrice,
+    printfulCost: item.printfulCost,
+  }));
 }

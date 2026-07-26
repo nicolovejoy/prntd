@@ -1,10 +1,9 @@
 /**
  * createDefaultOrderEmailDeps.loadOrderForEmail against a real (in-memory) DB.
- * This is the query that feeds order emails; it moved from the legacy scalar
- * order columns onto resolveOrderLines, and these tests lock that a cart order
- * emails every line (and keep the loader honest when Phase 1c drops the scalar
- * columns). Only the image-resolution module is mocked — it instantiates a
- * libSQL client at module load and is exercised elsewhere.
+ * This is the query that feeds order emails; it reads order_item rows only
+ * (Phase 1c), and these tests lock that every line is emailed. Only the
+ * image-resolution module is mocked — it instantiates a libSQL client at module
+ * load and is exercised elsewhere.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { createTestDb } from "./test-db";
@@ -23,7 +22,10 @@ const senders = {
   sendOwnerOrderAlert: vi.fn(),
 };
 
-async function seedOrder(db: Db) {
+async function seedOrder(
+  db: Db,
+  opts: { item?: Partial<typeof schema.orderItem.$inferInsert> | null } = {}
+) {
   const userId = "user-1";
   await db
     .insert(schema.user)
@@ -34,15 +36,24 @@ async function seedOrder(db: Db) {
     .values({
       userId,
       designId: design.id,
-      productId: "bella-canvas-3001",
-      size: "M",
-      color: "Black",
       totalPrice: 24.12,
       discountCode: "HALF",
       displayName: "Raccoon Café",
       status: "paid",
     })
     .returning();
+  if (opts.item !== null) {
+    await db.insert(schema.orderItem).values({
+      orderId: order.id,
+      designId: design.id,
+      productId: "bella-canvas-3001",
+      size: "M",
+      color: "Black",
+      quantity: 1,
+      itemPrice: 19.43,
+      ...opts.item,
+    });
+  }
   return { userId, design, order };
 }
 
@@ -52,7 +63,7 @@ describe("createDefaultOrderEmailDeps.loadOrderForEmail", () => {
     db = await createTestDb();
   });
 
-  it("resolves a legacy single-item order to one named line", async () => {
+  it("resolves a single-item order to one named line", async () => {
     const { order } = await seedOrder(db);
     const deps = createDefaultOrderEmailDeps(db, senders);
 
@@ -69,28 +80,17 @@ describe("createDefaultOrderEmailDeps.loadOrderForEmail", () => {
   });
 
   it("resolves a cart order to every order_item line", async () => {
-    const { userId, design, order } = await seedOrder(db);
+    const { userId, order } = await seedOrder(db);
     const [design2] = await db.insert(schema.design).values({ userId }).returning();
-    await db.insert(schema.orderItem).values([
-      {
-        orderId: order.id,
-        designId: design.id,
-        productId: "bella-canvas-3001",
-        size: "M",
-        color: "Black",
-        quantity: 1,
-        itemPrice: 19.43,
-      },
-      {
-        orderId: order.id,
-        designId: design2.id,
-        productId: "bella-canvas-3001",
-        size: "L",
-        color: "White",
-        quantity: 2,
-        itemPrice: 19.43,
-      },
-    ]);
+    await db.insert(schema.orderItem).values({
+      orderId: order.id,
+      designId: design2.id,
+      productId: "bella-canvas-3001",
+      size: "L",
+      color: "White",
+      quantity: 2,
+      itemPrice: 19.43,
+    });
     const deps = createDefaultOrderEmailDeps(db, senders);
 
     const payload = await deps.loadOrderForEmail(order.id);
@@ -102,17 +102,24 @@ describe("createDefaultOrderEmailDeps.loadOrderForEmail", () => {
   });
 
   it("labels an unknown historical blank id as 'product' instead of breaking", async () => {
-    const { order } = await seedOrder(db);
-    const { eq } = await import("drizzle-orm");
-    await db
-      .update(schema.order)
-      .set({ productId: "discontinued-blank" })
-      .where(eq(schema.order.id, order.id));
+    const { order } = await seedOrder(db, {
+      item: { productId: "discontinued-blank" },
+    });
     const deps = createDefaultOrderEmailDeps(db, senders);
 
     const payload = await deps.loadOrderForEmail(order.id);
 
     expect(payload?.lines[0].productName).toBe("product");
+  });
+
+  it("emails text-only (no hero) when the order somehow has no lines", async () => {
+    const { order } = await seedOrder(db, { item: null });
+    const deps = createDefaultOrderEmailDeps(db, senders);
+
+    const payload = await deps.loadOrderForEmail(order.id);
+
+    expect(payload?.lines).toEqual([]);
+    expect(payload?.images).toEqual([]);
   });
 
   it("returns null for a missing order", async () => {

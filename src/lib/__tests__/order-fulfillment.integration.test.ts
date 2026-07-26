@@ -44,9 +44,16 @@ function makeDeps(db: Db, overrides: Partial<FulfillmentDeps> = {}): Fulfillment
   } as unknown as FulfillmentDeps;
 }
 
+/**
+ * A paid order plus its single order_item line (authoritative since Phase 1c).
+ * `item: null` seeds the header only, for tests that write their own lines.
+ */
 async function seedPaidOrder(
   db: Db,
-  orderOverrides: Partial<typeof schema.order.$inferInsert> = {}
+  opts: {
+    order?: Partial<typeof schema.order.$inferInsert>;
+    item?: Partial<typeof schema.orderItem.$inferInsert> | null;
+  } = {}
 ) {
   const userId = "user-1";
   await db
@@ -58,16 +65,29 @@ async function seedPaidOrder(
     .values({
       userId,
       designId: design.id,
-      productId: "bella-canvas-3001",
-      size: "M",
-      color: "Black",
       totalPrice: 24.12,
       status: "paid",
       shippingName: SHIPPING.name,
-      ...orderOverrides,
+      ...opts.order,
     })
     .returning();
-  return { userId, design, order };
+  const items =
+    opts.item === null
+      ? []
+      : await db
+          .insert(schema.orderItem)
+          .values({
+            orderId: order.id,
+            designId: design.id,
+            productId: "bella-canvas-3001",
+            size: "M",
+            color: "Black",
+            quantity: 1,
+            itemPrice: 19.43,
+            ...opts.item,
+          })
+          .returning();
+  return { userId, design, order, items };
 }
 
 describe("submitOrderFulfillment (admin-retry shape)", () => {
@@ -77,7 +97,7 @@ describe("submitOrderFulfillment (admin-retry shape)", () => {
   });
 
   it("submits every line of a multi-item order, not just the head line", async () => {
-    const { userId, design, order } = await seedPaidOrder(db);
+    const { userId, design, order } = await seedPaidOrder(db, { item: null });
     const [design2] = await db.insert(schema.design).values({ userId }).returning();
     const items = await db
       .insert(schema.orderItem)
@@ -128,12 +148,12 @@ describe("submitOrderFulfillment (admin-retry shape)", () => {
   });
 
   it("keeps the back placement on a front+back order", async () => {
-    const { order } = await seedPaidOrder(db, {
-      placements: { front: "img-front", back: "img-back" },
+    const { order, items } = await seedPaidOrder(db, {
+      item: { placements: { front: "img-front", back: "img-back" } },
     });
 
     const deps = makeDeps(db);
-    const result = await submitOrderFulfillment(order, [], SHIPPING, deps);
+    const result = await submitOrderFulfillment(order, items, SHIPPING, deps);
 
     expect(result.action).toBe("submitted");
     const files = (deps.createPrintfulOrder as ReturnType<typeof vi.fn>).mock
@@ -145,8 +165,8 @@ describe("submitOrderFulfillment (admin-retry shape)", () => {
   });
 
   it("records COGS in the ledger (the old retry path never did)", async () => {
-    const { order } = await seedPaidOrder(db);
-    const result = await submitOrderFulfillment(order, [], SHIPPING, makeDeps(db));
+    const { order, items } = await seedPaidOrder(db);
+    const result = await submitOrderFulfillment(order, items, SHIPPING, makeDeps(db));
 
     expect(result.action).toBe("submitted");
     const entries = await db.query.ledgerEntry.findMany({
@@ -165,11 +185,13 @@ describe("submitOrderFulfillment (admin-retry shape)", () => {
   });
 
   it("does not rename an order that already has a displayName", async () => {
-    const { order } = await seedPaidOrder(db, { displayName: "Kept Name" });
+    const { order, items } = await seedPaidOrder(db, {
+      order: { displayName: "Kept Name" },
+    });
     const generateOrderName = vi.fn();
     await submitOrderFulfillment(
       order,
-      [],
+      items,
       SHIPPING,
       makeDeps(db, { generateOrderName })
     );
@@ -182,8 +204,8 @@ describe("submitOrderFulfillment (admin-retry shape)", () => {
   });
 
   it("names an unnamed order from the first print file", async () => {
-    const { order } = await seedPaidOrder(db);
-    await submitOrderFulfillment(order, [], SHIPPING, makeDeps(db));
+    const { order, items } = await seedPaidOrder(db);
+    await submitOrderFulfillment(order, items, SHIPPING, makeDeps(db));
 
     const updated = await db.query.order.findFirst({
       where: eq(schema.order.id, order.id),
@@ -192,11 +214,11 @@ describe("submitOrderFulfillment (admin-retry shape)", () => {
   });
 
   it("returns paid without submitting when no line is fulfillable", async () => {
-    const { order } = await seedPaidOrder(db);
+    const { order, items } = await seedPaidOrder(db);
     const createPrintfulOrder = vi.fn();
     const result = await submitOrderFulfillment(
       order,
-      [],
+      items,
       SHIPPING,
       makeDeps(db, {
         createPrintfulOrder,
@@ -210,7 +232,7 @@ describe("submitOrderFulfillment (admin-retry shape)", () => {
   });
 
   it("drops a line with no variant instead of failing the order", async () => {
-    const { userId, design, order } = await seedPaidOrder(db);
+    const { userId, design, order } = await seedPaidOrder(db, { item: null });
     const [design2] = await db.insert(schema.design).values({ userId }).returning();
     const items = await db
       .insert(schema.orderItem)
@@ -250,7 +272,7 @@ describe("submitOrderFulfillment (admin-retry shape)", () => {
     // persisting its id, so this resubmit fails. Recovery probes by external_id
     // rather than matching the error text — so even a generically-worded /
     // transient failure recovers as long as Printful actually has the order.
-    const { order } = await seedPaidOrder(db);
+    const { order, items } = await seedPaidOrder(db);
     const createPrintfulOrder = vi
       .fn()
       .mockRejectedValue(new Error("Printful API error: 500 Internal Server Error"));
@@ -260,7 +282,7 @@ describe("submitOrderFulfillment (admin-retry shape)", () => {
 
     const result = await submitOrderFulfillment(
       order,
-      [],
+      items,
       SHIPPING,
       makeDeps(db, { createPrintfulOrder, getPrintfulOrderByExternalId })
     );
@@ -284,10 +306,10 @@ describe("submitOrderFulfillment (admin-retry shape)", () => {
   });
 
   it("submit fails and the probe finds no existing order → paid_printful_failed", async () => {
-    const { order } = await seedPaidOrder(db);
+    const { order, items } = await seedPaidOrder(db);
     const result = await submitOrderFulfillment(
       order,
-      [],
+      items,
       SHIPPING,
       makeDeps(db, {
         createPrintfulOrder: vi
@@ -305,11 +327,11 @@ describe("submitOrderFulfillment (admin-retry shape)", () => {
   });
 
   it("returns paid_printful_failed when image resolution throws (finding #3a: reads inside the try)", async () => {
-    const { order } = await seedPaidOrder(db);
+    const { order, items } = await seedPaidOrder(db);
     const createPrintfulOrder = vi.fn();
     const result = await submitOrderFulfillment(
       order,
-      [],
+      items,
       SHIPPING,
       makeDeps(db, {
         createPrintfulOrder,
@@ -331,10 +353,10 @@ describe("submitOrderFulfillment (admin-retry shape)", () => {
   });
 
   it("returns paid_printful_failed with no COGS when Printful errors", async () => {
-    const { order } = await seedPaidOrder(db);
+    const { order, items } = await seedPaidOrder(db);
     const result = await submitOrderFulfillment(
       order,
-      [],
+      items,
       SHIPPING,
       makeDeps(db, {
         createPrintfulOrder: vi.fn().mockRejectedValue(new Error("Printful 500")),

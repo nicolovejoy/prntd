@@ -123,10 +123,6 @@ describe("buyPublishedDesign with a back design", () => {
 
     const [order] = await db.select().from(schema.order);
     expect(order.designId).toBe(ids.soldDesignId);
-    expect(order.placements).toEqual({
-      front: ids.listingId,
-      back: ids.myBackId,
-    });
     // $19.43 front + $8 back upcharge; shipping rides on top.
     expect(order.itemPrice).toBe(27.43);
     expect(order.shippingPrice).toBe(4.69);
@@ -172,7 +168,8 @@ describe("buyPublishedDesign with a back design", () => {
     });
 
     const [order] = await db.select().from(schema.order);
-    expect(order.placements).toEqual({
+    const [line] = await db.select().from(schema.orderItem);
+    expect(line.placements).toEqual({
       front: ids.listingId,
       back: ids.listingId,
     });
@@ -193,7 +190,8 @@ describe("buyPublishedDesign with a back design", () => {
     });
 
     const [order] = await db.select().from(schema.order);
-    expect(order.placements).toEqual({ front: ids.listingId });
+    const [line] = await db.select().from(schema.orderItem);
+    expect(line.placements).toEqual({ front: ids.listingId });
     expect(order.itemPrice).toBe(19.43);
     expect(order.totalPrice).toBe(24.12);
   });
@@ -210,7 +208,8 @@ describe("buyPublishedDesign with a back design", () => {
     });
 
     const [order] = await db.select().from(schema.order);
-    expect(order.placements).toEqual({ front: ids.listingId });
+    const [line] = await db.select().from(schema.orderItem);
+    expect(line.placements).toEqual({ front: ids.listingId });
     expect(order.itemPrice).toBe(19.43);
   });
 });

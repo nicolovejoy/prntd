@@ -96,6 +96,16 @@ export async function handleStripeCheckoutCompleted(
     ? (session.amountTotal - session.amountShipping) / 100
     : foundOrder.itemPrice;
 
+  // The purchased lines (order_item is authoritative since Phase 1c). Read
+  // before the claim so the sale ledger description can name what was bought.
+  const orderItems = await deps.db.query.orderItem.findMany({
+    where: eq(orderItemTable.orderId, orderId),
+  });
+  const firstLine = orderItems[0];
+  const lineLabel = firstLine
+    ? `${firstLine.color} ${firstLine.size}${orderItems.length > 1 ? ` +${orderItems.length - 1} more` : ""}`
+    : "no line items";
+
   // Atomic claim (#37): the paid-update and the sale/fee ledger rows commit
   // together, and the claim is conditional on status still being `pending` —
   // so a redelivery racing the live run (Stripe retries past its timeout while
@@ -130,7 +140,7 @@ export async function handleStripeCheckoutCompleted(
         saleLedgerRows(
           orderId,
           actualTotal,
-          `Order ${orderId.slice(0, 8)} — ${foundOrder.color} ${foundOrder.size}${session.discount ? ` (${session.discount.code} -$${session.discount.amount.toFixed(2)})` : ""}`
+          `Order ${orderId.slice(0, 8)} — ${lineLabel}${session.discount ? ` (${session.discount.code} -$${session.discount.amount.toFixed(2)})` : ""}`
         )
       ),
     ]);
@@ -140,18 +150,11 @@ export async function handleStripeCheckoutCompleted(
     throw err;
   }
 
-  // Fulfillment: one shared tail for single-item (legacy scalar) and cart
-  // (order_item) orders — resolveOrderLines inside submitOrderFulfillment
-  // normalizes both.
-  const orderItems = await deps.db.query.orderItem.findMany({
-    where: eq(orderItemTable.orderId, orderId),
-  });
-
   // #38: the cart survives Stripe-session creation, so backing out of checkout
   // returns to an intact /cart. Payment is the point of no return — clear the
-  // purchased lines here, matched per line so a single-item /order purchase
-  // (no order_item rows today) or anything added to the cart mid-checkout is
-  // untouched. Runs even if fulfillment fails below: the customer paid.
+  // purchased lines here, matched per line so anything added to the cart
+  // mid-checkout is untouched. Runs even if fulfillment fails below: the
+  // customer paid.
   //
   // Wrapped so a cart-cleanup failure never fails the webhook (finding #3b):
   // the paid-claim already committed, so a throw here would 400 → Stripe

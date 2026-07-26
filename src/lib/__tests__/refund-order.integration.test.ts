@@ -25,9 +25,6 @@ async function seedCanceledOrder(
     .values({
       userId,
       designId: design.id,
-      productId: "bella-canvas-3001",
-      size: "M",
-      color: "Black",
       totalPrice: 24.12,
       status: "canceled",
       stripeSessionId: "cs_test_1",

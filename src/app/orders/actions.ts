@@ -27,11 +27,7 @@ export async function getUserOrders() {
     .select({
       id: orderTable.id,
       designId: orderTable.designId,
-      placements: orderTable.placements,
       status: orderTable.status,
-      size: orderTable.size,
-      color: orderTable.color,
-      productId: orderTable.productId,
       totalPrice: orderTable.totalPrice,
       trackingNumber: orderTable.trackingNumber,
       trackingUrl: orderTable.trackingUrl,
@@ -43,10 +39,8 @@ export async function getUserOrders() {
     .where(eq(orderTable.userId, buyerId))
     .orderBy(desc(orderTable.createdAt));
 
-  // Each order's purchased items. Cart orders (#26) carry one order_item row
-  // per shirt; legacy single-item orders carry none and fall back to the
-  // scalar columns on `order`. resolveOrderLines normalizes both into lines so
-  // a multi-item order shows every shirt instead of just the first.
+  // Each order's purchased items — one order_item row per shirt (authoritative
+  // since Phase 1c), so a multi-item order shows every shirt, not just the first.
   const orderIds = orders.map((o) => o.id);
   const itemRows = orderIds.length
     ? await db
@@ -73,15 +67,6 @@ export async function getUserOrders() {
   const withLines = orders.map((o) => ({
     order: o,
     lines: resolveOrderLines(
-      {
-        designId: o.designId,
-        productId: o.productId,
-        size: o.size,
-        color: o.color,
-        placements: o.placements,
-        itemPrice: null,
-        printfulCost: null,
-      },
       (itemsByOrder.get(o.id) ?? []).map((it) => ({
         designId: it.designId,
         productId: it.productId,

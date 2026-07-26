@@ -231,10 +231,9 @@ export default function OrderDetailPage() {
                 <div
                   className="w-20 h-20 rounded p-2 overflow-hidden flex-shrink-0"
                   style={{
-                    backgroundColor: getColorHex(
-                      order.lines[0]?.blankId ?? order.productId,
-                      order.lines[0]?.color ?? order.color
-                    ),
+                    backgroundColor: order.lines[0]
+                      ? getColorHex(order.lines[0].blankId, order.lines[0].color)
+                      : undefined,
                   }}
                 >
                   <img

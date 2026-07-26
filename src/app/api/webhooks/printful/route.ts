@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { order as orderTable, user as userTable } from "@/lib/db/schema";
+import {
+  order as orderTable,
+  orderItem as orderItemTable,
+  user as userTable,
+} from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { handlePrintfulEvent } from "@/lib/webhook-handlers";
 import { sendShippingNotification } from "@/lib/email";
 import { resolveHeroImages } from "@/lib/order-emails";
+import { resolveOrderLines } from "@/lib/order-lines";
 import { design as designTable } from "@/lib/db/schema";
 
 // Printful webhook events reference:
@@ -36,10 +41,7 @@ export async function POST(request: NextRequest) {
           .select({
             email: userTable.email,
             displayName: orderTable.displayName,
-            productId: orderTable.productId,
-            color: orderTable.color,
             designId: orderTable.designId,
-            placements: orderTable.placements,
             mockupUrls: designTable.mockupUrls,
           })
           .from(orderTable)
@@ -48,14 +50,24 @@ export async function POST(request: NextRequest) {
           .where(eq(orderTable.id, result.orderId))
           .then((rows) => rows[0]);
 
+        // Hero comes from the first purchased line (order_item is authoritative
+        // since Phase 1c — this path used to read the dropped scalar columns).
+        const items = await db.query.orderItem.findMany({
+          where: eq(orderItemTable.orderId, result.orderId),
+          orderBy: (fields, { asc }) => [asc(fields.createdAt)],
+        });
+        const [first] = resolveOrderLines(items);
+
         if (orderWithUser) {
-          const images = await resolveHeroImages({
-            productId: orderWithUser.productId,
-            color: orderWithUser.color,
-            designId: orderWithUser.designId,
-            placements: orderWithUser.placements ?? null,
-            mockupUrls: orderWithUser.mockupUrls ?? null,
-          });
+          const images = first
+            ? await resolveHeroImages({
+                productId: first.blankId,
+                color: first.color,
+                designId: first.designId,
+                placements: first.placements,
+                mockupUrls: orderWithUser.mockupUrls ?? null,
+              })
+            : [];
           await sendShippingNotification({
             to: orderWithUser.email,
             orderId: result.orderId,

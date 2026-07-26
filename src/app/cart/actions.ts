@@ -215,12 +215,11 @@ export async function checkoutCart(): Promise<{
   const view = await getCart();
   if (view.items.length === 0) return { url: null };
 
-  // Order-level row. designId/size/color/productId mirror the first line for
-  // back-compat with single-item display code; the authoritative per-item data
-  // lives in order_item. Price split is order-level (shipping once).
-  // Order + items commit together (#37) — a crash between the two inserts
-  // used to leave an order with no order_item rows, which would fulfill as
-  // single-item once paid. The id is pre-generated so both statements can be
+  // Order-level row: money + linkage only (Phase 1c). designId mirrors the
+  // first line as header linkage; what was bought lives in order_item.
+  // Price split is order-level (shipping once). Order + items commit together
+  // (#37) — a crash between the two inserts would otherwise leave an order
+  // with no lines at all. The id is pre-generated so both statements can be
   // built before the batch.
   const head = view.items[0];
   const orderId = crypto.randomUUID();
@@ -229,9 +228,6 @@ export async function checkoutCart(): Promise<{
       id: orderId,
       userId,
       designId: head.designId,
-      productId: head.productId,
-      size: head.size,
-      color: head.color,
       totalPrice: view.total,
       itemPrice: view.itemSubtotal,
       shippingPrice: view.shipping,

@@ -45,7 +45,7 @@ export async function resolveLastPurchaseDefaults(
     .where(eq(orderItemTable.orderId, last.id))
     .orderBy(asc(orderItemTable.createdAt));
 
-  const [line] = resolveOrderLines(last, items);
+  const [line] = resolveOrderLines(items);
   if (!line) return null;
 
   // A discontinued blank never comes back as a default (#44); its size is

@@ -299,6 +299,7 @@ export default function AdminPage() {
                   order.printfulCost != null
                     ? order.totalPrice - order.printfulCost
                     : null;
+                const firstLine = order.lines[0];
                 return (
                   <tr
                     key={order.id}
@@ -369,7 +370,11 @@ export default function AdminPage() {
                       {order.designImageUrl && (
                         <div
                           className="w-10 h-10 rounded p-1 overflow-hidden"
-                          style={{ backgroundColor: getColorHex(order.productId, order.color) }}
+                          style={{
+                            backgroundColor: firstLine
+                              ? getColorHex(firstLine.blankId, firstLine.color)
+                              : undefined,
+                          }}
                         >
                           <img
                             src={order.designImageUrl}
@@ -380,7 +385,13 @@ export default function AdminPage() {
                       )}
                     </td>
                     <td className="py-3 pr-4 text-xs">
-                      {order.size} / {order.color}
+                      {firstLine ? `${firstLine.size} / ${firstLine.color}` : "—"}
+                      {order.lines.length > 1 && (
+                        <span className="text-text-faint">
+                          {" "}
+                          +{order.lines.length - 1}
+                        </span>
+                      )}
                     </td>
                     <td className="py-3 pr-4 text-xs">
                       {order.shippingName && (

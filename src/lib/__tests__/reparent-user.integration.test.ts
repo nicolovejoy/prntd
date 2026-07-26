@@ -32,9 +32,6 @@ describe("reparentUserData", () => {
       .values({
         userId: "anon-1",
         designId: design.id,
-        productId: "bella-canvas-3001",
-        size: "M",
-        color: "Black",
         totalPrice: 24.12,
         status: "pending",
       })
