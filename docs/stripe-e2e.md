@@ -6,8 +6,9 @@ checkout (4242 test card), land on `/order/confirm`, then assert the order row
 reaches `submitted` (dry-run Printful) with `sale` + `stripe_fee` ledger rows.
 
 This is the test class that would have caught the 2026-07-19 external_id
-incident's siblings: real vendor constraints (Stripe here; Printful stays
-dry-run) that mocks can't see. Keep it at exactly one spec.
+incident's siblings: real vendor constraints (Stripe here) that mocks can't
+see. Keep it at exactly one spec. Printful stays dry-run inside the spec; the
+Printful side is covered separately by the contract check below.
 
 ## Prerequisites
 
@@ -67,9 +68,53 @@ it sources `.env.local` only when the file exists). No `E2E_BASE_URL` is set,
 so the spec runs against the workflow's own locally-booted compiled build,
 same code path as local — nothing in the spec's skip logic needed to change.
 
-Repo secrets required: `STRIPE_SECRET_KEY` (test-mode) and `TURSO_API_TOKEN`
-(already added for #108). On failure the job files/comments on a GitHub issue
-labeled `stripe-e2e-nightly` so a red run isn't silent.
+Repo secrets required: `STRIPE_SECRET_KEY` (test-mode), `TURSO_API_TOKEN`
+(already added for #108), and `PRINTFUL_API_KEY` (for the contract check
+below). On failure the job files/comments on a GitHub issue labeled
+`stripe-e2e-nightly` so a red run isn't silent.
+
+## Printful contract check
+
+The Stripe spec forces `PRINTFUL_DRY_RUN=true`, so no test anywhere sends a
+real Printful request — which is exactly how the 32-char `external_id` cap
+reached production and stayed there two weeks. A separate step in the same
+nightly workflow closes that: `scripts/printful-contract-check.ts` builds a
+representative front+back order (UUID order id, real catalog variant) and
+submits it through the same `createOrder` production uses, asserts the
+response (id, `external_id` round-trips via `getOrderByExternalId`, `costs`
+present), then deletes it.
+
+The order is created **unconfirmed** — a Printful draft, never charged, never
+printed. Four layers hold that:
+
+1. the request carries `confirm: false`, so `createOrder` omits Printful's
+   `?confirm=true` query param;
+2. the script hard-sets `PRINTFUL_AUTO_CONFIRM=false` (so does the workflow
+   step), so the env default can't confirm it either;
+3. a response in any status but `draft` is a hard failure;
+4. the delete runs in a `finally`, so a failed assertion still cleans up, and
+   a cleanup failure fails the run naming the orphaned order.
+
+It never self-skips: a missing or placeholder `PRINTFUL_API_KEY` exits 1, and
+it refuses to run under `PRINTFUL_DRY_RUN=true`. The real key lives only in
+that step's env — the job-level placeholder keeps the Playwright webServer
+unable to reach Printful.
+
+Print files default to a stable public R2 object (the same one
+`scripts/test-back-mockup.ts` uses); override with
+`PRINTFUL_CONTRACT_FILE_URL` if it ever disappears.
+
+Locally:
+
+```
+PRINTFUL_API_KEY=… npm run printful:contract
+```
+
+Optional args: `npm run printful:contract -- [blankId] [color] [size]`.
+
+Control flow and request shape are unit-tested in
+`src/lib/__tests__/printful-contract.test.ts` — those tests never call the real
+API; the nightly run is the only live exercise.
 
 ## Troubleshooting
 
