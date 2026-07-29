@@ -98,6 +98,9 @@ export default async function PublishedImagePage({
             )}
           </div>
 
+          {/* #128: two peer exits — Order (expands the picker stack in
+              place) and the remix action, rendered by BuyPanel so they sit
+              together under the title block. */}
           <BuyPanel
             imageId={img.imageId}
             isLoggedIn={isLoggedIn}
@@ -107,10 +110,8 @@ export default async function PublishedImagePage({
             // through the sign-in redirect anyway) and flag-gated; the server
             // action re-checks both.
             backEnabled={isLoggedIn && multiPlacementEnabled()}
+            startAction={<StartFromImage imageId={img.imageId} />}
           />
-
-          {/* Fresh start (slice 3): iterate on this image in a new thread. */}
-          <StartFromImage imageId={img.imageId} />
         </div>
       </main>
     </div>

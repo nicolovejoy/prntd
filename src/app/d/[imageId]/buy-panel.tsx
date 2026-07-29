@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui";
 import { SizePicker, ColorPicker } from "@/components/product-options";
@@ -18,12 +18,14 @@ import type { BackSourceGroup } from "@/lib/back-sources";
 import { buyPublishedDesign, getBuyPageBackSources } from "../actions";
 
 /**
- * Buy-existing UI on `/d/[imageId]`. Logged-in users pick product/size/color
- * and buy the published design directly (no design step). Signed-out users
- * get a sign-in CTA that returns them here. Price is computed client-side at
- * generationCost 0 — the buyer never incurs generation cost — so it updates
- * instantly without a server round-trip. Phone-first: sticky CTA handled by
- * the page; this is the options block.
+ * Buy-existing UI on `/d/[imageId]`. Collapsed by default (#128): two peer
+ * CTAs under the image — "Order — $X" and the remix action passed in as
+ * `startAction`. Tapping Order expands the picker stack in place
+ * (product/size/color/back-design/price); buy stays gated on size only.
+ * Signed-out users see the same collapse; the sign-in gate applies at the
+ * buy CTA inside the expanded stack, as before. Price is computed
+ * client-side at generationCost 0 — the buyer never incurs generation cost —
+ * so it updates instantly without a server round-trip.
  */
 export function BuyPanel({
   imageId,
@@ -31,6 +33,7 @@ export function BuyPanel({
   preferredColor,
   remembered,
   backEnabled = false,
+  startAction,
 }: {
   imageId: string;
   isLoggedIn: boolean;
@@ -41,7 +44,13 @@ export function BuyPanel({
   /** Multi-placement flag && signed-in (#25/#72 on /d). The server action
    * re-checks both — this only controls the affordance. */
   backEnabled?: boolean;
+  /** Peer CTA rendered next to Order while collapsed and kept below the
+   * stack once expanded (the StartFromImage remix action). */
+  startAction?: ReactNode;
 }) {
+  // Progressive disclosure (#128): the picker stack stays hidden until the
+  // visitor taps Order.
+  const [expanded, setExpanded] = useState(false);
   // Remembered product wins over the static default (#44). No URL params on
   // this surface, so precedence is remembered > static.
   const [productId, setProductId] = useState(
@@ -159,6 +168,23 @@ export function BuyPanel({
       </Button>
     </Link>
   );
+
+  if (!expanded) {
+    return (
+      <div className="space-y-2">
+        <Button
+          size="lg"
+          className="w-full"
+          onClick={() => setExpanded(true)}
+          aria-expanded={false}
+          data-testid="order-expand"
+        >
+          Order — ${total.toFixed(2)}
+        </Button>
+        {startAction}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4 sm:space-y-5 border-t border-border pt-4 sm:pt-5">
@@ -318,6 +344,8 @@ export function BuyPanel({
 
       {/* Desktop: CTA sits inline below the price breakdown. */}
       <div className="hidden md:block">{cta}</div>
+
+      {startAction}
 
       {/* Mobile: CTA pinned to the bottom of the viewport so it's always
           reachable without scrolling the tall image + options column. The
