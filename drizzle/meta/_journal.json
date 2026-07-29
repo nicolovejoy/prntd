@@ -57,6 +57,13 @@
       "when": 1785302944376,
       "tag": "0007_talented_the_leader",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1785304007594,
+      "tag": "0008_colossal_absorbing_man",
+      "breakpoints": true
     }
   ]
 }
