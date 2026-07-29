@@ -445,7 +445,20 @@ export async function deleteDesignImage(designId: string, imageId: string) {
     .from(orderItemTable)
     .where(eq(orderItemTable.designId, designId));
 
-  if (imageReferencedByOrders(imageId, found.primaryImageId, orderLines)) {
+  // Another design's order line can pin this image too — a back design picked
+  // from My Designs/Shop (#72/#95) lands in that order's placements while its
+  // line design_id stays the order's own design. Image ids are UUIDs, so the
+  // substring match can't false-positive.
+  const pinnedElsewhere = await db
+    .select({ id: orderItemTable.id })
+    .from(orderItemTable)
+    .where(sql`${orderItemTable.placements} LIKE ${"%" + imageId + "%"}`)
+    .limit(1);
+
+  if (
+    pinnedElsewhere.length > 0 ||
+    imageReferencedByOrders(imageId, found.primaryImageId, orderLines)
+  ) {
     throw new Error(
       "Can't delete this image — it's referenced by an order."
     );
