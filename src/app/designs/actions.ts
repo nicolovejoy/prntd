@@ -8,12 +8,15 @@ import {
   designImage as designImageTable,
   chatMessage as chatMessageTable,
   order as orderTable,
+  orderItem as orderItemTable,
+  cartItem as cartItemTable,
+  product as productTable,
   image as imageTable,
   conversationImage as conversationImageTable,
   placementRender as placementRenderTable,
   listing as listingTable,
 } from "@/lib/db/schema";
-import { eq, desc, and, not, count, inArray } from "drizzle-orm";
+import { eq, desc, and, not, ne, count, inArray, or, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { resolveDesignDisplayImageUrls } from "@/lib/design-images";
 import { listingSyncStatement, type ListingUpdate } from "@/lib/model-b-writes";
@@ -37,6 +40,7 @@ export async function getUserDesigns() {
       status: true,
       generationCount: true,
       primaryImageId: true,
+      closedAt: true,
       createdAt: true,
       updatedAt: true,
     },
@@ -112,7 +116,9 @@ export async function getUserDesigns() {
  * the deletes atomically — so we never leave a design row behind with its
  * children already nuked, or vice versa.
  */
-export async function deleteDesign(designId: string) {
+export async function deleteDesign(
+  designId: string
+): Promise<{ error?: string }> {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) throw new Error("Unauthorized");
 
@@ -123,30 +129,60 @@ export async function deleteDesign(designId: string) {
   if (!found) throw new Error("Design not found");
   if (found.userId !== session.user.id) throw new Error("Unauthorized");
 
-  const [{ c: orderCount }] = await db
-    .select({ c: count() })
-    .from(orderTable)
-    .where(eq(orderTable.designId, designId));
-
-  if (orderCount > 0) {
-    await db
-      .update(designTable)
-      .set({ status: "archived", updatedAt: new Date() })
-      .where(eq(designTable.id, designId));
-    return;
-  }
-
-  // Also clear the Model B mirrors keyed to this design (slice 1). Images and
-  // their output links / listings key on the design's image ids; placement
-  // renders and conversation links key on design_id directly. Slice 4 replaces
-  // the blanket image delete with ref-counting (survive-if-shared); until then
-  // seed links only reference published/own images, so this stays safe.
   const imageIds = (
     await db
       .select({ id: designImageTable.id })
       .from(designImageTable)
       .where(eq(designImageTable.designId, designId))
   ).map((r) => r.id);
+
+  // Orders are financial records and never cascade. Since Phase 1c the lines
+  // are authoritative, so an order can reference this design three ways: the
+  // header design_id, an order_item line (a cart order's non-head designs
+  // appear ONLY there), or an image id pinned inside a line's placements (a
+  // back design picked from another thread, #72/#95). The old header-only
+  // count missed the last two and the hard delete below died on the
+  // order_item FK — the masked prod error in #121.
+  if (await designReferencedByOrders(designId, imageIds)) {
+    await db
+      .update(designTable)
+      .set({ status: "archived", updatedAt: new Date() })
+      .where(eq(designTable.id, designId));
+    return {};
+  }
+
+  // product.design_id FKs this design; deleting would break the organizer's
+  // sellable. Surface it instead of dying on the constraint (server-action
+  // throws are masked in prod).
+  const [{ c: productCount }] = await db
+    .select({ c: count() })
+    .from(productTable)
+    .where(eq(productTable.designId, designId));
+  if (productCount > 0) {
+    return {
+      error: "This design is used by a shop product. Delete the product first.",
+    };
+  }
+
+  // Also clear the Model B mirrors keyed to this design (slice 1). Images and
+  // their output links / listings key on the design's image ids; placement
+  // renders and conversation links key on design_id directly. An image that
+  // another conversation links (a seed carried from a fork/backfill) survives
+  // with its listing — the link belongs to the other design, and deleting the
+  // artifact would blank that thread (slice-4 ref-count semantics, early).
+  const sharedRows = imageIds.length
+    ? await db
+        .select({ imageId: conversationImageTable.imageId })
+        .from(conversationImageTable)
+        .where(
+          and(
+            inArray(conversationImageTable.imageId, imageIds),
+            ne(conversationImageTable.designId, designId)
+          )
+        )
+    : [];
+  const shared = new Set(sharedRows.map((r) => r.imageId));
+  const removableImageIds = imageIds.filter((id) => !shared.has(id));
 
   await db.batch([
     db.delete(chatMessageTable).where(eq(chatMessageTable.designId, designId)),
@@ -156,15 +192,55 @@ export async function deleteDesign(designId: string) {
     db
       .delete(placementRenderTable)
       .where(eq(placementRenderTable.designId, designId)),
-    ...(imageIds.length
+    // Cart lines FK design_id too; a deleted design can't be fulfilled, so
+    // drop them (any user's cart — the line is dead either way).
+    db.delete(cartItemTable).where(eq(cartItemTable.designId, designId)),
+    ...(removableImageIds.length
       ? [
-          db.delete(imageTable).where(inArray(imageTable.id, imageIds)),
-          db.delete(listingTable).where(inArray(listingTable.imageId, imageIds)),
+          db.delete(imageTable).where(inArray(imageTable.id, removableImageIds)),
+          db
+            .delete(listingTable)
+            .where(inArray(listingTable.imageId, removableImageIds)),
         ]
       : []),
     db.delete(designImageTable).where(eq(designImageTable.designId, designId)),
     db.delete(designTable).where(eq(designTable.id, designId)),
   ]);
+  return {};
+}
+
+/** Any order reference: header design_id, an order_item line, or one of the
+ * design's image ids pinned in a line's placements JSON (image ids are UUIDs,
+ * so a substring match can't false-positive). */
+async function designReferencedByOrders(
+  designId: string,
+  imageIds: string[]
+): Promise<boolean> {
+  const [{ c: headerCount }] = await db
+    .select({ c: count() })
+    .from(orderTable)
+    .where(eq(orderTable.designId, designId));
+  if (headerCount > 0) return true;
+
+  const [{ c: lineCount }] = await db
+    .select({ c: count() })
+    .from(orderItemTable)
+    .where(eq(orderItemTable.designId, designId));
+  if (lineCount > 0) return true;
+
+  if (imageIds.length === 0) return false;
+  const pinned = await db
+    .select({ id: orderItemTable.id })
+    .from(orderItemTable)
+    .where(
+      or(
+        ...imageIds.map(
+          (id) => sql`${orderItemTable.placements} LIKE ${"%" + id + "%"}`
+        )
+      )
+    )
+    .limit(1);
+  return pinned.length > 0;
 }
 
 export async function archiveDesign(designId: string) {

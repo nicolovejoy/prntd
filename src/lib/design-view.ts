@@ -7,6 +7,19 @@ export function isDesignEmpty(messageCount: number, imageCount: number): boolean
   return messageCount === 0 && imageCount === 0;
 }
 
+/** Error message the closed-conversation guard throws; the /design UI keys
+ * its closed state off the server row, so this is just the action backstop. */
+export const CONVERSATION_CLOSED_MESSAGE = "This design is closed.";
+
+/**
+ * Shared guard for the three thread-write actions (chat, generate, upload):
+ * a closed conversation (design.closed_at set) is read-only. Pure — the
+ * actions already hold the design row, so no extra query. Model B slice 3.
+ */
+export function assertConversationOpen(design: { closedAt: Date | null }): void {
+  if (design.closedAt !== null) throw new Error(CONVERSATION_CLOSED_MESSAGE);
+}
+
 /**
  * Drop any item whose id has already been seen, preserving order. A guard so
  * a duplicate design_image row can never surface twice in the gallery (and so

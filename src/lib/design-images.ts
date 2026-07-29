@@ -22,7 +22,7 @@ import {
   listing as listingTable,
   type ChatMessage,
 } from "@/lib/db/schema";
-import { eq, and, asc, desc, inArray, sql } from "drizzle-orm";
+import { eq, ne, and, asc, desc, inArray, sql } from "drizzle-orm";
 import { getBlank, type AspectRatio } from "@/lib/blanks";
 import {
   buildImageRow,
@@ -70,6 +70,11 @@ export type DesignImage = {
   url: string;
   prompt: string;
   publishedAt: Date | null;
+  /** How the image is linked to the thread. A `seed` (fresh-start source,
+   * slice 3) belongs to another conversation — it can anchor generations and
+   * products but is never a provenance parent and is only detached, not
+   * deleted, from this thread. Absent = output (legacy callers). */
+  role?: "output" | "seed";
 };
 
 /**
@@ -111,17 +116,20 @@ export async function insertChatMessage(params: {
  * chronological order. Used by sendChatMessage / generateDesign /
  * constructFluxPrompt to populate the "Images so far" gallery
  * context. Uploads stored with prompt='[user upload] ...' surface as-is.
+ * Includes the thread's seed image (fresh-start, slice 3) so the AI can
+ * reference the starting point from turn one.
  */
 export async function getDesignImagesForAIContext(
   designId: string
 ): Promise<DesignImage[]> {
-  const sources = await getDesignSourceImages(designId);
+  const sources = await getDesignSourceImages(designId, { includeSeeds: true });
   return sources.map((s, i) => ({
     id: s.id,
     number: i + 1,
     url: s.imageUrl,
     prompt: s.prompt ?? "",
     publishedAt: s.publishedAt,
+    role: s.role,
   }));
 }
 
@@ -199,7 +207,13 @@ export async function insertDesignImage(params: {
     ]);
   } else {
     const [owner] = await db
-      .select({ userId: designTable.userId })
+      .select({
+        userId: designTable.userId,
+        // Seeded-thread attribution (slice 3): every artifact the thread
+        // produces carries the seed lineage, matching the slice-1 backfill.
+        forkedFromImageId: designTable.forkedFromImageId,
+        originalDesignerId: designTable.originalDesignerId,
+      })
       .from(designTable)
       .where(eq(designTable.id, params.designId))
       .limit(1);
@@ -216,6 +230,8 @@ export async function insertDesignImage(params: {
           prompt: params.prompt,
           generationCost: params.generationCost,
           parentImageId,
+          seedImageId: owner.forkedFromImageId,
+          originalDesignerId: owner.originalDesignerId,
         })
       ),
       db.insert(conversationImageTable).values(buildOutputLinkRow(params.designId, id)),
@@ -430,6 +446,9 @@ export async function getDesignImageWithOwner(
  * on screen when the customer clicked checkout. Artifacts first, then the
  * render cache (a URL can come from either surface). Null if neither matches
  * (e.g. pre-Phase-2 designs that haven't been backfilled).
+ *
+ * Matches any conversation link role: a seed image (slice 3) shown in the
+ * thread is pinnable/orderable exactly like an output.
  */
 export async function findDesignImageByUrl(
   designId: string,
@@ -442,7 +461,6 @@ export async function findDesignImageByUrl(
     .where(
       and(
         eq(conversationImageTable.designId, designId),
-        eq(conversationImageTable.role, "output"),
         eq(imageTable.imageUrl, imageUrl)
       )
     )
@@ -503,15 +521,24 @@ export type SourceImage = {
   prompt: string | null;
   createdAt: Date;
   publishedAt: Date | null;
+  /** See DesignImage.role — `seed` rows only appear with includeSeeds. */
+  role: "output" | "seed";
 };
 
 /**
  * Fetch all source images for a design — the conversation's `output` links
  * (exploratory 1:1 generations and user uploads). Ordered oldest → newest so
  * the chat-thread gallery scrolls forward in time.
+ *
+ * `includeSeeds` also returns the thread's `seed` links (fresh-start images,
+ * slice 3), role-tagged; a seed's image.created_at predates every output the
+ * thread generates, so the shared ordering keeps it first. Default excludes
+ * them so existing callers (the back-source "This design" group) keep their
+ * outputs-only semantics.
  */
 export async function getDesignSourceImages(
-  designId: string
+  designId: string,
+  opts: { includeSeeds?: boolean } = {}
 ): Promise<SourceImage[]> {
   const rows = await db
     .select({
@@ -521,6 +548,7 @@ export async function getDesignSourceImages(
       prompt: imageTable.prompt,
       createdAt: imageTable.createdAt,
       publishedAt: listingTable.publishedAt,
+      role: conversationImageTable.role,
     })
     .from(conversationImageTable)
     .innerJoin(imageTable, eq(imageTable.id, conversationImageTable.imageId))
@@ -528,7 +556,9 @@ export async function getDesignSourceImages(
     .where(
       and(
         eq(conversationImageTable.designId, designId),
-        eq(conversationImageTable.role, "output")
+        opts.includeSeeds
+          ? inArray(conversationImageTable.role, ["output", "seed"])
+          : eq(conversationImageTable.role, "output")
       )
     )
     .orderBy(asc(imageTable.createdAt), IMAGE_SEQ_ASC);
@@ -540,6 +570,7 @@ export async function getDesignSourceImages(
     prompt: r.prompt,
     createdAt: r.createdAt,
     publishedAt: r.publishedAt,
+    role: r.role,
   }));
 }
 
@@ -693,7 +724,21 @@ export async function deleteDesignImageRow(
 ): Promise<{ newPrimaryId: string | null }> {
   // Delete the design_image row and its Model B mirrors (slice 1) atomically.
   // The id is shared, so the same id addresses the image / placement_render
-  // rows; the output link keys on image_id.
+  // rows. Only this design's conversation link goes — a link from another
+  // conversation (a seed carried from a fork/backfill) belongs to that design,
+  // and its presence keeps the image + listing rows alive so the other thread
+  // keeps rendering (slice-4 ref-count semantics, early).
+  const linkedElsewhere = await db
+    .select({ id: conversationImageTable.id })
+    .from(conversationImageTable)
+    .where(
+      and(
+        eq(conversationImageTable.imageId, imageId),
+        ne(conversationImageTable.designId, designId)
+      )
+    )
+    .limit(1);
+
   await db.batch([
     db
       .delete(designImageTable)
@@ -703,11 +748,23 @@ export async function deleteDesignImageRow(
           eq(designImageTable.designId, designId)
         )
       ),
-    db.delete(imageTable).where(eq(imageTable.id, imageId)),
-    db.delete(placementRenderTable).where(eq(placementRenderTable.id, imageId)),
     db
       .delete(conversationImageTable)
-      .where(eq(conversationImageTable.imageId, imageId)),
+      .where(
+        and(
+          eq(conversationImageTable.imageId, imageId),
+          eq(conversationImageTable.designId, designId)
+        )
+      ),
+    ...(linkedElsewhere.length > 0
+      ? []
+      : [
+          db.delete(imageTable).where(eq(imageTable.id, imageId)),
+          db.delete(listingTable).where(eq(listingTable.imageId, imageId)),
+          db
+            .delete(placementRenderTable)
+            .where(eq(placementRenderTable.id, imageId)),
+        ]),
   ]);
 
   const remaining = await db

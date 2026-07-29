@@ -175,3 +175,33 @@ describe("ChatPanel composer during generation (#59)", () => {
     ).toBeDisabled();
   });
 });
+
+describe("ChatPanel closed conversation (slice 3)", () => {
+  it("swaps the composer for the closed notice + Reopen", () => {
+    const onReopen = vi.fn();
+    render(
+      <ChatPanel {...baseProps} closed onReopen={onReopen} messages={thread} />
+    );
+    // History stays visible…
+    expect(screen.getByTestId("chat-messages")).toBeInTheDocument();
+    // …but the composer is gone.
+    expect(
+      screen.queryByPlaceholderText("Describe a design or drop an image")
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Generate" })
+    ).not.toBeInTheDocument();
+
+    expect(screen.getByTestId("closed-notice")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("reopen-design"));
+    expect(onReopen).toHaveBeenCalled();
+  });
+
+  it("renders the composer when open (default)", () => {
+    render(<ChatPanel {...baseProps} messages={thread} />);
+    expect(
+      screen.getByPlaceholderText("Describe a design or drop an image")
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("closed-notice")).not.toBeInTheDocument();
+  });
+});
