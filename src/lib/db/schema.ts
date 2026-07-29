@@ -437,6 +437,26 @@ export const placementRender = sqliteTable("placement_render", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
 
+/**
+ * Prod runtime errors captured by instrumentation.ts onRequestError (#121).
+ * Next.js masks server-action/RSC errors in production (the client sees only a
+ * digest); this table keeps the digest→message/stack mapping so /admin/errors
+ * can show what actually broke. Append-only; writes are best-effort and never
+ * fail the request. Message/stack are truncated at the shaping layer
+ * (src/lib/app-error.ts).
+ */
+export const appError = sqliteTable("app_error", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  digest: text("digest"),
+  message: text("message").notNull(),
+  stack: text("stack"),
+  path: text("path"),
+  method: text("method"),
+  // routerKind/routePath/routeType/renderSource/revalidateReason/renderType
+  context: text("context", { mode: "json" }).$type<Record<string, string>>(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
 export type ChatMessage = {
   id: string;
   designId: string;

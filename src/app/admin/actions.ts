@@ -12,6 +12,7 @@ import {
   listing as listingTable,
   user as userTable,
   ledgerEntry,
+  appError as appErrorTable,
 } from "@/lib/db/schema";
 import { listingSyncStatement } from "@/lib/model-b-writes";
 import { eq, desc, asc, inArray, sum, count, sql } from "drizzle-orm";
@@ -609,4 +610,29 @@ export async function getOrderDetail(orderId: string) {
   });
 
   return { ...orders[0], designImageUrl, designedByName, lines, ledger };
+}
+
+export type AdminAppError = {
+  id: string;
+  createdAt: Date;
+  digest: string | null;
+  message: string;
+  stack: string | null;
+  path: string | null;
+  method: string | null;
+  context: Record<string, string> | null;
+};
+
+/** Last N runtime errors recorded by instrumentation.ts (#121), newest first. */
+export async function getRecentAppErrors(limit = 50): Promise<AdminAppError[]> {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session || session.user.email !== ADMIN_EMAIL) {
+    throw new Error("Unauthorized");
+  }
+
+  return db
+    .select()
+    .from(appErrorTable)
+    .orderBy(desc(appErrorTable.createdAt))
+    .limit(limit);
 }
