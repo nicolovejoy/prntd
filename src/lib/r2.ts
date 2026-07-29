@@ -2,7 +2,6 @@ import {
   S3Client,
   PutObjectCommand,
   GetObjectCommand,
-  CopyObjectCommand,
   DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
 import { createHash } from "crypto";
@@ -68,34 +67,8 @@ export async function uploadMockupImage(
   return `${process.env.NEXT_PUBLIC_R2_PUBLIC_URL ?? `https://${bucket}.r2.dev`}/${key}`;
 }
 
-/**
- * Server-side copy of an R2 object identified by its public URL into a
- * new key under a different design. Returns the public URL of the copy.
- * Used by forkImage so each design owns its own R2 keys.
- */
-export async function copyDesignImageByUrl(
-  sourceUrl: string,
-  newDesignId: string,
-  newGenerationNumber: number
-): Promise<string> {
-  const publicBase =
-    process.env.NEXT_PUBLIC_R2_PUBLIC_URL ?? `https://${bucket}.r2.dev`;
-  if (!sourceUrl.startsWith(publicBase + "/")) {
-    throw new Error("Source URL is not an R2 public URL on this bucket");
-  }
-  const sourceKey = sourceUrl.slice(publicBase.length + 1);
-  const destKey = `designs/${newDesignId}/${newGenerationNumber}.png`;
-
-  await r2.send(
-    new CopyObjectCommand({
-      Bucket: bucket,
-      Key: destKey,
-      CopySource: `/${bucket}/${sourceKey}`,
-    })
-  );
-
-  return `${publicBase}/${destKey}`;
-}
+// copyDesignImageByUrl (the Model A copy-based fork) was retired in Model B
+// slice 3 — reuse is a conversation_image seed link, never an R2 copy.
 
 /**
  * Delete a generation's R2 object by (design, generation number). Best-effort

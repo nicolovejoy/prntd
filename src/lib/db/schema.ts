@@ -71,6 +71,14 @@ export const design = sqliteTable("design", {
   // Null resolves to DEFAULT_GENERATOR_ID. Set when the user adopts a
   // compared image.
   activeGeneratorId: text("active_generator_id"),
+  // Conversation lifecycle (Model B slice 3). Null = open. Closed makes the
+  // thread read-only — chat, generation and uploads are refused
+  // (assertConversationOpen) — while history stays viewable and its images
+  // stay fully usable elsewhere (orders, back picker, fresh starts).
+  // A timestamp, not a status value: `status` is a visibility concept and
+  // closed is a capability concept, orthogonal to archived. Reversible
+  // (reopenConversation nulls it).
+  closedAt: integer("closed_at", { mode: "timestamp" }),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });

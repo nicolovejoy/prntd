@@ -44,10 +44,13 @@ describe("migration 0006 — order_item backfill before the scalar drop", () => 
   beforeEach(async () => {
     client = createClient({ url: ":memory:" });
     files = migrationFiles();
-    target = files[files.length - 1];
+    // Target 0006 by number, not by position — later migrations keep landing.
+    target = files.find((f) => /^0006_/.test(f))!;
     expect(target).toMatch(/^0006_/);
     // Everything up to (not including) 0006 — the pre-1c schema.
-    for (const f of files.slice(0, -1)) await apply(client, f);
+    for (const f of files.slice(0, files.indexOf(target))) {
+      await apply(client, f);
+    }
 
     await client.execute(
       "INSERT INTO `user` (`id`, `name`, `email`, `email_verified`, `created_at`, `updated_at`) VALUES ('u1', 'Buyer', 'buyer@example.com', 0, 0, 0)"

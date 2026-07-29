@@ -10,6 +10,7 @@ import { breadcrumbTrail } from "@/lib/nav";
 import { EditableNaming } from "./editable-naming";
 import { PublishedImageView } from "./published-image-view";
 import { BuyPanel } from "./buy-panel";
+import { StartFromImage } from "./start-from-image";
 
 type Params = Promise<{ imageId: string }>;
 type Search = Promise<{ from?: string }>;
@@ -107,6 +108,9 @@ export default async function PublishedImagePage({
             // action re-checks both.
             backEnabled={isLoggedIn && multiPlacementEnabled()}
           />
+
+          {/* Fresh start (slice 3): iterate on this image in a new thread. */}
+          <StartFromImage imageId={img.imageId} />
         </div>
       </main>
     </div>

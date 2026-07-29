@@ -40,6 +40,7 @@ export async function getUserDesigns() {
       status: true,
       generationCount: true,
       primaryImageId: true,
+      closedAt: true,
       createdAt: true,
       updatedAt: true,
     },
