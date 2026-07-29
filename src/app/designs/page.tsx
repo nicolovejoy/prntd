@@ -45,7 +45,13 @@ export default function DesignsPage() {
   async function handleDelete(id: string) {
     if (!window.confirm("Delete this design?")) return;
     try {
-      await deleteDesign(id);
+      // Expected refusals come back as { error } — prod masks thrown
+      // server-action messages, so a throw here only ever shows the digest.
+      const result = await deleteDesign(id);
+      if (result?.error) {
+        window.alert(result.error);
+        return;
+      }
     } catch (err) {
       window.alert(err instanceof Error ? err.message : "Delete failed");
       return;

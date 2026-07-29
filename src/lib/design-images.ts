@@ -22,7 +22,7 @@ import {
   listing as listingTable,
   type ChatMessage,
 } from "@/lib/db/schema";
-import { eq, and, asc, desc, inArray, sql } from "drizzle-orm";
+import { eq, ne, and, asc, desc, inArray, sql } from "drizzle-orm";
 import { getBlank, type AspectRatio } from "@/lib/blanks";
 import {
   buildImageRow,
@@ -693,7 +693,21 @@ export async function deleteDesignImageRow(
 ): Promise<{ newPrimaryId: string | null }> {
   // Delete the design_image row and its Model B mirrors (slice 1) atomically.
   // The id is shared, so the same id addresses the image / placement_render
-  // rows; the output link keys on image_id.
+  // rows. Only this design's conversation link goes — a link from another
+  // conversation (a seed carried from a fork/backfill) belongs to that design,
+  // and its presence keeps the image + listing rows alive so the other thread
+  // keeps rendering (slice-4 ref-count semantics, early).
+  const linkedElsewhere = await db
+    .select({ id: conversationImageTable.id })
+    .from(conversationImageTable)
+    .where(
+      and(
+        eq(conversationImageTable.imageId, imageId),
+        ne(conversationImageTable.designId, designId)
+      )
+    )
+    .limit(1);
+
   await db.batch([
     db
       .delete(designImageTable)
@@ -703,11 +717,23 @@ export async function deleteDesignImageRow(
           eq(designImageTable.designId, designId)
         )
       ),
-    db.delete(imageTable).where(eq(imageTable.id, imageId)),
-    db.delete(placementRenderTable).where(eq(placementRenderTable.id, imageId)),
     db
       .delete(conversationImageTable)
-      .where(eq(conversationImageTable.imageId, imageId)),
+      .where(
+        and(
+          eq(conversationImageTable.imageId, imageId),
+          eq(conversationImageTable.designId, designId)
+        )
+      ),
+    ...(linkedElsewhere.length > 0
+      ? []
+      : [
+          db.delete(imageTable).where(eq(imageTable.id, imageId)),
+          db.delete(listingTable).where(eq(listingTable.imageId, imageId)),
+          db
+            .delete(placementRenderTable)
+            .where(eq(placementRenderTable.id, imageId)),
+        ]),
   ]);
 
   const remaining = await db
