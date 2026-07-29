@@ -178,9 +178,14 @@ export default function AdminPage() {
     <div className="max-w-6xl mx-auto py-8 px-4">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-xl font-bold">Admin</h1>
-        <Link href="/admin/published" className="text-sm underline hover:no-underline">
-          Published images →
-        </Link>
+        <div className="flex items-center gap-4">
+          <Link href="/admin/errors" className="text-sm underline hover:no-underline">
+            Errors →
+          </Link>
+          <Link href="/admin/published" className="text-sm underline hover:no-underline">
+            Published images →
+          </Link>
+        </div>
       </div>
 
       {/* Financial summary */}

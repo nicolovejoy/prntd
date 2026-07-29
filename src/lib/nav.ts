@@ -86,7 +86,11 @@ export function breadcrumbTrail(
 
   if (pathname.startsWith("/d/")) return [HOME, detailParent(params.from)];
 
-  if (pathname === "/admin/published" || pathname.startsWith("/admin/orders/"))
+  if (
+    pathname === "/admin/published" ||
+    pathname === "/admin/errors" ||
+    pathname.startsWith("/admin/orders/")
+  )
     return [HOME, { label: "Admin", href: "/admin" }];
 
   return [];
