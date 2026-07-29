@@ -18,14 +18,70 @@ vi.mock("../../actions", () => ({
 
 import { buyPublishedDesign } from "../../actions";
 
+/** The panel starts collapsed (#128); most tests exercise the expanded stack. */
+function expand() {
+  fireEvent.click(screen.getByTestId("order-expand"));
+}
+
 function buyButton() {
   // Rendered twice (desktop inline + mobile sticky); both share state.
   return screen.getAllByRole("button", { name: /Order — \$/ })[0];
 }
 
+describe("BuyPanel progressive disclosure (#128)", () => {
+  it("starts collapsed: Order CTA + startAction, no pickers", () => {
+    render(
+      <BuyPanel
+        imageId="img-1"
+        isLoggedIn
+        startAction={<button>New design from this image</button>}
+      />
+    );
+    // Collapsed price = base size + shipping, matching the expanded total.
+    expect(
+      screen.getByRole("button", { name: "Order — $24.12" })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "New design from this image" })
+    ).toBeInTheDocument();
+    // No picker stack yet.
+    expect(screen.queryByText("Size")).not.toBeInTheDocument();
+    expect(screen.queryByText("Choose a size")).not.toBeInTheDocument();
+    expect(screen.queryByText("Total")).not.toBeInTheDocument();
+  });
+
+  it("tapping Order expands the picker stack in place", () => {
+    render(
+      <BuyPanel
+        imageId="img-1"
+        isLoggedIn
+        startAction={<button>New design from this image</button>}
+      />
+    );
+    expand();
+    expect(screen.getAllByText("Choose a size").length).toBeGreaterThan(0);
+    expect(screen.getByText("Total")).toBeInTheDocument();
+    // The expand toggle is gone; the remix action stays available.
+    expect(screen.queryByTestId("order-expand")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "New design from this image" })
+    ).toBeInTheDocument();
+  });
+
+  it("signed-out: expanding reveals the sign-in gate, not a buy button", () => {
+    render(<BuyPanel imageId="img-1" isLoggedIn={false} />);
+    expand();
+    expect(screen.getAllByText("Sign in to buy").length).toBeGreaterThan(0);
+    expect(
+      screen.queryByRole("button", { name: /Order — \$/ })
+    ).not.toBeInTheDocument();
+  });
+});
+
 describe("BuyPanel size gate (#60)", () => {
   it("starts with no size selected and the CTA disabled", () => {
     render(<BuyPanel imageId="img-1" isLoggedIn />);
+    expand();
     expect(buyButton()).toBeDisabled();
     expect(screen.getAllByText("Choose a size").length).toBeGreaterThan(0);
     expect(buyPublishedDesign).not.toHaveBeenCalled();
@@ -33,6 +89,7 @@ describe("BuyPanel size gate (#60)", () => {
 
   it("enables the CTA once a size is picked", () => {
     render(<BuyPanel imageId="img-1" isLoggedIn />);
+    expand();
     fireEvent.click(screen.getByRole("button", { name: "M" }));
     expect(buyButton()).toBeEnabled();
     expect(screen.queryByText("Choose a size")).not.toBeInTheDocument();
@@ -40,6 +97,7 @@ describe("BuyPanel size gate (#60)", () => {
 
   it("labels the pinned color as the designer's pick", () => {
     render(<BuyPanel imageId="img-1" isLoggedIn preferredColor="Black" />);
+    expand();
     expect(
       screen.getByText("Shown in Black — designer's pick")
     ).toBeInTheDocument();
@@ -47,6 +105,7 @@ describe("BuyPanel size gate (#60)", () => {
 
   it("shows no designer's-pick note without a pinned color", () => {
     render(<BuyPanel imageId="img-1" isLoggedIn />);
+    expand();
     expect(screen.queryByText(/designer's pick/)).not.toBeInTheDocument();
   });
 });
@@ -71,6 +130,7 @@ function swatchNames() {
 describe("BuyPanel color palette derives from the selected product", () => {
   it("renders exactly the default product's colors", () => {
     render(<BuyPanel imageId="img-1" isLoggedIn />);
+    expand();
     expect(swatchNames()).toEqual(classicColors);
   });
 
@@ -82,11 +142,13 @@ describe("BuyPanel color palette derives from the selected product", () => {
         remembered={{ blankId: BOX, size: null }}
       />
     );
+    expand();
     expect(swatchNames()).toEqual(boxColors);
   });
 
   it("switching product replaces the palette entirely", () => {
     render(<BuyPanel imageId="img-1" isLoggedIn />);
+    expand();
     fireEvent.click(screen.getByRole("button", { name: "Box Tee" }));
     // Exact equality: every Box Tee color, nothing carried over.
     expect(swatchNames()).toEqual(boxColors);
@@ -101,6 +163,7 @@ describe("BuyPanel color palette derives from the selected product", () => {
     // the switch to Box Tee, so the reset goes back to the designer's pick —
     // not to whatever color happens to be first in the new palette.
     render(<BuyPanel imageId="img-1" isLoggedIn preferredColor="Black" />);
+    expand();
     fireEvent.click(screen.getByTitle("Sage"));
     expect(screen.getByText("Color — Sage")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Box Tee" }));
@@ -110,6 +173,7 @@ describe("BuyPanel color palette derives from the selected product", () => {
   it("falls back to White when the pinned backdrop is invalid too", () => {
     // Tan exists on the Classic Tee only.
     render(<BuyPanel imageId="img-1" isLoggedIn preferredColor="Tan" />);
+    expand();
     fireEvent.click(screen.getByTitle("Sage"));
     fireEvent.click(screen.getByRole("button", { name: "Box Tee" }));
     expect(screen.getByText("Color — White")).toBeInTheDocument();
@@ -117,6 +181,7 @@ describe("BuyPanel color palette derives from the selected product", () => {
 
   it("keeps a still-valid pick across a product switch", () => {
     render(<BuyPanel imageId="img-1" isLoggedIn />);
+    expand();
     fireEvent.click(screen.getByTitle("Black"));
     fireEvent.click(screen.getByRole("button", { name: "Box Tee" }));
     expect(screen.getByText("Color — Black")).toBeInTheDocument();
@@ -126,6 +191,7 @@ describe("BuyPanel color palette derives from the selected product", () => {
 describe("BuyPanel back design (#25 on /d)", () => {
   it("hides the affordance without backEnabled", () => {
     render(<BuyPanel imageId="img-1" isLoggedIn />);
+    expand();
     expect(screen.queryByText(/Add a back design/)).not.toBeInTheDocument();
   });
 
@@ -138,6 +204,7 @@ describe("BuyPanel back design (#25 on /d)", () => {
 
   it("picking a source adds the +$8 line and updates the total", async () => {
     render(<BuyPanel imageId="img-1" isLoggedIn backEnabled />);
+    expand();
     await pickBack();
 
     // Both the picked row and the price line label it.
@@ -152,6 +219,7 @@ describe("BuyPanel back design (#25 on /d)", () => {
 
   it("passes the picked back image to buyPublishedDesign", async () => {
     render(<BuyPanel imageId="img-1" isLoggedIn backEnabled />);
+    expand();
     await pickBack();
     fireEvent.click(screen.getByRole("button", { name: "M" }));
     fireEvent.click(buyButton());
@@ -162,6 +230,7 @@ describe("BuyPanel back design (#25 on /d)", () => {
 
   it("the remove affordance clears the back and the upcharge", async () => {
     render(<BuyPanel imageId="img-1" isLoggedIn backEnabled />);
+    expand();
     await pickBack();
     fireEvent.click(
       screen.getByRole("button", { name: "Remove back design" })

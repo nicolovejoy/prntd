@@ -29,12 +29,13 @@ export function StartFromImage({ imageId }: { imageId: string }) {
   return (
     <Button
       variant="secondary"
+      size="lg"
       onClick={start}
       disabled={starting}
       data-testid="start-from-image"
-      className="w-full sm:w-auto"
+      className="w-full"
     >
-      {starting ? "Starting…" : "Start a design from this image"}
+      {starting ? "Starting…" : "New design from this image"}
     </Button>
   );
 }
