@@ -109,6 +109,21 @@ export function canUseAsPlacementSource(params: {
 }
 
 /**
+ * Decide whether `userId` may start a fresh conversation seeded from an
+ * image (Model B slice 3). Same visibility rule as canUseAsPlacementSource,
+ * minus the order framing: your own image, or a published + not-hidden one.
+ * A private cross-owner image id — however obtained — is rejected.
+ */
+export function canStartFromImage(params: {
+  image: { publishedAt: Date | null; isHidden: boolean };
+  imageOwnerId: string;
+  userId: string;
+}): boolean {
+  if (params.imageOwnerId === params.userId) return true;
+  return params.image.publishedAt !== null && !params.image.isHidden;
+}
+
+/**
  * Collapse a published-image feed to one entry per design. Publishing
  * happens per design_image, so a maker who publishes several generations
  * within one design would otherwise flood the storefront with

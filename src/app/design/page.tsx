@@ -11,7 +11,11 @@ import {
   getDesignChat,
   getDesignGallery,
   uploadReferenceImage,
+  closeConversation,
+  reopenConversation,
+  startConversationFromImage,
 } from "./actions";
+import { Button } from "@/components/ui";
 import { PublishModal } from "@/components/publish-modal";
 import type { ChatMessage } from "@/lib/db/schema";
 import type { ChatOption } from "@/lib/ai";
@@ -59,6 +63,11 @@ function DesignPageInner() {
   );
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
+  // Closed conversation (slice 3): read-only thread. Loaded with the design
+  // row; the server actions are the backstop, this drives the UI swap.
+  const [closed, setClosed] = useState(false);
+  // Close/Reopen only renders once the design row exists server-side.
+  const [designExists, setDesignExists] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [publishImageId, setPublishImageId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -87,6 +96,7 @@ function DesignPageInner() {
         url: s.imageUrl,
         prompt: "",
         publishedAt: s.publishedAt,
+        role: s.role,
       }))
     );
     setProductGroups(productGroups);
@@ -125,6 +135,8 @@ function DesignPageInner() {
       if (!design) return;
       setMessages(chat);
       setSelectedImage(design.displayImageUrl);
+      setClosed(design.closedAt !== null);
+      setDesignExists(true);
     });
     refreshGallery();
   }, [id, refreshGallery]);
@@ -153,6 +165,7 @@ function DesignPageInner() {
     try {
       await ensureGuestSession();
       const result = await sendChatMessage(designId.current, userMessage);
+      setDesignExists(true);
       setMessages((prev) => [
         ...prev,
         makeOptimisticMessage("assistant", result.message),
@@ -188,6 +201,7 @@ function DesignPageInner() {
     try {
       await ensureGuestSession();
       const result = await generateDesign(designId.current, userMessage);
+      setDesignExists(true);
       // The result always lands in chat + gallery — even after a client-side
       // cancel the server render completed (and the quota unit was spent), so
       // show the image honestly rather than hiding paid work.
@@ -307,6 +321,34 @@ function DesignPageInner() {
     }
   }
 
+  // Close/Reopen (slice 3). Optimistic-free: await the action, then flip the
+  // UI — the two states differ too much for a rollback to read cleanly.
+  async function handleToggleClosed() {
+    try {
+      if (closed) {
+        await reopenConversation(designId.current);
+        setClosed(false);
+      } else {
+        await closeConversation(designId.current);
+        setClosed(true);
+      }
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "Action failed");
+    }
+  }
+
+  // Fresh start (slice 3): new conversation seeded by this image. Full
+  // navigation, not router.push — designId lives in a ref, so an in-place
+  // /design?id= change would keep operating on the old thread.
+  async function handleStartFromImage(imageId: string) {
+    try {
+      const { designId: newId } = await startConversationFromImage(imageId);
+      window.location.assign(`/design?id=${newId}`);
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "Action failed");
+    }
+  }
+
   function handleMakeProducts() {
     if (!selectedImage) return;
     router.push(`/preview?id=${designId.current}`);
@@ -337,6 +379,16 @@ function DesignPageInner() {
           />
           <h1 className="text-lg font-semibold mt-1">Design</h1>
         </div>
+        {designExists && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleToggleClosed}
+            data-testid="toggle-closed"
+          >
+            {closed ? "Reopen" : "Close"}
+          </Button>
+        )}
       </div>
 
       {/* Body — centered composer when empty, two-column working layout otherwise */}
@@ -353,6 +405,8 @@ function DesignPageInner() {
           options={options}
           onUploadImage={handleUploadImage}
           isEmpty={empty}
+          closed={closed}
+          onReopen={handleToggleClosed}
           mobileGalleryStrip={
             <MobileGalleryStrip
               images={images}
@@ -406,6 +460,7 @@ function DesignPageInner() {
           onDelete={handleDeleteImage}
           onMakeProducts={handleMakeProductsForImage}
           onPublish={handlePublishImage}
+          onStartFrom={handleStartFromImage}
         />
       )}
 

@@ -282,6 +282,30 @@ the slice-4 writer cutover.
 - Independent of slice 2 ordering, but ship after it so the seed chain
   readers are already on `image`.
 
+**Slice 3 status (built 2026-07-28).** Done as scoped, with these notes:
+
+- The migration is `0007` (the plan's numbering predated Phase 1c taking
+  `0006`): `drizzle/0007_talented_the_leader.sql`, one additive
+  `ALTER TABLE design ADD closed_at`.
+- `assertConversationOpen` is pure (`src/lib/design-view.ts`) and takes the
+  design row the actions already hold, rather than re-querying by id. In
+  `generateDesign` it runs before the quota spend.
+- Seed visibility: `getDesignSourceImages` gained `includeSeeds` (role-tagged
+  rows) — the /design gallery and the AI context include the seed from turn
+  one; the back-source "This design" group deliberately stays outputs-only.
+  `findDesignImageByUrl` matches any link role so a seed can be pinned/
+  ordered like an output. `startConversationFromImage` also sets the seed as
+  the new thread's `primary_image_id` (the initial anchor pick).
+- Provenance rides the legacy `design.forkedFromImageId` /
+  `originalDesignerId` columns during the dual-write window (they're what
+  generations read to stamp `seed_image_id` / `original_designer_id` onto
+  image rows, matching the slice-1 backfill); slice 5 still drops them.
+- `deleteDesignImage` on a seed detaches the `conversation_image` link only —
+  the image row and its home thread are untouched (interim rule ahead of
+  slice-4 ref-counting).
+- `forkImage` was already gone (removed 2026-05-30); `copyDesignImageByUrl`
+  (its dead R2-copy helper) is now deleted.
+
 ### Slice 4 — writer cutover + new R2 keys
 
 - Stop writing `design_image`: generation writes `image` +

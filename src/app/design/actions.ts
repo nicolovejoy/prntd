@@ -16,7 +16,7 @@ import {
   conversationImage as conversationImageTable,
   listing as listingTable,
 } from "@/lib/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { buildImageRow, buildOutputLinkRow } from "@/lib/model-b-writes";
 import { chatAboutDesign, constructFluxPrompt, assessReadiness } from "@/lib/ai";
 import { uploadDesignImage, deleteDesignImageObject } from "@/lib/r2";
@@ -35,8 +35,8 @@ import {
   type SourceImage,
   type ProductVersionGroup,
 } from "@/lib/design-images";
-import { imageReferencedByOrders } from "@/lib/design-publish";
-import { dedupeById } from "@/lib/design-view";
+import { imageReferencedByOrders, canStartFromImage } from "@/lib/design-publish";
+import { dedupeById, assertConversationOpen } from "@/lib/design-view";
 import type { ChatMessage } from "@/lib/db/schema";
 
 async function getOrCreateDesign(designId: string, userId: string) {
@@ -75,7 +75,9 @@ export async function sendChatMessage(designId: string, userMessage: string) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) throw new Error("Unauthorized");
 
-  await getOrCreateDesign(designId, session.user.id);
+  const found = await getOrCreateDesign(designId, session.user.id);
+  // Closed conversation = read-only thread (slice 3): no chat turns.
+  assertConversationOpen(found);
   const messages = await getDesignMessages(designId);
   const images = await getDesignImagesForAIContext(designId);
 
@@ -134,6 +136,8 @@ export async function generateDesign(
   if (!session) throw new Error("Unauthorized");
 
   const found = await getOrCreateDesign(designId, session.user.id);
+  // Refuse before the quota spend — a closed thread must not burn a unit.
+  assertConversationOpen(found);
   const ip = clientIp(hdrs);
 
   // Abuse guard (#26 A3): count this generation against the daily caps before
@@ -264,7 +268,11 @@ async function runGenerate({
     const newImageId = crypto.randomUUID();
     // Anchor provenance on the latest image the user's request was built from,
     // not a "latest by createdAt" re-read that a racing generate could shift.
-    const parentImageId = images[images.length - 1]?.id ?? null;
+    // Seeds are excluded: the within-thread parent chain is between outputs —
+    // a seeded thread's first generation records parent null + seed lineage
+    // (slice 3 §5).
+    const outputs = images.filter((img) => img.role !== "seed");
+    const parentImageId = outputs[outputs.length - 1]?.id ?? null;
 
     // Commit the four writes atomically (db.batch) so a mid-sequence crash can't
     // leave a design_image with no assistant message, or an orphaned user turn.
@@ -287,6 +295,9 @@ async function runGenerate({
       }),
       // Model B dual-write (slice 1): mirror the source artifact into image +
       // output link, same id. found.userId is the verified design owner.
+      // Seed lineage (slice 3): a fresh-start thread stamps its seed +
+      // attribution root onto every artifact it generates, matching the
+      // slice-1 backfill's treatment of forked designs.
       db.insert(imageTable).values(
         buildImageRow({
           id: newImageId,
@@ -298,6 +309,8 @@ async function runGenerate({
           generator: generator.id,
           generationCost: generator.costPerImage,
           parentImageId,
+          seedImageId: found.forkedFromImageId,
+          originalDesignerId: found.originalDesignerId,
         })
       ),
       db.insert(conversationImageTable).values(buildOutputLinkRow(designId, newImageId)),
@@ -350,7 +363,9 @@ export async function uploadReferenceImage(
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) throw new Error("Unauthorized");
 
-  await getOrCreateDesign(designId, session.user.id);
+  const found = await getOrCreateDesign(designId, session.user.id);
+  // Closed conversation = read-only thread (slice 3): no uploads.
+  assertConversationOpen(found);
 
   // Upload to R2 as an "upload" (not a generation)
   const uploadNumber = Date.now();
@@ -436,6 +451,38 @@ export async function deleteDesignImage(designId: string, imageId: string) {
     );
   }
 
+  // A seed image (fresh-start, slice 3) belongs to another conversation:
+  // "deleting" it here only detaches the link from this thread — the image
+  // row and its home thread are untouched. Checked before the row delete so
+  // a seed id can never reach deleteDesignImageRow's global deletes.
+  const [seedLink] = await db
+    .select({ id: conversationImageTable.id })
+    .from(conversationImageTable)
+    .where(
+      and(
+        eq(conversationImageTable.designId, designId),
+        eq(conversationImageTable.imageId, imageId),
+        eq(conversationImageTable.role, "seed")
+      )
+    )
+    .limit(1);
+  if (seedLink) {
+    await db
+      .delete(conversationImageTable)
+      .where(eq(conversationImageTable.id, seedLink.id));
+    if (found.primaryImageId === imageId) {
+      const remaining = await getDesignSourceImages(designId);
+      await db
+        .update(designTable)
+        .set({
+          primaryImageId: remaining[remaining.length - 1]?.id ?? null,
+          updatedAt: new Date(),
+        })
+        .where(eq(designTable.id, designId));
+    }
+    return;
+  }
+
   const { newPrimaryId } = await deleteDesignImageRow(designId, imageId);
 
   await db
@@ -445,6 +492,113 @@ export async function deleteDesignImage(designId: string, imageId: string) {
       updatedAt: new Date(),
     })
     .where(eq(designTable.id, designId));
+}
+
+/**
+ * Close a conversation (slice 3): the thread becomes read-only — chat,
+ * generation and uploads are refused — while its history stays viewable and
+ * its images stay fully usable elsewhere (orders, back picker, fresh starts).
+ * Explicit-only (nothing auto-closes) and reversible via reopenConversation.
+ */
+export async function closeConversation(designId: string) {
+  const found = await requireOwnedDesign(designId);
+  if (found.closedAt) return;
+  await db
+    .update(designTable)
+    .set({ closedAt: new Date(), updatedAt: new Date() })
+    .where(eq(designTable.id, designId));
+}
+
+/** Reverse of closeConversation — nulls the timestamp, thread writable again. */
+export async function reopenConversation(designId: string) {
+  const found = await requireOwnedDesign(designId);
+  if (!found.closedAt) return;
+  await db
+    .update(designTable)
+    .set({ closedAt: null, updatedAt: new Date() })
+    .where(eq(designTable.id, designId));
+}
+
+async function requireOwnedDesign(designId: string) {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) throw new Error("Unauthorized");
+  const found = await db.query.design.findFirst({
+    where: eq(designTable.id, designId),
+  });
+  if (!found) throw new Error("Design not found");
+  if (found.userId !== session.user.id) throw new Error("Unauthorized");
+  return found;
+}
+
+/**
+ * Fresh-start-from-image (slice 3 §5): open a NEW conversation seeded by an
+ * existing image. The seed is a `conversation_image(role=seed)` link — no R2
+ * copy, no new image row (replaces the retired copy-based forkImage). The
+ * seed becomes the thread's initial primary/anchor so /designs, /preview and
+ * the AI context see it immediately; the first generation records
+ * parent_image_id = null with seed_image_id + original_designer_id carried
+ * from here (via the design row's legacy provenance columns, which stay
+ * dual-written until slice 5 drops them).
+ *
+ * Visibility: own image, or published + not hidden (canStartFromImage) — a
+ * forged private cross-owner id is rejected. Artifacts only; placement
+ * renders are cache, not seedable.
+ */
+export async function startConversationFromImage(
+  imageId: string
+): Promise<{ designId: string }> {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) throw new Error("Unauthorized");
+
+  const [seed] = await db
+    .select({
+      id: imageTable.id,
+      ownerId: imageTable.ownerId,
+      originalDesignerId: imageTable.originalDesignerId,
+      publishedAt: listingTable.publishedAt,
+      isHidden: listingTable.isHidden,
+    })
+    .from(imageTable)
+    .leftJoin(listingTable, eq(listingTable.imageId, imageTable.id))
+    .where(eq(imageTable.id, imageId))
+    .limit(1);
+  if (!seed) throw new Error("Image not found");
+
+  if (
+    !canStartFromImage({
+      image: {
+        publishedAt: seed.publishedAt,
+        // No listing row = not published (and not hidden).
+        isHidden: seed.isHidden ?? false,
+      },
+      imageOwnerId: seed.ownerId,
+      userId: session.user.id,
+    })
+  ) {
+    throw new Error("Image is not available");
+  }
+
+  const designId = crypto.randomUUID();
+  await db.batch([
+    db.insert(designTable).values({
+      id: designId,
+      userId: session.user.id,
+      // The seed is the thread's starting anchor.
+      primaryImageId: imageId,
+      // Legacy provenance mirror (dropped in slice 5): generations read these
+      // to stamp seed_image_id / original_designer_id onto their image rows.
+      forkedFromImageId: imageId,
+      originalDesignerId: seed.originalDesignerId ?? seed.ownerId,
+    }),
+    db.insert(conversationImageTable).values({
+      id: crypto.randomUUID(),
+      designId,
+      imageId,
+      role: "seed",
+    }),
+  ]);
+
+  return { designId };
 }
 
 export async function getDesign(designId: string) {
@@ -520,7 +674,9 @@ export async function getDesignGallery(
   if (!found) return { sources: [], productGroups: [] };
 
   const [sources, productGroups] = await Promise.all([
-    getDesignSourceImages(designId),
+    // Seeds included (slice 3): a fresh-start thread opens showing its
+    // starting image in the gallery/strip, referenceable and orderable.
+    getDesignSourceImages(designId, { includeSeeds: true }),
     getDesignPlacementRenders(designId),
   ]);
   // Guard against a duplicate row ever reaching the gallery — the header

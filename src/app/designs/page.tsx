@@ -3,6 +3,11 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { getUserDesigns, deleteDesign, archiveDesign, unpublishImage } from "./actions";
+import {
+  closeConversation,
+  reopenConversation,
+  startConversationFromImage,
+} from "@/app/design/actions";
 import { Badge, Button } from "@/components/ui";
 import { PublishModal } from "@/components/publish-modal";
 import { publishedBackdrop } from "@/lib/blanks";
@@ -62,6 +67,37 @@ export default function DesignsPage() {
   // the publish and navigates to the new public page.
   function openPublish(imageId: string) {
     setPublishImageId(imageId);
+  }
+
+  // Close/Reopen (slice 3): flips the thread between writable and read-only.
+  async function handleToggleClosed(design: Design) {
+    try {
+      if (design.closedAt) {
+        await reopenConversation(design.id);
+      } else {
+        await closeConversation(design.id);
+      }
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "Action failed");
+      return;
+    }
+    setDesigns((prev) =>
+      prev.map((d) =>
+        d.id === design.id
+          ? { ...d, closedAt: design.closedAt ? null : new Date() }
+          : d
+      )
+    );
+  }
+
+  // Fresh start (slice 3): a new conversation seeded by this design's image.
+  async function handleStartFrom(imageId: string) {
+    try {
+      const { designId } = await startConversationFromImage(imageId);
+      window.location.assign(`/design?id=${designId}`);
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "Action failed");
+    }
   }
 
   // Un-publish flips the card back to its unpublished state in place.
@@ -134,9 +170,12 @@ export default function DesignsPage() {
                 </Link>
                 <div className="p-3 space-y-2">
                   <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
-                    <Badge variant={design.status}>
-                      {design.status}
-                    </Badge>
+                    <span className="flex items-center gap-1">
+                      <Badge variant={design.status}>
+                        {design.status}
+                      </Badge>
+                      {design.closedAt && <Badge>closed</Badge>}
+                    </span>
                     <span className="text-xs text-text-muted whitespace-nowrap">
                       {timeAgo(new Date(design.updatedAt))}
                     </span>
@@ -172,9 +211,24 @@ export default function DesignsPage() {
                         </Button>
                       </>
                     )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleToggleClosed(design)}
+                    >
+                      {design.closedAt ? "Reopen" : "Close"}
+                    </Button>
                   </div>
                   {design.primaryImageId && (
                     <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-border">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleStartFrom(design.primaryImageId!)}
+                        title="Start a new design from this image"
+                      >
+                        New from image
+                      </Button>
                       {design.primaryImagePublishedAt ? (
                         <>
                           <Link

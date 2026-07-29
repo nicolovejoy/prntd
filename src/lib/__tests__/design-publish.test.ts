@@ -3,6 +3,7 @@ import {
   imageReferencedByOrders,
   canBuyPublishedImage,
   canUseAsPlacementSource,
+  canStartFromImage,
   buildForkChain,
   dedupeFeedByDesign,
   type ForkChainRow,
@@ -291,5 +292,38 @@ describe("canUseAsPlacementSource (#72)", () => {
         ...ctx,
       })
     ).toBe(false);
+  });
+});
+
+describe("canStartFromImage (Model B slice 3)", () => {
+  const published = { publishedAt: new Date(), isHidden: false };
+  const priv = { publishedAt: null, isHidden: false };
+
+  it("allows the owner to seed from their own private image", () => {
+    expect(
+      canStartFromImage({ image: priv, imageOwnerId: "u1", userId: "u1" })
+    ).toBe(true);
+  });
+
+  it("allows anyone to seed from a published, visible image", () => {
+    expect(
+      canStartFromImage({ image: published, imageOwnerId: "u1", userId: "u2" })
+    ).toBe(true);
+  });
+
+  it("rejects a private cross-owner image", () => {
+    expect(
+      canStartFromImage({ image: priv, imageOwnerId: "u1", userId: "u2" })
+    ).toBe(false);
+  });
+
+  it("rejects a hidden published image for non-owners, but not the owner", () => {
+    const hidden = { publishedAt: new Date(), isHidden: true };
+    expect(
+      canStartFromImage({ image: hidden, imageOwnerId: "u1", userId: "u2" })
+    ).toBe(false);
+    expect(
+      canStartFromImage({ image: hidden, imageOwnerId: "u1", userId: "u1" })
+    ).toBe(true);
   });
 });

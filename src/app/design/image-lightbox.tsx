@@ -12,6 +12,7 @@ export function ImageLightbox({
   onDelete,
   onMakeProducts,
   onPublish,
+  onStartFrom,
 }: {
   images: DesignImage[];
   currentIndex: number;
@@ -20,9 +21,13 @@ export function ImageLightbox({
   onDelete: (imageId: string) => void;
   onMakeProducts: (imageUrl: string) => void;
   onPublish: (imageId: string) => void | Promise<void>;
+  /** Fresh start (slice 3): open a new conversation seeded by this image. */
+  onStartFrom?: (imageId: string) => void | Promise<void>;
 }) {
   const [publishing, setPublishing] = useState(false);
+  const [starting, setStarting] = useState(false);
   const image = images[currentIndex];
+  const isSeed = image?.role === "seed";
   const [sideBySide, setSideBySide] = useState(true);
 
   const handleKeyDown = useCallback(
@@ -140,7 +145,25 @@ export function ImageLightbox({
           <Button onClick={() => onMakeProducts(image.url)}>
             Make Products
           </Button>
-          {image.publishedAt ? (
+          {onStartFrom && (
+            <Button
+              variant="secondary"
+              disabled={!image.id || starting}
+              onClick={async () => {
+                if (!image.id) return;
+                setStarting(true);
+                try {
+                  await onStartFrom(image.id);
+                } finally {
+                  setStarting(false);
+                }
+              }}
+              data-testid="start-from-image"
+            >
+              {starting ? "Starting…" : "New design from this"}
+            </Button>
+          )}
+          {isSeed ? null : image.publishedAt ? (
             <span className="self-center text-sm text-text-faint">
               Published ·{" "}
               <a
@@ -172,14 +195,18 @@ export function ImageLightbox({
           <Button
             variant="danger"
             onClick={() => image.id && onDelete(image.id)}
-            disabled={!image.id || Boolean(image.publishedAt)}
+            disabled={!image.id || (!isSeed && Boolean(image.publishedAt))}
             title={
-              image.publishedAt
-                ? "Published images cannot be deleted."
-                : undefined
+              isSeed
+                ? "Removes the starting image from this design only."
+                : image.publishedAt
+                  ? "Published images cannot be deleted."
+                  : undefined
             }
           >
-            Delete
+            {/* A seed belongs to another design — removing it here only
+                detaches it from this thread (deleteDesignImage). */}
+            {isSeed ? "Remove" : "Delete"}
           </Button>
         </div>
       </div>

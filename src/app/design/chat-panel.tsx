@@ -34,6 +34,8 @@ export function ChatPanel({
   onUploadImage,
   isEmpty,
   mobileGalleryStrip,
+  closed = false,
+  onReopen,
 }: {
   messages: ChatMessage[];
   images: DesignImage[];
@@ -49,6 +51,10 @@ export function ChatPanel({
   // Mobile-only thumbnail strip, docked directly above the composer so it
   // reserves layout space instead of floating over content.
   mobileGalleryStrip?: React.ReactNode;
+  // Closed conversation (slice 3): history stays viewable, the composer is
+  // swapped for a closed notice + Reopen.
+  closed?: boolean;
+  onReopen?: () => void;
 }) {
   const urlByImageId = useMemo(
     () => new Map(images.map((img) => [img.id, img.url])),
@@ -298,7 +304,7 @@ export function ChatPanel({
       </div>
 
       {/* Not-ready hint — only when there are no tappable options to offer instead */}
-      {showStyleHint && options.length === 0 && (
+      {!closed && showStyleHint && options.length === 0 && (
         <div className="px-4 pt-2 text-xs text-text-muted">
           Add more detail, or tap Generate.
         </div>
@@ -306,8 +312,31 @@ export function ChatPanel({
 
       {mobileGalleryStrip}
 
-      {/* Composer — phone-first: input on its own row, actions wrap below,
-          every control ≥44px. */}
+      {/* Closed conversation: the composer is replaced. The images remain
+          usable everywhere else — start a new design from one to keep going. */}
+      {closed ? (
+        <div
+          className="p-3 sm:p-4 border-t border-border flex flex-wrap items-center gap-3"
+          data-testid="closed-notice"
+        >
+          <p className="text-sm text-text-muted">
+            This design is closed. Start a new design from any image, or
+            reopen.
+          </p>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className="min-h-[44px]"
+            onClick={onReopen}
+            data-testid="reopen-design"
+          >
+            Reopen
+          </Button>
+        </div>
+      ) : (
+      /* Composer — phone-first: input on its own row, actions wrap below,
+          every control ≥44px. */
       <form onSubmit={handleSend} className="p-3 sm:p-4 border-t border-border space-y-2">
         <div className="flex gap-2 items-stretch">
           <button
@@ -355,6 +384,7 @@ export function ChatPanel({
           </Button>
         </div>
       </form>
+      )}
     </div>
   );
 }

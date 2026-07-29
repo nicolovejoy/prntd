@@ -1,0 +1,1 @@
+ALTER TABLE `design` ADD `closed_at` integer;
