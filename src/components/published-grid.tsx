@@ -37,6 +37,8 @@ export function PublishedGrid({
             <img
               src={img.imageUrl}
               alt={img.title ?? "Design"}
+              loading="lazy"
+              decoding="async"
               className="w-full h-full object-contain"
             />
           </div>

@@ -65,6 +65,8 @@ export default async function AdminPublishedPage() {
                 <img
                   src={img.imageUrl}
                   alt={img.title ?? "Design"}
+                  loading="lazy"
+                  decoding="async"
                   className="w-full h-full object-contain"
                 />
               </Link>

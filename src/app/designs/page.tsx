@@ -167,6 +167,8 @@ export default function DesignsPage() {
                       <img
                         src={design.imageUrl}
                         alt="Design preview"
+                        loading="lazy"
+                        decoding="async"
                         className="w-full h-full object-cover"
                       />
                     ) : (
