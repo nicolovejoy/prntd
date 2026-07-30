@@ -75,7 +75,6 @@ export default async function PublishedImagePage({
             <EditableNaming
               imageId={img.imageId}
               title={img.title}
-              description={img.description}
               canEdit={isOwner}
             />
             <p className="text-sm text-text-muted">by {img.designerName}</p>

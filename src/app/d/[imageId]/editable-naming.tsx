@@ -8,15 +8,13 @@ import { Button } from "@/components/ui";
 type Props = {
   imageId: string;
   title: string | null;
-  description: string | null;
   canEdit: boolean;
 };
 
-export function EditableNaming({ imageId, title, description, canEdit }: Props) {
+export function EditableNaming({ imageId, title, canEdit }: Props) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [titleDraft, setTitleDraft] = useState(title ?? "");
-  const [descDraft, setDescDraft] = useState(description ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -36,11 +34,6 @@ export function EditableNaming({ imageId, title, description, canEdit }: Props) 
             )}
           </div>
         )}
-        {description && (
-          <p className="text-sm sm:text-base leading-snug sm:leading-relaxed">
-            {description}
-          </p>
-        )}
       </>
     );
   }
@@ -49,10 +42,7 @@ export function EditableNaming({ imageId, title, description, canEdit }: Props) 
     setSaving(true);
     setError(null);
     try {
-      await updatePublishedNaming(imageId, {
-        title: titleDraft,
-        description: descDraft,
-      });
+      await updatePublishedNaming(imageId, { title: titleDraft });
       setEditing(false);
       router.refresh();
     } catch (err) {
@@ -72,14 +62,6 @@ export function EditableNaming({ imageId, title, description, canEdit }: Props) 
         maxLength={80}
         className="w-full bg-surface border border-border rounded px-3 py-2 text-2xl font-bold"
       />
-      <textarea
-        value={descDraft}
-        onChange={(e) => setDescDraft(e.target.value)}
-        placeholder="Description"
-        maxLength={400}
-        rows={3}
-        className="w-full bg-surface border border-border rounded px-3 py-2 text-base leading-relaxed"
-      />
       {error && <p className="text-sm text-negative">{error}</p>}
       <div className="flex gap-2">
         <Button onClick={handleSave} disabled={saving} size="sm">
@@ -89,7 +71,6 @@ export function EditableNaming({ imageId, title, description, canEdit }: Props) 
           onClick={() => {
             setEditing(false);
             setTitleDraft(title ?? "");
-            setDescDraft(description ?? "");
             setError(null);
           }}
           variant="ghost"
