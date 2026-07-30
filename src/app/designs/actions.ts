@@ -261,9 +261,11 @@ export async function archiveDesign(designId: string) {
 }
 
 /**
- * Publish an image to the discover feed. Auto-generates title +
- * description via Claude on first publish (the owner can edit them
- * later via updatePublishedNaming). Sets published_at — the row
+ * Publish an image to the discover feed. Auto-generates the title via
+ * Claude on first publish when the owner left it blank (editable later
+ * via updatePublishedNaming). Descriptions are never auto-generated
+ * (2026-07-29 review); only an explicit caller-supplied one is stored.
+ * Sets published_at — the row
  * becomes immortal (deleteDesignImage refuses) and appears in the
  * discover feed. Subsequent calls are a no-op on already-published
  * images. No self-unpublish; admin moderation via is_hidden removes
@@ -301,16 +303,18 @@ export async function publishImage(
 
   if (image.publishedAt) return;
 
-  // The publish modal lets the owner supply name/description/backdrop up
-  // front. Auto-generate via Claude only for the fields left blank, so the
+  // The publish modal lets the owner supply name/backdrop up front.
+  // Auto-generate via Claude only when the name was left blank, so the
   // legacy "just publish" path (no opts) still works.
   let title = opts.title?.trim();
-  let description = opts.description?.trim();
-  if (!title || !description) {
+  if (!title) {
     const gen = await generatePublishedNaming(image.imageUrl, image.prompt);
-    title = title || gen.title;
-    description = description || gen.description;
+    title = gen.title;
   }
+  // No auto-generated descriptions: store one only when the caller sent it
+  // explicitly; otherwise leave whatever the row already carries (a
+  // re-publish keeps the pre-unpublish value).
+  const description = opts.description?.trim();
 
   const publishedAt = new Date();
   const backgroundColor = opts.backgroundColor ?? DEFAULT_PUBLISH_BACKGROUND;
@@ -319,7 +323,12 @@ export async function publishImage(
   await db.batch([
     db
       .update(designImageTable)
-      .set({ publishedAt, title, description, backgroundColor })
+      .set({
+        publishedAt,
+        title,
+        backgroundColor,
+        ...(description !== undefined ? { description } : {}),
+      })
       .where(eq(designImageTable.id, imageId)),
     // Model B dual-write (slice 1): the listing carries the image's current
     // hidden/feed-rank so it's a faithful snapshot of the publish state.
@@ -328,7 +337,9 @@ export async function publishImage(
       publishedAt,
       isHidden: image.isHidden,
       title: title ?? null,
-      description: description ?? null,
+      // Mirror what design_image ends up holding so the listing snapshot
+      // stays in lockstep.
+      description: description ?? image.description ?? null,
       backgroundColor,
       feedRank: image.feedRank,
     }),
