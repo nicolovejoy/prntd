@@ -156,6 +156,9 @@ describe("generateDesign — id-keyed R2 objects", () => {
     const seedImg = await seedSourceImage(designId, "https://r2/seed.png");
 
     const res = await generateDesign(designId, "make a cat");
+    // A null imageId means the action returned a clarification instead of a
+    // generation — fail loudly and narrow the type for the queries below.
+    if (res.imageId === null) throw new Error("expected a generated imageId");
 
     // Key = the pre-minted image id; the counter is display-only but still
     // increments atomically past the seeded value.
