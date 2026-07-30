@@ -7,7 +7,6 @@ import {
   order as orderTable,
   orderItem as orderItemTable,
   design as designTable,
-  designImage as designImageTable,
   image as imageTable,
   listing as listingTable,
   user as userTable,
@@ -396,14 +395,8 @@ export async function setImageFeedRank(
     throw new Error("Rank must be a whole number between 1 and 9999");
   }
 
-  // Model B dual-write (slice 1): mirror onto the listing (no-op if unpublished).
-  await db.batch([
-    db
-      .update(designImageTable)
-      .set({ feedRank })
-      .where(eq(designImageTable.id, imageId)),
-    listingSyncStatement(db, imageId, { kind: "update", set: { feedRank } }),
-  ]);
+  // Slice-4 cutover: rank lives only on the listing (no-op if unpublished).
+  await listingSyncStatement(db, imageId, { kind: "update", set: { feedRank } });
 
   // The Shop feed renders on / and /prints; bust both plus the admin grid.
   revalidatePath("/");
@@ -417,14 +410,12 @@ export async function setImageHidden(imageId: string, hidden: boolean) {
     throw new Error("Unauthorized");
   }
 
-  // Model B dual-write (slice 1): mirror onto the listing (no-op if unpublished).
-  await db.batch([
-    db
-      .update(designImageTable)
-      .set({ isHidden: hidden })
-      .where(eq(designImageTable.id, imageId)),
-    listingSyncStatement(db, imageId, { kind: "update", set: { isHidden: hidden } }),
-  ]);
+  // Slice-4 cutover: moderation state lives only on the listing (no-op if
+  // unpublished — hidden is a feed concept, and unpublished images aren't in it).
+  await listingSyncStatement(db, imageId, {
+    kind: "update",
+    set: { isHidden: hidden },
+  });
 
   // Discover feed on / and the public /d/[imageId] page both filter
   // by isHidden — bust their caches so the change is visible.

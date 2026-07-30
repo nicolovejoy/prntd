@@ -21,13 +21,14 @@ export async function makeDesign(db: Db, userId: string) {
 }
 
 /**
- * Seed a source image the way production writes one: `design_image` plus the
- * Model B mirrors (`image` + `conversation_image(role=output)`, and a
- * `listing` when published) under one shared id.
+ * Seed a source image in the PRE-cutover shape: a legacy `design_image` row
+ * plus the Model B rows (`image` + `conversation_image(role=output)`, and a
+ * `listing` when published) under one shared id. Production stopped writing
+ * design_image in slice 4, but prod data still holds those rows until slice 5
+ * drops the table — seeding both keeps delete paths honest about legacy rows.
  *
- * Tests that insert design_image alone are invisible to the slice-2 readers,
- * so anything exercising a read path seeds through here. `ownerId` must be
- * the design's owner — image.ownerId is the denormalized copy the guards read.
+ * `ownerId` must be the design's owner — image.ownerId is the denormalized
+ * copy the guards read.
  */
 export async function makeSourceImage(
   db: Db,

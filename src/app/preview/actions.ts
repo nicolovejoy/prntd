@@ -5,7 +5,7 @@ import { after } from "next/server";
 import { auth, isAnonymousUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { design as designTable } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { createMockupTask, pollMockupTask } from "@/lib/printful";
 import {
   getBlank,
@@ -16,7 +16,7 @@ import {
   DEFAULT_BLANK_ID,
   type AspectRatio,
 } from "@/lib/blanks";
-import { uploadMockupImage, uploadDesignImage } from "@/lib/r2";
+import { uploadMockupImage, uploadImageObject } from "@/lib/r2";
 import {
   mockupCacheKey,
   mockupCacheProductPrefix,
@@ -332,15 +332,18 @@ export async function getOrCreatePlacementRender(
     `getOrCreatePlacementRender: design=${designId} done in ${Date.now() - startedAt}ms imageUrl=${imageUrl}`
   );
 
-  const generationNumber = (found.generationCount ?? 0) + 1;
   const response = await fetch(imageUrl);
   if (!response.ok) {
     throw new Error(`Failed to fetch generated image: ${response.status}`);
   }
   const buffer = Buffer.from(await response.arrayBuffer());
-  const r2Url = await uploadDesignImage(designId, generationNumber, buffer);
+  // Renders upload under their own pre-minted id too (images/{id}.png,
+  // slice 4 §6) — no shared counter, no key collision.
+  const newId = crypto.randomUUID();
+  const r2Url = await uploadImageObject(newId, buffer);
 
-  const newId = await insertDesignImage({
+  await insertDesignImage({
+    id: newId,
     designId,
     imageUrl: r2Url,
     aspectRatio: targetAspect,
@@ -352,7 +355,8 @@ export async function getOrCreatePlacementRender(
     parentImageId: anchorId,
   });
 
-  // Bump generation_count + cost so accounting stays accurate. Do NOT
+  // Bump generation_count + cost so accounting stays accurate — atomic
+  // increments so a concurrent generate's writes aren't clobbered. Do NOT
   // touch primaryImageId — primary stays on the
   // source pick. clearing mockupUrls because the cache is keyed on
   // (productId, color, scale) and a fresh placement render invalidates
@@ -360,8 +364,8 @@ export async function getOrCreatePlacementRender(
   await db
     .update(designTable)
     .set({
-      generationCount: generationNumber,
-      generationCost: (found.generationCost ?? 0) + COST_PER_GENERATION,
+      generationCount: sql`${designTable.generationCount} + 1`,
+      generationCost: sql`${designTable.generationCost} + ${COST_PER_GENERATION}`,
       mockupUrls: null,
       updatedAt: new Date(),
     })

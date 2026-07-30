@@ -1,10 +1,9 @@
 /**
- * Generation-race regressions (#40, WP2) at the server-action level. Proves the
- * R2 key is derived from the atomically reserved generation number, that two
- * concurrent generates land on distinct keys (no overwrite), that the
- * success-path writes commit as one batch, that a post-upload failure cleans up
- * the orphaned R2 object, and that a failed generation refunds the consumed
- * quota unit.
+ * Generation-race regressions (#40, WP2) at the server-action level, updated
+ * for the slice-4 writer cutover: R2 keys are id-keyed (images/{imageId}.png,
+ * minted before upload) so two concurrent generates can't collide; the display
+ * counter still increments atomically; a post-upload failure cleans up the
+ * orphaned R2 object; a failed generation refunds the consumed quota unit.
  *
  * The DB is real in-memory libSQL (the #28 pattern); the generator adapter,
  * R2 client, AI, auth, and `fetch` are mocked so nothing hits a live API.
@@ -57,12 +56,12 @@ vi.mock("@/lib/ai", () => ({
 }));
 
 vi.mock("@/lib/r2", () => ({
-  // Encode the reserved generation number into the returned URL so the tests
-  // can assert the key was derived from the reservation, not a stale read.
-  uploadDesignImage: vi.fn(
-    async (designId: string, gen: number) => `https://r2/${designId}/${gen}.png`
+  // Echo the id-keyed object path so the tests can assert the key came from
+  // the pre-minted image id.
+  uploadImageObject: vi.fn(
+    async (imageId: string) => `https://r2/images/${imageId}.png`
   ),
-  deleteDesignImageObject: vi.fn(async () => {}),
+  deleteImageObject: vi.fn(async () => {}),
 }));
 
 vi.mock("@/lib/generators/registry", () => {
@@ -84,8 +83,8 @@ const { generateDesign } = await import("@/app/design/actions");
 const r2 = await import("@/lib/r2");
 const registry = await import("@/lib/generators/registry");
 
-const uploadMock = r2.uploadDesignImage as Mock;
-const deleteMock = r2.deleteDesignImageObject as Mock;
+const uploadMock = r2.uploadImageObject as Mock;
+const deleteMock = r2.deleteImageObject as Mock;
 const ideogramGen = registry.GENERATORS.ideogram.generate as Mock;
 
 async function seedDesign(generationCount = 0): Promise<string> {
@@ -106,10 +105,16 @@ async function seedSourceImage(designId: string, url: string): Promise<string> {
 }
 
 async function sourceImages(designId: string) {
-  return testDb
-    .select()
-    .from(schema.designImage)
-    .where(eq(schema.designImage.designId, designId));
+  // Post-cutover shape: artifacts live in `image`, linked via conversation_image.
+  const rows = await testDb
+    .select({ image: schema.image })
+    .from(schema.conversationImage)
+    .innerJoin(
+      schema.image,
+      eq(schema.image.id, schema.conversationImage.imageId)
+    )
+    .where(eq(schema.conversationImage.designId, designId));
+  return rows.map((r) => r.image);
 }
 
 async function chatMessages(designId: string) {
@@ -145,18 +150,22 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("generateDesign — R2 key derivation", () => {
-  it("derives the key from the reserved number and batches the writes", async () => {
+describe("generateDesign — id-keyed R2 objects", () => {
+  it("uploads under the minted image id and batches the writes", async () => {
     const designId = await seedDesign(5);
     const seedImg = await seedSourceImage(designId, "https://r2/seed.png");
 
     const res = await generateDesign(designId, "make a cat");
+    // A null imageId means the action returned a clarification instead of a
+    // generation — fail loudly and narrow the type for the queries below.
+    if (res.imageId === null) throw new Error("expected a generated imageId");
 
-    // Key = reserved number (6), not a re-read of the pre-generation count.
+    // Key = the pre-minted image id; the counter is display-only but still
+    // increments atomically past the seeded value.
     expect(uploadMock).toHaveBeenCalledTimes(1);
-    expect(uploadMock).toHaveBeenCalledWith(designId, 6, expect.anything());
+    expect(uploadMock).toHaveBeenCalledWith(res.imageId, expect.anything());
     expect(res.generationNumber).toBe(6);
-    expect(res.imageUrl).toBe(`https://r2/${designId}/6.png`);
+    expect(res.imageUrl).toBe(`https://r2/images/${res.imageId}.png`);
 
     const design = await getDesignRow(designId);
     expect(design.generationCount).toBe(6);
@@ -165,9 +174,16 @@ describe("generateDesign — R2 key derivation", () => {
 
     const imgs = await sourceImages(designId);
     const generated = imgs.find((i) => i.id === res.imageId)!;
-    expect(generated.imageUrl).toBe(`https://r2/${designId}/6.png`);
+    expect(generated.imageUrl).toBe(`https://r2/images/${res.imageId}.png`);
     // Provenance threaded to the pre-generation latest image, not re-read.
     expect(generated.parentImageId).toBe(seedImg);
+    // Writer cutover: no design_image row for the new generation.
+    expect(
+      await testDb
+        .select()
+        .from(schema.designImage)
+        .where(eq(schema.designImage.id, res.imageId))
+    ).toHaveLength(0);
 
     const msgs = await chatMessages(designId);
     expect(msgs.map((m) => m.role).sort()).toEqual(["assistant", "user"]);
@@ -184,19 +200,18 @@ describe("generateDesign — R2 key derivation", () => {
       generateDesign(designId, "two"),
     ]);
 
-    const usedNumbers = uploadMock.mock.calls.map((c) => c[1]).sort();
-    expect(usedNumbers).toEqual([1, 2]);
+    // Distinct minted ids → distinct object keys and URLs.
+    const usedIds = uploadMock.mock.calls.map((c) => c[0]);
+    expect(new Set(usedIds).size).toBe(2);
     expect(new Set([a.imageUrl, b.imageUrl]).size).toBe(2);
 
     const design = await getDesignRow(designId);
     expect(design.generationCount).toBe(2);
 
     const imgs = await sourceImages(designId);
-    const urls = imgs.map((i) => i.imageUrl).sort();
-    expect(urls).toEqual([
-      `https://r2/${designId}/1.png`,
-      `https://r2/${designId}/2.png`,
-    ]);
+    expect(imgs.map((i) => i.imageUrl).sort()).toEqual(
+      usedIds.map((id) => `https://r2/images/${id}.png`).sort()
+    );
   });
 
   it("deletes the orphaned R2 object when the DB batch fails", async () => {
@@ -205,8 +220,9 @@ describe("generateDesign — R2 key derivation", () => {
 
     await expect(generateDesign(designId, "boom")).rejects.toThrow();
 
-    expect(uploadMock).toHaveBeenCalledWith(designId, 1, expect.anything());
-    expect(deleteMock).toHaveBeenCalledWith(designId, 1);
+    expect(uploadMock).toHaveBeenCalledTimes(1);
+    const mintedId = uploadMock.mock.calls[0][0];
+    expect(deleteMock).toHaveBeenCalledWith(mintedId);
     // No row was committed.
     expect(await sourceImages(designId)).toHaveLength(0);
   });

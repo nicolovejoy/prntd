@@ -1,11 +1,12 @@
 /**
- * Image reads + the design_image write choke point.
+ * Image reads + the image write choke point.
  *
- * Slice 2 of the Model B migration (docs/model-b-migration-plan.md): every read
- * in here resolves against the new tables — `image` + `conversation_image` for
+ * Slices 2+4 of the Model B migration (docs/model-b-migration-plan.md): every
+ * read resolves against the new tables — `image` + `conversation_image` for
  * source artifacts, `placement_render` for the render cache, `listing` for
- * publish state. Writes still land both shapes (slice 4 is the writer cutover),
- * so a revert of this file alone restores the old behavior with no data loss.
+ * publish state — and since the slice-4 writer cutover, writes land ONLY those
+ * shapes. `design_image` is write-dead (deletes of legacy rows excepted, until
+ * slice 5 drops the table).
  *
  * Id reuse (§2) is what makes the swap invisible to callers: a pinned
  * placement id resolves whether it was minted as an artifact or a render, which
@@ -16,6 +17,8 @@ import {
   design as designTable,
   designImage as designImageTable,
   chatMessage as chatMessageTable,
+  cartItem as cartItemTable,
+  product as productTable,
   image as imageTable,
   conversationImage as conversationImageTable,
   placementRender as placementRenderTable,
@@ -23,6 +26,7 @@ import {
   type ChatMessage,
 } from "@/lib/db/schema";
 import { eq, ne, and, asc, desc, inArray, sql } from "drizzle-orm";
+import { imageReferences } from "@/lib/design-publish";
 import { getBlank, type AspectRatio } from "@/lib/blanks";
 import {
   buildImageRow,
@@ -40,14 +44,13 @@ const RENDER_SEQ_DESC = sql`placement_render.rowid desc`;
 
 /**
  * Atomically reserve `count` generation numbers for a design in a single
- * `UPDATE ... RETURNING`, returning the reserved numbers ascending. Two
- * concurrent generations get disjoint ranges, so the R2 keys they derive
- * (designs/{id}/{n}.png) never collide — the read-modify-write this replaces
- * let both read N and both write N+1, permanently overwriting one image.
+ * `UPDATE ... RETURNING`, returning the reserved numbers ascending.
  *
- * A generation that fails after reserving leaves its number unused: gaps in
- * the sequence are expected and harmless (the number only seeds an R2 key, it
- * is not a dense index).
+ * Since the slice-4 writer cutover this is purely the display counter
+ * (/designs cards show "N generations"; the action responses echo the
+ * number). R2 keys are id-keyed (`images/{imageId}.png`, minted before
+ * upload) and no longer derive from it — kept atomic anyway so concurrent
+ * generates don't undercount. Gaps from failed generations are harmless.
  */
 export async function reserveGenerationNumbers(
   designId: string,
@@ -134,7 +137,10 @@ export async function getDesignImagesForAIContext(
 }
 
 /**
- * Insert a new design_image row for a generation. Automatically links
+ * Insert a new image (or placement render) for a generation — the write choke
+ * point. Since the slice-4 writer cutover this writes ONLY the Model B shapes:
+ * `image` + `conversation_image(role=output)` for source artifacts,
+ * `placement_render` for product-targeted renders. Automatically links
  * `parentImageId` to the most recent existing image for the same design,
  * forming the provenance chain.
  */
@@ -150,6 +156,10 @@ export async function insertDesignImage(params: {
    * render was generated from, so a later lookup can match the exact pick.
    * Omitted for chat-driven generations → defaults to the latest thread image. */
   parentImageId?: string | null;
+  /** Pre-minted row id. Callers that upload to the id-keyed R2 path
+   * (`images/{id}.png`) mint the id first and pass it here so the row and the
+   * object key agree. Omitted → a fresh UUID. */
+  id?: string;
 }): Promise<string> {
   let parentImageId = params.parentImageId ?? null;
   if (parentImageId === null) {
@@ -170,41 +180,24 @@ export async function insertDesignImage(params: {
     parentImageId = latest[0]?.id ?? null;
   }
 
-  const id = crypto.randomUUID();
+  const id = params.id ?? crypto.randomUUID();
   const productId = params.productId ?? null;
-  const designImageInsert = db.insert(designImageTable).values({
-    id,
-    designId: params.designId,
-    parentImageId,
-    aspectRatio: params.aspectRatio,
-    productId,
-    placementId: params.placementId ?? null,
-    imageUrl: params.imageUrl,
-    prompt: params.prompt ?? null,
-    generationCost: params.generationCost,
-    isApproved: false,
-  });
 
-  // Model B dual-write (slice 1). A row with product_id set is a placement
-  // render (cache) → placement_render; otherwise it's a source artifact →
-  // image + output link. Same id in both so slice-2 readers and pinned order
-  // placements resolve unchanged.
+  // A row with product_id set is a placement render (cache) →
+  // placement_render; otherwise it's a source artifact → image + output link.
   if (productId !== null) {
-    await db.batch([
-      designImageInsert,
-      db.insert(placementRenderTable).values(
-        buildPlacementRenderRow({
-          id,
-          designId: params.designId,
-          sourceImageId: parentImageId,
-          blankId: productId,
-          placementId: params.placementId,
-          imageUrl: params.imageUrl,
-          aspectRatio: params.aspectRatio,
-          generationCost: params.generationCost,
-        })
-      ),
-    ]);
+    await db.insert(placementRenderTable).values(
+      buildPlacementRenderRow({
+        id,
+        designId: params.designId,
+        sourceImageId: parentImageId,
+        blankId: productId,
+        placementId: params.placementId,
+        imageUrl: params.imageUrl,
+        aspectRatio: params.aspectRatio,
+        generationCost: params.generationCost,
+      })
+    );
   } else {
     const [owner] = await db
       .select({
@@ -219,7 +212,6 @@ export async function insertDesignImage(params: {
       .limit(1);
     if (!owner) throw new Error("Design not found");
     await db.batch([
-      designImageInsert,
       db.insert(imageTable).values(
         buildImageRow({
           id,
@@ -713,33 +705,55 @@ export async function resolveDesignDisplayImageUrls(
 }
 
 /**
- * Delete a design_image row. Returns the id that should become the
- * design's new primary_image_id (the most recent remaining source
- * image), or null if there are no source images left. Caller is
- * responsible for updating design.primary_image_id.
+ * Delete an image from a design. Ref-counted (slice 4, plan §7): when the
+ * image is still referenced elsewhere — a conversation link from another
+ * design (seed), a shop product's placements, or a cart line's placements —
+ * only this design's link (and the legacy design_image row) is removed; the
+ * image row, its listing and the other references survive. Order references
+ * are the caller's job to refuse BEFORE calling (they block, not detach).
+ *
+ * Returns the id that should become the design's new primary_image_id (the
+ * most recent remaining source image), or null if there are no source images
+ * left. Caller is responsible for updating design.primary_image_id.
  */
 export async function deleteDesignImageRow(
   designId: string,
   imageId: string
 ): Promise<{ newPrimaryId: string | null }> {
-  // Delete the design_image row and its Model B mirrors (slice 1) atomically.
-  // The id is shared, so the same id addresses the image / placement_render
-  // rows. Only this design's conversation link goes — a link from another
-  // conversation (a seed carried from a fork/backfill) belongs to that design,
-  // and its presence keeps the image + listing rows alive so the other thread
-  // keeps rendering (slice-4 ref-count semantics, early).
-  const linkedElsewhere = await db
-    .select({ id: conversationImageTable.id })
-    .from(conversationImageTable)
-    .where(
-      and(
-        eq(conversationImageTable.imageId, imageId),
-        ne(conversationImageTable.designId, designId)
+  const [linkedElsewhere, productPins, cartPins] = await Promise.all([
+    db
+      .select({ id: conversationImageTable.id })
+      .from(conversationImageTable)
+      .where(
+        and(
+          eq(conversationImageTable.imageId, imageId),
+          ne(conversationImageTable.designId, designId)
+        )
       )
-    )
-    .limit(1);
+      .limit(1),
+    // Image ids are UUIDs, so the JSON substring match can't false-positive.
+    db
+      .select({ id: productTable.id })
+      .from(productTable)
+      .where(sql`${productTable.placements} LIKE ${"%" + imageId + "%"}`)
+      .limit(1),
+    db
+      .select({ id: cartItemTable.id })
+      .from(cartItemTable)
+      .where(sql`${cartItemTable.placements} LIKE ${"%" + imageId + "%"}`)
+      .limit(1),
+  ]);
+
+  const decision = imageReferences({
+    order: false, // refused by the caller before this runs
+    otherConversation: linkedElsewhere.length > 0,
+    product: productPins.length > 0,
+    cart: cartPins.length > 0,
+  });
 
   await db.batch([
+    // Legacy design_image rows (pre-cutover) still FK design.id — keep
+    // sweeping them until slice 5 drops the table. New rows never exist here.
     db
       .delete(designImageTable)
       .where(
@@ -756,7 +770,7 @@ export async function deleteDesignImageRow(
           eq(conversationImageTable.designId, designId)
         )
       ),
-    ...(linkedElsewhere.length > 0
+    ...(decision === "detach"
       ? []
       : [
           db.delete(imageTable).where(eq(imageTable.id, imageId)),

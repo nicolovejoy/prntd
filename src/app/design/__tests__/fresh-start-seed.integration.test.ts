@@ -56,10 +56,10 @@ vi.mock("@/lib/ai", () => ({
 }));
 
 const r2Mocks = vi.hoisted(() => ({
-  uploadDesignImage: vi.fn(
-    async (designId: string, gen: number) => `https://r2/${designId}/${gen}.png`
+  uploadImageObject: vi.fn(
+    async (imageId: string) => `https://r2/images/${imageId}.png`
   ),
-  deleteDesignImageObject: vi.fn(async () => {}),
+  deleteImageObject: vi.fn(async () => {}),
 }));
 vi.mock("@/lib/r2", () => r2Mocks);
 
@@ -118,7 +118,7 @@ beforeEach(async () => {
   testDb = await createTestDb();
   h.userId = "starter";
   await makeUser(testDb, "starter");
-  r2Mocks.uploadDesignImage.mockClear();
+  r2Mocks.uploadImageObject.mockClear();
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => ({
@@ -160,7 +160,7 @@ describe("startConversationFromImage", () => {
     // Reuse is a link: same image rows as before, same URL, no R2 traffic.
     const imagesAfter = await testDb.select().from(schema.image);
     expect(imagesAfter).toEqual(imagesBefore);
-    expect(r2Mocks.uploadDesignImage).not.toHaveBeenCalled();
+    expect(r2Mocks.uploadImageObject).not.toHaveBeenCalled();
   });
 
   it("seeds the AI context with the image from turn one", async () => {

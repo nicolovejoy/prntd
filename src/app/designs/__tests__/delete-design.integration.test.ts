@@ -45,8 +45,8 @@ vi.mock("@/lib/ai", () => ({
   chatAboutDesign: vi.fn(),
 }));
 vi.mock("@/lib/r2", () => ({
-  uploadDesignImage: vi.fn(async () => "https://r2/x.png"),
-  deleteDesignImageObject: vi.fn(async () => {}),
+  uploadImageObject: vi.fn(async () => "https://r2/x.png"),
+  deleteImageObject: vi.fn(async () => {}),
 }));
 vi.mock("@/lib/generators/registry", () => ({
   DEFAULT_GENERATOR_ID: "ideogram",
@@ -330,6 +330,92 @@ describe("deleteDesignImage — cross-design references", () => {
     ).toHaveLength(0);
     expect(
       await testDb.select().from(schema.conversationImage)
+    ).toHaveLength(0);
+  });
+
+  it("keeps the image row when a shop product pins it (detach, slice 4)", async () => {
+    const d = await makeDesign(testDb, "u1");
+    const imageId = await makeSourceImage(testDb, {
+      designId: d.id,
+      ownerId: "u1",
+      imageUrl: "https://img/on-product.png",
+    });
+    const other = await makeDesign(testDb, "u1");
+    await testDb.insert(schema.product).values({
+      ownerId: "u1",
+      designId: other.id,
+      blankId: "bella-canvas-3001",
+      placements: { front_large: imageId },
+    });
+
+    await deleteDesignImage(d.id, imageId);
+
+    // Own-thread link is gone, but the artifact survives for the product.
+    expect(
+      await testDb.select().from(schema.image).where(eq(schema.image.id, imageId))
+    ).toHaveLength(1);
+    expect(
+      await testDb
+        .select()
+        .from(schema.conversationImage)
+        .where(eq(schema.conversationImage.imageId, imageId))
+    ).toHaveLength(0);
+  });
+
+  it("keeps the image row when another design's cart line pins it (detach, slice 4)", async () => {
+    const d = await makeDesign(testDb, "u1");
+    const imageId = await makeSourceImage(testDb, {
+      designId: d.id,
+      ownerId: "u1",
+      imageUrl: "https://img/in-cart.png",
+    });
+    const other = await makeDesign(testDb, "u1");
+    await testDb.insert(schema.cartItem).values({
+      userId: "u1",
+      designId: other.id,
+      productId: "bella-canvas-3001",
+      size: "M",
+      color: "White",
+      placements: { front: `e2e-${other.id}`, back: imageId },
+    });
+
+    await deleteDesignImage(d.id, imageId);
+
+    expect(
+      await testDb.select().from(schema.image).where(eq(schema.image.id, imageId))
+    ).toHaveLength(1);
+  });
+});
+
+describe("deleteDesign — slice-4 ref-count", () => {
+  it("keeps an image a shop product pins while deleting the rest of the thread", async () => {
+    const d = await makeDesign(testDb, "u1");
+    const pinnedId = await makeSourceImage(testDb, {
+      designId: d.id,
+      ownerId: "u1",
+      imageUrl: "https://img/product-pin.png",
+    });
+    const looseId = await makeSourceImage(testDb, {
+      designId: d.id,
+      ownerId: "u1",
+      imageUrl: "https://img/loose.png",
+    });
+    const other = await makeDesign(testDb, "u1");
+    await testDb.insert(schema.product).values({
+      ownerId: "u1",
+      designId: other.id,
+      blankId: "bella-canvas-3001",
+      placements: { front_large: pinnedId },
+    });
+
+    await deleteDesign(d.id);
+
+    expect(await designRow(d.id)).toBeUndefined();
+    expect(
+      await testDb.select().from(schema.image).where(eq(schema.image.id, pinnedId))
+    ).toHaveLength(1);
+    expect(
+      await testDb.select().from(schema.image).where(eq(schema.image.id, looseId))
     ).toHaveLength(0);
   });
 });

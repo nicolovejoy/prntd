@@ -51,6 +51,48 @@ export function imageReferencedByOrders(
 }
 
 /**
+ * Everything that can hold a reference to an image once images are shared
+ * across conversations (Model B slice 4, plan §7). The caller gathers the
+ * flags with whatever queries fit its batch; this stays pure so the decision
+ * matrix is unit-testable (image-refcount.test.ts).
+ */
+export type ImageReferenceFlags = {
+  /** Pinned in any order/order_item placements, or the legacy-fallback case
+   * (imageReferencedByOrders). Orders are financial records. */
+  order: boolean;
+  /** A conversation_image link from another design (seed carried into a
+   * fresh-start thread, or a backfilled share). */
+  otherConversation: boolean;
+  /** Pinned in a shop product's placements — deleting would blank the
+   * organizer's sellable. */
+  product: boolean;
+  /** Pinned in someone's cart_item placements (e.g. picked as a back design
+   * from Shop). Carts are ephemeral, but a dangling id breaks checkout. */
+  cart: boolean;
+};
+
+export type ImageReferenceDecision =
+  /** No references — the image row (and its listing) may be hard-deleted. */
+  | "delete"
+  /** Order-referenced: refuse outright. What was printed must stay resolvable. */
+  | "blocked"
+  /** Referenced elsewhere (link/product/cart): detach this conversation's
+   * link only; the image row, listing and other references survive. */
+  | "detach";
+
+/**
+ * Slice-4 ref-count rule: an image is deletable only when nothing references
+ * it. Order references block deletion entirely (the caller surfaces an
+ * error); any other reference downgrades the delete to a link-detach so the
+ * referencing surface keeps rendering.
+ */
+export function imageReferences(flags: ImageReferenceFlags): ImageReferenceDecision {
+  if (flags.order) return "blocked";
+  if (flags.otherConversation || flags.product || flags.cart) return "detach";
+  return "delete";
+}
+
+/**
  * Decide whether an image may be bought via the buy-existing path
  * (`/d/[imageId]`). Unlike forking there is no owner shortcut: the image
  * must be published and not admin-hidden for anyone — including its

@@ -18,13 +18,18 @@ const r2 = new S3Client({
 
 const bucket = process.env.R2_BUCKET_NAME!;
 
-export async function uploadDesignImage(
-  designId: string,
-  generationNumber: number,
-  imageBuffer: Buffer,
-  suffix?: string
+/**
+ * Upload a generated/uploaded artifact or placement render under its own
+ * id-keyed object (Model B slice 4, plan §6): `images/{id}.png`. The id is
+ * minted before upload, so concurrent generations can't collide — no shared
+ * counter involved. Legacy objects stay at `designs/{designId}/{n}.png` and
+ * are never moved; their rows' image_url is authoritative.
+ */
+export async function uploadImageObject(
+  imageId: string,
+  imageBuffer: Buffer
 ): Promise<string> {
-  const key = `designs/${designId}/${generationNumber}${suffix ? `-${suffix}` : ""}.png`;
+  const key = `images/${imageId}.png`;
 
   await r2.send(
     new PutObjectCommand({
@@ -71,31 +76,26 @@ export async function uploadMockupImage(
 // slice 3 — reuse is a conversation_image seed link, never an R2 copy.
 
 /**
- * Delete a generation's R2 object by (design, generation number). Best-effort
- * orphan cleanup: called when a step after the upload fails, so a half-written
- * generation doesn't leave a stranded object under a reserved key.
+ * Delete an id-keyed R2 object (`images/{id}.png`). Best-effort orphan
+ * cleanup: called when a step after the upload fails, so a half-written
+ * generation doesn't leave a stranded object nothing references.
  */
-export async function deleteDesignImageObject(
-  designId: string,
-  generationNumber: number
-): Promise<void> {
+export async function deleteImageObject(imageId: string): Promise<void> {
   await r2.send(
     new DeleteObjectCommand({
       Bucket: bucket,
-      Key: `designs/${designId}/${generationNumber}.png`,
+      Key: `images/${imageId}.png`,
     })
   );
 }
 
-export async function getDesignImage(
-  designId: string,
-  generationNumber: number
-): Promise<Buffer | null> {
+/** Fetch an id-keyed image object's bytes, or null when absent. */
+export async function getImageObject(imageId: string): Promise<Buffer | null> {
   try {
     const result = await r2.send(
       new GetObjectCommand({
         Bucket: bucket,
-        Key: `designs/${designId}/${generationNumber}.png`,
+        Key: `images/${imageId}.png`,
       })
     );
     const bytes = await result.Body?.transformToByteArray();

@@ -53,11 +53,9 @@ const PLACEHOLDER_IMAGE = "https://placehold.co/1024x1024/png";
 /**
  * Seed a draft design (with a primary image) owned by `userId`.
  *
- * Writes BOTH shapes, exactly like production's dual-write
- * (src/lib/model-b-writes.ts): design_image for the legacy writers, and
- * image + conversation_image(role=output) with the same id for the Model B
- * readers the app is on since slice 2. Seeding only design_image would leave
- * every spec looking at a design with no images.
+ * Writes the Model B shape production writes since the slice-4 cutover:
+ * image + conversation_image(role=output) with a shared id (no design_image —
+ * that table only holds pre-cutover legacy rows).
  */
 export async function seedDesign(userId: string, key: string): Promise<string> {
   const designId = `e2e-${key}`;
@@ -68,12 +66,6 @@ export async function seedDesign(userId: string, key: string): Promise<string> {
           VALUES (?, ?, 'draft', ?, 1, 0, unixepoch(), unixepoch())
           ON CONFLICT(id) DO UPDATE SET user_id = excluded.user_id, primary_image_id = excluded.primary_image_id`,
     args: [designId, userId, imageId],
-  });
-  await c.execute({
-    sql: `INSERT INTO design_image (id, design_id, aspect_ratio, image_url, is_approved, is_hidden, created_at)
-          VALUES (?, ?, '1:1', ?, 0, 0, unixepoch())
-          ON CONFLICT(id) DO UPDATE SET image_url = excluded.image_url`,
-    args: [imageId, designId, PLACEHOLDER_IMAGE],
   });
   await c.execute({
     sql: `INSERT INTO image (id, owner_id, r2_key, image_url, aspect_ratio, generation_cost, source_design_id, created_at)
@@ -99,14 +91,15 @@ export async function cleanupDesigns(designIds: string[]): Promise<void> {
     sql: `DELETE FROM cart_item WHERE design_id IN (${placeholders})`,
     args: designIds,
   });
-  // Model B rows: images key off the design's design_image ids, links and
-  // renders off design_id, listings off the image ids.
+  // Model B rows: images key off the design's output links (or
+  // source_design_id), listings off the image ids, links + renders off
+  // design_id. design_image is swept last for pre-cutover residue.
   await c.execute({
-    sql: `DELETE FROM listing WHERE image_id IN (SELECT id FROM design_image WHERE design_id IN (${placeholders}))`,
+    sql: `DELETE FROM listing WHERE image_id IN (SELECT image_id FROM conversation_image WHERE design_id IN (${placeholders}))`,
     args: designIds,
   });
   await c.execute({
-    sql: `DELETE FROM image WHERE id IN (SELECT id FROM design_image WHERE design_id IN (${placeholders}))
+    sql: `DELETE FROM image WHERE id IN (SELECT image_id FROM conversation_image WHERE design_id IN (${placeholders}))
           OR source_design_id IN (${placeholders})`,
     args: [...designIds, ...designIds],
   });

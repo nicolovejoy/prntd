@@ -19,6 +19,7 @@ import {
 import { eq, desc, and, not, ne, count, inArray, or, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { resolveDesignDisplayImageUrls } from "@/lib/design-images";
+import { imageReferences } from "@/lib/design-publish";
 import { listingSyncStatement, type ListingUpdate } from "@/lib/model-b-writes";
 import { generatePublishedNaming } from "@/lib/ai";
 import { DEFAULT_PUBLISH_BACKGROUND } from "@/lib/blanks";
@@ -129,12 +130,32 @@ export async function deleteDesign(
   if (!found) throw new Error("Design not found");
   if (found.userId !== session.user.id) throw new Error("Unauthorized");
 
-  const imageIds = (
-    await db
+  // Every id this design minted: output-linked artifacts + placement renders
+  // (both can be pinned in order placements), plus legacy design_image rows —
+  // pre-backfill residue would only exist there. Seeds are excluded: a seed
+  // link points at another design's image, never one of ours to delete.
+  const [outputRows, renderRows, legacyRows] = await Promise.all([
+    db
+      .select({ id: conversationImageTable.imageId })
+      .from(conversationImageTable)
+      .where(
+        and(
+          eq(conversationImageTable.designId, designId),
+          eq(conversationImageTable.role, "output")
+        )
+      ),
+    db
+      .select({ id: placementRenderTable.id })
+      .from(placementRenderTable)
+      .where(eq(placementRenderTable.designId, designId)),
+    db
       .select({ id: designImageTable.id })
       .from(designImageTable)
-      .where(eq(designImageTable.designId, designId))
-  ).map((r) => r.id);
+      .where(eq(designImageTable.designId, designId)),
+  ]);
+  const imageIds = [
+    ...new Set([...outputRows, ...renderRows, ...legacyRows].map((r) => r.id)),
+  ];
 
   // Orders are financial records and never cascade. Since Phase 1c the lines
   // are authoritative, so an order can reference this design three ways: the
@@ -164,12 +185,11 @@ export async function deleteDesign(
     };
   }
 
-  // Also clear the Model B mirrors keyed to this design (slice 1). Images and
-  // their output links / listings key on the design's image ids; placement
-  // renders and conversation links key on design_id directly. An image that
-  // another conversation links (a seed carried from a fork/backfill) survives
-  // with its listing — the link belongs to the other design, and deleting the
-  // artifact would blank that thread (slice-4 ref-count semantics, early).
+  // Ref-count (slice 4, plan §7): an image referenced elsewhere survives the
+  // thread delete — a conversation link from another design (seed carried
+  // into a fresh-start thread), a shop product's placements, or a cart line's
+  // placements. Order references were handled above (whole design archives).
+  // Image ids are UUIDs, so the JSON substring matches can't false-positive.
   const sharedRows = imageIds.length
     ? await db
         .select({ imageId: conversationImageTable.imageId })
@@ -181,8 +201,53 @@ export async function deleteDesign(
           )
         )
     : [];
-  const shared = new Set(sharedRows.map((r) => r.imageId));
-  const removableImageIds = imageIds.filter((id) => !shared.has(id));
+  const linkedElsewhere = new Set(sharedRows.map((r) => r.imageId));
+  const productPinned = new Set<string>();
+  const cartPinned = new Set<string>();
+  if (imageIds.length) {
+    const [productPins, cartPins] = await Promise.all([
+      db
+        .select({ placements: productTable.placements })
+        .from(productTable)
+        .where(
+          or(
+            ...imageIds.map(
+              (id) => sql`${productTable.placements} LIKE ${"%" + id + "%"}`
+            )
+          )
+        ),
+      db
+        .select({ placements: cartItemTable.placements })
+        .from(cartItemTable)
+        .where(
+          and(
+            // This design's own cart lines are deleted below; only lines for
+            // OTHER designs pin an image worth keeping alive.
+            ne(cartItemTable.designId, designId),
+            or(
+              ...imageIds.map(
+                (id) => sql`${cartItemTable.placements} LIKE ${"%" + id + "%"}`
+              )
+            )
+          )
+        ),
+    ]);
+    for (const row of productPins) {
+      for (const id of Object.values(row.placements ?? {})) productPinned.add(id);
+    }
+    for (const row of cartPins) {
+      for (const id of Object.values(row.placements ?? {})) cartPinned.add(id);
+    }
+  }
+  const removableImageIds = imageIds.filter(
+    (id) =>
+      imageReferences({
+        order: false, // handled above — any order ref archived the design
+        otherConversation: linkedElsewhere.has(id),
+        product: productPinned.has(id),
+        cart: cartPinned.has(id),
+      }) === "delete"
+  );
 
   await db.batch([
     db.delete(chatMessageTable).where(eq(chatMessageTable.designId, designId)),
@@ -261,18 +326,15 @@ export async function archiveDesign(designId: string) {
 }
 
 /**
- * Publish an image to the discover feed. Auto-generates the title via
- * Claude on first publish when the owner left it blank (editable later
- * via updatePublishedNaming). Descriptions are never auto-generated
- * (2026-07-29 review); only an explicit caller-supplied one is stored.
- * Sets published_at — the row
- * becomes immortal (deleteDesignImage refuses) and appears in the
- * discover feed. Subsequent calls are a no-op on already-published
- * images. No self-unpublish; admin moderation via is_hidden removes
- * from the feed.
+ * Publish an image to the discover feed: insert its `listing` row.
+ * Auto-generates the title via Claude when the owner left it blank
+ * (editable later via updatePublishedNaming). Descriptions are never
+ * auto-generated (2026-07-29 review); only an explicit caller-supplied
+ * one is stored. Subsequent calls are a no-op on already-published
+ * images. Reversible via unpublishImage; admin moderation via the
+ * listing's is_hidden removes from the feed.
  *
- * Authorizes via the design's userId — the image's owner is the
- * design's owner.
+ * Authorizes via image.ownerId (the design owner, denormalized).
  */
 export async function publishImage(
   imageId: string,
@@ -285,21 +347,22 @@ export async function publishImage(
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) throw new Error("Unauthorized");
 
-  // The publish-family actions still read design_image: an unpublished image
-  // has no listing row, so its is_hidden / feed_rank (which the new listing
-  // must snapshot) live nowhere else until the slice-4 writer cutover.
-  const image = await db.query.designImage.findFirst({
-    where: eq(designImageTable.id, imageId),
-  });
+  // Slice-4 writer cutover: publish state lives ONLY in `listing`. The image
+  // row carries ownership (denormalized ownerId), so no design join needed.
+  const [image] = await db
+    .select({
+      id: imageTable.id,
+      ownerId: imageTable.ownerId,
+      imageUrl: imageTable.imageUrl,
+      prompt: imageTable.prompt,
+      publishedAt: listingTable.publishedAt,
+    })
+    .from(imageTable)
+    .leftJoin(listingTable, eq(listingTable.imageId, imageTable.id))
+    .where(eq(imageTable.id, imageId))
+    .limit(1);
   if (!image) throw new Error("Image not found");
-
-  const owner = await db.query.design.findFirst({
-    where: eq(designTable.id, image.designId),
-    columns: { userId: true },
-  });
-  if (!owner || owner.userId !== session.user.id) {
-    throw new Error("Unauthorized");
-  }
+  if (image.ownerId !== session.user.id) throw new Error("Unauthorized");
 
   if (image.publishedAt) return;
 
@@ -312,38 +375,24 @@ export async function publishImage(
     title = gen.title;
   }
   // No auto-generated descriptions: store one only when the caller sent it
-  // explicitly; otherwise leave whatever the row already carries (a
-  // re-publish keeps the pre-unpublish value).
+  // explicitly. Since unpublish deletes the listing row, a re-publish is a
+  // fresh listing — prior title/backdrop/hidden/feed-rank don't carry over
+  // (cutover judgment call; nothing persists them once design_image is gone).
   const description = opts.description?.trim();
 
   const publishedAt = new Date();
   const backgroundColor = opts.backgroundColor ?? DEFAULT_PUBLISH_BACKGROUND;
   // Publish never leaves the backdrop transparent (#73): no pick — or an
   // explicit null from a legacy caller — persists as White.
-  await db.batch([
-    db
-      .update(designImageTable)
-      .set({
-        publishedAt,
-        title,
-        backgroundColor,
-        ...(description !== undefined ? { description } : {}),
-      })
-      .where(eq(designImageTable.id, imageId)),
-    // Model B dual-write (slice 1): the listing carries the image's current
-    // hidden/feed-rank so it's a faithful snapshot of the publish state.
-    listingSyncStatement(db, imageId, {
-      kind: "publish",
-      publishedAt,
-      isHidden: image.isHidden,
-      title: title ?? null,
-      // Mirror what design_image ends up holding so the listing snapshot
-      // stays in lockstep.
-      description: description ?? image.description ?? null,
-      backgroundColor,
-      feedRank: image.feedRank,
-    }),
-  ]);
+  await listingSyncStatement(db, imageId, {
+    kind: "publish",
+    publishedAt,
+    isHidden: false,
+    title: title ?? null,
+    description: description ?? null,
+    backgroundColor,
+    feedRank: null,
+  });
 
   revalidatePath("/");
   revalidatePath("/prints");
@@ -369,19 +418,19 @@ export async function updatePublishedNaming(
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) throw new Error("Unauthorized");
 
-  const image = await db.query.designImage.findFirst({
-    where: eq(designImageTable.id, imageId),
-  });
+  const [image] = await db
+    .select({
+      id: imageTable.id,
+      ownerId: imageTable.ownerId,
+      publishedAt: listingTable.publishedAt,
+    })
+    .from(imageTable)
+    .leftJoin(listingTable, eq(listingTable.imageId, imageTable.id))
+    .where(eq(imageTable.id, imageId))
+    .limit(1);
   if (!image) throw new Error("Image not found");
+  if (image.ownerId !== session.user.id) throw new Error("Unauthorized");
   if (!image.publishedAt) throw new Error("Image is not published");
-
-  const owner = await db.query.design.findFirst({
-    where: eq(designTable.id, image.designId),
-    columns: { userId: true },
-  });
-  if (!owner || owner.userId !== session.user.id) {
-    throw new Error("Unauthorized");
-  }
 
   // Partial update: only touch fields the caller actually sent. The
   // background control persists backgroundColor alone; the naming editor
@@ -393,12 +442,7 @@ export async function updatePublishedNaming(
   if (description !== undefined) set.description = description.trim();
   if (backgroundColor !== undefined) set.backgroundColor = backgroundColor;
 
-  // Model B dual-write (slice 1): the same partial keeps the listing in
-  // lockstep. The listing update no-ops when the image predates its listing row.
-  await db.batch([
-    db.update(designImageTable).set(set).where(eq(designImageTable.id, imageId)),
-    listingSyncStatement(db, imageId, { kind: "update", set }),
-  ]);
+  await listingSyncStatement(db, imageId, { kind: "update", set });
 
   revalidatePath("/");
   revalidatePath("/prints");
@@ -407,44 +451,35 @@ export async function updatePublishedNaming(
 
 /**
  * Owner takes a published image back down — the reverse of publishImage.
- * Clears published_at, so the image leaves the discover feed (`/`,
+ * Deletes the listing row, so the image leaves the discover feed (`/`,
  * `/prints`), stops being buyable (canBuyPublishedImage), and
- * /d/[imageId] 404s (getPublishedImage returns null). title /
- * description / background_color are left intact so re-publishing is one
- * click and reuses them. A re-published image gets a fresh published_at
- * and sorts as newly published. No-op if already unpublished.
- *
- * Authorizes via the design's userId — the image's owner is the
- * design's owner.
+ * /d/[imageId] 404s (getPublishedImage returns null). Re-publishing
+ * creates a fresh listing: new published_at (sorts as newly published),
+ * title re-proposed if not supplied, backdrop defaulted. No-op if
+ * already unpublished.
  */
 export async function unpublishImage(imageId: string) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) throw new Error("Unauthorized");
 
-  const image = await db.query.designImage.findFirst({
-    where: eq(designImageTable.id, imageId),
-  });
+  const [image] = await db
+    .select({
+      id: imageTable.id,
+      ownerId: imageTable.ownerId,
+      publishedAt: listingTable.publishedAt,
+    })
+    .from(imageTable)
+    .leftJoin(listingTable, eq(listingTable.imageId, imageTable.id))
+    .where(eq(imageTable.id, imageId))
+    .limit(1);
   if (!image) throw new Error("Image not found");
-
-  const owner = await db.query.design.findFirst({
-    where: eq(designTable.id, image.designId),
-    columns: { userId: true },
-  });
-  if (!owner || owner.userId !== session.user.id) {
-    throw new Error("Unauthorized");
-  }
+  if (image.ownerId !== session.user.id) throw new Error("Unauthorized");
 
   if (!image.publishedAt) return;
 
-  // Model B dual-write (slice 1): unpublish = delete the listing row, matching
-  // the reversible semantics (title/backdrop stay on design_image for re-publish).
-  await db.batch([
-    db
-      .update(designImageTable)
-      .set({ publishedAt: null })
-      .where(eq(designImageTable.id, imageId)),
-    listingSyncStatement(db, imageId, { kind: "unpublish" }),
-  ]);
+  // Unpublish = delete the listing row. Re-publish creates a fresh listing
+  // (title re-proposed, backdrop defaulted) — see publishImage.
+  await listingSyncStatement(db, imageId, { kind: "unpublish" });
 
   revalidatePath("/");
   revalidatePath("/prints");
