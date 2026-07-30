@@ -1,13 +1,12 @@
 /**
- * Model B dual-write builders (docs/model-b-migration-plan.md, slice 1).
+ * Model B write builders (docs/model-b-migration-plan.md).
  *
- * Slice 1 keeps `design_image` authoritative but mirrors every write into the
- * new tables (`image`, `conversation_image`, `listing`, `placement_render`) so
- * slice 2 can flip readers over with the data already present. These builders
- * are the single source of the column mapping — both design_image insert sites
+ * Introduced in slice 1 as the dual-write mirror; since the slice-4 writer
+ * cutover these are the ONLY write shapes (`image`, `conversation_image`,
+ * `listing`, `placement_render`) — `design_image` is no longer written. The
+ * builders stay the single source of the column mapping: both insert sites
  * (the inline batch in generateDesign and insertDesignImage) and every
- * publish-family action route through here, so the two shapes can't drift
- * (risky spots §3, §5).
+ * publish-family action route through here (risky spots §3, §5).
  *
  * Each builder returns a plain row/values object; the caller splices the
  * corresponding `db.insert(...).values(row)` / `db.update(...)` into its
@@ -132,10 +131,9 @@ export function buildPlacementRenderRow(params: {
 }
 
 /**
- * Build the `listing` row for a freshly published image. Mirrors the full
- * publish state so the row is self-contained; feed-rank/hidden carry the
- * image's current values (publishImage no-ops if already published, so this is
- * always an insert of a new row).
+ * Build the `listing` row for a freshly published image. The row is the full
+ * publish state (publishImage no-ops if already published, so this is always
+ * an insert of a new row; a re-publish after unpublish starts fresh).
  */
 export function buildListingRow(params: {
   imageId: string;
@@ -159,10 +157,9 @@ export function buildListingRow(params: {
 
 /**
  * Fields a publish-family edit (naming / hidden / feed-rank) applies to an
- * existing listing. Undefined fields are left untouched; the caller passes the
- * same partial it applies to design_image so the two stay in lockstep. Update
- * only — never inserts — so editing an unpublished image (no listing row)
- * is a natural no-op.
+ * existing listing. Undefined fields are left untouched. Update only — never
+ * inserts — so editing an unpublished image (no listing row) is a natural
+ * no-op.
  */
 export type ListingUpdate = Partial<{
   title: string | null;
@@ -187,9 +184,8 @@ export type ListingSyncOp =
 
 /**
  * The single choke point every publish-family action routes through (risky
- * spot §3): given the operation, return the one `listing` statement to splice
- * into the same `db.batch` as the `design_image` publish-column write, so the
- * two shapes stay in lockstep.
+ * spot §3): given the operation, return the one `listing` statement — since
+ * the slice-4 cutover, publish state lives nowhere else.
  *
  *  - publish  → insert the listing (publishImage no-ops if already published).
  *  - unpublish→ delete it.

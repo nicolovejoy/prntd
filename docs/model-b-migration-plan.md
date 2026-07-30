@@ -320,6 +320,44 @@ the slice-4 writer cutover.
 - Requires slice 2 fully deployed (no design_image readers left) — verify
   with a repo grep gate in the PR.
 
+**Slice 4 status (built 2026-07-30).** Done as scoped, with these notes:
+
+- Grep gate passed: the only remaining non-test `design_image` code is the
+  delete side (deleteDesign / deleteDesignImageRow sweep legacy rows — they
+  FK design.id, so skipping them breaks the parent delete until slice 5
+  drops the table), the schema definition, and one-off ops scripts
+  (recover-designs-from-r2, restore-designs-from-backup, historical
+  migrations). Zero readers, zero inserts/updates in product code.
+- `reserveGenerationNumbers` kept as the display counter only (/designs
+  cards show "N generations"; action responses echo the number). R2 keys are
+  id-keyed: artifacts AND placement renders upload to `images/{id}.png`
+  (renders got the id-keyed path too — no counter, no collision; the plan
+  only mandated it for artifacts). `getOrCreatePlacementRender`'s
+  counter/cost bump is now an atomic SQL increment (it was still the racy
+  read-modify-write the WP2 fix removed elsewhere).
+- Publish family: `publishImage` reads `image` (+ listing) and authorizes
+  via the denormalized `image.ownerId`; state lands only in `listing`.
+  **Judgment call:** unpublish deletes the listing (per §3), so a re-publish
+  is a FRESH listing — prior title/backdrop/hidden/feed-rank do not carry
+  over (title is re-proposed, backdrop defaults to White, hidden resets
+  false, rank resets null). Nothing persists them once design_image stops
+  being written; notably an admin-hidden image that is unpublished and
+  re-published comes back unhidden (admin can re-hide — acceptable at
+  current scale, revisit if moderation load grows).
+- Ref-count is `imageReferences()` in design-publish.ts (pure:
+  order→blocked, other-conversation/product/cart→detach, none→delete);
+  deleteDesignImageRow and deleteDesign both route through it. New relative
+  to #124's early semantics: shop-product and cart placement pins now also
+  keep the image row alive (LIKE-scan on placements JSON, UUID ids so no
+  false positives). deleteDesign enumerates image ids from
+  conversation_image outputs + placement_render + legacy design_image
+  (post-cutover rows never exist in the latter).
+- No schema migration in this slice, as planned. The e2e seeder writes only
+  the Model B shape now; test factories still seed both shapes deliberately
+  (legacy-row coverage for the delete sweeps).
+- `image.isApproved` note: design_image had `is_approved`; `image` never got
+  it — it was already dead (nothing read it), nothing to carry.
+
 ### Slice 5 — drops
 
 - Migration `0007`: drop `design_image`; drop `design.forked_from_image_id`,

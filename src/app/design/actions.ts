@@ -9,7 +9,6 @@ import {
 import { db } from "@/lib/db";
 import {
   design as designTable,
-  designImage as designImageTable,
   chatMessage as chatMessageTable,
   orderItem as orderItemTable,
   image as imageTable,
@@ -19,7 +18,7 @@ import {
 import { eq, and, sql } from "drizzle-orm";
 import { buildImageRow, buildOutputLinkRow } from "@/lib/model-b-writes";
 import { chatAboutDesign, constructFluxPrompt, assessReadiness } from "@/lib/ai";
-import { uploadDesignImage, deleteDesignImageObject } from "@/lib/r2";
+import { uploadImageObject, deleteImageObject } from "@/lib/r2";
 import { getGenerator } from "@/lib/generators/registry";
 import {
   insertDesignImage,
@@ -256,16 +255,17 @@ async function runGenerate({
     throw new Error("Image generation failed");
   }
 
-  // Atomically reserve this generation's number so a concurrent generate can't
-  // land on the same R2 key and overwrite our image (reserved once the render
-  // succeeded, so a failed generate rarely leaves a gap).
+  // The image id is minted before upload and doubles as the R2 key
+  // (images/{id}.png, slice 4 §6) — concurrent generates can't collide on ids.
+  // The generation number survives purely as the display counter (atomic so
+  // concurrent generates don't undercount).
+  const newImageId = crypto.randomUUID();
   const [newGeneration] = await reserveGenerationNumbers(designId, 1);
   const response = await fetch(imageUrl);
   const buffer = Buffer.from(await response.arrayBuffer());
-  const r2Url = await uploadDesignImage(designId, newGeneration, buffer);
+  const r2Url = await uploadImageObject(newImageId, buffer);
 
   try {
-    const newImageId = crypto.randomUUID();
     // Anchor provenance on the latest image the user's request was built from,
     // not a "latest by createdAt" re-read that a racing generate could shift.
     // Seeds are excluded: the within-thread parent chain is between outputs —
@@ -274,30 +274,15 @@ async function runGenerate({
     const outputs = images.filter((img) => img.role !== "seed");
     const parentImageId = outputs[outputs.length - 1]?.id ?? null;
 
-    // Commit the four writes atomically (db.batch) so a mid-sequence crash can't
-    // leave a design_image with no assistant message, or an orphaned user turn.
+    // Commit the writes atomically (db.batch) so a mid-sequence crash can't
+    // leave an image with no assistant message, or an orphaned user turn.
     // Aspect is "1:1" — chat-driven generations are always square; product
     // regenerations happen in preview/actions.ts. generationCost is an atomic
     // increment so a concurrent generate's cost isn't clobbered.
+    // found.userId is the verified design owner. Seed lineage (slice 3): a
+    // fresh-start thread stamps its seed + attribution root onto every
+    // artifact it generates.
     await db.batch([
-      db.insert(designImageTable).values({
-        id: newImageId,
-        designId,
-        parentImageId,
-        aspectRatio: "1:1",
-        productId: null,
-        placementId: null,
-        imageUrl: r2Url,
-        prompt: aiResponse.fluxPrompt,
-        generationCost: generator.costPerImage,
-        generator: generator.id,
-        isApproved: false,
-      }),
-      // Model B dual-write (slice 1): mirror the source artifact into image +
-      // output link, same id. found.userId is the verified design owner.
-      // Seed lineage (slice 3): a fresh-start thread stamps its seed +
-      // attribution root onto every artifact it generates, matching the
-      // slice-1 backfill's treatment of forked designs.
       db.insert(imageTable).values(
         buildImageRow({
           id: newImageId,
@@ -349,8 +334,8 @@ async function runGenerate({
     };
   } catch (err) {
     // The DB writes failed after the R2 upload; drop the now-orphaned object so
-    // the reserved key doesn't strand a file nothing references. Best-effort.
-    await deleteDesignImageObject(designId, newGeneration).catch(() => {});
+    // the id-keyed upload doesn't strand a file nothing references. Best-effort.
+    await deleteImageObject(newImageId).catch(() => {});
     throw err;
   }
 }
@@ -367,14 +352,15 @@ export async function uploadReferenceImage(
   // Closed conversation = read-only thread (slice 3): no uploads.
   assertConversationOpen(found);
 
-  // Upload to R2 as an "upload" (not a generation)
-  const uploadNumber = Date.now();
+  // Upload under the pre-minted image id (images/{id}.png, slice 4 §6).
+  const newImageId = crypto.randomUUID();
   const buffer = Buffer.from(base64Data, "base64");
-  const r2Url = await uploadDesignImage(designId, uploadNumber, buffer, "upload");
+  const r2Url = await uploadImageObject(newImageId, buffer);
 
-  // Record as a design_image row so the gallery picks it up and the
+  // Record as an image row so the gallery picks it up and the
   // AI gallery context can reference it.
-  const newImageId = await insertDesignImage({
+  await insertDesignImage({
+    id: newImageId,
     designId,
     imageUrl: r2Url,
     aspectRatio: "1:1",
@@ -420,11 +406,12 @@ export async function selectImage(designId: string, imageUrl: string) {
 }
 
 /**
- * Delete a design_image row by id. Refuses when any order line pins the
- * row via placements (e.g. order_item.placements.front references this id),
- * so a deletion can't orphan an order's recorded thumbnail. Recomputes
- * primary_image_id to the most recent remaining source image when
- * the delete proceeds.
+ * Delete an image from a design. Refuses when any order line pins the
+ * image via placements (e.g. order_item.placements.front references this id),
+ * so a deletion can't orphan an order's recorded thumbnail. Other references
+ * (seed link, shop product, cart) downgrade the delete to a link-detach —
+ * ref-counted in deleteDesignImageRow. Recomputes primary_image_id to the
+ * most recent remaining source image when the delete proceeds.
  */
 export async function deleteDesignImage(designId: string, imageId: string) {
   const session = await auth.api.getSession({ headers: await headers() });

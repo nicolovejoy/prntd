@@ -57,10 +57,10 @@ vi.mock("@/lib/ai", () => ({
 }));
 
 vi.mock("@/lib/r2", () => ({
-  uploadDesignImage: vi.fn(
-    async (designId: string, gen: number) => `https://r2/${designId}/${gen}.png`
+  uploadImageObject: vi.fn(
+    async (imageId: string) => `https://r2/images/${imageId}.png`
   ),
-  deleteDesignImageObject: vi.fn(async () => {}),
+  deleteImageObject: vi.fn(async () => {}),
 }));
 
 vi.mock("@/lib/generators/registry", () => {
@@ -189,7 +189,7 @@ describe("close / reopen", () => {
     expect((await designRow(designId)).closedAt).toBeNull();
 
     const res = await generateDesign(designId, "a cat");
-    expect(res.imageUrl).toBe(`https://r2/${designId}/1.png`);
+    expect(res.imageUrl).toBe(`https://r2/images/${res.imageId}.png`);
   });
 
   it("is idempotent: closing twice keeps the first timestamp shape, reopening an open thread no-ops", async () => {

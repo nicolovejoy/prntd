@@ -1,8 +1,11 @@
 /**
- * Model B slice-1 dual-write (docs/model-b-migration-plan.md). Every write path
- * that touches design_image must land the matching new-table shape in the same
- * batch, with the id reused. Runs against a real in-memory libSQL (#28), and
- * drives the server actions with db + auth mocked so the batches actually run.
+ * Model B slice-4 writer cutover (docs/model-b-migration-plan.md). Every write
+ * path lands ONLY the new-table shapes — `image` + `conversation_image` for
+ * source artifacts, `placement_render` for renders, `listing` for publish
+ * state. `design_image` receives no inserts or updates from any path (deletes
+ * of legacy rows are covered in delete-design.integration.test.ts). Runs
+ * against a real in-memory libSQL (#28), driving the server actions with db +
+ * auth mocked so the batches actually run.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { eq } from "drizzle-orm";
@@ -68,18 +71,22 @@ async function seedDesign(): Promise<{ userId: string; designId: string }> {
   return { userId, designId: design.id };
 }
 
+async function designImageRows() {
+  return testDb.select().from(schema.designImage);
+}
+
 beforeEach(async () => {
   testDb = await createTestDb();
 });
 
-describe("insertDesignImage dual-write", () => {
-  it("source generation lands image + output link with the same id", async () => {
+describe("insertDesignImage writer cutover", () => {
+  it("source generation lands image + output link only, no design_image row", async () => {
     const { designId } = await seedDesign();
     currentUserId = "owner-1";
 
     const id = await insertDesignImage({
       designId,
-      imageUrl: "https://cdn.example.com/designs/d/1.png",
+      imageUrl: "https://cdn.example.com/images/abc.png",
       aspectRatio: "1:1",
       prompt: "a cat",
       generationCost: 0.03,
@@ -92,9 +99,9 @@ describe("insertDesignImage dual-write", () => {
     expect(img).toBeTruthy();
     expect(img.ownerId).toBe("owner-1");
     expect(img.sourceDesignId).toBe(designId);
-    expect(img.imageUrl).toBe("https://cdn.example.com/designs/d/1.png");
+    expect(img.imageUrl).toBe("https://cdn.example.com/images/abc.png");
     // r2_key parsed best-effort from the URL path.
-    expect(img.r2Key).toBe("designs/d/1.png");
+    expect(img.r2Key).toBe("images/abc.png");
 
     const links = await testDb
       .select()
@@ -104,15 +111,36 @@ describe("insertDesignImage dual-write", () => {
     expect(links[0].role).toBe("output");
     expect(links[0].designId).toBe(designId);
 
-    // Not a placement render.
-    const renders = await testDb
-      .select()
-      .from(schema.placementRender)
-      .where(eq(schema.placementRender.id, id));
-    expect(renders).toHaveLength(0);
+    // Not a placement render, and — the cutover — no design_image row.
+    expect(
+      await testDb
+        .select()
+        .from(schema.placementRender)
+        .where(eq(schema.placementRender.id, id))
+    ).toHaveLength(0);
+    expect(await designImageRows()).toHaveLength(0);
   });
 
-  it("placement render lands placement_render with the same id, no image row", async () => {
+  it("honors a pre-minted id (the id-keyed R2 upload path)", async () => {
+    const { designId } = await seedDesign();
+    currentUserId = "owner-1";
+    const minted = crypto.randomUUID();
+
+    const id = await insertDesignImage({
+      id: minted,
+      designId,
+      imageUrl: `https://cdn.example.com/images/${minted}.png`,
+      aspectRatio: "1:1",
+      generationCost: 0,
+    });
+
+    expect(id).toBe(minted);
+    expect(
+      await testDb.select().from(schema.image).where(eq(schema.image.id, minted))
+    ).toHaveLength(1);
+  });
+
+  it("placement render lands placement_render only", async () => {
     const { designId } = await seedDesign();
     currentUserId = "owner-1";
     const src = await insertDesignImage({
@@ -141,16 +169,18 @@ describe("insertDesignImage dual-write", () => {
     expect(render.placementId).toBe("back");
     expect(render.sourceImageId).toBe(src);
 
-    // A render is not an artifact — no image row for it.
-    const img = await testDb
-      .select()
-      .from(schema.image)
-      .where(eq(schema.image.id, renderId));
-    expect(img).toHaveLength(0);
+    // A render is not an artifact — no image row, and no design_image row.
+    expect(
+      await testDb
+        .select()
+        .from(schema.image)
+        .where(eq(schema.image.id, renderId))
+    ).toHaveLength(0);
+    expect(await designImageRows()).toHaveLength(0);
   });
 });
 
-describe("publish-family dual-write", () => {
+describe("publish-family writer cutover", () => {
   async function seedSourceImage() {
     const { designId } = await seedDesign();
     currentUserId = "owner-1";
@@ -163,9 +193,9 @@ describe("publish-family dual-write", () => {
     return { designId, imageId };
   }
 
-  it("publishImage inserts a listing row", async () => {
+  it("publishImage inserts a listing row and touches nothing else", async () => {
     const { imageId } = await seedSourceImage();
-    await publishImage(imageId, { title: "T", description: "D", backgroundColor: "Black" });
+    await publishImage(imageId, { title: "T", backgroundColor: "Black" });
 
     const [listing] = await testDb
       .select()
@@ -175,11 +205,37 @@ describe("publish-family dual-write", () => {
     expect(listing.title).toBe("T");
     expect(listing.backgroundColor).toBe("Black");
     expect(listing.isHidden).toBe(false);
+    expect(listing.feedRank).toBeNull();
+    expect(await designImageRows()).toHaveLength(0);
   });
 
-  it("updatePublishedNaming keeps the listing in lockstep", async () => {
+  it("publishImage auto-proposes a title when none supplied", async () => {
     const { imageId } = await seedSourceImage();
-    await publishImage(imageId, { title: "T", description: "D", backgroundColor: "Black" });
+    await publishImage(imageId);
+
+    const [listing] = await testDb
+      .select()
+      .from(schema.listing)
+      .where(eq(schema.listing.imageId, imageId));
+    expect(listing.title).toBe("Auto Title");
+    // Descriptions are never auto-generated (2026-07-29).
+    expect(listing.description).toBeNull();
+  });
+
+  it("publishImage rejects a non-owner", async () => {
+    const { imageId } = await seedSourceImage();
+    await testDb
+      .insert(schema.user)
+      .values({ id: "intruder", email: "i@example.com", name: "I" });
+    currentUserId = "intruder";
+    await expect(publishImage(imageId, { title: "X" })).rejects.toThrow(
+      "Unauthorized"
+    );
+  });
+
+  it("updatePublishedNaming updates the listing only", async () => {
+    const { imageId } = await seedSourceImage();
+    await publishImage(imageId, { title: "T", backgroundColor: "Black" });
     await updatePublishedNaming(imageId, { title: "New", backgroundColor: "White" });
 
     const [listing] = await testDb
@@ -188,18 +244,19 @@ describe("publish-family dual-write", () => {
       .where(eq(schema.listing.imageId, imageId));
     expect(listing.title).toBe("New");
     expect(listing.backgroundColor).toBe("White");
-    // design_image stays in lockstep.
-    const [di] = await testDb
-      .select()
-      .from(schema.designImage)
-      .where(eq(schema.designImage.id, imageId));
-    expect(di.title).toBe("New");
-    expect(di.backgroundColor).toBe("White");
+    expect(await designImageRows()).toHaveLength(0);
   });
 
-  it("setImageHidden / setImageFeedRank mirror onto the listing", async () => {
+  it("updatePublishedNaming refuses on an unpublished image", async () => {
     const { imageId } = await seedSourceImage();
-    await publishImage(imageId, { title: "T", description: "D" });
+    await expect(
+      updatePublishedNaming(imageId, { title: "New" })
+    ).rejects.toThrow("not published");
+  });
+
+  it("setImageHidden / setImageFeedRank write the listing", async () => {
+    const { imageId } = await seedSourceImage();
+    await publishImage(imageId, { title: "T" });
     await setImageHidden(imageId, true);
     await setImageFeedRank(imageId, 3);
 
@@ -211,22 +268,32 @@ describe("publish-family dual-write", () => {
     expect(listing.feedRank).toBe(3);
   });
 
-  it("unpublishImage deletes the listing", async () => {
+  it("unpublishImage deletes the listing; re-publish starts a fresh one", async () => {
     const { imageId } = await seedSourceImage();
-    await publishImage(imageId, { title: "T", description: "D" });
+    await publishImage(imageId, {
+      title: "Original",
+      backgroundColor: "Black",
+    });
+    await setImageFeedRank(imageId, 7);
     await unpublishImage(imageId);
 
-    const listing = await testDb
+    expect(
+      await testDb
+        .select()
+        .from(schema.listing)
+        .where(eq(schema.listing.imageId, imageId))
+    ).toHaveLength(0);
+
+    // Re-publish = fresh listing (cutover judgment call: prior title/backdrop/
+    // hidden/rank don't carry over — nothing persists them anymore).
+    await publishImage(imageId);
+    const [listing] = await testDb
       .select()
       .from(schema.listing)
       .where(eq(schema.listing.imageId, imageId));
-    expect(listing).toHaveLength(0);
-    // design_image publish flag cleared too.
-    const [di] = await testDb
-      .select()
-      .from(schema.designImage)
-      .where(eq(schema.designImage.id, imageId));
-    expect(di.publishedAt).toBeNull();
+    expect(listing.title).toBe("Auto Title");
+    expect(listing.feedRank).toBeNull();
+    expect(listing.isHidden).toBe(false);
   });
 
   it("editing an unpublished image conjures no listing", async () => {
@@ -260,7 +327,7 @@ describe("deleteDesign clears Model B rows", () => {
       placementId: "front",
       parentImageId: imageId,
     });
-    await publishImage(imageId, { title: "T", description: "D" });
+    await publishImage(imageId, { title: "T" });
 
     await deleteDesign(designId);
 
