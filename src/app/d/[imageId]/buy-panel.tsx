@@ -19,7 +19,8 @@ import { buyPublishedDesign, getBuyPageBackSources } from "../actions";
 
 /**
  * Buy-existing UI on `/d/[imageId]`. Collapsed by default (#128): two peer
- * CTAs under the image — "Order — $X" and the remix action passed in as
+ * CTAs under the image — "Order" (no price: the total depends on options
+ * not yet picked) and the remix action passed in as
  * `startAction`. Tapping Order expands the picker stack in place
  * (product/size/color/back-design/price); buy stays gated on size only.
  * Signed-out users see the same collapse; the sign-in gate applies at the
@@ -179,7 +180,7 @@ export function BuyPanel({
           aria-expanded={false}
           data-testid="order-expand"
         >
-          Order — ${total.toFixed(2)}
+          Order
         </Button>
         {startAction}
       </div>

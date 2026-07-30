@@ -37,10 +37,9 @@ describe("BuyPanel progressive disclosure (#128)", () => {
         startAction={<button>New design from this image</button>}
       />
     );
-    // Collapsed price = base size + shipping, matching the expanded total.
-    expect(
-      screen.getByRole("button", { name: "Order — $24.12" })
-    ).toBeInTheDocument();
+    // Collapsed CTA carries no price — the total depends on options the
+    // user hasn't picked yet; the expanded buy button shows the real total.
+    expect(screen.getByRole("button", { name: "Order" })).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "New design from this image" })
     ).toBeInTheDocument();
