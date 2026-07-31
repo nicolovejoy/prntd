@@ -180,6 +180,13 @@ export function SiteHeader() {
           ref={menuRef}
           className="sm:hidden absolute right-2 top-full z-50 mt-1 w-64 max-w-[calc(100vw-1rem)] flex flex-col rounded-md border border-border bg-surface-raised py-1 shadow-lg shadow-black/60"
         >
+          {/* Which account is signed in (#126) — with two accounts the only
+              other tell is whether Admin shows. */}
+          {isAuthed && session?.user?.email && (
+            <span className="truncate px-4 pt-2 pb-1 text-right text-xs text-text-faint">
+              {session.user.email}
+            </span>
+          )}
           {links.map((l) => (
             <Link
               key={l.href}
