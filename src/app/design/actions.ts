@@ -1,6 +1,7 @@
 "use server";
 
 import { headers } from "next/headers";
+import { revalidatePath } from "next/cache";
 import { auth, isAnonymousUser } from "@/lib/auth";
 import {
   consumeGenerationQuota,
@@ -513,6 +514,44 @@ export async function reopenConversation(designId: string) {
     .update(designTable)
     .set({ closedAt: null, updatedAt: new Date() })
     .where(eq(designTable.id, designId));
+}
+
+/**
+ * Set which of a conversation's images is its primary (#136 slice 3, Q5).
+ * The primary is what My Designs, /preview and the AI context treat as the
+ * design's current artwork, so without an explicit action the newest
+ * generation always wins and a user who prefers an earlier variant has no way
+ * to say so.
+ *
+ * Allowed on a closed conversation: this curates the record, it doesn't write
+ * to the thread (no chat, generation or upload), so assertConversationOpen
+ * deliberately isn't applied.
+ */
+export async function setPrimaryImage(designId: string, imageId: string) {
+  await requireOwnedDesign(designId);
+
+  // The image must actually belong to this conversation — either a generation
+  // of its own or a seed it was started from. Without this an owner could
+  // point their design at any image id they can name.
+  const [link] = await db
+    .select({ id: conversationImageTable.id })
+    .from(conversationImageTable)
+    .where(
+      and(
+        eq(conversationImageTable.designId, designId),
+        eq(conversationImageTable.imageId, imageId)
+      )
+    )
+    .limit(1);
+  if (!link) throw new Error("Image is not part of this design");
+
+  await db
+    .update(designTable)
+    .set({ primaryImageId: imageId, updatedAt: new Date() })
+    .where(eq(designTable.id, designId));
+
+  revalidatePath("/designs");
+  revalidatePath(`/d/${imageId}`);
 }
 
 async function requireOwnedDesign(designId: string) {

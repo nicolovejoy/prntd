@@ -86,3 +86,27 @@ image page to land on. "Edit" dropped from the card (the image page's
 dropped too, now that the card itself goes there. Un-publish, Publish, Delete,
 Close/Reopen, New-from-image and Reorder are unchanged; Reorder still points at
 `/preview` per decision 4.
+
+## Slice 3 status (2026-07-30)
+
+Shipped, image-view half:
+
+- `setPrimaryImage(designId, imageId)` (`src/app/design/actions.ts`) — Q5's
+  explicit action. Owner-gated, and the image must have a `conversation_image`
+  link to that design, otherwise an owner could point their design at any
+  image id they can name. Deliberately allowed on a **closed** conversation:
+  choosing which image represents the record isn't a thread write, so
+  `assertConversationOpen` doesn't apply.
+- `getConversationImages(designId)` (`src/app/d/actions.ts`) — owner-only,
+  seeds included (a fresh-start thread's anchor is legitimate history and a
+  legitimate primary). Renders as `ConversationImages`: "Use this one" when
+  the viewed image isn't primary, plus an "Other images from this design"
+  strip linking to each sibling's `/d` page, `?from` preserved.
+- 8 real-DB tests (`set-primary-image.integration.test.ts`) covering the
+  ownership, cross-conversation, signed-out and closed-thread cases.
+
+**Deferred: the thread-gallery half** (primary leads, older generations in a
+secondary strip). #147 says the thread view needs a layout conversation before
+more is built on it, and reshuffling the gallery now would be work thrown away
+by that redesign. The hierarchy is expressible either way — `design.primary_image_id`
+is now user-settable, which is what the gallery would key off.
