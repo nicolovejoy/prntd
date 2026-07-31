@@ -76,3 +76,13 @@ All five settled as recommended:
 Each slice is its own PR. Slice 1 carries the security-sensitive change (a
 private image becoming addressable by id), so it needs ownership tests in the
 same shape as `canUseAsPlacementSource` got in PR #95.
+
+## Slice 2 status (2026-07-30)
+
+Shipped: card tap → `designCardHref` (`src/lib/design-view.ts`) — `/d/{primaryImageId}?from=/designs`,
+falling back to `/design?id=` for a thread with no image yet, since there is no
+image page to land on. "Edit" dropped from the card (the image page's
+"View conversation" replaces it); the published card's "Published →" link
+dropped too, now that the card itself goes there. Un-publish, Publish, Delete,
+Close/Reopen, New-from-image and Reorder are unchanged; Reorder still points at
+`/preview` per decision 4.
