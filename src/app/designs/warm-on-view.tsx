@@ -1,13 +1,16 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { getDesign, getDesignChat } from "@/app/design/actions";
-import { warmDesignThread } from "@/lib/design-thread-cache";
+import { getDesignThread } from "@/app/design/actions";
+import { warmDesignThread, threadToSnapshot } from "@/lib/design-thread-cache";
 
 /**
  * Wraps a /designs card and prefetches its design thread (#87) when the card
  * scrolls into view, or on touch/hover intent — so tapping through to
  * /design?id= hydrates from cache instead of flashing an empty composer.
+ *
+ * One action call fetches chat + gallery together, so a warmed thread can
+ * never hydrate with chat but an empty gallery.
  *
  * Renders the card's own container element (no extra DOM) so grid layout is
  * unchanged. Warming is deduped in the cache and fired at most once per mount;
@@ -33,16 +36,11 @@ export function WarmOnView({
       if (warmed.current) return;
       warmed.current = true;
       warmDesignThread(designId, async () => {
-        const [design, chat] = await Promise.all([
-          getDesign(designId),
-          getDesignChat(designId),
-        ]);
-        return {
-          design: design
-            ? { displayImageUrl: design.displayImageUrl }
-            : null,
-          chat,
-        };
+        const thread = await getDesignThread(designId);
+        // Not caching an absent thread is fine — the page's server payload
+        // covers it; a throw keeps warm() from storing anything.
+        if (!thread) throw new Error("no thread");
+        return threadToSnapshot(thread);
       });
     };
 

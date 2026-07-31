@@ -1,9 +1,10 @@
 /**
- * Integration test for getUserOrders against a real (in-memory) libSQL DB.
+ * Integration test for getUserOrdersData against a real (in-memory) libSQL DB.
  * Locks the behavior that the resolveOrderLines wiring fixes: a multi-item
  * cart order must surface every line, not just the first item written to the
- * order's scalar columns. The db singleton + auth session are mocked; the
- * database itself is real (FKs enforced, schema-derived).
+ * order's scalar columns. The db singleton is mocked to the test DB; the
+ * database itself is real (FKs enforced, schema-derived). Auth lives at the
+ * page boundary now (requireRealUser) and is covered in require-user.test.ts.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { eq } from "drizzle-orm";
@@ -13,7 +14,6 @@ import { makeSourceImage } from "@/lib/__tests__/factories";
 
 const h = vi.hoisted(() => ({
   db: null as unknown,
-  session: null as unknown,
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -22,15 +22,7 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 
-vi.mock("@/lib/auth", () => ({
-  auth: { api: { getSession: async () => h.session } },
-  isAnonymousUser: (u: { isAnonymous?: boolean } | undefined) =>
-    Boolean(u?.isAnonymous),
-}));
-
-vi.mock("next/headers", () => ({ headers: async () => new Headers() }));
-
-import { getUserOrders } from "@/app/orders/actions";
+import { getUserOrdersData } from "@/lib/user-orders";
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
 
@@ -57,13 +49,12 @@ async function seedDesignWithImage(
 
 beforeEach(async () => {
   h.db = await createTestDb();
-  h.session = { user: { id: "buyer", isAnonymous: false } };
   await (h.db as Db)
     .insert(schema.user)
     .values({ id: "buyer", email: "buyer@example.com", name: "Buyer" });
 });
 
-describe("getUserOrders", () => {
+describe("getUserOrdersData", () => {
   it("surfaces every line of a multi-item cart order", async () => {
     const db = h.db as Db;
     const a = await seedDesignWithImage(db, "buyer", "https://r2/a.png");
@@ -102,7 +93,7 @@ describe("getUserOrders", () => {
       },
     ]);
 
-    const orders = await getUserOrders();
+    const orders = await getUserOrdersData("buyer");
     expect(orders).toHaveLength(1);
     expect(orders[0].lines).toHaveLength(2);
     expect(orders[0].lines.map((l) => l.color)).toEqual(["White", "Black"]);
@@ -136,15 +127,26 @@ describe("getUserOrders", () => {
       itemPrice: 19.43,
     });
 
-    const orders = await getUserOrders();
+    const orders = await getUserOrdersData("buyer");
     expect(orders[0].lines).toHaveLength(1);
     expect(orders[0].lines[0].size).toBe("L");
     expect(orders[0].lines[0].color).toBe("Navy");
     expect(orders[0].lines[0].imageUrl).toBe("https://r2/legacy.png");
   });
 
-  it("rejects anonymous guests", async () => {
-    h.session = { user: { id: "guest", isAnonymous: true } };
-    await expect(getUserOrders()).rejects.toThrow("Unauthorized");
+  it("only returns the buyer's own orders", async () => {
+    const db = h.db as Db;
+    await db
+      .insert(schema.user)
+      .values({ id: "other", email: "other@example.com", name: "Other" });
+    const a = await seedDesignWithImage(db, "other", "https://r2/o.png");
+    await db.insert(schema.order).values({
+      userId: "other",
+      designId: a.designId,
+      totalPrice: 24.12,
+      status: "paid",
+    });
+
+    expect(await getUserOrdersData("buyer")).toEqual([]);
   });
 });

@@ -35,6 +35,10 @@ import {
   type ProductVersionGroup,
 } from "@/lib/design-images";
 import { imageReferencedByOrders, canStartFromImage } from "@/lib/design-publish";
+import {
+  getDesignThreadData,
+  type DesignThreadData,
+} from "@/lib/design-thread";
 import { dedupeById, assertConversationOpen } from "@/lib/design-view";
 import type { ChatMessage } from "@/lib/db/schema";
 
@@ -599,6 +603,19 @@ export async function startConversationFromImage(
   ]);
 
   return { designId };
+}
+
+/**
+ * Whole-thread fetch for warm prefetch (#87) and any client path that needs
+ * chat + gallery in one invocation (so they can never hydrate out of step).
+ * Null covers missing AND foreign designs — same view either way.
+ */
+export async function getDesignThread(
+  designId: string
+): Promise<DesignThreadData | null> {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) throw new Error("Unauthorized");
+  return await getDesignThreadData(designId, session.user.id);
 }
 
 export async function getDesign(designId: string) {

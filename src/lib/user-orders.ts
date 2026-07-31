@@ -1,7 +1,3 @@
-"use server";
-
-import { headers } from "next/headers";
-import { auth, isAnonymousUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
   order as orderTable,
@@ -17,12 +13,13 @@ import {
 import { resolveOrderLines } from "@/lib/order-lines";
 import { designerAttribution } from "@/lib/order-attribution";
 
-export async function getUserOrders() {
-  const session = await auth.api.getSession({ headers: await headers() });
-  // Personal page — anonymous guests (#26) must sign in to see their orders.
-  if (!session || isAnonymousUser(session.user)) throw new Error("Unauthorized");
-  const buyerId = session.user.id;
+export type UserOrder = Awaited<ReturnType<typeof getUserOrdersData>>[number];
 
+/**
+ * The /orders history for one buyer. Query core shared by the server
+ * component render (initial data) — auth lives at the caller.
+ */
+export async function getUserOrdersData(buyerId: string) {
   const orders = await db
     .select({
       id: orderTable.id,
@@ -96,24 +93,26 @@ export async function getUserOrders() {
 
   // Prefer each line's pinned `placements.front` (a design_image snapshot from
   // purchase time) over the design's current display image, so historical
-  // orders keep showing what was actually printed.
-  const fallbackUrls = await resolveDesignDisplayImageUrls(lineDesignIds);
-  const pinnedById = await resolveImagesByIds(pinnedImageIds);
+  // orders keep showing what was actually printed. The three lookups are
+  // independent — one round of parallel queries.
+  const [fallbackUrls, pinnedById, designerRows] = await Promise.all([
+    resolveDesignDisplayImageUrls(lineDesignIds),
+    resolveImagesByIds(pinnedImageIds),
+    lineDesignIds.length
+      ? db
+          .select({
+            designId: designTable.id,
+            designerId: designTable.userId,
+            designerName: userTable.name,
+          })
+          .from(designTable)
+          .leftJoin(userTable, eq(userTable.id, designTable.userId))
+          .where(inArray(designTable.id, lineDesignIds))
+      : Promise.resolve([]),
+  ]);
   const pinnedUrlById = new Map(
     [...pinnedById].map(([id, img]) => [id, img.imageUrl])
   );
-
-  const designerRows = lineDesignIds.length
-    ? await db
-        .select({
-          designId: designTable.id,
-          designerId: designTable.userId,
-          designerName: userTable.name,
-        })
-        .from(designTable)
-        .leftJoin(userTable, eq(userTable.id, designTable.userId))
-        .where(inArray(designTable.id, lineDesignIds))
-    : [];
   const designerByDesign = new Map(designerRows.map((r) => [r.designId, r]));
 
   return withLines.map(({ order, lines }) => ({

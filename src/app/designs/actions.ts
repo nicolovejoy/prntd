@@ -1,7 +1,7 @@
 "use server";
 
 import { headers } from "next/headers";
-import { auth, isAnonymousUser } from "@/lib/auth";
+import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
   design as designTable,
@@ -16,88 +16,12 @@ import {
   placementRender as placementRenderTable,
   listing as listingTable,
 } from "@/lib/db/schema";
-import { eq, desc, and, not, ne, count, inArray, or, sql } from "drizzle-orm";
+import { eq, and, ne, count, inArray, or, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { resolveDesignDisplayImageUrls } from "@/lib/design-images";
 import { imageReferences } from "@/lib/design-publish";
 import { listingSyncStatement, type ListingUpdate } from "@/lib/model-b-writes";
 import { generatePublishedNaming } from "@/lib/ai";
 import { DEFAULT_PUBLISH_BACKGROUND } from "@/lib/blanks";
-
-export async function getUserDesigns() {
-  const session = await auth.api.getSession({ headers: await headers() });
-  // Personal page — anonymous guests (#26) must sign in; their in-progress
-  // drafts surface here only after they claim them by signing up.
-  if (!session || isAnonymousUser(session.user)) throw new Error("Unauthorized");
-
-  const designs = await db.query.design.findMany({
-    where: and(
-      eq(designTable.userId, session.user.id),
-      not(eq(designTable.status, "archived"))
-    ),
-    orderBy: desc(designTable.updatedAt),
-    columns: {
-      id: true,
-      status: true,
-      generationCount: true,
-      primaryImageId: true,
-      closedAt: true,
-      createdAt: true,
-      updatedAt: true,
-    },
-  });
-
-  const imageUrls = await resolveDesignDisplayImageUrls(
-    designs.map((d) => d.id)
-  );
-
-  // Look up publish state (+ chosen storefront backdrop) for each primary
-  // image so the cards can show Publish vs Published correctly and render
-  // published designs over their backdrop color. Best-effort: if this query
-  // fails the cards just hide the publish badge — the design list
-  // itself must still render.
-  const primaryIds = designs
-    .map((d) => d.primaryImageId)
-    .filter((id): id is string => id !== null);
-  let primaryById = new Map<
-    string,
-    { publishedAt: Date | null; backgroundColor: string | null }
-  >();
-  if (primaryIds.length) {
-    try {
-      // Publish state lives in `listing` now — a row exists iff published, so
-      // an unpublished primary is simply absent from the map.
-      const primaryRows = await db
-        .select({
-          id: listingTable.imageId,
-          publishedAt: listingTable.publishedAt,
-          backgroundColor: listingTable.backgroundColor,
-        })
-        .from(listingTable)
-        .where(inArray(listingTable.imageId, primaryIds));
-      primaryById = new Map(
-        primaryRows.map((r) => [
-          r.id,
-          { publishedAt: r.publishedAt, backgroundColor: r.backgroundColor },
-        ])
-      );
-    } catch (err) {
-      console.error("getUserDesigns: publish-state lookup failed", err);
-    }
-  }
-
-  return designs.map((d) => {
-    const primary = d.primaryImageId
-      ? primaryById.get(d.primaryImageId)
-      : undefined;
-    return {
-      ...d,
-      imageUrl: imageUrls.get(d.id) ?? null,
-      primaryImagePublishedAt: primary?.publishedAt ?? null,
-      primaryImageBackgroundColor: primary?.backgroundColor ?? null,
-    };
-  });
-}
 
 /**
  * Remove a design from the user's view. Hard-deletes when nothing else
