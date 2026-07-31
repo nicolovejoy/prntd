@@ -1,3 +1,5 @@
+import type { DesignImage, SourceImage } from "@/lib/design-images";
+
 /**
  * The /design page opens as a centered composer (empty state) and only
  * reveals the two-column working layout once there is content. The split is
@@ -34,4 +36,22 @@ export function dedupeById<T extends { id: string }>(items: T[]): T[] {
     seen.add(item.id);
     return true;
   });
+}
+
+/**
+ * Map thread source images to the gallery's numbered view model. Shared by
+ * the /design page's gallery refresh and the thread-snapshot hydration paths
+ * so every consumer numbers and shapes images identically.
+ */
+export function sourcesToGalleryImages(
+  sources: Pick<SourceImage, "id" | "imageUrl" | "publishedAt" | "role">[]
+): DesignImage[] {
+  return sources.map((s, i) => ({
+    id: s.id,
+    number: i + 1,
+    url: s.imageUrl,
+    prompt: "",
+    publishedAt: s.publishedAt,
+    role: s.role,
+  }));
 }
