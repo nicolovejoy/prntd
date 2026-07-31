@@ -4,6 +4,7 @@ import {
   canBuyPublishedImage,
   canUseAsPlacementSource,
   canStartFromImage,
+  canViewImagePage,
   buildForkChain,
   dedupeFeedByDesign,
   type ForkChainRow,
@@ -325,5 +326,46 @@ describe("canStartFromImage (Model B slice 3)", () => {
     expect(
       canStartFromImage({ image: hidden, imageOwnerId: "u1", userId: "u1" })
     ).toBe(true);
+  });
+});
+
+describe("canViewImagePage (#136 slice 1)", () => {
+  const published = { publishedAt: new Date(), isHidden: false };
+  const priv = { publishedAt: null, isHidden: false };
+  const hidden = { publishedAt: new Date(), isHidden: true };
+
+  it("serves a published image to anyone, signed out included", () => {
+    expect(
+      canViewImagePage({ image: published, imageOwnerId: "u1", userId: "u2" })
+    ).toBe(true);
+    expect(
+      canViewImagePage({ image: published, imageOwnerId: "u1", userId: null })
+    ).toBe(true);
+  });
+
+  it("serves the owner their own unpublished image", () => {
+    expect(
+      canViewImagePage({ image: priv, imageOwnerId: "u1", userId: "u1" })
+    ).toBe(true);
+  });
+
+  it("rejects an unpublished image for everyone else", () => {
+    expect(
+      canViewImagePage({ image: priv, imageOwnerId: "u1", userId: "u2" })
+    ).toBe(false);
+    expect(
+      canViewImagePage({ image: priv, imageOwnerId: "u1", userId: null })
+    ).toBe(false);
+  });
+
+  it("rejects a hidden image for the owner too", () => {
+    // Unlike canStartFromImage, moderation wins here: an owner who could
+    // still open the page would keep a hidden design linkable.
+    expect(
+      canViewImagePage({ image: hidden, imageOwnerId: "u1", userId: "u1" })
+    ).toBe(false);
+    expect(
+      canViewImagePage({ image: hidden, imageOwnerId: "u1", userId: "u2" })
+    ).toBe(false);
   });
 });

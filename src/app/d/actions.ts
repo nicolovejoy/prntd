@@ -21,6 +21,7 @@ import {
 } from "@/lib/back-sources";
 import {
   canBuyPublishedImage,
+  canViewImagePage,
   buildForkChain,
   type ForkChainEntry,
   type ForkChainRow,
@@ -45,6 +46,17 @@ export type PublishedImage = {
    * Entries are immediate-parent-first.
    */
   forkChain: ForkChainEntry[];
+};
+
+/**
+ * What `/d/[imageId]` renders. Same shape as a feed card plus the two things
+ * only the page needs: nullable `publishedAt` (the page now also serves the
+ * owner's unpublished images, #136 slice 1) and the conversation that
+ * produced the image, for the owner's "View conversation" link.
+ */
+export type ImagePage = Omit<PublishedImage, "publishedAt"> & {
+  publishedAt: Date | null;
+  sourceDesignId: string | null;
 };
 
 /**
@@ -113,12 +125,14 @@ async function fetchForkChainRow(imageId: string): Promise<ForkChainRow | null> 
 }
 
 /**
- * Public single-image page. Returns null on unpublished or hidden
- * images (the route 404s).
+ * Single-image page data. Serves published images to everyone and the
+ * owner's own unpublished images to the owner (#136 slice 1) — the listing
+ * is a left join, so an image with no listing row still returns. Returns
+ * null when the viewer may not see it (canViewImagePage) and the route 404s.
  */
-export async function getPublishedImage(
+export async function getImagePage(
   imageId: string
-): Promise<PublishedImage | null> {
+): Promise<ImagePage | null> {
   const rows = await db
     .select({
       imageId: imageTable.id,
@@ -131,19 +145,16 @@ export async function getPublishedImage(
       designerName: userTable.name,
       designerId: userTable.id,
       forkedFromImageId: imageTable.seedImageId,
+      sourceDesignId: imageTable.sourceDesignId,
     })
-    .from(listingTable)
-    .innerJoin(imageTable, eq(imageTable.id, listingTable.imageId))
+    .from(imageTable)
     .innerJoin(userTable, eq(userTable.id, imageTable.ownerId))
+    .leftJoin(listingTable, eq(listingTable.imageId, imageTable.id))
     .where(eq(imageTable.id, imageId))
     .limit(1);
 
   const r = rows[0];
-  if (!r || r.isHidden) return null;
-
-  // Walk forkedFromImageId upward, stopping at the first invisible
-  // parent so admin moderation also breaks the public chain.
-  const forkChain = await buildForkChain(r.forkedFromImageId, fetchForkChainRow);
+  if (!r) return null;
 
   let viewerId: string | null = null;
   try {
@@ -153,6 +164,21 @@ export async function getPublishedImage(
     viewerId = null;
   }
 
+  const isOwn = viewerId !== null && r.designerId === viewerId;
+  if (
+    !canViewImagePage({
+      image: { publishedAt: r.publishedAt, isHidden: r.isHidden ?? false },
+      imageOwnerId: r.designerId,
+      userId: viewerId,
+    })
+  ) {
+    return null;
+  }
+
+  // Walk forkedFromImageId upward, stopping at the first invisible
+  // parent so admin moderation also breaks the public chain.
+  const forkChain = await buildForkChain(r.forkedFromImageId, fetchForkChainRow);
+
   return {
     imageId: r.imageId,
     imageUrl: r.imageUrl,
@@ -161,8 +187,9 @@ export async function getPublishedImage(
     backgroundColor: r.backgroundColor,
     designerName: r.designerName,
     designerId: r.designerId,
-    isOwn: viewerId !== null && r.designerId === viewerId,
+    isOwn,
     publishedAt: r.publishedAt,
+    sourceDesignId: r.sourceDesignId,
     forkChain,
   };
 }

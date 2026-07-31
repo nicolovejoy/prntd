@@ -166,6 +166,28 @@ export function canStartFromImage(params: {
 }
 
 /**
+ * Decide whether `userId` may open the image page `/d/[imageId]` (#136
+ * slice 1). The page served published images only; My Designs now lands on
+ * it for the owner's private work too, so the rule gains an owner grant.
+ *
+ * Admin-hidden stays hidden from everyone, owner included — moderation
+ * semantics are unchanged, and an owner who could still reach a hidden page
+ * would keep a moderated design linkable.
+ *
+ * `userId` is nullable here because this is a public page: a signed-out
+ * visitor has no id and gets the published-only rule.
+ */
+export function canViewImagePage(params: {
+  image: { publishedAt: Date | null; isHidden: boolean };
+  imageOwnerId: string;
+  userId: string | null;
+}): boolean {
+  if (params.image.isHidden) return false;
+  if (params.image.publishedAt !== null) return true;
+  return params.userId !== null && params.imageOwnerId === params.userId;
+}
+
+/**
  * Collapse a published-image feed to one entry per design. Publishing
  * happens per design_image, so a maker who publishes several generations
  * within one design would otherwise flood the storefront with
