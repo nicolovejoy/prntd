@@ -42,6 +42,7 @@ export function DesignsList({
 }) {
   const [designs, setDesigns] = useState<UserDesign[]>(initialDesigns);
   const [publishImageId, setPublishImageId] = useState<string | null>(null);
+  const [publishImageUrl, setPublishImageUrl] = useState<string | null>(null);
 
   async function handleDelete(id: string) {
     if (!window.confirm("Delete this design?")) return;
@@ -67,8 +68,9 @@ export function DesignsList({
 
   // Publishing opens the modal (name/description/backdrop), which performs
   // the publish and navigates to the new public page.
-  function openPublish(imageId: string) {
+  function openPublish(imageId: string, imageUrl: string | null) {
     setPublishImageId(imageId);
+    setPublishImageUrl(imageUrl);
   }
 
   // Close/Reopen (slice 3): flips the thread between writable and read-only.
@@ -250,7 +252,12 @@ export function DesignsList({
                         <Button
                           variant="secondary"
                           size="sm"
-                          onClick={() => openPublish(design.primaryImageId!)}
+                          onClick={() =>
+                            openPublish(
+                              design.primaryImageId!,
+                              design.imageUrl ?? null
+                            )
+                          }
                         >
                           Publish
                         </Button>
@@ -267,8 +274,12 @@ export function DesignsList({
 
       <PublishModal
         imageId={publishImageId}
+        imageUrl={publishImageUrl}
         open={publishImageId !== null}
-        onClose={() => setPublishImageId(null)}
+        onClose={() => {
+          setPublishImageId(null);
+          setPublishImageUrl(null);
+        }}
         from="/designs"
       />
     </div>
