@@ -1,4 +1,5 @@
 {
+  "regions": ["pdx1"],
   "crons": [
     {
       "path": "/api/cron/retry-fulfillment",
