@@ -1,14 +1,16 @@
 import Link from "next/link";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
-import { getPublishedImage } from "../actions";
+import { getImagePage } from "../actions";
 import { getLastPurchaseDefaults } from "@/app/preview/actions";
 import { auth, isAnonymousUser } from "@/lib/auth";
 import { multiPlacementEnabled } from "@/lib/blanks";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
+import { Button } from "@/components/ui";
 import { EditableNaming } from "./editable-naming";
 import { PublishedImageView } from "./published-image-view";
+import { PublishCta } from "./publish-cta";
 import { BuyPanel } from "./buy-panel";
 import { StartFromImage } from "./start-from-image";
 
@@ -24,7 +26,7 @@ export default async function PublishedImagePage({
 }) {
   const { imageId } = await params;
   const { from } = await searchParams;
-  const img = await getPublishedImage(imageId);
+  const img = await getImagePage(imageId);
   if (!img) notFound();
 
   const session = await auth.api.getSession({ headers: await headers() });
@@ -32,6 +34,9 @@ export default async function PublishedImagePage({
   // purchase point requires a real account. A guest sees "Sign in to buy".
   const isLoggedIn = Boolean(session) && !isAnonymousUser(session?.user);
   const isOwner = session?.user.id === img.designerId;
+  // #136 slice 1: the page also serves the owner's unpublished work, where
+  // there's no listing to name, re-backdrop or buy through the storefront.
+  const isPublished = img.publishedAt !== null;
 
   // Remembered defaults (#44, §8 Q3): last purchase seeds product + size.
   // Null for guests/first purchase — the panel then starts unselected.
@@ -67,7 +72,7 @@ export default async function PublishedImagePage({
               imageUrl={img.imageUrl}
               alt={img.title ?? "Design"}
               initialBackgroundColor={img.backgroundColor}
-              canEdit={isOwner}
+              canEdit={isOwner && isPublished}
             />
           </div>
 
@@ -75,9 +80,25 @@ export default async function PublishedImagePage({
             <EditableNaming
               imageId={img.imageId}
               title={img.title}
-              canEdit={isOwner}
+              canEdit={isOwner && isPublished}
             />
             <p className="text-sm text-text-muted">by {img.designerName}</p>
+            {isOwner && !isPublished && (
+              <div className="flex flex-wrap items-center gap-3 pt-1">
+                <span className="text-sm text-text-faint">Not published</span>
+                <PublishCta imageId={img.imageId} imageUrl={img.imageUrl} />
+              </div>
+            )}
+            {isOwner && img.sourceDesignId && (
+              <p className="pt-1">
+                <Link
+                  href={`/design?id=${img.sourceDesignId}`}
+                  className="text-sm text-text-muted underline hover:no-underline"
+                >
+                  View conversation
+                </Link>
+              </p>
+            )}
             {img.forkChain.length > 0 && (
               <p className="text-sm text-text-faint">
                 Forked from{" "}
@@ -99,7 +120,23 @@ export default async function PublishedImagePage({
 
           {/* #128: two peer exits — Order (expands the picker stack in
               place) and the remix action, rendered by BuyPanel so they sit
-              together under the title block. */}
+              together under the title block.
+
+              Unpublished images can't go through the buy-existing path
+              (canBuyPublishedImage has no owner shortcut), so for the owner's
+              private work Order links out to /preview, which still owns
+              ordering your own designs (#136 decision 4 — converging the two
+              pipelines is a follow-up). */}
+          {!isPublished ? (
+            <div className="flex flex-wrap items-center gap-3">
+              {img.sourceDesignId && (
+                <Link href={`/preview?id=${img.sourceDesignId}`}>
+                  <Button>Order</Button>
+                </Link>
+              )}
+              <StartFromImage imageId={img.imageId} />
+            </div>
+          ) : (
           <BuyPanel
             imageId={img.imageId}
             isLoggedIn={isLoggedIn}
@@ -111,6 +148,7 @@ export default async function PublishedImagePage({
             backEnabled={isLoggedIn && multiPlacementEnabled()}
             startAction={<StartFromImage imageId={img.imageId} />}
           />
+          )}
         </div>
       </main>
     </div>

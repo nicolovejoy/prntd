@@ -249,9 +249,11 @@ describe("getBuyPageBackSources gating", () => {
 /**
  * The /d page read swap (Model B slice 2): the listing carries the public
  * copy, and the attribution chain walks image.seed_image_id instead of
- * design.forked_from_image_id.
+ * design.forked_from_image_id. Since #136 slice 1 the same reader also
+ * serves the owner their own unpublished images, so the visibility rule is
+ * pinned here too — a private image must stay invisible to everyone else.
  */
-describe("getPublishedImage (Model B reads)", () => {
+describe("getImagePage (Model B reads)", () => {
   it("serves the listing's copy and the designer", async () => {
     const db = h.db as Db;
     const ids = await seed(db);
@@ -260,8 +262,8 @@ describe("getPublishedImage (Model B reads)", () => {
       .set({ title: "Fox", description: "A fox", backgroundColor: "Black" })
       .where(schemaEq(schema.listing.imageId, ids.listingId));
 
-    const { getPublishedImage } = await import("@/app/d/actions");
-    const img = await getPublishedImage(ids.listingId);
+    const { getImagePage } = await import("@/app/d/actions");
+    const img = await getImagePage(ids.listingId);
     expect(img?.imageUrl).toBe("https://img.example/listing.png");
     expect(img?.title).toBe("Fox");
     expect(img?.backgroundColor).toBe("Black");
@@ -269,18 +271,41 @@ describe("getPublishedImage (Model B reads)", () => {
     expect(img?.forkChain).toEqual([]);
   });
 
-  it("404s an unpublished image and a hidden one", async () => {
+  it("404s an unpublished image for a non-owner, and a hidden one for all", async () => {
     const db = h.db as Db;
     const ids = await seed(db);
-    const { getPublishedImage } = await import("@/app/d/actions");
+    const { getImagePage } = await import("@/app/d/actions");
 
-    expect(await getPublishedImage(ids.sellerPrivateId)).toBeNull();
+    // Session is the buyer (beforeEach); the seller's private sibling stays
+    // unreachable even though its id is guessable from the sold thread.
+    expect(await getImagePage(ids.sellerPrivateId)).toBeNull();
 
+    // Signed out is the same answer.
+    h.session = null;
+    expect(await getImagePage(ids.sellerPrivateId)).toBeNull();
+
+    // Hidden beats ownership: an admin-hidden listing 404s for its owner too,
+    // or moderation would leave the page linkable.
+    h.session = { user: { id: "seller", isAnonymous: false } };
     await db
       .update(schema.listing)
       .set({ isHidden: true })
       .where(schemaEq(schema.listing.imageId, ids.listingId));
-    expect(await getPublishedImage(ids.listingId)).toBeNull();
+    expect(await getImagePage(ids.listingId)).toBeNull();
+  });
+
+  it("serves the owner their own unpublished image, with its conversation", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    h.session = { user: { id: "seller", isAnonymous: false } };
+
+    const { getImagePage } = await import("@/app/d/actions");
+    const img = await getImagePage(ids.sellerPrivateId);
+    expect(img?.imageId).toBe(ids.sellerPrivateId);
+    expect(img?.publishedAt).toBeNull();
+    expect(img?.isOwn).toBe(true);
+    // The "View conversation" link needs the thread that produced it.
+    expect(img?.sourceDesignId).toBeTruthy();
   });
 
   it("walks the attribution chain over image.seed_image_id", async () => {
@@ -303,9 +328,11 @@ describe("getPublishedImage (Model B reads)", () => {
       publishedAt: new Date(),
     });
 
-    const { getPublishedImage } = await import("@/app/d/actions");
-    const img = await getPublishedImage(childImageId);
-    expect(img?.forkChain.map((e) => e.imageId)).toEqual([ids.listingId]);
+    const { getImagePage } = await import("@/app/d/actions");
+    const img = await getImagePage(childImageId);
+    expect(img?.forkChain.map((e: { imageId: string }) => e.imageId)).toEqual([
+      ids.listingId,
+    ]);
     expect(img?.forkChain[0].title).toBe("Seed");
 
     // Hiding the parent breaks the public chain.
@@ -313,6 +340,6 @@ describe("getPublishedImage (Model B reads)", () => {
       .update(schema.listing)
       .set({ isHidden: true })
       .where(schemaEq(schema.listing.imageId, ids.listingId));
-    expect((await getPublishedImage(childImageId))?.forkChain).toEqual([]);
+    expect((await getImagePage(childImageId))?.forkChain).toEqual([]);
   });
 });

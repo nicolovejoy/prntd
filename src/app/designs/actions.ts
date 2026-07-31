@@ -377,7 +377,8 @@ export async function updatePublishedNaming(
  * Owner takes a published image back down — the reverse of publishImage.
  * Deletes the listing row, so the image leaves the discover feed (`/`,
  * `/prints`), stops being buyable (canBuyPublishedImage), and
- * /d/[imageId] 404s (getPublishedImage returns null). Re-publishing
+ * /d/[imageId] 404s for everyone but the owner, who still reaches it as
+ * their own private image (#136 slice 1). Re-publishing
  * creates a fresh listing: new published_at (sorts as newly published),
  * title re-proposed if not supplied, backdrop defaulted. No-op if
  * already unpublished.
