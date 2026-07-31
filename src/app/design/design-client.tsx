@@ -526,6 +526,11 @@ function DesignPageInner({ initialThreadPromise }: Props) {
 
       <PublishModal
         imageId={publishImageId}
+        imageUrl={
+          publishImageId
+            ? (images.find((img) => img.id === publishImageId)?.url ?? null)
+            : null
+        }
         open={publishImageId !== null}
         onClose={() => setPublishImageId(null)}
       />
