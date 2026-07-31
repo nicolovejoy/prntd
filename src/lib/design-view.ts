@@ -9,6 +9,21 @@ export function isDesignEmpty(messageCount: number, imageCount: number): boolean
   return messageCount === 0 && imageCount === 0;
 }
 
+/**
+ * Where a My Designs card lands (#136 slice 2). The card's subject is the
+ * image, so it points at the image page; the conversation is one tap deeper
+ * from there ("View conversation"). A thread with no image yet has no image
+ * page to show, so it still opens the chat.
+ */
+export function designCardHref(design: {
+  id: string;
+  primaryImageId: string | null;
+}): string {
+  return design.primaryImageId
+    ? `/d/${design.primaryImageId}?from=/designs`
+    : `/design?id=${design.id}`;
+}
+
 /** Error message the closed-conversation guard throws; the /design UI keys
  * its closed state off the server row, so this is just the action backstop. */
 export const CONVERSATION_CLOSED_MESSAGE = "This design is closed.";

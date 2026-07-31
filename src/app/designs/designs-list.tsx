@@ -12,12 +12,9 @@ import {
 import { Badge, Button } from "@/components/ui";
 import { PublishModal } from "@/components/publish-modal";
 import { publishedBackdrop } from "@/lib/blanks";
+import { designCardHref } from "@/lib/design-view";
 import type { UserDesign } from "@/lib/user-designs";
 import { WarmOnView } from "./warm-on-view";
-
-function getDesignHref(design: UserDesign) {
-  return `/design?id=${design.id}`;
-}
 
 // Matches the grid's responsive column count (grid-cols-2 / md:3), same
 // reasoning as PublishedGrid (#127 slice 3).
@@ -149,7 +146,7 @@ export function DesignsList({
                 designId={design.id}
                 className="border rounded-lg overflow-hidden group"
               >
-                <Link href={getDesignHref(design)} className="block">
+                <Link href={designCardHref(design)} className="block">
                   <div
                     className={`relative aspect-square flex items-center justify-center ${backdrop.className}`}
                     style={backdrop.style}
@@ -199,18 +196,15 @@ export function DesignsList({
                         </Button>
                       </>
                     ) : (
-                      <>
-                        <Link href={getDesignHref(design)}>
-                          <Button size="sm">Edit</Button>
-                        </Link>
-                        <Button
-                          variant="danger"
-                          size="sm"
-                          onClick={() => handleDelete(design.id)}
-                        >
-                          Delete
-                        </Button>
-                      </>
+                      // #136 slice 2: "Edit" is gone — the card lands on the
+                      // image page, which links through to the conversation.
+                      <Button
+                        variant="danger"
+                        size="sm"
+                        onClick={() => handleDelete(design.id)}
+                      >
+                        Delete
+                      </Button>
                     )}
                     <Button
                       variant="ghost"
@@ -231,23 +225,17 @@ export function DesignsList({
                         New from image
                       </Button>
                       {design.primaryImagePublishedAt ? (
-                        <>
-                          <Link
-                            href={`/d/${design.primaryImageId}?from=/designs`}
-                            className="text-xs text-text-muted underline hover:no-underline"
-                          >
-                            Published →
-                          </Link>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() =>
-                              handleUnpublish(design.primaryImageId!, design.id)
-                            }
-                          >
-                            Un-publish
-                          </Button>
-                        </>
+                        // The old "Published →" link is dropped: the card
+                        // itself now goes to that page.
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            handleUnpublish(design.primaryImageId!, design.id)
+                          }
+                        >
+                          Un-publish
+                        </Button>
                       ) : (
                         <Button
                           variant="secondary"
