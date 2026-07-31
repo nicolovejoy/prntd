@@ -4,15 +4,20 @@ import Link from "next/link";
 import { useState, useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
-import { getCartCount, isCartEnabled } from "@/app/cart/actions";
-import { isStoresEnabled } from "@/app/dashboard/actions";
-import { isAdminUser } from "@/app/admin/actions";
+import { getHeaderState } from "@/components/site-header-actions";
 import { FeedbackPanel } from "@/components/feedback-launcher";
 import { FEEDBACK_PROJECT_ID } from "@/lib/feedback/project-id";
 
 type NavLink = { href: string; label: string };
 
-export function SiteHeader() {
+export function SiteHeader({
+  cartEnabled: showCart,
+  storesEnabled: showDashboard,
+}: {
+  /** Resolved server-side (plain env reads, no round trip — #127). */
+  cartEnabled: boolean;
+  storesEnabled: boolean;
+}) {
   const { data: session } = authClient.useSession();
   const buildDate = process.env.NEXT_PUBLIC_BUILD_DATE ?? "dev";
   const [menuOpen, setMenuOpen] = useState(false);
@@ -21,34 +26,25 @@ export function SiteHeader() {
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const pathname = usePathname();
 
-  // Cart (#26) — behind CART_ENABLED. Open to everyone incl. guests; count
+  // Cart count (#26) — session/DB-dependent, so it still needs a round trip;
   // refetched on navigation so adding an item then moving pages updates it.
-  const [showCart, setShowCart] = useState(false);
   const [cartCount, setCartCount] = useState(0);
-  useEffect(() => {
-    isCartEnabled().then(setShowCart).catch(() => setShowCart(false));
-  }, []);
-  useEffect(() => {
-    if (!showCart) return;
-    getCartCount()
-      .then(setCartCount)
-      .catch(() => setCartCount(0));
-  }, [pathname, session?.user?.id, showCart]);
   const cartLabel = cartCount > 0 ? `Cart (${cartCount})` : "Cart";
 
-  // Organizer Dashboard (pivot Phase 2) — behind STORES_ENABLED.
-  const [showDashboard, setShowDashboard] = useState(false);
-  useEffect(() => {
-    isStoresEnabled().then(setShowDashboard).catch(() => setShowDashboard(false));
-  }, []);
-
-  // Admin nav entry — server action returns only a boolean (never the admin
-  // email), so ADMIN_EMAIL stays out of the client bundle. Re-checked when the
-  // session user changes (sign-in/out).
+  // Admin nav entry — session/DB-dependent (email vs ADMIN_EMAIL), batched
+  // into the same round trip as cart count instead of its own call (#127).
   const [isAdmin, setIsAdmin] = useState(false);
   useEffect(() => {
-    isAdminUser().then(setIsAdmin).catch(() => setIsAdmin(false));
-  }, [session?.user?.id]);
+    getHeaderState(showCart)
+      .then(({ isAdmin, cartCount }) => {
+        setIsAdmin(isAdmin);
+        setCartCount(cartCount);
+      })
+      .catch(() => {
+        setIsAdmin(false);
+        setCartCount(0);
+      });
+  }, [pathname, session?.user?.id, showCart]);
 
   // Outside-click + Escape dismissal for the mobile dropdown. pointerdown so
   // the menu closes before the tap's click lands elsewhere; the hamburger is

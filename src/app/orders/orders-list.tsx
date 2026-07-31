@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Badge, Button, Card } from "@/components/ui";
@@ -133,9 +134,12 @@ export function OrdersList({ orders }: { orders: UserOrder[] }) {
                         }}
                       >
                         {line.imageUrl ? (
-                          <img
+                          <Image
                             src={line.imageUrl}
                             alt="Design"
+                            width={64}
+                            height={64}
+                            sizes="64px"
                             className="w-full h-full object-contain"
                           />
                         ) : (

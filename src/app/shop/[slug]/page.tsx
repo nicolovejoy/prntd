@@ -1,6 +1,12 @@
+import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getStorefront } from "../actions";
+
+// Product art fills 72% of the aspect-square cell, which itself is one of
+// 2/3 grid columns (#127 slice 3, same reasoning as PublishedGrid).
+const PRODUCT_IMAGE_SIZES =
+  "(max-width: 639px) 36vw, (max-width: 767px) 24vw, 18vw";
 
 type Params = Promise<{ slug: string }>;
 
@@ -52,12 +58,15 @@ export default async function StorefrontPage({ params }: { params: Params }) {
                     className="aspect-square rounded-lg flex items-center justify-center overflow-hidden border border-border"
                     style={{ backgroundColor: p.bgHex }}
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={p.imageUrl}
-                      alt={p.blankName}
-                      className="max-w-[72%] max-h-[72%] object-contain transition-transform group-hover:scale-105"
-                    />
+                    <div className="relative w-[72%] h-[72%] transition-transform group-hover:scale-105">
+                      <Image
+                        src={p.imageUrl}
+                        alt={p.blankName}
+                        fill
+                        sizes={PRODUCT_IMAGE_SIZES}
+                        className="object-contain"
+                      />
+                    </div>
                   </div>
                   <div className="mt-2 flex items-baseline justify-between gap-2">
                     <span className="text-sm truncate">{p.blankName}</span>
