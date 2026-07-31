@@ -7,6 +7,7 @@ import type { ChatOption } from "@/lib/ai";
 import type { DesignImage } from "@/lib/design-images";
 import { Button, QuickReply } from "@/components/ui";
 import { EXAMPLES } from "@/lib/design-examples";
+import { isGenerateIntent } from "@/lib/design-prompt";
 
 // Waiting states name the operation and stop (Clean Label): one static line,
 // no rotation.
@@ -109,9 +110,6 @@ export function ChatPanel({
     if (!loading) inputRef.current?.focus();
   }, [loading, generating]);
 
-  // "draw it"/"draw" kept for muscle memory from the old button label; typing
-  // any of these behaves like tapping Generate.
-  const GENERATE_TRIGGERS = /^(yes|yeah|yep|do it|go|generate|draw it|draw|let'?s do it|go ahead|make it|yes please|sure|ok generate)/i;
 
   // Shared submit path for both the composer and a tapped quick-reply chip, so
   // generate-intent detection and input clearing behave identically. The
@@ -122,7 +120,7 @@ export function ChatPanel({
     const msg = text.trim();
     if (!msg || loading) return;
     setInput("");
-    if (!generating && GENERATE_TRIGGERS.test(msg) && messages.length > 0) {
+    if (!generating && isGenerateIntent(msg) && messages.length > 0) {
       onGenerate(msg);
       return;
     }

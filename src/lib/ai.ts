@@ -531,9 +531,12 @@ export async function constructFluxPrompt(
 
   if (!text) {
     console.error("constructFluxPrompt: empty response from Claude");
+    // Empty fluxPrompt routes to the clarification path (#137). The old
+    // fallback here was style boilerplate with no subject, which rendered as
+    // whatever the image model felt like — a flower, in the reported case.
     return {
-      message: "Let me draw that for you.",
-      fluxPrompt: "graphic design illustration, high quality, printable",
+      message: "Tell me what you'd like on the shirt.",
+      fluxPrompt: "",
       negativePrompt: null,
       referenceImage: null,
     };
@@ -554,9 +557,12 @@ export async function constructFluxPrompt(
       referenceImage: parsed.referenceImage ?? null,
     };
   } catch {
+    // Non-JSON output means Claude answered in prose instead of emitting a
+    // brief — usually because the turn was a question, not a design change.
+    // Surface the prose as chat and generate nothing (#137).
     return {
       message: text,
-      fluxPrompt: `graphic design illustration, high quality, printable`,
+      fluxPrompt: "",
       negativePrompt: null,
       referenceImage: null,
     };

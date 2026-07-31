@@ -731,9 +731,11 @@ describe("constructFluxPrompt", () => {
       []
     );
 
-    // Should use the raw text as message and a fallback prompt
+    // Prose instead of JSON means Claude answered a question rather than
+    // emitting a brief: surface it as chat, render nothing (#137). The old
+    // style-boilerplate fallback here rendered an unwanted image.
     expect(result.message).toBe("Sorry, I got confused");
-    expect(result.fluxPrompt).toContain("graphic design illustration");
+    expect(result.fluxPrompt).toBe("");
     expect(result.referenceImage).toBeNull();
   });
 
@@ -749,8 +751,10 @@ describe("constructFluxPrompt", () => {
       []
     );
 
-    expect(result.message).toBe("Let me draw that for you.");
-    expect(result.fluxPrompt).toContain("graphic design illustration");
+    // Empty fluxPrompt routes to the clarification path rather than rendering
+    // subjectless boilerplate (#137).
+    expect(result.message).toBe("Tell me what you'd like on the shirt.");
+    expect(result.fluxPrompt).toBe("");
   });
 
   it("includes gallery context when images exist", async () => {

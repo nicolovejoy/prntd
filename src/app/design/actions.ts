@@ -40,6 +40,7 @@ import {
   type DesignThreadData,
 } from "@/lib/design-thread";
 import { dedupeById, assertConversationOpen } from "@/lib/design-view";
+import { isClarificationOnly } from "@/lib/design-prompt";
 import type { ChatMessage } from "@/lib/db/schema";
 
 async function getOrCreateDesign(designId: string, userId: string) {
@@ -105,15 +106,6 @@ export async function sendChatMessage(designId: string, userMessage: string) {
   };
 }
 
-/**
- * Claude declines to generate and asks a clarifying question (e.g. when the
- * user hasn't specified a style) by returning an empty fluxPrompt. Detect
- * that so we surface the question in chat instead of sending an empty prompt
- * to the image model, which 400s.
- */
-function isClarificationOnly(fluxPrompt: string | null | undefined): boolean {
-  return !fluxPrompt || fluxPrompt.trim() === "";
-}
 
 async function persistClarification(
   designId: string,
