@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
-import { getImagePage } from "../actions";
+import { getImagePage, getConversationImages } from "../actions";
 import { getLastPurchaseDefaults } from "@/app/preview/actions";
 import { auth, isAnonymousUser } from "@/lib/auth";
 import { multiPlacementEnabled } from "@/lib/blanks";
@@ -13,6 +13,7 @@ import { PublishedImageView } from "./published-image-view";
 import { PublishCta } from "./publish-cta";
 import { BuyPanel } from "./buy-panel";
 import { StartFromImage } from "./start-from-image";
+import { ConversationImages } from "./conversation-images";
 
 type Params = Promise<{ imageId: string }>;
 type Search = Promise<{ from?: string }>;
@@ -41,6 +42,13 @@ export default async function PublishedImagePage({
   // Remembered defaults (#44, §8 Q3): last purchase seeds product + size.
   // Null for guests/first purchase — the panel then starts unselected.
   const remembered = await getLastPurchaseDefaults();
+
+  // #136 slice 3: the owner also gets the conversation's variant history and
+  // the explicit "Use this one". Owner-gated in the action too.
+  const siblings =
+    isOwner && img.sourceDesignId
+      ? await getConversationImages(img.sourceDesignId)
+      : null;
 
   const trail = breadcrumbTrail(`/d/${imageId}`, { from });
   const up = trail.length > 0 ? trail[trail.length - 1] : null;
@@ -148,6 +156,16 @@ export default async function PublishedImagePage({
             backEnabled={isLoggedIn && multiPlacementEnabled()}
             startAction={<StartFromImage imageId={img.imageId} />}
           />
+          )}
+
+          {siblings && img.sourceDesignId && (
+            <ConversationImages
+              designId={img.sourceDesignId}
+              currentImageId={img.imageId}
+              images={siblings.images}
+              initialPrimaryImageId={siblings.primaryImageId}
+              from={from}
+            />
           )}
         </div>
       </main>

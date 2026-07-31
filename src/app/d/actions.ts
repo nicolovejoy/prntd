@@ -4,12 +4,16 @@ import { headers } from "next/headers";
 import { auth, isAnonymousUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
+  design as designTable,
   image as imageTable,
   listing as listingTable,
   user as userTable,
 } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { getDesignImageWithOwner } from "@/lib/design-images";
+import {
+  getDesignImageWithOwner,
+  getDesignSourceImages,
+} from "@/lib/design-images";
 import { computePrice } from "@/lib/pricing";
 import { DEFAULT_BLANK_ID, multiPlacementEnabled } from "@/lib/blanks";
 import { createStripeCheckoutForOrder } from "@/app/order/actions";
@@ -191,6 +195,49 @@ export async function getImagePage(
     publishedAt: r.publishedAt,
     sourceDesignId: r.sourceDesignId,
     forkChain,
+  };
+}
+
+export type SiblingImage = {
+  imageId: string;
+  imageUrl: string;
+  isPrimary: boolean;
+};
+
+/**
+ * The other images from the conversation that produced `imageId` (#136
+ * slice 3): the variant history, so a non-primary generation is one tap away
+ * from the image page instead of buried in the chat thread.
+ *
+ * Owner-only — a conversation's unpublished variants aren't public, and the
+ * caller renders a "Use this one" action alongside. Returns the current image
+ * too (flagged `isPrimary` when it's the design's primary) so the caller can
+ * decide whether that action applies; callers filter it out of the strip.
+ */
+export async function getConversationImages(
+  designId: string
+): Promise<{ images: SiblingImage[]; primaryImageId: string | null }> {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) return { images: [], primaryImageId: null };
+
+  const found = await db.query.design.findFirst({
+    where: eq(designTable.id, designId),
+    columns: { userId: true, primaryImageId: true },
+  });
+  if (!found || found.userId !== session.user.id) {
+    return { images: [], primaryImageId: null };
+  }
+
+  // Seeds included: a fresh-start thread's anchor is part of its history and
+  // is a legitimate primary (startConversationFromImage already sets it).
+  const sources = await getDesignSourceImages(designId, { includeSeeds: true });
+  return {
+    images: sources.map((s) => ({
+      imageId: s.id,
+      imageUrl: s.imageUrl,
+      isPrimary: s.id === found.primaryImageId,
+    })),
+    primaryImageId: found.primaryImageId,
   };
 }
 
