@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
 import { deleteDesign, archiveDesign, unpublishImage } from "./actions";
@@ -17,6 +18,10 @@ import { WarmOnView } from "./warm-on-view";
 function getDesignHref(design: UserDesign) {
   return `/design?id=${design.id}`;
 }
+
+// Matches the grid's responsive column count (grid-cols-2 / md:3), same
+// reasoning as PublishedGrid (#127 slice 3).
+const GRID_SIZES = "(max-width: 767px) 50vw, 33vw";
 
 function timeAgo(date: Date) {
   const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
@@ -144,16 +149,18 @@ export function DesignsList({
               >
                 <Link href={getDesignHref(design)} className="block">
                   <div
-                    className={`aspect-square flex items-center justify-center ${backdrop.className}`}
+                    className={`relative aspect-square flex items-center justify-center ${backdrop.className}`}
                     style={backdrop.style}
                   >
                     {design.imageUrl ? (
-                      <img
+                      <Image
                         src={design.imageUrl}
                         alt="Design preview"
+                        fill
+                        sizes={GRID_SIZES}
                         loading="lazy"
                         decoding="async"
-                        className="w-full h-full object-cover"
+                        className="object-cover"
                       />
                     ) : (
                       <span className="text-text-muted text-sm">No image yet</span>

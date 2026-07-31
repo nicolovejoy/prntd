@@ -1,6 +1,12 @@
+import Image from "next/image";
 import Link from "next/link";
 import type { PublishedImage } from "@/app/d/actions";
 import { publishedBackdrop } from "@/lib/blanks";
+
+// Matches the grid's responsive column count (grid-cols-2 / sm:3 / md:4) so
+// the browser requests an appropriately-sized image instead of the full-res
+// R2 source (#127 slice 3 — these were raw <img> full-res PNGs at ~180px).
+const GRID_SIZES = "(max-width: 639px) 50vw, (max-width: 767px) 33vw, 25vw";
 
 /**
  * Shared grid of published (Shop, /prints) designs. Each card links to the
@@ -30,16 +36,17 @@ export function PublishedGrid({
         return (
         <Link key={img.imageId} href={`/d/${img.imageId}${suffix}`} className="group block">
           <div
-            className={`aspect-square rounded-md overflow-hidden border border-border group-hover:border-accent transition-colors ${backdrop.className}`}
+            className={`relative aspect-square rounded-md overflow-hidden border border-border group-hover:border-accent transition-colors ${backdrop.className}`}
             style={backdrop.style}
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
+            <Image
               src={img.imageUrl}
               alt={img.title ?? "Design"}
+              fill
+              sizes={GRID_SIZES}
               loading="lazy"
               decoding="async"
-              className="w-full h-full object-contain"
+              className="object-contain"
             />
           </div>
           {img.title && (

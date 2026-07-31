@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -59,15 +60,16 @@ export default async function AdminPublishedPage() {
             >
               <Link
                 href={`/d/${img.imageId}`}
-                className="block aspect-square bg-checkerboard"
+                className="relative block aspect-square bg-checkerboard"
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
+                <Image
                   src={img.imageUrl}
                   alt={img.title ?? "Design"}
+                  fill
+                  sizes="(max-width: 639px) 50vw, (max-width: 767px) 33vw, 25vw"
                   loading="lazy"
                   decoding="async"
-                  className="w-full h-full object-contain"
+                  className="object-contain"
                 />
               </Link>
               <div className="p-3 space-y-2">

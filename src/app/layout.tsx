@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { SiteHeader } from "@/components/site-header";
 import { FeedbackLauncher } from "@/components/feedback-launcher";
 import { FEEDBACK_PROJECT_ID } from "@/lib/feedback/project-id";
+import { cartEnabled, storesEnabled } from "@/lib/flags";
 import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 
@@ -51,7 +52,10 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <SiteHeader />
+        {/* Feature flags are plain env reads (no DB/session) so they're
+            resolved here server-side and passed down — no client round trip
+            for something that can't change between navigations (#127). */}
+        <SiteHeader cartEnabled={cartEnabled()} storesEnabled={storesEnabled()} />
         {children}
         <FeedbackLauncher projectId={FEEDBACK_PROJECT_ID} />
         <Analytics />

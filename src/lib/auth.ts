@@ -38,6 +38,19 @@ export const auth = betterAuth({
     provider: "sqlite",
     schema,
   }),
+  session: {
+    // Serve getSession() from a signed cookie instead of a DB round trip for
+    // up to 5 minutes (#127 — some pages call getSession 2-3x per render).
+    // Safe for the guest→real-account claim flow: sign-in/sign-up always mint
+    // a brand-new session (better-auth's setSessionCookie, which also writes
+    // this cache) BEFORE the anonymous plugin's onLinkAccount hook runs, so
+    // the cache reflects the claimed identity immediately, not the stale
+    // anon one. Sign-out clears the cookie outright.
+    cookieCache: {
+      enabled: true,
+      maxAge: 5 * 60,
+    },
+  },
   emailAndPassword: {
     enabled: true,
     sendResetPassword: async ({ user, url }) => {
