@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui";
 import { SizePicker, ColorPicker } from "@/components/product-options";
@@ -38,6 +38,9 @@ export function BuyPanel({
   backEnabled = false,
   cartEnabled = false,
   startAction,
+  onExpandedChange,
+  onProductChange,
+  onColorChange,
 }: {
   imageId: string;
   isLoggedIn: boolean;
@@ -54,6 +57,14 @@ export function BuyPanel({
   /** Peer CTA rendered next to Order while collapsed and kept below the
    * stack once expanded (the StartFromImage remix action). */
   startAction?: ReactNode;
+  /** Mirrors this panel's expanded/product/color state up to a wrapper
+   * (#135 slice 1: the Order-expand hero swap needs to know what to render
+   * a mockup for). This panel stays the source of truth for its own state —
+   * these are report-only, fired on mount and every change via effects, so
+   * callers that don't pass them see byte-identical behavior. */
+  onExpandedChange?: (expanded: boolean) => void;
+  onProductChange?: (productId: string) => void;
+  onColorChange?: (color: string) => void;
 }) {
   // Progressive disclosure (#128): the picker stack stays hidden until the
   // visitor taps Order.
@@ -88,6 +99,22 @@ export function BuyPanel({
   );
   const [loading, setLoading] = useState(false);
   const [addingToCart, setAddingToCart] = useState(false);
+
+  // Report state up to the wrapper (#135 slice 1). Fires on mount too, so a
+  // wrapper always has the current product/color/expanded before the buyer
+  // ever taps Order.
+  useEffect(() => {
+    onExpandedChange?.(expanded);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expanded]);
+  useEffect(() => {
+    onProductChange?.(productId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productId]);
+  useEffect(() => {
+    onColorChange?.(color);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [color]);
 
   // Back design (#25 on /d): picked source image, the picker's open state,
   // and its groups (null until first fetched — one fetch per page view).

@@ -17,6 +17,7 @@ import {
 import { computePrice } from "@/lib/pricing";
 import { DEFAULT_BLANK_ID, multiPlacementEnabled } from "@/lib/blanks";
 import { createStripeCheckoutForOrder } from "@/app/order/actions";
+import { renderAndCacheMockup } from "@/lib/mockup-render";
 import { getPublishedFeed } from "@/lib/discover-feed";
 import {
   assertUsableBackImage,
@@ -267,6 +268,52 @@ export async function getBuyPageBackSources(
     viewerId: session.user.id,
   });
   return { groups };
+}
+
+/**
+ * Front-placement Printful mockup for the image detail page's Order-expand
+ * hero (#135 slice 1). Visibility-gated like the page itself
+ * (`canViewImagePage`: published && !hidden, or the owner) — deliberately
+ * NOT ownership-gated, unlike `generateMockup` (`/preview`), because any
+ * visitor who can see the buy page must be able to see the mockup.
+ *
+ * `sourceImageId` is always `imageId` itself: the order pins
+ * `placements.front = imageId` (see `buyPublishedDesign` below), which may
+ * not be the design's primary image, so the mockup has to render the LISTED
+ * image, not whatever the design currently displays. Scale is fixed at 1.0 —
+ * there's no scale control on this page. Cache reuse (and the render body
+ * itself) is shared with `generateMockup` via `renderAndCacheMockup`.
+ */
+export async function getListingMockup(params: {
+  imageId: string;
+  productId: string;
+  colorName: string;
+}): Promise<{ mockupUrl: string }> {
+  const session = await auth.api.getSession({ headers: await headers() });
+  const viewerId = session?.user.id ?? null;
+
+  const image = await getDesignImageWithOwner(params.imageId);
+  if (!image || !image.designId) throw new Error("Image not found");
+
+  if (
+    !canViewImagePage({
+      image: { publishedAt: image.publishedAt, isHidden: image.isHidden },
+      imageOwnerId: image.ownerId,
+      userId: viewerId,
+    })
+  ) {
+    throw new Error("Unauthorized");
+  }
+
+  return renderAndCacheMockup({
+    designId: image.designId,
+    productId: params.productId,
+    colorName: params.colorName,
+    scale: 1.0,
+    placementId: "front",
+    sourceImageId: params.imageId,
+    userId: viewerId,
+  });
 }
 
 /**
