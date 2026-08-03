@@ -5,6 +5,7 @@ import { getImagePage, getConversationImages } from "../actions";
 import { getLastPurchaseDefaults } from "@/app/preview/actions";
 import { auth, isAnonymousUser } from "@/lib/auth";
 import { multiPlacementEnabled } from "@/lib/blanks";
+import { cartEnabled } from "@/lib/flags";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
 import { Button } from "@/components/ui";
@@ -154,6 +155,9 @@ export default async function PublishedImagePage({
             // through the sign-in redirect anyway) and flag-gated; the server
             // action re-checks both.
             backEnabled={isLoggedIn && multiPlacementEnabled()}
+            // Add to cart mirrors /preview's gating: flag + size picked, no
+            // auth gate (guests have carts; checkout gates sign-in). #146.
+            cartEnabled={cartEnabled()}
             startAction={<StartFromImage imageId={img.imageId} />}
           />
           )}

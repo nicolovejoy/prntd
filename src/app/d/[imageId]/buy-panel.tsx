@@ -15,6 +15,8 @@ import {
   type PurchaseDefaults,
 } from "@/lib/purchase-defaults";
 import type { BackSourceGroup } from "@/lib/back-sources";
+import { ensureGuestSession } from "@/lib/ensure-guest-session";
+import { addToCart } from "@/app/cart/actions";
 import { buyPublishedDesign, getBuyPageBackSources } from "../actions";
 
 /**
@@ -34,6 +36,7 @@ export function BuyPanel({
   preferredColor,
   remembered,
   backEnabled = false,
+  cartEnabled = false,
   startAction,
 }: {
   imageId: string;
@@ -45,6 +48,9 @@ export function BuyPanel({
   /** Multi-placement flag && signed-in (#25/#72 on /d). The server action
    * re-checks both — this only controls the affordance. */
   backEnabled?: boolean;
+  /** CART_ENABLED (#146). Same gating as /preview: flag + size picked; no
+   * auth gate — guests have carts (the auth gate stays at checkout). */
+  cartEnabled?: boolean;
   /** Peer CTA rendered next to Order while collapsed and kept below the
    * stack once expanded (the StartFromImage remix action). */
   startAction?: ReactNode;
@@ -81,6 +87,7 @@ export function BuyPanel({
       }).color
   );
   const [loading, setLoading] = useState(false);
+  const [addingToCart, setAddingToCart] = useState(false);
 
   // Back design (#25 on /d): picked source image, the picker's open state,
   // and its groups (null until first fetched — one fetch per page view).
@@ -148,6 +155,46 @@ export function BuyPanel({
     }
   }
 
+  async function handleAddToCart() {
+    if (!size) return;
+    setAddingToCart(true);
+    try {
+      // A sessionless visitor gets an anonymous session first — guests have
+      // carts (the guest funnel re-parents on sign-in); the auth gate stays
+      // at checkout. No-op when any session already exists.
+      await ensureGuestSession();
+      await addToCart({
+        // Pin the exact image (#146): the server derives the design from it
+        // and rejects anything not published or owned by the buyer.
+        frontImageId: imageId,
+        productId,
+        size,
+        color,
+        ...(back ? { back: back.id } : {}),
+      });
+      // Same post-add affordance as /preview: a hard navigation to the cart
+      // (not router.push — see preview/page.tsx handleAddToCart).
+      window.location.href = "/cart";
+    } catch {
+      setAddingToCart(false);
+    }
+  }
+
+  // Add to cart is gated the way /preview gates it: flag + size picked. No
+  // auth gate — guests have carts; sign-in is required only at checkout.
+  const addToCartButton = cartEnabled ? (
+    <Button
+      onClick={handleAddToCart}
+      disabled={addingToCart || !size}
+      variant="secondary"
+      size="lg"
+      className="w-full"
+      data-testid="add-to-cart"
+    >
+      {addingToCart ? "Adding…" : "Add to cart"}
+    </Button>
+  ) : null;
+
   const cta = isLoggedIn ? (
     <div className="space-y-1.5">
       {!size && (
@@ -161,13 +208,20 @@ export function BuyPanel({
       >
         {loading ? "Redirecting…" : `Order — $${total.toFixed(2)}`}
       </Button>
+      {addToCartButton}
     </div>
   ) : (
-    <Link href={`/sign-in?next=/d/${imageId}`} className="block">
-      <Button size="lg" className="w-full">
-        Sign in to buy
-      </Button>
-    </Link>
+    <div className="space-y-1.5">
+      {cartEnabled && !size && (
+        <p className="text-sm text-text-muted text-center">Choose a size</p>
+      )}
+      <Link href={`/sign-in?next=/d/${imageId}`} className="block">
+        <Button size="lg" className="w-full">
+          Sign in to buy
+        </Button>
+      </Link>
+      {addToCartButton}
+    </div>
   );
 
   if (!expanded) {

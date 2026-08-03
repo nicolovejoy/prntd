@@ -17,7 +17,12 @@ import {
 } from "@/lib/blanks";
 import { computePrice, computeCartTotal, estimateShipping } from "@/lib/pricing";
 import { multiPlacementEnabled } from "@/lib/blanks";
-import { resolveDesignDisplayImageUrls } from "@/lib/design-images";
+import {
+  getDesignImageWithOwner,
+  resolveDesignDisplayImageUrls,
+  resolveImagesByIds,
+} from "@/lib/design-images";
+import { canUseAsPlacementSource } from "@/lib/design-publish";
 import { assertUsableBackImage } from "@/lib/back-sources";
 import { estimateOrderCosts } from "@/lib/printful";
 import { stripe } from "@/lib/stripe";
@@ -69,9 +74,21 @@ async function currentUserId(): Promise<string | null> {
 
 /**
  * Add a line to the current user's cart (#26). Works for anonymous guests — the
- * cart re-parents to their account on sign-in. Resolves the front placement
- * from the design's pinned primary image (same as createCheckoutSession), and
- * honors a back image only when MULTI_PLACEMENT_ENABLED.
+ * cart re-parents to their account on sign-in.
+ *
+ * Two entry shapes, one per surface:
+ *  - `designId` (/preview): the front placement resolves from the design's
+ *    pinned primary image (same as createCheckoutSession).
+ *  - `frontImageId` (/d, #146): the front placement is pinned to the EXACT
+ *    image, mirroring buyPublishedDesign — the design's primary can change
+ *    after the add, and the buyer must get the image they tapped, not the
+ *    seller's current display image. The line's designId is derived from the
+ *    image server-side (never trusted from the client), and the image must
+ *    pass canUseAsPlacementSource: the buyer owns it, or it's published and
+ *    not admin-hidden. A forged private/hidden image id throws.
+ *
+ * A back image is honored only when MULTI_PLACEMENT_ENABLED, guarded the same
+ * way at this choke point.
  *
  * No revalidatePath here, nor in removeCartItem/clearCart: nothing renders cart
  * data on the server. /cart is a client page that calls getCart() itself and
@@ -80,7 +97,10 @@ async function currentUserId(): Promise<string | null> {
  * action.
  */
 export async function addToCart(params: {
-  designId: string;
+  /** The design to cart (/preview path). Ignored when frontImageId is set. */
+  designId?: string;
+  /** Exact image to pin as the front placement (/d path, #146). */
+  frontImageId?: string;
   productId: string;
   size: string;
   color: string;
@@ -97,15 +117,42 @@ export async function addToCart(params: {
     color: params.color,
   });
 
-  const design = await db.query.design.findFirst({
-    where: eq(designTable.id, params.designId),
-  });
-  const frontId = design?.primaryImageId ?? null;
+  let designId: string;
+  let frontId: string | null;
+  if (params.frontImageId) {
+    // /d path: pin the exact image. Same guard chain as buyPublishedDesign —
+    // resolve the image with its owner, derive the line's designId from it,
+    // and reject anything the buyer may not print.
+    const image = await getDesignImageWithOwner(params.frontImageId);
+    if (!image || !image.designId) throw new Error("Image not found");
+    if (
+      !canUseAsPlacementSource({
+        image,
+        imageOwnerId: image.ownerId,
+        orderDesignId: image.designId,
+        userId,
+      })
+    ) {
+      throw new Error("Image is not available");
+    }
+    designId = image.designId;
+    frontId = params.frontImageId;
+  } else {
+    if (!params.designId) throw new Error("designId or frontImageId required");
+    designId = params.designId;
+    const design = await db.query.design.findFirst({
+      where: eq(designTable.id, designId),
+    });
+    frontId = design?.primaryImageId ?? null;
+  }
+
   const backId = multiPlacementEnabled() && params.back ? params.back : null;
   if (backId) {
     // Same choke-point guard as createCheckoutSession (#72): only this
-    // thread's images, the user's own designs, or published Shop images.
-    await assertUsableBackImage(backId, params.designId, userId);
+    // thread's images, the user's own designs, or published Shop images. On a
+    // /d add designId is the SELLER's design; the guard deliberately gives
+    // that no weight (see canUseAsPlacementSource).
+    await assertUsableBackImage(backId, designId, userId);
   }
   const placements: Record<string, string> | null = frontId
     ? { front: frontId, ...(backId ? { back: backId } : {}) }
@@ -113,7 +160,7 @@ export async function addToCart(params: {
 
   await db.insert(cartItemTable).values({
     userId,
-    designId: params.designId,
+    designId,
     productId: params.productId,
     size: params.size,
     color: params.color,
@@ -164,12 +211,22 @@ export async function getCart(): Promise<CartView> {
   const imageMap = await resolveDesignDisplayImageUrls(
     rows.map((r) => r.designId)
   );
+  // A line with a pinned front (the /d path, #146) shows the pinned image,
+  // not the design's current display image — they can differ, and the pin is
+  // what gets printed. /preview lines pin the primary, so this is a no-op
+  // for them.
+  const pinnedFrontById = await resolveImagesByIds(
+    rows.map((r) => r.placements?.front).filter((v): v is string => Boolean(v))
+  );
 
   const items: CartLine[] = [];
   for (const r of rows) {
     const product = getBlank(r.productId);
     if (!product) continue; // discontinued / unknown — drop from view
     const hasBack = !!r.placements?.back;
+    const pinnedFront = r.placements?.front
+      ? pinnedFrontById.get(r.placements.front)?.imageUrl ?? null
+      : null;
     const unitPrice = computePrice(0, r.productId, r.size, { back: hasBack }).total;
     items.push({
       id: r.id,
@@ -182,7 +239,7 @@ export async function getCart(): Promise<CartView> {
       hasBack,
       quantity: r.quantity,
       unitPrice,
-      imageUrl: imageMap.get(r.designId) ?? null,
+      imageUrl: pinnedFront ?? imageMap.get(r.designId) ?? null,
     });
   }
 
