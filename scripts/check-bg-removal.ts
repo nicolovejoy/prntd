@@ -14,7 +14,14 @@
  * Writes the verdict to /tmp/bg-removal-check.txt.
  */
 import { writeFileSync } from "node:fs";
-import { removeBackground } from "../src/lib/replicate";
+import { config } from "dotenv";
+
+// Load .env.local ourselves so the script works with or without
+// `--env-file=.env.local` — and because .env.tpl carries `export ` prefixes,
+// which dotenv strips but Node's --env-file does not. Must run before
+// importing replicate.ts, which constructs its client (reading the token) at
+// module scope, so that import is deferred into main().
+config({ path: ".env.local" });
 
 const DEFAULT_SAMPLE =
   "https://pub-7389d029733346daa7c3196cad2f5288.r2.dev/designs/914f394a-d287-4dfb-a64b-3bc347c754f4/3.png";
@@ -24,16 +31,29 @@ const BG_REMOVER = "851-labs/background-remover";
 async function main() {
   const input = process.argv[2] ?? DEFAULT_SAMPLE;
   const token = process.env.REPLICATE_API_TOKEN;
+  // Distinguish the three states: absent, set-but-empty (a failed `op inject`
+  // pipe writes the key with no value — this bit STRIPE_SECRET_KEY in July),
+  // and present.
+  const state =
+    token === undefined
+      ? "ABSENT from the environment"
+      : token === ""
+        ? "SET BUT EMPTY — a failed 1Password inject writes the key with no value"
+        : `present (${token.length} chars, starts ${token.slice(0, 4)}…)`;
   const lines: string[] = [
-    `REPLICATE_API_TOKEN: ${
-      token ? `present (${token.length} chars, starts ${token.slice(0, 4)}…)` : "MISSING"
-    }`,
+    `REPLICATE_API_TOKEN: ${state}`,
     `input:  ${input}`,
   ];
 
   if (!token) {
+    // Key NAMES only — never values. Tells us whether .env.local loaded at all
+    // (many names listed) versus this one variable genuinely being absent.
+    const candidates = Object.keys(process.env)
+      .filter((k) => /API|TOKEN|KEY|SECRET|DATABASE|R2_/.test(k))
+      .sort();
+    lines.push(`secret-ish env var NAMES present: ${candidates.join(", ") || "(none)"}`);
     lines.push(
-      "VERDICT: no token in the environment — add REPLICATE_API_TOKEN to .env.local and re-run."
+      "VERDICT: no REPLICATE_API_TOKEN. If the list above is empty or tiny, .env.local didn't load; if it's full but lacks REPLICATE_API_TOKEN, that key is missing from the file."
     );
     finish(lines);
     return;
@@ -70,6 +90,7 @@ async function main() {
   }
 
   try {
+    const { removeBackground } = await import("../src/lib/replicate");
     const output = await removeBackground(input);
     lines.push(`output: ${output}`);
 
