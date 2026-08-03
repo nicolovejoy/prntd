@@ -2,8 +2,9 @@
 # live in Vercel env vars, not here.
 #
 # Generate:  op inject -i .env.tpl -o /tmp/env.local.new
-#            diff /tmp/env.local.new .env.local     # review before overwriting
+#            npx tsx scripts/diff-env.ts /tmp/env.local.new   # value-free review
 #            mv /tmp/env.local.new .env.local
+# Never raw-diff the two files — that prints every secret on screen.
 #
 # Every vault reference below was verified against dev-secrets on 2026-08-02
 # (issue #154). A reference to a NONEXISTENT item does not fail — it injects
