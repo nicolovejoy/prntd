@@ -46,8 +46,20 @@ function itemExists(title: string): boolean {
   }
 }
 
-function createItem(title: string, value: string) {
-  // Assignment is passed as a process argument, not through a shell, so the
+/** Provenance note stored on each created item, so future-you knows where it
+ * came from and why it suddenly appeared. */
+function note(env: string): string {
+  const today = new Date().toISOString().slice(0, 10);
+  return [
+    `Created ${today} by scripts/store-secrets-in-1p.ts in the prntd repo.`,
+    `Copied from ${env} in the local .env.local.`,
+    `Why: .env.tpl referenced an item that did not exist, so injecting it wrote`,
+    `an empty value (issue #154). This item gives the template a real reference.`,
+  ].join(" ");
+}
+
+function createItem(title: string, env: string, value: string) {
+  // Assignments are passed as process arguments, not through a shell, so the
   // value is never interpolated into a command line we control or print.
   execFileSync(
     "op",
@@ -58,6 +70,7 @@ function createItem(title: string, value: string) {
       `--title=${title}`,
       `--vault=${VAULT}`,
       `credential=${value}`,
+      `notesPlain=${note(env)}`,
     ],
     { stdio: ["ignore", "ignore", "pipe"] }
   );
@@ -78,10 +91,11 @@ function main() {
     }
     if (!APPLY) {
       console.log(`WOULD CREATE  ${title}  ← ${env} (${value.length} chars)`);
+      console.log(`              note: ${note(env)}`);
       continue;
     }
     try {
-      createItem(title, value);
+      createItem(title, env, value);
       console.log(`CREATED ${title}  ← ${env}`);
     } catch (err) {
       console.log(
