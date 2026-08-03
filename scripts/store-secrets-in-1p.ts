@@ -28,6 +28,7 @@ const APPLY = process.argv.includes("--apply");
 
 /** env var → 1Password item title. Field is always `credential`. */
 const WANTED: { env: string; title: string }[] = [
+  { env: "R2_ACCOUNT_ID", title: "prntd-r2-account-id" },
   { env: "R2_ACCESS_KEY_ID", title: "prntd-r2-access-key-id" },
   { env: "R2_SECRET_ACCESS_KEY", title: "prntd-r2-secret-access-key" },
   { env: "PRINTFUL_API_KEY", title: "prntd-printful" },
