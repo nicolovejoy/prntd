@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import type { DesignImage, ProductVersionGroup } from "@/lib/design-images";
 import { Button } from "@/components/ui";
 
@@ -33,6 +34,18 @@ export function DesignStage({
   onMakeProducts: () => void;
   onSelectProductVersion: (productId: string) => void;
 }) {
+  // Warm every generation at full resolution up front. The strip thumbnails
+  // are the same R2 objects the hero shows, so without this the first tap on
+  // each one waits on a fresh full-res fetch — the swap reads as a stall.
+  // Once decoded, swapping the hero's src is instant.
+  useEffect(() => {
+    for (const img of images) {
+      const pre = new window.Image();
+      pre.decoding = "async";
+      pre.src = img.url;
+    }
+  }, [images]);
+
   // The hero is the design's primary image, falling back to the newest
   // generation so a thread always leads with something.
   const heroIndex = (() => {
@@ -57,6 +70,7 @@ export function DesignStage({
             <img
               src={hero.url}
               alt={`Design #${hero.number}`}
+              decoding="async"
               className="max-h-full max-w-full object-contain rounded-lg bg-checkerboard"
             />
           </button>
