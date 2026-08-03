@@ -24,6 +24,17 @@ export function designCardHref(design: {
     : `/design?id=${design.id}`;
 }
 
+/**
+ * A pasted prompt shouldn't set the page height (#147). Past this length a
+ * user message renders clamped with a "Show more" toggle. Assistant turns are
+ * never clamped — they're the reply you came back for.
+ */
+export const MESSAGE_CLAMP_CHARS = 280;
+
+export function shouldClampMessage(content: string): boolean {
+  return content.length > MESSAGE_CLAMP_CHARS;
+}
+
 /** Error message the closed-conversation guard throws; the /design UI keys
  * its closed state off the server row, so this is just the action backstop. */
 export const CONVERSATION_CLOSED_MESSAGE = "This design is closed.";
