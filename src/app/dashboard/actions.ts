@@ -14,6 +14,7 @@ import {
   design as designTable,
 } from "@/lib/db/schema";
 import { resolveImagesByIds } from "@/lib/design-images";
+import { probeImageAlpha } from "@/lib/image-alpha";
 import { getBlank, type AspectRatio } from "@/lib/blanks";
 
 type Store = typeof storeTable.$inferSelect;
@@ -116,6 +117,8 @@ export type ComposableDesign = {
   imageId: string;
   imageUrl: string;
   aspectRatio: AspectRatio;
+  /** Server-probed: does the PNG carry alpha? undefined = unknown (no warning). */
+  hasTransparency?: boolean;
 };
 
 /**
@@ -145,7 +148,7 @@ export async function getComposableDesigns(): Promise<ComposableDesign[]> {
 
   const byId = await resolveImagesByIds(primaryIds);
 
-  return designs.flatMap((d) => {
+  const items = designs.flatMap((d) => {
     const img = d.primaryImageId ? byId.get(d.primaryImageId) : undefined;
     if (!img) return [];
     return [
@@ -157,6 +160,15 @@ export async function getComposableDesigns(): Promise<ComposableDesign[]> {
       },
     ];
   });
+
+  // Alpha probe (ranged fetch of each PNG's header) so the compose form's
+  // DTG knockout warning can fire. A failed probe stays undefined = unknown.
+  return Promise.all(
+    items.map(async (item) => {
+      const alpha = await probeImageAlpha(item.imageUrl);
+      return alpha === null ? item : { ...item, hasTransparency: alpha };
+    })
+  );
 }
 
 export type CreateProductDraftInput = {
@@ -238,6 +250,8 @@ export async function getProductForEdit(
   const img = (await resolveImagesByIds([imageId])).get(imageId);
   if (!img) return null;
 
+  const alpha = await probeImageAlpha(img.imageUrl);
+
   return {
     id: product.id,
     storeId: product.storeId,
@@ -250,6 +264,7 @@ export async function getProductForEdit(
       imageId: img.id,
       imageUrl: img.imageUrl,
       aspectRatio: img.aspectRatio,
+      ...(alpha === null ? {} : { hasTransparency: alpha }),
     },
   };
 }

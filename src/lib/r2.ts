@@ -76,6 +76,39 @@ export async function uploadMockupImage(
 // slice 3 — reuse is a conversation_image seed link, never an R2 copy.
 
 /**
+ * The object key behind a public image URL — legacy `designs/{designId}/{n}.png`
+ * and id-keyed `images/{id}.png` alike. Null when the URL isn't in this bucket.
+ */
+export function imageKeyFromUrl(imageUrl: string): string | null {
+  const base = process.env.NEXT_PUBLIC_R2_PUBLIC_URL ?? `https://${bucket}.r2.dev`;
+  if (!imageUrl.startsWith(`${base}/`)) return null;
+  const key = imageUrl.slice(base.length + 1);
+  return key.length > 0 ? key : null;
+}
+
+/**
+ * Overwrite an image object in place, deriving the key from its stored public
+ * URL so the URL never changes. Used by the legacy-alpha backfill (#153):
+ * DB rows, order placements and Model B `image` rows all hold the URL, so
+ * fixing the bytes under the same key fixes every reference at once.
+ */
+export async function overwriteImageObjectByUrl(
+  imageUrl: string,
+  imageBuffer: Buffer
+): Promise<void> {
+  const key = imageKeyFromUrl(imageUrl);
+  if (!key) throw new Error(`URL is not in this bucket: ${imageUrl}`);
+  await r2.send(
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      Body: imageBuffer,
+      ContentType: "image/png",
+    })
+  );
+}
+
+/**
  * Delete an id-keyed R2 object (`images/{id}.png`). Best-effort orphan
  * cleanup: called when a step after the upload fails, so a half-written
  * generation doesn't leave a stranded object nothing references.

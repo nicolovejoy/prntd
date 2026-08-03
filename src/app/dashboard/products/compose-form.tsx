@@ -124,6 +124,7 @@ export function ComposeForm({
       placementId,
       aspectRatio: design.aspectRatio,
       coloredGarment: isDarkColor(getColorHex(blankId, color)),
+      hasTransparency: design.hasTransparency,
     });
   }, [design, blankId, placementId, color]);
 
