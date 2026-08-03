@@ -16,7 +16,17 @@ vi.mock("../../actions", () => ({
   }),
 }));
 
+// buy-panel imports ensureGuestSession → auth-client → better-auth, which
+// pulls optional otel deps that don't resolve under vitest; mock the module.
+vi.mock("@/lib/ensure-guest-session", () => ({
+  ensureGuestSession: vi.fn(async () => {}),
+}));
+vi.mock("@/app/cart/actions", () => ({
+  addToCart: vi.fn(async () => ({ ok: true, count: 1 })),
+}));
+
 import { buyPublishedDesign } from "../../actions";
+import { addToCart } from "@/app/cart/actions";
 
 /** The panel starts collapsed (#128); most tests exercise the expanded stack. */
 function expand() {
@@ -239,5 +249,45 @@ describe("BuyPanel back design (#25 on /d)", () => {
     expect(
       screen.getAllByRole("button", { name: "Order — $24.12" }).length
     ).toBeGreaterThan(0);
+  });
+});
+
+describe("BuyPanel add to cart (#146)", () => {
+  it("hidden when the cart flag is off (default)", () => {
+    render(<BuyPanel imageId="img-1" isLoggedIn />);
+    expand();
+    expect(screen.queryAllByTestId("add-to-cart")).toHaveLength(0);
+  });
+
+  it("shows when cartEnabled, gated on size like /preview", () => {
+    render(<BuyPanel imageId="img-1" isLoggedIn cartEnabled />);
+    expand();
+    const [btn] = screen.getAllByTestId("add-to-cart");
+    expect(btn).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "M" }));
+    expect(btn).toBeEnabled();
+  });
+
+  it("shows for signed-out visitors too — guests have carts", () => {
+    render(<BuyPanel imageId="img-1" isLoggedIn={false} cartEnabled />);
+    expand();
+    expect(screen.getAllByTestId("add-to-cart").length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByRole("link", { name: "Sign in to buy" }).length
+    ).toBeGreaterThan(0);
+  });
+
+  it("pins the exact image: addToCart is called with frontImageId", async () => {
+    render(<BuyPanel imageId="img-1" isLoggedIn cartEnabled />);
+    expand();
+    fireEvent.click(screen.getByRole("button", { name: "M" }));
+    fireEvent.click(screen.getAllByTestId("add-to-cart")[0]);
+    await vi.waitFor(() => expect(addToCart).toHaveBeenCalled());
+    expect(addToCart).toHaveBeenCalledWith(
+      expect.objectContaining({ frontImageId: "img-1", size: "M" })
+    );
+    expect(
+      (addToCart as ReturnType<typeof vi.fn>).mock.calls[0][0]
+    ).not.toHaveProperty("designId");
   });
 });
