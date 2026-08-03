@@ -53,6 +53,28 @@ describe("checkProductFit", () => {
     });
     expect(r.warnings.some((w) => w.code === "needs_transparency")).toBe(false);
   });
+
+  it("warns the knockout rule when the art is known-opaque on a colored garment", () => {
+    const r = checkProductFit({
+      blankId: DEFAULT_BLANK_ID,
+      placementId: "front",
+      aspectRatio: "3:4",
+      coloredGarment: true,
+      hasTransparency: false,
+    });
+    expect(r.warnings.some((w) => w.code === "needs_transparency")).toBe(true);
+  });
+
+  it("does not warn known-opaque art on a light garment", () => {
+    const r = checkProductFit({
+      blankId: DEFAULT_BLANK_ID,
+      placementId: "front",
+      aspectRatio: "3:4",
+      coloredGarment: false,
+      hasTransparency: false,
+    });
+    expect(r.warnings.some((w) => w.code === "needs_transparency")).toBe(false);
+  });
 });
 
 describe("artworkFromAspect", () => {

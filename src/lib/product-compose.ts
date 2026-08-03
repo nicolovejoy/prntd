@@ -13,21 +13,25 @@ import {
 } from "./blanks";
 
 /**
- * `design_image` persists `aspect_ratio` but NOT pixel dimensions or an alpha
- * flag yet (the plan's deferred "new metadata"). Build the validity artwork
- * from what we know; the unknowns use non-warning sentinels so the rule never
- * FALSE-warns — it surfaces only the aspect + placement-exists checks we can
- * actually evaluate today. When pixel/alpha capture lands, pass them through
- * and the DPI + knockout rules light up for free.
+ * `design_image` persists `aspect_ratio` but NOT pixel dimensions (the plan's
+ * deferred "new metadata"). Build the validity artwork from what we know; the
+ * unknowns use non-warning sentinels so the rule never FALSE-warns. Alpha is
+ * probed server-side where available (`probeImageAlpha` in image-alpha.ts) and
+ * passed through; undefined keeps the non-warning sentinel. When pixel capture
+ * lands, pass it through and the DPI rule lights up for free.
  */
 const UNKNOWN_HIRES_PX = 1_000_000; // unknown resolution ⇒ DPI check can't fire
 
-export function artworkFromAspect(aspectRatio: AspectRatio): DesignArtwork {
+export function artworkFromAspect(
+  aspectRatio: AspectRatio,
+  hasTransparency?: boolean
+): DesignArtwork {
   return {
     aspectRatio,
     pixelWidth: UNKNOWN_HIRES_PX,
     pixelHeight: UNKNOWN_HIRES_PX,
-    hasTransparency: true, // unknown ⇒ don't warn the knockout rule
+    // unknown ⇒ don't warn the knockout rule (warn-not-block policy)
+    hasTransparency: hasTransparency ?? true,
   };
 }
 
@@ -42,12 +46,14 @@ export function checkProductFit(params: {
   aspectRatio: AspectRatio;
   /** Whether the chosen variant is a dark/colored garment (DTG knockout rule). */
   coloredGarment?: boolean;
+  /** Whether the artwork PNG carries alpha; undefined = unknown (no warning). */
+  hasTransparency?: boolean;
 }): FitResult {
   const blank = getBlankOrThrow(params.blankId);
   return validatePlacementFit({
     blank,
     placementId: params.placementId,
-    artwork: artworkFromAspect(params.aspectRatio),
+    artwork: artworkFromAspect(params.aspectRatio, params.hasTransparency),
     coloredGarment: params.coloredGarment,
   });
 }
