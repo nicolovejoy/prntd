@@ -1,12 +1,11 @@
 /**
  * Model B write builders (docs/model-b-migration-plan.md).
  *
- * Introduced in slice 1 as the dual-write mirror; since the slice-4 writer
- * cutover these are the ONLY write shapes (`image`, `conversation_image`,
- * `listing`, `placement_render`) — `design_image` is no longer written. The
- * builders stay the single source of the column mapping: both insert sites
- * (the inline batch in generateDesign and insertDesignImage) and every
- * publish-family action route through here (risky spots §3, §5).
+ * These are the ONLY write shapes (`image`, `conversation_image`, `listing`,
+ * `placement_render`) — `design_image` was dropped in slice 5. The builders
+ * stay the single source of the column mapping: both insert sites (the inline
+ * batch in generateDesign and insertDesignImage) and every publish-family
+ * action route through here (risky spots §3, §5).
  *
  * Each builder returns a plain row/values object; the caller splices the
  * corresponding `db.insert(...).values(row)` / `db.update(...)` into its

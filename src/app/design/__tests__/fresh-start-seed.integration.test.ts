@@ -145,9 +145,6 @@ describe("startConversationFromImage", () => {
     expect(design.userId).toBe("starter");
     // The seed anchors the new thread immediately.
     expect(design.primaryImageId).toBe(imageId);
-    // Legacy provenance mirror (dropped in slice 5).
-    expect(design.forkedFromImageId).toBe(imageId);
-    expect(design.originalDesignerId).toBe("origin");
     // Fresh thread: nothing generated, nothing spent.
     expect(design.generationCount).toBe(0);
     expect(design.generationCost).toBe(0);
@@ -184,11 +181,15 @@ describe("startConversationFromImage", () => {
     });
 
     const { designId } = await startConversationFromImage(imageId);
-    const [design] = await testDb
+    // Attribution now lives only on the image graph — the observable effect
+    // is what the thread's first generation stamps onto its own image row
+    // (getConversationSeedProvenance, replacing the dropped design mirror).
+    const gen = await generateDesign(designId, "make it blue");
+    const [row] = await testDb
       .select()
-      .from(schema.design)
-      .where(eq(schema.design.id, designId));
-    expect(design.originalDesignerId).toBe("root-designer");
+      .from(schema.image)
+      .where(eq(schema.image.id, gen.imageId!));
+    expect(row.originalDesignerId).toBe("root-designer");
   });
 
   it("allows seeding from your own private image", async () => {

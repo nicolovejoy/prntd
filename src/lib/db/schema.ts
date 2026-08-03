@@ -61,12 +61,6 @@ export const design = sqliteTable("design", {
   generationCount: integer("generation_count").notNull().default(0),
   generationCost: real("generation_cost").notNull().default(0),
   mockupUrls: text("mockup_urls", { mode: "json" }).$type<Record<string, string>>(),
-  // Fork lineage. forked_from_image_id records which published image
-  // seeded this thread (null on original threads). original_designer_id
-  // is the user at the root of the attribution chain — denormalized so
-  // attribution lookups don't have to walk the chain.
-  originalDesignerId: text("original_designer_id"),
-  forkedFromImageId: text("forked_from_image_id"),
   // Multi-generator: the thread's active image generator (adapter id).
   // Null resolves to DEFAULT_GENERATOR_ID. Set when the user adopts a
   // compared image.
@@ -90,45 +84,6 @@ export const chatMessage = sqliteTable("chat_message", {
   content: text("content").notNull(),
   imageId: text("image_id"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
-});
-
-export const designImage = sqliteTable("design_image", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  designId: text("design_id").notNull().references(() => design.id),
-  // Provenance: the image this one was derived from (regenerated at a
-  // different aspect, or iterated via chat). Null for the original
-  // generation in a thread.
-  parentImageId: text("parent_image_id"),
-  aspectRatio: text("aspect_ratio").notNull(), // "1:1", "4:5", "1:2"
-  // When this image was generated for a specific product placement
-  // (Phase 3), these get set. Null on exploratory 1:1 generations.
-  productId: text("product_id"),
-  placementId: text("placement_id"),
-  imageUrl: text("image_url").notNull(),
-  prompt: text("prompt"),
-  generationCost: real("generation_cost").notNull().default(0),
-  isApproved: integer("is_approved", { mode: "boolean" }).notNull().default(false),
-  // Publish model. published_at is set once on first publish; non-null
-  // implies the image is in the discover feed and the row is immortal
-  // (deleteDesignImage refuses). is_hidden is admin moderation —
-  // excludes from feed but leaves the row intact. title + description
-  // are the public listing; AI-proposed on publish, owner-editable.
-  publishedAt: integer("published_at", { mode: "timestamp" }),
-  isHidden: integer("is_hidden", { mode: "boolean" }).notNull().default(false),
-  title: text("title"),
-  description: text("description"),
-  // Storefront backdrop. Published art is a transparent PNG; the owner can
-  // pin a shirt color behind it (a color name from the default product
-  // palette). Null → checkerboard, the neutral default.
-  backgroundColor: text("background_color"),
-  // Multi-generator: which adapter produced this image ("ideogram",
-  // "recraft"). Null on historical rows (pre-feature).
-  generator: text("generator"),
-  // Admin-controlled Shop feed position. Lower ranks list first; null
-  // (the default) falls back to recency, so unranked images behave as
-  // before. Set from /admin/published.
-  feedRank: integer("feed_rank"),
-  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
 
 /**
@@ -342,21 +297,19 @@ export const generationUsage = sqliteTable(
 /**
  * Model B (conversation/image split, docs/model-b-migration-plan.md). The
  * standalone artifact: a generated image, owned by a user, reusable across
- * conversations. On backfill every row keeps its `design_image.id` (id reuse
- * §2) so order/product/cart placement refs — which store image ids as opaque
- * strings — never move.
+ * conversations. Every row's id was originally reused from a `design_image`
+ * row (id reuse §2) so order/product/cart placement refs — which store image
+ * ids as opaque strings — never moved across the migration; `design_image`
+ * itself is gone as of slice 5.
  *
- * Slice 1 dual-writes this alongside `design_image` for source generations;
- * readers stay on `design_image` until slice 2. Immutability guardrail
- * (§3): nothing may update `imageUrl`/`r2Key`/`prompt` after insert — the
- * write layer (src/lib/model-b-writes.ts) exposes no such helper, so a listing
- * that points at a row is a snapshot by construction.
+ * Immutability guardrail (§3): nothing may update `imageUrl`/`r2Key`/`prompt`
+ * after insert — the write layer (src/lib/model-b-writes.ts) exposes no such
+ * helper, so a listing that points at a row is a snapshot by construction.
  *
  * Image-id columns (parent/seed/original-designer/source-design) are opaque
- * text, no FK — matching the existing schema (design.forkedFromImageId,
- * design_image.parentImageId are FK-less) and the id-reuse contract, and
- * avoiding backfill/dual-write ordering hazards. Only `ownerId` (→ user) is a
- * FK, so reparenting and owner joins stay sound.
+ * text, no FK — matching the id-reuse contract and avoiding backfill/
+ * dual-write ordering hazards. Only `ownerId` (→ user) is a FK, so
+ * reparenting and owner joins stay sound.
  */
 export const image = sqliteTable("image", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -371,9 +324,12 @@ export const image = sqliteTable("image", {
   generationCost: real("generation_cost").notNull().default(0),
   // Within-thread iteration chain (was design_image.parentImageId).
   parentImageId: text("parent_image_id"),
-  // Cross-conversation lineage (was design.forkedFromImageId).
+  // Cross-conversation lineage (was design.forkedFromImageId, dropped slice
+  // 5). Stamped onto every image a seeded thread generates — see
+  // getConversationSeedProvenance in design-images.ts.
   seedImageId: text("seed_image_id"),
-  // Denormalized attribution root (was design.originalDesignerId).
+  // Denormalized attribution root (was design.originalDesignerId, dropped
+  // slice 5).
   originalDesignerId: text("original_designer_id"),
   // The conversation that generated it (mirrors the role=output link).
   sourceDesignId: text("source_design_id"),
@@ -401,10 +357,9 @@ export const conversationImage = sqliteTable(
 
 /**
  * Model B published-listing state, split off `design_image` (simplification
- * item 3). One listing per image (PK = imageId). A row exists iff the image is
- * published — unpublish deletes it. Naming/hidden/feed-rank edits update it in
- * lockstep with the `design_image` publish columns during the dual-write
- * window (risky spot §3). `imageId` is opaque text (no FK).
+ * item 3, table dropped slice 5). One listing per image (PK = imageId). A row
+ * exists iff the image is published — unpublish deletes it. `imageId` is
+ * opaque text (no FK).
  */
 export const listing = sqliteTable("listing", {
   imageId: text("image_id").primaryKey(),
@@ -419,11 +374,11 @@ export const listing = sqliteTable("listing", {
 
 /**
  * Model B placement-render cache, split off `design_image` (simplification
- * item 3). These are derived renders (a source image composed onto a blank's
- * placement), not artifacts — they never appear as `image` rows. On backfill
- * each keeps its `design_image.id` (id reuse) so orders that pin a render id in
- * their placements keep resolving. `sourceImageId` is the #25 anchor (was
- * design_image.parentImageId); `blankId` was design_image.productId.
+ * item 3, table dropped slice 5). These are derived renders (a source image
+ * composed onto a blank's placement), not artifacts — they never appear as
+ * `image` rows. Rows keep their originally-reused `design_image.id` (id
+ * reuse) so orders that pin a render id in their placements keep resolving.
+ * `sourceImageId` is the #25 anchor.
  */
 export const placementRender = sqliteTable("placement_render", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),

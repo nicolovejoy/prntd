@@ -1,21 +1,18 @@
 /**
  * Image reads + the image write choke point.
  *
- * Slices 2+4 of the Model B migration (docs/model-b-migration-plan.md): every
- * read resolves against the new tables — `image` + `conversation_image` for
- * source artifacts, `placement_render` for the render cache, `listing` for
- * publish state — and since the slice-4 writer cutover, writes land ONLY those
- * shapes. `design_image` is write-dead (deletes of legacy rows excepted, until
- * slice 5 drops the table).
+ * The Model B migration (docs/model-b-migration-plan.md) is complete: every
+ * read and write resolves against `image` + `conversation_image` for source
+ * artifacts, `placement_render` for the render cache, `listing` for publish
+ * state. `design_image` was dropped in slice 5.
  *
- * Id reuse (§2) is what makes the swap invisible to callers: a pinned
- * placement id resolves whether it was minted as an artifact or a render, which
- * is why the id lookups check both tables (resolveImagesByIds).
+ * Id reuse (§2) is what made the slice-2 read swap invisible to callers: a
+ * pinned placement id resolves whether it was minted as an artifact or a
+ * render, which is why the id lookups check both tables (resolveImagesByIds).
  */
 import { db } from "@/lib/db";
 import {
   design as designTable,
-  designImage as designImageTable,
   chatMessage as chatMessageTable,
   cartItem as cartItemTable,
   product as productTable,
@@ -136,13 +133,51 @@ export async function getDesignImagesForAIContext(
   }));
 }
 
+export type ConversationSeedProvenance = {
+  seedImageId: string;
+  originalDesignerId: string;
+};
+
+/**
+ * Look up a conversation's seed lineage (Model B slice 3 fresh-start): the
+ * `conversation_image(role=seed)` link, if any, plus the seed image's
+ * attribution root. Every artifact a seeded thread generates stamps this onto
+ * its `image` row (seedImageId/originalDesignerId) so attribution survives
+ * without a design-row mirror — replaces the `design.forkedFromImageId` /
+ * `design.originalDesignerId` columns dropped in slice 5. Null for a thread
+ * with no seed link (an original thread).
+ */
+export async function getConversationSeedProvenance(
+  designId: string
+): Promise<ConversationSeedProvenance | null> {
+  const [row] = await db
+    .select({
+      seedImageId: imageTable.id,
+      originalDesignerId: imageTable.originalDesignerId,
+      ownerId: imageTable.ownerId,
+    })
+    .from(conversationImageTable)
+    .innerJoin(imageTable, eq(imageTable.id, conversationImageTable.imageId))
+    .where(
+      and(
+        eq(conversationImageTable.designId, designId),
+        eq(conversationImageTable.role, "seed")
+      )
+    )
+    .limit(1);
+  if (!row) return null;
+  return {
+    seedImageId: row.seedImageId,
+    originalDesignerId: row.originalDesignerId ?? row.ownerId,
+  };
+}
+
 /**
  * Insert a new image (or placement render) for a generation — the write choke
- * point. Since the slice-4 writer cutover this writes ONLY the Model B shapes:
- * `image` + `conversation_image(role=output)` for source artifacts,
- * `placement_render` for product-targeted renders. Automatically links
- * `parentImageId` to the most recent existing image for the same design,
- * forming the provenance chain.
+ * point. Writes ONLY the Model B shapes: `image` + `conversation_image
+ * (role=output)` for source artifacts, `placement_render` for product-
+ * targeted renders. Automatically links `parentImageId` to the most recent
+ * existing image for the same design, forming the provenance chain.
  */
 export async function insertDesignImage(params: {
   designId: string;
@@ -200,17 +235,14 @@ export async function insertDesignImage(params: {
     );
   } else {
     const [owner] = await db
-      .select({
-        userId: designTable.userId,
-        // Seeded-thread attribution (slice 3): every artifact the thread
-        // produces carries the seed lineage, matching the slice-1 backfill.
-        forkedFromImageId: designTable.forkedFromImageId,
-        originalDesignerId: designTable.originalDesignerId,
-      })
+      .select({ userId: designTable.userId })
       .from(designTable)
       .where(eq(designTable.id, params.designId))
       .limit(1);
     if (!owner) throw new Error("Design not found");
+    // Seeded-thread attribution (slice 3): every artifact the thread
+    // produces carries the seed lineage.
+    const seed = await getConversationSeedProvenance(params.designId);
     await db.batch([
       db.insert(imageTable).values(
         buildImageRow({
@@ -222,8 +254,8 @@ export async function insertDesignImage(params: {
           prompt: params.prompt,
           generationCost: params.generationCost,
           parentImageId,
-          seedImageId: owner.forkedFromImageId,
-          originalDesignerId: owner.originalDesignerId,
+          seedImageId: seed?.seedImageId ?? null,
+          originalDesignerId: seed?.originalDesignerId ?? null,
         })
       ),
       db.insert(conversationImageTable).values(buildOutputLinkRow(params.designId, id)),
@@ -752,16 +784,6 @@ export async function deleteDesignImageRow(
   });
 
   await db.batch([
-    // Legacy design_image rows (pre-cutover) still FK design.id — keep
-    // sweeping them until slice 5 drops the table. New rows never exist here.
-    db
-      .delete(designImageTable)
-      .where(
-        and(
-          eq(designImageTable.id, imageId),
-          eq(designImageTable.designId, designId)
-        )
-      ),
     db
       .delete(conversationImageTable)
       .where(

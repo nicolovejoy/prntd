@@ -32,6 +32,7 @@ import {
   getDesignMessages,
   insertChatMessage,
   getDesignImagesForAIContext,
+  getConversationSeedProvenance,
   type SourceImage,
   type ProductVersionGroup,
 } from "@/lib/design-images";
@@ -270,15 +271,17 @@ async function runGenerate({
     // (slice 3 §5).
     const outputs = images.filter((img) => img.role !== "seed");
     const parentImageId = outputs[outputs.length - 1]?.id ?? null;
+    // Seed lineage (slice 3): a fresh-start thread stamps its seed +
+    // attribution root onto every artifact it generates. Replaces the
+    // design.forkedFromImageId/originalDesignerId mirror dropped in slice 5.
+    const seed = await getConversationSeedProvenance(designId);
 
     // Commit the writes atomically (db.batch) so a mid-sequence crash can't
     // leave an image with no assistant message, or an orphaned user turn.
     // Aspect is "1:1" — chat-driven generations are always square; product
     // regenerations happen in preview/actions.ts. generationCost is an atomic
     // increment so a concurrent generate's cost isn't clobbered.
-    // found.userId is the verified design owner. Seed lineage (slice 3): a
-    // fresh-start thread stamps its seed + attribution root onto every
-    // artifact it generates.
+    // found.userId is the verified design owner.
     await db.batch([
       db.insert(imageTable).values(
         buildImageRow({
@@ -291,8 +294,8 @@ async function runGenerate({
           generator: generator.id,
           generationCost: generator.costPerImage,
           parentImageId,
-          seedImageId: found.forkedFromImageId,
-          originalDesignerId: found.originalDesignerId,
+          seedImageId: seed?.seedImageId ?? null,
+          originalDesignerId: seed?.originalDesignerId ?? null,
         })
       ),
       db.insert(conversationImageTable).values(buildOutputLinkRow(designId, newImageId)),
@@ -571,9 +574,8 @@ async function requireOwnedDesign(designId: string) {
  * copy, no new image row (replaces the retired copy-based forkImage). The
  * seed becomes the thread's initial primary/anchor so /designs, /preview and
  * the AI context see it immediately; the first generation records
- * parent_image_id = null with seed_image_id + original_designer_id carried
- * from here (via the design row's legacy provenance columns, which stay
- * dual-written until slice 5 drops them).
+ * parent_image_id = null with seed_image_id + original_designer_id looked up
+ * from this seed link (getConversationSeedProvenance in design-images.ts).
  *
  * Visibility: own image, or published + not hidden (canStartFromImage) — a
  * forged private cross-owner id is rejected. Artifacts only; placement
@@ -587,9 +589,7 @@ export async function startConversationFromImage(
 
   const [seed] = await db
     .select({
-      id: imageTable.id,
       ownerId: imageTable.ownerId,
-      originalDesignerId: imageTable.originalDesignerId,
       publishedAt: listingTable.publishedAt,
       isHidden: listingTable.isHidden,
     })
@@ -620,10 +620,6 @@ export async function startConversationFromImage(
       userId: session.user.id,
       // The seed is the thread's starting anchor.
       primaryImageId: imageId,
-      // Legacy provenance mirror (dropped in slice 5): generations read these
-      // to stamp seed_image_id / original_designer_id onto their image rows.
-      forkedFromImageId: imageId,
-      originalDesignerId: seed.originalDesignerId ?? seed.ownerId,
     }),
     db.insert(conversationImageTable).values({
       id: crypto.randomUUID(),

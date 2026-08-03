@@ -9,7 +9,7 @@ import {
   dedupeFeedByDesign,
   type ForkChainRow,
 } from "../design-publish";
-import { design, designImage } from "../db/schema";
+import { design } from "../db/schema";
 
 describe("imageReferencedByOrders", () => {
   it("returns false when the design has no orders", () => {
@@ -154,36 +154,6 @@ describe("buildForkChain", () => {
 });
 
 describe("schema columns", () => {
-  it("design_image.publishedAt is nullable with no default", () => {
-    expect(designImage.publishedAt.notNull).toBe(false);
-    expect(designImage.publishedAt.default).toBeUndefined();
-  });
-
-  it("design_image.isHidden defaults to false and is not null", () => {
-    expect(designImage.isHidden.notNull).toBe(true);
-    expect(designImage.isHidden.default).toBe(false);
-  });
-
-  it("design_image.title is nullable", () => {
-    expect(designImage.title.notNull).toBe(false);
-  });
-
-  it("design_image.description is nullable", () => {
-    expect(designImage.description.notNull).toBe(false);
-  });
-
-  it("design.originalDesignerId is nullable", () => {
-    expect(design.originalDesignerId.notNull).toBe(false);
-  });
-
-  it("design.forkedFromImageId is nullable", () => {
-    expect(design.forkedFromImageId.notNull).toBe(false);
-  });
-
-  it("design_image.generator is nullable", () => {
-    expect(designImage.generator.notNull).toBe(false);
-  });
-
   it("design.activeGeneratorId is nullable", () => {
     expect(design.activeGeneratorId.notNull).toBe(false);
   });

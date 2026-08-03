@@ -21,11 +21,10 @@ export async function makeDesign(db: Db, userId: string) {
 }
 
 /**
- * Seed a source image in the PRE-cutover shape: a legacy `design_image` row
- * plus the Model B rows (`image` + `conversation_image(role=output)`, and a
- * `listing` when published) under one shared id. Production stopped writing
- * design_image in slice 4, but prod data still holds those rows until slice 5
- * drops the table — seeding both keeps delete paths honest about legacy rows.
+ * Seed a source image the Model B way: `image` + `conversation_image
+ * (role=output)`, plus a `listing` when published — the shape every write
+ * path has produced since the slice-4 cutover (`design_image` is gone as of
+ * slice 5).
  *
  * `ownerId` must be the design's owner — image.ownerId is the denormalized
  * copy the guards read.
@@ -52,27 +51,10 @@ export async function makeSourceImage(
   }
 ): Promise<string> {
   const aspectRatio = params.aspectRatio ?? "1:1";
-  const [row] = await db
-    .insert(schema.designImage)
-    .values({
-      designId: params.designId,
-      aspectRatio,
-      imageUrl: params.imageUrl,
-      prompt: params.prompt ?? null,
-      generationCost: params.generationCost ?? 0,
-      parentImageId: params.parentImageId ?? null,
-      publishedAt: params.publishedAt ?? null,
-      isHidden: params.isHidden ?? false,
-      title: params.title ?? null,
-      description: params.description ?? null,
-      backgroundColor: params.backgroundColor ?? null,
-      feedRank: params.feedRank ?? null,
-      ...(params.createdAt ? { createdAt: params.createdAt } : {}),
-    })
-    .returning();
+  const id = crypto.randomUUID();
 
   await db.insert(schema.image).values({
-    id: row.id,
+    id,
     ownerId: params.ownerId,
     imageUrl: params.imageUrl,
     aspectRatio,
@@ -86,13 +68,13 @@ export async function makeSourceImage(
   });
   await db.insert(schema.conversationImage).values({
     designId: params.designId,
-    imageId: row.id,
+    imageId: id,
     role: "output",
   });
 
   if (params.publishedAt) {
     await db.insert(schema.listing).values({
-      imageId: row.id,
+      imageId: id,
       publishedAt: params.publishedAt,
       isHidden: params.isHidden ?? false,
       title: params.title ?? null,
@@ -101,5 +83,5 @@ export async function makeSourceImage(
       feedRank: params.feedRank ?? null,
     });
   }
-  return row.id;
+  return id;
 }

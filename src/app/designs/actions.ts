@@ -5,7 +5,6 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
   design as designTable,
-  designImage as designImageTable,
   chatMessage as chatMessageTable,
   order as orderTable,
   orderItem as orderItemTable,
@@ -30,11 +29,11 @@ import { DEFAULT_PUBLISH_BACKGROUND } from "@/lib/blanks";
  * stays "Delete" — the user's intent is "make this go away", and either
  * outcome satisfies that.
  *
- * Clears every child that foreign-keys design.id — chat_message and
- * design_image — before the design row itself. Both reference design.id
- * with no ON DELETE cascade, so skipping either makes the parent delete
- * fail the FK constraint (this is why deleting a chatted-in draft used to
- * error out).
+ * Clears every child that foreign-keys design.id — chat_message,
+ * conversation_image, placement_render, cart_item — before the design row
+ * itself. All reference design.id with no ON DELETE cascade, so skipping any
+ * of them makes the parent delete fail the FK constraint (this is why
+ * deleting a chatted-in draft used to error out).
  *
  * Uses db.batch (not db.transaction): libSQL's interactive transactions
  * aren't supported over the serverless HTTP connection, but batch runs all
@@ -55,10 +54,9 @@ export async function deleteDesign(
   if (found.userId !== session.user.id) throw new Error("Unauthorized");
 
   // Every id this design minted: output-linked artifacts + placement renders
-  // (both can be pinned in order placements), plus legacy design_image rows —
-  // pre-backfill residue would only exist there. Seeds are excluded: a seed
+  // (both can be pinned in order placements). Seeds are excluded: a seed
   // link points at another design's image, never one of ours to delete.
-  const [outputRows, renderRows, legacyRows] = await Promise.all([
+  const [outputRows, renderRows] = await Promise.all([
     db
       .select({ id: conversationImageTable.imageId })
       .from(conversationImageTable)
@@ -72,13 +70,9 @@ export async function deleteDesign(
       .select({ id: placementRenderTable.id })
       .from(placementRenderTable)
       .where(eq(placementRenderTable.designId, designId)),
-    db
-      .select({ id: designImageTable.id })
-      .from(designImageTable)
-      .where(eq(designImageTable.designId, designId)),
   ]);
   const imageIds = [
-    ...new Set([...outputRows, ...renderRows, ...legacyRows].map((r) => r.id)),
+    ...new Set([...outputRows, ...renderRows].map((r) => r.id)),
   ];
 
   // Orders are financial records and never cascade. Since Phase 1c the lines
@@ -192,7 +186,6 @@ export async function deleteDesign(
             .where(inArray(listingTable.imageId, removableImageIds)),
         ]
       : []),
-    db.delete(designImageTable).where(eq(designImageTable.designId, designId)),
     db.delete(designTable).where(eq(designTable.id, designId)),
   ]);
   return {};

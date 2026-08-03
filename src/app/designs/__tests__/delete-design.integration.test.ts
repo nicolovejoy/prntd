@@ -209,7 +209,6 @@ describe("deleteDesign — rows that FK design.id (#121)", () => {
     expect(
       await testDb.select().from(schema.image).where(eq(schema.image.id, privateId))
     ).toHaveLength(0);
-    expect(await testDb.select().from(schema.designImage)).toHaveLength(0);
     expect(
       await testDb
         .select()
@@ -234,7 +233,6 @@ describe("deleteDesign — rows that FK design.id (#121)", () => {
     await deleteDesign(d.id);
 
     expect(await designRow(d.id)).toBeUndefined();
-    expect(await testDb.select().from(schema.designImage)).toHaveLength(0);
     expect(await testDb.select().from(schema.image)).toHaveLength(0);
     expect(await testDb.select().from(schema.conversationImage)).toHaveLength(0);
     expect(await testDb.select().from(schema.chatMessage)).toHaveLength(0);
@@ -281,13 +279,7 @@ describe("deleteDesignImage — cross-design references", () => {
 
     await deleteDesignImage(d.id, imageId);
 
-    // Own-thread rows are gone…
-    expect(
-      await testDb
-        .select()
-        .from(schema.designImage)
-        .where(eq(schema.designImage.id, imageId))
-    ).toHaveLength(0);
+    // Own-thread link is gone…
     expect(
       await testDb
         .select()
