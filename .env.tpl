@@ -16,6 +16,10 @@
 #
 # No `export ` prefixes: Node's --env-file does not strip them (dotenv does),
 # so prefixed lines break `npx tsx --env-file=.env.local …`.
+#
+# WARNING: `vercel env pull` overwrites .env.local wholesale — it will undo an
+# injection and repoint the database at whatever Vercel holds. This file is
+# the source of truth for local dev; re-inject after any pull.
 
 # --- Database -----------------------------------------------------------
 # Local dev targets the isolated prntd-dev branch, NOT preview or prod:
@@ -33,7 +37,7 @@ ANTHROPIC_API_KEY=op://dev-secrets/prntd-anthropic/credential
 R2_ACCOUNT_ID=op://dev-secrets/prntd-r2-account-id/credential
 R2_ACCESS_KEY_ID=op://dev-secrets/prntd-r2-access-key-id/credential
 R2_SECRET_ACCESS_KEY=op://dev-secrets/prntd-r2-secret-access-key/credential
-R2_BUCKET_NAME=prntd-designs
+R2_BUCKET_NAME=prntd
 NEXT_PUBLIC_R2_PUBLIC_URL=https://pub-7389d029733346daa7c3196cad2f5288.r2.dev
 
 # --- Payments -----------------------------------------------------------
@@ -53,14 +57,23 @@ CRON_SECRET=op://dev-secrets/4lydsnmxyh7be3boglu5qoeczy/credential
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 
 # --- Admin --------------------------------------------------------------
-# Gates /admin. Nico's gmail is the admin account; the me.com account is a
-# regular user.
+# Gates /admin. Matched EXACTLY (src/lib/admin.ts isAdminEmail uses ===), so
+# this holds ONE address — a comma-separated list matches nothing and
+# silently disables admin. Nico's gmail is the admin account; the me.com
+# account is a regular user.
 ADMIN_EMAIL=nicholas.lovejoy@gmail.com
+# Recipient of owner order alerts. Falls back to nico@prntd.org if unset.
+OWNER_EMAIL=nicholas.lovejoy@gmail.com
 
-# --- Optional flags (non-secret; default off when unset) -----------------
-# Guest funnel (#26): open design/preview/order to signed-out visitors, with
-# the auth gate at checkout. The caps guard the ungated generation.
-# GUEST_FUNNEL_ENABLED=true
+# --- Feature flags (non-secret) -----------------------------------------
+# All four are ON in production, so local mirrors prod. Every one defaults
+# OFF when unset or empty (=== "true"), which is a quiet way to test a
+# different app than the one your users see.
+GUEST_FUNNEL_ENABLED=true
+CART_ENABLED=true
+MULTI_PLACEMENT_ENABLED=true
+STORES_ENABLED=true
+# Daily generation caps guarding the ungated funnel. Defaults apply if unset.
 # GUEST_GEN_DAILY_CAP=8
 # USER_GEN_DAILY_CAP=50
 # IP_GEN_DAILY_CAP=20
