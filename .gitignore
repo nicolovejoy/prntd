@@ -33,6 +33,9 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 !.env.example
+# The injection template holds only vault references and non-secret values —
+# it is meant to be committed, and a clone can't bootstrap without it (#154).
+!.env.tpl
 
 # scratch
 /tmp/
