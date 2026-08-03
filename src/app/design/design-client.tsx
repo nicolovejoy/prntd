@@ -27,7 +27,7 @@ import type { ChatOption } from "@/lib/ai";
 import type { DesignImage, ProductVersionGroup } from "@/lib/design-images";
 import type { DesignThreadData } from "@/lib/design-thread";
 import { ChatPanel } from "./chat-panel";
-import { ImageGallery } from "./image-gallery";
+import { DesignStage } from "./design-stage";
 import { ImageLightbox } from "./image-lightbox";
 import { MobileGalleryDrawer } from "./mobile-gallery-drawer";
 import { MobileGalleryStrip } from "./mobile-gallery-strip";
@@ -409,6 +409,19 @@ function DesignPageInner({ initialThreadPromise }: Props) {
     }
   }
 
+  // Stage thumbnail tap (#147): promote the image to the design's primary and
+  // lead with it. Same semantics as the lightbox's "make products for this
+  // image" minus the navigation — so the hero, /preview, and the My Designs
+  // card thumbnail never disagree about which image the design is.
+  async function handleSelectImage(imageUrl: string) {
+    setSelectedImage(imageUrl);
+    try {
+      await selectImage(designId.current, imageUrl);
+    } catch {
+      // Non-fatal: the hero still shows the tapped image for this visit.
+    }
+  }
+
   function handleMakeProducts() {
     if (!selectedImage) return;
     router.push(`/preview?id=${designId.current}`);
@@ -432,13 +445,12 @@ function DesignPageInner({ initialThreadPromise }: Props) {
     <div className="h-[calc(100vh-41px)] flex flex-col">
       {/* Header */}
       <div className="p-4 border-b border-border flex items-center justify-between">
-        <div>
-          <Breadcrumbs
-            trail={breadcrumbTrail("/design", { id: designId.current })}
-            current="Design"
-          />
-          <h1 className="text-lg font-semibold mt-1">Design</h1>
-        </div>
+        {/* The breadcrumb already names the page; a repeated <h1> under it was
+            two stacked "Design" titles (#147). */}
+        <Breadcrumbs
+          trail={breadcrumbTrail("/design", { id: designId.current })}
+          current="Design"
+        />
         {designExists && (
           <Button
             variant="ghost"
@@ -451,9 +463,28 @@ function DesignPageInner({ initialThreadPromise }: Props) {
         )}
       </div>
 
-      {/* Body — centered composer when empty, two-column working layout otherwise */}
+      {/* Body — centered composer when empty, otherwise: desktop leads with
+          the artwork (DesignStage) and chat is the column beside it (#147);
+          mobile stays chat-first with the strip + drawer. */}
       <div className="flex-1 flex overflow-hidden">
+        {!empty && (
+          <DesignStage
+            images={images}
+            productGroups={productGroups}
+            selectedImage={selectedImage}
+            generating={generating}
+            onSelectImage={handleSelectImage}
+            onOpenLightbox={(i) => setLightboxIndex(i)}
+            onMakeProducts={handleMakeProducts}
+            onSelectProductVersion={handleSelectProductVersion}
+          />
+        )}
         <ChatPanel
+          className={
+            empty
+              ? undefined
+              : "flex-1 md:flex-none md:w-[420px] md:border-l md:border-border flex flex-col min-w-0 relative"
+          }
           messages={messages}
           images={images}
           loading={loading}
@@ -478,17 +509,6 @@ function DesignPageInner({ initialThreadPromise }: Props) {
             />
           }
         />
-        {!empty && (
-          <ImageGallery
-            images={images}
-            productGroups={productGroups}
-            selectedImage={selectedImage}
-            generating={generating}
-            onClickImage={(i) => setLightboxIndex(i)}
-            onMakeProducts={handleMakeProducts}
-            onSelectProductVersion={handleSelectProductVersion}
-          />
-        )}
       </div>
 
       {/* Mobile gallery drawer */}

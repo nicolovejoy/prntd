@@ -5,7 +5,27 @@ import {
   assertConversationOpen,
   designCardHref,
   CONVERSATION_CLOSED_MESSAGE,
+  shouldClampMessage,
+  MESSAGE_CLAMP_CHARS,
 } from "@/lib/design-view";
+
+describe("shouldClampMessage", () => {
+  it("leaves a normal-length message alone", () => {
+    expect(shouldClampMessage("a blue whale wearing sunglasses")).toBe(false);
+  });
+
+  it("clamps a pasted prompt past the threshold", () => {
+    expect(shouldClampMessage("x".repeat(MESSAGE_CLAMP_CHARS + 1))).toBe(true);
+  });
+
+  it("does not clamp exactly at the threshold", () => {
+    expect(shouldClampMessage("x".repeat(MESSAGE_CLAMP_CHARS))).toBe(false);
+  });
+
+  it("handles an empty message", () => {
+    expect(shouldClampMessage("")).toBe(false);
+  });
+});
 
 describe("designCardHref", () => {
   it("lands on the image page when the design has a primary image", () => {

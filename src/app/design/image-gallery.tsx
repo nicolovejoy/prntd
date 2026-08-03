@@ -1,13 +1,7 @@
 "use client";
 
-import { useState } from "react";
 import type { DesignImage, ProductVersionGroup } from "@/lib/design-images";
 import { Button } from "@/components/ui";
-
-const BG_OPTIONS = [
-  { label: "Dark", value: "bg-gray-900" },
-  { label: "Light", value: "bg-white" },
-];
 
 export function ImageGallery({
   images,
@@ -28,32 +22,16 @@ export function ImageGallery({
   onSelectProductVersion: (productId: string) => void;
   className?: string;
 }) {
-  const [bgClass, setBgClass] = useState("bg-gray-900");
-
   return (
     <div className={className ?? "w-80 border-l border-border hidden md:flex flex-col"}>
-      {/* Header */}
-      <div className="p-4 border-b border-border flex items-center justify-between">
+      {/* Header. The Dark/Light backdrop toggle was removed (#147): it was a
+          debugging control sitting as a peer of the content. Transparent art
+          shows on the house checkerboard; judging it on a real shirt colour is
+          /preview's job. */}
+      <div className="p-4 border-b border-border">
         <h2 className="text-sm font-medium text-foreground">
           Generations{images.length > 0 && ` (${images.length})`}
         </h2>
-        {images.length > 0 && (
-          <div className="flex gap-1">
-            {BG_OPTIONS.map((opt) => (
-              <button
-                key={opt.value}
-                onClick={() => setBgClass(opt.value)}
-                className={`text-[10px] px-2 py-0.5 rounded transition-colors ${
-                  bgClass === opt.value
-                    ? "bg-white text-black"
-                    : "text-text-faint hover:text-text-muted"
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
 
       {/* Thumbnails */}
@@ -79,7 +57,7 @@ export function ImageGallery({
                 <img
                   src={img.url}
                   alt={`Design #${img.number}`}
-                  className={`w-full h-full object-contain ${bgClass}`}
+                  className="w-full h-full object-contain bg-checkerboard"
                 />
                 <span className="absolute top-1 left-1 bg-black/70 text-white text-[10px] font-mono px-1.5 py-0.5 rounded">
                   #{img.number}

@@ -8,6 +8,27 @@ import type { DesignImage } from "@/lib/design-images";
 import { Button, QuickReply } from "@/components/ui";
 import { EXAMPLES } from "@/lib/design-examples";
 import { isGenerateIntent } from "@/lib/design-prompt";
+import { shouldClampMessage } from "@/lib/design-view";
+
+// A long pasted prompt used to fill the page (#147). Past the threshold the
+// message collapses to four lines behind a Show more toggle.
+function UserMessageText({ content }: { content: string }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!shouldClampMessage(content)) return <p>{content}</p>;
+  return (
+    <>
+      <p className={expanded ? undefined : "line-clamp-4"}>{content}</p>
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="mt-1 text-xs text-text-muted hover:text-foreground underline"
+        data-testid="message-clamp-toggle"
+      >
+        {expanded ? "Show less" : "Show more"}
+      </button>
+    </>
+  );
+}
 
 // Waiting states name the operation and stop (Clean Label): one static line,
 // no rotation.
@@ -37,6 +58,7 @@ export function ChatPanel({
   mobileGalleryStrip,
   closed = false,
   onReopen,
+  className,
 }: {
   messages: ChatMessage[];
   images: DesignImage[];
@@ -56,6 +78,9 @@ export function ChatPanel({
   // swapped for a closed notice + Reopen.
   closed?: boolean;
   onReopen?: () => void;
+  /** Overrides the working-layout root class (the empty state stays centered
+   * and full-width regardless). */
+  className?: string;
 }) {
   const urlByImageId = useMemo(
     () => new Map(images.map((img) => [img.id, img.url])),
@@ -186,7 +211,7 @@ export function ChatPanel({
 
   return (
     <div
-      className="flex-1 flex flex-col min-w-0 relative"
+      className={className ?? "flex-1 flex flex-col min-w-0 relative"}
       onDragEnter={handleDragEnter}
       onDragOver={(e) => e.preventDefault()}
       onDragLeave={handleDragLeave}
@@ -251,7 +276,7 @@ export function ChatPanel({
                     <Markdown>{msg.content}</Markdown>
                   </div>
                 ) : (
-                  <p>{msg.content}</p>
+                  <UserMessageText content={msg.content} />
                 )}
                 {imageUrl && (
                   <img
