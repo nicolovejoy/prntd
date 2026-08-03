@@ -29,7 +29,7 @@ import {
 } from "@/lib/design-publish";
 
 /**
- * Validate a back-placement image id before it can reach an order (#72).
+ * Validate a placement-source image id before it can reach an order (#72).
  * Allowed origins mirror the picker groups below: a design the buyer owns
  * (which covers the order's own thread on /preview and /order, where design
  * ownership is checked first) or a published + not-hidden Shop image.
@@ -38,13 +38,19 @@ import {
  * can't get a private image printed. On a /d buy `designId` is the SELLER's
  * design; the guard deliberately gives that no weight (see
  * canUseAsPlacementSource).
+ *
+ * Placement-agnostic on purpose (#138): the front is a picked image id too
+ * once the buy screen lets you change it, and it must clear exactly the same
+ * bar as the back — a front pin never grants reach a back pin didn't already
+ * have. The `placement` label only shapes the error message.
  */
-export async function assertUsableBackImage(
-  backImageId: string,
+export async function assertUsablePlacementImage(
+  imageId: string,
   designId: string,
-  userId: string
+  userId: string,
+  placement: "front" | "back" = "back"
 ): Promise<void> {
-  const image = await getDesignImageWithOwner(backImageId);
+  const image = await getDesignImageWithOwner(imageId);
   if (
     !image ||
     !canUseAsPlacementSource({
@@ -54,7 +60,9 @@ export async function assertUsableBackImage(
       userId,
     })
   ) {
-    throw new Error("Back image is not available");
+    throw new Error(
+      `${placement === "front" ? "Front" : "Back"} image is not available`
+    );
   }
 }
 

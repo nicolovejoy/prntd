@@ -23,7 +23,7 @@ import {
   resolveImagesByIds,
 } from "@/lib/design-images";
 import { canUseAsPlacementSource } from "@/lib/design-publish";
-import { assertUsableBackImage } from "@/lib/back-sources";
+import { assertUsablePlacementImage } from "@/lib/back-sources";
 import { estimateOrderCosts } from "@/lib/printful";
 import { stripe } from "@/lib/stripe";
 import { buildCartCheckoutSessionParams } from "@/lib/checkout";
@@ -78,7 +78,9 @@ async function currentUserId(): Promise<string | null> {
  *
  * Two entry shapes, one per surface:
  *  - `designId` (/preview): the front placement resolves from the design's
- *    pinned primary image (same as createCheckoutSession).
+ *    pinned primary image (same as createCheckoutSession), unless `front`
+ *    names an explicit pick (#138) — guarded the same way `back` is, so a
+ *    front pin grants no reach a back pin didn't already have.
  *  - `frontImageId` (/d, #146): the front placement is pinned to the EXACT
  *    image, mirroring buyPublishedDesign — the design's primary can change
  *    after the add, and the buyer must get the image they tapped, not the
@@ -101,6 +103,9 @@ export async function addToCart(params: {
   designId?: string;
   /** Exact image to pin as the front placement (/d path, #146). */
   frontImageId?: string;
+  /** Front pick on the designId path (/preview, #138). Ignored when
+   * `frontImageId` is set — that entry already names the front. */
+  front?: string;
   productId: string;
   size: string;
   color: string;
@@ -140,10 +145,16 @@ export async function addToCart(params: {
   } else {
     if (!params.designId) throw new Error("designId or frontImageId required");
     designId = params.designId;
-    const design = await db.query.design.findFirst({
-      where: eq(designTable.id, designId),
-    });
-    frontId = design?.primaryImageId ?? null;
+    if (params.front) {
+      // Explicit front pick (#138) — same choke-point guard as the back.
+      await assertUsablePlacementImage(params.front, designId, userId, "front");
+      frontId = params.front;
+    } else {
+      const design = await db.query.design.findFirst({
+        where: eq(designTable.id, designId),
+      });
+      frontId = design?.primaryImageId ?? null;
+    }
   }
 
   const backId = multiPlacementEnabled() && params.back ? params.back : null;
@@ -152,7 +163,7 @@ export async function addToCart(params: {
     // thread's images, the user's own designs, or published Shop images. On a
     // /d add designId is the SELLER's design; the guard deliberately gives
     // that no weight (see canUseAsPlacementSource).
-    await assertUsableBackImage(backId, designId, userId);
+    await assertUsablePlacementImage(backId, designId, userId);
   }
   const placements: Record<string, string> | null = frontId
     ? { front: frontId, ...(backId ? { back: backId } : {}) }

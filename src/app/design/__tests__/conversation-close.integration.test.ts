@@ -86,7 +86,7 @@ const {
   reopenConversation,
   getDesignChat,
 } = await import("@/app/design/actions");
-const { assertUsableBackImage } = await import("@/lib/back-sources");
+const { assertUsablePlacementImage } = await import("@/lib/back-sources");
 const ai = await import("@/lib/ai");
 const registry = await import("@/lib/generators/registry");
 const ideogramGen = registry.GENERATORS.ideogram.generate as Mock;
@@ -175,7 +175,7 @@ describe("closed conversation blocks the write actions", () => {
     // The closed thread's image still passes the placement-source guard
     // (owner path) — closed constrains the thread, never the images.
     await expect(
-      assertUsableBackImage(imageId, designId, "u1")
+      assertUsablePlacementImage(imageId, designId, "u1")
     ).resolves.toBeUndefined();
   });
 });
