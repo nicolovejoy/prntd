@@ -12,7 +12,7 @@ import { Button } from "@/components/ui";
 import { EditableNaming } from "./editable-naming";
 import { PublishedImageView } from "./published-image-view";
 import { PublishCta } from "./publish-cta";
-import { BuyPanel } from "./buy-panel";
+import { BuyHero } from "./buy-hero";
 import { StartFromImage } from "./start-from-image";
 import { ConversationImages } from "./conversation-images";
 
@@ -54,6 +54,53 @@ export default async function PublishedImagePage({
   const trail = breadcrumbTrail(`/d/${imageId}`, { from });
   const up = trail.length > 0 ? trail[trail.length - 1] : null;
 
+  // Title/naming/attribution block — identical for both branches below, so
+  // it's computed once rather than duplicated. Renders between the hero and
+  // the buy/remix CTA in both.
+  const metaBlock = (
+    <div className="space-y-1">
+      <EditableNaming
+        imageId={img.imageId}
+        title={img.title}
+        canEdit={isOwner && isPublished}
+      />
+      <p className="text-sm text-text-muted">by {img.designerName}</p>
+      {isOwner && !isPublished && (
+        <div className="flex flex-wrap items-center gap-3 pt-1">
+          <span className="text-sm text-text-faint">Not published</span>
+          <PublishCta imageId={img.imageId} imageUrl={img.imageUrl} />
+        </div>
+      )}
+      {isOwner && img.sourceDesignId && (
+        <p className="pt-1">
+          <Link
+            href={`/design?id=${img.sourceDesignId}`}
+            className="text-sm text-text-muted underline hover:no-underline"
+          >
+            View conversation
+          </Link>
+        </p>
+      )}
+      {img.forkChain.length > 0 && (
+        <p className="text-sm text-text-faint">
+          Forked from{" "}
+          {img.forkChain.map((link, i) => (
+            <span key={link.imageId}>
+              {i > 0 && " ← "}
+              <Link
+                href={`/d/${link.imageId}`}
+                className="underline hover:text-text-muted"
+              >
+                {link.title ?? "an earlier design"}
+              </Link>{" "}
+              by {link.designerName}
+            </span>
+          ))}
+        </p>
+      )}
+    </div>
+  );
+
   return (
     <div className="min-h-screen flex flex-col">
       <main className="flex-1 px-4 py-6 pb-28 md:py-8 md:pb-8">
@@ -66,100 +113,72 @@ export default async function PublishedImagePage({
             current={img.title ?? "Design"}
             className="hidden sm:block"
           />
-          <div className="relative">
-            {up && (
-              <Link
-                href={up.href}
-                aria-label={`Back to ${up.label}`}
-                className="sm:hidden absolute top-2 left-2 z-10 inline-flex items-center justify-center w-10 h-10 rounded-full bg-black/45 text-white backdrop-blur-sm"
-              >
-                <span aria-hidden>←</span>
-              </Link>
-            )}
-            <PublishedImageView
-              imageId={img.imageId}
-              imageUrl={img.imageUrl}
-              alt={img.title ?? "Design"}
-              initialBackgroundColor={img.backgroundColor}
-              canEdit={isOwner && isPublished}
-            />
-          </div>
-
-          <div className="space-y-1">
-            <EditableNaming
-              imageId={img.imageId}
-              title={img.title}
-              canEdit={isOwner && isPublished}
-            />
-            <p className="text-sm text-text-muted">by {img.designerName}</p>
-            {isOwner && !isPublished && (
-              <div className="flex flex-wrap items-center gap-3 pt-1">
-                <span className="text-sm text-text-faint">Not published</span>
-                <PublishCta imageId={img.imageId} imageUrl={img.imageUrl} />
-              </div>
-            )}
-            {isOwner && img.sourceDesignId && (
-              <p className="pt-1">
-                <Link
-                  href={`/design?id=${img.sourceDesignId}`}
-                  className="text-sm text-text-muted underline hover:no-underline"
-                >
-                  View conversation
-                </Link>
-              </p>
-            )}
-            {img.forkChain.length > 0 && (
-              <p className="text-sm text-text-faint">
-                Forked from{" "}
-                {img.forkChain.map((link, i) => (
-                  <span key={link.imageId}>
-                    {i > 0 && " ← "}
-                    <Link
-                      href={`/d/${link.imageId}`}
-                      className="underline hover:text-text-muted"
-                    >
-                      {link.title ?? "an earlier design"}
-                    </Link>{" "}
-                    by {link.designerName}
-                  </span>
-                ))}
-              </p>
-            )}
-          </div>
 
           {/* #128: two peer exits — Order (expands the picker stack in
-              place) and the remix action, rendered by BuyPanel so they sit
-              together under the title block.
+              place, and swaps the hero to the shirt-mockup preview, #135
+              slice 1) and the remix action.
 
               Unpublished images can't go through the buy-existing path
               (canBuyPublishedImage has no owner shortcut), so for the owner's
               private work Order links out to /preview, which still owns
               ordering your own designs (#136 decision 4 — converging the two
-              pipelines is a follow-up). */}
+              pipelines is a follow-up); the hero there has no mockup-preview
+              swap to share with, so it stays the plain PublishedImageView. */}
           {!isPublished ? (
-            <div className="flex flex-wrap items-center gap-3">
-              {img.sourceDesignId && (
-                <Link href={`/preview?id=${img.sourceDesignId}`}>
-                  <Button>Order</Button>
-                </Link>
-              )}
-              <StartFromImage imageId={img.imageId} />
-            </div>
+            <>
+              <div className="relative">
+                {up && (
+                  <Link
+                    href={up.href}
+                    aria-label={`Back to ${up.label}`}
+                    className="sm:hidden absolute top-2 left-2 z-10 inline-flex items-center justify-center w-10 h-10 rounded-full bg-black/45 text-white backdrop-blur-sm"
+                  >
+                    <span aria-hidden>←</span>
+                  </Link>
+                )}
+                <PublishedImageView
+                  imageId={img.imageId}
+                  imageUrl={img.imageUrl}
+                  alt={img.title ?? "Design"}
+                  initialBackgroundColor={img.backgroundColor}
+                  canEdit={false}
+                />
+              </div>
+
+              {metaBlock}
+
+              <div className="flex flex-wrap items-center gap-3">
+                {img.sourceDesignId && (
+                  <Link href={`/preview?id=${img.sourceDesignId}`}>
+                    <Button>Order</Button>
+                  </Link>
+                )}
+                <StartFromImage imageId={img.imageId} />
+              </div>
+            </>
           ) : (
-          <BuyPanel
-            imageId={img.imageId}
-            isLoggedIn={isLoggedIn}
-            preferredColor={img.backgroundColor}
-            remembered={remembered}
-            // Back affordance is signed-in only (back selection would be lost
-            // through the sign-in redirect anyway) and flag-gated; the server
-            // action re-checks both.
-            backEnabled={isLoggedIn && multiPlacementEnabled()}
-            // Add to cart mirrors /preview's gating: flag + size picked, no
-            // auth gate (guests have carts; checkout gates sign-in). #146.
-            cartEnabled={cartEnabled()}
-            startAction={<StartFromImage imageId={img.imageId} />}
-          />
+            <BuyHero
+              imageId={img.imageId}
+              imageUrl={img.imageUrl}
+              alt={img.title ?? "Design"}
+              initialBackgroundColor={img.backgroundColor}
+              canEdit={isOwner}
+              backHref={up?.href}
+              backLabel={up?.label}
+              isLoggedIn={isLoggedIn}
+              remembered={remembered}
+              // Back affordance is signed-in only (back selection would be
+              // lost through the sign-in redirect anyway) and flag-gated;
+              // the server action re-checks both.
+              backEnabled={isLoggedIn && multiPlacementEnabled()}
+              // Add to cart mirrors /preview's gating: flag + size picked,
+              // no auth gate (guests have carts; checkout gates sign-in,
+              // #146).
+              cartEnabled={cartEnabled()}
+              startAction={<StartFromImage imageId={img.imageId} />}
+            >
+              {metaBlock}
+            </BuyHero>
           )}
 
           {siblings && img.sourceDesignId && (
