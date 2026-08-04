@@ -39,7 +39,16 @@ async function main() {
     const dids = designs.rows.map((r) => r.id as string);
     for (const did of dids) {
       await c.execute({ sql: "DELETE FROM cart_item WHERE design_id = ?", args: [did] });
-      await c.execute({ sql: "DELETE FROM design_image WHERE design_id = ?", args: [did] });
+      await c.execute({
+        sql: "DELETE FROM listing WHERE image_id IN (SELECT image_id FROM conversation_image WHERE design_id = ?)",
+        args: [did],
+      });
+      await c.execute({
+        sql: "DELETE FROM image WHERE id IN (SELECT image_id FROM conversation_image WHERE design_id = ?) OR source_design_id = ?",
+        args: [did, did],
+      });
+      await c.execute({ sql: "DELETE FROM conversation_image WHERE design_id = ?", args: [did] });
+      await c.execute({ sql: "DELETE FROM placement_render WHERE design_id = ?", args: [did] });
       await c.execute({ sql: "DELETE FROM design WHERE id = ?", args: [did] });
     }
     await c.execute({ sql: "DELETE FROM session WHERE user_id = ?", args: [id] });
@@ -49,7 +58,8 @@ async function main() {
 
   // Any stray seeded designs not tied to a surviving user (e.g. anon-owned
   // designs the cart spec seeds). Drop dependents first — cart_item + order
-  // FK to design, and design_image too — before the design rows themselves.
+  // FK to design, and the Model B image rows too — before the design rows
+  // themselves.
   await c.execute({
     sql: "DELETE FROM cart_item WHERE design_id LIKE 'e2e-%'",
     args: [],
@@ -58,8 +68,20 @@ async function main() {
     sql: "DELETE FROM \"order\" WHERE design_id LIKE 'e2e-%'",
     args: [],
   });
+  await c.execute({
+    sql: "DELETE FROM listing WHERE image_id IN (SELECT image_id FROM conversation_image WHERE design_id LIKE 'e2e-%')",
+    args: [],
+  });
   const orphanImgs = await c.execute({
-    sql: "DELETE FROM design_image WHERE design_id LIKE 'e2e-%'",
+    sql: "DELETE FROM image WHERE id IN (SELECT image_id FROM conversation_image WHERE design_id LIKE 'e2e-%') OR source_design_id LIKE 'e2e-%'",
+    args: [],
+  });
+  await c.execute({
+    sql: "DELETE FROM conversation_image WHERE design_id LIKE 'e2e-%'",
+    args: [],
+  });
+  await c.execute({
+    sql: "DELETE FROM placement_render WHERE design_id LIKE 'e2e-%'",
     args: [],
   });
   const orphanDesigns = await c.execute({
@@ -67,7 +89,7 @@ async function main() {
     args: [],
   });
   console.log(
-    `Cleaned ${ids.length} user(s); removed ${orphanImgs.rowsAffected} stray design_image + ${orphanDesigns.rowsAffected} stray design rows.`
+    `Cleaned ${ids.length} user(s); removed ${orphanImgs.rowsAffected} stray image + ${orphanDesigns.rowsAffected} stray design rows.`
   );
 }
 

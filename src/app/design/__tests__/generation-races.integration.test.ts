@@ -177,13 +177,6 @@ describe("generateDesign — id-keyed R2 objects", () => {
     expect(generated.imageUrl).toBe(`https://r2/images/${res.imageId}.png`);
     // Provenance threaded to the pre-generation latest image, not re-read.
     expect(generated.parentImageId).toBe(seedImg);
-    // Writer cutover: no design_image row for the new generation.
-    expect(
-      await testDb
-        .select()
-        .from(schema.designImage)
-        .where(eq(schema.designImage.id, res.imageId))
-    ).toHaveLength(0);
 
     const msgs = await chatMessages(designId);
     expect(msgs.map((m) => m.role).sort()).toEqual(["assistant", "user"]);

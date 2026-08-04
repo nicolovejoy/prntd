@@ -2,10 +2,9 @@
  * Model B slice-4 writer cutover (docs/model-b-migration-plan.md). Every write
  * path lands ONLY the new-table shapes — `image` + `conversation_image` for
  * source artifacts, `placement_render` for renders, `listing` for publish
- * state. `design_image` receives no inserts or updates from any path (deletes
- * of legacy rows are covered in delete-design.integration.test.ts). Runs
- * against a real in-memory libSQL (#28), driving the server actions with db +
- * auth mocked so the batches actually run.
+ * state (`design_image` itself was dropped in slice 5). Runs against a real
+ * in-memory libSQL (#28), driving the server actions with db + auth mocked so
+ * the batches actually run.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { eq } from "drizzle-orm";
@@ -71,16 +70,12 @@ async function seedDesign(): Promise<{ userId: string; designId: string }> {
   return { userId, designId: design.id };
 }
 
-async function designImageRows() {
-  return testDb.select().from(schema.designImage);
-}
-
 beforeEach(async () => {
   testDb = await createTestDb();
 });
 
 describe("insertDesignImage writer cutover", () => {
-  it("source generation lands image + output link only, no design_image row", async () => {
+  it("source generation lands image + output link only", async () => {
     const { designId } = await seedDesign();
     currentUserId = "owner-1";
 
@@ -111,14 +106,13 @@ describe("insertDesignImage writer cutover", () => {
     expect(links[0].role).toBe("output");
     expect(links[0].designId).toBe(designId);
 
-    // Not a placement render, and — the cutover — no design_image row.
+    // Not a placement render.
     expect(
       await testDb
         .select()
         .from(schema.placementRender)
         .where(eq(schema.placementRender.id, id))
     ).toHaveLength(0);
-    expect(await designImageRows()).toHaveLength(0);
   });
 
   it("honors a pre-minted id (the id-keyed R2 upload path)", async () => {
@@ -169,14 +163,13 @@ describe("insertDesignImage writer cutover", () => {
     expect(render.placementId).toBe("back");
     expect(render.sourceImageId).toBe(src);
 
-    // A render is not an artifact — no image row, and no design_image row.
+    // A render is not an artifact — no image row.
     expect(
       await testDb
         .select()
         .from(schema.image)
         .where(eq(schema.image.id, renderId))
     ).toHaveLength(0);
-    expect(await designImageRows()).toHaveLength(0);
   });
 });
 
@@ -206,7 +199,6 @@ describe("publish-family writer cutover", () => {
     expect(listing.backgroundColor).toBe("Black");
     expect(listing.isHidden).toBe(false);
     expect(listing.feedRank).toBeNull();
-    expect(await designImageRows()).toHaveLength(0);
   });
 
   it("publishImage auto-proposes a title when none supplied", async () => {
@@ -244,7 +236,6 @@ describe("publish-family writer cutover", () => {
       .where(eq(schema.listing.imageId, imageId));
     expect(listing.title).toBe("New");
     expect(listing.backgroundColor).toBe("White");
-    expect(await designImageRows()).toHaveLength(0);
   });
 
   it("updatePublishedNaming refuses on an unpublished image", async () => {
@@ -335,6 +326,5 @@ describe("deleteDesign clears Model B rows", () => {
     expect(await testDb.select().from(schema.conversationImage)).toHaveLength(0);
     expect(await testDb.select().from(schema.placementRender)).toHaveLength(0);
     expect(await testDb.select().from(schema.listing)).toHaveLength(0);
-    expect(await testDb.select().from(schema.designImage)).toHaveLength(0);
   });
 });

@@ -57,10 +57,17 @@ const IMAGE_URL = "https://placehold.co/1024x1024/png";
   });
 
   await c.execute({
-    sql: `INSERT INTO design_image (id, design_id, aspect_ratio, image_url, is_approved, is_hidden, created_at)
-          VALUES (?, ?, '1:1', ?, 0, 0, unixepoch())
+    sql: `INSERT INTO image (id, owner_id, r2_key, image_url, aspect_ratio, generation_cost, source_design_id, created_at)
+          VALUES (?, ?, NULL, ?, '1:1', 0, ?, unixepoch())
           ON CONFLICT(id) DO UPDATE SET image_url = excluded.image_url`,
-    args: [IMAGE_ID, DESIGN_ID, IMAGE_URL],
+    args: [IMAGE_ID, USER_ID, IMAGE_URL, DESIGN_ID],
+  });
+
+  await c.execute({
+    sql: `INSERT INTO conversation_image (id, design_id, image_id, role, created_at)
+          VALUES (?, ?, ?, 'output', unixepoch())
+          ON CONFLICT(design_id, image_id, role) DO NOTHING`,
+    args: [`${IMAGE_ID}-link`, DESIGN_ID, IMAGE_ID],
   });
 
   console.log("seeded dev DB:");

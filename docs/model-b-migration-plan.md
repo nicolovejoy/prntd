@@ -370,6 +370,61 @@ the slice-4 writer cutover.
 - Revert: restore from the backup branch; this is the one non-code-revertable
   slice, hence the waiting period.
 
+**Slice 5 status (built 2026-08-03).** Done as scoped, with these notes:
+
+- The migration is `0009` (the plan's numbering predated slices 3/4 taking
+  `0007`/`0008`): drops `design_image` and `design.forked_from_image_id` /
+  `design.original_designer_id`. `design.primary_image_id` and
+  `design.generation_count`/`generation_cost` are untouched — slice 4 kept
+  the counters as the display-only "N generations" figure, so per the plan
+  they wait for a later cleanup.
+- The one live read the plan didn't call out: `insertDesignImage` and
+  `generateDesign` read `design.forkedFromImageId`/`originalDesignerId` on
+  every write to stamp `seedImageId`/`originalDesignerId` onto each new
+  `image` row for a seeded thread (slice 3's dual-write window). Dropping the
+  columns out from under that would have silently stopped attribution
+  propagation for fresh-start threads — not a build break, since Drizzle just
+  stops exposing the field, so nothing would have caught it. Fixed by adding
+  `getConversationSeedProvenance(designId)` (design-images.ts): it looks up
+  the thread's `conversation_image(role=seed)` link directly and reads the
+  seed image's own `originalDesignerId`/`ownerId` — the same data, sourced
+  from the image graph instead of the design-row mirror.
+  `startConversationFromImage` no longer writes the mirror columns at all;
+  the seed link it already inserts is sufficient.
+- Test factories: `makeSourceImage` (src/lib/__tests__/factories.ts)
+  dual-wrote a legacy `design_image` row alongside the Model B rows
+  specifically so delete-path tests stayed honest about legacy residue —
+  that's gone, so it writes only `image`/`conversation_image`/`listing` now,
+  matching every live write path since slice 4. `scripts/backfill-model-b.ts`
+  and its dedicated test (`model-b-backfill.integration.test.ts`) are
+  deleted — the slice-1 backfill already ran and was verified on prod; there
+  is no design_image left to backfill from. The `image-readers` test file's
+  "legacy rows promoted by the backfill" cases (the pre-Model-B shape) went
+  with it; the reader coverage that only lived there
+  (`resolveImagesByIds`/`resolveOrderImageUrls`/
+  `resolveDesignDisplayImageUrls`/`getDesignPlacementRenders`) was re-added
+  against dual-written (Model-B-native) rows in the same file so nothing lost
+  coverage.
+- `e2e/helpers/db.ts` (`cleanupDesigns`) and `scripts/seed-dev-db.ts` are
+  live tooling (CI e2e cleanup and `npm run db:seed`), so both were repointed
+  from `design_image` inserts/deletes to the `image` + `conversation_image`
+  shape. `scripts/cleanup-e2e-leftovers.ts` (an ops script Nico runs by hand,
+  not wired into CI) got the same treatment since it wasn't otherwise broken.
+- **Deliberately left targeting the dropped table**: `scripts/
+  migrate-chat-history-to-table.ts` (already broken pre-this-PR — it reads
+  `design.chat_history`, dropped back in May), `scripts/backfill-legacy-
+  alpha.ts` and `scripts/backfill-primary-image.ts` (one-off backfills that
+  already ran and were verified; #153's alpha backfill is closed),
+  `scripts/recover-designs-from-r2.ts` (disaster-recovery, last needed
+  2026-05-27), `scripts/check-design.ts` and `scripts/check-multi-generator-
+  schema.ts` (ad hoc debug/verification tools, the latter for a feature
+  already removed 2026-07-19). All of `scripts/**` is excluded from
+  tsconfig and lint, so none of this breaks the build; if any of these are
+  ever run again post-drop they'll need updating first — same as the
+  chat-history script already needed before this PR.
+- Migration not yet applied to prod or preview (see the PR body for the
+  exact commands and the standing CI-preview-migration caveat since #108).
+
 ## Risky spots (called out)
 
 1. **R2 key ownership.** Designs own keys today; forkImage copies objects.

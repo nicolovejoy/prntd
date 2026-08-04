@@ -53,9 +53,8 @@ const PLACEHOLDER_IMAGE = "https://placehold.co/1024x1024/png";
 /**
  * Seed a draft design (with a primary image) owned by `userId`.
  *
- * Writes the Model B shape production writes since the slice-4 cutover:
- * image + conversation_image(role=output) with a shared id (no design_image —
- * that table only holds pre-cutover legacy rows).
+ * Writes the Model B shape production writes: image + conversation_image
+ * (role=output) with a shared id.
  */
 export async function seedDesign(userId: string, key: string): Promise<string> {
   const designId = `e2e-${key}`;
@@ -93,7 +92,7 @@ export async function cleanupDesigns(designIds: string[]): Promise<void> {
   });
   // Model B rows: images key off the design's output links (or
   // source_design_id), listings off the image ids, links + renders off
-  // design_id. design_image is swept last for pre-cutover residue.
+  // design_id.
   await c.execute({
     sql: `DELETE FROM listing WHERE image_id IN (SELECT image_id FROM conversation_image WHERE design_id IN (${placeholders}))`,
     args: designIds,
@@ -109,10 +108,6 @@ export async function cleanupDesigns(designIds: string[]): Promise<void> {
   });
   await c.execute({
     sql: `DELETE FROM placement_render WHERE design_id IN (${placeholders})`,
-    args: designIds,
-  });
-  await c.execute({
-    sql: `DELETE FROM design_image WHERE design_id IN (${placeholders})`,
     args: designIds,
   });
   await c.execute({
