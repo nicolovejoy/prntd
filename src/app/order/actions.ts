@@ -17,8 +17,11 @@ import {
   multiPlacementEnabled,
   DEFAULT_BLANK_ID,
 } from "@/lib/blanks";
-import { getDesignDisplayImageUrl } from "@/lib/design-images";
-import { assertUsableBackImage } from "@/lib/back-sources";
+import {
+  getDesignDisplayImageUrl,
+  resolveImagesByIds,
+} from "@/lib/design-images";
+import { assertUsablePlacementImage } from "@/lib/back-sources";
 
 export async function calculatePrice(
   designId: string,
@@ -40,6 +43,12 @@ export async function createCheckoutSession(params: {
   size: string;
   color: string;
   productId?: string;
+  /** Source image id to print on the FRONT (#138). Optional: the front has
+   * always resolved from the design's primary image, and still does when this
+   * is absent, so existing links and the Stripe cancel round-trip are
+   * unchanged. Guarded exactly like `back` — a front pin grants no reach a
+   * back pin didn't already have. */
+  front?: string;
   /** Source design_image id to print on the back (#25). Honored only when
    * MULTI_PLACEMENT_ENABLED; ignored otherwise (defense in depth). */
   back?: string;
@@ -66,7 +75,24 @@ export async function createCheckoutSession(params: {
   // from charging the upcharge / pinning a back while the feature is dark.
   const backImageId = multiPlacementEnabled() ? params.back ?? null : null;
   if (backImageId) {
-    await assertUsableBackImage(backImageId, params.designId, session.user.id);
+    await assertUsablePlacementImage(
+      backImageId,
+      params.designId,
+      session.user.id,
+      "back"
+    );
+  }
+  // Front pin (#138). Unlike `back` this is NOT flag-gated: the front is a
+  // required placement that has always been pinned, so choosing which image
+  // fills it is not a multi-placement feature.
+  const frontImageId = params.front ?? null;
+  if (frontImageId) {
+    await assertUsablePlacementImage(
+      frontImageId,
+      params.designId,
+      session.user.id,
+      "front"
+    );
   }
   const pricing = await calculatePrice(
     params.designId,
@@ -75,13 +101,20 @@ export async function createCheckoutSession(params: {
     !!backImageId
   );
 
-  // Pin the order to the design's current primary image so post-order
-  // regenerations don't mutate what this customer's records show.
-  // primary_image_id is the source of truth post Step 5; falls back to
-  // null on any design without a primary set (rare — only designs that
-  // never produced a source image).
-  const pinnedImageId = found.primaryImageId ?? null;
-  const checkoutImageUrl = await getDesignDisplayImageUrl(params.designId);
+  // Pin the order to the front image so post-order regenerations don't mutate
+  // what this customer's records show: the buyer's explicit pick (#138) when
+  // there is one, otherwise the design's current primary image
+  // (primary_image_id is the source of truth post Step 5). Falls back to null
+  // on a design with neither — rare, only designs that never produced a
+  // source image.
+  const pinnedImageId = frontImageId ?? found.primaryImageId ?? null;
+  // Stripe line thumbnail follows the pin, not the design's display image —
+  // they differ the moment the buyer picks a non-primary front (mirrors the
+  // cart-thumbnail fix in #146).
+  const checkoutImageUrl = frontImageId
+    ? (await resolveImagesByIds([frontImageId])).get(frontImageId)?.imageUrl ??
+      null
+    : await getDesignDisplayImageUrl(params.designId);
 
   const placements: Record<string, string> | null = pinnedImageId
     ? { front: pinnedImageId, ...(backImageId ? { back: backImageId } : {}) }
@@ -96,7 +129,7 @@ export async function createCheckoutSession(params: {
     itemPrice: pricing.total,
     placements,
     checkoutImageUrl,
-    cancelUrl: `${process.env.NEXT_PUBLIC_APP_URL}/preview?id=${params.designId}&size=${encodeURIComponent(params.size)}&color=${encodeURIComponent(params.color)}&product=${resolvedProductId}${backImageId ? `&back=${backImageId}` : ""}`,
+    cancelUrl: `${process.env.NEXT_PUBLIC_APP_URL}/preview?id=${params.designId}&size=${encodeURIComponent(params.size)}&color=${encodeURIComponent(params.color)}&product=${resolvedProductId}${frontImageId ? `&front=${frontImageId}` : ""}${backImageId ? `&back=${backImageId}` : ""}`,
   });
 }
 

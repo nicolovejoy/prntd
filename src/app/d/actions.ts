@@ -20,7 +20,7 @@ import { createStripeCheckoutForOrder } from "@/app/order/actions";
 import { renderAndCacheMockup } from "@/lib/mockup-render";
 import { getPublishedFeed } from "@/lib/discover-feed";
 import {
-  assertUsableBackImage,
+  assertUsablePlacementImage,
   getBuyPageBackSourceGroups,
   type BackSourceGroup,
 } from "@/lib/back-sources";
@@ -362,7 +362,7 @@ export async function buyPublishedDesign(params: {
     ? params.backImageId ?? null
     : null;
   if (backImageId) {
-    await assertUsableBackImage(backImageId, image.designId, session.user.id);
+    await assertUsablePlacementImage(backImageId, image.designId, session.user.id);
   }
 
   const resolvedProductId = params.productId ?? DEFAULT_BLANK_ID;

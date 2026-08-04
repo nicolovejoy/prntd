@@ -2,7 +2,7 @@
  * Back-design source groups + choke-point guard (#72), against a real
  * in-memory libSQL (the #28 pattern). Proves the picker's reach and the
  * checkout guard agree: everything the groups return passes
- * assertUsableBackImage; a stranger's unpublished or hidden image does not.
+ * assertUsablePlacementImage; a stranger's unpublished or hidden image does not.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { eq } from "drizzle-orm";
@@ -24,7 +24,7 @@ vi.mock("@/lib/db", () => ({
 const {
   getBackSourceGroups,
   getBuyPageBackSourceGroups,
-  assertUsableBackImage,
+  assertUsablePlacementImage,
 } = await import("@/lib/back-sources");
 const { getDesignImageById } = await import("@/lib/design-images");
 
@@ -47,7 +47,7 @@ async function makeDesignWithImage(
   return { designId: design.id, imageId };
 }
 
-describe("getBackSourceGroups / assertUsableBackImage (#72)", () => {
+describe("getBackSourceGroups / assertUsablePlacementImage (#72)", () => {
   beforeEach(async () => {
     testDb = await createTestDb();
   });
@@ -149,7 +149,7 @@ describe("getBackSourceGroups / assertUsableBackImage (#72)", () => {
     for (const g of groups) {
       for (const img of g.images) {
         await expect(
-          assertUsableBackImage(img.id, ids.d1, "nico")
+          assertUsablePlacementImage(img.id, ids.d1, "nico")
         ).resolves.toBeUndefined();
       }
     }
@@ -158,28 +158,28 @@ describe("getBackSourceGroups / assertUsableBackImage (#72)", () => {
   it("rejects a stranger's unpublished image at the choke point", async () => {
     const ids = await seed();
     await expect(
-      assertUsableBackImage(ids.priv.imageId, ids.d1, "nico")
+      assertUsablePlacementImage(ids.priv.imageId, ids.d1, "nico")
     ).rejects.toThrow("Back image is not available");
   });
 
   it("rejects a hidden image at the choke point", async () => {
     const ids = await seed();
     await expect(
-      assertUsableBackImage(ids.hidden.imageId, ids.d1, "nico")
+      assertUsablePlacementImage(ids.hidden.imageId, ids.d1, "nico")
     ).rejects.toThrow("Back image is not available");
   });
 
   it("rejects an unknown image id", async () => {
     const ids = await seed();
     await expect(
-      assertUsableBackImage("no-such-image", ids.d1, "nico")
+      assertUsablePlacementImage("no-such-image", ids.d1, "nico")
     ).rejects.toThrow("Back image is not available");
   });
 
   it("allows the stranger's published image cross-user (Shop path)", async () => {
     const ids = await seed();
     await expect(
-      assertUsableBackImage(ids.pub.imageId, ids.d1, "nico")
+      assertUsablePlacementImage(ids.pub.imageId, ids.d1, "nico")
     ).resolves.toBeUndefined();
   });
 
@@ -190,14 +190,14 @@ describe("getBackSourceGroups / assertUsableBackImage (#72)", () => {
     // grants nothing (canUseAsPlacementSource tightening).
     const ids = await seed();
     await expect(
-      assertUsableBackImage(ids.s1, ids.d1, "stranger")
+      assertUsablePlacementImage(ids.s1, ids.d1, "stranger")
     ).rejects.toThrow("Back image is not available");
   });
 
   it("allows the seller's PUBLISHED thread image for a cross-owner buyer", async () => {
     const ids = await seed();
     await expect(
-      assertUsableBackImage(ids.s2, ids.d1, "stranger")
+      assertUsablePlacementImage(ids.s2, ids.d1, "stranger")
     ).resolves.toBeUndefined();
   });
 
@@ -303,7 +303,7 @@ describe("getBuyPageBackSourceGroups (/d back picker)", () => {
     for (const g of groups) {
       for (const img of g.images) {
         await expect(
-          assertUsableBackImage(img.id, ids.soldDesignId, "buyer")
+          assertUsablePlacementImage(img.id, ids.soldDesignId, "buyer")
         ).resolves.toBeUndefined();
       }
     }
