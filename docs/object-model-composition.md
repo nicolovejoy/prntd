@@ -105,8 +105,44 @@ Q5's attribution wrinkle a real home.
 1. Does B match where this is going — a shop that sells *shirts* (composed,
    possibly two-sided, seller-defined) rather than a gallery of art you can put
    on a shirt?
+   **ANSWERED 2026-08-04: yes. Direction B is the target.** The Shop sells
+   shirts, not art-you-can-put-on-a-shirt. Composition becomes first-class.
+   This settles the destination; it does not settle the path, the slicing, or
+   the timing.
+
 2. If yes, is the organizer `product` the thing to generalize, or do the PRNTD
    Shop and organizer storefronts stay separate products long-term?
+   **OPEN — deferred to the next session, deliberately.** Nico: "I'm not clear
+   on what exactly this entails." Correct instinct: this question is really
+   "what does the migration cost and what breaks," and it should not be
+   answered before that is laid out. Next session's job is to make it
+   concrete before asking again — see below.
+
+## Next session: make B concrete before slicing it
+
+Nico has committed to the destination, not to a plan. Do not open a migration
+PR. Produce the thing that lets him answer question 2 with real information:
+
+- **What the generalized object looks like.** `product` today is
+  `ownerId + storeId? + designId + blankId + placements + price + status +
+  position`. Under B: what does it become when `designId` is dropped, `storeId`
+  is nullable-for-PRNTD-owned, and a `listing` is expressible as one? Does
+  `listing` survive as a table, become a view over composition, or get
+  absorbed?
+- **What attribution becomes.** Today "Designed by X" derives from
+  `order.designId`. Under B it derives from the composition's contributor set
+  (the distinct owners of its placement images). Name the display rule for the
+  one-contributor case, the two-contributor case, and the seller-is-not-a-
+  contributor case.
+- **What the migration actually touches.** 148 images, 52 designs, ~63 orders,
+  13 published listings as of the Model B slice-5 verification. Which existing
+  rows become compositions, and which reads change. Model B's five-slice shape
+  (additive + dual-write → read swap → lifecycle → writer cutover → drops) is
+  the proven pattern here and should be the default shape.
+- **What it costs to NOT do it yet.** Specifically: does holding #138 slice 3
+  block anything Nico actually wants this month?
+
+Then re-ask question 2 with the answer in hand.
 
 ## Status of #138's six questions
 
