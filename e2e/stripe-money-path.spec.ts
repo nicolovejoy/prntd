@@ -27,12 +27,19 @@ import {
   cleanupUser,
   orderForStripeSession,
   ledgerTypesForOrder,
+  orderItemsForOrder,
+  primaryImageIdForDesign,
 } from "./helpers/db";
 import { waitForSessionCookie } from "./helpers/session";
 import { signUpFreshAccount } from "./helpers/auth";
 
 const PRODUCT = "bella-canvas-3001";
 const TEST_CARD = "4242424242424242";
+// Distinct per seeded design so each order line's placement pin is
+// independently verifiable (a shared placeholder would make "different
+// designs, different pins" untestable).
+const IMAGE_A = "https://placehold.co/1024x1024/png?text=A";
+const IMAGE_B = "https://placehold.co/1024x1024/png?text=B";
 
 /** Fill the first visible candidate. Stripe owns the checkout DOM and changes
  * it without notice, so every field is resolved through a candidate list. */
@@ -177,6 +184,17 @@ test.describe("stripe money path", { tag: "@stripe" }, () => {
     "needs a test-mode STRIPE_SECRET_KEY (sk_test_…) in .env.local"
   );
 
+  /** Add a design to the signed-in buyer's cart from /preview — same UI path
+   * a real two-item purchase goes through (not a DB-seeded cart_item row). */
+  async function addToCartFromPreviewPage(page: Page, designId: string) {
+    await page.goto(
+      `/preview?id=${designId}&product=${PRODUCT}&color=Black&size=M`
+    );
+    await expect(page.getByText("Total")).toBeVisible({ timeout: 30_000 });
+    await page.getByRole("button", { name: "Add to cart" }).click();
+    await page.waitForURL(/\/cart/, { timeout: 30_000 });
+  }
+
   test("hosted checkout → signed webhook → submitted order + sale/fee ledger", async ({
     page,
   }, testInfo) => {
@@ -192,18 +210,24 @@ test.describe("stripe money path", { tag: "@stripe" }, () => {
       await signUpFreshAccount(page, key);
       const cookie = await waitForSessionCookie(page);
       userId = await userIdForSessionCookie(cookie);
-      seeded.push(await seedDesign(userId, `${key}-pay`));
+      // Two DIFFERENT designs, cart-checked-out together — a real prod 2-item
+      // order (two designs, two blanks/colors) exposed that multi-item
+      // orders were under-covered; this is the strongest signal for it
+      // because it runs the real Stripe webhook, not a mock.
+      seeded.push(await seedDesign(userId, `${key}-pay-a`, IMAGE_A));
+      seeded.push(await seedDesign(userId, `${key}-pay-b`, IMAGE_B));
 
-      // URL params pre-select product/color/size; buy is gated on size only.
-      await page.goto(
-        `/preview?id=${seeded[0]}&product=${PRODUCT}&color=Black&size=M`
-      );
-      // The CTA label includes the total only once pricing has loaded, so
-      // matching on "Order — $" also waits for the page to be fully wired.
+      await addToCartFromPreviewPage(page, seeded[0]);
+      await expect(page.getByTestId("cart-line-item")).toHaveCount(1, {
+        timeout: 30_000,
+      });
+      await addToCartFromPreviewPage(page, seeded[1]);
+      await expect(page.getByTestId("cart-line-item")).toHaveCount(2, {
+        timeout: 30_000,
+      });
+
       await page
-        .getByRole("button", { name: /^Order — \$/ })
-        .filter({ visible: true })
-        .first()
+        .getByRole("button", { name: /^Checkout/ })
         .click({ timeout: 30_000 });
 
       await page.waitForURL(/checkout\.stripe\.com/, { timeout: 60_000 });
@@ -237,6 +261,27 @@ test.describe("stripe money path", { tag: "@stripe" }, () => {
       expect(types).toContain("sale");
       expect(types).toContain("stripe_fee");
       expect(types).not.toContain("cogs");
+
+      // The multi-item shape itself: one order_item row per cart line, each
+      // still pointed at its own design, and each front placement pinned to
+      // that design's own image — not the head line's image bleeding across
+      // both (the real-world bug this coverage targets).
+      const items = await orderItemsForOrder(order!.id);
+      expect(items).toHaveLength(2);
+      expect(items.map((i) => i.designId).sort()).toEqual([...seeded].sort());
+
+      const expectedPins = new Map<string, string | null>();
+      for (const designId of seeded) {
+        expectedPins.set(designId, await primaryImageIdForDesign(designId));
+      }
+      for (const item of items) {
+        expect(item.placements?.front).toBeTruthy();
+        expect(item.placements?.front).toBe(expectedPins.get(item.designId));
+      }
+      // The two lines must pin two DIFFERENT images (the whole point of two
+      // different designs) — not the same image id twice.
+      const pins = items.map((i) => i.placements?.front);
+      expect(new Set(pins).size).toBe(2);
     } finally {
       // Orders first (FK to design + user), then designs, then the account.
       await cleanupOrdersForDesigns(seeded);
