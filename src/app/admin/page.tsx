@@ -388,13 +388,21 @@ export default function AdminPage() {
                           />
                         </div>
                       )}
+                      {order.lines.length > 1 && (
+                        <span
+                          className="mt-1 inline-block text-[10px] px-1.5 py-0.5 rounded bg-surface-raised text-text-muted"
+                          title={`${order.lines.length} items — open the order to see each design`}
+                        >
+                          ×{order.lines.length} items
+                        </span>
+                      )}
                     </td>
                     <td className="py-3 pr-4 text-xs">
                       {firstLine ? `${firstLine.size} / ${firstLine.color}` : "—"}
                       {order.lines.length > 1 && (
                         <span className="text-text-faint">
                           {" "}
-                          +{order.lines.length - 1}
+                          +{order.lines.length - 1} more
                         </span>
                       )}
                     </td>

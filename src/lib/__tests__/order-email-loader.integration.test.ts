@@ -74,7 +74,7 @@ describe("createDefaultOrderEmailDeps.loadOrderForEmail", () => {
     expect(payload?.totalPrice).toBe(24.12);
     expect(payload?.discountCode).toBe("HALF");
     expect(payload?.displayName).toBe("Raccoon Café");
-    expect(payload?.lines).toEqual([
+    expect(payload?.lines).toMatchObject([
       { productName: "Classic Tee", size: "M", color: "Black", quantity: 1 },
     ]);
   });
@@ -95,7 +95,7 @@ describe("createDefaultOrderEmailDeps.loadOrderForEmail", () => {
 
     const payload = await deps.loadOrderForEmail(order.id);
 
-    expect(payload?.lines).toEqual([
+    expect(payload?.lines).toMatchObject([
       { productName: "Classic Tee", size: "M", color: "Black", quantity: 1 },
       { productName: "Classic Tee", size: "L", color: "White", quantity: 2 },
     ]);

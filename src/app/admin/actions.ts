@@ -38,6 +38,7 @@ import {
   getDesignImageById,
 } from "@/lib/design-images";
 import { designerAttribution } from "@/lib/order-attribution";
+import { resolveOrderLineIdentities } from "@/lib/order-line-identity";
 import { isAdminEmail } from "@/lib/admin";
 
 // Second user join (the design's owner) needs an alias to coexist with the
@@ -576,7 +577,22 @@ export async function getOrderDetail(orderId: string) {
     where: eq(orderItemTable.orderId, orderId),
     orderBy: (fields, { asc }) => [asc(fields.createdAt)],
   });
-  const lines = resolveOrderLines(items);
+  const baseLines = resolveOrderLines(items);
+
+  // Per-line identity: a cart order's lines can each carry a different
+  // design, so thumbnail + attribution are resolved per line rather than
+  // once off the order header.
+  const identities = await resolveOrderLineIdentities(db, baseLines);
+  const lines = baseLines.map((line, i) => ({
+    ...line,
+    imageUrl: identities[i]?.imageUrl ?? null,
+    title: identities[i]?.title ?? null,
+    designedByName: designerAttribution({
+      designerId: identities[i]?.designerId ?? null,
+      designerName: identities[i]?.designerName ?? null,
+      buyerId: orders[0].buyerId,
+    }),
+  }));
 
   const displayUrl = await getDesignDisplayImageUrl(orders[0].designId);
   const fallback = new Map<string, string | null>([

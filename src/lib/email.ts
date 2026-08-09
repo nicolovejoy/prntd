@@ -138,12 +138,68 @@ export type EmailOrderLine = {
   size: string;
   color: string;
   quantity: number;
+  /**
+   * Per-line artwork (the pinned front image, else the design's display
+   * image). Each line can carry a different design, so this is what tells
+   * two otherwise-identical rows apart. Null when unresolvable — the row
+   * degrades to text only.
+   */
+  imageUrl?: string | null;
+  /** Published listing title of the line's image, when it has one. */
+  designName?: string | null;
+  /** Backdrop hex for the thumbnail (the shirt color). */
+  backdrop?: string | null;
 };
 
 function lineLabel(line: EmailOrderLine): string {
   return line.quantity > 1
     ? `${line.productName} ×${line.quantity}`
     : line.productName;
+}
+
+/**
+ * Escape a value for interpolation into email HTML (text or a quoted
+ * attribute). `designName` is a published listing title — owner-editable free
+ * text that reaches a *different* user's inbox on a cross-owner Shop purchase,
+ * so it must never be trusted as markup. Applied to the image URL and backdrop
+ * too: they come from our own DB/catalog, but attribute-escaping them is free.
+ */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
+ * A purchased line as a row: thumbnail on the left, product/name over
+ * color / size on the right. Falls back to the plain label/value row when
+ * the line has no resolvable image, so a resolution failure never blanks
+ * out the order.
+ */
+function lineRow(line: EmailOrderLine): string {
+  const value = `${line.color} / ${line.size}`;
+  if (!line.imageUrl) return detailRow(lineLabel(line), value);
+
+  const thumb = `
+    <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+      <td width="48" valign="middle" style="padding-right: 10px;">
+        <div style="width: 48px; height: 48px; background: ${escapeHtml(line.backdrop ?? "#f4f4f5")}; border-radius: 8px; line-height: 0; text-align: center;">
+          <img src="${escapeHtml(line.imageUrl)}" width="40" height="40" alt="" style="display: inline-block; width: 40px; height: 40px; margin: 4px 0; object-fit: contain;" />
+        </div>
+      </td>
+      <td valign="middle" style="color: ${INK}; font-size: 14px;">
+        ${line.designName ? `<div style="font-weight: 600;">${escapeHtml(line.designName)}</div>` : ""}
+        <div style="color: ${MUTED}; font-size: 13px;">${lineLabel(line)}</div>
+      </td>
+    </tr></table>`;
+
+  return `<tr>
+    <td style="padding: 9px 0;">${thumb}</td>
+    <td style="padding: 9px 0; text-align: right; font-size: 14px; color: ${INK}; vertical-align: middle;">${value}</td>
+  </tr>`;
 }
 
 /** Compact subject-line summary: first line's color/size, "+N more" beyond. */
@@ -172,9 +228,7 @@ export async function sendOrderConfirmation(params: {
   const rows =
     (params.displayName ? detailRow("Design", params.displayName) : "") +
     detailRow("Order", shortId, { mono: true }) +
-    params.lines
-      .map((l) => detailRow(lineLabel(l), `${l.color} / ${l.size}`))
-      .join("") +
+    params.lines.map(lineRow).join("") +
     detailRow("Total", `$${params.total.toFixed(2)}`, { total: true });
 
   await resend.emails.send({
@@ -208,9 +262,7 @@ export async function sendOwnerOrderAlert(params: {
     (params.displayName ? detailRow("Design", params.displayName) : "") +
     detailRow("Order", shortId, { mono: true }) +
     detailRow("Customer", params.customerEmail) +
-    params.lines
-      .map((l) => detailRow(lineLabel(l), `${l.color} / ${l.size}`))
-      .join("") +
+    params.lines.map(lineRow).join("") +
     (params.discountCode ? detailRow("Discount", params.discountCode) : "") +
     detailRow("Total", `$${params.total.toFixed(2)}`, { total: true });
 

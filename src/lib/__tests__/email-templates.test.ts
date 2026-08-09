@@ -101,6 +101,70 @@ describe("sendOrderConfirmation", () => {
     expect(sent.subject).toMatchSnapshot("subject");
     expect(sent.html).toMatchSnapshot("html");
   });
+
+  // Two lines, identical blank/color/size, different designs — the prod case
+  // (order de8c1723) where text-only rows were indistinguishable.
+  it("multi-line order renders a thumbnail and name per line", async () => {
+    await sendOrderConfirmation({
+      to: "customer@example.com",
+      orderId: "abcd1234-5678-90ab-cdef-000000000000",
+      total: 43.55,
+      lines: [
+        {
+          productName: "Classic Tee",
+          size: "L",
+          color: "Black",
+          quantity: 1,
+          imageUrl: "https://img.example/line-1.png",
+          designName: null,
+          backdrop: "#0c0c0c",
+        },
+        {
+          productName: "Classic Tee",
+          size: "L",
+          color: "Black",
+          quantity: 1,
+          imageUrl: "https://img.example/line-2.png",
+          designName: "Neon Raccoon",
+          backdrop: "#0c0c0c",
+        },
+      ],
+      displayName: null,
+    });
+    const sent = lastSent();
+    expect(sent.html).toContain("https://img.example/line-1.png");
+    expect(sent.html).toContain("https://img.example/line-2.png");
+    expect(sent.html).toContain("Neon Raccoon");
+    expect(sent.html).toMatchSnapshot("html");
+  });
+
+  // designName is an owner-editable listing title that reaches the BUYER's
+  // inbox on a cross-owner Shop purchase — it must be escaped, never markup.
+  it("escapes a hostile listing title instead of injecting it", async () => {
+    await sendOrderConfirmation({
+      to: "customer@example.com",
+      orderId: "abcd1234-5678-90ab-cdef-000000000000",
+      total: 24.12,
+      lines: [
+        {
+          productName: "Classic Tee",
+          size: "M",
+          color: "Black",
+          quantity: 1,
+          imageUrl: "https://img.example/line-1.png",
+          designName: `<b onmouseover=x>"pwn'd</b>`,
+          backdrop: "#0c0c0c",
+        },
+      ],
+      displayName: null,
+    });
+    const sent = lastSent();
+    expect(sent.html).not.toContain("<b onmouseover=x>");
+    expect(sent.html).not.toContain("</b>");
+    expect(sent.html).toContain(
+      "&lt;b onmouseover=x&gt;&quot;pwn&#39;d&lt;/b&gt;"
+    );
+  });
 });
 
 describe("sendOwnerOrderAlert", () => {
