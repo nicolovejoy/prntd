@@ -137,6 +137,34 @@ describe("sendOrderConfirmation", () => {
     expect(sent.html).toContain("Neon Raccoon");
     expect(sent.html).toMatchSnapshot("html");
   });
+
+  // designName is an owner-editable listing title that reaches the BUYER's
+  // inbox on a cross-owner Shop purchase — it must be escaped, never markup.
+  it("escapes a hostile listing title instead of injecting it", async () => {
+    await sendOrderConfirmation({
+      to: "customer@example.com",
+      orderId: "abcd1234-5678-90ab-cdef-000000000000",
+      total: 24.12,
+      lines: [
+        {
+          productName: "Classic Tee",
+          size: "M",
+          color: "Black",
+          quantity: 1,
+          imageUrl: "https://img.example/line-1.png",
+          designName: `<b onmouseover=x>"pwn'd</b>`,
+          backdrop: "#0c0c0c",
+        },
+      ],
+      displayName: null,
+    });
+    const sent = lastSent();
+    expect(sent.html).not.toContain("<b onmouseover=x>");
+    expect(sent.html).not.toContain("</b>");
+    expect(sent.html).toContain(
+      "&lt;b onmouseover=x&gt;&quot;pwn&#39;d&lt;/b&gt;"
+    );
+  });
 });
 
 describe("sendOwnerOrderAlert", () => {

@@ -158,6 +158,22 @@ function lineLabel(line: EmailOrderLine): string {
 }
 
 /**
+ * Escape a value for interpolation into email HTML (text or a quoted
+ * attribute). `designName` is a published listing title — owner-editable free
+ * text that reaches a *different* user's inbox on a cross-owner Shop purchase,
+ * so it must never be trusted as markup. Applied to the image URL and backdrop
+ * too: they come from our own DB/catalog, but attribute-escaping them is free.
+ */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
  * A purchased line as a row: thumbnail on the left, product/name over
  * color / size on the right. Falls back to the plain label/value row when
  * the line has no resolvable image, so a resolution failure never blanks
@@ -170,12 +186,12 @@ function lineRow(line: EmailOrderLine): string {
   const thumb = `
     <table role="presentation" cellpadding="0" cellspacing="0"><tr>
       <td width="48" valign="middle" style="padding-right: 10px;">
-        <div style="width: 48px; height: 48px; background: ${line.backdrop ?? "#f4f4f5"}; border-radius: 8px; line-height: 0; text-align: center;">
-          <img src="${line.imageUrl}" width="40" height="40" alt="" style="display: inline-block; width: 40px; height: 40px; margin: 4px 0; object-fit: contain;" />
+        <div style="width: 48px; height: 48px; background: ${escapeHtml(line.backdrop ?? "#f4f4f5")}; border-radius: 8px; line-height: 0; text-align: center;">
+          <img src="${escapeHtml(line.imageUrl)}" width="40" height="40" alt="" style="display: inline-block; width: 40px; height: 40px; margin: 4px 0; object-fit: contain;" />
         </div>
       </td>
       <td valign="middle" style="color: ${INK}; font-size: 14px;">
-        ${line.designName ? `<div style="font-weight: 600;">${line.designName}</div>` : ""}
+        ${line.designName ? `<div style="font-weight: 600;">${escapeHtml(line.designName)}</div>` : ""}
         <div style="color: ${MUTED}; font-size: 13px;">${lineLabel(line)}</div>
       </td>
     </tr></table>`;
