@@ -55,8 +55,16 @@ const PLACEHOLDER_IMAGE = "https://placehold.co/1024x1024/png";
  *
  * Writes the Model B shape production writes: image + conversation_image
  * (role=output) with a shared id.
+ *
+ * `imageUrl` defaults to a shared placeholder — pass a distinct value when a
+ * test needs to tell two seeded designs' thumbnails apart (e.g. asserting a
+ * multi-item cart/order shows two different images, not one repeated).
  */
-export async function seedDesign(userId: string, key: string): Promise<string> {
+export async function seedDesign(
+  userId: string,
+  key: string,
+  imageUrl: string = PLACEHOLDER_IMAGE
+): Promise<string> {
   const designId = `e2e-${key}`;
   const imageId = `e2e-${key}-img`;
   const c = db();
@@ -70,7 +78,7 @@ export async function seedDesign(userId: string, key: string): Promise<string> {
     sql: `INSERT INTO image (id, owner_id, r2_key, image_url, aspect_ratio, generation_cost, source_design_id, created_at)
           VALUES (?, ?, NULL, ?, '1:1', 0, ?, unixepoch())
           ON CONFLICT(id) DO UPDATE SET owner_id = excluded.owner_id, image_url = excluded.image_url, source_design_id = excluded.source_design_id`,
-    args: [imageId, userId, PLACEHOLDER_IMAGE, designId],
+    args: [imageId, userId, imageUrl, designId],
   });
   await c.execute({
     sql: `INSERT INTO conversation_image (id, design_id, image_id, role, created_at)
@@ -116,6 +124,19 @@ export async function cleanupDesigns(designIds: string[]): Promise<void> {
   });
 }
 
+/** A design's current primary image id (what a fresh order/cart line pins as
+ * the front placement when no explicit pick overrides it). */
+export async function primaryImageIdForDesign(
+  designId: string
+): Promise<string | null> {
+  const res = await db().execute({
+    sql: "SELECT primary_image_id FROM design WHERE id = ?",
+    args: [designId],
+  });
+  const row = res.rows[0];
+  return row?.primary_image_id == null ? null : String(row.primary_image_id);
+}
+
 /** Order row for a Stripe Checkout session id (the Stripe spec extracts
  * `cs_test_…` from the hosted-checkout URL). */
 export async function orderForStripeSession(
@@ -133,6 +154,53 @@ export async function orderForStripeSession(
     printfulOrderId:
       row.printful_order_id == null ? null : String(row.printful_order_id),
   };
+}
+
+/**
+ * Order lines for a given order id — the authoritative per-item rows
+ * (design, product/size/color, placement pins) a multi-item checkout writes
+ * one of per cart line (Phase 1c: `order_item` is authoritative, not the
+ * order's scalar columns).
+ */
+export async function orderItemsForOrder(orderId: string): Promise<
+  {
+    id: string;
+    designId: string;
+    productId: string;
+    size: string;
+    color: string;
+    placements: Record<string, string> | null;
+  }[]
+> {
+  const res = await db().execute({
+    sql: `SELECT id, design_id, product_id, size, color, placements FROM order_item WHERE order_id = ?`,
+    args: [orderId],
+  });
+  return res.rows.map((r) => ({
+    id: String(r.id),
+    designId: String(r.design_id),
+    productId: String(r.product_id),
+    size: String(r.size),
+    color: String(r.color),
+    placements:
+      r.placements == null ? null : (JSON.parse(String(r.placements)) as Record<string, string>),
+  }));
+}
+
+/** Cart lines currently held by a user (pre-checkout hand-off state). */
+export async function cartItemsForUser(userId: string): Promise<
+  { id: string; designId: string; placements: Record<string, string> | null }[]
+> {
+  const res = await db().execute({
+    sql: `SELECT id, design_id, placements FROM cart_item WHERE user_id = ?`,
+    args: [userId],
+  });
+  return res.rows.map((r) => ({
+    id: String(r.id),
+    designId: String(r.design_id),
+    placements:
+      r.placements == null ? null : (JSON.parse(String(r.placements)) as Record<string, string>),
+  }));
 }
 
 /** Ledger entry types booked against an order (sale, stripe_fee, cogs, …). */
