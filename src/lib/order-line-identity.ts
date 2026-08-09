@@ -1,0 +1,199 @@
+/**
+ * Per-line identity for a multi-item order.
+ *
+ * An order's `order_item` rows can each carry a *different* design (a cart
+ * checkout fans out to N lines, and nothing requires them to share a thread).
+ * Every read site used to show only line 1's artwork, so lines 2..N appeared
+ * as bare "product — color / size" text and two lines with the same blank /
+ * color / size were indistinguishable. This resolves, per line:
+ *
+ *   - the thumbnail: the pinned front placement image when the line has one
+ *     (that's what actually gets printed), else the design's display image;
+ *   - a name: the published listing title of the pinned front image, when it
+ *     has one. A design has no title of its own, so unpublished lines get
+ *     null and the thumbnail carries the identity;
+ *   - the designer (id + name) so attribution can be computed per line.
+ *
+ * The DB reader takes `db` as a parameter rather than importing the singleton:
+ * the email loader is already db-injected, and it keeps the real-DB tests
+ * honest (no mocking of the image module).
+ */
+import { eq, and, desc, inArray, sql } from "drizzle-orm";
+import type { db as appDb } from "@/lib/db";
+import {
+  design as designTable,
+  user as userTable,
+  image as imageTable,
+  conversationImage as conversationImageTable,
+  placementRender as placementRenderTable,
+  listing as listingTable,
+} from "@/lib/db/schema";
+
+/** The subset of an OrderLine this needs. */
+export type IdentifiableLine = {
+  designId: string;
+  placements: Record<string, string> | null;
+};
+
+export type OrderLineIdentity = {
+  /** Absolute image URL (R2 public URLs already are), or null if unresolvable. */
+  imageUrl: string | null;
+  /** Published listing title of the pinned front image, else null. */
+  title: string | null;
+  designerId: string | null;
+  designerName: string | null;
+};
+
+export type LineIdentityContext = {
+  /** image id → url, covering both artifacts and placement renders. */
+  urlByImageId: Map<string, string>;
+  /** image id → listing title (only published images appear). */
+  titleByImageId: Map<string, string | null>;
+  /** design id → display image url (primary, else latest output). */
+  displayUrlByDesignId: Map<string, string>;
+  /** design id → owner. */
+  designerByDesignId: Map<string, { id: string; name: string | null }>;
+};
+
+/**
+ * Pure mapper — the resolution rules, independent of how the maps were filled.
+ */
+export function buildLineIdentities(
+  lines: IdentifiableLine[],
+  ctx: LineIdentityContext
+): OrderLineIdentity[] {
+  return lines.map((line) => {
+    const front = line.placements?.front ?? null;
+    const pinnedUrl = front ? ctx.urlByImageId.get(front) ?? null : null;
+    const designer = ctx.designerByDesignId.get(line.designId) ?? null;
+    return {
+      imageUrl: pinnedUrl ?? ctx.displayUrlByDesignId.get(line.designId) ?? null,
+      title: front ? ctx.titleByImageId.get(front) ?? null : null,
+      designerId: designer?.id ?? null,
+      designerName: designer?.name ?? null,
+    };
+  });
+}
+
+/**
+ * Batched reader for the maps `buildLineIdentities` needs. Six small queries
+ * regardless of line count — never N+1.
+ */
+export async function loadLineIdentityContext(
+  db: typeof appDb,
+  lines: IdentifiableLine[]
+): Promise<LineIdentityContext> {
+  const urlByImageId = new Map<string, string>();
+  const titleByImageId = new Map<string, string | null>();
+  const displayUrlByDesignId = new Map<string, string>();
+  const designerByDesignId = new Map<string, { id: string; name: string | null }>();
+
+  const pinnedIds = [
+    ...new Set(
+      lines
+        .map((l) => l.placements?.front)
+        .filter((v): v is string => Boolean(v))
+    ),
+  ];
+  const designIds = [...new Set(lines.map((l) => l.designId).filter(Boolean))];
+
+  const [designRows, listingRows] = await Promise.all([
+    designIds.length
+      ? db
+          .select({
+            id: designTable.id,
+            primaryImageId: designTable.primaryImageId,
+            ownerId: designTable.userId,
+            ownerName: userTable.name,
+          })
+          .from(designTable)
+          .leftJoin(userTable, eq(userTable.id, designTable.userId))
+          .where(inArray(designTable.id, designIds))
+      : Promise.resolve([]),
+    pinnedIds.length
+      ? db
+          .select({ imageId: listingTable.imageId, title: listingTable.title })
+          .from(listingTable)
+          .where(inArray(listingTable.imageId, pinnedIds))
+      : Promise.resolve([]),
+  ]);
+
+  for (const d of designRows) {
+    designerByDesignId.set(d.id, { id: d.ownerId, name: d.ownerName ?? null });
+  }
+  for (const l of listingRows) {
+    titleByImageId.set(l.imageId, l.title ?? null);
+  }
+
+  // Ids we need URLs for: every pinned front plus every design's primary.
+  const primaryIds = designRows
+    .map((d) => d.primaryImageId)
+    .filter((v): v is string => Boolean(v));
+  const wanted = [...new Set([...pinnedIds, ...primaryIds])];
+
+  if (wanted.length) {
+    // Id reuse (Model B §2): an id may be an artifact or a placement render.
+    const [artifacts, renders] = await Promise.all([
+      db
+        .select({ id: imageTable.id, imageUrl: imageTable.imageUrl })
+        .from(imageTable)
+        .where(inArray(imageTable.id, wanted)),
+      db
+        .select({
+          id: placementRenderTable.id,
+          imageUrl: placementRenderTable.imageUrl,
+        })
+        .from(placementRenderTable)
+        .where(inArray(placementRenderTable.id, wanted)),
+    ]);
+    for (const r of artifacts) urlByImageId.set(r.id, r.imageUrl);
+    for (const r of renders) {
+      if (!urlByImageId.has(r.id)) urlByImageId.set(r.id, r.imageUrl);
+    }
+  }
+
+  // Design display image: primary pointer first, then latest output artifact.
+  const needFallback: string[] = [];
+  for (const d of designRows) {
+    const url = d.primaryImageId ? urlByImageId.get(d.primaryImageId) : undefined;
+    if (url) displayUrlByDesignId.set(d.id, url);
+    else needFallback.push(d.id);
+  }
+  if (needFallback.length) {
+    const fallbackRows = await db
+      .select({
+        designId: conversationImageTable.designId,
+        imageUrl: imageTable.imageUrl,
+      })
+      .from(conversationImageTable)
+      .innerJoin(imageTable, eq(imageTable.id, conversationImageTable.imageId))
+      .where(
+        and(
+          inArray(conversationImageTable.designId, needFallback),
+          eq(conversationImageTable.role, "output")
+        )
+      )
+      .orderBy(desc(imageTable.createdAt), sql`image.rowid desc`);
+    for (const r of fallbackRows) {
+      if (!displayUrlByDesignId.has(r.designId)) {
+        displayUrlByDesignId.set(r.designId, r.imageUrl);
+      }
+    }
+  }
+
+  return { urlByImageId, titleByImageId, displayUrlByDesignId, designerByDesignId };
+}
+
+/**
+ * Convenience: context + mapper in one call. Never throws on a partially
+ * resolvable order — unresolved lines simply carry nulls, which every caller
+ * degrades to text-only.
+ */
+export async function resolveOrderLineIdentities(
+  db: typeof appDb,
+  lines: IdentifiableLine[]
+): Promise<OrderLineIdentity[]> {
+  if (lines.length === 0) return [];
+  const ctx = await loadLineIdentityContext(db, lines);
+  return buildLineIdentities(lines, ctx);
+}

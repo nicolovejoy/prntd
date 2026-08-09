@@ -226,53 +226,55 @@ export default function OrderDetailPage() {
             <h3 className="text-xs text-text-muted uppercase mb-2">
               {order.lines.length > 1 ? `Products (${order.lines.length})` : "Product"}
             </h3>
-            <div className="flex gap-3">
-              {order.designImageUrl && (
-                <div
-                  className="w-20 h-20 rounded p-2 overflow-hidden flex-shrink-0"
-                  style={{
-                    backgroundColor: order.lines[0]
-                      ? getColorHex(order.lines[0].blankId, order.lines[0].color)
-                      : undefined,
-                  }}
-                >
-                  <img
-                    src={order.designImageUrl}
-                    alt="Design"
-                    className="w-full h-full object-contain"
-                  />
-                </div>
-              )}
-              <div className="text-sm">
-                {order.lines.map((line, i) => {
-                  const extras = Object.keys(line.placements).filter(
-                    (p) => p !== "front"
-                  );
-                  return (
-                    <p key={i}>
-                      {getBlank(line.blankId)?.name ?? line.blankId} —{" "}
-                      {line.size} / {line.color}
-                      {line.quantity > 1 && ` ×${line.quantity}`}
-                      {extras.length > 0 && (
-                        <span className="text-xs text-text-muted">
-                          {" "}
-                          (+{extras.join(", ")})
-                        </span>
+            <div className="space-y-3">
+              {order.lines.map((line, i) => {
+                const extras = Object.keys(line.placements).filter(
+                  (p) => p !== "front"
+                );
+                const thumb = line.imageUrl ?? order.designImageUrl;
+                return (
+                  <div key={i} className="flex gap-3">
+                    {thumb && (
+                      <div
+                        className="w-16 h-16 rounded p-1.5 overflow-hidden flex-shrink-0"
+                        style={{
+                          backgroundColor: getColorHex(line.blankId, line.color),
+                        }}
+                      >
+                        <img
+                          src={thumb}
+                          alt={line.title ?? "Design"}
+                          className="w-full h-full object-contain"
+                        />
+                      </div>
+                    )}
+                    <div className="text-sm min-w-0">
+                      {line.title && <p className="font-medium">{line.title}</p>}
+                      <p>
+                        {getBlank(line.blankId)?.name ?? line.blankId} —{" "}
+                        {line.size} / {line.color}
+                        {line.quantity > 1 && ` ×${line.quantity}`}
+                        {extras.length > 0 && (
+                          <span className="text-xs text-text-muted">
+                            {" "}
+                            (+{extras.join(", ")})
+                          </span>
+                        )}
+                      </p>
+                      {line.designedByName && (
+                        <p className="text-xs text-text-muted mt-0.5">
+                          Designed by {line.designedByName}
+                        </p>
                       )}
-                    </p>
-                  );
-                })}
-                {order.designedByName && (
-                  <p className="text-xs text-text-muted mt-1">
-                    Designed by {order.designedByName}
-                  </p>
-                )}
-                {order.printfulOrderId && (
-                  <p className="text-xs text-text-faint mt-1">
-                    Printful: {order.printfulOrderId}
-                  </p>
-                )}
-              </div>
+                    </div>
+                  </div>
+                );
+              })}
+              {order.printfulOrderId && (
+                <p className="text-xs text-text-faint">
+                  Printful: {order.printfulOrderId}
+                </p>
+              )}
             </div>
           </Card>
 

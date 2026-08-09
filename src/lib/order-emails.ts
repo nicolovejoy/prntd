@@ -14,6 +14,10 @@ import type {
 import { getBlank, getColorHex } from "@/lib/blanks";
 import { resolveOrderLines } from "@/lib/order-lines";
 import { resolveOrderEmailImages, type EmailImage } from "@/lib/email-images";
+import {
+  resolveOrderLineIdentities,
+  type OrderLineIdentity,
+} from "@/lib/order-line-identity";
 
 export type OrderEmailPayload = {
   email: string;
@@ -150,14 +154,32 @@ export function createDefaultOrderEmailDeps(
         orderBy: (fields, { asc }) => [asc(fields.createdAt)],
       });
       const orderLines = resolveOrderLines(items);
+
+      // Per-line artwork + name. Each line can carry a different design, so
+      // without this every row past the first is indistinguishable text.
+      // Best-effort: a resolution failure degrades to text-only rows rather
+      // than failing the email on the money path.
+      let identities: OrderLineIdentity[] = [];
+      try {
+        identities = await resolveOrderLineIdentities(db, orderLines);
+      } catch (err) {
+        console.error(
+          `loadOrderForEmail: line identity resolution failed for ${orderId}:`,
+          err instanceof Error ? err.message : String(err)
+        );
+      }
+
       // Resolve product names from the catalog. Falls back to a generic
       // "product" label if a historical order references an id we no
       // longer carry — emails should never break on a missing product.
-      const lines: EmailOrderLine[] = orderLines.map((l) => ({
+      const lines: EmailOrderLine[] = orderLines.map((l, i) => ({
         productName: getBlank(l.blankId)?.name ?? "product",
         size: l.size,
         color: l.color,
         quantity: l.quantity,
+        imageUrl: identities[i]?.imageUrl ?? null,
+        designName: identities[i]?.title ?? null,
+        backdrop: getColorHex(l.blankId, l.color),
       }));
 
       // Hero image(s) from the first line. Multi-item orders still lead with
