@@ -118,6 +118,11 @@ Q5's attribution wrinkle a real home.
    answered before that is laid out. Next session's job is to make it
    concrete before asking again — see below.
 
+**2026-08-17: done — see `docs/composition-first-class-plan.md`.** Question 2
+answered: yes, generalize organizer `product` in place. All six of that plan's
+questions answered "go with recommendations" same day; execution started
+(#138 slice 2 + composition slice 1 in parallel).
+
 ## Next session: make B concrete before slicing it
 
 Nico has committed to the destination, not to a plan. Do not open a migration
