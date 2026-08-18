@@ -39,7 +39,11 @@ import {
   mockupBackdrop,
   resolveHeroDisplay,
 } from "@/lib/instant-preview";
-import { mockupCacheKey } from "@/lib/mockup-cache";
+import {
+  mockupCacheKey,
+  mockupCachePlacementPrefix,
+} from "@/lib/mockup-cache";
+import { normalizeFrontPin, swapPlacementPins } from "@/lib/placement-pins";
 
 type Placement = "front" | "back";
 
@@ -150,8 +154,22 @@ function PreviewPageInner() {
   const [backImageId, setBackImageId] = useState<string | null>(() =>
     searchParams.get("back")
   );
+  // Front pin (#138): null = the design's primary image, the default that
+  // keeps URLs and checkout payloads byte-identical to the pre-picker shape.
+  // Captured from the URL once, same as `back`.
+  const [frontImageId, setFrontImageId] = useState<string | null>(() =>
+    searchParams.get("front")
+  );
+  // The design's primary image id, loaded with the design row — the front
+  // default and the reference "does the pin differ" checks key off.
+  const [primaryImageId, setPrimaryImageId] = useState<string | null>(null);
   const [backGroups, setBackGroups] = useState<BackSourceGroup[] | null>(null);
-  const [backPickerOpen, setBackPickerOpen] = useState(false);
+  // Which placement the hero source picker is picking for; null = closed.
+  // (Back with no source still shows the picker — see showSourcePicker.)
+  const [pickerTarget, setPickerTarget] = useState<Placement | null>(null);
+  // id → image URL for the Placements-block thumbnails, filled from picker
+  // taps and group loads.
+  const [sourceUrls, setSourceUrls] = useState<Record<string, string>>({});
 
   // Client-side cache: "productId:placement:colorName:scale" -> mockup R2 URL
   const mockupCache = useRef<Map<string, string>>(new Map());
@@ -168,10 +186,19 @@ function PreviewPageInner() {
   const activeMockup = mockups[activePlacement];
   const showBackToggle =
     multiPlacement && !!product && productSupportsPlacement(product, "back");
-  // Show the source picker in place of the hero when on Back with no source
-  // yet, or when the user reopened it to swap the back image.
-  const showBackPicker =
-    activePlacement === "back" && (!backImageId || backPickerOpen);
+  // What's on the front right now, and whether it's an explicit non-default
+  // pin (#138). Only a differing pin travels — into the URL, the checkout
+  // payload, and the mockup cache key — so the primary-front common case
+  // stays byte-identical to the pre-picker flow.
+  const effectiveFrontId = frontImageId ?? primaryImageId;
+  const frontPinned = !!frontImageId && frontImageId !== primaryImageId;
+  // Show the source picker in place of the hero when explicitly opened for a
+  // placement, or when on Back with no source yet.
+  const showSourcePicker =
+    pickerTarget !== null || (activePlacement === "back" && !backImageId);
+  const pickingFor: Placement = pickerTarget ?? "back";
+  const pickingCurrentId =
+    pickingFor === "front" ? effectiveFrontId : backImageId;
 
   // Guest funnel (#26): keep the anonymous session alive on this surface so a
   // signed-out visitor who deep-links here (or returns) can load their design.
@@ -196,6 +223,7 @@ function PreviewPageInner() {
           return;
         }
         setHasPrimary(true);
+        setPrimaryImageId(design.primaryImageId);
         setPinnedColor(design.backgroundColor ?? null);
         if (design.mockupUrls) {
           for (const [key, url] of Object.entries(design.mockupUrls)) {
@@ -316,11 +344,15 @@ function PreviewPageInner() {
     params.set("product", productId);
     if (backImageId) params.set("back", backImageId);
     else params.delete("back");
+    // `front` only when it differs from the primary (#138 open question 4) —
+    // a front param means "not the default".
+    if (frontPinned) params.set("front", frontImageId!);
+    else params.delete("front");
     const next = `${window.location.pathname}?${params.toString()}`;
     if (next === `${window.location.pathname}${window.location.search}`) return;
     // Keep the existing history state rather than clearing it to null.
     window.history.replaceState(window.history.state, "", next);
-  }, [size, colorName, productId, backImageId]);
+  }, [size, colorName, productId, backImageId, frontImageId, frontPinned]);
 
   // Resolve the design image to render for the current
   // (designId, productId, activePlacement, backImageId). The server returns
@@ -337,10 +369,15 @@ function PreviewPageInner() {
     let canceled = false;
     setRenderState({ status: "loading" });
     const placement = activePlacement;
+    // Front passes its pin as the source only when it differs from the
+    // primary (#138, §5 cache-key rule) — the default front stays on the
+    // no-source path and every warm cache entry stays valid.
     const resolve =
       placement === "back"
         ? getOrCreatePlacementRender(designId, productId, "back", backImageId!)
-        : getOrCreatePlacementRender(designId, productId);
+        : frontPinned
+          ? getOrCreatePlacementRender(designId, productId, "front", frontImageId!)
+          : getOrCreatePlacementRender(designId, productId);
     resolve
       .then((result) => {
         if (canceled) return;
@@ -351,8 +388,10 @@ function PreviewPageInner() {
         });
         setLastArtwork((m) => ({ ...m, [placement]: result.imageUrl }));
         // Fresh placement render invalidates client mockup entries for this
-        // product + placement. Server clears DB mockupUrls on insert.
-        const prefix = `${productId}:${placement}:`;
+        // product + placement. Server clears DB mockupUrls on insert. Shared
+        // prefix builder — a hand-rolled prefix stopped matching when #102
+        // version-bumped the keys (#138 defect 1).
+        const prefix = mockupCachePlacementPrefix(productId, placement);
         for (const key of [...mockupCache.current.keys()]) {
           if (key.startsWith(prefix)) mockupCache.current.delete(key);
         }
@@ -370,7 +409,16 @@ function PreviewPageInner() {
     return () => {
       canceled = true;
     };
-  }, [designId, productId, hasPrimary, renderNonce, activePlacement, backImageId]);
+  }, [
+    designId,
+    productId,
+    hasPrimary,
+    renderNonce,
+    activePlacement,
+    backImageId,
+    frontImageId,
+    frontPinned,
+  ]);
 
   // Generate mockup for a placement on demand (called by the auto-trigger
   // effect). Caches per productId:placement:color:scale.
@@ -381,9 +429,16 @@ function PreviewPageInner() {
     // tap invalidated it) by the time it lands.
     const token = mockupReq.begin();
 
-    // Non-front placements render from the picked source; thread it through so
-    // the mockup matches the pick and the cache key doesn't collide (#25).
-    const sourceImageId = placement === "back" ? backImageId ?? undefined : undefined;
+    // Placements render from their picked source; thread it through so the
+    // mockup matches the pick and the cache key doesn't collide (#25). Front
+    // sends its pin only when it differs from the primary (#138, §5) so the
+    // default front keeps today's key shape and every warm entry stays valid.
+    const sourceImageId =
+      placement === "back"
+        ? backImageId ?? undefined
+        : frontPinned
+          ? frontImageId!
+          : undefined;
     const scaleKey = Math.round(scale * 100);
     // Shared builder keeps this in lockstep with the server's cache key —
     // entries warmed from design.mockupUrls only hit when formats match.
@@ -488,7 +543,7 @@ function PreviewPageInner() {
     // Reset to front: the new product may not support back, and back
     // renders are product-specific. Keep backImageId (a thread source id).
     setActivePlacement("front");
-    setBackPickerOpen(false);
+    setPickerTarget(null);
     setMockups({ front: null, back: null });
     setMockupError(false);
     setMockupLoading(false);
@@ -505,35 +560,111 @@ function PreviewPageInner() {
     setMockupLoading(false);
     if (placement === "back" && !backImageId) {
       // Lazy-load the source picker the first time Back is opened.
-      void openBackPicker();
+      setPickerTarget("back");
+      void loadSourceGroups();
     }
   }
 
-  async function openBackPicker() {
-    setBackPickerOpen(true);
+  // One fetch per page view, shared by both placements' pickers and the
+  // Placements-block thumbnails.
+  async function loadSourceGroups() {
     if (backGroups || !designId) return;
     try {
       const { groups } = await getBackDesignSources(designId);
       setBackGroups(groups);
+      setSourceUrls((m) => {
+        const next = { ...m };
+        for (const g of groups) for (const img of g.images) next[img.id] = img.imageUrl;
+        return next;
+      });
     } catch (err) {
       console.error("getBackDesignSources failed:", err);
       setBackGroups([]);
     }
   }
 
-  function chooseBackSource(id: string) {
-    setBackPickerOpen(false);
+  // Open the hero source picker for a placement (#138: front and back share
+  // the picker; only its heading differs). The hero shows the picker for
+  // whichever placement is being picked, so align the view with the target.
+  function openSourcePicker(target: Placement) {
+    if (activePlacement !== target) switchPlacement(target);
+    setPickerTarget(target);
+    void loadSourceGroups();
+  }
+
+  // Resolve a pin restored from the URL (Stripe cancel → back) to a
+  // thumbnail URL — picker taps and group loads cover every other path.
+  useEffect(() => {
+    if (backGroups !== null) return;
+    const frontMissing = frontPinned && !sourceUrls[frontImageId!];
+    const backMissing = !!backImageId && !sourceUrls[backImageId];
+    if (frontMissing || backMissing) void loadSourceGroups();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [frontPinned, frontImageId, backImageId, backGroups]);
+
+  function chooseSource(target: Placement, id: string, imageUrl: string) {
+    setPickerTarget(null);
+    setSourceUrls((m) => (m[id] ? m : { ...m, [id]: imageUrl }));
     // Re-picking the current source is a no-op — clearing state for it
     // would strand the hero with no mockup and nothing to re-fire.
-    if (id === backImageId) return;
+    if (target === "back") {
+      if (id === backImageId) return;
+      mockupReq.invalidate();
+      setBackImageId(id);
+      // New back source invalidates the back mockup only. Its instant-layer
+      // artwork too — the previous pick's artwork would be misleading.
+      setMockups((m) => ({ ...m, back: null }));
+      setLastArtwork((m) => ({ ...m, back: null }));
+    } else {
+      if (id === effectiveFrontId) return;
+      mockupReq.invalidate();
+      // Picking the primary back is "no pin" (#138 open question 4).
+      setFrontImageId(normalizeFrontPin(id, primaryImageId));
+      setMockups((m) => ({ ...m, front: null }));
+      setLastArtwork((m) => ({ ...m, front: null }));
+    }
+    setMockupError(false);
+    setMockupLoading(false);
+  }
+
+  function removeBack() {
+    if (!backImageId) return;
     mockupReq.invalidate();
-    setBackImageId(id);
-    // New back source invalidates the back mockup only. Its instant-layer
-    // artwork too — the previous pick's artwork would be misleading.
+    setBackImageId(null);
+    setPickerTarget(null);
+    setActivePlacement("front");
     setMockups((m) => ({ ...m, back: null }));
     setLastArtwork((m) => ({ ...m, back: null }));
     setMockupError(false);
     setMockupLoading(false);
+  }
+
+  // Literal exchange of the two placement ids (§2). Only reachable when both
+  // placements are filled, so the price (`hasBack`) is unchanged by
+  // construction.
+  function handleSwap() {
+    if (!backImageId || !effectiveFrontId) return;
+    mockupReq.invalidate();
+    const next = swapPlacementPins({
+      frontImageId: effectiveFrontId,
+      backImageId,
+      primaryImageId,
+    });
+    setFrontImageId(next.front);
+    setBackImageId(next.back);
+    // The artwork trades sides: swap the instant-layer entries so neither
+    // placement flashes empty, and clear both mockups to re-render.
+    setLastArtwork((m) => ({ front: m.back, back: m.front }));
+    setMockups({ front: null, back: null });
+    setMockupError(false);
+    setMockupLoading(false);
+  }
+
+  function openPickerFromControls(target: Placement) {
+    openSourcePicker(target);
+    // The picker renders in the hero — on phones that's above the purchase
+    // controls, so bring it into view.
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   async function handleCheckout() {
@@ -545,6 +676,9 @@ function PreviewPageInner() {
         size,
         color: colorName,
         productId,
+        // The front pin travels only when it differs from the primary —
+        // absent, the server resolves the primary as it always has (#138).
+        ...(frontPinned ? { front: frontImageId! } : {}),
         ...(backActive ? { back: backImageId! } : {}),
       });
       // Guest hit the purchase gate — send them to sign-in and back. After
@@ -570,6 +704,7 @@ function PreviewPageInner() {
         size,
         color: colorName,
         productId,
+        ...(frontPinned ? { front: frontImageId! } : {}),
         ...(backActive ? { back: backImageId! } : {}),
       });
       // Hard navigation, not router.push (#101). Next's server-action reducer
@@ -622,6 +757,15 @@ function PreviewPageInner() {
   // choke point charges, so the displayed total matches the Stripe total.
   // Gated on size — price depends on it (2XL upcharge).
   const breakdown = size && pricing ? computeOrderTotal(pricing.total) : null;
+  // Placements-block thumbnails (#138 §6). Picker taps / group loads resolve
+  // by id; the placement's last-shown artwork covers the default front (and
+  // any pin whose URL hasn't resolved yet).
+  const frontThumb =
+    (effectiveFrontId ? sourceUrls[effectiveFrontId] : undefined) ??
+    lastArtwork.front;
+  const backThumb = backImageId
+    ? sourceUrls[backImageId] ?? lastArtwork.back
+    : null;
 
   return (
     <div className="min-h-screen flex flex-col items-center py-6 md:py-12 px-4 pb-40 md:pb-12">
@@ -672,11 +816,11 @@ function PreviewPageInner() {
             </div>
           )}
 
-          {/* Hero: back-source picker (Back, no source) or the mockup/preview */}
-          {showBackPicker ? (
+          {/* Hero: source picker (either placement, #138) or the mockup/preview */}
+          {showSourcePicker ? (
             <div className="w-64 md:w-80 flex flex-col items-center gap-3 max-h-[50vh] md:max-h-[60vh] overflow-y-auto">
               <p className="text-sm text-text-muted text-center">
-                Pick an image to print on the back.
+                Pick an image to print on the {pickingFor}.
               </p>
               {backGroups === null ? (
                 <div className="w-12 h-12 border-2 border-accent border-t-transparent rounded-full animate-spin" />
@@ -694,9 +838,9 @@ function PreviewPageInner() {
                       {group.images.map((s) => (
                         <button
                           key={s.id}
-                          onClick={() => chooseBackSource(s.id)}
+                          onClick={() => chooseSource(pickingFor, s.id, s.imageUrl)}
                           className={`aspect-square min-h-11 rounded-md overflow-hidden border-2 bg-checkerboard ${
-                            s.id === backImageId
+                            s.id === pickingCurrentId
                               ? "border-accent"
                               : "border-border hover:border-accent"
                           }`}
@@ -789,17 +933,17 @@ function PreviewPageInner() {
           )}
 
           {/* Change-image affordance once a back source is chosen */}
-          {showBackToggle && activePlacement === "back" && backImageId && !backPickerOpen && (
+          {showBackToggle && activePlacement === "back" && backImageId && pickerTarget === null && (
             <button
-              onClick={openBackPicker}
-              className="text-sm text-text-muted hover:text-foreground hover:underline mt-3"
+              onClick={() => openSourcePicker("back")}
+              className="min-h-11 text-sm text-text-muted hover:text-foreground hover:underline mt-3"
             >
               Change back image
             </button>
           )}
 
           {/* Scale slider */}
-          {!showBackPicker && !mockupLoading && !activeMockup && (
+          {!showSourcePicker && !mockupLoading && !activeMockup && (
             <div className="w-full max-w-xs mt-4">
               <div className="flex items-center justify-between text-xs text-text-muted mb-1">
                 <span>Design size</span>
@@ -888,22 +1032,75 @@ function PreviewPageInner() {
           />
           <SizePicker sizes={sizes} value={size} onChange={setSize} label={sizeLabel} />
 
-          {/* Back-design offer (#61) — same affordance as the /d buy panel.
-              Opens the back-source picker in the hero; once a back is chosen
-              the Front/Back toggle + the price line below take over. */}
-          {showBackToggle && !backImageId && activePlacement === "front" && (
-            <button
-              onClick={() => {
-                switchPlacement("back");
-                // The picker renders in the hero — on phones that's above
-                // the purchase controls, so bring it into view.
-                window.scrollTo({ top: 0, behavior: "smooth" });
-              }}
-              className="block min-h-11 text-sm underline text-text-muted hover:text-foreground"
-            >
-              Add a back design (+${BACK_PLACEMENT_UPCHARGE.toFixed(2)})
-            </button>
-          )}
+          {/* Placements (#138, §6): the two printed sides as peer rows. The
+              Front row is always offered — changing the front is not a
+              multi-placement feature. The Back row (and Swap) need the flag +
+              a back-capable product; "Add a back design" (#61) is the Back
+              row's empty state. "Change" opens the hero source picker for
+              that placement. */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-3">
+              <span className="w-10 text-sm text-text-muted">Front</span>
+              <div className="w-11 h-11 shrink-0 rounded-md border border-border bg-checkerboard overflow-hidden">
+                {frontThumb && (
+                  <img
+                    src={frontThumb}
+                    alt="Front design"
+                    className="w-full h-full object-contain"
+                  />
+                )}
+              </div>
+              <button
+                onClick={() => openPickerFromControls("front")}
+                className="min-h-11 px-1 text-sm underline text-text-muted hover:text-foreground"
+              >
+                Change
+              </button>
+            </div>
+            {showBackToggle &&
+              (backImageId ? (
+                <div className="flex items-center gap-3">
+                  <span className="w-10 text-sm text-text-muted">Back</span>
+                  <div className="w-11 h-11 shrink-0 rounded-md border border-border bg-checkerboard overflow-hidden">
+                    {backThumb && (
+                      <img
+                        src={backThumb}
+                        alt="Back design"
+                        className="w-full h-full object-contain"
+                      />
+                    )}
+                  </div>
+                  <button
+                    onClick={() => openPickerFromControls("back")}
+                    className="min-h-11 px-1 text-sm underline text-text-muted hover:text-foreground"
+                  >
+                    Change
+                  </button>
+                  <button
+                    onClick={removeBack}
+                    aria-label="Remove back design"
+                    className="w-11 h-11 flex items-center justify-center rounded-md border border-border text-text-muted hover:border-text-muted"
+                  >
+                    ×
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => openPickerFromControls("back")}
+                  className="block min-h-11 text-sm underline text-text-muted hover:text-foreground"
+                >
+                  Add a back design (+${BACK_PLACEMENT_UPCHARGE.toFixed(2)})
+                </button>
+              ))}
+            {showBackToggle && backImageId && effectiveFrontId && (
+              <button
+                onClick={handleSwap}
+                className="block min-h-11 text-sm underline text-text-muted hover:text-foreground"
+              >
+                ⇅ Swap front and back
+              </button>
+            )}
+          </div>
 
           {/* Pricing (§8 Q4: full breakdown here; the mobile sticky bar repeats
               only the total) */}

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   mockupCacheKey,
   mockupCacheProductPrefix,
+  mockupCachePlacementPrefix,
   mockupObjectKey,
 } from "../mockup-cache";
 
@@ -50,6 +51,63 @@ describe("mockupCacheKey", () => {
         scaleKey: 100,
       }).startsWith(prefix)
     ).toBe(false);
+  });
+});
+
+describe("mockupCachePlacementPrefix (#138 defect 1)", () => {
+  const prefix = mockupCachePlacementPrefix("bella-canvas-3001", "front");
+
+  it("matches keys with and without a source segment", () => {
+    expect(
+      mockupCacheKey({
+        productId: "bella-canvas-3001",
+        placementId: "front",
+        colorName: "White",
+        scaleKey: 100,
+      }).startsWith(prefix)
+    ).toBe(true);
+    expect(
+      mockupCacheKey({
+        productId: "bella-canvas-3001",
+        placementId: "front",
+        sourceImageId: "img-abc",
+        colorName: "White",
+        scaleKey: 100,
+      }).startsWith(prefix)
+    ).toBe(true);
+  });
+
+  it("does not match another placement or product", () => {
+    expect(
+      mockupCacheKey({
+        productId: "bella-canvas-3001",
+        placementId: "back",
+        sourceImageId: "img-abc",
+        colorName: "White",
+        scaleKey: 100,
+      }).startsWith(prefix)
+    ).toBe(false);
+    expect(
+      mockupCacheKey({
+        productId: "box-tee",
+        placementId: "front",
+        colorName: "White",
+        scaleKey: 100,
+      }).startsWith(prefix)
+    ).toBe(false);
+  });
+
+  it("is version-prefixed — the bare prefix /preview used to build matches nothing", () => {
+    const key = mockupCacheKey({
+      productId: "bella-canvas-3001",
+      placementId: "front",
+      colorName: "White",
+      scaleKey: 100,
+    });
+    // The pre-fix client invalidation prefix (`${productId}:${placement}:`)
+    // stopped matching when #102 version-bumped the keys — the defect.
+    expect(key.startsWith("bella-canvas-3001:front:")).toBe(false);
+    expect(prefix.startsWith("v2:")).toBe(true);
   });
 });
 

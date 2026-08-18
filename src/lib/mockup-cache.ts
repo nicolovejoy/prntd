@@ -38,6 +38,21 @@ export function mockupCacheProductPrefix(productId: string): string {
   return `${MOCKUP_CACHE_VERSION}:${productId}:`;
 }
 
+/**
+ * Prefix matching every current-version cache entry for one
+ * product × placement — with or without a source segment, since the source
+ * (when present) sits directly after the placement. /preview's client-side
+ * invalidation prunes with this after a fresh placement render; a bare
+ * `${productId}:${placementId}:` prefix stopped matching anything when the
+ * version segment landed (#102), leaving stale entries alive (#138 defect 1).
+ */
+export function mockupCachePlacementPrefix(
+  productId: string,
+  placementId: string
+): string {
+  return `${mockupCacheProductPrefix(productId)}${placementId}:`;
+}
+
 function slug(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-");
 }

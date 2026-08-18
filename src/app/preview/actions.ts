@@ -190,14 +190,19 @@ export async function getOrCreatePlacementRender(
     };
   }
 
-  // Match the cache on the anchor too — a non-front placement can be rendered
-  // from any of several sources, so without this a second back pick returns
-  // the first back render (#25 display bug).
+  // Match the cache on the anchor — not the raw sourceImageId. With no
+  // explicit source the anchor is the primary, and passing it keeps a front
+  // lookup from matching a render of a DIFFERENT image: an unfiltered front
+  // lookup returns the newest front render for the product, which is wrong
+  // the moment a non-primary front render exists (#138 defect 2, the #102
+  // shape one layer down). A front render predating this fix (null
+  // source_image_id) misses and re-renders once — the correct outcome, since
+  // nothing says which image it was anchored on.
   const cached = await findPlacementRender(
     designId,
     productId,
     placement.id,
-    sourceImageId
+    anchorId
   );
   if (cached) {
     console.log(
@@ -354,10 +359,13 @@ export async function prefetchProductMockups(
     // Resolve the source image — same priority as generateMockup: prefer
     // the placement-specific render, fall back to the design's primary
     // image (resolved via primary_image_id, latest source as backup).
+    // Anchored on the primary (#138 defect 2): prefetch warms the DEFAULT
+    // front, so a render of some other pinned front must not satisfy it.
     const placementRender = await findPlacementRender(
       designId,
       productId,
-      placement.id
+      placement.id,
+      found.primaryImageId ?? undefined
     );
     const sourceImageUrl =
       placementRender?.imageUrl ?? (await getDesignDisplayImageUrl(designId));
