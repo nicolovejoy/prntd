@@ -68,13 +68,21 @@ export async function getDashboard(): Promise<DashboardStore[]> {
   return Promise.all(
     stores.map(async (s) => {
       const rows = await svc.getStoreProducts(db, s.id);
-      const products: DashboardProduct[] = rows.map((p) => ({
-        id: p.id,
-        blankId: p.blankId,
-        blankName: getBlank(p.blankId)?.name ?? p.blankId,
-        price: p.price,
-        status: p.status,
-      }));
+      // blankId is nullable since composition slice 1, but only on Shop
+      // mirror rows (storeId NULL) — a store's products always carry one.
+      // The skip is a type-honest guard, not a reachable branch.
+      const products: DashboardProduct[] = rows.flatMap((p) => {
+        if (!p.blankId) return [];
+        return [
+          {
+            id: p.id,
+            blankId: p.blankId,
+            blankName: getBlank(p.blankId)?.name ?? p.blankId,
+            price: p.price,
+            status: p.status,
+          },
+        ];
+      });
       return {
         ...s,
         shareUrl: storeShareUrl(s.slug, origin),
@@ -236,6 +244,9 @@ export async function getProductForEdit(
   if (!session) return null;
   const product = await svc.getProductById(db, productId);
   if (!product || product.ownerId !== session.user.id) return null;
+  // Shop mirror rows (composition slice 1: designId/blankId NULL) aren't
+  // organizer compositions — the compose form can't edit them.
+  if (!product.designId || !product.blankId) return null;
 
   // Resolve the placed image (placements value, else the design's primary).
   const placements = product.placements ?? {};

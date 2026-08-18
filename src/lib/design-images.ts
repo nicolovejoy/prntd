@@ -29,6 +29,7 @@ import {
   buildImageRow,
   buildOutputLinkRow,
   buildPlacementRenderRow,
+  findMirrorProduct,
 } from "@/lib/model-b-writes";
 
 // created_at is second-resolution, so rows written in the same second tie.
@@ -752,6 +753,12 @@ export async function deleteDesignImageRow(
   designId: string,
   imageId: string
 ): Promise<{ newPrimaryId: string | null }> {
+  // The image's own mirror product (composition slice 1: its Shop listing as
+  // a composition — storeId+designId NULL, placements {front: imageId}) must
+  // not keep the image alive: it exists because of the image, so it's
+  // excluded from the pin probe and deleted with the image row below, the
+  // same lifecycle the listing row already had.
+  const mirrorId = await findMirrorProduct(db, imageId);
   const [linkedElsewhere, productPins, cartPins] = await Promise.all([
     db
       .select({ id: conversationImageTable.id })
@@ -767,7 +774,12 @@ export async function deleteDesignImageRow(
     db
       .select({ id: productTable.id })
       .from(productTable)
-      .where(sql`${productTable.placements} LIKE ${"%" + imageId + "%"}`)
+      .where(
+        and(
+          sql`${productTable.placements} LIKE ${"%" + imageId + "%"}`,
+          ...(mirrorId ? [ne(productTable.id, mirrorId)] : [])
+        )
+      )
       .limit(1),
     db
       .select({ id: cartItemTable.id })
@@ -800,6 +812,9 @@ export async function deleteDesignImageRow(
           db
             .delete(placementRenderTable)
             .where(eq(placementRenderTable.id, imageId)),
+          ...(mirrorId
+            ? [db.delete(productTable).where(eq(productTable.id, mirrorId))]
+            : []),
         ]),
   ]);
 

@@ -13,7 +13,10 @@ import {
   ledgerEntry,
   appError as appErrorTable,
 } from "@/lib/db/schema";
-import { listingSyncStatement } from "@/lib/model-b-writes";
+import {
+  listingSyncStatement,
+  productMirrorStatement,
+} from "@/lib/model-b-writes";
 import { eq, desc, asc, inArray, sum, count, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { revalidatePath } from "next/cache";
@@ -397,7 +400,11 @@ export async function setImageFeedRank(
   }
 
   // Slice-4 cutover: rank lives only on the listing (no-op if unpublished).
-  await listingSyncStatement(db, imageId, { kind: "update", set: { feedRank } });
+  // Composition slice 1: mirrored onto the product row (no-op on drafts).
+  await db.batch([
+    listingSyncStatement(db, imageId, { kind: "update", set: { feedRank } }),
+    productMirrorStatement(db, imageId, { kind: "update", set: { feedRank } }),
+  ]);
 
   // The Shop feed renders on / and /prints; bust both plus the admin grid.
   revalidatePath("/");
@@ -413,10 +420,18 @@ export async function setImageHidden(imageId: string, hidden: boolean) {
 
   // Slice-4 cutover: moderation state lives only on the listing (no-op if
   // unpublished — hidden is a feed concept, and unpublished images aren't in it).
-  await listingSyncStatement(db, imageId, {
-    kind: "update",
-    set: { isHidden: hidden },
-  });
+  // Composition slice 1: mirrored onto the product row's status
+  // (listed ↔ hidden; draft rows are left alone).
+  await db.batch([
+    listingSyncStatement(db, imageId, {
+      kind: "update",
+      set: { isHidden: hidden },
+    }),
+    productMirrorStatement(db, imageId, {
+      kind: "update",
+      set: { isHidden: hidden },
+    }),
+  ]);
 
   // Discover feed on / and the public /d/[imageId] page both filter
   // by isHidden — bust their caches so the change is visible.

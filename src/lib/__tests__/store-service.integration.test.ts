@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import { createTestDb } from "./test-db";
-import { makeUser, makeDesign } from "./factories";
+import { makeUser, makeDesign, makeSourceImage } from "./factories";
 import {
   createStore,
   getMyStores,
@@ -86,15 +86,20 @@ describe("createProduct", () => {
   it("creates a draft product from an owned design", async () => {
     await makeUser(db, "org-1");
     const design = await makeDesign(db, "org-1");
+    const imageId = await makeSourceImage(db, {
+      designId: design.id,
+      ownerId: "org-1",
+      imageUrl: "https://img/art.png",
+    });
     const store = await createStore(db, "org-1", { name: "Club" });
     const p = await createProduct(db, "org-1", {
       designId: design.id,
       blankId: "bella-canvas-3001",
       storeId: store.id,
-      placements: { front_large: "img-1" },
+      placements: { front_large: imageId },
     });
     expect(p.status).toBe("draft");
-    expect(p.placements).toEqual({ front_large: "img-1" });
+    expect(p.placements).toEqual({ front_large: imageId });
     expect(p.storeId).toBe(store.id);
   });
 
@@ -105,6 +110,37 @@ describe("createProduct", () => {
     await expect(
       createProduct(db, "org-1", { designId: design.id, blankId: "bella-canvas-3001" })
     ).rejects.toThrow(/unauthorized/i);
+  });
+
+  it("rejects a placements image the organizer doesn't own (composition slice 1)", async () => {
+    await makeUser(db, "org-1");
+    await makeUser(db, "org-2");
+    const mine = await makeDesign(db, "org-1");
+    const theirs = await makeDesign(db, "org-2");
+    const theirImage = await makeSourceImage(db, {
+      designId: theirs.id,
+      ownerId: "org-2",
+      imageUrl: "https://img/theirs.png",
+    });
+    await expect(
+      createProduct(db, "org-1", {
+        designId: mine.id,
+        blankId: "bella-canvas-3001",
+        placements: { front_large: theirImage },
+      })
+    ).rejects.toThrow(/not found or not owned/i);
+  });
+
+  it("rejects a placements id that resolves to no image at all", async () => {
+    await makeUser(db, "org-1");
+    const design = await makeDesign(db, "org-1");
+    await expect(
+      createProduct(db, "org-1", {
+        designId: design.id,
+        blankId: "bella-canvas-3001",
+        placements: { front_large: "img-nonexistent" },
+      })
+    ).rejects.toThrow(/not found or not owned/i);
   });
 
   it("allows a loose product with no store", async () => {
