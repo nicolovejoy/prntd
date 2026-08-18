@@ -88,11 +88,16 @@ export async function renderAndCacheMockup(
   // print that source, NOT the design's display image (which is the front;
   // using it made a back mockup show the front). Front (no source) keeps the
   // legacy display-image fallback.
+  // Anchor the lookup on the source that's actually being printed — the
+  // explicit pick, or the design's primary when there is none (#138 defect
+  // 2). An unfiltered front lookup matches ANY front render for the product
+  // and returns the newest, which serves the wrong artwork once a
+  // non-primary front render exists.
   const placementRender = await findPlacementRender(
     designId,
     productId,
     placement.id,
-    sourceImageId
+    sourceImageId ?? found.primaryImageId ?? undefined
   );
   let sourceImageUrl = placementRender?.imageUrl ?? null;
   if (!sourceImageUrl && sourceImageId) {

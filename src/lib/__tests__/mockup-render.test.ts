@@ -10,6 +10,7 @@ import { eq } from "drizzle-orm";
 import { createTestDb } from "@/lib/__tests__/test-db";
 import * as schema from "@/lib/db/schema";
 import { makeUser, makeDesign, makeSourceImage } from "@/lib/__tests__/factories";
+import { insertDesignImage } from "@/lib/design-images";
 
 const h = vi.hoisted(() => ({ db: null as unknown }));
 
@@ -167,6 +168,58 @@ describe("renderAndCacheMockup", () => {
     const frontKey = "v2:bella-canvas-3001:front:Black:100";
     expect(row.mockupUrls?.[sourcedKey]).toBe("https://r2.example/mockup.jpg");
     expect(row.mockupUrls?.[frontKey]).toBeUndefined();
+  });
+
+  it("front lookup is anchored on the primary — a newer render of a different image does not hijack it (#138 defect 2)", async () => {
+    const db = h.db as Db;
+    await makeUser(db, "seller");
+    const design = await makeDesign(db, "seller");
+    const primaryId = await makeSourceImage(db, {
+      designId: design.id,
+      ownerId: "seller",
+      imageUrl: "https://img.example/primary.png",
+    });
+    const siblingId = await makeSourceImage(db, {
+      designId: design.id,
+      ownerId: "seller",
+      imageUrl: "https://img.example/sibling.png",
+    });
+    await db
+      .update(schema.design)
+      .set({ primaryImageId: primaryId })
+      .where(eq(schema.design.id, design.id));
+
+    // A front render anchored on the SIBLING — the newest front render for
+    // this product, e.g. from a pinned non-primary front (#138). The
+    // unfiltered lookup used to return it for the default front too.
+    await insertDesignImage({
+      designId: design.id,
+      imageUrl: "https://img.example/sibling-front-render.png",
+      aspectRatio: "3:4",
+      generationCost: 0,
+      productId: "bella-canvas-3001",
+      placementId: "front",
+      parentImageId: siblingId,
+    });
+
+    await renderAndCacheMockup({
+      designId: design.id,
+      productId: "bella-canvas-3001",
+      colorName: "Black",
+      scale: 1.0,
+      placementId: "front",
+      userId: "seller",
+    });
+
+    // Anchored lookup misses (no primary-anchored render) → falls back to
+    // the design's display image, never the sibling's render.
+    expect(printful.createMockupTask).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      "https://img.example/primary.png",
+      expect.anything(),
+      "front"
+    );
   });
 
   it("rejects an explicit source that isn't usable as a placement source (private, non-owner)", async () => {
