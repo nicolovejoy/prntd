@@ -231,27 +231,49 @@ export const productOffering = sqliteTable("product_offering", {
 });
 
 /**
- * The organizer's sellable: a design placed on a blank at one or more
- * placements, priced. Persists the config that today is assembled at
- * /preview → /order and thrown away. One design → many products. `blankId` is
- * a catalog blank id (blanks.ts, e.g. "bella-canvas-3001") — NOT a FK, the
- * catalog is config not a table. `placements` maps a placement key
- * (front_large/back/…) → the design_image id printed there. `storeId` nullable:
- * a product can exist loose before it's added to a shop. `price` null → the
- * computed default (computeOrderTotal). Re-parented on the guest→account claim.
+ * The sellable composition: image(s) placed on a blank, priced
+ * (docs/composition-first-class-plan.md). Two populations share the table:
+ *
+ *  - Organizer products (the original Phase 2 shape): `designId` + `blankId`
+ *    set, optionally shelved in a store.
+ *  - Shop mirror rows (composition slice 1 dual-write): one per published
+ *    image — `storeId` NULL, `designId` NULL, `placements` exactly
+ *    `{ front: imageId }`, `blankId` NULL (buyer picks the garment),
+ *    `price` NULL (computed per pick). Sellable fields (`title`/
+ *    `description`/`backdropColor`/`feedRank`/`listedAt`) mirror the
+ *    image's `listing` row until the slice-2 read swap. Nothing reads
+ *    mirrors yet.
+ *
+ * `blankId` is a catalog blank id (blanks.ts, e.g. "bella-canvas-3001") —
+ * NOT a FK, the catalog is config not a table; NULL = buyer's choice.
+ * `placements` maps a placement key (front/front_large/back/…) → the `image`
+ * id printed there. `storeId` nullable: an organizer product can exist loose
+ * before it's added to a shop (loose organizer rows keep `designId`, which
+ * is what distinguishes them from mirrors). `price` null → the computed
+ * default (computeOrderTotal). `designId` is nullable during the composition
+ * migration and drops entirely in its final slice. Re-parented on the
+ * guest→account claim.
  */
 export const product = sqliteTable("product", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   ownerId: text("owner_id").notNull().references(() => user.id),
   storeId: text("store_id").references(() => store.id),
-  designId: text("design_id").notNull().references(() => design.id),
-  blankId: text("blank_id").notNull(),
-  // placement key → design_image id (e.g. { front_large: "<imageId>" }).
+  designId: text("design_id").references(() => design.id),
+  blankId: text("blank_id"),
+  // placement key → image id (e.g. { front_large: "<imageId>" }).
   placements: text("placements", { mode: "json" }).$type<Record<string, string>>(),
   // Organizer price override; null = computed default at checkout.
   price: real("price"),
   status: text("status", { enum: ["draft", "listed", "hidden"] }).notNull().default("draft"),
   position: integer("position").notNull().default(0),
+  // Sellable fields moved from `listing` (composition slice 1; the listing
+  // copies remain authoritative for readers until the slice-2 read swap).
+  title: text("title"),
+  description: text("description"),
+  backdropColor: text("backdrop_color"),
+  feedRank: integer("feed_rank"),
+  // When the composition went public (mirrors listing.publishedAt; feed sort).
+  listedAt: integer("listed_at", { mode: "timestamp" }),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });

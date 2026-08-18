@@ -86,6 +86,9 @@ export async function getStorefront(slug: string): Promise<Storefront | null> {
     const imageId = p.placements ? Object.values(p.placements)[0] : undefined;
     const imageUrl = imageId ? urlById.get(imageId) : undefined;
     if (!imageUrl) return [];
+    // blankId is nullable since composition slice 1, but only on Shop mirror
+    // rows (storeId NULL) — store products always carry one. Type-honest guard.
+    if (!p.blankId) return [];
     const blank = getBlank(p.blankId);
     return [
       {
@@ -141,6 +144,9 @@ export async function getStoreProductForBuy(
 
   const product = await svc.getProductById(db, productId);
   if (!product || product.storeId !== store.id) return null;
+  // Shop mirror rows (composition slice 1) have NULL designId/blankId and
+  // NULL storeId, so they can't reach here; type-honest guard.
+  if (!product.designId || !product.blankId) return null;
   // Public can only land on a listed product; the owner can preview any.
   if (!isOwner && !productIsListed(product)) return null;
 
@@ -186,6 +192,11 @@ export async function buyStoreProduct(params: {
 
   const product = await svc.getProductById(db, params.storeProductId);
   if (!product || !product.storeId) return { url: null, error: "Product not found" };
+  // Shop mirror rows (composition slice 1) have NULL storeId, so they can't
+  // reach here; the null check keeps the types honest.
+  if (!product.designId || !product.blankId) {
+    return { url: null, error: "Product not found" };
+  }
   const store = await svc.getStoreById(db, product.storeId);
   if (!store || !canBuyStoreProduct(product, store)) {
     return { url: null, error: "This product isn't available to buy" };

@@ -18,13 +18,14 @@
  * A published listing points at an image row nothing mutates, so publishing is
  * a snapshot by construction. `model-b-writes.test.ts` locks this in.
  */
-import { eq } from "drizzle-orm";
+import { and, eq, isNull, ne, sql } from "drizzle-orm";
 import type { db as appDb } from "@/lib/db";
 import {
   image as imageTable,
   conversationImage as conversationImageTable,
   listing as listingTable,
   placementRender as placementRenderTable,
+  product as productTable,
 } from "@/lib/db/schema";
 
 type ImageRow = typeof imageTable.$inferInsert;
@@ -216,4 +217,172 @@ export function listingSyncStatement(
     .update(listingTable)
     .set(op.set)
     .where(eq(listingTable.imageId, imageId));
+}
+
+// --- composition slice 1: the published image's mirror `product` row ---
+// (docs/composition-first-class-plan.md §5.) Every publish-family action
+// batches a product statement next to its listing statement, so a published
+// image always has a composition row: storeId NULL (the PRNTD Shop),
+// designId NULL, blankId NULL (buyer picks the garment), placements exactly
+// { front: imageId }. Inert to all readers until the slice-2 read swap.
+
+/** The exact placements object a mirror product row carries. */
+export function mirrorPlacements(imageId: string): Record<string, string> {
+  return { front: imageId };
+}
+
+/**
+ * Predicate identifying the mirror product for an image. Exact-JSON match on
+ * placements is sound because mirror rows are only ever written through this
+ * module (insert-time serialization is JSON.stringify of mirrorPlacements and
+ * placements are never updated afterwards). `designId IS NULL` distinguishes
+ * mirrors from loose organizer products (which always carry a designId).
+ * Uniqueness is enforced by lookup-before-insert in the publish path only —
+ * a DB-level guarantee is deferred (noted in the slice-1 PR).
+ */
+function mirrorProductWhere(imageId: string) {
+  return and(
+    isNull(productTable.storeId),
+    isNull(productTable.designId),
+    sql`${productTable.placements} = ${JSON.stringify(mirrorPlacements(imageId))}`
+  );
+}
+
+/**
+ * Find the image's mirror product row, if one exists (live or draft —
+ * unpublish keeps the row as a draft). Returns its id, or null.
+ */
+export async function findMirrorProduct(
+  db: typeof appDb,
+  imageId: string
+): Promise<string | null> {
+  const [row] = await db
+    .select({ id: productTable.id })
+    .from(productTable)
+    .where(mirrorProductWhere(imageId))
+    .limit(1);
+  return row?.id ?? null;
+}
+
+/** Build the mirror `product` row for a publish (or the backfill). */
+export function buildMirrorProductRow(params: {
+  imageId: string;
+  ownerId: string;
+  listedAt: Date;
+  title: string | null;
+  description: string | null;
+  backdropColor: string | null;
+  feedRank?: number | null;
+  status?: "listed" | "hidden";
+}): typeof productTable.$inferInsert {
+  return {
+    ownerId: params.ownerId,
+    storeId: null,
+    designId: null,
+    blankId: null,
+    placements: mirrorPlacements(params.imageId),
+    price: null,
+    status: params.status ?? "listed",
+    position: 0,
+    title: params.title,
+    description: params.description,
+    backdropColor: params.backdropColor,
+    feedRank: params.feedRank ?? null,
+    listedAt: params.listedAt,
+  };
+}
+
+/**
+ * Fields a publish-family edit mirrors onto the product row. `isHidden` maps
+ * to the status enum (true → "hidden", false → "listed"); the other fields
+ * copy over directly.
+ */
+export type MirrorUpdate = Partial<{
+  title: string | null;
+  description: string | null;
+  backdropColor: string | null;
+  feedRank: number | null;
+  isHidden: boolean;
+}>;
+
+export type ProductMirrorOp =
+  | {
+      kind: "publish";
+      /** Image owner — the mirror's seller. */
+      ownerId: string;
+      publishedAt: Date;
+      title: string | null;
+      description: string | null;
+      backdropColor: string | null;
+      /**
+       * Result of findMirrorProduct, resolved by the caller before batching:
+       * null → insert a fresh mirror; an id → revive that draft row
+       * (fresh listedAt, feedRank cleared — matching the listing's
+       * fresh-row-on-republish semantics).
+       */
+      existingMirrorId: string | null;
+    }
+  | { kind: "unpublish" }
+  | { kind: "update"; set: MirrorUpdate };
+
+/**
+ * The mirror-product counterpart of listingSyncStatement: one statement to
+ * batch alongside the listing statement.
+ *
+ *  - publish  → insert the mirror, or revive the existing draft row.
+ *  - unpublish→ status "draft" (row kept; re-publish revives it).
+ *  - update   → partial update, guarded to non-draft rows so it no-ops
+ *               exactly when the listing update does (an unpublished image
+ *               has no listing; its mirror — if any — is a draft).
+ */
+export function productMirrorStatement(
+  db: typeof appDb,
+  imageId: string,
+  op: ProductMirrorOp
+) {
+  if (op.kind === "publish") {
+    if (op.existingMirrorId) {
+      return db
+        .update(productTable)
+        .set({
+          status: "listed",
+          title: op.title,
+          description: op.description,
+          backdropColor: op.backdropColor,
+          feedRank: null,
+          listedAt: op.publishedAt,
+          updatedAt: new Date(),
+        })
+        .where(eq(productTable.id, op.existingMirrorId));
+    }
+    return db.insert(productTable).values(
+      buildMirrorProductRow({
+        imageId,
+        ownerId: op.ownerId,
+        listedAt: op.publishedAt,
+        title: op.title,
+        description: op.description,
+        backdropColor: op.backdropColor,
+      })
+    );
+  }
+  if (op.kind === "unpublish") {
+    return db
+      .update(productTable)
+      .set({ status: "draft", updatedAt: new Date() })
+      .where(mirrorProductWhere(imageId));
+  }
+  const set: Partial<typeof productTable.$inferInsert> = {
+    updatedAt: new Date(),
+  };
+  if (op.set.title !== undefined) set.title = op.set.title;
+  if (op.set.description !== undefined) set.description = op.set.description;
+  if (op.set.backdropColor !== undefined) set.backdropColor = op.set.backdropColor;
+  if (op.set.feedRank !== undefined) set.feedRank = op.set.feedRank;
+  if (op.set.isHidden !== undefined)
+    set.status = op.set.isHidden ? "hidden" : "listed";
+  return db
+    .update(productTable)
+    .set(set)
+    .where(and(mirrorProductWhere(imageId), ne(productTable.status, "draft")));
 }

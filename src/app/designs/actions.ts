@@ -18,7 +18,12 @@ import {
 import { eq, and, ne, count, inArray, or, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { imageReferences } from "@/lib/design-publish";
-import { listingSyncStatement, type ListingUpdate } from "@/lib/model-b-writes";
+import {
+  listingSyncStatement,
+  productMirrorStatement,
+  findMirrorProduct,
+  type ListingUpdate,
+} from "@/lib/model-b-writes";
 import { generatePublishedNaming } from "@/lib/ai";
 import { DEFAULT_PUBLISH_BACKGROUND } from "@/lib/blanks";
 
@@ -122,10 +127,21 @@ export async function deleteDesign(
   const linkedElsewhere = new Set(sharedRows.map((r) => r.imageId));
   const productPinned = new Set<string>();
   const cartPinned = new Set<string>();
+  // Mirror product rows (composition slice 1): a published image's own Shop
+  // composition (storeId+designId NULL, placements exactly {front: imageId}).
+  // A mirror must not keep its image alive — it exists BECAUSE of the image —
+  // so mirrors are excluded from the pin probe and deleted alongside the
+  // image row + listing below, the same lifecycle the listing row already had.
+  const mirrorIdByImage = new Map<string, string>();
   if (imageIds.length) {
     const [productPins, cartPins] = await Promise.all([
       db
-        .select({ placements: productTable.placements })
+        .select({
+          id: productTable.id,
+          storeId: productTable.storeId,
+          designId: productTable.designId,
+          placements: productTable.placements,
+        })
         .from(productTable)
         .where(
           or(
@@ -150,8 +166,21 @@ export async function deleteDesign(
           )
         ),
     ]);
+    const imageIdSet = new Set(imageIds);
     for (const row of productPins) {
-      for (const id of Object.values(row.placements ?? {})) productPinned.add(id);
+      const placements = row.placements ?? {};
+      const entries = Object.entries(placements);
+      const isOwnMirror =
+        row.storeId === null &&
+        row.designId === null &&
+        entries.length === 1 &&
+        entries[0][0] === "front" &&
+        imageIdSet.has(entries[0][1]);
+      if (isOwnMirror) {
+        mirrorIdByImage.set(entries[0][1], row.id);
+        continue;
+      }
+      for (const id of Object.values(placements)) productPinned.add(id);
     }
     for (const row of cartPins) {
       for (const id of Object.values(row.placements ?? {})) cartPinned.add(id);
@@ -166,6 +195,9 @@ export async function deleteDesign(
         cart: cartPinned.has(id),
       }) === "delete"
   );
+  const removableMirrorIds = removableImageIds
+    .map((id) => mirrorIdByImage.get(id))
+    .filter((id): id is string => id !== undefined);
 
   await db.batch([
     db.delete(chatMessageTable).where(eq(chatMessageTable.designId, designId)),
@@ -184,6 +216,15 @@ export async function deleteDesign(
           db
             .delete(listingTable)
             .where(inArray(listingTable.imageId, removableImageIds)),
+        ]
+      : []),
+    // Mirror products of deleted images go with them (a detached image —
+    // referenced elsewhere — keeps its listing AND its mirror).
+    ...(removableMirrorIds.length
+      ? [
+          db
+            .delete(productTable)
+            .where(inArray(productTable.id, removableMirrorIds)),
         ]
       : []),
     db.delete(designTable).where(eq(designTable.id, designId)),
@@ -299,17 +340,32 @@ export async function publishImage(
 
   const publishedAt = new Date();
   const backgroundColor = opts.backgroundColor ?? DEFAULT_PUBLISH_BACKGROUND;
+  // Composition slice 1 dual-write: publish also creates (or revives) the
+  // image's mirror product row — the Shop composition. Lookup-before-insert
+  // keeps a re-publish from minting a second mirror.
+  const existingMirrorId = await findMirrorProduct(db, imageId);
   // Publish never leaves the backdrop transparent (#73): no pick — or an
   // explicit null from a legacy caller — persists as White.
-  await listingSyncStatement(db, imageId, {
-    kind: "publish",
-    publishedAt,
-    isHidden: false,
-    title: title ?? null,
-    description: description ?? null,
-    backgroundColor,
-    feedRank: null,
-  });
+  await db.batch([
+    listingSyncStatement(db, imageId, {
+      kind: "publish",
+      publishedAt,
+      isHidden: false,
+      title: title ?? null,
+      description: description ?? null,
+      backgroundColor,
+      feedRank: null,
+    }),
+    productMirrorStatement(db, imageId, {
+      kind: "publish",
+      ownerId: image.ownerId,
+      publishedAt,
+      title: title ?? null,
+      description: description ?? null,
+      backdropColor: backgroundColor,
+      existingMirrorId,
+    }),
+  ]);
 
   revalidatePath("/");
   revalidatePath("/prints");
@@ -359,7 +415,23 @@ export async function updatePublishedNaming(
   if (description !== undefined) set.description = description.trim();
   if (backgroundColor !== undefined) set.backgroundColor = backgroundColor;
 
-  await listingSyncStatement(db, imageId, { kind: "update", set });
+  // Composition slice 1 dual-write: mirror the edit onto the product row
+  // (backdropColor is the product-side name for backgroundColor).
+  await db.batch([
+    listingSyncStatement(db, imageId, { kind: "update", set }),
+    productMirrorStatement(db, imageId, {
+      kind: "update",
+      set: {
+        ...(set.title !== undefined ? { title: set.title } : {}),
+        ...(set.description !== undefined
+          ? { description: set.description }
+          : {}),
+        ...(set.backgroundColor !== undefined
+          ? { backdropColor: set.backgroundColor }
+          : {}),
+      },
+    }),
+  ]);
 
   revalidatePath("/");
   revalidatePath("/prints");
@@ -396,8 +468,13 @@ export async function unpublishImage(imageId: string) {
   if (!image.publishedAt) return;
 
   // Unpublish = delete the listing row. Re-publish creates a fresh listing
-  // (title re-proposed, backdrop defaulted) — see publishImage.
-  await listingSyncStatement(db, imageId, { kind: "unpublish" });
+  // (title re-proposed, backdrop defaulted) — see publishImage. The mirror
+  // product flips to draft (row kept — a later re-publish revives it with a
+  // fresh listedAt, matching the listing's fresh-row semantics).
+  await db.batch([
+    listingSyncStatement(db, imageId, { kind: "unpublish" }),
+    productMirrorStatement(db, imageId, { kind: "unpublish" }),
+  ]);
 
   revalidatePath("/");
   revalidatePath("/prints");

@@ -4,11 +4,13 @@
  * tests and the live `db` in the server actions — no mocking, no auth/headers
  * coupling. Pure slug/guard logic lives in `stores.ts`; this is the data layer.
  */
-import { eq, asc } from "drizzle-orm";
+import { eq, asc, inArray } from "drizzle-orm";
 import {
   store as storeTable,
   product as productTable,
   design as designTable,
+  image as imageTable,
+  placementRender as placementRenderTable,
 } from "./db/schema";
 import { uniqueSlug, canManageStore } from "./stores";
 import type { db as appDb } from "./db";
@@ -112,7 +114,10 @@ export type CreateProductInput = {
 /**
  * Create a draft product from one of the organizer's own designs. Rejects a
  * design the organizer doesn't own (the ownership guard the compose UI relies
- * on). New products land at the end of their store's order.
+ * on). Also validates every placements image id is the creator's own
+ * (composition slice 1 groundwork: when designId drops in the final slice,
+ * the placement-image check IS the ownership guard). New products land at
+ * the end of their store's order.
  */
 export async function createProduct(
   db: DB,
@@ -125,6 +130,8 @@ export async function createProduct(
     .where(eq(designTable.id, input.designId));
   if (!design) throw new Error("Design not found");
   if (design.userId !== ownerId) throw new Error("Unauthorized");
+
+  await assertOwnsPlacementImages(db, ownerId, input.placements);
 
   if (input.storeId) await assertOwnsStore(db, ownerId, input.storeId);
 
@@ -240,6 +247,44 @@ export async function reorderProducts(
 }
 
 // --- internal guards ---
+
+/**
+ * Every placement value must be an image the creator owns (composition
+ * slice 1 groundwork). Two id populations are legal in placements — source
+ * artifacts (`image`, owner checked directly) and placement renders
+ * (`placement_render`, owner checked via its design) — because primary-image
+ * ids can historically resolve to either (see resolveImagesByIds).
+ */
+async function assertOwnsPlacementImages(
+  db: DB,
+  ownerId: string,
+  placements: Record<string, string> | null | undefined
+): Promise<void> {
+  const ids = [...new Set(Object.values(placements ?? {}))];
+  if (ids.length === 0) return;
+
+  const [images, renders] = await Promise.all([
+    db
+      .select({ id: imageTable.id, ownerId: imageTable.ownerId })
+      .from(imageTable)
+      .where(inArray(imageTable.id, ids)),
+    db
+      .select({ id: placementRenderTable.id, userId: designTable.userId })
+      .from(placementRenderTable)
+      .innerJoin(designTable, eq(designTable.id, placementRenderTable.designId))
+      .where(inArray(placementRenderTable.id, ids)),
+  ]);
+
+  const owned = new Set([
+    ...images.filter((r) => r.ownerId === ownerId).map((r) => r.id),
+    ...renders.filter((r) => r.userId === ownerId).map((r) => r.id),
+  ]);
+  for (const id of ids) {
+    if (!owned.has(id)) {
+      throw new Error("Placement image not found or not owned by you");
+    }
+  }
+}
 
 async function assertOwnsStore(db: DB, ownerId: string, storeId: string): Promise<Store> {
   const s = await getStoreById(db, storeId);
