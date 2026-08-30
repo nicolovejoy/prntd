@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { ChatMessage } from "./db/schema";
 import type { DesignImage } from "./design-images";
+import { parseDesignSpec, type DesignSpec } from "./design-spec";
 
 const anthropic = new Anthropic();
 
@@ -570,4 +571,128 @@ export async function constructFluxPrompt(
       referenceImage: null,
     };
   }
+}
+
+const DESIGN_BRIEF_SYSTEM_PROMPT = `You are a t-shirt design assistant for PRNTD. Translate the user's conversation into a structured design brief.
+
+Respond with raw JSON only (no markdown, no code fences):
+{
+  "message": "Brief factual acknowledgment shown to the user (plain, no exclamation points)",
+  "operation": "generate" | "edit" | "clarify",
+  "spec": { ... },                 // required when operation is "generate"
+  "editInstruction": "...",        // required when operation is "edit"
+  "referenceImage": null or number // edit only: the # of the design being refined
+}
+
+Choosing the operation:
+- "generate": the user wants a new design, or a different take on the idea (new subject, changed style, another version of the same concept).
+- "edit": the user is refining an existing design — changing, adding, removing, or adjusting parts while keeping the rest ("make the bear larger", "remove the lettering", "different font"). The referenced image is sent to an instruction-edit model together with your editInstruction.
+- "clarify": the subject is too vague to draw anything; put the single question in "message". Only a missing subject warrants clarify — if style is unstated, pick one that suits the subject and say which you chose in "message".
+
+The spec (operation "generate"):
+{
+  "subject": "One or two sentences describing the whole design.",
+  "style": {
+    "aesthetics": "mood, vibe, texture cues",
+    "artStyle": "e.g. woodcut illustration, sumi-e brush painting",
+    "medium": "e.g. screen print, pen and ink",
+    "lighting": "only when it matters",
+    "colorPalette": ["#RRGGBB"]    // only when the user expressed color intent; soft bias, not a lock
+  },
+  "elements": [
+    { "type": "obj", "desc": "a concrete visual element" },
+    { "type": "text", "text": "LITERAL TEXT TO RENDER", "desc": "typography style and placement notes" }
+  ]
+}
+"subject" and at least one element are required — never emit a spec without a concrete subject.
+
+Print specifications (physics, not taste):
+- DTG printing, 12" x 16" print area.
+- The design is generated on a transparent background automatically — never mention backgrounds in any field.
+- Favor open, breathable compositions — avoid dense block prints (ink coverage matters for DTG).
+- Flat graphic / artwork only — NEVER a picture of a t-shirt. Never the words "t-shirt", "shirt", or "mockup" in any field.
+
+Style — be faithful to the user's intent:
+- DO NOT default to clean / vector / digital illustration unless asked.
+- Hand-painted, brushy, distressed, vintage, zine etc.: write concrete texture cues into "artStyle"/"aesthetics" and element descs ("sumi-e brush strokes, uneven ink pressure, ink pooling at stroke ends", "halftone screen-print, deliberate ink gaps, slight registration offset").
+- If the user is silent on style, pick one that suits the subject and say which you chose in "message" — do not stop to ask.
+- Never override the user's stated style because you think a different style would print better; if a style genuinely conflicts with print constraints, explain in "message".
+
+Affirmative-only fields:
+- There is no negative-prompt channel. Every spec field describes only what SHOULD appear. Translate negations into positive targets ("mouth closed, calm expression" not "no tongue"; "solid filled bold block lettering" not "no bubble letters"; "open composition, clear focal point, generous negative space" not "less busy").
+- To push away from a default the model likes, state the desired quality concretely in "aesthetics" ("raw bristle texture, uneven ink pressure" rather than "not smooth").
+
+Text in designs:
+- Put literal text in a text element's "text" field exactly as it should render; typography intent goes in that element's "desc" and must match the user's style intent.
+- If the user wants no text, emit no text elements and never mention text anywhere.
+
+Edits (operation "edit"):
+- editInstruction states what should change and what must stay ("make the bear larger; keep the lettering, colors, and composition unchanged"). Do not re-describe the whole design.
+- The edit model handles removal instructions directly: "remove the lettering under the figure" is correct here.
+- Set "referenceImage" to the # of the design being refined (from the gallery context); null if the user didn't say — the latest design is assumed.`;
+
+export type DesignBrief =
+  | { operation: "clarify"; message: string }
+  | { operation: "generate"; message: string; spec: DesignSpec }
+  | { operation: "edit"; message: string; editInstruction: string; referenceImage: number | null };
+
+export async function constructDesignBrief(
+  chatHistory: ChatMessage[],
+  images: DesignImage[],
+  userMessage?: string
+): Promise<DesignBrief> {
+  const { messages, galleryContext } = buildMessages(chatHistory, images, userMessage);
+
+  const response = await anthropic.messages.create({
+    model: "claude-sonnet-4-6",
+    max_tokens: 1500,
+    system: DESIGN_BRIEF_SYSTEM_PROMPT + galleryContext,
+    messages,
+  });
+
+  let text = response.content?.[0]?.type === "text" ? response.content[0].text : "";
+  if (!text) {
+    console.error("constructDesignBrief: empty response from Claude");
+    return { operation: "clarify", message: "Tell me what you'd like on the shirt." };
+  }
+  text = text.replace(/^```(?:json)?\s*\n?/m, "").replace(/\n?```\s*$/m, "").trim();
+
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    // Prose means Claude answered in chat, not with a brief (#137): surface
+    // it and render nothing.
+    return { operation: "clarify", message: text };
+  }
+
+  const message =
+    typeof parsed.message === "string" && parsed.message.trim()
+      ? parsed.message.trim()
+      : "Tell me what you'd like on the shirt.";
+
+  if (parsed.operation === "generate") {
+    const spec = parseDesignSpec(parsed.spec);
+    if (!spec) {
+      console.error("constructDesignBrief: generate with invalid spec, downgrading to clarify");
+      return { operation: "clarify", message };
+    }
+    return { operation: "generate", message, spec };
+  }
+
+  if (parsed.operation === "edit") {
+    const editInstruction =
+      typeof parsed.editInstruction === "string" && parsed.editInstruction.trim()
+        ? parsed.editInstruction.trim()
+        : null;
+    if (!editInstruction) {
+      console.error("constructDesignBrief: edit with empty instruction, downgrading to clarify");
+      return { operation: "clarify", message };
+    }
+    const referenceImage =
+      typeof parsed.referenceImage === "number" ? parsed.referenceImage : null;
+    return { operation: "edit", message, editInstruction, referenceImage };
+  }
+
+  return { operation: "clarify", message };
 }
