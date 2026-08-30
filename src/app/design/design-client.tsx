@@ -42,6 +42,13 @@ import {
   threadToSnapshot,
 } from "@/lib/design-thread-cache";
 
+/**
+ * How long the queued path waits before re-reading the gallery. A placeholder
+ * for real job polling (task 5) — long enough that a typical render has
+ * landed, short enough not to look hung.
+ */
+const QUEUED_REFRESH_MS = 12_000;
+
 interface Props {
   /**
    * Server-fetched thread for ?id= visits (null for new threads, guests, and
@@ -262,28 +269,34 @@ function DesignPageInner({ initialThreadPromise }: Props) {
       await ensureGuestSession();
       const result = await generateDesign(designId.current, userMessage);
       setDesignExists(true);
-      // The result always lands in chat + gallery — even after a client-side
-      // cancel the server render completed (and the quota unit was spent), so
-      // show the image honestly rather than hiding paid work.
+
+      if (result.kind === "queued") {
+        // The render finishes in the background now; the action returned as
+        // soon as the job row existed. Deliberately crude until task 5 swaps
+        // this for real job polling: wait a fixed beat, then re-read the
+        // gallery. The image lands in chat + strip when the continuation
+        // commits — even after a client-side cancel, since the render ran and
+        // was paid for.
+        await new Promise((resolve) => setTimeout(resolve, QUEUED_REFRESH_MS));
+        await refreshGallery();
+        return;
+      }
+
       setMessages((prev) => [
         ...prev,
-        makeOptimisticMessage("assistant", result.message, result.imageId),
+        makeOptimisticMessage("assistant", result.message),
       ]);
-      // Claude may answer with a clarifying question instead of an image
-      // (no imageUrl) — just show the message, no gallery/drawer changes.
-      // The new render lands inline in chat and leads the mobile thumbnail
-      // strip — no drawer auto-open needed.
-      if (result.imageUrl) {
-        await refreshGallery();
-      }
       // Composer-adjacent state belongs to the latest turn only: a cancelled
-      // or superseded generation must not reset options, readiness, or the
-      // user's current selection.
+      // or superseded generation must not reset options or readiness.
       if (turns.current.isCurrent(token)) {
-        setReadyToGenerate(result.readyToGenerate);
-        // A clarifying question (no image) may carry tappable style options.
-        setOptions("options" in result ? (result.options ?? []) : []);
-        if (result.imageUrl) setSelectedImage(result.imageUrl);
+        if (result.kind === "clarification") {
+          setReadyToGenerate(false);
+          // A clarifying question may carry tappable style options.
+          setOptions(result.options ?? []);
+        } else {
+          // Cap or capacity refusal — the idea itself is still renderable.
+          setReadyToGenerate(true);
+        }
       }
     } catch {
       // After a cancel, a failure message is noise — the user moved on.

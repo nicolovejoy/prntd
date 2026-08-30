@@ -29,6 +29,30 @@ vi.mock("@/lib/db", () => ({
 
 vi.mock("next/headers", () => ({ headers: vi.fn(async () => new Headers()) }));
 
+// generateDesign hands the render to `after()`; collect the continuations so
+// each test decides when the background half runs. A no-op mock would make
+// every post-generation assertion below vacuous.
+const afterQueue = vi.hoisted(() => ({ callbacks: [] as Array<() => unknown> }));
+vi.mock("next/server", () => ({
+  after: (cb: () => unknown) => {
+    afterQueue.callbacks.push(cb);
+  },
+}));
+async function drainAfter() {
+  while (afterQueue.callbacks.length) {
+    await afterQueue.callbacks.shift()!();
+  }
+}
+
+/** Narrow a queued generate turn, failing loudly on anything else. */
+function queuedImageId(result: { kind: string; imageId?: string }): string {
+  if (result.kind !== "queued" || !result.imageId) {
+    throw new Error(`expected a queued generation, got ${result.kind}`);
+  }
+  return result.imageId;
+}
+
+
 vi.mock("@/lib/auth", () => ({
   auth: {
     api: {
@@ -184,11 +208,12 @@ describe("startConversationFromImage", () => {
     // Attribution now lives only on the image graph — the observable effect
     // is what the thread's first generation stamps onto its own image row
     // (getConversationSeedProvenance, replacing the dropped design mirror).
-    const gen = await generateDesign(designId, "make it blue");
+    const genImageId = queuedImageId(await generateDesign(designId, "make it blue"));
+    await drainAfter();
     const [row] = await testDb
       .select()
       .from(schema.image)
-      .where(eq(schema.image.id, gen.imageId!));
+      .where(eq(schema.image.id, genImageId));
     expect(row.originalDesignerId).toBe("root-designer");
   });
 
@@ -233,24 +258,26 @@ describe("first generation in a seeded thread", () => {
     const { imageId } = await seedOrigin({ publishedAt: new Date() });
     const { designId } = await startConversationFromImage(imageId);
 
-    const first = await generateDesign(designId, "make it blue");
+    const firstImageId = queuedImageId(await generateDesign(designId, "make it blue"));
+    await drainAfter();
     const [firstRow] = await testDb
       .select()
       .from(schema.image)
-      .where(eq(schema.image.id, first.imageId!));
+      .where(eq(schema.image.id, firstImageId));
     // Slice 3 §5: seed lineage, not a within-thread parent.
     expect(firstRow.parentImageId).toBeNull();
     expect(firstRow.seedImageId).toBe(imageId);
     expect(firstRow.originalDesignerId).toBe("origin");
     expect(firstRow.ownerId).toBe("starter");
 
-    const second = await generateDesign(designId, "now red");
+    const secondImageId = queuedImageId(await generateDesign(designId, "now red"));
+    await drainAfter();
     const [secondRow] = await testDb
       .select()
       .from(schema.image)
-      .where(eq(schema.image.id, second.imageId!));
+      .where(eq(schema.image.id, secondImageId));
     // The parent chain is between the thread's outputs; lineage sticks.
-    expect(secondRow.parentImageId).toBe(first.imageId);
+    expect(secondRow.parentImageId).toBe(firstImageId);
     expect(secondRow.seedImageId).toBe(imageId);
   });
 });
@@ -268,10 +295,10 @@ describe("editing on a seed-only thread", () => {
     });
 
     const result = await generateDesign(designId, "make it bigger");
+    await drainAfter();
 
     // Not a clarification: the seed-only thread still has a design to edit.
-    expect(result.imageId).not.toBeNull();
-    expect(result.readyToGenerate).toBe(true);
+    expect(result.kind).toBe("queued");
     const generateSpy = vi.mocked(GENERATORS.ideogram.generate);
     expect(generateSpy).toHaveBeenCalledWith(
       expect.objectContaining({ kind: "edit", anchorImageUrl: "https://r2/origin/1.png" }),

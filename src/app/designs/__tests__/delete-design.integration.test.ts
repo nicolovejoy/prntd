@@ -411,3 +411,49 @@ describe("deleteDesign — slice-4 ref-count", () => {
     ).toHaveLength(0);
   });
 });
+
+describe("deleteDesign — generation job rows", () => {
+  it("deletes the design's image_generation rows (running ones included)", async () => {
+    const d = await makeDesign(testDb, "u1");
+    const imageId = crypto.randomUUID();
+    await testDb.insert(schema.imageGeneration).values([
+      {
+        designId: d.id,
+        userId: "u1",
+        status: "running",
+        operation: "generate",
+        imageId,
+        r2Key: `images/${imageId}.png`,
+        generationNumber: 1,
+        dayKey: "2026-08-29",
+        cost: 0.03,
+        startedAt: new Date(),
+      },
+      {
+        designId: d.id,
+        userId: "u1",
+        status: "succeeded",
+        operation: "edit",
+        imageId: crypto.randomUUID(),
+        r2Key: "images/x.png",
+        generationNumber: 2,
+        dayKey: "2026-08-29",
+        cost: 0.2,
+        startedAt: new Date(),
+        finishedAt: new Date(),
+      },
+    ]);
+
+    // image_generation.design_id FKs design.id with no cascade — before the
+    // batch knew about it, this delete died on the constraint (#124's class).
+    await deleteDesign(d.id);
+
+    expect(await designRow(d.id)).toBeUndefined();
+    expect(
+      await testDb
+        .select()
+        .from(schema.imageGeneration)
+        .where(eq(schema.imageGeneration.designId, d.id))
+    ).toHaveLength(0);
+  });
+});

@@ -1,12 +1,22 @@
 "use server";
 
 import { headers } from "next/headers";
+import { after } from "next/server";
 import { revalidatePath } from "next/cache";
 import { auth, isAnonymousUser } from "@/lib/auth";
 import {
   consumeGenerationQuota,
   refundGenerationQuota,
+  dayKeyUTC,
 } from "@/lib/generation-quota";
+import {
+  insertGenerationJob,
+  failGenerationJob,
+  succeedJobStatement,
+  countRunningJobsForUser,
+  GENERATION_CONCURRENCY_CAP,
+  STALE_JOB_MS,
+} from "@/lib/generation-job";
 import { db } from "@/lib/db";
 import {
   design as designTable,
@@ -19,6 +29,7 @@ import {
 import { eq, and, sql } from "drizzle-orm";
 import { buildImageRow, buildOutputLinkRow } from "@/lib/model-b-writes";
 import { chatAboutDesign, constructDesignBrief, assessReadiness } from "@/lib/ai";
+import type { ChatOption } from "@/lib/ai";
 import { uploadImageObject, deleteImageObject } from "@/lib/r2";
 import { getGenerator } from "@/lib/generators/registry";
 import type { GenerateOperation } from "@/lib/generators/types";
@@ -45,6 +56,8 @@ import {
 import { dedupeById, assertConversationOpen } from "@/lib/design-view";
 import { renderSpecSummary } from "@/lib/design-spec";
 import type { ChatMessage } from "@/lib/db/schema";
+import type { DesignImage } from "@/lib/design-images";
+import type { ImageGenerator } from "@/lib/generators/types";
 
 async function getOrCreateDesign(designId: string, userId: string) {
   let found = await db.query.design.findFirst({
@@ -109,14 +122,13 @@ export async function sendChatMessage(designId: string, userMessage: string) {
   };
 }
 
-async function persistClarification(
-  designId: string,
-  userMessage: string | undefined,
-  message: string
-) {
-  if (userMessage) {
-    await insertChatMessage({ designId, role: "user", content: userMessage });
-  }
+/**
+ * Persist the assistant's clarifying turn. The user's own turn is written up
+ * front by `generateDesign` (async generation means their words must appear
+ * immediately, whichever way the turn resolves), so this writes only the
+ * assistant side — writing it here too would double the user's message.
+ */
+async function persistClarification(designId: string, message: string) {
   await insertChatMessage({ designId, role: "assistant", content: message });
   await db
     .update(designTable)
@@ -124,10 +136,29 @@ async function persistClarification(
     .where(eq(designTable.id, designId));
 }
 
+/**
+ * What a generate turn resolved to. A discriminated union because generation
+ * is now durable: the common outcome is "queued" — the job row exists and the
+ * render finishes in an `after()` continuation, after this action returned.
+ */
+export type GenerateResult =
+  | { kind: "queued"; jobId: string; generationNumber: number; imageId: string }
+  | {
+      kind: "clarification";
+      message: string;
+      readyToGenerate: false;
+      options?: ChatOption[];
+    }
+  | { kind: "limit"; message: string }
+  | { kind: "at_capacity"; message: string };
+
+/** Copy shown when the user already holds the max concurrent generations. */
+const AT_CAPACITY_MESSAGE = `You have ${GENERATION_CONCURRENCY_CAP} designs generating already — give them a moment.`;
+
 export async function generateDesign(
   designId: string,
   userMessage?: string
-) {
+): Promise<GenerateResult> {
   const hdrs = await headers();
   const session = await auth.api.getSession({ headers: hdrs });
   if (!session) throw new Error("Unauthorized");
@@ -136,31 +167,59 @@ export async function generateDesign(
   // Refuse before the quota spend — a closed thread must not burn a unit.
   assertConversationOpen(found);
   const ip = clientIp(hdrs);
+  const userId = session.user.id;
+  const now = new Date();
+  // The day the unit is spent on, captured once. Every refund below (and the
+  // job row) carries it, so a failure noticed after midnight UTC credits the
+  // bucket the spend actually came out of.
+  const dayKey = dayKeyUTC(now);
 
   // Abuse guard (#26 A3): count this generation against the daily caps before
   // any paid model call. Over the cap → nudge to sign in, no API spend.
   const quota = await consumeGenerationQuota({
-    userId: session.user.id,
+    userId,
     isAnonymous: isAnonymousUser(session.user),
     ip,
+    now,
   });
   if (!quota.allowed) {
-    return {
-      message: generationLimitMessage(quota.reason),
-      imageUrl: null,
-      imageId: null,
-      generationNumber: found.generationCount,
-      readyToGenerate: true,
-    };
+    return { kind: "limit", message: generationLimitMessage(quota.reason) };
   }
 
-  // Quota is consumed above; if the generation then throws, refund the unit so
-  // a failed render doesn't cost the user a design (guests get only 8/day).
-  // Clarification early-returns below aren't failures — they leave quota spent.
+  // The user's turn lands NOW, not when the render completes. The action
+  // returns before the image exists, so their own words have to be in the
+  // thread immediately or the chat looks like it swallowed them. Every exit
+  // below leaves this exactly one row — persistClarification writes only the
+  // assistant side, and the completion batch only the assistant side.
+  if (userMessage) {
+    await insertChatMessage({ designId, role: "user", content: userMessage });
+    await db
+      .update(designTable)
+      .set({ updatedAt: new Date() })
+      .where(eq(designTable.id, designId));
+  }
+
+  // Advisory pre-check, not the authority: refusing here avoids paying for a
+  // brief call whose job row would be rejected anyway. insertGenerationJob's
+  // INSERT…WHERE is what actually enforces the cap under a race.
+  // `db` is passed explicitly to every job-lifecycle call: the module's own
+  // lazy `import("./db")` would otherwise construct a second client.
+  const running = await countRunningJobsForUser(userId, db);
+  if (running >= GENERATION_CONCURRENCY_CAP) {
+    await refundGenerationQuota({ userId, ip, day: dayKey }).catch((e) =>
+      console.error("refundGenerationQuota failed:", e)
+    );
+    return { kind: "at_capacity", message: AT_CAPACITY_MESSAGE };
+  }
+
+  // Everything up to the job insert runs inside the request. A throw there has
+  // no job row to gate a refund on, so it refunds directly; once the row
+  // exists, failGenerationJob owns the refund (transition + refund together,
+  // so a sweeper and a live failure can't both give the unit back).
   try {
-    return await runGenerate({ designId, found, userMessage });
+    return await runGenerate({ designId, found, userMessage, userId, ip, dayKey });
   } catch (err) {
-    await refundGenerationQuota({ userId: session.user.id, ip }).catch((e) =>
+    await refundGenerationQuota({ userId, ip, day: dayKey }).catch((e) =>
       console.error("refundGenerationQuota failed:", e)
     );
     throw err;
@@ -171,41 +230,39 @@ async function runGenerate({
   designId,
   found,
   userMessage,
+  userId,
+  ip,
+  dayKey,
 }: {
   designId: string;
   found: typeof designTable.$inferSelect;
   userMessage?: string;
-}) {
+  userId: string;
+  ip: string | null;
+  dayKey: string;
+}): Promise<GenerateResult> {
   const messages = await getDesignMessages(designId);
   const images = await getDesignImagesForAIContext(designId);
 
-  // If user typed a message with the generate action, fold it into the
-  // context the AI sees (without persisting until generation succeeds).
-  const messagesForPrompt: ChatMessage[] = userMessage
-    ? [
-        ...messages,
-        {
-          id: "pending",
-          designId,
-          role: "user",
-          content: userMessage,
-          imageId: null,
-          createdAt: new Date(),
-        },
-      ]
-    : messages;
+  // The user's turn is already persisted (generateDesign writes it up front),
+  // and buildMessages appends `userMessage` itself — so drop the trailing copy
+  // rather than feeding the model the same sentence twice. Only the LAST row is
+  // considered, so an identical message from an earlier turn stays in context.
+  const last = messages[messages.length - 1];
+  const messagesForPrompt: ChatMessage[] =
+    userMessage && last?.role === "user" && last.content === userMessage
+      ? messages.slice(0, -1)
+      : messages;
 
   // Fast pre-check: if the idea is too thin to render, ask for the missing
   // piece in ~1s (Haiku) instead of paying the heavy constructDesignBrief
   // round-trip just to surface a clarifying question. Fails open.
   const readiness = await assessReadiness(messagesForPrompt, images, userMessage);
   if (!readiness.ready) {
-    await persistClarification(designId, userMessage, readiness.question);
+    await persistClarification(designId, readiness.question);
     return {
+      kind: "clarification",
       message: readiness.question,
-      imageUrl: null,
-      imageId: null,
-      generationNumber: found.generationCount,
       readyToGenerate: false,
       options: readiness.options,
     };
@@ -220,23 +277,18 @@ async function runGenerate({
   }
 
   if (brief.operation === "clarify") {
-    await persistClarification(designId, userMessage, brief.message);
-    return {
-      message: brief.message,
-      imageUrl: null,
-      imageId: null,
-      generationNumber: found.generationCount,
-      readyToGenerate: false,
-    };
+    await persistClarification(designId, brief.message);
+    return { kind: "clarification", message: brief.message, readyToGenerate: false };
   }
 
   const generator = getGenerator(found.activeGeneratorId);
 
   let generateOp: GenerateOperation;
+  let anchorImageId: string | null = null;
   if (brief.operation === "edit") {
-    const referenced =
+    const referencedImage =
       brief.referenceImage != null
-        ? images.find((img) => img.number === brief.referenceImage)?.url
+        ? images.find((img) => img.number === brief.referenceImage)
         : undefined;
     // No explicit reference → the latest OUTPUT is what "make it larger"
     // means. But a fresh-start thread may have only a seed (no outputs yet) —
@@ -245,126 +297,225 @@ async function runGenerate({
     // uses a separate, seed-excluding `outputs` lookup — parent lineage must
     // never point at a seed; this one is purely "what is the user looking at".)
     const anchorOutputs = images.filter((img) => img.role !== "seed");
-    const anchorImageUrl =
-      referenced ??
-      anchorOutputs[anchorOutputs.length - 1]?.url ??
-      images[images.length - 1]?.url;
-    if (!anchorImageUrl) {
+    const anchor =
+      referencedImage ??
+      anchorOutputs[anchorOutputs.length - 1] ??
+      images[images.length - 1];
+    if (!anchor) {
       // An edit classified on an imageless thread is a model error; there is
       // nothing to edit, so ask instead of rendering.
       const message =
         "There's no design to edit yet — tell me what you'd like on the shirt.";
-      await persistClarification(designId, userMessage, message);
-      return {
-        message,
-        imageUrl: null,
-        imageId: null,
-        generationNumber: found.generationCount,
-        readyToGenerate: false,
-      };
+      await persistClarification(designId, message);
+      return { kind: "clarification", message, readyToGenerate: false };
     }
-    generateOp = { kind: "edit", instruction: brief.editInstruction, anchorImageUrl };
+    anchorImageId = anchor.id;
+    generateOp = {
+      kind: "edit",
+      instruction: brief.editInstruction,
+      anchorImageUrl: anchor.url,
+    };
   } else {
     generateOp = { kind: "generate", spec: brief.spec };
   }
 
   const generationCost = generator.costFor(generateOp);
 
-  let imageUrl: string;
-  try {
-    imageUrl = await generator.generate(generateOp, { aspect: "1:1" });
-  } catch (err) {
-    console.error("generateDesign image generation failed:", err);
-    throw new Error("Image generation failed");
+  // The image id is minted before the provider call and doubles as the R2 key
+  // (images/{id}.png, slice 4 §6) — concurrent generates can't collide on ids.
+  // The generation number is reserved HERE, ahead of the render, so numbering
+  // is submit-order: two jobs started a second apart keep that order in the
+  // strip no matter which provider call returns first.
+  const newImageId = crypto.randomUUID();
+  const [generationNumber] = await reserveGenerationNumbers(designId, 1);
+
+  const inserted = await insertGenerationJob({
+    designId,
+    userId,
+    operation: brief.operation === "edit" ? "edit" : "generate",
+    imageId: newImageId,
+    r2Key: `images/${newImageId}.png`,
+    anchorImageId,
+    generationNumber,
+    dayKey,
+    ip,
+    cost: generationCost,
+    db,
+  });
+  if (!inserted.ok) {
+    // The authoritative cap. The advisory check above lost a race (two tabs),
+    // so give the unit back and say so.
+    await refundGenerationQuota({ userId, ip, day: dayKey }).catch((e) =>
+      console.error("refundGenerationQuota failed:", e)
+    );
+    return { kind: "at_capacity", message: AT_CAPACITY_MESSAGE };
   }
 
+  const job = inserted.job;
   const storedPrompt =
     brief.operation === "edit" ? brief.editInstruction : renderSpecSummary(brief.spec);
 
-  // The image id is minted before upload and doubles as the R2 key
-  // (images/{id}.png, slice 4 §6) — concurrent generates can't collide on ids.
-  // The generation number survives purely as the display counter (atomic so
-  // concurrent generates don't undercount).
-  const newImageId = crypto.randomUUID();
-  const [newGeneration] = await reserveGenerationNumbers(designId, 1);
-  const response = await fetch(imageUrl);
-  const buffer = Buffer.from(await response.arrayBuffer());
-  const r2Url = await uploadImageObject(newImageId, buffer);
+  // Hand the render to the background. `after` keeps the function instance
+  // alive past the response for up to the route's maxDuration (see
+  // design/page.tsx: server actions inherit the RENDERING route's segment
+  // config), and the continuation never throws past this boundary — an
+  // unhandled rejection can take down the shared Fluid instance and with it
+  // other users' in-flight continuations.
+  after(() =>
+    runGenerationJob({
+      jobId: job.id,
+      designId,
+      ownerId: found.userId,
+      imageId: newImageId,
+      generationNumber,
+      generateOp,
+      generator,
+      generationCost,
+      assistantMessage: brief.message,
+      storedPrompt,
+      images,
+      startedAt: job.startedAt,
+    })
+  );
 
+  return {
+    kind: "queued",
+    jobId: job.id,
+    generationNumber,
+    imageId: newImageId,
+  };
+}
+
+/**
+ * The background half of a generation: provider call → R2 → one atomic batch
+ * of writes. Runs inside `after()`, so it must never reject.
+ *
+ * Accepted edge case: a continuation slower than STALE_JOB_MS can land after
+ * the lazy sweeper already failed and refunded this job. The deadline check
+ * below closes the common case (skip the write, drop the object); what remains
+ * is a user who got both their image and their quota unit back. Generous,
+ * rare, harmless — deliberately not engineered away.
+ */
+async function runGenerationJob(params: {
+  jobId: string;
+  designId: string;
+  ownerId: string;
+  imageId: string;
+  generationNumber: number;
+  generateOp: GenerateOperation;
+  generator: ImageGenerator;
+  generationCost: number;
+  assistantMessage: string;
+  storedPrompt: string;
+  /** Thread images as of submit time — provenance anchors on these, never on
+   * a later re-read a racing generation could have shifted. */
+  images: DesignImage[];
+  startedAt: Date;
+}): Promise<void> {
+  const {
+    jobId,
+    designId,
+    imageId,
+    generationNumber,
+    generationCost,
+    images,
+  } = params;
   try {
-    // Anchor provenance on the latest image the user's request was built from,
-    // not a "latest by createdAt" re-read that a racing generate could shift.
-    // Seeds are excluded: the within-thread parent chain is between outputs —
-    // a seeded thread's first generation records parent null + seed lineage
-    // (slice 3 §5).
+    const sourceUrl = await params.generator.generate(params.generateOp, {
+      aspect: "1:1",
+    });
+    const response = await fetch(sourceUrl);
+    const buffer = Buffer.from(await response.arrayBuffer());
+    const r2Url = await uploadImageObject(imageId, buffer);
+
+    // Self-fail against the deadline BEFORE writing: past STALE_JOB_MS a
+    // sweeper may already have failed and refunded this job, and
+    // succeedJobStatement would then match zero rows while the image row
+    // landed anyway. Skip the write and drop the orphaned object.
+    if (Date.now() - params.startedAt.getTime() > STALE_JOB_MS) {
+      console.warn("[generation] continuation finished past the deadline", {
+        jobId,
+        designId,
+      });
+      await deleteImageObject(imageId).catch(() => {});
+      return;
+    }
+
+    // Anchor provenance on the images the request was built from. Seeds are
+    // excluded: the within-thread parent chain is between outputs — a seeded
+    // thread's first generation records parent null + seed lineage (slice 3 §5).
     const outputs = images.filter((img) => img.role !== "seed");
     const parentImageId = outputs[outputs.length - 1]?.id ?? null;
-    // Seed lineage (slice 3): a fresh-start thread stamps its seed +
-    // attribution root onto every artifact it generates. Replaces the
-    // design.forkedFromImageId/originalDesignerId mirror dropped in slice 5.
     const seed = await getConversationSeedProvenance(designId);
+    const now = new Date();
 
-    // Commit the writes atomically (db.batch) so a mid-sequence crash can't
-    // leave an image with no assistant message, or an orphaned user turn.
-    // Aspect is "1:1" — chat-driven generations are always square; product
-    // regenerations happen in preview/actions.ts. generationCost is an atomic
-    // increment so a concurrent generate's cost isn't clobbered.
-    // found.userId is the verified design owner.
+    // One batch so a mid-sequence crash can't leave an image with no assistant
+    // message. The two design updates are deliberately separate:
+    //  - cost accrues UNCONDITIONALLY (the render was paid for either way);
+    //  - the primary-image claim is guarded, so a newer succeeded generation
+    //    keeps the hero, and a cancelled job appends its image without
+    //    clobbering what the user moved on to.
+    // Folding the cost increment into the guarded statement would silently
+    // drop the cost whenever a newer job had already claimed primary.
     await db.batch([
       db.insert(imageTable).values(
         buildImageRow({
-          id: newImageId,
-          ownerId: found.userId,
+          id: imageId,
+          ownerId: params.ownerId,
           designId,
           imageUrl: r2Url,
           aspectRatio: "1:1",
-          prompt: storedPrompt,
-          generator: generator.id,
+          prompt: params.storedPrompt,
+          generator: params.generator.id,
           generationCost,
           parentImageId,
           seedImageId: seed?.seedImageId ?? null,
           originalDesignerId: seed?.originalDesignerId ?? null,
         })
       ),
-      db.insert(conversationImageTable).values(buildOutputLinkRow(designId, newImageId)),
-      ...(userMessage
-        ? [
-            db.insert(chatMessageTable).values({
-              designId,
-              role: "user" as const,
-              content: userMessage,
-            }),
-          ]
-        : []),
+      db.insert(conversationImageTable).values(buildOutputLinkRow(designId, imageId)),
       db.insert(chatMessageTable).values({
         designId,
         role: "assistant" as const,
-        content: brief.message,
-        imageId: newImageId,
+        content: params.assistantMessage,
+        imageId,
       }),
       db
         .update(designTable)
         .set({
-          primaryImageId: newImageId,
           generationCost: sql`${designTable.generationCost} + ${generationCost}`,
-          mockupUrls: null,
-          updatedAt: new Date(),
+          updatedAt: now,
         })
         .where(eq(designTable.id, designId)),
+      db.run(sql`
+        update design
+        set primary_image_id = ${imageId}, mockup_urls = null
+        where id = ${designId}
+          and not exists (
+            select 1 from image_generation g
+            where g.design_id = ${designId}
+              and g.status = 'succeeded'
+              and g.generation_number > ${generationNumber}
+          )
+          and (select cancelled_at from image_generation where id = ${jobId}) is null
+      `),
+      // Runs whether or not the job was cancelled: this transition is what
+      // releases the concurrency slot, and cancellation must only affect the
+      // primary claim above (generation-job.ts, succeedJobStatement).
+      succeedJobStatement(db, jobId, now),
     ]);
-
-    return {
-      message: brief.message,
-      imageUrl: r2Url,
-      imageId: newImageId,
-      generationNumber: newGeneration,
-      readyToGenerate: true,
-    };
   } catch (err) {
-    // The DB writes failed after the R2 upload; drop the now-orphaned object so
-    // the id-keyed upload doesn't strand a file nothing references. Best-effort.
-    await deleteImageObject(newImageId).catch(() => {});
-    throw err;
+    // Best-effort cleanup of the (possibly) uploaded object, then the one
+    // transition that also refunds. Never rethrow: this runs detached.
+    await deleteImageObject(imageId).catch(() => {});
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[generation] job failed", { jobId, designId, error: message });
+    await failGenerationJob({ jobId, error: message, db }).catch((e) =>
+      console.error("[generation] failGenerationJob failed", {
+        jobId,
+        error: e instanceof Error ? e.message : String(e),
+      })
+    );
   }
 }
 

@@ -1,9 +1,17 @@
 /**
- * Generation-race regressions (#40, WP2) at the server-action level, updated
- * for the slice-4 writer cutover: R2 keys are id-keyed (images/{imageId}.png,
- * minted before upload) so two concurrent generates can't collide; the display
- * counter still increments atomically; a post-upload failure cleans up the
- * orphaned R2 object; a failed generation refunds the consumed quota unit.
+ * Generation races at the server-action level, updated for the durable-job
+ * slice: generateDesign now inserts an `image_generation` row, returns
+ * `kind:"queued"`, and finishes the render in an `after()` continuation.
+ *
+ * The `next/server` mock is a COLLECTOR, not a no-op — every test drains it
+ * explicitly. A no-op `after` would leave the continuation unrun and every
+ * assertion below vacuously green, which is the failure mode this file is
+ * most exposed to.
+ *
+ * Invariants carried forward from #40/slice 4: id-keyed R2 objects
+ * (images/{imageId}.png, minted before the provider call), an atomic display
+ * counter, orphan cleanup on a failed write, and a refunded quota unit on a
+ * failed generation — the refund now riding the job row's transition.
  *
  * The DB is real in-memory libSQL (the #28 pattern); the generator adapter,
  * R2 client, AI, auth, and `fetch` are mocked so nothing hits a live API.
@@ -24,7 +32,30 @@ vi.mock("@/lib/db", () => ({
 }));
 
 vi.mock("next/headers", () => ({ headers: vi.fn(async () => new Headers()) }));
-vi.mock("next/server", () => ({ after: () => {} }));
+
+// The continuation collector. Nothing runs until a test drains it, so every
+// "after the render lands" assertion is explicit about when that happened.
+const afterQueue = vi.hoisted(() => ({ callbacks: [] as Array<() => unknown> }));
+vi.mock("next/server", () => ({
+  after: (cb: () => unknown) => {
+    afterQueue.callbacks.push(cb);
+  },
+}));
+
+/** Run the queued continuations in registration order (FIFO). */
+async function drainAfter() {
+  while (afterQueue.callbacks.length) {
+    await afterQueue.callbacks.shift()!();
+  }
+}
+
+/** Run exactly one queued continuation, by index, and remove it. */
+async function drainOne(index: number) {
+  const [cb] = afterQueue.callbacks.splice(index, 1);
+  if (!cb) throw new Error(`no queued continuation at index ${index}`);
+  await cb();
+}
+
 vi.mock("@/app/preview/actions", () => ({
   prefetchProductMockups: vi.fn(async () => {}),
 }));
@@ -78,12 +109,15 @@ vi.mock("@/lib/generators/registry", () => {
 });
 
 const { generateDesign } = await import("@/app/design/actions");
+const { cancelGenerationJob } = await import("@/lib/generation-job");
+const ai = await import("@/lib/ai");
 const r2 = await import("@/lib/r2");
 const registry = await import("@/lib/generators/registry");
 
 const uploadMock = r2.uploadImageObject as Mock;
 const deleteMock = r2.deleteImageObject as Mock;
 const ideogramGen = registry.GENERATORS.ideogram.generate as Mock;
+const readinessMock = ai.assessReadiness as Mock;
 
 async function seedDesign(generationCount = 0): Promise<string> {
   await testDb.insert(schema.user).values({ id: "u1", email: "a@b.c", name: "A" });
@@ -130,8 +164,34 @@ async function getDesignRow(designId: string) {
   return row;
 }
 
+async function jobs(designId: string) {
+  return testDb
+    .select()
+    .from(schema.imageGeneration)
+    .where(eq(schema.imageGeneration.designId, designId));
+}
+
+async function userQuotaCount() {
+  const [usage] = await testDb
+    .select()
+    .from(schema.generationUsage)
+    .where(eq(schema.generationUsage.bucket, "user:u1"));
+  return usage?.count ?? null;
+}
+
+/** Narrow a queued turn, failing loudly on a clarification/limit result. */
+function expectQueued(
+  result: Awaited<ReturnType<typeof generateDesign>>
+): { kind: "queued"; jobId: string; generationNumber: number; imageId: string } {
+  if (result.kind !== "queued") {
+    throw new Error(`expected a queued generation, got ${result.kind}`);
+  }
+  return result;
+}
+
 beforeEach(async () => {
   testDb = await createTestDb();
+  afterQueue.callbacks.length = 0;
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => ({
@@ -141,6 +201,9 @@ beforeEach(async () => {
   uploadMock.mockClear();
   deleteMock.mockClear();
   ideogramGen.mockReset().mockResolvedValue("https://src/ideogram.png");
+  readinessMock
+    .mockReset()
+    .mockResolvedValue({ ready: true, question: "", options: [] });
   delete process.env.GUEST_FUNNEL_ENABLED;
 });
 
@@ -148,22 +211,28 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("generateDesign — id-keyed R2 objects", () => {
+describe("generateDesign — job insert + continuation", () => {
   it("uploads under the minted image id and batches the writes", async () => {
     const designId = await seedDesign(5);
     const seedImg = await seedSourceImage(designId, "https://r2/seed.png");
 
-    const res = await generateDesign(designId, "make a cat");
-    // A null imageId means the action returned a clarification instead of a
-    // generation — fail loudly and narrow the type for the queries below.
-    if (res.imageId === null) throw new Error("expected a generated imageId");
+    const res = expectQueued(await generateDesign(designId, "make a cat"));
+
+    // Nothing has rendered yet — the action returned as soon as the job row
+    // existed. The number is reserved at submit time, though.
+    expect(uploadMock).not.toHaveBeenCalled();
+    expect(res.generationNumber).toBe(6);
+    const [queuedJob] = await jobs(designId);
+    expect(queuedJob.status).toBe("running");
+    expect(queuedJob.imageId).toBe(res.imageId);
+    expect(queuedJob.r2Key).toBe(`images/${res.imageId}.png`);
+
+    await drainAfter();
 
     // Key = the pre-minted image id; the counter is display-only but still
     // increments atomically past the seeded value.
     expect(uploadMock).toHaveBeenCalledTimes(1);
     expect(uploadMock).toHaveBeenCalledWith(res.imageId, expect.anything());
-    expect(res.generationNumber).toBe(6);
-    expect(res.imageUrl).toBe(`https://r2/images/${res.imageId}.png`);
 
     const design = await getDesignRow(designId);
     expect(design.generationCount).toBe(6);
@@ -181,6 +250,10 @@ describe("generateDesign — id-keyed R2 objects", () => {
     const assistant = msgs.find((m) => m.role === "assistant")!;
     expect(assistant.imageId).toBe(res.imageId);
     expect(msgs.find((m) => m.role === "user")!.content).toBe("make a cat");
+
+    const [finished] = await jobs(designId);
+    expect(finished.status).toBe("succeeded");
+    expect(finished.finishedAt).not.toBeNull();
   });
 
   it("hands two concurrent generates distinct keys (no overwrite)", async () => {
@@ -190,11 +263,21 @@ describe("generateDesign — id-keyed R2 objects", () => {
       generateDesign(designId, "one"),
       generateDesign(designId, "two"),
     ]);
+    const qa = expectQueued(a);
+    const qb = expectQueued(b);
+
+    // Two job rows, distinct ids and distinct reserved numbers.
+    const rows = await jobs(designId);
+    expect(rows).toHaveLength(2);
+    expect(new Set(rows.map((r) => r.id)).size).toBe(2);
+    expect(new Set(rows.map((r) => r.generationNumber))).toEqual(new Set([1, 2]));
+    expect(new Set([qa.imageId, qb.imageId]).size).toBe(2);
+
+    await drainAfter();
 
     // Distinct minted ids → distinct object keys and URLs.
     const usedIds = uploadMock.mock.calls.map((c) => c[0]);
     expect(new Set(usedIds).size).toBe(2);
-    expect(new Set([a.imageUrl, b.imageUrl]).size).toBe(2);
 
     const design = await getDesignRow(designId);
     expect(design.generationCount).toBe(2);
@@ -205,17 +288,96 @@ describe("generateDesign — id-keyed R2 objects", () => {
     );
   });
 
-  it("deletes the orphaned R2 object when the DB batch fails", async () => {
+  it("numbers jobs in submit order, not completion order", async () => {
     const designId = await seedDesign(0);
-    vi.spyOn(testDb, "batch").mockRejectedValueOnce(new Error("boom"));
 
-    await expect(generateDesign(designId, "boom")).rejects.toThrow();
+    const first = expectQueued(await generateDesign(designId, "one"));
+    const second = expectQueued(await generateDesign(designId, "two"));
+
+    expect(first.generationNumber).toBe(1);
+    expect(second.generationNumber).toBe(2);
+
+    // Finish them in the opposite order — the reservation already happened, so
+    // the numbers can't shuffle.
+    await drainOne(1);
+    await drainOne(0);
+
+    const rows = await jobs(designId);
+    const byImage = new Map(rows.map((r) => [r.imageId, r.generationNumber]));
+    expect(byImage.get(first.imageId)).toBe(1);
+    expect(byImage.get(second.imageId)).toBe(2);
+  });
+
+  it("gives primary to the later-numbered job even when it finishes first", async () => {
+    const designId = await seedDesign(0);
+
+    const first = expectQueued(await generateDesign(designId, "one"));
+    const second = expectQueued(await generateDesign(designId, "two"));
+
+    // The LATER-numbered job completes first, then the earlier one lands.
+    await drainOne(1);
+    expect((await getDesignRow(designId)).primaryImageId).toBe(second.imageId);
+
+    await drainOne(0);
+
+    const design = await getDesignRow(designId);
+    // The stale completion appended its image and its cost, but did not
+    // clobber the newer hero.
+    expect(design.primaryImageId).toBe(second.imageId);
+    expect(design.generationCost).toBeCloseTo(0.06);
+    expect((await sourceImages(designId)).map((i) => i.id).sort()).toEqual(
+      [first.imageId, second.imageId].sort()
+    );
+    expect((await jobs(designId)).every((j) => j.status === "succeeded")).toBe(true);
+  });
+
+  it("lets a cancelled job append its image without claiming primary", async () => {
+    const designId = await seedDesign(0);
+    const existing = await seedSourceImage(designId, "https://r2/existing.png");
+    await testDb
+      .update(schema.design)
+      .set({ primaryImageId: existing })
+      .where(eq(schema.design.id, designId));
+
+    const res = expectQueued(await generateDesign(designId, "one"));
+    expect(await cancelGenerationJob({ jobId: res.jobId, userId: "u1", db: testDb })).toBe(
+      true
+    );
+
+    await drainAfter();
+
+    const design = await getDesignRow(designId);
+    // Image + cost land; the hero the user moved on to is untouched.
+    expect(design.primaryImageId).toBe(existing);
+    expect(design.generationCost).toBeCloseTo(0.03);
+    expect((await sourceImages(designId)).map((i) => i.id)).toContain(res.imageId);
+
+    // The slot is released even though the job was cancelled — the transition
+    // is what frees it (generation-job.ts, succeedJobStatement).
+    const [job] = await jobs(designId);
+    expect(job.status).toBe("succeeded");
+    expect(job.cancelledAt).not.toBeNull();
+  });
+
+  it("deletes the orphaned R2 object and fails the job when the DB batch fails", async () => {
+    process.env.GUEST_FUNNEL_ENABLED = "true";
+    const designId = await seedDesign(0);
+    const res = expectQueued(await generateDesign(designId, "boom"));
+    expect(await userQuotaCount()).toBe(1);
+
+    vi.spyOn(testDb, "batch").mockRejectedValueOnce(new Error("boom"));
+    await drainAfter();
 
     expect(uploadMock).toHaveBeenCalledTimes(1);
-    const mintedId = uploadMock.mock.calls[0][0];
-    expect(deleteMock).toHaveBeenCalledWith(mintedId);
+    expect(deleteMock).toHaveBeenCalledWith(res.imageId);
     // No row was committed.
     expect(await sourceImages(designId)).toHaveLength(0);
+
+    const [job] = await jobs(designId);
+    expect(job.status).toBe("failed");
+    expect(job.error).toContain("boom");
+    // The transition carried the refund.
+    expect(await userQuotaCount()).toBe(0);
   });
 
   it("refunds the consumed quota unit when generation throws", async () => {
@@ -223,18 +385,69 @@ describe("generateDesign — id-keyed R2 objects", () => {
     const designId = await seedDesign(0);
     ideogramGen.mockRejectedValue(new Error("model down"));
 
-    await expect(generateDesign(designId, "cat")).rejects.toThrow(
-      "Image generation failed"
-    );
+    const res = expectQueued(await generateDesign(designId, "cat"));
+    expect(await userQuotaCount()).toBe(1);
 
-    // consume bumped user:u1 → 1, the failure refunded it back to 0.
-    const [usage] = await testDb
-      .select()
-      .from(schema.generationUsage)
-      .where(eq(schema.generationUsage.bucket, "user:u1"));
-    expect(usage.count).toBe(0);
-    // Reservation happens after the render, so a pre-upload failure left no gap.
+    // The continuation swallows the error — it must never reject past after().
+    await expect(drainAfter()).resolves.toBeUndefined();
+
+    // consume bumped user:u1 → 1, the job's failure refunded it back to 0.
+    expect(await userQuotaCount()).toBe(0);
+    const [job] = await jobs(designId);
+    expect(job.status).toBe("failed");
+    expect(job.error).toContain("model down");
+    expect(job.imageId).toBe(res.imageId);
+    // Nothing was uploaded and no image row landed.
     expect(uploadMock).not.toHaveBeenCalled();
-    expect((await getDesignRow(designId)).generationCount).toBe(0);
+    expect(await sourceImages(designId)).toHaveLength(0);
+  });
+
+  it("creates no job row for a clarification turn", async () => {
+    const designId = await seedDesign(0);
+    readinessMock.mockResolvedValueOnce({
+      ready: false,
+      question: "What style?",
+      options: [{ label: "Bold", value: "bold" }],
+    });
+
+    const res = await generateDesign(designId, "a thing");
+
+    expect(res.kind).toBe("clarification");
+    expect(await jobs(designId)).toHaveLength(0);
+    expect(afterQueue.callbacks).toHaveLength(0);
+    expect(ideogramGen).not.toHaveBeenCalled();
+  });
+
+  it("persists the user's message exactly once on the clarify and queued paths", async () => {
+    const designId = await seedDesign(0);
+
+    readinessMock.mockResolvedValueOnce({
+      ready: false,
+      question: "What style?",
+      options: [],
+    });
+    await generateDesign(designId, "a thing");
+
+    let msgs = await chatMessages(designId);
+    expect(msgs.filter((m) => m.role === "user" && m.content === "a thing")).toHaveLength(
+      1
+    );
+    expect(msgs.filter((m) => m.role === "assistant")).toHaveLength(1);
+
+    await generateDesign(designId, "a thing, in bold");
+    await drainAfter();
+
+    msgs = await chatMessages(designId);
+    expect(
+      msgs.filter((m) => m.role === "user" && m.content === "a thing, in bold")
+    ).toHaveLength(1);
+
+    // ...and the model is not handed that sentence twice: the persisted copy is
+    // trimmed off the history because buildMessages appends userMessage itself.
+    const history = readinessMock.mock.calls.at(-1)![0] as Array<{
+      role: string;
+      content: string;
+    }>;
+    expect(history.at(-1)?.content).not.toBe("a thing, in bold");
   });
 });
