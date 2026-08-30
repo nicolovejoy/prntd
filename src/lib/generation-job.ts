@@ -149,10 +149,23 @@ export async function failGenerationJob(params: {
 /**
  * The running -> succeeded half, as a statement rather than an awaited call,
  * so the completion path can compose it into the same db.batch as the image
- * insert and the design counters. Conditional on `running` for the same reason
- * the failure path is: a job a sweeper already failed must not resurrect.
+ * insert and the design counters.
+ *
+ * Conditional on `running`, and that is load-bearing in one direction people
+ * get backwards: it stops a job a sweeper already FAILED from resurrecting as
+ * succeeded. The sweeper refunded that job's quota unit; letting a late
+ * completion flip it to succeeded would leave a refunded row marked as a
+ * success. The statement matching zero rows is the correct outcome there, not
+ * an error.
  *
  * No refund counterpart exists here — success keeps the quota unit.
+ *
+ * REQUIRED OF THE COMPLETION PATH (Task 3): run this whether or not the job was
+ * cancelled. Cancellation deliberately leaves `status = 'running'`, so this is
+ * the only thing that releases a cancelled job's concurrency slot. Skipping it
+ * for cancelled jobs would pin the slot until the stale sweep at
+ * STALE_JOB_MS — the accepted cost of cancelled jobs holding a slot is the
+ * render's real duration, and only this call keeps it that way.
  */
 export function succeedJobStatement(db: AppDb, jobId: string, now: Date) {
   return db
@@ -190,6 +203,17 @@ export async function cancelGenerationJob(params: {
   return rows.length === 1;
 }
 
+/**
+ * Every job for this design that has not reached a terminal status.
+ *
+ * INCLUDES CANCELLED JOBS, and that is intentional — cancel does not stop the
+ * render, so a cancelled job is genuinely still running and still holding its
+ * concurrency slot. Consumers MUST consult `cancelledAt` on each row rather
+ * than treating the whole list as in-flight work: rendering a cancelled
+ * generation as an active spinner is the bug this note exists to prevent. Use
+ * the list for slot/lifecycle accounting; filter on `cancelledAt === null`
+ * for anything the user is meant to read as "still working".
+ */
 export async function getRunningJobsForDesign(
   designId: string,
   db?: AppDb
@@ -222,6 +246,15 @@ export async function countRunningJobsForUser(userId: string, db?: AppDb): Promi
  * fields on purpose: with optionals, a caller that forgot to pass one would
  * type-check as `{}` and silently sweep every user's jobs. `{ scope: "all" }`
  * has to be said out loud, and only the cron says it.
+ *
+ * Cancelled jobs are deliberately NOT excluded, though sweeping one refunds a
+ * unit for a generation the user chose to walk away from. Cancel means "I
+ * stopped watching", not "the render failed" — the render keeps going and
+ * normally succeeds well inside STALE_JOB_MS, so the sweep never sees it. A
+ * cancelled job still running at the cutoff genuinely produced nothing, and a
+ * unit that bought nothing is refundable whether or not the user was still
+ * watching. Reading this as free quota requires the render to actually die,
+ * which the user cannot cause. Do not add a `cancelled_at is null` filter.
  */
 export async function sweepStaleJobs(
   params: (

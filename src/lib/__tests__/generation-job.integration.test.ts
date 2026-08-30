@@ -310,6 +310,48 @@ describe("failGenerationJob", () => {
   });
 });
 
+describe("succeedJobStatement", () => {
+  it("cannot resurrect a job the sweeper already failed", async () => {
+    // The direction that matters: a slow-but-alive job gets swept and refunded,
+    // then its completion batch fires anyway. If the statement were not
+    // conditional on `running`, that refunded row would end up marked
+    // succeeded — quota given back for a generation the books call a success.
+    const job = await seedJob();
+    await consumeGenerationQuota({
+      userId: USER,
+      isAnonymous: false,
+      ip: IP,
+      now: NOW,
+      db,
+    });
+
+    const failedAt = new Date(NOW.getTime() + 1000);
+    const failure = await failGenerationJob({
+      jobId: job.id,
+      error: "Generation timed out",
+      now: failedAt,
+      db,
+    });
+    expect(failure).toEqual({ failed: true, refunded: true });
+    expect(await usageCount(`user:${USER}`, "2026-08-29")).toBe(0);
+
+    // The late completion. It must be inert, not an error.
+    const completedAt = new Date(NOW.getTime() + 60_000);
+    await succeedJobStatement(db, job.id, completedAt);
+
+    const [row] = await db
+      .select()
+      .from(imageGeneration)
+      .where(eq(imageGeneration.id, job.id));
+    expect(row.status).toBe("failed");
+    // finishedAt and error are the sweeper's, not the completion's.
+    expect(row.finishedAt?.getTime()).toBe(failedAt.getTime());
+    expect(row.error).toBe("Generation timed out");
+    // And no second bite at the quota in either direction.
+    expect(await usageCount(`user:${USER}`, "2026-08-29")).toBe(0);
+  });
+});
+
 describe("cancelGenerationJob", () => {
   it("sets cancelledAt and leaves the status running", async () => {
     const job = await seedJob();
@@ -425,6 +467,24 @@ describe("getRunningJobsForDesign", () => {
     const running = await getRunningJobsForDesign(designId, db);
     expect(running.map((j) => j.generationNumber)).toEqual([1, 3]);
     expect(running.map((j) => j.id)).toContain(third.id);
+  });
+
+  it("still returns a cancelled job, with cancelledAt set to distinguish it", async () => {
+    // Cancel does not stop the render, so the job is still running and still
+    // holds its slot. Consumers must read cancelledAt rather than treating
+    // everything in this list as in-flight work.
+    const cancelled = await seedJob({ generationNumber: 1 });
+    await seedJob({ generationNumber: 2 });
+    expect(await cancelGenerationJob({ jobId: cancelled.id, userId: USER, db })).toBe(true);
+
+    const running = await getRunningJobsForDesign(designId, db);
+    expect(running.map((j) => j.generationNumber)).toEqual([1, 2]);
+
+    const row = running.find((j) => j.id === cancelled.id);
+    expect(row?.cancelledAt).toBeInstanceOf(Date);
+    expect(running.find((j) => j.generationNumber === 2)?.cancelledAt).toBeNull();
+    // It is still counted against the concurrency cap.
+    expect(await countRunningJobsForUser(USER, db)).toBe(2);
   });
 
   it("does not leak another design's jobs", async () => {
