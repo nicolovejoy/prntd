@@ -51,7 +51,7 @@ vi.mock("@/lib/r2", () => ({
 vi.mock("@/lib/generators/registry", () => ({
   DEFAULT_GENERATOR_ID: "ideogram",
   GENERATORS: {},
-  getGenerator: () => ({ id: "ideogram", costPerImage: 0.03 }),
+  getGenerator: () => ({ id: "ideogram", costFor: () => 0.03 }),
 }));
 
 const { deleteDesign } = await import("@/app/designs/actions");

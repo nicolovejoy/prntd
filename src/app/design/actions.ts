@@ -241,13 +241,16 @@ async function runGenerate({
 
   const generator = getGenerator(found.activeGeneratorId);
 
+  const generateOpts = {
+    aspect: "1:1" as const,
+    referenceImageUrl: anchorUrl,
+    negativePrompt: aiResponse.negativePrompt,
+  };
+  const generationCost = generator.costFor(generateOpts);
+
   let imageUrl: string;
   try {
-    imageUrl = await generator.generate(generator.adaptPrompt(aiResponse.fluxPrompt), {
-      aspect: "1:1",
-      referenceImageUrl: anchorUrl,
-      negativePrompt: aiResponse.negativePrompt,
-    });
+    imageUrl = await generator.generate(generator.adaptPrompt(aiResponse.fluxPrompt), generateOpts);
   } catch (err) {
     console.error("generateDesign image generation failed:", err);
     throw new Error("Image generation failed");
@@ -292,7 +295,7 @@ async function runGenerate({
           aspectRatio: "1:1",
           prompt: aiResponse.fluxPrompt,
           generator: generator.id,
-          generationCost: generator.costPerImage,
+          generationCost,
           parentImageId,
           seedImageId: seed?.seedImageId ?? null,
           originalDesignerId: seed?.originalDesignerId ?? null,
@@ -318,7 +321,7 @@ async function runGenerate({
         .update(designTable)
         .set({
           primaryImageId: newImageId,
-          generationCost: sql`${designTable.generationCost} + ${generator.costPerImage}`,
+          generationCost: sql`${designTable.generationCost} + ${generationCost}`,
           mockupUrls: null,
           updatedAt: new Date(),
         })
