@@ -213,9 +213,12 @@ export async function deleteDesign(
     db.delete(cartItemTable).where(eq(cartItemTable.designId, designId)),
     // Generation job rows FK design_id as well (#124's class again: a table
     // added later that the delete batch doesn't know about takes the whole
-    // delete down on the constraint). A RUNNING job goes too — its
-    // continuation's writes are all conditional, so they simply affect zero
-    // rows once the design is gone.
+    // delete down on the constraint). A RUNNING job goes too, and what happens
+    // to its in-flight continuation is: the completion batch's image /
+    // conversation_image / chat_message inserts are unconditional and die on
+    // the FK, the continuation catches that and cleans up the R2 object, then
+    // failGenerationJob finds no row — so the quota unit is silently lost.
+    // Acceptable: the user deleted the thread the render was for.
     db
       .delete(imageGenerationTable)
       .where(eq(imageGenerationTable.designId, designId)),

@@ -35,9 +35,15 @@ vi.mock("next/headers", () => ({ headers: vi.fn(async () => new Headers()) }));
 
 // The continuation collector. Nothing runs until a test drains it, so every
 // "after the render lands" assertion is explicit about when that happened.
-const afterQueue = vi.hoisted(() => ({ callbacks: [] as Array<() => unknown> }));
+const afterQueue = vi.hoisted(() => ({
+  callbacks: [] as Array<() => unknown>,
+  // Set to make `after` itself throw — the one place a throw can land after
+  // the job row exists, which is what the double-refund boundary test needs.
+  throwOnSchedule: null as Error | null,
+}));
 vi.mock("next/server", () => ({
   after: (cb: () => unknown) => {
+    if (afterQueue.throwOnSchedule) throw afterQueue.throwOnSchedule;
     afterQueue.callbacks.push(cb);
   },
 }));
@@ -109,7 +115,8 @@ vi.mock("@/lib/generators/registry", () => {
 });
 
 const { generateDesign } = await import("@/app/design/actions");
-const { cancelGenerationJob } = await import("@/lib/generation-job");
+const { cancelGenerationJob, sweepStaleJobs, STALE_JOB_MS, GENERATION_CONCURRENCY_CAP } =
+  await import("@/lib/generation-job");
 const ai = await import("@/lib/ai");
 const r2 = await import("@/lib/r2");
 const registry = await import("@/lib/generators/registry");
@@ -192,6 +199,7 @@ function expectQueued(
 beforeEach(async () => {
   testDb = await createTestDb();
   afterQueue.callbacks.length = 0;
+  afterQueue.throwOnSchedule = null;
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => ({
@@ -449,5 +457,121 @@ describe("generateDesign — job insert + continuation", () => {
       content: string;
     }>;
     expect(history.at(-1)?.content).not.toBe("a thing, in bold");
+  });
+});
+
+describe("refund ownership across the job-row boundary", () => {
+  it("refunds a unit only once when the throw lands after the job row exists", async () => {
+    process.env.GUEST_FUNNEL_ENABLED = "true";
+    const designId = await seedDesign(0);
+    // The only throw site past a successful insert: scheduling the
+    // continuation. If generateDesign's direct-refund catch still covered this
+    // span, the unit would go back here AND again when the sweeper fails the
+    // orphaned running row.
+    afterQueue.throwOnSchedule = new Error("after() exploded");
+
+    await expect(generateDesign(designId, "cat")).rejects.toThrow("after() exploded");
+
+    // No inline refund: the row exists, so the row owns the unit.
+    expect(await userQuotaCount()).toBe(1);
+    const [job] = await jobs(designId);
+    expect(job.status).toBe("running");
+
+    // The sweeper is the single refunder for an abandoned row...
+    const { swept } = await sweepStaleJobs({
+      scope: "design",
+      designId,
+      now: new Date(Date.now() + STALE_JOB_MS + 1000),
+      db: testDb,
+    });
+    expect(swept).toBe(1);
+    expect(await userQuotaCount()).toBe(0);
+
+    // ...and a second sweep is a no-op, so the unit can never go back twice.
+    const again = await sweepStaleJobs({
+      scope: "design",
+      designId,
+      now: new Date(Date.now() + STALE_JOB_MS + 2000),
+      db: testDb,
+    });
+    expect(again.swept).toBe(0);
+    expect(await userQuotaCount()).toBe(0);
+  });
+
+  it("refunds inline when the throw lands before any job row exists", async () => {
+    process.env.GUEST_FUNNEL_ENABLED = "true";
+    const designId = await seedDesign(0);
+    vi.mocked(ai.constructDesignBrief).mockRejectedValueOnce(new Error("brief down"));
+
+    await expect(generateDesign(designId, "cat")).rejects.toThrow(
+      "Failed to construct prompt"
+    );
+
+    expect(await jobs(designId)).toHaveLength(0);
+    expect(await userQuotaCount()).toBe(0);
+  });
+});
+
+describe("over-capacity refusals", () => {
+  /** Fill the user's concurrency slots with running jobs on another design. */
+  async function fillSlots(count: number) {
+    const [other] = await testDb
+      .insert(schema.design)
+      .values({ userId: "u1" })
+      .returning();
+    for (let i = 0; i < count; i += 1) {
+      await testDb.insert(schema.imageGeneration).values({
+        designId: other.id,
+        userId: "u1",
+        status: "running",
+        operation: "generate",
+        imageId: crypto.randomUUID(),
+        r2Key: "images/x.png",
+        generationNumber: i + 1,
+        dayKey: "2026-08-29",
+        cost: 0.03,
+        startedAt: new Date(),
+      });
+    }
+  }
+
+  it("advisory refusal writes nothing to the thread and gives the unit back", async () => {
+    process.env.GUEST_FUNNEL_ENABLED = "true";
+    const designId = await seedDesign(0);
+    await fillSlots(GENERATION_CONCURRENCY_CAP);
+
+    const res = await generateDesign(designId, "one more");
+
+    expect(res.kind).toBe("at_capacity");
+    // Same shape as the quota-denied path: a refusal leaves no trace.
+    expect(await chatMessages(designId)).toHaveLength(0);
+    expect(await jobs(designId)).toHaveLength(0);
+    expect(await userQuotaCount()).toBe(0);
+    expect(ideogramGen).not.toHaveBeenCalled();
+  });
+
+  it("authoritative refusal answers the user's turn that is already in the thread", async () => {
+    process.env.GUEST_FUNNEL_ENABLED = "true";
+    const designId = await seedDesign(0);
+    // Advisory check passes (2 < 3), then a second tab takes the last slot
+    // before the insert — the real race this path exists for.
+    await fillSlots(GENERATION_CONCURRENCY_CAP - 1);
+    ideogramGen.mockImplementation(async () => {
+      throw new Error("never reached");
+    });
+    vi.mocked(ai.assessReadiness).mockImplementationOnce(async () => {
+      await fillSlots(1);
+      return { ready: true, question: "", options: [] };
+    });
+
+    const res = await generateDesign(designId, "one more");
+
+    expect(res.kind).toBe("at_capacity");
+    const msgs = await chatMessages(designId);
+    expect(msgs.map((m) => m.role)).toEqual(["user", "assistant"]);
+    expect(msgs[0].content).toBe("one more");
+    expect(msgs[1].content).toContain("generating already");
+    expect(await jobs(designId)).toHaveLength(0);
+    expect(await userQuotaCount()).toBe(0);
   });
 });

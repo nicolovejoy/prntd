@@ -186,6 +186,21 @@ export async function generateDesign(
     return { kind: "limit", message: generationLimitMessage(quota.reason) };
   }
 
+  // ADVISORY capacity check, before anything is written. Refusing here avoids
+  // paying for a brief call whose job row would be rejected anyway, and —
+  // because it runs ahead of the user-turn persist — the common over-capacity
+  // refusal leaves no trace in the thread, exactly like the quota-denied path
+  // above. insertGenerationJob's INSERT…WHERE is the actual authority.
+  // `db` is passed explicitly to every job-lifecycle call: the module's own
+  // lazy `import("./db")` would otherwise construct a second client.
+  const running = await countRunningJobsForUser(userId, db);
+  if (running >= GENERATION_CONCURRENCY_CAP) {
+    await refundGenerationQuota({ userId, ip, day: dayKey }).catch((e) =>
+      console.error("refundGenerationQuota failed:", e)
+    );
+    return { kind: "at_capacity", message: AT_CAPACITY_MESSAGE };
+  }
+
   // The user's turn lands NOW, not when the render completes. The action
   // returns before the image exists, so their own words have to be in the
   // thread immediately or the chat looks like it swallowed them. Every exit
@@ -199,34 +214,55 @@ export async function generateDesign(
       .where(eq(designTable.id, designId));
   }
 
-  // Advisory pre-check, not the authority: refusing here avoids paying for a
-  // brief call whose job row would be rejected anyway. insertGenerationJob's
-  // INSERT…WHERE is what actually enforces the cap under a race.
-  // `db` is passed explicitly to every job-lifecycle call: the module's own
-  // lazy `import("./db")` would otherwise construct a second client.
-  const running = await countRunningJobsForUser(userId, db);
-  if (running >= GENERATION_CONCURRENCY_CAP) {
-    await refundGenerationQuota({ userId, ip, day: dayKey }).catch((e) =>
-      console.error("refundGenerationQuota failed:", e)
-    );
-    return { kind: "at_capacity", message: AT_CAPACITY_MESSAGE };
-  }
-
-  // Everything up to the job insert runs inside the request. A throw there has
-  // no job row to gate a refund on, so it refunds directly; once the row
-  // exists, failGenerationJob owns the refund (transition + refund together,
-  // so a sweeper and a live failure can't both give the unit back).
+  // The direct-refund catch covers the pre-job span ONLY. A throw here has no
+  // job row to gate a refund on, so it refunds inline; the moment a row exists,
+  // failGenerationJob (transition + refund together) is the sole refunder, and
+  // a direct refund overlapping that span would let a sweeper refund the same
+  // unit a second time. `prepareGeneration` therefore RETURNS the inserted job
+  // rather than scheduling the continuation itself — everything past the insert
+  // happens below, outside the try.
+  let prepared: PreparedGeneration;
   try {
-    return await runGenerate({ designId, found, userMessage, userId, ip, dayKey });
+    prepared = await prepareGeneration({ designId, found, userMessage, userId, ip, dayKey });
   } catch (err) {
     await refundGenerationQuota({ userId, ip, day: dayKey }).catch((e) =>
       console.error("refundGenerationQuota failed:", e)
     );
     throw err;
   }
+  if (prepared.kind !== "prepared") return prepared;
+
+  // Past this line a job row exists and owns its own quota unit. Hand the
+  // render to the background: `after` keeps the function instance alive past
+  // the response for up to the route's maxDuration (see design/page.tsx —
+  // server actions inherit the RENDERING route's segment config), and the
+  // continuation never throws past that boundary; an unhandled rejection can
+  // take down the shared Fluid instance and with it other users' work.
+  after(() => runGenerationJob(prepared.continuation));
+
+  return {
+    kind: "queued",
+    jobId: prepared.jobId,
+    generationNumber: prepared.generationNumber,
+    imageId: prepared.imageId,
+  };
 }
 
-async function runGenerate({
+/**
+ * What `prepareGeneration` hands back. "prepared" means the job row exists —
+ * the caller must schedule the continuation and must NOT refund on its own.
+ */
+type PreparedGeneration =
+  | Exclude<GenerateResult, { kind: "queued" } | { kind: "limit" }>
+  | {
+      kind: "prepared";
+      jobId: string;
+      generationNumber: number;
+      imageId: string;
+      continuation: GenerationJobParams;
+    };
+
+async function prepareGeneration({
   designId,
   found,
   userMessage,
@@ -240,7 +276,7 @@ async function runGenerate({
   userId: string;
   ip: string | null;
   dayKey: string;
-}): Promise<GenerateResult> {
+}): Promise<PreparedGeneration> {
   const messages = await getDesignMessages(designId);
   const images = await getDesignImagesForAIContext(designId);
 
@@ -343,11 +379,14 @@ async function runGenerate({
     db,
   });
   if (!inserted.ok) {
-    // The authoritative cap. The advisory check above lost a race (two tabs),
-    // so give the unit back and say so.
+    // The AUTHORITATIVE cap: the advisory check above passed and then lost a
+    // race (a second tab starting a generation in between). Unlike the advisory
+    // refusal this is not dead code, and the user's turn is already in the
+    // thread — so answer it, rather than leaving their message hanging.
     await refundGenerationQuota({ userId, ip, day: dayKey }).catch((e) =>
       console.error("refundGenerationQuota failed:", e)
     );
+    await persistClarification(designId, AT_CAPACITY_MESSAGE);
     return { kind: "at_capacity", message: AT_CAPACITY_MESSAGE };
   }
 
@@ -355,14 +394,16 @@ async function runGenerate({
   const storedPrompt =
     brief.operation === "edit" ? brief.editInstruction : renderSpecSummary(brief.spec);
 
-  // Hand the render to the background. `after` keeps the function instance
-  // alive past the response for up to the route's maxDuration (see
-  // design/page.tsx: server actions inherit the RENDERING route's segment
-  // config), and the continuation never throws past this boundary — an
-  // unhandled rejection can take down the shared Fluid instance and with it
-  // other users' in-flight continuations.
-  after(() =>
-    runGenerationJob({
+  // Return the continuation rather than scheduling it: the caller schedules it
+  // outside its direct-refund try, so no span where this job row exists is also
+  // covered by an inline refund (that overlap is the double-refund the
+  // hardening contract exists to prevent).
+  return {
+    kind: "prepared",
+    jobId: job.id,
+    generationNumber,
+    imageId: newImageId,
+    continuation: {
       jobId: job.id,
       designId,
       ownerId: found.userId,
@@ -375,28 +416,11 @@ async function runGenerate({
       storedPrompt,
       images,
       startedAt: job.startedAt,
-    })
-  );
-
-  return {
-    kind: "queued",
-    jobId: job.id,
-    generationNumber,
-    imageId: newImageId,
+    },
   };
 }
 
-/**
- * The background half of a generation: provider call → R2 → one atomic batch
- * of writes. Runs inside `after()`, so it must never reject.
- *
- * Accepted edge case: a continuation slower than STALE_JOB_MS can land after
- * the lazy sweeper already failed and refunded this job. The deadline check
- * below closes the common case (skip the write, drop the object); what remains
- * is a user who got both their image and their quota unit back. Generous,
- * rare, harmless — deliberately not engineered away.
- */
-async function runGenerationJob(params: {
+type GenerationJobParams = {
   jobId: string;
   designId: string;
   ownerId: string;
@@ -411,7 +435,19 @@ async function runGenerationJob(params: {
    * a later re-read a racing generation could have shifted. */
   images: DesignImage[];
   startedAt: Date;
-}): Promise<void> {
+};
+
+/**
+ * The background half of a generation: provider call → R2 → one atomic batch
+ * of writes. Runs inside `after()`, so it must never reject.
+ *
+ * Accepted edge case: a continuation slower than STALE_JOB_MS can land after
+ * the lazy sweeper already failed and refunded this job. The deadline check
+ * below closes the common case (skip the write, drop the object); what remains
+ * is a user who got both their image and their quota unit back. Generous,
+ * rare, harmless — deliberately not engineered away.
+ */
+async function runGenerationJob(params: GenerationJobParams): Promise<void> {
   const {
     jobId,
     designId,
