@@ -293,14 +293,30 @@ export async function countActiveGenerationsForUser(
  * unit that bought nothing is refundable whether or not the user was still
  * watching. Reading this as free quota requires the render to actually die,
  * which the user cannot cause. Do not add a `cancelled_at is null` filter.
+ *
+ * `limit` bounds how many stale rows one call will fetch and process, oldest
+ * first (so a backlog drains in order across repeated calls rather than
+ * starving whichever rows happen to sort last). Only the cron backstop
+ * (`src/lib/sweep-generations.ts`, the sole `{ scope: "all" }` caller) passes
+ * one — it is the only caller whose scope is unbounded by construction (a
+ * single design or user's running jobs are already small), and it is the
+ * only caller running inside a serverless function's timeout budget.
+ *
+ * Returns `jobs`: the full row for every job this call actually transitioned
+ * to `failed` (not just its id), so a caller like the cron sweep can reclaim
+ * each one's stranded R2 object without a second query. `scanned` is the
+ * count of stale rows found BEFORE processing, which can exceed `jobs.length`
+ * / `swept` when a row completes between the select and its conditional
+ * update — that gap is the same race the conditional UPDATE exists to lose
+ * gracefully.
  */
 export async function sweepStaleJobs(
   params: (
     | { scope: "design"; designId: string }
     | { scope: "user"; userId: string }
     | { scope: "all" }
-  ) & { now?: Date; db?: AppDb }
-): Promise<{ swept: number }> {
+  ) & { now?: Date; limit?: number; db?: AppDb }
+): Promise<{ swept: number; scanned: number; jobs: GenerationJob[] }> {
   const db = await resolveDb(params.db);
   const now = params.now ?? new Date();
   const cutoff = new Date(now.getTime() - STALE_JOB_MS);
@@ -312,8 +328,8 @@ export async function sweepStaleJobs(
         ? eq(imageGeneration.userId, params.userId)
         : undefined;
 
-  const stale = await db
-    .select({ id: imageGeneration.id })
+  const query = db
+    .select()
     .from(imageGeneration)
     .where(
       and(
@@ -321,9 +337,13 @@ export async function sweepStaleJobs(
         lt(imageGeneration.startedAt, cutoff),
         ...(scopeFilter ? [scopeFilter] : [])
       )
-    );
+    )
+    .orderBy(asc(imageGeneration.startedAt));
+
+  const stale = params.limit != null ? await query.limit(params.limit) : await query;
 
   let swept = 0;
+  const jobs: GenerationJob[] = [];
   for (const row of stale) {
     // Conditional inside, so a job that completed between the select and here
     // is left alone — which is also what makes a second sweep report 0.
@@ -333,7 +353,10 @@ export async function sweepStaleJobs(
       now,
       db,
     });
-    if (failed) swept += 1;
+    if (failed) {
+      swept += 1;
+      jobs.push(row);
+    }
   }
-  return { swept };
+  return { swept, scanned: stale.length, jobs };
 }

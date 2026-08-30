@@ -442,7 +442,9 @@ describe("sweepStaleJobs", () => {
     expect(await usageCount(`user:${USER}`, "2026-08-29")).toBe(2);
 
     const first = await sweepStaleJobs({ scope: "design", designId, now: NOW, db });
-    expect(first).toEqual({ swept: 1 });
+    expect(first).toEqual(
+      expect.objectContaining({ swept: 1, scanned: 1, jobs: [expect.objectContaining({ id: stale.id })] })
+    );
     expect(await usageCount(`user:${USER}`, "2026-08-29")).toBe(1);
 
     const [staleRow] = await db
@@ -459,7 +461,7 @@ describe("sweepStaleJobs", () => {
     expect(freshRow.status).toBe("running");
 
     const second = await sweepStaleJobs({ scope: "design", designId, now: NOW, db });
-    expect(second).toEqual({ swept: 0 });
+    expect(second).toEqual({ swept: 0, scanned: 0, jobs: [] });
     expect(await usageCount(`user:${USER}`, "2026-08-29")).toBe(1);
   });
 
@@ -475,16 +477,18 @@ describe("sweepStaleJobs", () => {
       now: staleStart,
     });
 
-    expect(await sweepStaleJobs({ scope: "user", userId: USER, now: NOW, db })).toEqual({
-      swept: 1,
-    });
+    expect(
+      await sweepStaleJobs({ scope: "user", userId: USER, now: NOW, db })
+    ).toEqual(expect.objectContaining({ swept: 1 }));
     const [otherRow] = await db
       .select()
       .from(imageGeneration)
       .where(eq(imageGeneration.id, otherJob.id));
     expect(otherRow.status).toBe("running");
 
-    expect(await sweepStaleJobs({ scope: "all", now: NOW, db })).toEqual({ swept: 1 });
+    expect(await sweepStaleJobs({ scope: "all", now: NOW, db })).toEqual(
+      expect.objectContaining({ swept: 1, jobs: [expect.objectContaining({ id: otherJob.id })] })
+    );
     expect(await countRunningJobsForUser("user-b", db)).toBe(0);
   });
 });
