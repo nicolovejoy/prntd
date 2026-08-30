@@ -144,12 +144,41 @@ Generate pressed — produces an image. Test with the verbatim string, the way
 
 ### Slice 3 — Anchor and composer
 
-- Tap a cell to anchor; chip names it; ✕ clears to "New design".
+Three decisions, settled 2026-08-30 from the mockups in
+`https://claude.ai/code/artifact/0b4b8e16-2966-4b81-b9f8-855ed1bf41f6`.
+
+**The composer stays docked, and the anchor chip carries a crop of the
+anchored image** — not just its name. The keyboard takes half a phone, so the
+lane you are editing will often be off screen at exactly the moment you are
+typing about it; the thumbnail in the chip is what survives that. Anchoring
+also scrolls its lane into view.
+
+The alternative considered and rejected was a bottom sheet per lane (bigger
+images, no chip needed, but the other lanes vanish and switching designs
+means dismissing first). Keep it in mind as the fallback: if the chip's crop
+proves unreadable at real size on a phone, the sheet is the cheap retreat —
+the lane data is identical either way.
+
+**The anchor stays where the user put it.** Generating from an anchored image
+does not advance the anchor to the result. Successive instructions therefore
+fan out from one starting image ("try it three ways"); to build on a result
+instead, the user taps it. An anchor that moves on its own is the failure
+mode — the next instruction lands somewhere nobody chose.
+
+**A lane opens scrolled to its newest image.** Lanes wider than the phone
+scroll horizontally; the latest result is what the user came back for, so it
+is what they land on, with earlier versions one swipe left.
+
+Everything else in this slice:
+
+- Tap a cell to anchor; ✕ clears the chip, and the same box then starts a new
+  conversation.
 - Generate with an anchor = edit anchored on that image. Generate with no
-  anchor = new conversation, then generate into it.
+  anchor = create a conversation, then generate into it.
 - Cap state is visible and explains itself.
-- This is where the ambiguity risk lives. The anchor must be legible at a
-  glance on a phone, and must survive a poll refresh landing mid-typing.
+- The anchor must survive a poll refresh landing mid-typing. This is where the
+  ambiguity risk lives, and it is what a review of this slice should attack
+  first.
 
 ### Slice 4 — Auto-archive
 
