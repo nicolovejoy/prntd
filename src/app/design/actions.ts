@@ -14,6 +14,8 @@ import {
   failGenerationJob,
   succeedJobStatement,
   countRunningJobsForUser,
+  getRunningJobsForDesign,
+  sweepStaleJobs,
   GENERATION_CONCURRENCY_CAP,
   STALE_JOB_MS,
 } from "@/lib/generation-job";
@@ -25,8 +27,9 @@ import {
   image as imageTable,
   conversationImage as conversationImageTable,
   listing as listingTable,
+  imageGeneration as imageGenerationTable,
 } from "@/lib/db/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, inArray } from "drizzle-orm";
 import { buildImageRow, buildOutputLinkRow } from "@/lib/model-b-writes";
 import { chatAboutDesign, constructDesignBrief, assessReadiness } from "@/lib/ai";
 import type { ChatOption } from "@/lib/ai";
@@ -770,6 +773,84 @@ export async function setPrimaryImage(designId: string, imageId: string) {
 
   revalidatePath("/designs");
   revalidatePath(`/d/${imageId}`);
+}
+
+/**
+ * Owner-gated. Sweeps this design's overdue rows, then reports state.
+ *
+ * The client passes the job ids it is currently tracking. An earlier draft
+ * had the server report jobs "settled since the client last looked", which
+ * is unimplementable without server-side per-client cursors — the client
+ * already knows what it is waiting on, so it says so.
+ *
+ * `running` excludes cancelled-but-running jobs on purpose:
+ * getRunningJobsForDesign deliberately includes them (cancel doesn't stop
+ * the render, so the row genuinely still holds its concurrency slot), but a
+ * cancelled job is not something the UI should render as an active spinner
+ * — the caller already knows it cancelled that job.
+ */
+export async function getDesignJobs(
+  designId: string,
+  trackedJobIds: string[]
+): Promise<{
+  running: { jobId: string; generationNumber: number; startedAt: number }[];
+  settled: {
+    jobId: string;
+    status: "succeeded" | "failed";
+    imageId: string | null;
+    error: string | null;
+  }[];
+}> {
+  await requireOwnedDesign(designId);
+
+  // Narrowest scope for this call site — only the cron sweeps scope: "all".
+  await sweepStaleJobs({ scope: "design", designId, db });
+
+  const jobs = await getRunningJobsForDesign(designId, db);
+  const running = jobs
+    .filter((job) => job.cancelledAt === null)
+    .map((job) => ({
+      jobId: job.id,
+      generationNumber: job.generationNumber,
+      startedAt: job.startedAt.getTime(),
+    }));
+
+  const runningIds = new Set(jobs.map((job) => job.id));
+  const settledIds = trackedJobIds.filter((id) => !runningIds.has(id));
+
+  let settled: {
+    jobId: string;
+    status: "succeeded" | "failed";
+    imageId: string | null;
+    error: string | null;
+  }[] = [];
+  if (settledIds.length > 0) {
+    const rows = await db
+      .select()
+      .from(imageGenerationTable)
+      .where(
+        and(
+          eq(imageGenerationTable.designId, designId),
+          inArray(imageGenerationTable.id, settledIds)
+        )
+      );
+    settled = rows
+      .filter(
+        (row): row is typeof row & { status: "succeeded" | "failed" } =>
+          row.status === "succeeded" || row.status === "failed"
+      )
+      .map((row) => ({
+        jobId: row.id,
+        status: row.status,
+        // The id was minted before the provider call regardless of outcome
+        // (it's also the R2 key stem); only report it once the image it
+        // names actually exists.
+        imageId: row.status === "succeeded" ? row.imageId : null,
+        error: row.error,
+      }));
+  }
+
+  return { running, settled };
 }
 
 async function requireOwnedDesign(designId: string) {

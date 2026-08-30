@@ -5,6 +5,7 @@ import {
 } from "@/lib/db/schema";
 import { eq, desc, and, not, inArray } from "drizzle-orm";
 import { resolveDesignDisplayImageUrls } from "@/lib/design-images";
+import { sweepStaleJobs } from "@/lib/generation-job";
 
 export type UserDesign = Awaited<ReturnType<typeof getUserDesignsData>>[number];
 
@@ -34,10 +35,15 @@ export async function getUserDesignsData(userId: string) {
     .map((d) => d.primaryImageId)
     .filter((id): id is string => id !== null);
 
-  // Thumbnails and publish state are independent — fetch both at once.
+  // Thumbnails and publish state are independent — fetch both at once. The
+  // stale-job sweep rides along too (durable-generation-job plan): its
+  // result is discarded, this just clears any overdue row for this user the
+  // next time they open /designs, with no new traffic. Narrowest scope for
+  // this call site — only the cron sweeps scope: "all".
   const [imageUrls, primaryById] = await Promise.all([
     resolveDesignDisplayImageUrls(designs.map((d) => d.id)),
     loadPublishState(primaryIds),
+    sweepStaleJobs({ scope: "user", userId }),
   ]);
 
   return designs.map((d) => {
