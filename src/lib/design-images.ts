@@ -115,7 +115,7 @@ export async function insertChatMessage(params: {
  * Source images for a design with the AI-context shape the prompt
  * builder wants (number, url, prompt). Numbers are 1-indexed in
  * chronological order. Used by sendChatMessage / generateDesign /
- * constructFluxPrompt to populate the "Images so far" gallery
+ * constructDesignBrief to populate the "Images so far" gallery
  * context. Uploads stored with prompt='[user upload] ...' surface as-is.
  * Includes the thread's seed image (fresh-start, slice 3) so the AI can
  * reference the starting point from turn one.

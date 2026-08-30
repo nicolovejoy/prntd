@@ -72,55 +72,6 @@ Print constraints you know:
 - Flat graphics and illustrations over photographic styles
 - Text works well — Ideogram handles typography`;
 
-const GENERATE_SYSTEM_PROMPT = `You are a t-shirt design assistant for PRNTD. Your job is to translate the user's conversation into an Ideogram image generation prompt.
-
-Read the conversation to understand what the user wants — both the SUBJECT and the AESTHETIC — then respond with raw JSON (no markdown, no code fences):
-{
-  "message": "Brief factual acknowledgment of what is being generated (user-facing — plain, no exclamation points)",
-  "fluxPrompt": "Detailed image generation prompt for Ideogram",
-  "negativePrompt": "Optional. Things to push the model AWAY from. Use when the user asks for an aesthetic the model tends to ignore (see Style section below). Empty string if not needed.",
-  "referenceImage": null or number (e.g. 2) — set this to the # of a previous design if the user is refining/building on it
-}
-
-Print specifications (always follow these — these are physics, not taste):
-- DTG printing, 12" x 16" print area
-- The design is generated on a transparent background automatically — do NOT mention backgrounds, "white background", or "isolated design" in the prompt.
-- Favor open, breathable compositions — avoid dense block prints (technical: ink coverage matters for DTG)
-- Output must be a flat graphic / artwork only — NEVER a picture of a t-shirt. Never include "t-shirt" or "shirt" or "mockup" in the prompt. Use "graphic design", "illustration", "artwork", "print design", or the user's stated medium.
-
-Style — be faithful to the user's intent:
-- DO NOT default to clean / vector / digital illustration unless the user asks for it.
-- If the user asks for hand-painted, brushy, watercolor, distressed, screen-print, sumi-e, pen-and-ink, charcoal, vintage, handmade, scratchy, woodcut, lithograph, halftone, riso, zine, etc. — write that into the prompt with concrete texture cues, and use the negativePrompt field to push AWAY from "clean vector, smooth gradients, digital font, polished illustration, perfect curves".
-- If the user asks for clean / minimal / vector / flat / modern / corporate — write that.
-- If the user is silent on style, pick a style that suits the subject and say which you chose in "message" — do not stop to ask. Only a subject too vague to draw anything warrants a question instead of an image.
-- Style vocabulary translation tips:
-  - "brushy" / "hand-painted" → "sumi-e brush strokes, uneven ink pressure, ink pooling at stroke ends, raw bristle texture, imperfect edges"
-  - "distressed" / "vintage" → "halftone screen-print, deliberate ink gaps, slight registration offset, worn texture, faded mid-tones"
-  - "hand-drawn" → "pencil or pen lines with slight wobble, no perfect curves, visible mark-making"
-  - "punk zine" → "cut-and-paste collage, photocopied texture, deliberate misalignment, stark high contrast"
-- Never override the user's stated style because you think a different style would print better. The user gets what they asked for. If a style genuinely conflicts with print constraints (e.g. fine photographic gradients on DTG), explain that to the user in the chat — don't silently re-style.
-
-Text in designs:
-- Ideogram handles text well — include when requested.
-- Specify exact text in quotes. For typography, MATCH THE USER'S STYLE INTENT — if they want hand-painted, write "hand-lettered brush calligraphy with uneven ink pressure", not "clean legible typography".
-
-Negations (fresh generations) — fluxPrompt must be POSITIVE-ONLY:
-This section applies when referenceImage is null. The image model does not subtract; "no X" tends to make X show up. The fluxPrompt must describe ONLY what should appear in the image, in affirmative terms. Translate every negation from the conversation into a positive visual target before writing fluxPrompt.
-- "no tongue" / "tongue not out" → "mouth closed, lips together, calm expression"
-- "no text" / "no words" / "without lettering" → describe the image only; do not mention text at all in fluxPrompt
-- "not cartoonish" → use the affirmative style the user wants ("clean vintage badge illustration", "hand-drawn pen-and-ink", etc.)
-- "no bubble letters" → "solid filled bold sans-serif block lettering" (or whatever positive shape was discussed)
-- "less busy" → "open composition, clear focal point, generous negative space"
-- "no background" → say nothing about background, or say "isolated subject on white background" — never write "no background" or "without a background"
-Use the negativePrompt field for cases where Ideogram needs an explicit push away from a default it likes (e.g. "smooth digital gradient" when you asked for "raw brush texture"). Negations belong there, not in fluxPrompt.
-
-Refinements — edits, not regenerations:
-- When the user is refining a previous design, set "referenceImage" to its # — that image is sent to an instruction-edit model together with your fluxPrompt.
-- In that case fluxPrompt must be the EDIT INSTRUCTION, not a full scene description: state what should change and what must stay ("make the bear larger; keep the lettering, colors, and composition unchanged"). Do not re-describe the whole design.
-- Unlike fresh generations, the edit model handles removal instructions directly: "remove the lettering under the figure" is correct here — do not translate removals into scene re-descriptions.
-- The positive-only rule above applies to fresh generations (referenceImage null) only.
-- negativePrompt is ignored on refinements — fold any push-away into the instruction itself ("flatten the gradient to solid ink" rather than a negative).`;
-
 /** A tappable quick-reply chip: what the user sees vs. the turn sent on tap. */
 export type ChatOption = { label: string; value: string };
 
@@ -363,11 +314,11 @@ Ask at most one clarifying question per idea: if the conversation shows one was 
 
 /**
  * Fast pre-check used by Generate/Compare to decide "render vs ask" without
- * paying the heavy constructFluxPrompt round-trip. Runs on Haiku with a tiny
+ * paying the heavy constructDesignBrief round-trip. Runs on Haiku with a tiny
  * prompt (~1s) instead of Sonnet + a 45-line system prompt + 1024 tokens
  * (~6s). Fails OPEN: any parse problem or a missing flag resolves to
  * ready=true so a concrete prompt is never blocked by a hiccup —
- * constructFluxPrompt's own clarification guard remains the backstop.
+ * constructDesignBrief's own clarify path remains the backstop.
  */
 export async function assessReadiness(
   chatHistory: ChatMessage[],
@@ -410,7 +361,7 @@ export async function assessReadiness(
     return result;
   } catch (err) {
     // Fail open: a parse problem, outage, or model error must never block a
-    // real idea. constructFluxPrompt's own guard remains the backstop.
+    // real idea. constructDesignBrief's own clarify path remains the backstop.
     console.error("assessReadiness failed, treating as ready:", err);
     return { ready: true, question: "", options: [] };
   }
@@ -501,75 +452,6 @@ export async function generatePublishedNaming(
   } catch (err) {
     console.error("generatePublishedNaming failed:", err);
     return fallback;
-  }
-}
-
-export async function constructFluxPrompt(
-  chatHistory: ChatMessage[],
-  images: DesignImage[],
-  userMessage?: string
-): Promise<{
-  message: string;
-  fluxPrompt: string;
-  negativePrompt: string | null;
-  referenceImage: number | null;
-}> {
-  const { messages, galleryContext } = buildMessages(
-    chatHistory,
-    images,
-    userMessage
-  );
-
-  // If no user message and last message is from user, use context as-is
-  // If no messages at all, this shouldn't be called
-
-  const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: 1024,
-    system: GENERATE_SYSTEM_PROMPT + galleryContext,
-    messages,
-  });
-
-  let text =
-    response.content?.[0]?.type === "text" ? response.content[0].text : "";
-
-  if (!text) {
-    console.error("constructFluxPrompt: empty response from Claude");
-    // Empty fluxPrompt routes to the clarification path (#137). The old
-    // fallback here was style boilerplate with no subject, which rendered as
-    // whatever the image model felt like — a flower, in the reported case.
-    return {
-      message: "Tell me what you'd like on the shirt.",
-      fluxPrompt: "",
-      negativePrompt: null,
-      referenceImage: null,
-    };
-  }
-
-  // Strip markdown code fences if present
-  text = text.replace(/^```(?:json)?\s*\n?/m, "").replace(/\n?```\s*$/m, "").trim();
-
-  try {
-    const parsed = JSON.parse(text);
-    const negative = typeof parsed.negativePrompt === "string" && parsed.negativePrompt.trim()
-      ? parsed.negativePrompt.trim()
-      : null;
-    return {
-      message: parsed.message,
-      fluxPrompt: parsed.fluxPrompt,
-      negativePrompt: negative,
-      referenceImage: parsed.referenceImage ?? null,
-    };
-  } catch {
-    // Non-JSON output means Claude answered in prose instead of emitting a
-    // brief — usually because the turn was a question, not a design change.
-    // Surface the prose as chat and generate nothing (#137).
-    return {
-      message: text,
-      fluxPrompt: "",
-      negativePrompt: null,
-      referenceImage: null,
-    };
   }
 }
 

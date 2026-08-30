@@ -18,9 +18,10 @@ import {
 } from "@/lib/db/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { buildImageRow, buildOutputLinkRow } from "@/lib/model-b-writes";
-import { chatAboutDesign, constructFluxPrompt, assessReadiness } from "@/lib/ai";
+import { chatAboutDesign, constructDesignBrief, assessReadiness } from "@/lib/ai";
 import { uploadImageObject, deleteImageObject } from "@/lib/r2";
 import { getGenerator } from "@/lib/generators/registry";
+import type { GenerateOperation } from "@/lib/generators/types";
 import {
   insertDesignImage,
   reserveGenerationNumbers,
@@ -42,7 +43,7 @@ import {
   type DesignThreadData,
 } from "@/lib/design-thread";
 import { dedupeById, assertConversationOpen } from "@/lib/design-view";
-import { isClarificationOnly } from "@/lib/design-prompt";
+import { renderSpecSummary } from "@/lib/design-spec";
 import type { ChatMessage } from "@/lib/db/schema";
 
 async function getOrCreateDesign(designId: string, userId: string) {
@@ -107,7 +108,6 @@ export async function sendChatMessage(designId: string, userMessage: string) {
     options: aiResponse.options,
   };
 }
-
 
 async function persistClarification(
   designId: string,
@@ -196,7 +196,7 @@ async function runGenerate({
     : messages;
 
   // Fast pre-check: if the idea is too thin to render, ask for the missing
-  // piece in ~1s (Haiku) instead of paying the heavy constructFluxPrompt
+  // piece in ~1s (Haiku) instead of paying the heavy constructDesignBrief
   // round-trip just to surface a clarifying question. Fails open.
   const readiness = await assessReadiness(messagesForPrompt, images, userMessage);
   if (!readiness.ready) {
@@ -211,22 +211,18 @@ async function runGenerate({
     };
   }
 
-  let aiResponse;
+  let brief;
   try {
-    aiResponse = await constructFluxPrompt(
-      messagesForPrompt,
-      images,
-      userMessage
-    );
+    brief = await constructDesignBrief(messagesForPrompt, images, userMessage);
   } catch (err) {
-    console.error("constructFluxPrompt failed:", err);
+    console.error("constructDesignBrief failed:", err);
     throw new Error("Failed to construct prompt");
   }
 
-  if (isClarificationOnly(aiResponse.fluxPrompt)) {
-    await persistClarification(designId, userMessage, aiResponse.message);
+  if (brief.operation === "clarify") {
+    await persistClarification(designId, userMessage, brief.message);
     return {
-      message: aiResponse.message,
+      message: brief.message,
       imageUrl: null,
       imageId: null,
       generationNumber: found.generationCount,
@@ -234,27 +230,48 @@ async function runGenerate({
     };
   }
 
-  const anchorUrl =
-    aiResponse.referenceImage != null
-      ? images.find((img) => img.number === aiResponse.referenceImage)?.url
-      : undefined;
-
   const generator = getGenerator(found.activeGeneratorId);
 
-  const generateOpts = {
-    aspect: "1:1" as const,
-    referenceImageUrl: anchorUrl,
-    negativePrompt: aiResponse.negativePrompt,
-  };
-  const generationCost = generator.costFor(generateOpts);
+  let generateOp: GenerateOperation;
+  if (brief.operation === "edit") {
+    const referenced =
+      brief.referenceImage != null
+        ? images.find((img) => img.number === brief.referenceImage)?.url
+        : undefined;
+    // No explicit reference → the latest output is what "make it larger" means.
+    const outputs = images.filter((img) => img.role !== "seed");
+    const anchorImageUrl = referenced ?? outputs[outputs.length - 1]?.url;
+    if (!anchorImageUrl) {
+      // An edit classified on an imageless thread is a model error; there is
+      // nothing to edit, so ask instead of rendering.
+      const message =
+        "There's no design to edit yet — tell me what you'd like on the shirt.";
+      await persistClarification(designId, userMessage, message);
+      return {
+        message,
+        imageUrl: null,
+        imageId: null,
+        generationNumber: found.generationCount,
+        readyToGenerate: false,
+      };
+    }
+    generateOp = { kind: "edit", instruction: brief.editInstruction, anchorImageUrl };
+  } else {
+    generateOp = { kind: "generate", spec: brief.spec };
+  }
+
+  const generationCost = generator.costFor(generateOp);
 
   let imageUrl: string;
   try {
-    imageUrl = await generator.generate(generator.adaptPrompt(aiResponse.fluxPrompt), generateOpts);
+    imageUrl = await generator.generate(generateOp, { aspect: "1:1" });
   } catch (err) {
     console.error("generateDesign image generation failed:", err);
     throw new Error("Image generation failed");
   }
+
+  const storedPrompt =
+    brief.operation === "edit" ? brief.editInstruction : renderSpecSummary(brief.spec);
 
   // The image id is minted before upload and doubles as the R2 key
   // (images/{id}.png, slice 4 §6) — concurrent generates can't collide on ids.
@@ -293,7 +310,7 @@ async function runGenerate({
           designId,
           imageUrl: r2Url,
           aspectRatio: "1:1",
-          prompt: aiResponse.fluxPrompt,
+          prompt: storedPrompt,
           generator: generator.id,
           generationCost,
           parentImageId,
@@ -314,7 +331,7 @@ async function runGenerate({
       db.insert(chatMessageTable).values({
         designId,
         role: "assistant" as const,
-        content: aiResponse.message,
+        content: brief.message,
         imageId: newImageId,
       }),
       db
@@ -329,7 +346,7 @@ async function runGenerate({
     ]);
 
     return {
-      message: aiResponse.message,
+      message: brief.message,
       imageUrl: r2Url,
       imageId: newImageId,
       generationNumber: newGeneration,

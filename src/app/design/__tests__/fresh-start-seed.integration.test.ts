@@ -42,11 +42,10 @@ vi.mock("@/lib/auth", () => ({
 
 vi.mock("@/lib/ai", () => ({
   assessReadiness: vi.fn(async () => ({ ready: true, question: "", options: [] })),
-  constructFluxPrompt: vi.fn(async () => ({
+  constructDesignBrief: vi.fn(async () => ({
+    operation: "generate",
     message: "Here it is",
-    fluxPrompt: "a happy cat",
-    negativePrompt: null,
-    referenceImage: null,
+    spec: { subject: "a happy cat", elements: [{ type: "obj", desc: "a happy cat" }] },
   })),
   chatAboutDesign: vi.fn(async () => ({
     message: "Sure",
@@ -68,7 +67,6 @@ vi.mock("@/lib/generators/registry", () => {
     id: "ideogram",
     label: "Ideogram",
     costFor: () => 0.03,
-    adaptPrompt: (p: string) => p,
     generate: vi.fn(async () => "https://src/ideogram.png"),
   };
   return {

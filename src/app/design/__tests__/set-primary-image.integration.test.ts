@@ -38,7 +38,7 @@ vi.mock("@/lib/auth", () => ({
 // generation path isn't exercised here.
 vi.mock("@/lib/ai", () => ({
   assessReadiness: vi.fn(),
-  constructFluxPrompt: vi.fn(),
+  constructDesignBrief: vi.fn(),
   chatAboutDesign: vi.fn(),
 }));
 vi.mock("@/lib/r2", () => ({

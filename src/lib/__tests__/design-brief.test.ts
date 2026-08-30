@@ -2,8 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ChatMessage } from "../db/schema";
 import type { DesignImage } from "../design-images";
 
-// Mock the Anthropic SDK before importing — same harness as ai.test.ts's
-// constructFluxPrompt describe block.
+// Mock the Anthropic SDK before importing — same harness as ai.test.ts.
 vi.mock("@anthropic-ai/sdk", () => {
   const mockCreate = vi.fn();
   return {
