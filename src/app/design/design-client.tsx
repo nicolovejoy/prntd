@@ -363,9 +363,9 @@ function DesignPageInner({ initialThreadPromise }: Props) {
   // Strict Mode's double effect can't fire it twice; the param is stripped
   // immediately so refresh/back doesn't resubmit — via history.replaceState
   // (shallow, no router re-render) because a router.replace issued right
-  // before a server-action call gets cancelled by the action. A thin seed is
-  // caught by the fast readiness check inside generateDesign and answered
-  // with a clarifying question instead of a render — no new guard needed.
+  // before a server-action call gets cancelled by the action. A thin seed now
+  // renders anyway (studio slice 1): the brief commits to an interpretation
+  // and asks its question alongside the image — no new guard needed.
   const seedFired = useRef(false);
   useEffect(() => {
     const prompt = searchParams.get("prompt");
@@ -538,8 +538,6 @@ function DesignPageInner({ initialThreadPromise }: Props) {
       // picked.
       if (result.kind === "clarification") {
         setReadyToGenerate(false);
-        // A clarifying question may carry tappable style options.
-        setOptions(result.options ?? []);
       } else {
         // Cap or capacity refusal — the idea itself is still renderable.
         setReadyToGenerate(true);

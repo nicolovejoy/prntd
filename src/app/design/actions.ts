@@ -32,8 +32,7 @@ import {
 } from "@/lib/db/schema";
 import { eq, and, sql, inArray } from "drizzle-orm";
 import { buildImageRow, buildOutputLinkRow } from "@/lib/model-b-writes";
-import { chatAboutDesign, constructDesignBrief, assessReadiness } from "@/lib/ai";
-import type { ChatOption } from "@/lib/ai";
+import { chatAboutDesign, constructDesignBrief } from "@/lib/ai";
 import { uploadImageObject, deleteImageObject } from "@/lib/r2";
 import { getGenerator } from "@/lib/generators/registry";
 import type { GenerateOperation } from "@/lib/generators/types";
@@ -62,7 +61,8 @@ import {
   classifyGenerationFailure,
   type GenerationFailure,
 } from "@/lib/generation-poll";
-import { renderSpecSummary } from "@/lib/design-spec";
+import { renderSpecSummary, fallbackSpec } from "@/lib/design-spec";
+import { latestUserText } from "@/lib/design-prompt";
 import type { ChatMessage } from "@/lib/db/schema";
 import type { DesignImage } from "@/lib/design-images";
 import type { ImageGenerator } from "@/lib/generators/types";
@@ -151,12 +151,11 @@ async function persistClarification(designId: string, message: string) {
  */
 export type GenerateResult =
   | { kind: "queued"; jobId: string; generationNumber: number; imageId: string }
-  | {
-      kind: "clarification";
-      message: string;
-      readyToGenerate: false;
-      options?: ChatOption[];
-    }
+  // Now only reachable when a generate turn has no words at all behind it —
+  // every other turn renders (studio slice 1). No options ride along: the
+  // brief's clarify has no chip channel, and this exit is a dead end, not a
+  // question worth answering with a tap.
+  | { kind: "clarification"; message: string; readyToGenerate: false }
   | { kind: "limit"; message: string }
   | { kind: "at_capacity"; message: string };
 
@@ -238,7 +237,18 @@ export async function generateDesign(
     );
     throw err;
   }
-  if (prepared.kind !== "prepared") return prepared;
+  if (prepared.kind !== "prepared") {
+    // No job row was created, so nothing owns the unit spent above — give it
+    // back. Only the clarification exit needs this: `at_capacity` refunds
+    // inside prepareGeneration (it is raised by the insert itself), and a
+    // second refund here would credit the same unit twice.
+    if (prepared.kind === "clarification") {
+      await refundGenerationQuota({ userId, ip, day: dayKey }).catch((e) =>
+        console.error("refundGenerationQuota failed:", e)
+      );
+    }
+    return prepared;
+  }
 
   // Past this line a job row exists and owns its own quota unit. Hand the
   // render to the background: `after` keeps the function instance alive past
@@ -298,20 +308,10 @@ async function prepareGeneration({
       ? messages.slice(0, -1)
       : messages;
 
-  // Fast pre-check: if the idea is too thin to render, ask for the missing
-  // piece in ~1s (Haiku) instead of paying the heavy constructDesignBrief
-  // round-trip just to surface a clarifying question. Fails open.
-  const readiness = await assessReadiness(messagesForPrompt, images, userMessage);
-  if (!readiness.ready) {
-    await persistClarification(designId, readiness.question);
-    return {
-      kind: "clarification",
-      message: readiness.question,
-      readyToGenerate: false,
-      options: readiness.options,
-    };
-  }
-
+  // No readiness pre-check any more (studio slice 1): a generate request
+  // always produces a generation, so there is nothing for a "render vs ask"
+  // gate to decide. The brief below still asks its question — attached to the
+  // image it renders, never instead of one.
   let brief;
   try {
     brief = await constructDesignBrief(messagesForPrompt, images, userMessage);
@@ -320,16 +320,25 @@ async function prepareGeneration({
     throw new Error("Failed to construct prompt");
   }
 
-  if (brief.operation === "clarify") {
-    await persistClarification(designId, brief.message);
-    return { kind: "clarification", message: brief.message, readyToGenerate: false };
-  }
-
   const generator = getGenerator(found.activeGeneratorId);
 
   let generateOp: GenerateOperation;
   let anchorImageId: string | null = null;
-  if (brief.operation === "edit") {
+  if (brief.operation === "clarify") {
+    // A clarify brief is no longer an exit. The user asked for a design, so
+    // their literal request gets rendered and the brief's question rides along
+    // as the assistant turn attached to that image — a question is an addition
+    // to a result, never a substitute for one. Only a turn with no words at
+    // all behind it has nothing to render.
+    const spec = fallbackSpec(
+      userMessage?.trim() || latestUserText(messagesForPrompt)
+    );
+    if (!spec) {
+      await persistClarification(designId, brief.message);
+      return { kind: "clarification", message: brief.message, readyToGenerate: false };
+    }
+    generateOp = { kind: "generate", spec };
+  } else if (brief.operation === "edit") {
     const referencedImage =
       brief.referenceImage != null
         ? images.find((img) => img.number === brief.referenceImage)
@@ -346,19 +355,25 @@ async function prepareGeneration({
       anchorOutputs[anchorOutputs.length - 1] ??
       images[images.length - 1];
     if (!anchor) {
-      // An edit classified on an imageless thread is a model error; there is
-      // nothing to edit, so ask instead of rendering.
-      const message =
-        "There's no design to edit yet — tell me what you'd like on the shirt.";
-      await persistClarification(designId, message);
-      return { kind: "clarification", message, readyToGenerate: false };
+      // An edit classified on an imageless thread is a model error. There is
+      // nothing to anchor on, but the instruction still describes a design —
+      // render it from scratch rather than refusing the turn.
+      const spec = fallbackSpec(brief.editInstruction);
+      if (!spec) {
+        const message =
+          "There's no design to edit yet — tell me what you'd like on the shirt.";
+        await persistClarification(designId, message);
+        return { kind: "clarification", message, readyToGenerate: false };
+      }
+      generateOp = { kind: "generate", spec };
+    } else {
+      anchorImageId = anchor.id;
+      generateOp = {
+        kind: "edit",
+        instruction: brief.editInstruction,
+        anchorImageUrl: anchor.url,
+      };
     }
-    anchorImageId = anchor.id;
-    generateOp = {
-      kind: "edit",
-      instruction: brief.editInstruction,
-      anchorImageUrl: anchor.url,
-    };
   } else {
     generateOp = { kind: "generate", spec: brief.spec };
   }
@@ -377,13 +392,18 @@ async function prepareGeneration({
   // here after a successful insert would refund inline AND leave a `running`
   // row for the sweeper to refund again. The insert is the last thing in this
   // function that can throw.
+  // Keyed off the resolved operation, not the brief's: a clarify brief and an
+  // anchorless edit both come out the far side as generates, and the stored
+  // prompt has to describe what was actually rendered.
   const storedPrompt =
-    brief.operation === "edit" ? brief.editInstruction : renderSpecSummary(brief.spec);
+    generateOp.kind === "edit"
+      ? generateOp.instruction
+      : renderSpecSummary(generateOp.spec);
 
   const inserted = await insertGenerationJob({
     designId,
     userId,
-    operation: brief.operation === "edit" ? "edit" : "generate",
+    operation: generateOp.kind,
     imageId: newImageId,
     r2Key: `images/${newImageId}.png`,
     anchorImageId,

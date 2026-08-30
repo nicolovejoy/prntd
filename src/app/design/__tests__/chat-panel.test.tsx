@@ -168,7 +168,7 @@ describe("ChatPanel generating status", () => {
 });
 
 describe("ChatPanel composer during generation (#59)", () => {
-  it("leaves the input and Send usable while generating", () => {
+  it("leaves the input and Ask usable while generating", () => {
     const onSend = vi.fn();
     render(
       <ChatPanel {...baseProps} generating onSend={onSend} messages={thread} />
@@ -178,7 +178,7 @@ describe("ChatPanel composer during generation (#59)", () => {
     );
     expect(input).not.toBeDisabled();
     fireEvent.change(input, { target: { value: "make the frog green" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    fireEvent.click(screen.getByTestId("composer-ask"));
     expect(onSend).toHaveBeenCalledWith("make the frog green");
   });
 
@@ -211,51 +211,6 @@ describe("ChatPanel composer during generation (#59)", () => {
       .getAllByRole("button", { name: "Generating…" })
       .find((el) => el.tagName === "BUTTON");
     expect(generateBtn).toBeDisabled();
-  });
-
-  it("routes generate-trigger text to a new generation while one runs", () => {
-    const onSend = vi.fn();
-    const onGenerate = vi.fn();
-    render(
-      <ChatPanel
-        {...baseProps}
-        generating
-        runningJobs={[job("j1", 1)]}
-        onSend={onSend}
-        onGenerate={onGenerate}
-        messages={thread}
-      />
-    );
-    const input = screen.getByPlaceholderText(
-      "Describe a design or drop an image"
-    );
-    fireEvent.change(input, { target: { value: "make it blue" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
-    expect(onGenerate).toHaveBeenCalledWith("make it blue");
-    expect(onSend).not.toHaveBeenCalled();
-  });
-
-  it("routes generate-trigger text to chat at the cap", () => {
-    const onSend = vi.fn();
-    const onGenerate = vi.fn();
-    render(
-      <ChatPanel
-        {...baseProps}
-        generating
-        atCapacity
-        runningJobs={[job("j1", 1), job("j2", 2), job("j3", 3)]}
-        onSend={onSend}
-        onGenerate={onGenerate}
-        messages={thread}
-      />
-    );
-    const input = screen.getByPlaceholderText(
-      "Describe a design or drop an image"
-    );
-    fireEvent.change(input, { target: { value: "make it blue" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
-    expect(onGenerate).not.toHaveBeenCalled();
-    expect(onSend).toHaveBeenCalledWith("make it blue");
   });
 
   it("locks the composer during a chat turn (unchanged)", () => {
@@ -293,5 +248,114 @@ describe("ChatPanel closed conversation (slice 3)", () => {
       screen.getByPlaceholderText("Describe a design or drop an image")
     ).toBeInTheDocument();
     expect(screen.queryByTestId("closed-notice")).not.toBeInTheDocument();
+  });
+});
+
+// The prod failure this slice removes: Enter and the button were two gestures
+// with the same non-outcome. There is now exactly one submit control and it
+// generates; chat needs its own deliberate tap.
+describe("ChatPanel single submit control (studio slice 1)", () => {
+  function composer() {
+    return screen.getByPlaceholderText("Describe a design or drop an image");
+  }
+
+  it("generates on Enter rather than sending a chat turn", () => {
+    const onSend = vi.fn();
+    const onGenerate = vi.fn();
+    render(
+      <ChatPanel
+        {...baseProps}
+        onSend={onSend}
+        onGenerate={onGenerate}
+        messages={thread}
+      />
+    );
+    fireEvent.change(composer(), { target: { value: "dog doing calisthenics" } });
+    fireEvent.submit(composer().closest("form")!);
+    expect(onGenerate).toHaveBeenCalledWith("dog doing calisthenics");
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("generates from the empty state too", () => {
+    const onSend = vi.fn();
+    const onGenerate = vi.fn();
+    render(
+      <ChatPanel
+        {...baseProps}
+        isEmpty
+        messages={[]}
+        onSend={onSend}
+        onGenerate={onGenerate}
+      />
+    );
+    const input = screen.getByRole("textbox", { name: "Describe a design" });
+    fireEvent.change(input, { target: { value: "dog doing calisthenics" } });
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+    expect(onGenerate).toHaveBeenCalledWith("dog doing calisthenics");
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("keeps chat reachable, but only by its own tap", () => {
+    const onSend = vi.fn();
+    const onGenerate = vi.fn();
+    render(
+      <ChatPanel
+        {...baseProps}
+        onSend={onSend}
+        onGenerate={onGenerate}
+        messages={thread}
+      />
+    );
+    fireEvent.change(composer(), { target: { value: "what prints well?" } });
+    fireEvent.click(screen.getByTestId("composer-ask"));
+    expect(onSend).toHaveBeenCalledWith("what prints well?");
+    expect(onGenerate).not.toHaveBeenCalled();
+    // Ask is not a submit button, so Enter can never reach it.
+    expect(screen.getByTestId("composer-ask")).toHaveAttribute("type", "button");
+    expect(screen.getByTestId("composer-generate")).toHaveAttribute(
+      "type",
+      "submit"
+    );
+  });
+
+  it("clears the input on submit so the next turn starts empty", () => {
+    render(<ChatPanel {...baseProps} messages={thread} />);
+    fireEvent.change(composer(), { target: { value: "a fox" } });
+    fireEvent.submit(composer().closest("form")!);
+    expect(composer()).toHaveValue("");
+  });
+
+  it("does not submit an empty composer with no conversation behind it", () => {
+    const onGenerate = vi.fn();
+    render(
+      <ChatPanel {...baseProps} isEmpty messages={[]} onGenerate={onGenerate} />
+    );
+    const input = screen.getByRole("textbox", { name: "Describe a design" });
+    fireEvent.submit(input.closest("form")!);
+    expect(onGenerate).not.toHaveBeenCalled();
+  });
+
+  it("does not submit at the concurrency cap", () => {
+    const onGenerate = vi.fn();
+    render(
+      <ChatPanel
+        {...baseProps}
+        atCapacity
+        onGenerate={onGenerate}
+        messages={thread}
+      />
+    );
+    fireEvent.change(composer(), { target: { value: "a fox" } });
+    fireEvent.submit(composer().closest("form")!);
+    expect(onGenerate).not.toHaveBeenCalled();
+  });
+
+  it("keeps Generate primary even when the idea reads as thin", () => {
+    // Generate always generates now, so a "not ready" reading can no longer
+    // demote the button into looking broken.
+    render(
+      <ChatPanel {...baseProps} readyToGenerate={false} messages={thread} />
+    );
+    expect(screen.getByTestId("composer-generate")).not.toBeDisabled();
   });
 });

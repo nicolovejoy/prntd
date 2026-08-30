@@ -78,7 +78,6 @@ vi.mock("@/lib/auth", () => ({
 }));
 
 vi.mock("@/lib/ai", () => ({
-  assessReadiness: vi.fn(async () => ({ ready: true, question: "", options: [] })),
   constructDesignBrief: vi.fn(async () => ({
     operation: "generate",
     message: "Here it is",
@@ -139,7 +138,16 @@ const registry = await import("@/lib/generators/registry");
 const uploadMock = r2.uploadImageObject as Mock;
 const deleteMock = r2.deleteImageObject as Mock;
 const ideogramGen = registry.GENERATORS.ideogram.generate as Mock;
-const readinessMock = ai.assessReadiness as Mock;
+const briefMock = ai.constructDesignBrief as Mock;
+
+const GENERATE_BRIEF = {
+  operation: "generate" as const,
+  message: "Here it is",
+  spec: {
+    subject: "a happy cat",
+    elements: [{ type: "obj" as const, desc: "a happy cat" }],
+  },
+};
 
 async function seedDesign(generationCount = 0): Promise<string> {
   await testDb.insert(schema.user).values({ id: "u1", email: "a@b.c", name: "A" });
@@ -224,9 +232,7 @@ beforeEach(async () => {
   uploadMock.mockClear();
   deleteMock.mockClear();
   ideogramGen.mockReset().mockResolvedValue("https://src/ideogram.png");
-  readinessMock
-    .mockReset()
-    .mockResolvedValue({ ready: true, question: "", options: [] });
+  briefMock.mockReset().mockResolvedValue(GENERATE_BRIEF);
   delete process.env.GUEST_FUNNEL_ENABLED;
 });
 
@@ -445,31 +451,104 @@ describe("generateDesign — job insert + continuation", () => {
     expect(await sourceImages(designId)).toHaveLength(0);
   });
 
-  it("creates no job row for a clarification turn", async () => {
+  // The prod repro (2026-08-30): three prompts typed, one image produced,
+  // because Generate silently degraded into a clarifying question. Pinned
+  // with the verbatim string, the way #142 pinned #137's.
+  it("generates for the verbatim prod repro even when the brief wants to clarify", async () => {
     const designId = await seedDesign(0);
-    readinessMock.mockResolvedValueOnce({
-      ready: false,
-      question: "What style?",
-      options: [{ label: "Bold", value: "bold" }],
+    briefMock.mockResolvedValueOnce({
+      operation: "clarify",
+      message: "What style?",
     });
 
-    const res = await generateDesign(designId, "a thing");
+    const res = expectQueued(await generateDesign(designId, "dog doing calisthenics"));
+    await drainAfter();
+
+    // An image exists — the whole point of the slice.
+    const imgs = await sourceImages(designId);
+    expect(imgs).toHaveLength(1);
+    expect(imgs[0].id).toBe(res.imageId);
+    // Rendered from the user's own words, as a generate (not an edit).
+    expect(ideogramGen).toHaveBeenCalledWith(
+      { kind: "generate", spec: expect.objectContaining({ subject: "dog doing calisthenics" }) },
+      expect.anything()
+    );
+    const [job] = await jobs(designId);
+    expect(job.operation).toBe("generate");
+    // ...and the question rides along, attached to the image it accompanies.
+    const msgs = await chatMessages(designId);
+    const assistant = msgs.filter((m) => m.role === "assistant");
+    expect(assistant).toHaveLength(1);
+    expect(assistant[0].content).toBe("What style?");
+    expect(assistant[0].imageId).toBe(res.imageId);
+  });
+
+  it("falls back to the last user turn when Generate is tapped with an empty composer", async () => {
+    const designId = await seedDesign(0);
+    briefMock.mockResolvedValueOnce(GENERATE_BRIEF);
+    await generateDesign(designId, "a dog on a skateboard");
+    await drainAfter();
+    ideogramGen.mockClear();
+
+    briefMock.mockResolvedValueOnce({ operation: "clarify", message: "Which one?" });
+    expectQueued(await generateDesign(designId));
+    await drainAfter();
+
+    expect(ideogramGen).toHaveBeenCalledWith(
+      {
+        kind: "generate",
+        spec: expect.objectContaining({ subject: "a dog on a skateboard" }),
+      },
+      expect.anything()
+    );
+  });
+
+  it("still refuses — and refunds — a clarify turn with nothing at all to render", async () => {
+    process.env.GUEST_FUNNEL_ENABLED = "true";
+    const designId = await seedDesign(0);
+    briefMock.mockResolvedValueOnce({
+      operation: "clarify",
+      message: "Tell me what you'd like on the shirt.",
+    });
+
+    const res = await generateDesign(designId);
 
     expect(res.kind).toBe("clarification");
     expect(await jobs(designId)).toHaveLength(0);
     expect(afterQueue.callbacks).toHaveLength(0);
     expect(ideogramGen).not.toHaveBeenCalled();
+    // No job row owns the unit that was spent, so it goes back (studio
+    // slice 1: nothing may spend a unit without producing a generation).
+    expect(await userQuotaCount()).toBe(0);
   });
 
-  it("persists the user's message exactly once on the clarify and queued paths", async () => {
+  it("renders an anchorless edit from scratch instead of refusing it", async () => {
+    const designId = await seedDesign(0);
+    briefMock.mockResolvedValueOnce({
+      operation: "edit",
+      message: "Made it bolder.",
+      editInstruction: "a bold mountain range",
+      referenceImage: null,
+    });
+
+    expectQueued(await generateDesign(designId, "make it bolder"));
+    await drainAfter();
+
+    expect(ideogramGen).toHaveBeenCalledWith(
+      {
+        kind: "generate",
+        spec: expect.objectContaining({ subject: "a bold mountain range" }),
+      },
+      expect.anything()
+    );
+    expect(await sourceImages(designId)).toHaveLength(1);
+  });
+
+  it("persists the user's message exactly once, and never hands the model a duplicate", async () => {
     const designId = await seedDesign(0);
 
-    readinessMock.mockResolvedValueOnce({
-      ready: false,
-      question: "What style?",
-      options: [],
-    });
     await generateDesign(designId, "a thing");
+    await drainAfter();
 
     let msgs = await chatMessages(designId);
     expect(msgs.filter((m) => m.role === "user" && m.content === "a thing")).toHaveLength(
@@ -487,7 +566,7 @@ describe("generateDesign — job insert + continuation", () => {
 
     // ...and the model is not handed that sentence twice: the persisted copy is
     // trimmed off the history because buildMessages appends userMessage itself.
-    const history = readinessMock.mock.calls.at(-1)![0] as Array<{
+    const history = briefMock.mock.calls.at(-1)![0] as Array<{
       role: string;
       content: string;
     }>;
@@ -710,9 +789,9 @@ describe("over-capacity refusals", () => {
     ideogramGen.mockImplementation(async () => {
       throw new Error("never reached");
     });
-    vi.mocked(ai.assessReadiness).mockImplementationOnce(async () => {
+    briefMock.mockImplementationOnce(async () => {
       await fillSlots(1);
-      return { ready: true, question: "", options: [] };
+      return GENERATE_BRIEF;
     });
 
     const res = await generateDesign(designId, "one more");

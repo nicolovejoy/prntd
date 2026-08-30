@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isGenerateIntent } from "../design-prompt";
+import { isGenerateIntent, latestUserText } from "../design-prompt";
 
 // The prod turn that rendered an unwanted flower (design bbdaca91, 2026-07-30).
 const REPRO_MESSAGE =
@@ -38,5 +38,33 @@ describe("isGenerateIntent", () => {
 
   it("does not fire on unrelated text", () => {
     expect(isGenerateIntent("a sunset over mountains")).toBe(false);
+  });
+});
+
+describe("latestUserText", () => {
+  const thread = [
+    { role: "user", content: "a dog on a skateboard" },
+    { role: "assistant", content: "What style?" },
+  ];
+
+  it("returns the most recent user turn", () => {
+    expect(latestUserText(thread)).toBe("a dog on a skateboard");
+  });
+
+  it("ignores assistant turns, however recent", () => {
+    expect(
+      latestUserText([...thread, { role: "assistant", content: "Still here?" }])
+    ).toBe("a dog on a skateboard");
+  });
+
+  it("skips back over an empty user turn", () => {
+    expect(latestUserText([...thread, { role: "user", content: "   " }])).toBe(
+      "a dog on a skateboard"
+    );
+  });
+
+  it("is null when the user has never said anything", () => {
+    expect(latestUserText([])).toBeNull();
+    expect(latestUserText([{ role: "assistant", content: "hi" }])).toBeNull();
   });
 });
