@@ -124,7 +124,8 @@ describe("getDesignJobs", () => {
 
     expect(result.running).toEqual([]);
     expect(result.settled).toEqual([
-      { jobId: job.id, status: "failed", imageId: null, error: "Generation timed out" },
+      // Classified server-side; the raw string never crosses the wire.
+      { jobId: job.id, status: "failed", imageId: null, failure: "timeout" },
     ]);
   });
 
@@ -161,7 +162,7 @@ describe("getDesignJobs", () => {
 
     expect(result.running).toEqual([]);
     expect(result.settled).toEqual([
-      { jobId: job.id, status: "succeeded", imageId: job.imageId, error: null },
+      { jobId: job.id, status: "succeeded", imageId: job.imageId, failure: null },
     ]);
   });
 

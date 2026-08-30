@@ -4,7 +4,7 @@ import { headers } from "next/headers";
 import { auth, isAnonymousUser } from "@/lib/auth";
 import { isAdminUser } from "@/app/admin/actions";
 import { getCartCount } from "@/app/cart/actions";
-import { sweepStaleJobs, countRunningJobsForUser } from "@/lib/generation-job";
+import { sweepStaleJobs, countActiveGenerationsForUser } from "@/lib/generation-job";
 
 export type HeaderState = { isAdmin: boolean; cartCount: number; runningJobs: number };
 
@@ -26,7 +26,9 @@ async function runningJobsForCurrentUser(): Promise<number> {
 
   // Narrowest scope for this call site — only the cron sweeps scope: "all".
   await sweepStaleJobs({ scope: "user", userId: user.id });
-  return countRunningJobsForUser(user.id);
+  // Display count, not slot count: a cancelled job still holds its slot but
+  // must not keep the header pill lit until the provider call finishes.
+  return countActiveGenerationsForUser(user.id);
 }
 
 /**

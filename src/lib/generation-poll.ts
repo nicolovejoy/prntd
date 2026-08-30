@@ -75,3 +75,106 @@ export function isAtGenerationCap(
 ): boolean {
   return runningCount + pendingCount >= cap;
 }
+
+/**
+ * Why a generation stopped, as a closed set. The job row's raw `error` is a
+ * provider or internal string — it can echo prompt text or vendor moderation
+ * wording, and the image detail and design pages are guest-reachable — so it
+ * is classified server-side and never crosses the wire. /admin/errors and the
+ * job row keep the diagnostic detail.
+ */
+export type GenerationFailure = "timeout" | "failed";
+
+/** The exact string sweepStaleJobs writes for an overdue job. */
+const TIMEOUT_ERROR = "Generation timed out";
+
+export function classifyGenerationFailure(error: string | null): GenerationFailure {
+  return error === TIMEOUT_ERROR ? "timeout" : "failed";
+}
+
+/**
+ * Authored copy, Clean Label voice (docs/design-system.md): plain, no apology
+ * theatre, says what to do next. Never interpolates anything from the server.
+ */
+export const GENERATION_FAILURE_COPY: Record<GenerationFailure, string> = {
+  timeout: "That one took too long and stopped. Try again.",
+  failed: "Something went wrong generating that. Try again.",
+};
+
+/** One live generation, as the thread view renders it. */
+export interface RunningJob {
+  jobId: string;
+  generationNumber: number;
+}
+
+/** The shape `getDesignJobs` reports back. */
+export interface JobPollResult {
+  running: RunningJob[];
+  settled: {
+    jobId: string;
+    status: "succeeded" | "failed";
+    imageId: string | null;
+    failure: GenerationFailure | null;
+  }[];
+}
+
+/**
+ * What the page should do with one poll response.
+ *
+ * `settling` is the set of tracked ids whose outcome is being applied on THIS
+ * tick. It is not "ids to untrack now": untracking happens only after the
+ * outcome has actually landed, which is what keeps the revisit-cache write-back
+ * gated across the whole settle (see the page's pollOnce).
+ */
+export interface JobPollStep {
+  running: RunningJob[];
+  settling: string[];
+  /** A generation succeeded — the thread (chat AND gallery) must be re-read. */
+  refreshThread: boolean;
+  /** Authored line to surface, or null. */
+  errorCopy: string | null;
+}
+
+/**
+ * Pure state math for one poll. Extracted from the component so the two
+ * load-bearing branches — deferral while a chat turn is in flight, and the
+ * decision to re-read the thread — are testable without mounting anything.
+ *
+ * `chatTurnInFlight` defers the whole settle rather than dropping it:
+ * `sendChatMessage` persists both its rows only when it returns, so a
+ * whole-thread read taken meanwhile would render the user's own words back out
+ * of the thread. Deferring reports no settling ids, which leaves them tracked,
+ * which keeps the poll loop alive to try again.
+ */
+export function reduceJobPoll(input: {
+  trackedJobIds: string[];
+  result: JobPollResult;
+  chatTurnInFlight: boolean;
+}): JobPollStep {
+  const { running, settled } = input.result;
+
+  if (input.chatTurnInFlight) {
+    return { running, settling: [], refreshThread: false, errorCopy: null };
+  }
+
+  // Only ids we are actually tracking: a settled row for anything else (a job
+  // the user cancelled, say) is not this page's to react to.
+  const settling = settled
+    .filter((job) => input.trackedJobIds.includes(job.jobId))
+    .map((job) => job.jobId);
+
+  const failure = settled.find(
+    (job) => settling.includes(job.jobId) && job.status === "failed"
+  );
+
+  return {
+    running,
+    settling,
+    refreshThread: settled.some(
+      (job) => settling.includes(job.jobId) && job.status === "succeeded"
+    ),
+    errorCopy: failure
+      ? GENERATION_FAILURE_COPY[failure.failure ?? "failed"]
+      : null,
+  };
+}

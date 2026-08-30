@@ -42,16 +42,16 @@ import {
   readThreadSnapshot,
   writeThreadSnapshot,
   dropThreadSnapshot,
+  canWriteThreadSnapshot,
   threadToSnapshot,
 } from "@/lib/design-thread-cache";
 import {
   nextPollDelayMs,
   shouldPoll,
   isAtGenerationCap,
+  reduceJobPoll,
+  type RunningJob,
 } from "@/lib/generation-poll";
-
-/** A generation the server reports as still running for this thread. */
-type RunningJob = { jobId: string; generationNumber: number };
 
 /**
  * Job state for this thread.
@@ -187,9 +187,9 @@ function DesignPageInner({ initialThreadPromise }: Props) {
    * leaves the thread one turn short until a reload — the most visible defect
    * this path can have.
    */
-  const refreshThread = useCallback(async () => {
-    const thread = await getDesignThread(designId.current);
-    if (!thread) return;
+  const refreshThread = useCallback(async (): Promise<boolean> => {
+    const thread = await getDesignThread(designId.current).catch(() => null);
+    if (!thread) return false;
     const snap = threadToSnapshot(thread);
     setMessages(snap.chat);
     setImages(snap.images);
@@ -200,6 +200,7 @@ function DesignPageInner({ initialThreadPromise }: Props) {
     // claims for a fresh generation (and deliberately does not claim for a
     // cancelled one).
     setSelectedImage(snap.displayImageUrl);
+    return true;
   }, []);
 
   // One poll in flight at a time: the timer and a wake event can fire together.
@@ -219,33 +220,42 @@ function DesignPageInner({ initialThreadPromise }: Props) {
       const result = await readJobs(designId.current, tracked);
       if (!result) return;
 
-      const settled = result.settled;
-      // Deferred, not dropped: leaving these tracked keeps the loop alive for
-      // another tick, and they are applied as soon as the chat turn clears.
-      const canApply = !loadingRef.current;
-
-      setJobs({
-        running: result.running.map((job) => ({
-          jobId: job.jobId,
-          generationNumber: job.generationNumber,
-        })),
-        tracked: canApply
-          ? tracked.filter((id) => !settled.some((s) => s.jobId === id))
-          : tracked,
+      // All the branching is in a pure reducer (generation-poll.ts) so the
+      // deferral and refresh decisions are testable without a component.
+      const step = reduceJobPoll({
+        trackedJobIds: tracked,
+        result,
+        chatTurnInFlight: loadingRef.current,
       });
 
-      if (!canApply || settled.length === 0) return;
+      // Running is always adopted. `tracked` is NOT narrowed here: the settled
+      // ids stay tracked for the whole settle, which is what holds `active`
+      // true and keeps the revisit-cache write-back gated while the thread is
+      // mid-change. Untracking below is the last thing that happens.
+      setJobs({ running: step.running, tracked });
 
-      const failed = settled.filter((s) => s.status === "failed");
-      if (failed.length > 0) {
-        setGenError(failed[0].error ?? "Generation failed. Try again.");
-      }
-      if (settled.some((s) => s.status === "succeeded")) {
-        // The snapshot predates the new image; a miss is always safe here
-        // where a stale hit would replay "no image yet" after it landed.
+      if (step.errorCopy) setGenError(step.errorCopy);
+      if (step.settling.length === 0) return;
+
+      if (step.refreshThread) {
+        const refreshed = await refreshThread();
+        // A failed read leaves the ids tracked, so the next tick retries —
+        // and, critically, leaves the cached snapshot alone. Dropping it here
+        // and failing to replace it would strand the thread on a cache miss;
+        // untracking here would let the write-back effect fire with the
+        // pre-refresh state and re-plant the very "no image yet" snapshot the
+        // drop exists to remove.
+        if (!refreshed) return;
+        // Ordered after the refresh on purpose: by now the fresh thread is in
+        // state, so the write-back that follows untracking writes the settled
+        // thread rather than the stale one.
         dropThreadSnapshot(designId.current);
-        await refreshThread();
       }
+
+      setJobs((prev) => ({
+        running: prev.running,
+        tracked: prev.tracked.filter((id) => !step.settling.includes(id)),
+      }));
     } finally {
       polling.current = false;
       setPollNonce((n) => n + 1);
@@ -361,7 +371,19 @@ function DesignPageInner({ initialThreadPromise }: Props) {
   // returning user must not see. The settle path drops the entry outright, so
   // the first write after that is of the settled thread.
   useEffect(() => {
-    if (!resumeId || !designExists || active || generating) return;
+    // Narrowed here as well as inside the gate so `resumeId` types as the
+    // cache key below; the gate stays the single statement of the rule.
+    if (!resumeId) return;
+    if (
+      !canWriteThreadSnapshot({
+        resumeId,
+        designExists,
+        jobsActive: active,
+        generating,
+      })
+    ) {
+      return;
+    }
     writeThreadSnapshot(resumeId, {
       chat: messages,
       images,

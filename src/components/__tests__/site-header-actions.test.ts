@@ -23,10 +23,13 @@ const getCartCount = vi.fn();
 vi.mock("@/app/cart/actions", () => ({ getCartCount: () => getCartCount() }));
 
 const sweepStaleJobs = vi.fn();
-const countRunningJobsForUser = vi.fn();
+const countActiveGenerationsForUser = vi.fn();
 vi.mock("@/lib/generation-job", () => ({
   sweepStaleJobs: (...args: unknown[]) => sweepStaleJobs(...args),
-  countRunningJobsForUser: (...args: unknown[]) => countRunningJobsForUser(...args),
+  // The DISPLAY count, deliberately not countRunningJobsForUser: a cancelled
+  // job still holds its concurrency slot but must not keep the header lit.
+  countActiveGenerationsForUser: (...args: unknown[]) =>
+    countActiveGenerationsForUser(...args),
 }));
 
 const { getHeaderState } = await import("@/components/site-header-actions");
@@ -36,7 +39,7 @@ beforeEach(() => {
   isAdminUser.mockReset().mockResolvedValue(false);
   getCartCount.mockReset().mockResolvedValue(0);
   sweepStaleJobs.mockReset().mockResolvedValue({ swept: 0 });
-  countRunningJobsForUser.mockReset().mockResolvedValue(0);
+  countActiveGenerationsForUser.mockReset().mockResolvedValue(0);
 });
 
 describe("getHeaderState — runningJobs", () => {
@@ -47,7 +50,7 @@ describe("getHeaderState — runningJobs", () => {
 
     expect(state.runningJobs).toBe(0);
     expect(sweepStaleJobs).not.toHaveBeenCalled();
-    expect(countRunningJobsForUser).not.toHaveBeenCalled();
+    expect(countActiveGenerationsForUser).not.toHaveBeenCalled();
   });
 
   it("is 0 for an anonymous guest-funnel user, without querying the job table", async () => {
@@ -57,18 +60,18 @@ describe("getHeaderState — runningJobs", () => {
 
     expect(state.runningJobs).toBe(0);
     expect(sweepStaleJobs).not.toHaveBeenCalled();
-    expect(countRunningJobsForUser).not.toHaveBeenCalled();
+    expect(countActiveGenerationsForUser).not.toHaveBeenCalled();
   });
 
   it("sweeps this user's stale jobs, scoped to the user, then counts", async () => {
     getSession.mockResolvedValue({ user: { id: "real-user", isAnonymous: false } });
-    countRunningJobsForUser.mockResolvedValue(2);
+    countActiveGenerationsForUser.mockResolvedValue(2);
 
     const state = await getHeaderState(false);
 
     expect(state.runningJobs).toBe(2);
     expect(sweepStaleJobs).toHaveBeenCalledWith({ scope: "user", userId: "real-user" });
-    expect(countRunningJobsForUser).toHaveBeenCalledWith("real-user");
+    expect(countActiveGenerationsForUser).toHaveBeenCalledWith("real-user");
   });
 
   it("never uses scope 'all' — that is the cron's alone", async () => {
@@ -132,7 +135,7 @@ describe("getHeaderState — one round trip", () => {
         return v;
       });
     });
-    countRunningJobsForUser.mockImplementation(() => {
+    countActiveGenerationsForUser.mockImplementation(() => {
       events.push("count:start");
       return count.promise.then((v) => {
         events.push("count:end");

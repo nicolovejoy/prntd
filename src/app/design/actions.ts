@@ -58,6 +58,10 @@ import {
   type DesignThreadData,
 } from "@/lib/design-thread";
 import { dedupeById, assertConversationOpen } from "@/lib/design-view";
+import {
+  classifyGenerationFailure,
+  type GenerationFailure,
+} from "@/lib/generation-poll";
 import { renderSpecSummary } from "@/lib/design-spec";
 import type { ChatMessage } from "@/lib/db/schema";
 import type { DesignImage } from "@/lib/design-images";
@@ -784,6 +788,11 @@ export async function setPrimaryImage(designId: string, imageId: string) {
  * is unimplementable without server-side per-client cursors — the client
  * already knows what it is waiting on, so it says so.
  *
+ * A failure is reported as a CLASSIFIED `failure`, never the job row's raw
+ * `error`: that string is provider or internal text (it can echo prompt
+ * content or vendor moderation wording) and this data reaches a browser. The
+ * raw string stays in the job row and the server logs.
+ *
  * `running` excludes cancelled-but-running jobs on purpose:
  * getRunningJobsForDesign deliberately includes them (cancel doesn't stop
  * the render, so the row genuinely still holds its concurrency slot), but a
@@ -799,7 +808,7 @@ export async function getDesignJobs(
     jobId: string;
     status: "succeeded" | "failed";
     imageId: string | null;
-    error: string | null;
+    failure: GenerationFailure | null;
   }[];
 }> {
   await requireOwnedDesign(designId);
@@ -823,7 +832,7 @@ export async function getDesignJobs(
     jobId: string;
     status: "succeeded" | "failed";
     imageId: string | null;
-    error: string | null;
+    failure: GenerationFailure | null;
   }[] = [];
   if (settledIds.length > 0) {
     const rows = await db
@@ -847,7 +856,8 @@ export async function getDesignJobs(
         // (it's also the R2 key stem); only report it once the image it
         // names actually exists.
         imageId: row.status === "succeeded" ? row.imageId : null,
-        error: row.error,
+        failure:
+          row.status === "failed" ? classifyGenerationFailure(row.error) : null,
       }));
   }
 

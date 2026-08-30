@@ -533,7 +533,7 @@ describe("cancelGeneration + getDesignJobs (the UI's read/write surface)", () =>
     const designId = await seedDesign(0);
     const res = expectQueued(await generateDesign(designId, "one"));
 
-    (authMock.api.getSession as Mock).mockResolvedValueOnce({
+    (authMock.api.getSession as unknown as Mock).mockResolvedValueOnce({
       user: { id: "someone-else", isAnonymous: false },
     });
     expect(await cancelGeneration(res.jobId)).toBe(false);
@@ -557,8 +557,32 @@ describe("cancelGeneration + getDesignJobs (the UI's read/write surface)", () =>
     // The settled report is what makes the assistant turn and the image
     // appear without a reload — the poller refreshes the whole thread on it.
     expect(done.settled).toEqual([
-      { jobId: res.jobId, status: "succeeded", imageId: res.imageId, error: null },
+      { jobId: res.jobId, status: "succeeded", imageId: res.imageId, failure: null },
     ]);
+  });
+
+  it("reports a swept job as a classified timeout, never the raw string", async () => {
+    const designId = await seedDesign(0);
+    const res = expectQueued(await generateDesign(designId, "one"));
+    afterQueue.callbacks.length = 0; // the render never lands
+
+    await testDb
+      .update(schema.imageGeneration)
+      .set({ startedAt: new Date(Date.now() - STALE_JOB_MS - 1000) })
+      .where(eq(schema.imageGeneration.id, res.jobId));
+
+    // getDesignJobs sweeps on read, so the same call that notices the stale
+    // job also reports it.
+    const state = await getDesignJobs(designId, [res.jobId]);
+    expect(state.settled).toEqual([
+      { jobId: res.jobId, status: "failed", imageId: null, failure: "timeout" },
+    ]);
+
+    // The raw provider/internal string stays in the row and the logs; it can
+    // echo prompt text, and this payload reaches a browser.
+    const [row] = await jobs(designId);
+    expect(row.error).toBe("Generation timed out");
+    expect(JSON.stringify(state)).not.toContain("Generation timed out");
   });
 
   it("keeps a cancelled-but-running job out of `running`", async () => {

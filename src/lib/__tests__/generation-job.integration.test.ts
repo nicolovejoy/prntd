@@ -15,6 +15,7 @@ import {
   STALE_JOB_MS,
   cancelGenerationJob,
   countRunningJobsForUser,
+  countActiveGenerationsForUser,
   failGenerationJob,
   getRunningJobsForDesign,
   insertGenerationJob,
@@ -383,6 +384,38 @@ describe("cancelGenerationJob", () => {
     await failGenerationJob({ jobId: job.id, error: "boom", now: NOW, db });
 
     expect(await cancelGenerationJob({ jobId: job.id, userId: USER, db })).toBe(false);
+  });
+});
+
+describe("slot count vs display count", () => {
+  it("a cancelled job keeps its slot but stops being shown as generating", async () => {
+    const running = await seedJob({ generationNumber: 1 });
+    const cancelled = await seedJob({ generationNumber: 2 });
+    await cancelGenerationJob({ jobId: cancelled.id, userId: USER, db });
+
+    // The render is still going, so the slot is still taken — the cap must
+    // see 2 or a third generation would over-subscribe the user.
+    expect(await countRunningJobsForUser(USER, db)).toBe(2);
+    // The header pill must see 1: the user already stopped watching the other.
+    expect(await countActiveGenerationsForUser(USER, db)).toBe(1);
+
+    // And when the only remaining job is cancelled, nothing is shown at all —
+    // the regression this split exists to prevent (a pinned "1 generating"
+    // until the provider call finished).
+    await cancelGenerationJob({ jobId: running.id, userId: USER, db });
+    expect(await countRunningJobsForUser(USER, db)).toBe(2);
+    expect(await countActiveGenerationsForUser(USER, db)).toBe(0);
+  });
+
+  it("neither count includes settled jobs, and both are user-scoped", async () => {
+    const job = await seedJob();
+    await makeUser(db, "user-d");
+    await seedJob({ userId: "user-d", generationNumber: 1 });
+
+    await failGenerationJob({ jobId: job.id, error: "boom", now: NOW, db });
+    expect(await countRunningJobsForUser(USER, db)).toBe(0);
+    expect(await countActiveGenerationsForUser(USER, db)).toBe(0);
+    expect(await countActiveGenerationsForUser("user-d", db)).toBe(1);
   });
 });
 

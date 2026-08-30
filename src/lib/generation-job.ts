@@ -11,7 +11,7 @@
  * 2. The refund credits the day the generation was *started*, read off the
  *    row's `day_key`, not whatever day it is when the failure is noticed.
  */
-import { sql, and, eq, lt, asc, count } from "drizzle-orm";
+import { sql, and, eq, lt, asc, count, isNull } from "drizzle-orm";
 import type { db as appDb } from "./db";
 import { imageGeneration } from "./db/schema";
 import { refundGenerationQuota } from "./generation-quota";
@@ -229,12 +229,49 @@ export async function getRunningJobsForDesign(
     .orderBy(asc(imageGeneration.generationNumber));
 }
 
+/**
+ * SLOT accounting: how many of the user's concurrency slots are occupied.
+ *
+ * Counts cancelled-but-running jobs, and must — cancel does not stop the
+ * render, so the row keeps its slot until the continuation lands. This is the
+ * number the cap is checked against, and the only correct one for that job.
+ *
+ * It is deliberately NOT the number to show anyone: see
+ * countActiveGenerationsForUser. Serving both meanings from one function is
+ * what left "1 generating" pinned in the header after a cancel.
+ */
 export async function countRunningJobsForUser(userId: string, db?: AppDb): Promise<number> {
   const database = await resolveDb(db);
   const [row] = await database
     .select({ n: count() })
     .from(imageGeneration)
     .where(and(eq(imageGeneration.userId, userId), eq(imageGeneration.status, "running")));
+  return row?.n ?? 0;
+}
+
+/**
+ * DISPLAY accounting: how many generations the user should be told are still
+ * working. Excludes cancelled-but-running jobs — the user already said they
+ * stopped watching that one, and showing it as live contradicts the tap.
+ *
+ * The same split getDesignJobs makes between its `running` list (filtered) and
+ * getRunningJobsForDesign (unfiltered), applied user-wide for the header.
+ */
+export async function countActiveGenerationsForUser(
+  userId: string,
+  db?: AppDb
+): Promise<number> {
+  const database = await resolveDb(db);
+  const [row] = await database
+    .select({ n: count() })
+    .from(imageGeneration)
+    .where(
+      and(
+        eq(imageGeneration.userId, userId),
+        eq(imageGeneration.status, "running"),
+        isNull(imageGeneration.cancelledAt)
+      )
+    );
   return row?.n ?? 0;
 }
 
