@@ -266,6 +266,16 @@ shipping. `hasTransparency` in `product-compose.ts` is already a real
 probe (PR #155) under a warn-not-block policy; what this slice changes is
 that the probed value becomes reliably true.
 
+Slice 1 status (2026-08-29): built. `editTransparent` in ideogram.ts
+(anchor uploaded as multipart bytes; transparent_background true;
+magic_prompt OFF); adapter routes anchored turns to it; placement
+re-renders in preview/actions.ts use it directly and are priced as edits;
+`generateAnchoredTransparent`/`generateImage` deleted, `removeBackground`
+kept for ops scripts. Cost is per-operation via `costFor` (0.03 / 0.20 —
+secondhand price, verify against the first bill). Refinement prompts are
+edit instructions now. Not done here: v4 generate swap (slice 2),
+variation classification (slice 2), any UI change.
+
 **Slice 2 — DesignSpec, and the v4 upgrade.** Claude emits a typed spec (subject, style,
 typography, palette, shirtColor, printStyle, background) instead of a
 prompt string; adapters render it per provider. Ideogram's `json_prompt`
