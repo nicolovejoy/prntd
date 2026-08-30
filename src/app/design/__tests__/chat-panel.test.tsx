@@ -27,9 +27,13 @@ const baseProps = {
   images: [],
   loading: false,
   generating: false,
+  runningJobs: [],
+  atCapacity: false,
+  generationError: null,
+  onDismissGenerationError: () => {},
   onSend: () => {},
   onGenerate: () => {},
-  onCancelGenerate: () => {},
+  onCancelJob: () => {},
   readyToGenerate: true,
   options: [],
   onUploadImage: () => {},
@@ -91,33 +95,75 @@ describe("ChatPanel quick-reply placement", () => {
   });
 });
 
+const job = (jobId: string, generationNumber: number) => ({
+  jobId,
+  generationNumber,
+});
+
 describe("ChatPanel generating status", () => {
   it("shows a single static line while generating (Clean Label)", () => {
     render(
-      <ChatPanel {...baseProps} generating messages={[thread[0]]} />
+      <ChatPanel
+        {...baseProps}
+        generating
+        runningJobs={[job("j1", 1)]}
+        messages={[thread[0]]}
+      />
     );
     expect(screen.getByTestId("drawing-status")).toHaveTextContent(
       "Generating…"
     );
   });
 
-  it("offers Cancel while generating and reports the tap (#59)", () => {
-    const onCancelGenerate = vi.fn();
+  it("renders one cancellable row per running job", () => {
+    // Three concurrent generations is the point of the durable job — one
+    // shared status row would make two of them invisible.
     render(
       <ChatPanel
         {...baseProps}
         generating
-        onCancelGenerate={onCancelGenerate}
+        runningJobs={[job("j1", 1), job("j2", 2), job("j3", 3)]}
         messages={[thread[0]]}
       />
     );
-    fireEvent.click(screen.getByTestId("cancel-generation"));
-    expect(onCancelGenerate).toHaveBeenCalledOnce();
+    expect(screen.getAllByTestId("generating-row")).toHaveLength(3);
+  });
+
+  it("cancels the job whose row was tapped (#59, now durable)", () => {
+    const onCancelJob = vi.fn();
+    render(
+      <ChatPanel
+        {...baseProps}
+        generating
+        runningJobs={[job("j1", 1), job("j2", 2)]}
+        onCancelJob={onCancelJob}
+        messages={[thread[0]]}
+      />
+    );
+    fireEvent.click(screen.getAllByTestId("cancel-generation")[1]);
+    expect(onCancelJob).toHaveBeenCalledWith("j2");
   });
 
   it("shows no Cancel when nothing is generating", () => {
     render(<ChatPanel {...baseProps} messages={thread} />);
     expect(screen.queryByTestId("cancel-generation")).toBeNull();
+  });
+
+  it("surfaces a background failure inline and can dismiss it", () => {
+    const onDismissGenerationError = vi.fn();
+    render(
+      <ChatPanel
+        {...baseProps}
+        generationError="Generation timed out"
+        onDismissGenerationError={onDismissGenerationError}
+        messages={thread}
+      />
+    );
+    expect(screen.getByTestId("generation-error")).toHaveTextContent(
+      "Generation timed out"
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(onDismissGenerationError).toHaveBeenCalledOnce();
   });
 });
 
@@ -136,24 +182,68 @@ describe("ChatPanel composer during generation (#59)", () => {
     expect(onSend).toHaveBeenCalledWith("make the frog green");
   });
 
-  it("disables Generate and shows the in-flight label while generating", () => {
-    render(<ChatPanel {...baseProps} generating messages={thread} />);
-    // Button label + the chat status row both read "Generating…".
+  it("keeps Generate live while one generation runs — the cap is the only refusal", () => {
+    render(
+      <ChatPanel
+        {...baseProps}
+        generating
+        runningJobs={[job("j1", 1)]}
+        messages={thread}
+      />
+    );
+    const generateBtn = screen
+      .getAllByRole("button", { name: "Generating…" })
+      .find((el) => el.tagName === "BUTTON");
+    expect(generateBtn).not.toBeDisabled();
+  });
+
+  it("disables Generate at the concurrency cap", () => {
+    render(
+      <ChatPanel
+        {...baseProps}
+        generating
+        atCapacity
+        runningJobs={[job("j1", 1), job("j2", 2), job("j3", 3)]}
+        messages={thread}
+      />
+    );
     const generateBtn = screen
       .getAllByRole("button", { name: "Generating…" })
       .find((el) => el.tagName === "BUTTON");
     expect(generateBtn).toBeDisabled();
   });
 
-  it("routes generate-trigger text to chat while a generation runs", () => {
-    // One generation at a time: "make it blue" typed mid-generation becomes a
-    // chat turn instead of a refused second generation.
+  it("routes generate-trigger text to a new generation while one runs", () => {
     const onSend = vi.fn();
     const onGenerate = vi.fn();
     render(
       <ChatPanel
         {...baseProps}
         generating
+        runningJobs={[job("j1", 1)]}
+        onSend={onSend}
+        onGenerate={onGenerate}
+        messages={thread}
+      />
+    );
+    const input = screen.getByPlaceholderText(
+      "Describe a design or drop an image"
+    );
+    fireEvent.change(input, { target: { value: "make it blue" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(onGenerate).toHaveBeenCalledWith("make it blue");
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("routes generate-trigger text to chat at the cap", () => {
+    const onSend = vi.fn();
+    const onGenerate = vi.fn();
+    render(
+      <ChatPanel
+        {...baseProps}
+        generating
+        atCapacity
+        runningJobs={[job("j1", 1), job("j2", 2), job("j3", 3)]}
         onSend={onSend}
         onGenerate={onGenerate}
         messages={thread}

@@ -114,10 +114,13 @@ vi.mock("@/lib/generators/registry", () => {
   };
 });
 
-const { generateDesign } = await import("@/app/design/actions");
+const { generateDesign, cancelGeneration, getDesignJobs } = await import(
+  "@/app/design/actions"
+);
 const { cancelGenerationJob, sweepStaleJobs, STALE_JOB_MS, GENERATION_CONCURRENCY_CAP } =
   await import("@/lib/generation-job");
 const ai = await import("@/lib/ai");
+const { auth: authMock } = await import("@/lib/auth");
 const r2 = await import("@/lib/r2");
 const registry = await import("@/lib/generators/registry");
 
@@ -509,6 +512,64 @@ describe("refund ownership across the job-row boundary", () => {
 
     expect(await jobs(designId)).toHaveLength(0);
     expect(await userQuotaCount()).toBe(0);
+  });
+});
+
+describe("cancelGeneration + getDesignJobs (the UI's read/write surface)", () => {
+  it("cancels the caller's own running job", async () => {
+    const designId = await seedDesign(0);
+    const res = expectQueued(await generateDesign(designId, "one"));
+
+    expect(await cancelGeneration(res.jobId)).toBe(true);
+
+    const [job] = await jobs(designId);
+    expect(job.cancelledAt).not.toBeNull();
+    // Cancel does not stop the render: the status stays running until the
+    // continuation lands, which is what still holds the concurrency slot.
+    expect(job.status).toBe("running");
+  });
+
+  it("refuses to cancel another user's job", async () => {
+    const designId = await seedDesign(0);
+    const res = expectQueued(await generateDesign(designId, "one"));
+
+    (authMock.api.getSession as Mock).mockResolvedValueOnce({
+      user: { id: "someone-else", isAnonymous: false },
+    });
+    expect(await cancelGeneration(res.jobId)).toBe(false);
+
+    const [job] = await jobs(designId);
+    expect(job.cancelledAt).toBeNull();
+  });
+
+  it("reports a running job, then its settled outcome once tracked", async () => {
+    const designId = await seedDesign(0);
+    const res = expectQueued(await generateDesign(designId, "one"));
+
+    const live = await getDesignJobs(designId, [res.jobId]);
+    expect(live.running.map((j) => j.jobId)).toEqual([res.jobId]);
+    expect(live.settled).toEqual([]);
+
+    await drainAfter();
+
+    const done = await getDesignJobs(designId, [res.jobId]);
+    expect(done.running).toEqual([]);
+    // The settled report is what makes the assistant turn and the image
+    // appear without a reload — the poller refreshes the whole thread on it.
+    expect(done.settled).toEqual([
+      { jobId: res.jobId, status: "succeeded", imageId: res.imageId, error: null },
+    ]);
+  });
+
+  it("keeps a cancelled-but-running job out of `running`", async () => {
+    const designId = await seedDesign(0);
+    const res = expectQueued(await generateDesign(designId, "one"));
+    await cancelGeneration(res.jobId);
+
+    // Not a live spinner, and not settled either — the render is still going.
+    const state = await getDesignJobs(designId, [res.jobId]);
+    expect(state.running).toEqual([]);
+    expect(state.settled).toEqual([]);
   });
 });
 

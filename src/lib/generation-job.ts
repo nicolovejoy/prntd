@@ -179,7 +179,8 @@ export function succeedJobStatement(db: AppDb, jobId: string, now: Date) {
  * the provider call is still in flight and will still land, and keeping the
  * status untouched means every transition predicate in this file stays
  * `status = 'running'`. Consumers treat a cancelled job as "may append its
- * image, may never clobber newer state" (src/lib/turn-tracker.ts).
+ * image, may never clobber newer state" — enforced by the guarded
+ * primary-image claim in runGenerationJob, not by any client-side state.
  *
  * No refund: the render runs and is billed regardless.
  */

@@ -16,6 +16,7 @@ import {
   countRunningJobsForUser,
   getRunningJobsForDesign,
   sweepStaleJobs,
+  cancelGenerationJob,
   GENERATION_CONCURRENCY_CAP,
   STALE_JOB_MS,
 } from "@/lib/generation-job";
@@ -851,6 +852,25 @@ export async function getDesignJobs(
   }
 
   return { running, settled };
+}
+
+/**
+ * Client-initiated cancel of one running generation (#59, now durable).
+ *
+ * Owner-gated in the lifecycle layer by matching `user_id`, so a forged job id
+ * from another thread affects zero rows. Cancelling does NOT stop the provider
+ * call — the render was paid for and will finish; it only clears the job's
+ * claim on the design's primary image (see runGenerationJob's guarded update).
+ * Unlike the old client-only ref this crosses tabs: the row is the state.
+ *
+ * Returns whether a row was actually cancelled; a false is not an error (the
+ * job may have settled between the tap and the call), so the UI drops the row
+ * either way.
+ */
+export async function cancelGeneration(jobId: string): Promise<boolean> {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) throw new Error("Unauthorized");
+  return cancelGenerationJob({ jobId, userId: session.user.id, db });
 }
 
 async function requireOwnedDesign(designId: string) {

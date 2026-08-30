@@ -48,9 +48,13 @@ export function ChatPanel({
   images,
   loading,
   generating,
+  runningJobs,
+  atCapacity,
+  generationError,
+  onDismissGenerationError,
   onSend,
   onGenerate,
-  onCancelGenerate,
+  onCancelJob,
   readyToGenerate,
   options,
   onUploadImage,
@@ -63,10 +67,18 @@ export function ChatPanel({
   messages: ChatMessage[];
   images: DesignImage[];
   loading: boolean;
+  /** True while anything is generating — drives the composer's busy copy. */
   generating: boolean;
+  /** One row per live generation; several can run at once now. */
+  runningJobs: { jobId: string; generationNumber: number }[];
+  /** At the concurrency cap — the only reason Generate is refused. */
+  atCapacity: boolean;
+  /** Last failed generation, surfaced inline rather than as a chat turn. */
+  generationError: string | null;
+  onDismissGenerationError: () => void;
   onSend: (message: string) => void;
   onGenerate: (message?: string) => void;
-  onCancelGenerate: () => void;
+  onCancelJob: (jobId: string) => void;
   readyToGenerate: boolean;
   options: ChatOption[];
   onUploadImage: (base64: string, fileName: string) => void;
@@ -145,7 +157,9 @@ export function ChatPanel({
     const msg = text.trim();
     if (!msg || loading) return;
     setInput("");
-    if (!generating && isGenerateIntent(msg) && messages.length > 0) {
+    // Routes to Generate unless the cap is reached — with three slots, a
+    // running generation is no longer a reason to demote this to chat.
+    if (!atCapacity && isGenerateIntent(msg) && messages.length > 0) {
       onGenerate(msg);
       return;
     }
@@ -158,7 +172,7 @@ export function ChatPanel({
   }
 
   function handleGenerate() {
-    if (generating) return;
+    if (atCapacity) return;
     const msg = input.trim() || undefined;
     if (msg) setInput("");
     onGenerate(msg);
@@ -309,18 +323,40 @@ export function ChatPanel({
             </div>
           </div>
         )}
-        {generating && (
-          <div className="flex justify-start items-center gap-2">
+        {runningJobs.map((job) => (
+          <div
+            key={job.jobId}
+            className="flex justify-start items-center gap-2"
+            data-testid="generating-row"
+          >
             <DrawingStatus />
             <Button
               type="button"
               variant="secondary"
               className="min-h-[44px]"
-              onClick={onCancelGenerate}
+              onClick={() => onCancelJob(job.jobId)}
               data-testid="cancel-generation"
             >
               Cancel
             </Button>
+          </div>
+        ))}
+        {/* A generation that failed in the background: the job row carries the
+            reason, so it is reported here rather than faked as a chat turn. */}
+        {generationError && (
+          <div
+            className="flex justify-start items-center gap-2 text-sm text-negative"
+            data-testid="generation-error"
+          >
+            <span>{generationError}</span>
+            <button
+              type="button"
+              onClick={onDismissGenerationError}
+              className="text-text-muted hover:text-foreground"
+              aria-label="Dismiss"
+            >
+              ✕
+            </button>
           </div>
         )}
         <div ref={messagesEndRef} />
@@ -399,9 +435,15 @@ export function ChatPanel({
             className="min-h-[44px] flex-1"
             onClick={handleGenerate}
             disabled={
-              loading || generating || (messages.length === 0 && !input.trim())
+              loading || atCapacity || (messages.length === 0 && !input.trim())
             }
-            title={readyToGenerate ? undefined : notReadyTitle}
+            title={
+              atCapacity
+                ? "Three designs are already generating."
+                : readyToGenerate
+                  ? undefined
+                  : notReadyTitle
+            }
           >
             {generating ? "Generating…" : "Generate"}
           </Button>

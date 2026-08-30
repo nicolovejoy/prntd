@@ -68,13 +68,27 @@ export function readThreadSnapshot(
 }
 
 /**
- * Mirror the page's rendered thread state (revisit path). Callers only write
- * state that already passed the turn-tracker guards, so a cancelled or stale
- * generation can never plant a snapshot newer state didn't render.
+ * Mirror the page's rendered thread state (revisit path).
+ *
+ * Callers must not write while a generation job is running for the design:
+ * the thread is mid-change, and a snapshot taken then would replay "no image
+ * yet" on the next visit even though the image has since landed — the worst
+ * outcome the leave-and-return journey can produce. The /design page gates
+ * this effect on its running-job count and calls dropThreadSnapshot the
+ * moment a job settles.
  */
 export function writeThreadSnapshot(
   designId: string,
   snapshot: DesignThreadSnapshot
 ): void {
   cache.set(designId, snapshot);
+}
+
+/**
+ * Forget a design's snapshot. Called when a generation job settles: whatever
+ * is cached predates the new image, and a miss (re-read from the server) is
+ * always safe where a stale hit is not.
+ */
+export function dropThreadSnapshot(designId: string): void {
+  cache.delete(designId);
 }
