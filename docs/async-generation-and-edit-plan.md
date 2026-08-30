@@ -371,7 +371,37 @@ provider webhooks.
 - `src/lib/product-compose.ts` — `hasTransparency` probe value becomes reliable
 - `src/app/design/__tests__/generation-races.integration.test.ts` — rewrite in slice 3
 
+## Live smoke result (2026-08-29)
+
+Slices 1 and 2 verified against prod after Nico's smoke, by reading the prod
+DB and fetching the resulting R2 objects:
+
+- **Zero server errors.** `app_error` holds exactly one row, from
+  2026-07-29 (the long-known expected "Unauthorized" guard throw). Nico's
+  reported "some errors, but they self healed" produced nothing that
+  reached `instrumentation.ts`'s `onRequestError` — so they were
+  client-side or transient, not v4/edit wire failures.
+- **Cost accounting is correct per operation.** Four images from the smoke:
+  two at $0.03 with `parent_image_id` null (v4 generate-transparent), two
+  at $0.20 with a parent set (`/v1/edit`). `costFor()` is routing right.
+- **Prompt shapes are as designed.** Generates store a scene summary
+  ("A bear sitting against a tree, reading a book whose cover reads …");
+  edits store the instruction ("Make the tree significantly larger …").
+- **Alpha is preserved on both paths — #153's mechanism is gone.** All
+  four are 1024x1024, 8-bit, PNG colour type 6 (RGBA), with real
+  transparency: 62-98% fully-transparent pixels. The edits are the load
+  bearing case, and they keep alpha.
+- **v4 TURBO default resolution is 1024x1024**, unchanged from v3.
+
+`/v1/edit` and v4 `json_prompt` are both confirmed on real traffic. Slice 3
+may proceed.
+
 ## Open questions (gate the async slice only)
+
+ANSWERED 2026-08-29 (Nico): go with all four recommendations — separate
+conversations, passive notification (badge/spinner + focus refetch, no
+toast/push/email), concurrency cap 3 in flight per user, ship on TURBO with
+no exposed quality tier. Slice 3 is unblocked.
 
 1. **Is "three or four ideas" three or four separate conversations, or
    variants inside one thread?** Separate threads puts the in-flight
