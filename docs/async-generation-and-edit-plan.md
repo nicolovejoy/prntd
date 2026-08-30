@@ -314,6 +314,148 @@ deciding whether a settling server action may touch composer state, and
 there is no settling action any more; cancel becomes a job-status concept
 (decide: does a cancelled job's image still get written? today yes).
 
+Slice 3 status (2026-08-29): built, 7 tasks. Migration `0011_workable_cobalt_man.sql`
+adds `image_generation` only (two indexes, `image_generation_user_status` and
+`image_generation_design_status`) — nothing else touches an existing table. NOT
+yet applied to prod or `prntd-preview`; deployment steps are written up
+separately for Nico to run (see the worktree's `deployment.md`, not committed —
+that directory is gitignored).
+
+`generateDesign` now inserts a job row (`status='running'`, day-key + ip +
+anchor image id per the hardening contract) and returns one of five kinds —
+`clarify` / `limit` / `at_capacity` / `queued` / (unchanged) `clarify`-from-brief
+— then hands the provider call, R2 upload, and completion batch to an `after()`
+continuation (`runGenerationJob`). The completion batch is one `db.batch`: image
+row, `conversation_image` link, assistant chat message, an unconditional cost
+update, a *separate* conditional primary-image claim (only claims primary if no
+newer succeeded job exists and the job was not cancelled), and the job's
+`succeedJobStatement`. On any continuation failure: best-effort R2 delete, then
+`failGenerationJob`, which owns the refund and never rethrows into the
+(already-returned) request. `src/app/design/page.tsx` sets
+`export const maxDuration = 300`, since a server action runs inside its
+rendering route's segment config, not its own.
+
+Concurrency cap is 3 running jobs per user (Nico's answer to open question 3).
+Enforced twice: an advisory `countRunningJobsForUser` check before the user's
+chat turn is persisted (so the common refusal — like the quota-denied path —
+leaves no trace at all), and an authoritative guarded
+`INSERT ... SELECT ... WHERE (SELECT count(*) ...) < cap` at the actual insert,
+for the rare two-tab race that gets past the advisory check after the user turn
+is already written (that path does persist an assistant reply, because there
+the user's message really is in the thread). The guarded insert exists because
+libSQL over serverless HTTP has no interactive transaction — count-then-insert
+would have been racy.
+
+Cancel is `cancelled_at`, not a status — every transition predicate everywhere
+stays `status='running'`, so cancel needed no new state machine. **Answering
+slice 3's own open question: yes, a cancelled job's image still gets written**
+if the render finishes — cancel means "stop watching," not "kill the render,"
+and there is no server-side mechanism to abort an in-flight Ideogram call. The
+cancelled job also keeps holding its concurrency slot for the render's real
+duration, not released early, because the completion batch runs unconditionally
+on cancellation. A cancelled job that goes stale (still `running` past
+`STALE_JOB_MS`, 5 minutes) is refunded by the same path as any other stale job —
+deliberately not filtered out, because a cancelled-and-then-genuinely-dead job
+bought nothing regardless of whether the user was still watching. That does
+open a real farming path (cancel-then-wait past 5 minutes nets a refund on a
+render that may still complete) — accepted for now, fixable later by adding a
+`cancelled_at is null` filter if it's ever exploited, at the cost of no longer
+refunding a cancelled-and-dead job.
+
+Staleness is swept two ways, both landing on the same `failGenerationJob`
+(idempotent — a re-sweep of an already-non-running row reports zero): lazily,
+scoped to what's being read (`{scope:"design"}` on thread load, `{scope:"user"}`
+on the header and the `/designs` list — never a wider scope than the read
+needs), and by a new cron, `/api/cron/sweep-generations` (8:30 UTC, offset from
+the existing 8:00 retry-fulfillment cron; same `Bearer ${CRON_SECRET}` gate,
+same secret, already set in Vercel Production per issue #39 — confirmed by
+reading, not by changing anything). The cron additionally reclaims the R2
+object of every job it sweeps (`deleteImageObject`, best-effort), which the
+lazy sweep does not — the lazy path runs on a read and has no business doing
+storage cleanup synchronously. Capped at 100 jobs/run, justified against the
+route's 60s `maxDuration` in its docblock but not measured; a wrong per-job
+time estimate could time the route out mid-loop with no chunking guard
+(deferred).
+
+The UI: `src/lib/generation-poll.ts` is a small pure module (`nextPollDelayMs`
+— 2s inside the first 30s, 5s after; `shouldPoll`; `isAtGenerationCap`;
+`GENERATION_CAP` re-declared rather than imported, since the server module
+pulls in drizzle and has no business in the client bundle — a test pins the two
+constants against each other). `design-client.tsx` runs a self-scheduling poll
+loop (stops entirely once nothing is running and nothing settled-but-unapplied)
+plus `visibilitychange`/`focus` refetch and a mount poll on `?id=` threads,
+covering: a job started in another tab, a job that settled while backgrounded,
+and jobs already running before a reload. `turn-tracker.ts` and its test were
+deleted, as the slice description predicted, with a per-call-site
+justification for each of its five uses (`.superpowers/sdd/2026-08-29-durable-generation-job/task-5-report.md`
+has the full breakdown) — its whole job was deciding whether a settling server
+action could still touch composer state, and there is no settling action left:
+generation settles through a job row and the poller now, and the one guard
+that still mattered (a background render's write racing a newer one) moved to
+the completion batch's conditional primary-image claim. A "N generating" pill
+lives in the top bar itself (every viewport, not tucked in the mobile dropdown)
+since a phone user who leaves `/design` mid-generation needs to see it without
+opening a menu.
+
+One regression the slice had to actively avoid: the settle path reads the
+whole thread (`getDesignThread`, chat + gallery), not just the gallery, because
+the assistant turn for a generation is written by the background continuation,
+not by the request that returns first — a gallery-only refresh would leave chat
+one turn short until reload. That in turn creates a second race the UI guards
+against: a whole-thread read taken while a chat turn is mid-flight would render
+the user's own words back *out* of the thread (`sendChatMessage` persists its
+rows only on return), so a settled outcome discovered while `loading` is true
+is deferred rather than applied, and re-checked on the next tick.
+
+`generation-races.integration.test.ts` was rewritten, as the slice description
+predicted, using a `next/server` mock that collects `after()` callbacks instead
+of swallowing them, plus a `drainOne(index)` helper so completion order can be
+inverted against submit order — the thing this slice makes possible (a later
+generation can now finish before an earlier one).
+
+Judgment calls (from the SDD ledger, `.superpowers/sdd/2026-08-29-durable-generation-job/progress.md`):
+- `getDesignJobs` takes the client's already-tracked job ids explicitly rather
+  than the server inferring "settled since I last looked" — no per-client
+  server-side cursor subsystem for a marginal chattiness saving.
+- `sweepStaleJobs`'s scope is a discriminated union (`{scope:"design"|"user"}`
+  vs. explicit `{scope:"all"}`) specifically so a bare `{}` can never
+  accidentally sweep every user's jobs from a lazy call site — that shape
+  literally would have type-checked otherwise.
+- Task 3 shipped its own crude fixed-delay client refresh to pass its own
+  typecheck gate, replaced wholesale by Task 5's real polling — accepted
+  throwaway code rather than merging the server rewrite and the whole UI into
+  one unreviewable task.
+- `deleteDesign` needed a fourth table added to its delete batch
+  (`image_generation`, FK'd to `design.id`) — found while checking the
+  migration, not by task review, because the gap was outside the task's own
+  diff. This is #124's shape again (a table added after the delete guard was
+  written); folded into Task 3 with a required case in the existing
+  delete-design integration suite rather than filed as a followup.
+- Failure/refund is one function (`failGenerationJob`) on purpose: it reads
+  `userId`/`ip`/`dayKey` off the row the conditional `UPDATE ... WHERE
+  status='running'` actually returned, not off caller-supplied parameters, so
+  a sweeper and a live failure racing the same job cannot double-refund or
+  refund the wrong day's bucket. There is deliberately no exported
+  "just transition the status" variant.
+- `refundGenerationQuota` gained an optional `day` parameter (precedence over
+  `now`) so a caller holding the job's stored `dayKey` string doesn't have to
+  round-trip it through a synthesized `Date` to land the refund in the same
+  UTC bucket it was spent from.
+
+Deferred (named in the ledger, not done here): a cancel-then-wait-past-stale
+free-quota path (above); the at-capacity assistant message is client-optimistic
+and vanishes on reload; no per-job row during the pending window (a few
+seconds where only the button label reflects the new job); the header
+generating-pill only refetches on pathname/session change, so it can read
+stale while parked on `/designs`; `classifyGenerationFailure` matches the
+sweeper's timeout string by equality, so a reword of that string silently
+downgrades a timeout to the generic failure line (a test pins current
+behavior so this fails loudly, not silently, if it happens); the cron's R2
+reclaim recomputes `images/{imageId}.png` from the image id rather than using
+the job's stored `r2Key` — would be silently wrong if the key scheme ever
+diverges; `vercel.json` is now at Vercel Hobby's 2-cron limit, so a third
+backstop needs consolidation or a plan upgrade first.
+
 **Slice 4 — eval harness, scoped as regression safety.** We currently
 cannot tell whether a prompt change made output better or worse; #137's
 fix is pinned to one verbatim repro string, which is a unit test, not
@@ -371,7 +513,37 @@ provider webhooks.
 - `src/lib/product-compose.ts` — `hasTransparency` probe value becomes reliable
 - `src/app/design/__tests__/generation-races.integration.test.ts` — rewrite in slice 3
 
+## Live smoke result (2026-08-29)
+
+Slices 1 and 2 verified against prod after Nico's smoke, by reading the prod
+DB and fetching the resulting R2 objects:
+
+- **Zero server errors.** `app_error` holds exactly one row, from
+  2026-07-29 (the long-known expected "Unauthorized" guard throw). Nico's
+  reported "some errors, but they self healed" produced nothing that
+  reached `instrumentation.ts`'s `onRequestError` — so they were
+  client-side or transient, not v4/edit wire failures.
+- **Cost accounting is correct per operation.** Four images from the smoke:
+  two at $0.03 with `parent_image_id` null (v4 generate-transparent), two
+  at $0.20 with a parent set (`/v1/edit`). `costFor()` is routing right.
+- **Prompt shapes are as designed.** Generates store a scene summary
+  ("A bear sitting against a tree, reading a book whose cover reads …");
+  edits store the instruction ("Make the tree significantly larger …").
+- **Alpha is preserved on both paths — #153's mechanism is gone.** All
+  four are 1024x1024, 8-bit, PNG colour type 6 (RGBA), with real
+  transparency: 62-98% fully-transparent pixels. The edits are the load
+  bearing case, and they keep alpha.
+- **v4 TURBO default resolution is 1024x1024**, unchanged from v3.
+
+`/v1/edit` and v4 `json_prompt` are both confirmed on real traffic. Slice 3
+may proceed.
+
 ## Open questions (gate the async slice only)
+
+ANSWERED 2026-08-29 (Nico): go with all four recommendations — separate
+conversations, passive notification (badge/spinner + focus refetch, no
+toast/push/email), concurrency cap 3 in flight per user, ship on TURBO with
+no exposed quality tier. Slice 3 is unblocked.
 
 1. **Is "three or four ideas" three or four separate conversations, or
    variants inside one thread?** Separate threads puts the in-flight

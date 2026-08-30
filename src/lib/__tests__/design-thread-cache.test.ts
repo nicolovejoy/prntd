@@ -5,7 +5,10 @@
  * matches the live refresh path.
  */
 import { describe, it, expect } from "vitest";
-import { threadToSnapshot } from "@/lib/design-thread-cache";
+import {
+  threadToSnapshot,
+  canWriteThreadSnapshot,
+} from "@/lib/design-thread-cache";
 import type { DesignThreadData } from "@/lib/design-thread";
 import type { ChatMessage } from "@/lib/db/schema";
 import type { SourceImage } from "@/lib/design-images";
@@ -74,5 +77,36 @@ describe("threadToSnapshot", () => {
       productGroups: [],
     };
     expect(threadToSnapshot(thread).closed).toBe(true);
+  });
+});
+
+describe("canWriteThreadSnapshot", () => {
+  const settled = {
+    resumeId: "d1",
+    designExists: true,
+    jobsActive: false,
+    generating: false,
+  };
+
+  it("writes a settled thread", () => {
+    expect(canWriteThreadSnapshot(settled)).toBe(true);
+  });
+
+  it("refuses while a job is running or its outcome is unapplied", () => {
+    // The single most confusing outcome this slice can produce is a cached
+    // "no image yet" replayed after the image landed. jobsActive stays true
+    // across the whole settle, not just while the render runs.
+    expect(canWriteThreadSnapshot({ ...settled, jobsActive: true })).toBe(false);
+  });
+
+  it("refuses in the window before a job row exists", () => {
+    // generateDesign has been called but has not returned, so there is nothing
+    // for jobsActive to be true about yet.
+    expect(canWriteThreadSnapshot({ ...settled, generating: true })).toBe(false);
+  });
+
+  it("refuses a thread with no id or no server row to cache", () => {
+    expect(canWriteThreadSnapshot({ ...settled, resumeId: null })).toBe(false);
+    expect(canWriteThreadSnapshot({ ...settled, designExists: false })).toBe(false);
   });
 });

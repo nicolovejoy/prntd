@@ -14,6 +14,7 @@ import {
   conversationImage as conversationImageTable,
   placementRender as placementRenderTable,
   listing as listingTable,
+  imageGeneration as imageGenerationTable,
 } from "@/lib/db/schema";
 import { eq, and, ne, count, inArray, or, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
@@ -35,7 +36,7 @@ import { DEFAULT_PUBLISH_BACKGROUND } from "@/lib/blanks";
  * outcome satisfies that.
  *
  * Clears every child that foreign-keys design.id — chat_message,
- * conversation_image, placement_render, cart_item — before the design row
+ * conversation_image, placement_render, cart_item, image_generation — before the design row
  * itself. All reference design.id with no ON DELETE cascade, so skipping any
  * of them makes the parent delete fail the FK constraint (this is why
  * deleting a chatted-in draft used to error out).
@@ -210,6 +211,17 @@ export async function deleteDesign(
     // Cart lines FK design_id too; a deleted design can't be fulfilled, so
     // drop them (any user's cart — the line is dead either way).
     db.delete(cartItemTable).where(eq(cartItemTable.designId, designId)),
+    // Generation job rows FK design_id as well (#124's class again: a table
+    // added later that the delete batch doesn't know about takes the whole
+    // delete down on the constraint). A RUNNING job goes too, and what happens
+    // to its in-flight continuation is: the completion batch's image /
+    // conversation_image / chat_message inserts are unconditional and die on
+    // the FK, the continuation catches that and cleans up the R2 object, then
+    // failGenerationJob finds no row — so the quota unit is silently lost.
+    // Acceptable: the user deleted the thread the render was for.
+    db
+      .delete(imageGenerationTable)
+      .where(eq(imageGenerationTable.designId, designId)),
     ...(removableImageIds.length
       ? [
           db.delete(imageTable).where(inArray(imageTable.id, removableImageIds)),

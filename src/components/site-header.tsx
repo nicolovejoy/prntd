@@ -34,15 +34,22 @@ export function SiteHeader({
   // Admin nav entry — session/DB-dependent (email vs ADMIN_EMAIL), batched
   // into the same round trip as cart count instead of its own call (#127).
   const [isAdmin, setIsAdmin] = useState(false);
+
+  // Generations running for this user anywhere — the durable job outlives the
+  // tab that started it, so the header is where you find out one is still
+  // going after navigating away from /design.
+  const [runningJobs, setRunningJobs] = useState(0);
   useEffect(() => {
     getHeaderState(showCart)
-      .then(({ isAdmin, cartCount }) => {
+      .then(({ isAdmin, cartCount, runningJobs }) => {
         setIsAdmin(isAdmin);
         setCartCount(cartCount);
+        setRunningJobs(runningJobs);
       })
       .catch(() => {
         setIsAdmin(false);
         setCartCount(0);
+        setRunningJobs(0);
       });
   }, [pathname, session?.user?.id, showCart]);
 
@@ -111,6 +118,21 @@ export function SiteHeader({
         <Link href="/" className="font-bold tracking-tight">
           PRNTD
         </Link>
+
+        {/* Always in the bar itself, not inside the mobile dropdown: a phone
+            user who left /design mid-generation has to see it without opening
+            a menu. Links to My Designs, where the thread is one tap away. */}
+        {runningJobs > 0 && (
+          <Link
+            href="/designs"
+            className="ml-3 mr-auto rounded-full border border-border px-2 py-0.5 text-xs text-text-muted hover:text-foreground transition-colors"
+            data-testid="running-jobs-badge"
+          >
+            {runningJobs === 1
+              ? "1 generating"
+              : `${runningJobs} generating`}
+          </Link>
+        )}
 
         {/* Desktop nav */}
         <div className="hidden sm:flex items-center gap-4">

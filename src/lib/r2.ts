@@ -122,6 +122,15 @@ export async function deleteImageObject(imageId: string): Promise<void> {
   );
 }
 
+/**
+ * Delete one object by its exact key. Used where the caller already stored the
+ * key it wrote (the generation job row's `r2_key`) and must not re-derive it —
+ * a re-derivation is a second copy of the naming rule, and the two can drift.
+ */
+export async function deleteObjectByKey(key: string): Promise<void> {
+  await r2.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+}
+
 /** Fetch an id-keyed image object's bytes, or null when absent. */
 export async function getImageObject(imageId: string): Promise<Buffer | null> {
   try {

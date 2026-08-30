@@ -67,6 +67,24 @@ describe("reparentUserData", () => {
         sourceDesignId: design.id,
       })
       .returning();
+    // A guest's generation job row: FK to user.id, and it outlives the render
+    // (only deleteDesign removes it), so leaving it behind makes the anonymous
+    // plugin's delete of the anon user fail.
+    const [job] = await db
+      .insert(schema.imageGeneration)
+      .values({
+        designId: design.id,
+        userId: "anon-1",
+        status: "running",
+        operation: "generate",
+        imageId: image.id,
+        r2Key: `images/${image.id}.png`,
+        generationNumber: 1,
+        dayKey: "2026-08-29",
+        cost: 0.03,
+        startedAt: new Date(),
+      })
+      .returning();
 
     await reparentUserData(db, "anon-1", "real-1");
 
@@ -94,6 +112,21 @@ describe("reparentUserData", () => {
       (await db.query.image.findFirst({ where: eq(schema.image.id, image.id) }))
         ?.ownerId
     ).toBe("real-1");
+
+    expect(
+      (
+        await db.query.imageGeneration.findFirst({
+          where: eq(schema.imageGeneration.id, job.id),
+        })
+      )?.userId
+    ).toBe("real-1");
+
+    // The claim's whole point: the anonymous plugin deletes the anon user
+    // immediately after this, and any surviving FK reference throws there.
+    await db.delete(schema.user).where(eq(schema.user.id, "anon-1"));
+    expect(
+      await db.query.user.findMany({ where: eq(schema.user.id, "anon-1") })
+    ).toHaveLength(0);
 
     // Nothing still points at the anon user.
     expect(

@@ -15,6 +15,9 @@ import {
   selectImage,
   deleteDesignImage,
   getDesignGallery,
+  getDesignThread,
+  getDesignJobs,
+  cancelGeneration,
   uploadReferenceImage,
   closeConversation,
   reopenConversation,
@@ -34,13 +37,47 @@ import { MobileGalleryStrip } from "./mobile-gallery-strip";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
 import { isDesignEmpty, sourcesToGalleryImages } from "@/lib/design-view";
-import { createTurnTracker } from "@/lib/turn-tracker";
 import { ensureGuestSession } from "@/lib/ensure-guest-session";
 import {
   readThreadSnapshot,
   writeThreadSnapshot,
+  dropThreadSnapshot,
+  canWriteThreadSnapshot,
   threadToSnapshot,
 } from "@/lib/design-thread-cache";
+import {
+  nextPollDelayMs,
+  shouldPoll,
+  isAtGenerationCap,
+  reduceJobPoll,
+  isPollHalted,
+  mergeJobPollState,
+  type RunningJob,
+} from "@/lib/generation-poll";
+
+/**
+ * Job state for this thread.
+ *
+ * `tracked` outlives `running` on purpose: a job settles by dropping out of
+ * the running list, and its outcome — the image, the assistant turn, an
+ * error — is only readable on the poll that notices. Untracking happens after
+ * that outcome has been applied, which is also what keeps the poll loop alive
+ * for one more tick.
+ */
+type JobState = { running: RunningJob[]; tracked: string[] };
+
+/**
+ * A failed poll is a non-event: the next tick retries, and the job rows are
+ * the truth either way. Swallowing here keeps a transient network blip from
+ * showing the user a generation error that never happened.
+ */
+async function readJobs(designId: string, tracked: string[]) {
+  try {
+    return await getDesignJobs(designId, tracked);
+  } catch {
+    return null;
+  }
+}
 
 interface Props {
   /**
@@ -97,7 +134,6 @@ function DesignPageInner({ initialThreadPromise }: Props) {
     initial?.displayImageUrl ?? null
   );
   const [loading, setLoading] = useState(false);
-  const [generating, setGenerating] = useState(false);
   // Closed conversation (slice 3): read-only thread. Loaded with the design
   // row; the server actions are the backstop, this drives the UI swap.
   const [closed, setClosed] = useState(initial?.closed ?? false);
@@ -114,20 +150,205 @@ function DesignPageInner({ initialThreadPromise }: Props) {
   // Tappable quick-replies attached to the most recent assistant turn. Cleared
   // at the start of every new turn so chips never outlive the question.
   const [options, setOptions] = useState<ChatOption[]>([]);
-  // #59: chat and generation turns register here. A settling action applies
-  // its full effects (options/readiness/selection) only while it is still the
-  // latest, un-cancelled turn — a cancelled generation's late completion may
-  // append its image, never clobber newer state.
-  const turns = useRef(createTurnTracker());
-  // Token of the in-flight generation (one at a time; handleGenerate refuses
-  // re-entry). Null once it settles or the user cancels.
-  const activeGeneration = useRef<number | null>(null);
+  // Durable generation: the job rows are the state, so several can run at
+  // once and they survive this tab. Seeded empty even on a resume — the first
+  // poll (fired on mount below) reports anything already running, including
+  // jobs started in another tab or before a reload.
+  const [jobs, setJobs] = useState<JobState>({ running: [], tracked: [] });
+  // `generateDesign` calls that have not returned yet: no job row exists for
+  // them, so the cap check has to count them separately or a triple-tap
+  // outruns the server.
+  const [pending, setPending] = useState(0);
+  // Bumped after every poll to re-arm the timer effect (see below).
+  const [pollNonce, setPollNonce] = useState(0);
+  // Failed polls in a row. Past the budget the loop goes dormant rather than
+  // retrying forever — an abandoned tab whose design was deleted underneath it
+  // would otherwise issue a request every five seconds indefinitely, which on
+  // a phone is pure battery and data drain. A wake event resets it.
+  const [pollErrors, setPollErrors] = useState(0);
+  // Last failed generation, shown inline. Cleared when a new one starts.
+  const [genError, setGenError] = useState<string | null>(null);
+
+  const running = jobs.running;
+  const generating = running.length > 0 || pending > 0;
+  const atCapacity = isAtGenerationCap(running.length, pending);
 
   const refreshGallery = useCallback(async () => {
     const { sources, productGroups } = await getDesignGallery(designId.current);
     setReadyToGenerate(sources.length > 0);
     setImages(sourcesToGalleryImages(sources));
     setProductGroups(productGroups);
+  }, []);
+
+  // A chat turn in flight owns the message list: `sendChatMessage` persists
+  // both its rows only when it returns, so a whole-thread read taken meanwhile
+  // would render the user's own words back out of the thread. Read from a ref
+  // so the poll loop doesn't have to re-subscribe on every keystroke-adjacent
+  // state change.
+  const loadingRef = useRef(false);
+  loadingRef.current = loading;
+  const pollErrorsRef = useRef(0);
+  pollErrorsRef.current = pollErrors;
+
+  /**
+   * Re-read chat AND gallery together. The assistant turn for a generation is
+   * written by the background continuation, so refreshing only the gallery
+   * leaves the thread one turn short until a reload — the most visible defect
+   * this path can have.
+   */
+  const refreshThread = useCallback(async (): Promise<boolean> => {
+    const thread = await getDesignThread(designId.current).catch(() => null);
+    if (!thread) return false;
+    const snap = threadToSnapshot(thread);
+    setMessages(snap.chat);
+    setImages(snap.images);
+    setProductGroups(snap.productGroups);
+    setClosed(snap.closed);
+    setReadyToGenerate(snap.images.length > 0);
+    // The hero follows the server's primary image, which the continuation
+    // claims for a fresh generation (and deliberately does not claim for a
+    // cancelled one).
+    setSelectedImage(snap.displayImageUrl);
+    return true;
+  }, []);
+
+  // One poll in flight at a time: the timer and a wake event can fire together.
+  const polling = useRef(false);
+  const pollStartedAt = useRef<number | null>(null);
+
+  // Mirrors `jobs.tracked` for the poll loop, which must not re-subscribe on
+  // every job change or it would restart its own timer mid-wait.
+  const trackedRef = useRef<string[]>([]);
+  trackedRef.current = jobs.tracked;
+
+  const pollOnce = useCallback(async () => {
+    if (polling.current) return;
+    polling.current = true;
+    // Stamped before the request so the merge below can tell a job this tab
+    // adopted DURING the round trip from one the server has genuinely settled.
+    const pollStartedAtMs = Date.now();
+    try {
+      const tracked = trackedRef.current;
+      // null on a failed request — the reducer turns that into an error-budget
+      // step rather than the caller branching on it here.
+      const result = await readJobs(designId.current, tracked);
+
+      // All the branching is in a pure reducer (generation-poll.ts) so the
+      // deferral, refresh and error-budget decisions are testable without a
+      // component.
+      const step = reduceJobPoll({
+        trackedJobIds: tracked,
+        result,
+        chatTurnInFlight: loadingRef.current,
+        consecutiveErrors: pollErrorsRef.current,
+      });
+      setPollErrors(step.consecutiveErrors);
+      pollErrorsRef.current = step.consecutiveErrors;
+
+      // A failed poll leaves the running list alone: blanking it would flicker
+      // the spinner rows off a generation that is still going.
+      if (step.running === null) return;
+
+      // Functional + merging, never an assignment of the captured view: a
+      // `generateDesign` that resolved during this round trip has already
+      // added its job, and overwriting both lists with the poll's pre-request
+      // state would drop it (see mergeJobPollState). `tracked` is also NOT
+      // narrowed here: the settled ids stay tracked for the whole settle,
+      // which is what holds `active` true and keeps the revisit-cache
+      // write-back gated while the thread is mid-change. Untracking below is
+      // the last thing that happens.
+      const polledRunning = step.running;
+      setJobs((prev) =>
+        mergeJobPollState({
+          prev,
+          polledRunning,
+          trackedAtPollStart: tracked,
+          pollStartedAtMs,
+        })
+      );
+
+      if (step.errorCopy) setGenError(step.errorCopy);
+      if (step.settling.length === 0) return;
+
+      if (step.refreshThread) {
+        const refreshed = await refreshThread();
+        // A failed read leaves the ids tracked, so the next tick retries —
+        // and, critically, leaves the cached snapshot alone. Dropping it here
+        // and failing to replace it would strand the thread on a cache miss;
+        // untracking here would let the write-back effect fire with the
+        // pre-refresh state and re-plant the very "no image yet" snapshot the
+        // drop exists to remove.
+        if (!refreshed) return;
+        // Ordered after the refresh on purpose: by now the fresh thread is in
+        // state, so the write-back that follows untracking writes the settled
+        // thread rather than the stale one.
+        dropThreadSnapshot(designId.current);
+      }
+
+      setJobs((prev) => ({
+        running: prev.running,
+        tracked: prev.tracked.filter((id) => !step.settling.includes(id)),
+      }));
+    } finally {
+      polling.current = false;
+      setPollNonce((n) => n + 1);
+    }
+  }, [refreshThread]);
+
+  // Poll only while something is running or a settled outcome is still
+  // unapplied; stop entirely otherwise. The schedule lives in generation-poll
+  // so the arithmetic is testable without a component.
+  // Halted is a stop, not a give-up: the wake handler below clears the budget,
+  // so the loop resumes the moment the user looks at the tab again.
+  const active =
+    shouldPoll(running.length, jobs.tracked.length) && !isPollHalted(pollErrors);
+  useEffect(() => {
+    if (!active) {
+      pollStartedAt.current = null;
+      return;
+    }
+    if (pollStartedAt.current === null) pollStartedAt.current = Date.now();
+    const delay = nextPollDelayMs(Date.now() - pollStartedAt.current);
+    const timer = setTimeout(() => void pollOnce(), delay);
+    return () => clearTimeout(timer);
+  }, [active, pollNonce, pollOnce]);
+
+  // Phone-first: app-switching is the main journey, and this is the only
+  // mechanism that makes leave-and-return work — a backgrounded tab's timers
+  // are throttled or frozen, so the wake itself has to fetch rather than wait
+  // for a tick that may never have run.
+  //
+  // Armed for any real thread, not only while this tab believes something is
+  // running: the job that settled (or was started in another tab) is exactly
+  // what a return is for. A brand-new, unsaved thread has nothing to ask
+  // about, so it stays off there.
+  const designExistsRef = useRef(false);
+  designExistsRef.current = designExists;
+  useEffect(() => {
+    function onWake() {
+      if (document.visibilityState !== "visible") return;
+      if (!designExistsRef.current) return;
+      // Coming back is the resume path for a dormant loop: clear the budget
+      // first (both the ref this poll reads and the state the timer effect
+      // gates on) so one wake both retries now and re-arms the loop.
+      pollErrorsRef.current = 0;
+      setPollErrors(0);
+      void pollOnce();
+    }
+    document.addEventListener("visibilitychange", onWake);
+    window.addEventListener("focus", onWake);
+    return () => {
+      document.removeEventListener("visibilitychange", onWake);
+      window.removeEventListener("focus", onWake);
+    };
+  }, [pollOnce]);
+
+  // First read on an existing thread: adopt jobs this client never started —
+  // another tab, or this one before a reload.
+  useEffect(() => {
+    if (!resumeId) return;
+    void pollOnce();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Guest funnel (#26): mint an anonymous session on entry so a signed-out
@@ -156,18 +377,22 @@ function DesignPageInner({ initialThreadPromise }: Props) {
   }, []);
 
   // Cache-hydrated mounts still revalidate: the server payload resolves with
-  // fresh data and replaces the snapshot — unless a user turn started first
-  // (turn-tracker), so it can never clobber optimistic state.
+  // fresh data and replaces the snapshot — unless the user has already acted,
+  // so it can never clobber optimistic state.
+  //
+  // `userActed` is a plain boolean, not a turn token: the old tracker minted
+  // an id here and then only ever asked "is this still the latest turn", which
+  // for a one-shot mount effect means exactly "has any turn started since".
+  const userActed = useRef(false);
   const revalidated = useRef(false);
   useEffect(() => {
     if (!resumeId || cached === undefined || revalidated.current) return;
     revalidated.current = true;
-    const token = turns.current.start();
     // await, not .then-chaining: the streamed prop is a React-deserialized
     // thenable whose .then() doesn't return a chainable promise.
     (async () => {
       const thread = await initialThreadPromise;
-      if (!thread || !turns.current.isCurrent(token)) return;
+      if (!thread || userActed.current) return;
       const snap = threadToSnapshot(thread);
       setMessages(snap.chat);
       setImages(snap.images);
@@ -180,10 +405,26 @@ function DesignPageInner({ initialThreadPromise }: Props) {
   }, [resumeId, cached, initialThreadPromise]);
 
   // Revisit cache write-back (#127): mirror the rendered thread so /designs →
-  // thread → back → same thread re-renders instantly. Everything written here
-  // already passed the turn-tracker guards, so the snapshot inherits them.
+  // thread → back → same thread re-renders instantly.
+  //
+  // Never while a job is running for this design: the thread is mid-change,
+  // and the snapshot taken then is precisely the "no image yet" state the
+  // returning user must not see. The settle path drops the entry outright, so
+  // the first write after that is of the settled thread.
   useEffect(() => {
-    if (!resumeId || !designExists) return;
+    // Narrowed here as well as inside the gate so `resumeId` types as the
+    // cache key below; the gate stays the single statement of the rule.
+    if (!resumeId) return;
+    if (
+      !canWriteThreadSnapshot({
+        resumeId,
+        designExists,
+        jobsActive: active,
+        generating,
+      })
+    ) {
+      return;
+    }
     writeThreadSnapshot(resumeId, {
       chat: messages,
       images,
@@ -194,6 +435,8 @@ function DesignPageInner({ initialThreadPromise }: Props) {
   }, [
     resumeId,
     designExists,
+    active,
+    generating,
     messages,
     images,
     productGroups,
@@ -217,7 +460,7 @@ function DesignPageInner({ initialThreadPromise }: Props) {
   }
 
   async function handleSend(userMessage: string) {
-    const token = turns.current.start();
+    userActed.current = true;
     setLoading(true);
     setOptions([]);
     setMessages((prev) => [...prev, makeOptimisticMessage("user", userMessage)]);
@@ -230,10 +473,11 @@ function DesignPageInner({ initialThreadPromise }: Props) {
         ...prev,
         makeOptimisticMessage("assistant", result.message),
       ]);
-      if (turns.current.isCurrent(token)) {
-        setReadyToGenerate(result.readyToGenerate);
-        setOptions(result.options);
-      }
+      // No staleness guard: the composer blocks a second chat turn while this
+      // one is in flight, and Generate is disabled while `loading`, so nothing
+      // else can own options/readiness by the time this resolves.
+      setReadyToGenerate(result.readyToGenerate);
+      setOptions(result.options);
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -245,14 +489,13 @@ function DesignPageInner({ initialThreadPromise }: Props) {
   }
 
   async function handleGenerate(userMessage?: string) {
-    // One generation at a time: a second Generate while one is in flight is
-    // refused (the button shows the in-flight state). #40 made server-side
-    // numbering/quota concurrency-safe, but serializing here keeps quota burn
-    // and the strip predictable.
-    if (activeGeneration.current !== null) return;
-    const token = turns.current.start();
-    activeGeneration.current = token;
-    setGenerating(true);
+    // Three concurrent generations are the point of the durable job; the only
+    // refusal is the cap itself, enforced for real by insertGenerationJob's
+    // INSERT…WHERE. This check just avoids a round trip that would be refused.
+    if (atCapacity || closed) return;
+    userActed.current = true;
+    setPending((n) => n + 1);
+    setGenError(null);
     setOptions([]);
     if (userMessage) {
       setMessages((prev) => [...prev, makeOptimisticMessage("user", userMessage)]);
@@ -262,56 +505,77 @@ function DesignPageInner({ initialThreadPromise }: Props) {
       await ensureGuestSession();
       const result = await generateDesign(designId.current, userMessage);
       setDesignExists(true);
-      // The result always lands in chat + gallery — even after a client-side
-      // cancel the server render completed (and the quota unit was spent), so
-      // show the image honestly rather than hiding paid work.
+
+      if (result.kind === "queued") {
+        // The render finishes in the background; this action returned as soon
+        // as the job row existed. Adopt the job locally right away rather than
+        // waiting for the first poll to report it — otherwise the generating
+        // row blinks out for a poll interval.
+        setJobs((prev) => ({
+          running: [
+            ...prev.running,
+            {
+              jobId: result.jobId,
+              generationNumber: result.generationNumber,
+              // Client clock: an in-flight poll that predates this stamp must
+              // not drop the job just because the server had not seen it.
+              adoptedAt: Date.now(),
+            },
+          ],
+          tracked: [...prev.tracked, result.jobId],
+        }));
+        return;
+      }
+
       setMessages((prev) => [
         ...prev,
-        makeOptimisticMessage("assistant", result.message, result.imageId),
+        makeOptimisticMessage("assistant", result.message),
       ]);
-      // Claude may answer with a clarifying question instead of an image
-      // (no imageUrl) — just show the message, no gallery/drawer changes.
-      // The new render lands inline in chat and leads the mobile thumbnail
-      // strip — no drawer auto-open needed.
-      if (result.imageUrl) {
-        await refreshGallery();
-      }
-      // Composer-adjacent state belongs to the latest turn only: a cancelled
-      // or superseded generation must not reset options, readiness, or the
-      // user's current selection.
-      if (turns.current.isCurrent(token)) {
-        setReadyToGenerate(result.readyToGenerate);
-        // A clarifying question (no image) may carry tappable style options.
-        setOptions("options" in result ? (result.options ?? []) : []);
-        if (result.imageUrl) setSelectedImage(result.imageUrl);
+      // No staleness guard: cancellation now targets a job row, which only
+      // exists on the queued path, so nothing can cancel this turn. Two
+      // concurrent generates that both come back as clarifications resolve in
+      // start order, which is the same last-writer the tracker would have
+      // picked.
+      if (result.kind === "clarification") {
+        setReadyToGenerate(false);
+        // A clarifying question may carry tappable style options.
+        setOptions(result.options ?? []);
+      } else {
+        // Cap or capacity refusal — the idea itself is still renderable.
+        setReadyToGenerate(true);
       }
     } catch {
-      // After a cancel, a failure message is noise — the user moved on.
-      if (!turns.current.isCancelled(token)) {
-        setMessages((prev) => [
-          ...prev,
-          makeOptimisticMessage("assistant", "Generation failed. Try again."),
-        ]);
-      }
+      // Every throw here happens before a job row exists (the action returns
+      // the moment one does), so there is no cancelled turn to stay quiet for
+      // — a throw is always a real failure worth surfacing.
+      setMessages((prev) => [
+        ...prev,
+        makeOptimisticMessage("assistant", "Generation failed. Try again."),
+      ]);
     } finally {
-      if (activeGeneration.current === token) {
-        activeGeneration.current = null;
-        setGenerating(false);
-      }
+      setPending((n) => n - 1);
     }
   }
 
-  // #59 client-side cancel: stop waiting on the action and free the composer.
-  // The server action still runs to completion — its image appears in the
-  // strip when it lands (append-only), and the quota unit stays spent because
-  // the render actually ran. True server-side Replicate cancel would need a
-  // predictions.create/cancel refactor — possible follow-up.
-  function handleCancelGenerate() {
-    const token = activeGeneration.current;
-    if (token === null) return;
-    turns.current.cancel(token);
-    activeGeneration.current = null;
-    setGenerating(false);
+  /**
+   * Cancel one running generation (#59, now durable). The server marks the job
+   * row cancelled, so this holds across tabs and reloads where the old
+   * client-side ref did not. The render itself still runs and is still billed;
+   * cancelling only forfeits its claim on the design's primary image.
+   *
+   * Untracked locally either way, which also stops polling for it — the user
+   * walked away from this one.
+   */
+  async function handleCancelJob(jobId: string) {
+    setJobs((prev) => ({
+      running: prev.running.filter((job) => job.jobId !== jobId),
+      tracked: prev.tracked.filter((id) => id !== jobId),
+    }));
+    try {
+      await cancelGeneration(jobId);
+    } catch {
+      // Nothing to recover: the row either settled first or was never ours.
+    }
   }
 
   async function handleDeleteImage(imageId: string) {
@@ -489,9 +753,13 @@ function DesignPageInner({ initialThreadPromise }: Props) {
           images={images}
           loading={loading}
           generating={generating}
+          runningJobs={running}
+          atCapacity={atCapacity}
+          generationError={genError}
+          onDismissGenerationError={() => setGenError(null)}
           onSend={handleSend}
           onGenerate={handleGenerate}
-          onCancelGenerate={handleCancelGenerate}
+          onCancelJob={handleCancelJob}
           readyToGenerate={readyToGenerate}
           options={options}
           onUploadImage={handleUploadImage}

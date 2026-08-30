@@ -7,6 +7,15 @@ import {
 import { DesignPageClient } from "./design-client";
 
 /**
+ * Generation now finishes in an `after()` continuation started by the
+ * generateDesign server action. A server action inherits the segment config of
+ * the route that RENDERED it, not an API route's — so this budget is what the
+ * background render gets. 300s is Fluid's max and comfortably covers an
+ * Ideogram generate/edit round trip plus the R2 upload.
+ */
+export const maxDuration = 300;
+
+/**
  * Server component shell for the /design thread (#127). For ?id= visits it
  * starts the whole-thread fetch (chat + gallery in one payload) without
  * awaiting it, so the shell streams immediately and client-side navigation

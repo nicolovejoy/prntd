@@ -1,0 +1,293 @@
+/**
+ * Timing and capacity arithmetic for the /design job poller.
+ *
+ * Pure and framework-free so the schedule is unit-testable without mounting a
+ * component — the page holds no timing logic of its own, it just asks this
+ * module how long to wait and whether Generate is still allowed.
+ */
+
+/**
+ * Most concurrent running jobs one user may hold, mirrored from
+ * `GENERATION_CONCURRENCY_CAP` in `src/lib/generation-job.ts`.
+ *
+ * Deliberately re-declared rather than imported: this module is pulled into
+ * the client bundle, and generation-job.ts imports drizzle and the quota layer
+ * at module scope. A unit test asserts the two constants agree, so the copy
+ * cannot drift silently.
+ */
+export const GENERATION_CAP = 3;
+
+/** Poll cadence while a generation is in flight. */
+export interface PollSchedule {
+  /** Delay used while inside `fastWindowMs` of the first poll. */
+  fastMs: number;
+  /** Delay used after that — the cap; the schedule never slows further. */
+  slowMs: number;
+  fastWindowMs: number;
+}
+
+/**
+ * 2s for the first 30s, then 5s. A typical render lands inside the fast
+ * window, so the common case feels immediate; a slow one settles into a
+ * cadence cheap enough to leave running while the phone is in someone's
+ * pocket.
+ */
+export const DEFAULT_POLL_SCHEDULE: PollSchedule = {
+  fastMs: 2_000,
+  slowMs: 5_000,
+  fastWindowMs: 30_000,
+};
+
+/**
+ * Delay before the next poll, given how long this polling run has been going.
+ * Monotonic and bounded: it only ever steps from fast to slow, and slow is the
+ * cap.
+ */
+export function nextPollDelayMs(
+  elapsedMs: number,
+  schedule: PollSchedule = DEFAULT_POLL_SCHEDULE
+): number {
+  return elapsedMs < schedule.fastWindowMs ? schedule.fastMs : schedule.slowMs;
+}
+
+/**
+ * Whether the poller should be running at all. Jobs still tracked but not yet
+ * running count: a job settles by leaving the running list, and its outcome
+ * (the image, the assistant turn, an error) is read on the poll that notices.
+ * Stopping the moment `running` empties would drop exactly that poll.
+ */
+export function shouldPoll(runningCount: number, trackedCount: number): boolean {
+  return runningCount > 0 || trackedCount > 0;
+}
+
+/**
+ * Generate is refused only at the concurrency cap — never merely because
+ * something is already running. Three at once is the point.
+ *
+ * `pendingCount` is the client's own in-flight `generateDesign` calls: the job
+ * row does not exist until the action returns, so without counting them a fast
+ * triple-tap would send four requests and let the server reject the last.
+ */
+export function isAtGenerationCap(
+  runningCount: number,
+  pendingCount: number,
+  cap: number = GENERATION_CAP
+): boolean {
+  return runningCount + pendingCount >= cap;
+}
+
+/**
+ * Why a generation stopped, as a closed set. The job row's raw `error` is a
+ * provider or internal string — it can echo prompt text or vendor moderation
+ * wording, and the image detail and design pages are guest-reachable — so it
+ * is classified server-side and never crosses the wire. /admin/errors and the
+ * job row keep the diagnostic detail.
+ */
+export type GenerationFailure = "timeout" | "failed";
+
+/** The exact string sweepStaleJobs writes for an overdue job. */
+const TIMEOUT_ERROR = "Generation timed out";
+
+export function classifyGenerationFailure(error: string | null): GenerationFailure {
+  return error === TIMEOUT_ERROR ? "timeout" : "failed";
+}
+
+/**
+ * Authored copy, Clean Label voice (docs/design-system.md): plain, no apology
+ * theatre, says what to do next. Never interpolates anything from the server.
+ */
+export const GENERATION_FAILURE_COPY: Record<GenerationFailure, string> = {
+  timeout: "That one took too long and stopped. Try again.",
+  failed: "Something went wrong generating that. Try again.",
+};
+
+/** One live generation, as the thread view renders it. */
+export interface RunningJob {
+  jobId: string;
+  generationNumber: number;
+  /**
+   * Client clock (ms) when THIS tab adopted the job from its own
+   * `generateDesign` call. Absent on rows that came back from a poll — the
+   * server is authoritative for those, so they need no protection.
+   * See mergeJobPollState.
+   */
+  adoptedAt?: number;
+}
+
+/** The shape `getDesignJobs` reports back. */
+export interface JobPollResult {
+  running: RunningJob[];
+  settled: {
+    jobId: string;
+    status: "succeeded" | "failed";
+    imageId: string | null;
+    failure: GenerationFailure | null;
+  }[];
+}
+
+/**
+ * Consecutive failed polls tolerated before the loop goes dormant.
+ *
+ * Four is roughly 14 seconds of failure (2s, 2s, 5s, 5s): long enough to ride
+ * out the things that routinely outlast a single interval — a redeploy, a
+ * tunnel, a phone switching networks — and short enough that a tab whose
+ * design was deleted underneath it stops within seconds of losing the user's
+ * attention. Three (~9s) risks giving up during a deploy; more than four just
+ * spends battery to reach the same conclusion.
+ *
+ * Going dormant is not terminal: the visibilitychange/focus refetch resets the
+ * count and resumes, so a tab is only ever silent while nobody is looking at it.
+ */
+export const MAX_CONSECUTIVE_POLL_ERRORS = 4;
+
+/** Error budget spent — stop the timer loop until a wake event resets it. */
+export function isPollHalted(
+  consecutiveErrors: number,
+  max: number = MAX_CONSECUTIVE_POLL_ERRORS
+): boolean {
+  return consecutiveErrors >= max;
+}
+
+/**
+ * What the page should do with one poll response.
+ *
+ * `settling` is the set of tracked ids whose outcome is being applied on THIS
+ * tick. It is not "ids to untrack now": untracking happens only after the
+ * outcome has actually landed, which is what keeps the revisit-cache write-back
+ * gated across the whole settle (see the page's pollOnce).
+ */
+export interface JobPollStep {
+  /**
+   * null when the poll itself failed — the previous running list stands rather
+   * than being blanked, so a transient error does not flicker the spinner rows
+   * off a generation that is still going.
+   */
+  running: RunningJob[] | null;
+  settling: string[];
+  /** A generation succeeded — the thread (chat AND gallery) must be re-read. */
+  refreshThread: boolean;
+  /** Authored line to surface, or null. */
+  errorCopy: string | null;
+  /** Failed polls in a row as of this one; any success resets it to 0. */
+  consecutiveErrors: number;
+  /** Budget spent: the caller should stop its timer loop. */
+  halted: boolean;
+}
+
+/**
+ * Pure state math for one poll. Extracted from the component so the two
+ * load-bearing branches — deferral while a chat turn is in flight, and the
+ * decision to re-read the thread — are testable without mounting anything.
+ *
+ * `chatTurnInFlight` defers the whole settle rather than dropping it:
+ * `sendChatMessage` persists both its rows only when it returns, so a
+ * whole-thread read taken meanwhile would render the user's own words back out
+ * of the thread. Deferring reports no settling ids, which leaves them tracked,
+ * which keeps the poll loop alive to try again.
+ */
+export function reduceJobPoll(input: {
+  trackedJobIds: string[];
+  /** null when the request failed. */
+  result: JobPollResult | null;
+  chatTurnInFlight: boolean;
+  /** Failed polls in a row before this one. */
+  consecutiveErrors: number;
+}): JobPollStep {
+  // A failed poll changes nothing except the error budget. Nothing is
+  // untracked, so no settle can be lost to a network blip; the loop simply
+  // stops once the budget is spent, and a wake event revives it.
+  if (input.result === null) {
+    const consecutiveErrors = input.consecutiveErrors + 1;
+    return {
+      running: null,
+      settling: [],
+      refreshThread: false,
+      errorCopy: null,
+      consecutiveErrors,
+      halted: isPollHalted(consecutiveErrors),
+    };
+  }
+
+  const { running, settled } = input.result;
+
+  if (input.chatTurnInFlight) {
+    return {
+      running,
+      settling: [],
+      refreshThread: false,
+      errorCopy: null,
+      consecutiveErrors: 0,
+      halted: false,
+    };
+  }
+
+  // Only ids we are actually tracking: a settled row for anything else (a job
+  // the user cancelled, say) is not this page's to react to.
+  const settling = settled
+    .filter((job) => input.trackedJobIds.includes(job.jobId))
+    .map((job) => job.jobId);
+
+  const failure = settled.find(
+    (job) => settling.includes(job.jobId) && job.status === "failed"
+  );
+
+  return {
+    running,
+    settling,
+    refreshThread: settled.some(
+      (job) => settling.includes(job.jobId) && job.status === "succeeded"
+    ),
+    errorCopy: failure
+      ? GENERATION_FAILURE_COPY[failure.failure ?? "failed"]
+      : null,
+    // The response arrived, so the budget is whole again — even if the
+    // generation it reported had itself failed. This counts transport
+    // failures, not generation failures.
+    consecutiveErrors: 0,
+    halted: false,
+  };
+}
+
+/**
+ * Fold one poll's view of `running` into the state the page holds.
+ *
+ * The poll is a round trip: `generateDesign` can resolve while it is in
+ * flight, and that resolution adds a job through its own functional setState.
+ * Applying the poll's pre-request view wholesale then erases the new job from
+ * BOTH lists — which either stops the loop outright (nothing running, nothing
+ * tracked) or leaves a job spinning that this tab no longer tracks, so its
+ * image never lands in the thread until a reload. Hence: never assign, always
+ * merge.
+ *
+ * `tracked` is a union — the poll's own view is a subset of what the page
+ * holds now, and untracking is done separately, after a settle has actually
+ * been applied.
+ *
+ * `running` keeps any local entry the poll did not report but that was adopted
+ * AFTER the request went out: the server simply had not seen it yet. An entry
+ * adopted before the request and absent from the response really has settled,
+ * so it goes.
+ */
+export function mergeJobPollState(input: {
+  prev: { running: RunningJob[]; tracked: string[] };
+  polledRunning: RunningJob[];
+  trackedAtPollStart: string[];
+  pollStartedAtMs: number;
+}): { running: RunningJob[]; tracked: string[] } {
+  const polledIds = new Set(input.polledRunning.map((job) => job.jobId));
+  const startedMidPoll = input.prev.running.filter(
+    (job) =>
+      !polledIds.has(job.jobId) &&
+      job.adoptedAt !== undefined &&
+      job.adoptedAt >= input.pollStartedAtMs
+  );
+  const running = [...input.polledRunning, ...startedMidPoll].sort(
+    (a, b) => a.generationNumber - b.generationNumber
+  );
+
+  const tracked = [...input.prev.tracked];
+  for (const id of input.trackedAtPollStart) {
+    if (!tracked.includes(id)) tracked.push(id);
+  }
+  return { running, tracked };
+}

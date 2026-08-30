@@ -30,6 +30,30 @@ vi.mock("@/lib/db", () => ({
 
 vi.mock("next/headers", () => ({ headers: vi.fn(async () => new Headers()) }));
 
+// generateDesign hands the render to `after()`; collect the continuations so
+// each test decides when the background half runs. A no-op mock would make
+// every post-generation assertion below vacuous.
+const afterQueue = vi.hoisted(() => ({ callbacks: [] as Array<() => unknown> }));
+vi.mock("next/server", () => ({
+  after: (cb: () => unknown) => {
+    afterQueue.callbacks.push(cb);
+  },
+}));
+async function drainAfter() {
+  while (afterQueue.callbacks.length) {
+    await afterQueue.callbacks.shift()!();
+  }
+}
+
+/** Narrow a queued generate turn, failing loudly on anything else. */
+function queuedImageId(result: { kind: string; imageId?: string }): string {
+  if (result.kind !== "queued" || !result.imageId) {
+    throw new Error(`expected a queued generation, got ${result.kind}`);
+  }
+  return result.imageId;
+}
+
+
 vi.mock("@/lib/auth", () => ({
   auth: {
     api: {
@@ -186,8 +210,13 @@ describe("close / reopen", () => {
     await reopenConversation(designId);
     expect((await designRow(designId)).closedAt).toBeNull();
 
-    const res = await generateDesign(designId, "a cat");
-    expect(res.imageUrl).toBe(`https://r2/images/${res.imageId}.png`);
+    const imageId = queuedImageId(await generateDesign(designId, "a cat"));
+    await drainAfter();
+    const [row] = await testDb
+      .select()
+      .from(schema.image)
+      .where(eq(schema.image.id, imageId));
+    expect(row.imageUrl).toBe(`https://r2/images/${imageId}.png`);
   });
 
   it("is idempotent: closing twice keeps the first timestamp shape, reopening an open thread no-ops", async () => {

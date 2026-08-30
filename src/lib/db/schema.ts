@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, uniqueIndex, index } from "drizzle-orm/sqlite-core";
 
 export const user = sqliteTable("user", {
   id: text("id").primaryKey(),
@@ -433,6 +433,63 @@ export const appError = sqliteTable("app_error", {
   context: text("context", { mode: "json" }).$type<Record<string, string>>(),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
+
+/**
+ * Durable generation job (docs/async-generation-and-edit-plan.md, slice 3 —
+ * `image_generation`). Image generation runs as a background job instead of
+ * a server action that holds the request open for the full provider round
+ * trip: this row is the job record, minted before the provider call and
+ * updated when the call settles. `running` transitions to exactly one of
+ * `succeeded`/`failed` — cancellation is recorded via `cancelledAt`, not a
+ * third status, so every transition predicate everywhere stays
+ * `status = 'running'` (the hardening contract from the rewritten plan: a
+ * refund only fires off `UPDATE ... WHERE status = 'running'` reporting one
+ * row, which is what makes it safe against a concurrent sweep or a
+ * cancellation racing the provider's real completion).
+ *
+ * `imageId` is minted before the provider call and doubles as the R2 key
+ * stem; the `image` row itself is written only once the job succeeds, so
+ * this column is deliberately not an FK. `anchorImageId` records the
+ * resolved anchor as an image id rather than the caller's positional
+ * `referenceImage` index — positions are only stable within one synchronous
+ * request, and a job outlives that. `dayKey` is captured at insert (not
+ * recomputed at refund time) so a job that started before midnight UTC and
+ * fails after refunds the bucket it actually consumed from.
+ */
+export const imageGeneration = sqliteTable(
+  "image_generation",
+  {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    designId: text("design_id").notNull().references(() => design.id),
+    userId: text("user_id").notNull().references(() => user.id),
+    // running -> succeeded | failed. Cancellation is `cancelled_at`, not a
+    // status, so every transition predicate stays `status = 'running'`.
+    status: text("status", { enum: ["running", "succeeded", "failed"] }).notNull(),
+    operation: text("operation", { enum: ["generate", "edit"] }).notNull(),
+    // Minted before the provider call; also the R2 key stem. Opaque id, no FK
+    // — the image row does not exist until the job succeeds.
+    imageId: text("image_id").notNull(),
+    r2Key: text("r2_key").notNull(),
+    // Resolved anchor as an IMAGE ID, never the positional referenceImage
+    // index — positions are stable only inside one synchronous span.
+    anchorImageId: text("anchor_image_id"),
+    generationNumber: integer("generation_number").notNull(),
+    // Captured at insert so a refund after midnight UTC credits the right
+    // bucket. Recomputing at refund time is the bug this column prevents.
+    dayKey: text("day_key").notNull(),
+    ip: text("ip"),
+    cost: real("cost").notNull().default(0),
+    error: text("error"),
+    cancelledAt: integer("cancelled_at", { mode: "timestamp" }),
+    startedAt: integer("started_at", { mode: "timestamp" }).notNull(),
+    finishedAt: integer("finished_at", { mode: "timestamp" }),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  },
+  (t) => [
+    index("image_generation_user_status").on(t.userId, t.status),
+    index("image_generation_design_status").on(t.designId, t.status),
+  ]
+);
 
 export type ChatMessage = {
   id: string;
