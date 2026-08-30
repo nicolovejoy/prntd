@@ -82,23 +82,90 @@ describe("getHeaderState — runningJobs", () => {
   });
 });
 
+/** A promise this test controls the resolution of, plus a resolve() to fire it. */
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
 describe("getHeaderState — one round trip", () => {
-  it("runs admin/cart/jobs concurrently, not as sequential awaits", async () => {
-    // Each dependency takes ~40ms. A sequential implementation would take
-    // ~120ms+; Promise.all keeps it near the slowest single branch.
-    const delay = <T>(value: T) => new Promise<T>((resolve) => setTimeout(() => resolve(value), 40));
+  it("invokes admin/cart/jobs before awaiting any of them (Promise.all, not sequential awaits)", async () => {
+    // A timing threshold (elapsed < Nms) is a proxy for concurrency, not an
+    // assertion of it — it can pass by luck on a fast CI box even against a
+    // sequential implementation with small enough delays, and it can flake
+    // the other way under load. This test instead makes the mocks controlled
+    // (deferred, never resolving until told to) and records the moment each
+    // one is CALLED. Promise.all invokes every element of its array
+    // synchronously (module microtask hops aside) before awaiting any of
+    // them to completion; a sequential `await a(); await b();` rewrite would
+    // not call b at all until a's promise resolves. So: if getCartCount and
+    // the job-sweep have already been called while isAdminUser's promise is
+    // still unresolved, the three ran concurrently — not sequentially.
+    const events: string[] = [];
+    const admin = deferred<boolean>();
+    const cart = deferred<number>();
+    const sweep = deferred<{ swept: number }>();
+    const count = deferred<number>();
+
     getSession.mockResolvedValue({ user: { id: "real-user", isAnonymous: false } });
-    isAdminUser.mockImplementation(() => delay(true));
-    getCartCount.mockImplementation(() => delay(3));
-    sweepStaleJobs.mockImplementation(() => delay({ swept: 0 }));
-    countRunningJobsForUser.mockImplementation(() => delay(1));
+    isAdminUser.mockImplementation(() => {
+      events.push("admin:start");
+      return admin.promise.then((v) => {
+        events.push("admin:end");
+        return v;
+      });
+    });
+    getCartCount.mockImplementation(() => {
+      events.push("cart:start");
+      return cart.promise.then((v) => {
+        events.push("cart:end");
+        return v;
+      });
+    });
+    sweepStaleJobs.mockImplementation(() => {
+      events.push("sweep:start");
+      return sweep.promise.then((v) => {
+        events.push("sweep:end");
+        return v;
+      });
+    });
+    countRunningJobsForUser.mockImplementation(() => {
+      events.push("count:start");
+      return count.promise.then((v) => {
+        events.push("count:end");
+        return v;
+      });
+    });
 
-    const start = Date.now();
-    const state = await getHeaderState(true);
-    const elapsed = Date.now() - start;
+    const statePromise = getHeaderState(true);
 
+    // Let pending microtasks drain (the running-jobs branch does a real
+    // `await auth.api.getSession(...)` before it can call sweepStaleJobs) —
+    // without resolving any of the deferred promises above, so nothing can
+    // have actually completed yet.
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(events).toEqual(
+      expect.arrayContaining(["admin:start", "cart:start", "sweep:start"])
+    );
+    expect(events).not.toContain("admin:end");
+    expect(events).not.toContain("cart:end");
+    expect(events).not.toContain("sweep:end");
+
+    admin.resolve(true);
+    cart.resolve(3);
+    sweep.resolve({ swept: 0 });
+    await Promise.resolve();
+    await Promise.resolve();
+    count.resolve(1);
+
+    const state = await statePromise;
     expect(state).toEqual({ isAdmin: true, cartCount: 3, runningJobs: 1 });
-    expect(elapsed).toBeLessThan(100);
   });
 
   it("skips the cart query entirely when cartOn is false", async () => {

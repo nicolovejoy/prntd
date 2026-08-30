@@ -9,7 +9,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { createTestDb } from "@/lib/__tests__/test-db";
 import { makeUser, makeDesign } from "@/lib/__tests__/factories";
-import { insertGenerationJob } from "@/lib/generation-job";
+import { insertGenerationJob, cancelGenerationJob, succeedJobStatement } from "@/lib/generation-job";
 import { dayKeyUTC } from "@/lib/generation-quota";
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
@@ -125,6 +125,43 @@ describe("getDesignJobs", () => {
     expect(result.running).toEqual([]);
     expect(result.settled).toEqual([
       { jobId: job.id, status: "failed", imageId: null, error: "Generation timed out" },
+    ]);
+  });
+
+  it("excludes a cancelled-but-running job from both running and settled", async () => {
+    const design = await makeDesign(testDb, "owner");
+    const plain = await seedRunningJob(design.id, { now: NOW, generationNumber: 1 });
+    const cancelled = await seedRunningJob(design.id, { now: NOW, generationNumber: 2 });
+    const cancelledOk = await cancelGenerationJob({
+      jobId: cancelled.id,
+      userId: "owner",
+      db: testDb,
+    });
+    expect(cancelledOk).toBe(true);
+
+    const result = await getDesignJobs(design.id, [plain.id, cancelled.id]);
+
+    // The cancelled job is still `status = 'running'` (cancel doesn't stop
+    // the render) — getRunningJobsForDesign's docblock is explicit that a
+    // consumer surfacing running jobs to a UI must read cancelledAt, not
+    // just status. It must not show up as an active spinner (running) NOR
+    // as a resolved result (settled): the render is still in flight and
+    // will land as a normal completion later.
+    expect(result.running.map((j) => j.jobId)).toEqual([plain.id]);
+    expect(result.settled).toEqual([]);
+  });
+
+  it("reports a succeeded job's imageId in settled", async () => {
+    const design = await makeDesign(testDb, "owner");
+    const job = await seedRunningJob(design.id, { now: NOW });
+
+    await succeedJobStatement(testDb, job.id, NOW);
+
+    const result = await getDesignJobs(design.id, [job.id]);
+
+    expect(result.running).toEqual([]);
+    expect(result.settled).toEqual([
+      { jobId: job.id, status: "succeeded", imageId: job.imageId, error: null },
     ]);
   });
 
