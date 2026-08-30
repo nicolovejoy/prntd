@@ -264,6 +264,17 @@ background".
 **Files:**
 - Edit: `src/app/design/actions.ts` (`generateDesign`, `runGenerate`,
   `persistClarification`)
+- Edit: `src/app/designs/actions.ts` — **`deleteDesign` must delete this
+  design's `image_generation` rows.** `image_generation.design_id` FKs
+  `design.id`, so once job rows exist, deleting a design that ever
+  generated anything dies on the constraint. This is exactly #124: three
+  tables FK'd `design.id` after Phase 1c and the delete batch only knew
+  about one, producing a masked prod error. Add the delete to the existing
+  `db.batch`, next to the `cart_item` delete, and add a case to
+  `src/app/designs/__tests__/delete-design.integration.test.ts` that seeds
+  a job row and deletes the design. A design with a *running* job still
+  deletes — the continuation's write will simply find nothing and its
+  conditional statements affect zero rows.
 - Edit: `src/app/design/page.tsx` — add `export const maxDuration = 300`.
   Server actions inherit the *rendering route's* segment config, not an API
   route's, so without this the continuation runs on the default budget.
