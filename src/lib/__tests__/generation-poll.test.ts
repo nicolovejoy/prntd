@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   nextPollDelayMs,
+  isPollHalted,
+  MAX_CONSECUTIVE_POLL_ERRORS,
   shouldPoll,
   isAtGenerationCap,
   reduceJobPoll,
@@ -97,6 +99,7 @@ describe("reduceJobPoll", () => {
       trackedJobIds: ["j1"],
       result: result({ running: [{ jobId: "j1", generationNumber: 1 }] }),
       chatTurnInFlight: false,
+      consecutiveErrors: 0,
     });
     expect(step.running).toEqual([{ jobId: "j1", generationNumber: 1 }]);
     expect(step.settling).toEqual([]);
@@ -110,6 +113,7 @@ describe("reduceJobPoll", () => {
       trackedJobIds: ["j1"],
       result: result({ settled: [succeeded("j1", "img-1")] }),
       chatTurnInFlight: false,
+      consecutiveErrors: 0,
     });
     expect(step.refreshThread).toBe(true);
     expect(step.settling).toEqual(["j1"]);
@@ -121,6 +125,7 @@ describe("reduceJobPoll", () => {
       trackedJobIds: ["j1"],
       result: result({ settled: [failed("j1")] }),
       chatTurnInFlight: false,
+      consecutiveErrors: 0,
     });
     expect(step.errorCopy).toBe(GENERATION_FAILURE_COPY.failed);
     expect(step.refreshThread).toBe(false);
@@ -132,6 +137,7 @@ describe("reduceJobPoll", () => {
       trackedJobIds: ["j1"],
       result: result({ settled: [failed("j1", "timeout")] }),
       chatTurnInFlight: false,
+      consecutiveErrors: 0,
     });
     expect(step.errorCopy).toBe(GENERATION_FAILURE_COPY.timeout);
     expect(step.errorCopy).not.toBe(GENERATION_FAILURE_COPY.failed);
@@ -144,6 +150,7 @@ describe("reduceJobPoll", () => {
       trackedJobIds: ["j1"],
       result: result({ settled: [succeeded("j1", "img-1")] }),
       chatTurnInFlight: true,
+      consecutiveErrors: 0,
     });
     expect(step.settling).toEqual([]);
     expect(step.refreshThread).toBe(false);
@@ -158,6 +165,7 @@ describe("reduceJobPoll", () => {
       trackedJobIds: ["j1"],
       result: response,
       chatTurnInFlight: true,
+      consecutiveErrors: 0,
     });
     // Nothing untracked while deferred, so the id is still there next tick —
     // this is what makes the deferral incapable of losing a settle.
@@ -167,6 +175,7 @@ describe("reduceJobPoll", () => {
       trackedJobIds: ["j1"],
       result: response,
       chatTurnInFlight: false,
+      consecutiveErrors: 0,
     });
     expect(applied.settling).toEqual(["j1"]);
     expect(applied.refreshThread).toBe(true);
@@ -179,6 +188,7 @@ describe("reduceJobPoll", () => {
       trackedJobIds: [],
       result: result({ settled: [succeeded("j9", "img-9"), failed("j8")] }),
       chatTurnInFlight: false,
+      consecutiveErrors: 0,
     });
     expect(step.settling).toEqual([]);
     expect(step.refreshThread).toBe(false);
@@ -190,6 +200,7 @@ describe("reduceJobPoll", () => {
       trackedJobIds: ["j1", "j2"],
       result: result({ settled: [succeeded("j1", "img-1"), failed("j2")] }),
       chatTurnInFlight: false,
+      consecutiveErrors: 0,
     });
     expect(step.settling).toEqual(["j1", "j2"]);
     expect(step.refreshThread).toBe(true);
@@ -214,5 +225,115 @@ describe("classifyGenerationFailure", () => {
     for (const copy of Object.values(GENERATION_FAILURE_COPY)) {
       expect(copy).not.toMatch(/Ideogram|422|prompt/i);
     }
+  });
+});
+
+describe("poll error budget", () => {
+  const succeededResult = result({ settled: [succeeded("j1", "img-1")] });
+
+  it("counts a failed poll without touching anything else", () => {
+    const step = reduceJobPoll({
+      trackedJobIds: ["j1"],
+      result: null,
+      chatTurnInFlight: false,
+      consecutiveErrors: 0,
+    });
+    expect(step.consecutiveErrors).toBe(1);
+    expect(step.halted).toBe(false);
+    // null, not []: blanking the list would flicker the spinner rows off a
+    // generation that is still running.
+    expect(step.running).toBeNull();
+    // Nothing is untracked, so a blip can never lose a settle.
+    expect(step.settling).toEqual([]);
+    expect(step.refreshThread).toBe(false);
+    expect(step.errorCopy).toBeNull();
+  });
+
+  it("halts once the budget is spent", () => {
+    let errors = 0;
+    for (let i = 0; i < MAX_CONSECUTIVE_POLL_ERRORS; i++) {
+      const step = reduceJobPoll({
+        trackedJobIds: ["j1"],
+        result: null,
+        chatTurnInFlight: false,
+        consecutiveErrors: errors,
+      });
+      errors = step.consecutiveErrors;
+      // Halts only on the last one — an abandoned tab stops, a flaky one does
+      // not give up on the first hiccup.
+      expect(step.halted).toBe(i === MAX_CONSECUTIVE_POLL_ERRORS - 1);
+    }
+    expect(errors).toBe(MAX_CONSECUTIVE_POLL_ERRORS);
+  });
+
+  it("a success mid-run resets the count", () => {
+    const step = reduceJobPoll({
+      trackedJobIds: ["j1"],
+      result: succeededResult,
+      chatTurnInFlight: false,
+      consecutiveErrors: MAX_CONSECUTIVE_POLL_ERRORS - 1,
+    });
+    expect(step.consecutiveErrors).toBe(0);
+    expect(step.halted).toBe(false);
+    // And it still does its real work.
+    expect(step.refreshThread).toBe(true);
+  });
+
+  it("counts transport failures, not generation failures", () => {
+    // A poll that successfully reports a FAILED generation is a healthy poll.
+    const step = reduceJobPoll({
+      trackedJobIds: ["j1"],
+      result: result({ settled: [failed("j1")] }),
+      chatTurnInFlight: false,
+      consecutiveErrors: 2,
+    });
+    expect(step.consecutiveErrors).toBe(0);
+    expect(step.errorCopy).toBe(GENERATION_FAILURE_COPY.failed);
+  });
+
+  it("a deferred poll is not an error either", () => {
+    const step = reduceJobPoll({
+      trackedJobIds: ["j1"],
+      result: succeededResult,
+      chatTurnInFlight: true,
+      consecutiveErrors: 2,
+    });
+    expect(step.consecutiveErrors).toBe(0);
+    expect(step.halted).toBe(false);
+  });
+
+  it("a wake resets the budget, so the loop resumes", () => {
+    // The page clears the counter on visibilitychange/focus before re-polling;
+    // this is that sequence, and it is why halting is dormancy, not death.
+    const halted = reduceJobPoll({
+      trackedJobIds: ["j1"],
+      result: null,
+      chatTurnInFlight: false,
+      consecutiveErrors: MAX_CONSECUTIVE_POLL_ERRORS - 1,
+    });
+    expect(isPollHalted(halted.consecutiveErrors)).toBe(true);
+
+    const afterWake = reduceJobPoll({
+      trackedJobIds: ["j1"],
+      result: succeededResult,
+      chatTurnInFlight: false,
+      consecutiveErrors: 0,
+    });
+    expect(isPollHalted(afterWake.consecutiveErrors)).toBe(false);
+    expect(afterWake.refreshThread).toBe(true);
+  });
+});
+
+describe("isPollHalted", () => {
+  it("is false below the threshold and true at or above it", () => {
+    expect(isPollHalted(0)).toBe(false);
+    expect(isPollHalted(MAX_CONSECUTIVE_POLL_ERRORS - 1)).toBe(false);
+    expect(isPollHalted(MAX_CONSECUTIVE_POLL_ERRORS)).toBe(true);
+    expect(isPollHalted(MAX_CONSECUTIVE_POLL_ERRORS + 10)).toBe(true);
+  });
+
+  it("honours an injected threshold", () => {
+    expect(isPollHalted(2, 3)).toBe(false);
+    expect(isPollHalted(3, 3)).toBe(true);
   });
 });

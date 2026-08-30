@@ -119,6 +119,29 @@ export interface JobPollResult {
 }
 
 /**
+ * Consecutive failed polls tolerated before the loop goes dormant.
+ *
+ * Four is roughly 14 seconds of failure (2s, 2s, 5s, 5s): long enough to ride
+ * out the things that routinely outlast a single interval — a redeploy, a
+ * tunnel, a phone switching networks — and short enough that a tab whose
+ * design was deleted underneath it stops within seconds of losing the user's
+ * attention. Three (~9s) risks giving up during a deploy; more than four just
+ * spends battery to reach the same conclusion.
+ *
+ * Going dormant is not terminal: the visibilitychange/focus refetch resets the
+ * count and resumes, so a tab is only ever silent while nobody is looking at it.
+ */
+export const MAX_CONSECUTIVE_POLL_ERRORS = 4;
+
+/** Error budget spent — stop the timer loop until a wake event resets it. */
+export function isPollHalted(
+  consecutiveErrors: number,
+  max: number = MAX_CONSECUTIVE_POLL_ERRORS
+): boolean {
+  return consecutiveErrors >= max;
+}
+
+/**
  * What the page should do with one poll response.
  *
  * `settling` is the set of tracked ids whose outcome is being applied on THIS
@@ -127,12 +150,21 @@ export interface JobPollResult {
  * gated across the whole settle (see the page's pollOnce).
  */
 export interface JobPollStep {
-  running: RunningJob[];
+  /**
+   * null when the poll itself failed — the previous running list stands rather
+   * than being blanked, so a transient error does not flicker the spinner rows
+   * off a generation that is still going.
+   */
+  running: RunningJob[] | null;
   settling: string[];
   /** A generation succeeded — the thread (chat AND gallery) must be re-read. */
   refreshThread: boolean;
   /** Authored line to surface, or null. */
   errorCopy: string | null;
+  /** Failed polls in a row as of this one; any success resets it to 0. */
+  consecutiveErrors: number;
+  /** Budget spent: the caller should stop its timer loop. */
+  halted: boolean;
 }
 
 /**
@@ -148,13 +180,38 @@ export interface JobPollStep {
  */
 export function reduceJobPoll(input: {
   trackedJobIds: string[];
-  result: JobPollResult;
+  /** null when the request failed. */
+  result: JobPollResult | null;
   chatTurnInFlight: boolean;
+  /** Failed polls in a row before this one. */
+  consecutiveErrors: number;
 }): JobPollStep {
+  // A failed poll changes nothing except the error budget. Nothing is
+  // untracked, so no settle can be lost to a network blip; the loop simply
+  // stops once the budget is spent, and a wake event revives it.
+  if (input.result === null) {
+    const consecutiveErrors = input.consecutiveErrors + 1;
+    return {
+      running: null,
+      settling: [],
+      refreshThread: false,
+      errorCopy: null,
+      consecutiveErrors,
+      halted: isPollHalted(consecutiveErrors),
+    };
+  }
+
   const { running, settled } = input.result;
 
   if (input.chatTurnInFlight) {
-    return { running, settling: [], refreshThread: false, errorCopy: null };
+    return {
+      running,
+      settling: [],
+      refreshThread: false,
+      errorCopy: null,
+      consecutiveErrors: 0,
+      halted: false,
+    };
   }
 
   // Only ids we are actually tracking: a settled row for anything else (a job
@@ -176,5 +233,10 @@ export function reduceJobPoll(input: {
     errorCopy: failure
       ? GENERATION_FAILURE_COPY[failure.failure ?? "failed"]
       : null,
+    // The response arrived, so the budget is whole again — even if the
+    // generation it reported had itself failed. This counts transport
+    // failures, not generation failures.
+    consecutiveErrors: 0,
+    halted: false,
   };
 }

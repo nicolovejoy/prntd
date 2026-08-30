@@ -50,6 +50,7 @@ import {
   shouldPoll,
   isAtGenerationCap,
   reduceJobPoll,
+  isPollHalted,
   type RunningJob,
 } from "@/lib/generation-poll";
 
@@ -159,6 +160,11 @@ function DesignPageInner({ initialThreadPromise }: Props) {
   const [pending, setPending] = useState(0);
   // Bumped after every poll to re-arm the timer effect (see below).
   const [pollNonce, setPollNonce] = useState(0);
+  // Failed polls in a row. Past the budget the loop goes dormant rather than
+  // retrying forever — an abandoned tab whose design was deleted underneath it
+  // would otherwise issue a request every five seconds indefinitely, which on
+  // a phone is pure battery and data drain. A wake event resets it.
+  const [pollErrors, setPollErrors] = useState(0);
   // Last failed generation, shown inline. Cleared when a new one starts.
   const [genError, setGenError] = useState<string | null>(null);
 
@@ -180,6 +186,8 @@ function DesignPageInner({ initialThreadPromise }: Props) {
   // state change.
   const loadingRef = useRef(false);
   loadingRef.current = loading;
+  const pollErrorsRef = useRef(0);
+  pollErrorsRef.current = pollErrors;
 
   /**
    * Re-read chat AND gallery together. The assistant turn for a generation is
@@ -217,21 +225,30 @@ function DesignPageInner({ initialThreadPromise }: Props) {
     polling.current = true;
     try {
       const tracked = trackedRef.current;
+      // null on a failed request — the reducer turns that into an error-budget
+      // step rather than the caller branching on it here.
       const result = await readJobs(designId.current, tracked);
-      if (!result) return;
 
       // All the branching is in a pure reducer (generation-poll.ts) so the
-      // deferral and refresh decisions are testable without a component.
+      // deferral, refresh and error-budget decisions are testable without a
+      // component.
       const step = reduceJobPoll({
         trackedJobIds: tracked,
         result,
         chatTurnInFlight: loadingRef.current,
+        consecutiveErrors: pollErrorsRef.current,
       });
+      setPollErrors(step.consecutiveErrors);
+      pollErrorsRef.current = step.consecutiveErrors;
 
-      // Running is always adopted. `tracked` is NOT narrowed here: the settled
-      // ids stay tracked for the whole settle, which is what holds `active`
-      // true and keeps the revisit-cache write-back gated while the thread is
-      // mid-change. Untracking below is the last thing that happens.
+      // A failed poll leaves the running list alone: blanking it would flicker
+      // the spinner rows off a generation that is still going.
+      if (step.running === null) return;
+
+      // `tracked` is NOT narrowed here: the settled ids stay tracked for the
+      // whole settle, which is what holds `active` true and keeps the
+      // revisit-cache write-back gated while the thread is mid-change.
+      // Untracking below is the last thing that happens.
       setJobs({ running: step.running, tracked });
 
       if (step.errorCopy) setGenError(step.errorCopy);
@@ -265,7 +282,10 @@ function DesignPageInner({ initialThreadPromise }: Props) {
   // Poll only while something is running or a settled outcome is still
   // unapplied; stop entirely otherwise. The schedule lives in generation-poll
   // so the arithmetic is testable without a component.
-  const active = shouldPoll(running.length, jobs.tracked.length);
+  // Halted is a stop, not a give-up: the wake handler below clears the budget,
+  // so the loop resumes the moment the user looks at the tab again.
+  const active =
+    shouldPoll(running.length, jobs.tracked.length) && !isPollHalted(pollErrors);
   useEffect(() => {
     if (!active) {
       pollStartedAt.current = null;
@@ -292,6 +312,11 @@ function DesignPageInner({ initialThreadPromise }: Props) {
     function onWake() {
       if (document.visibilityState !== "visible") return;
       if (!designExistsRef.current) return;
+      // Coming back is the resume path for a dormant loop: clear the budget
+      // first (both the ref this poll reads and the state the timer effect
+      // gates on) so one wake both retries now and re-arms the loop.
+      pollErrorsRef.current = 0;
+      setPollErrors(0);
       void pollOnce();
     }
     document.addEventListener("visibilitychange", onWake);
