@@ -22,7 +22,7 @@ import {
   mockupCacheProductPrefix,
 } from "@/lib/mockup-cache";
 import { renderAndCacheMockup } from "@/lib/mockup-render";
-import { generateAnchoredTransparent } from "@/lib/replicate";
+import { editTransparent, EDIT_COST_PER_IMAGE } from "@/lib/ideogram";
 import {
   insertDesignImage,
   findPlacementRender,
@@ -36,8 +36,6 @@ import {
 } from "@/lib/back-sources";
 import { resolveLastPurchaseDefaults } from "@/lib/last-purchase";
 import type { PurchaseDefaults } from "@/lib/purchase-defaults";
-
-const COST_PER_GENERATION = 0.03;
 
 /**
  * Expose the server-side multi-placement kill-switch to client components.
@@ -225,11 +223,7 @@ export async function getOrCreatePlacementRender(
   );
   let imageUrl: string;
   try {
-    imageUrl = await generateAnchoredTransparent(
-      prompt,
-      primary.imageUrl,
-      targetAspect
-    );
+    imageUrl = await editTransparent(prompt, primary.imageUrl, targetAspect);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("getOrCreatePlacementRender failed:", msg);
@@ -255,7 +249,7 @@ export async function getOrCreatePlacementRender(
     imageUrl: r2Url,
     aspectRatio: targetAspect,
     prompt,
-    generationCost: COST_PER_GENERATION,
+    generationCost: EDIT_COST_PER_IMAGE,
     productId,
     placementId: placement.id,
     // Anchor the render to its source so a later lookup matches the exact pick.
@@ -272,7 +266,7 @@ export async function getOrCreatePlacementRender(
     .update(designTable)
     .set({
       generationCount: sql`${designTable.generationCount} + 1`,
-      generationCost: sql`${designTable.generationCost} + ${COST_PER_GENERATION}`,
+      generationCost: sql`${designTable.generationCost} + ${EDIT_COST_PER_IMAGE}`,
       mockupUrls: null,
       updatedAt: new Date(),
     })

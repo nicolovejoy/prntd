@@ -8,8 +8,9 @@
  * findPlacementRender, so the default front resolves the primary-anchored
  * render and a pinned front resolves its own.
  *
- * Replicate is mocked and must never be called — both lookups are cache
- * hits; a miss here would be a $0.03 re-render, not a wrong image.
+ * Ideogram's editTransparent is mocked and must never be called — both
+ * lookups are cache hits; a miss here would be a real re-render, not a
+ * wrong image.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { eq } from "drizzle-orm";
@@ -36,12 +37,13 @@ vi.mock("@/lib/auth", () => ({
 
 vi.mock("next/headers", () => ({ headers: async () => new Headers() }));
 
-const replicate = vi.hoisted(() => ({
-  generateAnchoredTransparent: vi.fn(async () => {
+const ideogram = vi.hoisted(() => ({
+  editTransparent: vi.fn(async () => {
     throw new Error("must not generate — both lookups are cache hits");
   }),
+  EDIT_COST_PER_IMAGE: 0.2,
 }));
-vi.mock("@/lib/replicate", () => replicate);
+vi.mock("@/lib/ideogram", () => ideogram);
 
 vi.mock("@/lib/printful", () => ({
   createMockupTask: vi.fn(),
@@ -69,7 +71,7 @@ describe("getOrCreatePlacementRender — front lookups anchored (#138 defect 2)"
 
   beforeEach(async () => {
     const db = (h.db = await createTestDb()) as Db;
-    replicate.generateAnchoredTransparent.mockClear();
+    ideogram.editTransparent.mockClear();
     h.session = { user: { id: "nico" } };
 
     await makeUser(db, "nico");
@@ -118,7 +120,7 @@ describe("getOrCreatePlacementRender — front lookups anchored (#138 defect 2)"
   it("default front (no source) returns the primary-anchored render, not the newest", async () => {
     const result = await getOrCreatePlacementRender(designId, PRODUCT);
     expect(result.imageUrl).toBe("https://img.example/primary-front-render.png");
-    expect(replicate.generateAnchoredTransparent).not.toHaveBeenCalled();
+    expect(ideogram.editTransparent).not.toHaveBeenCalled();
   });
 
   it("a pinned front returns the render anchored on the pin", async () => {
@@ -129,6 +131,6 @@ describe("getOrCreatePlacementRender — front lookups anchored (#138 defect 2)"
       siblingId
     );
     expect(result.imageUrl).toBe("https://img.example/sibling-front-render.png");
-    expect(replicate.generateAnchoredTransparent).not.toHaveBeenCalled();
+    expect(ideogram.editTransparent).not.toHaveBeenCalled();
   });
 });
