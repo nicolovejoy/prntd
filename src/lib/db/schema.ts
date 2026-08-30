@@ -300,7 +300,7 @@ export const ledgerEntry = sqliteTable(
 /**
  * Per-day generation counters for the guest-funnel abuse guard (#26 A3).
  * One row per (bucket, day): bucket is "user:<id>" (the anon or real user) or
- * "ip:<addr>". Incremented before each Replicate/Anthropic generation; over the
+ * "ip:<addr>". Incremented before each Ideogram/Anthropic generation; over the
  * daily cap → the action returns a "sign in to keep designing" message with no
  * API spend. Ephemeral accounting, not financial — safe to prune old days.
  */

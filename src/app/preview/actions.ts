@@ -134,7 +134,7 @@ export async function generateMockup(
  *
  *   1. Read design.primary_image_id. Null → throw (caller redirects).
  *   2. If the primary's aspect already fits the product's placement,
- *      return the primary directly. No new row, no Replicate spend.
+ *      return the primary directly. No new row, no image-API spend.
  *   3. Else look up an existing (designId, productId, placementId) row.
  *      Hit → return.
  *   4. Else generate anchored on primary, insert design_image row,

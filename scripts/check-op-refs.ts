@@ -11,15 +11,14 @@
  *
  * Background: issue #154. Seven of eight references in .env.tpl point at
  * items that don't exist, and a reference to a missing item is injected as an
- * EMPTY value rather than failing — which is how REPLICATE_API_TOKEN ended up
- * blank and surfaced as a Replicate 401.
+ * EMPTY value rather than failing — which is how a token could end up blank
+ * and surface as a provider 401.
  */
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 
 /** Extra items to report labels for, so a broken ref can be repointed. */
 const CANDIDATES = [
-  "Replicate.API.Key",
   "Ideogram.API.Key",
   "Turso",
   "prntd-preview-turso-token",
