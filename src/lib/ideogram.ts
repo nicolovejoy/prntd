@@ -67,7 +67,9 @@ export async function editTransparent(
   const apiKey = process.env.IDEOGRAM_API_KEY;
   if (!apiKey) throw new Error("IDEOGRAM_API_KEY missing");
 
-  const anchorRes = await fetch(anchorImageUrl);
+  const anchorRes = await withTimeout("editAnchorFetch", EDIT_TIMEOUT_MS, () =>
+    fetch(anchorImageUrl)
+  );
   if (!anchorRes.ok) {
     throw new Error(`Failed to download anchor image: ${anchorRes.status}`);
   }
