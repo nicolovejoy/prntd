@@ -216,3 +216,131 @@ Everything else in this slice:
 - #169's `design_spec_json`. It makes lane context better and should land
   near slice 2, but it is its own change with its own issue.
 - Any change to the buy flow, /preview, or the Shop.
+
+## Running this in the cloud
+
+Each slice below is a self-contained kickoff prompt for a cloud session at
+`https://claude.ai/code` on the **prntd** repo. They assume no carried-over
+context: paste one whole, in full.
+
+**Before the first one:** this plan must be reachable. Either merge the PR
+that adds it, or start the session with `git checkout docs/studio-plan`. A
+cloud agent told to read a file that isn't on its branch will improvise.
+
+**One slice per session, in order.** Slices 2–5 each build on the branch
+before them, so let each land before starting the next. Do not run a local
+session on a branch a cloud agent is pushing to.
+
+Every prompt ends with the same gates because every one of them has been
+skipped by an agent at least once here: `npm run lint`, `npm run typecheck`,
+`npm test`, `npm run build`. Typecheck is the one CI has caught.
+
+### Slice 1
+
+> Read `docs/studio-plan.md`, then implement **Slice 1 only** ("Generate
+> always generates"). Do not start slices 2–5.
+>
+> Three live defects, all verified against the prod database:
+> (1) `prepareGeneration` in `src/app/design/actions.ts` bails to a clarifying
+> question instead of generating — the Haiku readiness pre-check around :304,
+> and `brief.operation === "clarify"` around :323. Generate must always
+> produce a generation.
+> (2) When the brief wants to clarify, render anyway and attach the question
+> alongside the result. A question is never a substitute for a render.
+> (3) Enter sends a chat message while the button generates, so both produce
+> text and no image. One submit control; Enter generates.
+>
+> Quota: any path that spends a unit without creating an `image_generation`
+> row must refund it.
+>
+> Acceptance: type the verbatim string "dog doing calesthenics" (sic), press
+> Generate, get an image. Pin that exact string in a test the way PR #142
+> pinned #137's repro. Use TDD.
+>
+> No schema change is needed. If you think you need one, stop and say so.
+> Run lint, typecheck, test and build before opening the PR.
+
+### Slice 2
+
+> Read `docs/studio-plan.md`, then implement **Slice 2 only** (the Studio read
+> model and screen). Do not build the composer or anchoring — that is slice 3.
+>
+> Add `/studio`: lanes are the signed-in user's open conversations
+> (`design.closed_at is null`), most recently active first; cells are that
+> conversation's images in creation order; a running `image_generation` row
+> renders as a pending cell with elapsed time. Read-only. Nothing in the nav
+> points here yet.
+>
+> Assemble lanes in one query path with no N+1 per conversation, and test it
+> against a real database using the existing harness in
+> `src/lib/__tests__/test-db.ts`. Poll for in-flight work with the existing
+> machinery — `src/lib/generation-poll.ts` already holds the backoff logic and
+> `getDesignJobs` already exists.
+>
+> Phone-first: judge every layout decision at 390px wide. Copy follows the
+> Clean Label voice in `docs/design-system.md` Part 1 — plain and quiet.
+>
+> No schema change is needed. Run lint, typecheck, test and build before
+> opening the PR.
+
+### Slice 3
+
+> Read `docs/studio-plan.md`, especially the three settled decisions under
+> "Slice 3 — Anchor and composer", then implement **Slice 3 only**.
+>
+> Tapping a cell anchors it. The docked composer carries a chip holding a crop
+> of the anchored image plus a dismiss control; dismissing clears the anchor
+> and the same box then starts a new conversation. Generate with an anchor is
+> an anchored edit of that image; Generate with no anchor creates a
+> conversation and generates into it. The concurrency cap is visible and
+> explains itself.
+>
+> Three decisions are already made — do not relitigate them: the composer
+> stays docked (not a per-lane sheet), the anchor stays where the user put it
+> (it never advances to a result), and a lane opens scrolled to its newest
+> image.
+>
+> The anchor must survive a poll refresh landing mid-typing. That is the
+> failure mode most worth a test.
+>
+> No schema change is needed. Run lint, typecheck, test and build before
+> opening the PR.
+
+### Slice 4
+
+> Read `docs/studio-plan.md`, then implement **Slice 4 only** (auto-archive).
+>
+> A conversation with no activity for 3 days leaves the Studio by having
+> `design.closed_at` set. Activity means a chat turn, a generation, or a
+> primary-image change. `closed_at` already exists and already means
+> "read-only record", `assertConversationOpen` already enforces it, and Reopen
+> already exists — this slice adds a new *writer* of that state, not a state.
+>
+> Sweep lazily on reads that already happen (the Studio's own load), with the
+> existing `sweep-generations` cron as the backstop. **Do not add a cron**:
+> `vercel.json` is at Vercel Hobby's two-cron limit. Copy the shape of
+> `sweepStaleJobs` in `src/lib/generation-job.ts`, including its
+> `scope: "user" | "all"` argument.
+>
+> Never archive a conversation that has a running generation. Add an archive
+> list, and make reopening return the lane to the Studio.
+>
+> No schema change is needed. Run lint, typecheck, test and build before
+> opening the PR.
+
+### Slice 5
+
+> Read `docs/studio-plan.md`, then implement **Slice 5 only** (My Designs as
+> the library, and the navigation).
+>
+> My Designs becomes a grid of the user's images rather than one card per
+> conversation. The image detail page at `/d/[imageId]` already handles
+> owner-private images; give it an "Open conversation" action that reaches the
+> source conversation, reopening it if it had archived. Studio and My Designs
+> become nav peers, and a signed-in user lands on the Studio.
+>
+> Ship every image, with no explicit keep/save action — see the open question
+> in the plan.
+>
+> No schema change is needed. Run lint, typecheck, test and build before
+> opening the PR.
