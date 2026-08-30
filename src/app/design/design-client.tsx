@@ -51,6 +51,7 @@ import {
   isAtGenerationCap,
   reduceJobPoll,
   isPollHalted,
+  mergeJobPollState,
   type RunningJob,
 } from "@/lib/generation-poll";
 
@@ -223,6 +224,9 @@ function DesignPageInner({ initialThreadPromise }: Props) {
   const pollOnce = useCallback(async () => {
     if (polling.current) return;
     polling.current = true;
+    // Stamped before the request so the merge below can tell a job this tab
+    // adopted DURING the round trip from one the server has genuinely settled.
+    const pollStartedAtMs = Date.now();
     try {
       const tracked = trackedRef.current;
       // null on a failed request — the reducer turns that into an error-budget
@@ -245,11 +249,23 @@ function DesignPageInner({ initialThreadPromise }: Props) {
       // the spinner rows off a generation that is still going.
       if (step.running === null) return;
 
-      // `tracked` is NOT narrowed here: the settled ids stay tracked for the
-      // whole settle, which is what holds `active` true and keeps the
-      // revisit-cache write-back gated while the thread is mid-change.
-      // Untracking below is the last thing that happens.
-      setJobs({ running: step.running, tracked });
+      // Functional + merging, never an assignment of the captured view: a
+      // `generateDesign` that resolved during this round trip has already
+      // added its job, and overwriting both lists with the poll's pre-request
+      // state would drop it (see mergeJobPollState). `tracked` is also NOT
+      // narrowed here: the settled ids stay tracked for the whole settle,
+      // which is what holds `active` true and keeps the revisit-cache
+      // write-back gated while the thread is mid-change. Untracking below is
+      // the last thing that happens.
+      const polledRunning = step.running;
+      setJobs((prev) =>
+        mergeJobPollState({
+          prev,
+          polledRunning,
+          trackedAtPollStart: tracked,
+          pollStartedAtMs,
+        })
+      );
 
       if (step.errorCopy) setGenError(step.errorCopy);
       if (step.settling.length === 0) return;
@@ -498,7 +514,13 @@ function DesignPageInner({ initialThreadPromise }: Props) {
         setJobs((prev) => ({
           running: [
             ...prev.running,
-            { jobId: result.jobId, generationNumber: result.generationNumber },
+            {
+              jobId: result.jobId,
+              generationNumber: result.generationNumber,
+              // Client clock: an in-flight poll that predates this stamp must
+              // not drop the job just because the server had not seen it.
+              adoptedAt: Date.now(),
+            },
           ],
           tracked: [...prev.tracked, result.jobId],
         }));

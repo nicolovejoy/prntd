@@ -22,8 +22,10 @@
  * ordinary path. A ceiling here would just leave old orphans `running`
  * forever, which is the opposite of a backstop.
  */
-import { deleteImageObject } from "@/lib/r2";
-import { sweepStaleJobs } from "@/lib/generation-job";
+import { eq } from "drizzle-orm";
+import { deleteObjectByKey } from "@/lib/r2";
+import { image as imageTable } from "@/lib/db/schema";
+import { sweepStaleJobs, type GenerationJob } from "@/lib/generation-job";
 
 /**
  * Max stale jobs one cron invocation will process. Chosen against the
@@ -40,7 +42,12 @@ export const SWEEP_GENERATIONS_LIMIT = 100;
 
 export type SweepGenerationsDeps = {
   sweep: typeof sweepStaleJobs;
-  reclaimImageObject: (imageId: string) => Promise<void>;
+  /**
+   * Reclaim one swept job's stranded R2 object. Resolves `true` when the
+   * object was deleted, `false` when it was deliberately kept because a live
+   * `image` row points at it (see reclaimJobImageObject).
+   */
+  reclaimImageObject: (job: GenerationJob) => Promise<boolean>;
 };
 
 export type SweepGenerationsResult = {
@@ -50,6 +57,8 @@ export type SweepGenerationsResult = {
   failed: number;
   /** Of those, how many had their stranded R2 object successfully deleted. */
   reclaimed: number;
+  /** Of those, how many objects were KEPT because a live image row uses them. */
+  skipped: number;
   /** R2 deletes that threw — logged, never fails the run. */
   reclaimErrors: number;
 };
@@ -65,11 +74,13 @@ export async function sweepOrphanedGenerations(
   });
 
   let reclaimed = 0;
+  let skipped = 0;
   let reclaimErrors = 0;
   for (const job of jobs) {
     try {
-      await deps.reclaimImageObject(job.imageId);
-      reclaimed += 1;
+      const deleted = await deps.reclaimImageObject(job);
+      if (deleted) reclaimed += 1;
+      else skipped += 1;
     } catch (err) {
       reclaimErrors += 1;
       console.error("[sweep-generations] R2 reclaim failed", {
@@ -84,6 +95,7 @@ export async function sweepOrphanedGenerations(
     scanned,
     failed: jobs.length,
     reclaimed,
+    skipped,
     reclaimErrors,
   };
 
@@ -95,8 +107,36 @@ export async function sweepOrphanedGenerations(
   return result;
 }
 
-/** Production deps: the real lifecycle sweep + the real R2 delete. */
+/**
+ * Delete a swept job's R2 object — unless the continuation actually won.
+ *
+ * The sweep and the continuation are two processes racing on one job row, and
+ * the row losing (status flipped to `failed`) does not prove the object is an
+ * orphan: the continuation's batch may already have inserted the `image` row,
+ * the conversation link and the chat turn, and possibly claimed the design's
+ * primary image. Deleting the object then leaves a live row pointing at
+ * nothing — a permanently broken hero image. An `image` row with this id is
+ * exactly the evidence that happened, so its presence means keep the object.
+ * (The continuation's own deadline check makes this race very unlikely; this
+ * is the guard that makes losing it harmless rather than destructive.)
+ *
+ * Deletes by the job row's stored `r2Key` rather than re-deriving
+ * `images/{imageId}.png`: the key the writer recorded is the authority.
+ */
+export async function reclaimJobImageObject(job: GenerationJob): Promise<boolean> {
+  const { db } = await import("@/lib/db");
+  const [live] = await db
+    .select({ id: imageTable.id })
+    .from(imageTable)
+    .where(eq(imageTable.id, job.imageId))
+    .limit(1);
+  if (live) return false;
+  await deleteObjectByKey(job.r2Key);
+  return true;
+}
+
+/** Production deps: the real lifecycle sweep + the guarded R2 reclaim. */
 export const defaultSweepGenerationsDeps: SweepGenerationsDeps = {
   sweep: sweepStaleJobs,
-  reclaimImageObject: deleteImageObject,
+  reclaimImageObject: reclaimJobImageObject,
 };

@@ -10,6 +10,7 @@ import {
   GENERATION_FAILURE_COPY,
   GENERATION_CAP,
   DEFAULT_POLL_SCHEDULE,
+  mergeJobPollState,
   type JobPollResult,
 } from "../generation-poll";
 import { GENERATION_CONCURRENCY_CAP } from "../generation-job";
@@ -335,5 +336,96 @@ describe("isPollHalted", () => {
   it("honours an injected threshold", () => {
     expect(isPollHalted(2, 3)).toBe(false);
     expect(isPollHalted(3, 3)).toBe(true);
+  });
+});
+
+/**
+ * The clobber this exists to prevent: a poll's round trip overlapping a
+ * `generateDesign` that resolves mid-flight. Applying the poll's pre-request
+ * view wholesale dropped job B from both lists — which either stopped the
+ * poll loop dead or left B running but untracked, so its image never landed.
+ */
+describe("mergeJobPollState", () => {
+  const POLL_START = 1_000;
+  const A = { jobId: "a", generationNumber: 1, adoptedAt: 500 };
+  const B = { jobId: "b", generationNumber: 2, adoptedAt: 1_200 };
+
+  it("keeps a job adopted during the round trip that the poll never saw", () => {
+    const merged = mergeJobPollState({
+      // The state as `handleGenerate` left it while the poll was in flight.
+      prev: { running: [A, B], tracked: ["a", "b"] },
+      // The server's view predates B entirely.
+      polledRunning: [A],
+      trackedAtPollStart: ["a"],
+      pollStartedAtMs: POLL_START,
+    });
+
+    expect(merged.running.map((j) => j.jobId)).toEqual(["a", "b"]);
+    expect(merged.tracked).toEqual(["a", "b"]);
+  });
+
+  it("drops a job that was adopted before the request and is gone from it", () => {
+    const merged = mergeJobPollState({
+      prev: { running: [A], tracked: ["a"] },
+      polledRunning: [],
+      trackedAtPollStart: ["a"],
+      pollStartedAtMs: POLL_START,
+    });
+
+    // A settled: the server saw the request and no longer reports it. The id
+    // stays tracked so the settle can still be applied.
+    expect(merged.running).toEqual([]);
+    expect(merged.tracked).toEqual(["a"]);
+  });
+
+  it("never resurrects a server-sourced row the poll stopped reporting", () => {
+    // No adoptedAt = this row came from an earlier poll, so the server is
+    // authoritative for it.
+    const fromServer = { jobId: "c", generationNumber: 3 };
+    const merged = mergeJobPollState({
+      prev: { running: [fromServer], tracked: ["c"] },
+      polledRunning: [],
+      trackedAtPollStart: ["c"],
+      pollStartedAtMs: POLL_START,
+    });
+
+    expect(merged.running).toEqual([]);
+  });
+
+  it("prefers the server's row for a job both sides know about", () => {
+    const merged = mergeJobPollState({
+      prev: { running: [B], tracked: ["b"] },
+      polledRunning: [{ jobId: "b", generationNumber: 2 }],
+      trackedAtPollStart: ["b"],
+      pollStartedAtMs: POLL_START,
+    });
+
+    expect(merged.running).toHaveLength(1);
+    expect(merged.running[0].adoptedAt).toBeUndefined();
+  });
+
+  it("orders the merged list by generation number", () => {
+    const merged = mergeJobPollState({
+      prev: {
+        running: [A, B, { jobId: "z", generationNumber: 3, adoptedAt: 1_300 }],
+        tracked: ["a", "b", "z"],
+      },
+      polledRunning: [A],
+      trackedAtPollStart: ["a"],
+      pollStartedAtMs: POLL_START,
+    });
+
+    expect(merged.running.map((j) => j.generationNumber)).toEqual([1, 2, 3]);
+  });
+
+  it("unions tracked ids rather than replacing them", () => {
+    const merged = mergeJobPollState({
+      prev: { running: [], tracked: ["b"] },
+      polledRunning: [],
+      trackedAtPollStart: ["a"],
+      pollStartedAtMs: POLL_START,
+    });
+
+    expect(merged.tracked.sort()).toEqual(["a", "b"]);
   });
 });

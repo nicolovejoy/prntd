@@ -18,7 +18,7 @@ import {
   sweepStaleJobs,
   cancelGenerationJob,
   GENERATION_CONCURRENCY_CAP,
-  STALE_JOB_MS,
+  CONTINUATION_DEADLINE_MS,
 } from "@/lib/generation-job";
 import { db } from "@/lib/db";
 import {
@@ -372,6 +372,13 @@ async function prepareGeneration({
   // strip no matter which provider call returns first.
   const newImageId = crypto.randomUUID();
   const [generationNumber] = await reserveGenerationNumbers(designId, 1);
+  // Computed BEFORE the insert on purpose. Everything the caller's
+  // direct-refund catch covers must happen while no job row exists; a throw in
+  // here after a successful insert would refund inline AND leave a `running`
+  // row for the sweeper to refund again. The insert is the last thing in this
+  // function that can throw.
+  const storedPrompt =
+    brief.operation === "edit" ? brief.editInstruction : renderSpecSummary(brief.spec);
 
   const inserted = await insertGenerationJob({
     designId,
@@ -394,13 +401,16 @@ async function prepareGeneration({
     await refundGenerationQuota({ userId, ip, day: dayKey }).catch((e) =>
       console.error("refundGenerationQuota failed:", e)
     );
-    await persistClarification(designId, AT_CAPACITY_MESSAGE);
+    // Swallowed rather than thrown: the refund above already happened, so a
+    // throw from here would reach the caller's direct-refund catch and give
+    // the same unit back twice. A missing assistant turn is the smaller loss.
+    await persistClarification(designId, AT_CAPACITY_MESSAGE).catch((e) =>
+      console.error("persistClarification failed:", e)
+    );
     return { kind: "at_capacity", message: AT_CAPACITY_MESSAGE };
   }
 
   const job = inserted.job;
-  const storedPrompt =
-    brief.operation === "edit" ? brief.editInstruction : renderSpecSummary(brief.spec);
 
   // Return the continuation rather than scheduling it: the caller schedules it
   // outside its direct-refund try, so no span where this job row exists is also
@@ -449,11 +459,11 @@ type GenerationJobParams = {
  * The background half of a generation: provider call → R2 → one atomic batch
  * of writes. Runs inside `after()`, so it must never reject.
  *
- * Accepted edge case: a continuation slower than STALE_JOB_MS can land after
- * the lazy sweeper already failed and refunded this job. The deadline check
- * below closes the common case (skip the write, drop the object); what remains
- * is a user who got both their image and their quota unit back. Generous,
- * rare, harmless — deliberately not engineered away.
+ * Accepted edge case: a continuation slower than CONTINUATION_DEADLINE_MS can
+ * land after the lazy sweeper already failed and refunded this job. The
+ * deadline check below closes the common case (skip the write, drop the
+ * object); what remains is a user who got both their image and their quota
+ * unit back. Generous, rare, harmless — deliberately not engineered away.
  */
 async function runGenerationJob(params: GenerationJobParams): Promise<void> {
   const {
@@ -472,11 +482,16 @@ async function runGenerationJob(params: GenerationJobParams): Promise<void> {
     const buffer = Buffer.from(await response.arrayBuffer());
     const r2Url = await uploadImageObject(imageId, buffer);
 
-    // Self-fail against the deadline BEFORE writing: past STALE_JOB_MS a
-    // sweeper may already have failed and refunded this job, and
-    // succeedJobStatement would then match zero rows while the image row
-    // landed anyway. Skip the write and drop the orphaned object.
-    if (Date.now() - params.startedAt.getTime() > STALE_JOB_MS) {
+    // Self-fail against the deadline BEFORE writing: past the cutoff a sweeper
+    // may already have failed and refunded this job, and succeedJobStatement
+    // would then match zero rows while the image row landed anyway. Skip the
+    // write and drop the orphaned object.
+    //
+    // The deadline is CONTINUATION_DEADLINE_MS, strictly below the sweep's
+    // STALE_JOB_MS, so the two can never overlap — with no margin, a
+    // continuation clearing this check at 4:59.9 could still be mid-batch when
+    // the cron sweep fails the row and reclaims its R2 object.
+    if (Date.now() - params.startedAt.getTime() > CONTINUATION_DEADLINE_MS) {
       console.warn("[generation] continuation finished past the deadline", {
         jobId,
         designId,
@@ -498,7 +513,11 @@ async function runGenerationJob(params: GenerationJobParams): Promise<void> {
     //  - cost accrues UNCONDITIONALLY (the render was paid for either way);
     //  - the primary-image claim is guarded, so a newer succeeded generation
     //    keeps the hero, and a cancelled job appends its image without
-    //    clobbering what the user moved on to.
+    //    clobbering what the user moved on to. The subquery skips CANCELLED
+    //    newer generations for the same reason this job skips the claim when
+    //    itself cancelled: a generation the user walked away from is not a
+    //    hero, so it must not block an older, still-wanted one from becoming
+    //    one.
     // Folding the cost increment into the guarded statement would silently
     // drop the cost whenever a newer job had already claimed primary.
     await db.batch([
@@ -539,6 +558,7 @@ async function runGenerationJob(params: GenerationJobParams): Promise<void> {
             select 1 from image_generation g
             where g.design_id = ${designId}
               and g.status = 'succeeded'
+              and g.cancelled_at is null
               and g.generation_number > ${generationNumber}
           )
           and (select cancelled_at from image_generation where id = ${jobId}) is null

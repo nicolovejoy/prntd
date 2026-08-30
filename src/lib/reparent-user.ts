@@ -7,6 +7,7 @@ import {
   store as storeTable,
   product as productTable,
   image as imageTable,
+  imageGeneration as imageGenerationTable,
 } from "@/lib/db/schema";
 
 /**
@@ -19,7 +20,11 @@ import {
  * design_image + chat_message follow via design_id; everything else owns a
  * user/owner column directly. The Model B `image` table denormalizes owner_id,
  * so it re-parents directly here (placement_render / conversation_image follow
- * via design_id, listing via its image). When later migration slices add
+ * via design_id, listing via its image). `image_generation.user_id` is a real
+ * FK to `user.id` and outlives the generation (the row is only removed with
+ * the design), so a guest who generated once and then signed up would make the
+ * anonymous plugin's delete fail on that FK if it were left behind. When later
+ * migration slices add
  * user-owned tables, extend this list — the integration test seeds one row per
  * table as the checklist.
  */
@@ -36,5 +41,9 @@ export async function reparentUserData(
     db.update(storeTable).set({ ownerId: toId }).where(eq(storeTable.ownerId, fromId)),
     db.update(productTable).set({ ownerId: toId }).where(eq(productTable.ownerId, fromId)),
     db.update(imageTable).set({ ownerId: toId }).where(eq(imageTable.ownerId, fromId)),
+    db
+      .update(imageGenerationTable)
+      .set({ userId: toId })
+      .where(eq(imageGenerationTable.userId, fromId)),
   ]);
 }

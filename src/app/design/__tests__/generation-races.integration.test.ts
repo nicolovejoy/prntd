@@ -100,6 +100,17 @@ vi.mock("@/lib/r2", () => ({
   deleteImageObject: vi.fn(async () => {}),
 }));
 
+// Partially mocked so one test can make the LAST pre-insert statement throw
+// (the refund-ownership boundary); every other call passes through.
+vi.mock("@/lib/design-spec", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/design-spec")>()),
+  renderSpecSummary: vi.fn(
+    (
+      spec: Parameters<typeof import("@/lib/design-spec").renderSpecSummary>[0]
+    ) => spec.subject
+  ),
+}));
+
 vi.mock("@/lib/generators/registry", () => {
   const ideogram = {
     id: "ideogram",
@@ -120,6 +131,7 @@ const { generateDesign, cancelGeneration, getDesignJobs } = await import(
 const { cancelGenerationJob, sweepStaleJobs, STALE_JOB_MS, GENERATION_CONCURRENCY_CAP } =
   await import("@/lib/generation-job");
 const ai = await import("@/lib/ai");
+const designSpec = await import("@/lib/design-spec");
 const { auth: authMock } = await import("@/lib/auth");
 const r2 = await import("@/lib/r2");
 const registry = await import("@/lib/generators/registry");
@@ -370,6 +382,26 @@ describe("generateDesign — job insert + continuation", () => {
     expect(job.cancelledAt).not.toBeNull();
   });
 
+  it("lets an older job claim primary when the newer one was cancelled", async () => {
+    const designId = await seedDesign(0);
+
+    const first = expectQueued(await generateDesign(designId, "one"));
+    const second = expectQueued(await generateDesign(designId, "two"));
+
+    // The user cancels the newer generation, then it lands first.
+    expect(
+      await cancelGenerationJob({ jobId: second.jobId, userId: "u1", db: testDb })
+    ).toBe(true);
+    await drainOne(1);
+    expect((await getDesignRow(designId)).primaryImageId).toBeNull();
+
+    await drainOne(0);
+
+    // The only generation the user still wants becomes the hero. A cancelled
+    // newer job must not block the claim just because it succeeded.
+    expect((await getDesignRow(designId)).primaryImageId).toBe(first.imageId);
+  });
+
   it("deletes the orphaned R2 object and fails the job when the DB batch fails", async () => {
     process.env.GUEST_FUNNEL_ENABLED = "true";
     const designId = await seedDesign(0);
@@ -499,6 +531,40 @@ describe("refund ownership across the job-row boundary", () => {
     });
     expect(again.swept).toBe(0);
     expect(await userQuotaCount()).toBe(0);
+  });
+
+  it("refunds a unit only once when the last pre-insert step throws", async () => {
+    process.env.GUEST_FUNNEL_ENABLED = "true";
+    const designId = await seedDesign(0);
+
+    // A first, clean generation so the bucket holds a unit that must survive —
+    // the refund floors at 0, so a double refund of a lone unit is invisible.
+    expectQueued(await generateDesign(designId, "one"));
+    await drainAfter();
+    expect(await userQuotaCount()).toBe(1);
+
+    // renderSpecSummary is the last statement before insertGenerationJob. If
+    // it ran after the insert, this throw would refund inline AND strand a
+    // `running` row for the sweeper to refund a second time.
+    vi.mocked(designSpec.renderSpecSummary).mockImplementationOnce(() => {
+      throw new Error("summary exploded");
+    });
+
+    await expect(generateDesign(designId, "two")).rejects.toThrow(
+      "summary exploded"
+    );
+
+    // No second job row, so nothing for a sweeper to refund...
+    expect(await jobs(designId)).toHaveLength(1);
+    const sweep = await sweepStaleJobs({
+      scope: "design",
+      designId,
+      now: new Date(Date.now() + STALE_JOB_MS + 1000),
+      db: testDb,
+    });
+    expect(sweep.swept).toBe(0);
+    // ...and the inline refund gave back exactly the one unit it consumed.
+    expect(await userQuotaCount()).toBe(1);
   });
 
   it("refunds inline when the throw lands before any job row exists", async () => {

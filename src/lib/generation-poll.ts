@@ -105,6 +105,13 @@ export const GENERATION_FAILURE_COPY: Record<GenerationFailure, string> = {
 export interface RunningJob {
   jobId: string;
   generationNumber: number;
+  /**
+   * Client clock (ms) when THIS tab adopted the job from its own
+   * `generateDesign` call. Absent on rows that came back from a poll — the
+   * server is authoritative for those, so they need no protection.
+   * See mergeJobPollState.
+   */
+  adoptedAt?: number;
 }
 
 /** The shape `getDesignJobs` reports back. */
@@ -239,4 +246,48 @@ export function reduceJobPoll(input: {
     consecutiveErrors: 0,
     halted: false,
   };
+}
+
+/**
+ * Fold one poll's view of `running` into the state the page holds.
+ *
+ * The poll is a round trip: `generateDesign` can resolve while it is in
+ * flight, and that resolution adds a job through its own functional setState.
+ * Applying the poll's pre-request view wholesale then erases the new job from
+ * BOTH lists — which either stops the loop outright (nothing running, nothing
+ * tracked) or leaves a job spinning that this tab no longer tracks, so its
+ * image never lands in the thread until a reload. Hence: never assign, always
+ * merge.
+ *
+ * `tracked` is a union — the poll's own view is a subset of what the page
+ * holds now, and untracking is done separately, after a settle has actually
+ * been applied.
+ *
+ * `running` keeps any local entry the poll did not report but that was adopted
+ * AFTER the request went out: the server simply had not seen it yet. An entry
+ * adopted before the request and absent from the response really has settled,
+ * so it goes.
+ */
+export function mergeJobPollState(input: {
+  prev: { running: RunningJob[]; tracked: string[] };
+  polledRunning: RunningJob[];
+  trackedAtPollStart: string[];
+  pollStartedAtMs: number;
+}): { running: RunningJob[]; tracked: string[] } {
+  const polledIds = new Set(input.polledRunning.map((job) => job.jobId));
+  const startedMidPoll = input.prev.running.filter(
+    (job) =>
+      !polledIds.has(job.jobId) &&
+      job.adoptedAt !== undefined &&
+      job.adoptedAt >= input.pollStartedAtMs
+  );
+  const running = [...input.polledRunning, ...startedMidPoll].sort(
+    (a, b) => a.generationNumber - b.generationNumber
+  );
+
+  const tracked = [...input.prev.tracked];
+  for (const id of input.trackedAtPollStart) {
+    if (!tracked.includes(id)) tracked.push(id);
+  }
+  return { running, tracked };
 }

@@ -30,7 +30,7 @@ function request(authorization?: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   process.env.CRON_SECRET = "cron-secret-sweep";
-  coreMock.mockResolvedValue({ scanned: 0, failed: 0, reclaimed: 0, reclaimErrors: 0 });
+  coreMock.mockResolvedValue({ scanned: 0, failed: 0, reclaimed: 0, skipped: 0, reclaimErrors: 0 });
 });
 
 afterEach(() => {
@@ -67,12 +67,12 @@ describe("cron sweep-generations route — auth gate", () => {
   });
 
   it("runs the sweep and returns its result on the correct Bearer secret", async () => {
-    coreMock.mockResolvedValue({ scanned: 3, failed: 2, reclaimed: 2, reclaimErrors: 0 });
+    coreMock.mockResolvedValue({ scanned: 3, failed: 2, reclaimed: 2, skipped: 0, reclaimErrors: 0 });
 
     const res = await GET(request("Bearer cron-secret-sweep"));
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ scanned: 3, failed: 2, reclaimed: 2, reclaimErrors: 0 });
+    expect(await res.json()).toEqual({ scanned: 3, failed: 2, reclaimed: 2, skipped: 0, reclaimErrors: 0 });
     expect(coreMock).toHaveBeenCalledTimes(1);
   });
 });

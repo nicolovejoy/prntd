@@ -34,6 +34,21 @@ export const GENERATION_CONCURRENCY_CAP = 3;
  */
 export const STALE_JOB_MS = 5 * 60 * 1000;
 
+/**
+ * When a continuation must give up on its own writes.
+ *
+ * Deliberately BELOW the sweep cutoff rather than equal to it. If both used
+ * STALE_JOB_MS, a continuation that cleared its check a hair under the cutoff
+ * could still be inside its write batch when a sweep selects the same row —
+ * the sweep then fails + refunds the job and the cron reclaims its R2 object,
+ * while the image row, the conversation link and possibly the primary claim
+ * have already landed. That is a permanently broken hero image, not the
+ * documented benign "image plus refund". The margin makes the two windows
+ * disjoint: past this point the continuation writes nothing, and the sweep
+ * cannot start on the row for another minute.
+ */
+export const CONTINUATION_DEADLINE_MS = Math.floor(STALE_JOB_MS * 0.8);
+
 export type GenerationJob = typeof imageGeneration.$inferSelect;
 
 /** Drizzle stores `{ mode: "timestamp" }` as epoch SECONDS. */
