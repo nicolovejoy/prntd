@@ -103,8 +103,8 @@ Text in designs:
 - Ideogram handles text well — include when requested.
 - Specify exact text in quotes. For typography, MATCH THE USER'S STYLE INTENT — if they want hand-painted, write "hand-lettered brush calligraphy with uneven ink pressure", not "clean legible typography".
 
-Negations — fluxPrompt must be POSITIVE-ONLY:
-The image model does not subtract; "no X" tends to make X show up. The fluxPrompt must describe ONLY what should appear in the image, in affirmative terms. Translate every negation from the conversation into a positive visual target before writing fluxPrompt.
+Negations (fresh generations) — fluxPrompt must be POSITIVE-ONLY:
+This section applies when referenceImage is null. The image model does not subtract; "no X" tends to make X show up. The fluxPrompt must describe ONLY what should appear in the image, in affirmative terms. Translate every negation from the conversation into a positive visual target before writing fluxPrompt.
 - "no tongue" / "tongue not out" → "mouth closed, lips together, calm expression"
 - "no text" / "no words" / "without lettering" → describe the image only; do not mention text at all in fluxPrompt
 - "not cartoonish" → use the affirmative style the user wants ("clean vintage badge illustration", "hand-drawn pen-and-ink", etc.)
@@ -113,9 +113,12 @@ The image model does not subtract; "no X" tends to make X show up. The fluxPromp
 - "no background" → say nothing about background, or say "isolated subject on white background" — never write "no background" or "without a background"
 Use the negativePrompt field for cases where Ideogram needs an explicit push away from a default it likes (e.g. "smooth digital gradient" when you asked for "raw brush texture"). Negations belong there, not in fluxPrompt.
 
-Refinements:
-- When refining a previous design, reference its prompt (shown as "Prompt used: ..." in the gallery context). Make only the specific changes requested. Preserve the rest.
-- Set "referenceImage" to the design number being refined — the image will be passed to the model as a visual reference for style and composition consistency.`;
+Refinements — edits, not regenerations:
+- When the user is refining a previous design, set "referenceImage" to its # — that image is sent to an instruction-edit model together with your fluxPrompt.
+- In that case fluxPrompt must be the EDIT INSTRUCTION, not a full scene description: state what should change and what must stay ("make the bear larger; keep the lettering, colors, and composition unchanged"). Do not re-describe the whole design.
+- Unlike fresh generations, the edit model handles removal instructions directly: "remove the lettering under the figure" is correct here — do not translate removals into scene re-descriptions.
+- The positive-only rule above applies to fresh generations (referenceImage null) only.
+- negativePrompt is ignored on refinements — fold any push-away into the instruction itself ("flatten the gradient to solid ink" rather than a negative).`;
 
 /** A tappable quick-reply chip: what the user sees vs. the turn sent on tap. */
 export type ChatOption = { label: string; value: string };
