@@ -1,7 +1,12 @@
 import Replicate from "replicate";
-import type { AspectRatio } from "./blanks";
 import { withTimeout } from "./timeout";
 
+// This module exists only for BiRefNet background removal, used by ops
+// scripts (`scripts/check-bg-removal.ts`, `scripts/backfill-legacy-alpha.ts`).
+// The image-generation path no longer touches Replicate — chat generations
+// and placement re-renders go through Ideogram's /v1/edit and
+// generate-transparent endpoints (`src/lib/ideogram.ts`), which preserve
+// alpha natively and don't need a separate knockout pass.
 const replicate = new Replicate();
 
 // Ideogram v3 Turbo and BiRefNet both finish well inside a minute in
@@ -30,57 +35,6 @@ async function withReplicate429Retry<T>(label: string, run: () => Promise<T>): P
     await new Promise((resolve) => setTimeout(resolve, waitMs));
     return await run();
   }
-}
-
-export async function generateImage(
-  prompt: string,
-  referenceImageUrl?: string,
-  negativePrompt?: string | null,
-  aspectRatio: AspectRatio = "1:1"
-): Promise<string> {
-  const input: Record<string, unknown> = {
-    prompt,
-    aspect_ratio: aspectRatio,
-    magic_prompt_option: "Off",
-  };
-
-  if (referenceImageUrl) {
-    input.style_reference_images = [referenceImageUrl];
-  }
-
-  if (negativePrompt) {
-    input.negative_prompt = negativePrompt;
-  }
-
-  return withReplicate429Retry("generateImage", async () => {
-    const output = await withTimeout("generateImage", REPLICATE_RUN_TIMEOUT_MS, () =>
-      replicate.run("ideogram-ai/ideogram-v3-turbo", { input })
-    );
-    return String(output);
-  });
-}
-
-/**
- * Generate a transparent PNG anchored visually on a style reference image.
- *
- * Routes through Replicate's regular Ideogram v3 Turbo (not the direct
- * generate-transparent endpoint, which doesn't accept style refs per
- * developer.ideogram.ai/openapi.json), then runs BiRefNet for transparency.
- * Two API calls instead of one — the cost we pay for visual continuity
- * across aspect ratios and chat iterations.
- *
- * Use this when you have an anchor image (chat iteration: prior image;
- * placement adaptation: the user's primary pick). Use the direct
- * `generateTransparent` from ideogram.ts when there is no anchor.
- */
-export async function generateAnchoredTransparent(
-  prompt: string,
-  styleReferenceUrl: string,
-  aspectRatio: AspectRatio = "1:1",
-  negativePrompt?: string | null
-): Promise<string> {
-  const rgbUrl = await generateImage(prompt, styleReferenceUrl, negativePrompt, aspectRatio);
-  return await removeBackground(rgbUrl);
 }
 
 export async function removeBackground(imageUrl: string): Promise<string> {

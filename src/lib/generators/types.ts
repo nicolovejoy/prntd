@@ -16,8 +16,10 @@ export type GenerateOptions = {
 export interface ImageGenerator {
   id: GeneratorId;
   label: string;
-  /** Rough internal $/image for accounting (not customer-facing). */
-  costPerImage: number;
+  /** Rough internal $/image for accounting (not customer-facing).
+   *  Per-operation: an anchored call is an instructional edit and costs
+   *  more than a fresh generation. */
+  costFor(opts: GenerateOptions): number;
   /** v1: identity. Later: per-model prompt shaping, sealed in the adapter. */
   adaptPrompt(base: string): string;
   /** Returns a transparent-PNG URL. Caller downloads bytes immediately. */

@@ -22,7 +22,7 @@ import {
   mockupCacheProductPrefix,
 } from "@/lib/mockup-cache";
 import { renderAndCacheMockup } from "@/lib/mockup-render";
-import { generateAnchoredTransparent } from "@/lib/replicate";
+import { editTransparent, EDIT_COST_PER_IMAGE } from "@/lib/ideogram";
 import {
   insertDesignImage,
   findPlacementRender,
@@ -37,7 +37,13 @@ import {
 import { resolveLastPurchaseDefaults } from "@/lib/last-purchase";
 import type { PurchaseDefaults } from "@/lib/purchase-defaults";
 
-const COST_PER_GENERATION = 0.03;
+// Reframe instruction, not the stored prompt: post-slice-1 an iterated
+// image's prompt is an edit instruction ("make the bear larger") — reusing
+// it here would apply the delta a second time. The anchor image itself
+// carries the content; the instruction only pins it in place while the
+// aspect_ratio param drives the new canvas.
+const REFRAME_PROMPT =
+  "Keep the artwork exactly the same; adapt the composition to the new canvas proportions without adding or removing elements.";
 
 /**
  * Expose the server-side multi-placement kill-switch to client components.
@@ -211,22 +217,16 @@ export async function getOrCreatePlacementRender(
     return cached;
   }
 
-  // Generate anchored on primary. Prompt comes from primary.prompt.
-  // Every chat-driven generation writes its fluxPrompt to design_image,
-  // so this is the canonical source.
-  const prompt = primary.prompt ?? null;
-  if (!prompt) {
-    throw new Error("No generation prompt available to re-render");
-  }
-
+  // Generate anchored on primary, reframed to the target aspect. See
+  // REFRAME_PROMPT above for why this isn't primary.prompt.
   const startedAt = Date.now();
   console.log(
-    `getOrCreatePlacementRender: design=${designId} product=${productId} target=${targetAspect} promptLen=${prompt.length} anchor=${primary.imageUrl}`
+    `getOrCreatePlacementRender: design=${designId} product=${productId} target=${targetAspect} anchor=${primary.imageUrl}`
   );
   let imageUrl: string;
   try {
-    imageUrl = await generateAnchoredTransparent(
-      prompt,
+    imageUrl = await editTransparent(
+      REFRAME_PROMPT,
       primary.imageUrl,
       targetAspect
     );
@@ -254,8 +254,8 @@ export async function getOrCreatePlacementRender(
     designId,
     imageUrl: r2Url,
     aspectRatio: targetAspect,
-    prompt,
-    generationCost: COST_PER_GENERATION,
+    prompt: REFRAME_PROMPT,
+    generationCost: EDIT_COST_PER_IMAGE,
     productId,
     placementId: placement.id,
     // Anchor the render to its source so a later lookup matches the exact pick.
@@ -272,7 +272,7 @@ export async function getOrCreatePlacementRender(
     .update(designTable)
     .set({
       generationCount: sql`${designTable.generationCount} + 1`,
-      generationCost: sql`${designTable.generationCost} + ${COST_PER_GENERATION}`,
+      generationCost: sql`${designTable.generationCost} + ${EDIT_COST_PER_IMAGE}`,
       mockupUrls: null,
       updatedAt: new Date(),
     })

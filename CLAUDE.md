@@ -24,7 +24,7 @@ PRNTD — AI-powered t-shirt designer. Users chat to describe a design, Flux gen
 - Turso (libSQL) + Drizzle ORM
 - Better-Auth (email/password)
 - Cloudflare R2 for image storage
-- Ideogram v3 Turbo via Replicate for image generation
+- Ideogram (direct API): v3 generate-transparent for new designs, /v1/edit for iterations
 - Claude (Anthropic API) as intermediary to construct image generation prompts from casual user messages
 - Printful API for fulfillment
 - Stripe Checkout for payments

@@ -67,7 +67,7 @@ vi.mock("@/lib/generators/registry", () => {
   const ideogram = {
     id: "ideogram",
     label: "Ideogram",
-    costPerImage: 0.03,
+    costFor: () => 0.03,
     adaptPrompt: (p: string) => p,
     generate: vi.fn(async () => "https://src/ideogram.png"),
   };
