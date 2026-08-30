@@ -145,8 +145,9 @@ The real semantics, per current Vercel docs:
    and refund reads them from the row.
 3. **The job row carries the minted image id / R2 key and the resolved
    anchor image id.** The anchor must be persisted as an image id, not the
-   positional index `constructFluxPrompt` returns — positions are only
-   stable inside one synchronous span. The R2 key lets recovery reclaim an
+   positional index `constructDesignBrief` returns in `referenceImage` —
+   positions are only stable inside one synchronous span. The R2 key lets
+   recovery reclaim an
    orphaned object (PR #52's in-request cleanup survives the move, but
    process death between upload and batch now strands `images/{id}.png`
    with nothing else to reclaim it).
@@ -276,9 +277,10 @@ secondhand price, verify against the first bill). Refinement prompts are
 edit instructions now. Not done here: v4 generate swap (slice 2),
 variation classification (slice 2), any UI change.
 
-**Slice 2 — DesignSpec, and the v4 upgrade.** Claude emits a typed spec (subject, style,
-typography, palette, shirtColor, printStyle, background) instead of a
-prompt string; adapters render it per provider. Ideogram's `json_prompt`
+**Slice 2 — DesignSpec, and the v4 upgrade.** Claude emits a typed spec
+(subject, style{aesthetics/artStyle/medium/lighting/colorPalette}, elements
+— more fields, e.g. shirtColor/printStyle/background, can ride later
+slices) instead of a prompt string; adapters render it per provider. Ideogram's `json_prompt`
 takes it almost directly (structured `high_level_description` /
 `style_description` / `compositional_deconstruction`, magic-prompt
 disabled). The argument is bug classes, not portability: a spec with a

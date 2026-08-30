@@ -43,10 +43,9 @@ Style rules for the "message" field:
 - Use markdown sparingly: **bold** for emphasis, line breaks between sections. No numbered lists of choices — those go in "options".
 - No filler, no flattery, no "great idea!" — just useful input.
 - End with a short question or nudge toward Generate (e.g. "when you're ready, tap Generate").
-- Frame your responses as directions to try, not edits to apply. Use "try", "aim for", "this version", "this direction" — not "fix", "remove", "edit".
 
-Handling negations (very important):
-The image model is text-to-image. It does not subtract — telling it "no X" tends to surface X. When the user says what they DON'T want, restate the request in affirmative terms before going further.
+Handling negations (for fresh designs — not refinements of an existing image):
+When generating a design from scratch, the image model is text-to-image and does not subtract — telling it "no X" tends to surface X. When the user says what they DON'T want in a fresh design, restate the request in affirmative terms before going further. A refinement of an existing image instead goes to an instruction-edit model that handles changes and removals directly ("remove the lettering" works as stated), so this restating doesn't apply there.
 - "no tongue" / "without his tongue out" → "mouth closed, lips together"
 - "no text" / "no words" → "image only, no captions, clean composition"
 - "not cartoonish" → ask what they want instead (clean illustration? vintage badge? hand-drawn?), then use that
@@ -58,8 +57,8 @@ CRITICAL: The "message" field is conversational prose for the user — never put
 
 What the UI actually offers (do NOT invent other features):
 - A chat box (this conversation).
-- A "Generate" button that generates a new image from the conversation so far.
-- An image gallery showing past generations, each with a "Use as reference" action to feed it back into the next generation.
+- A "Generate" button that acts on the conversation so far — it makes a new image for a fresh idea, or edits the current design when the turn is a refinement of it.
+- An image gallery showing past generations.
 - Buttons to proceed to product preview / order.
 - That's it. There is no "Remove Background" button, no inpainting, no manual editor, no layer tools, no upload-to-edit. If the user asks for something the UI doesn't have, say so plainly — do not invent an interaction. If the user insists a feature exists, do not capitulate; say you don't have a way to do that here.
 
@@ -209,9 +208,10 @@ function buildMessages(
 ) {
   const galleryContext = buildImageGalleryContext(images);
 
-  // Resolve flux prompt for assistant messages via image_id →
+  // Resolve the stored prompt for assistant messages via image_id →
   // design_image.prompt (carried on DesignImage entries from
-  // getDesignImagesForAIContext).
+  // getDesignImagesForAIContext). This is a spec summary for a generation or
+  // an edit instruction for an edit — whichever produced that image.
   const promptByImageId = new Map(images.map((img) => [img.id, img.prompt]));
 
   const raw = chatHistory.map((msg) => {
@@ -222,13 +222,13 @@ function buildMessages(
       msg.role === "assistant"
         ? (extractChatEnvelope(msg.content)?.message ?? msg.content)
         : msg.content;
-    const fluxPrompt =
+    const storedPrompt =
       msg.role === "assistant" && msg.imageId
         ? promptByImageId.get(msg.imageId)
         : null;
     return {
       role: msg.role as "user" | "assistant",
-      content: fluxPrompt ? `${content}\n\nPrompt used: ${fluxPrompt}` : content,
+      content: storedPrompt ? `${content}\n\nPrompt used: ${storedPrompt}` : content,
     };
   });
 
@@ -310,7 +310,7 @@ const READINESS_SYSTEM_PROMPT = `You judge whether a t-shirt design idea is conc
 
 Ready as soon as the SUBJECT (what is depicted) is concrete. Style/medium is NOT required — when it's unstated, the drawing step picks a fitting style the user can refine afterward. Not ready ONLY when the subject is too vague to draw anything (e.g. "something cool", "a shirt for my team"): then ask ONE question, with 2-5 likely directions in "options" as tappable chips { "label": short text, "value": the natural-language reply sent on tap }.
 NEVER name the choices inside "question" — not as a numbered/bulleted list and not mid-sentence. "Is it a funny scenario, a pun caption, or something absurdist?" is WRONG; "What's the vibe?" with those three in "options" is RIGHT — chips render each choice once, and prose repeats them.
-Ask at most one clarifying question per idea: if the conversation shows one was already asked, lean ready=true rather than asking another. Omit "options" (or use []) when ready. Keep "question" to 1-2 sentences; in user-facing copy say "generate" / "Generate" (the button label). When genuinely uncertain, lean ready=true — a real idea should never be blocked.`;
+Ask at most one clarifying question per idea: if the conversation shows one was already asked, lean ready=true rather than asking another. Omit "options" (or use []) when ready. Keep "question" to 1-2 sentences; in user-facing copy say "generate" / "Generate" (the button label). When genuinely uncertain, lean ready=true — a real idea should never be blocked. When there are already images in this conversation and the turn reads as a refinement of one of them (e.g. "make it bigger", "different color"), always answer ready=true — the brief step handles edits, not this check.`;
 
 /**
  * Fast pre-check used by Generate/Compare to decide "render vs ask" without
@@ -499,6 +499,11 @@ Style — be faithful to the user's intent:
 - Hand-painted, brushy, distressed, vintage, zine etc.: write concrete texture cues into "artStyle"/"aesthetics" and element descs ("sumi-e brush strokes, uneven ink pressure, ink pooling at stroke ends", "halftone screen-print, deliberate ink gaps, slight registration offset").
 - If the user is silent on style, pick one that suits the subject and say which you chose in "message" — do not stop to ask.
 - Never override the user's stated style because you think a different style would print better; if a style genuinely conflicts with print constraints, explain in "message".
+- Style vocabulary translation tips:
+  - "brushy" / "hand-painted" → "sumi-e brush strokes, uneven ink pressure, ink pooling at stroke ends, raw bristle texture, imperfect edges"
+  - "distressed" / "vintage" → "halftone screen-print, deliberate ink gaps, slight registration offset, worn texture, faded mid-tones"
+  - "hand-drawn" → "pencil or pen lines with slight wobble, no perfect curves, visible mark-making"
+  - "punk zine" → "cut-and-paste collage, photocopied texture, deliberate misalignment, stark high contrast"
 
 Affirmative-only fields:
 - There is no negative-prompt channel. Every spec field describes only what SHOULD appear. Translate negations into positive targets ("mouth closed, calm expression" not "no tongue"; "solid filled bold block lettering" not "no bubble letters"; "open composition, clear focal point, generous negative space" not "less busy").
@@ -545,6 +550,12 @@ export async function constructDesignBrief(
   } catch {
     // Prose means Claude answered in chat, not with a brief (#137): surface
     // it and render nothing.
+    return { operation: "clarify", message: text };
+  }
+
+  // Valid JSON can still be non-object (e.g. `null`, `42`) — parsed.message
+  // would throw on null. Treat it the same as unparseable prose.
+  if (typeof parsed !== "object" || parsed === null) {
     return { operation: "clarify", message: text };
   }
 

@@ -237,4 +237,15 @@ describe("constructDesignBrief", () => {
       expect(result.referenceImage).toBeNull();
     }
   });
+
+  it("11. valid JSON that isn't an object (`null`) clarifies without throwing", async () => {
+    const mockCreate = await getMockCreate();
+    mockCreate.mockResolvedValue(respond("null"));
+
+    const { constructDesignBrief } = await import("../ai");
+    const result = await constructDesignBrief([msg("user", "anything")], []);
+
+    expect(result.operation).toBe("clarify");
+    expect(result.message).toBe("null");
+  });
 });

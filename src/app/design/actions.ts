@@ -238,9 +238,17 @@ async function runGenerate({
       brief.referenceImage != null
         ? images.find((img) => img.number === brief.referenceImage)?.url
         : undefined;
-    // No explicit reference → the latest output is what "make it larger" means.
-    const outputs = images.filter((img) => img.role !== "seed");
-    const anchorImageUrl = referenced ?? outputs[outputs.length - 1]?.url;
+    // No explicit reference → the latest OUTPUT is what "make it larger"
+    // means. But a fresh-start thread may have only a seed (no outputs yet) —
+    // that seed is still a legitimate, on-screen design to edit, so fall back
+    // to the latest image of any role rather than refusing. (Provenance below
+    // uses a separate, seed-excluding `outputs` lookup — parent lineage must
+    // never point at a seed; this one is purely "what is the user looking at".)
+    const anchorOutputs = images.filter((img) => img.role !== "seed");
+    const anchorImageUrl =
+      referenced ??
+      anchorOutputs[anchorOutputs.length - 1]?.url ??
+      images[images.length - 1]?.url;
     if (!anchorImageUrl) {
       // An edit classified on an imageless thread is a model error; there is
       // nothing to edit, so ask instead of rendering.
