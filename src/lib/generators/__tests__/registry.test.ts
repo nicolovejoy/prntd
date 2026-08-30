@@ -18,9 +18,18 @@ describe("getGenerator", () => {
     expect(getGenerator("recraft").id).toBe(DEFAULT_GENERATOR_ID);
   });
 
-  it("every adapter's adaptPrompt is identity in v1", () => {
+  it("every adapter prices an edit above a generation", () => {
     for (const g of Object.values(GENERATORS)) {
-      expect(g.adaptPrompt("hello world")).toBe("hello world");
+      const generate = g.costFor({
+        kind: "generate",
+        spec: { subject: "a cat", elements: [{ type: "obj", desc: "a cat" }] },
+      });
+      const edit = g.costFor({
+        kind: "edit",
+        instruction: "bigger",
+        anchorImageUrl: "https://r2/a.png",
+      });
+      expect(edit).toBeGreaterThan(generate);
     }
   });
 

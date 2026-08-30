@@ -42,11 +42,10 @@ vi.mock("@/lib/auth", () => ({
 
 vi.mock("@/lib/ai", () => ({
   assessReadiness: vi.fn(async () => ({ ready: true, question: "", options: [] })),
-  constructFluxPrompt: vi.fn(async () => ({
+  constructDesignBrief: vi.fn(async () => ({
+    operation: "generate",
     message: "Here it is",
-    fluxPrompt: "a happy cat",
-    negativePrompt: null,
-    referenceImage: null,
+    spec: { subject: "a happy cat", elements: [{ type: "obj", desc: "a happy cat" }] },
   })),
   chatAboutDesign: vi.fn(async () => ({
     message: "Sure",
@@ -68,7 +67,6 @@ vi.mock("@/lib/generators/registry", () => {
     id: "ideogram",
     label: "Ideogram",
     costFor: () => 0.03,
-    adaptPrompt: (p: string) => p,
     generate: vi.fn(async () => "https://src/ideogram.png"),
   };
   return {
@@ -81,6 +79,8 @@ vi.mock("@/lib/generators/registry", () => {
 const { startConversationFromImage, generateDesign, deleteDesignImage } =
   await import("@/app/design/actions");
 const { getDesignImagesForAIContext } = await import("@/lib/design-images");
+const { constructDesignBrief } = await import("@/lib/ai");
+const { GENERATORS } = await import("@/lib/generators/registry");
 
 /** Seed an origin user with one design and one image; return the image id. */
 async function seedOrigin(params?: {
@@ -252,6 +252,31 @@ describe("first generation in a seeded thread", () => {
     // The parent chain is between the thread's outputs; lineage sticks.
     expect(secondRow.parentImageId).toBe(first.imageId);
     expect(secondRow.seedImageId).toBe(imageId);
+  });
+});
+
+describe("editing on a seed-only thread", () => {
+  it("anchors the edit on the seed image, not a clarification (fix 2)", async () => {
+    const { imageId } = await seedOrigin({ publishedAt: new Date() });
+    const { designId } = await startConversationFromImage(imageId);
+
+    vi.mocked(constructDesignBrief).mockResolvedValueOnce({
+      operation: "edit",
+      message: "Making it bigger.",
+      editInstruction: "make it bigger",
+      referenceImage: null,
+    });
+
+    const result = await generateDesign(designId, "make it bigger");
+
+    // Not a clarification: the seed-only thread still has a design to edit.
+    expect(result.imageId).not.toBeNull();
+    expect(result.readyToGenerate).toBe(true);
+    const generateSpy = vi.mocked(GENERATORS.ideogram.generate);
+    expect(generateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "edit", anchorImageUrl: "https://r2/origin/1.png" }),
+      expect.anything()
+    );
   });
 });
 

@@ -1,27 +1,25 @@
 import type { AspectRatio } from "../blanks";
+import type { DesignSpec } from "../design-spec";
 
 export type GeneratorId = "ideogram";
 
+/** What the user asked for, typed. A fresh design is a structured spec; a
+ *  refinement is an instruction against an existing image. The adapter
+ *  renders each to its provider's wire format. */
+export type GenerateOperation =
+  | { kind: "generate"; spec: DesignSpec }
+  | { kind: "edit"; instruction: string; anchorImageUrl: string };
+
 export type GenerateOptions = {
   aspect: AspectRatio;
-  /** Optional continuity anchor for refinements. Adapters that can't
-   *  use a style reference ignore it. */
-  referenceImageUrl?: string;
-  /** Push the model away from defaults it likes (e.g. "smooth digital
-   *  gradient" when the user asked for raw brush texture). Adapters that
-   *  don't support negative prompts ignore it. */
-  negativePrompt?: string | null;
 };
 
 export interface ImageGenerator {
   id: GeneratorId;
   label: string;
   /** Rough internal $/image for accounting (not customer-facing).
-   *  Per-operation: an anchored call is an instructional edit and costs
-   *  more than a fresh generation. */
-  costFor(opts: GenerateOptions): number;
-  /** v1: identity. Later: per-model prompt shaping, sealed in the adapter. */
-  adaptPrompt(base: string): string;
+   *  Per-operation: an instructional edit costs more than a generation. */
+  costFor(op: GenerateOperation): number;
   /** Returns a transparent-PNG URL. Caller downloads bytes immediately. */
-  generate(prompt: string, opts: GenerateOptions): Promise<string>;
+  generate(op: GenerateOperation, opts: GenerateOptions): Promise<string>;
 }

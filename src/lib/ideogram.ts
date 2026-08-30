@@ -1,7 +1,6 @@
 import type { AspectRatio } from "./blanks";
 import { withTimeout } from "./timeout";
 
-const ENDPOINT = "https://api.ideogram.ai/v1/ideogram-v3/generate-transparent";
 const EDIT_ENDPOINT = "https://api.ideogram.ai/v1/edit";
 const EDIT_TIMEOUT_MS = 120_000;
 
@@ -9,42 +8,6 @@ const EDIT_TIMEOUT_MS = 120_000;
 // our internal AspectRatio type uses. Map between them here.
 function toIdeogramAspect(aspect: AspectRatio): string {
   return aspect.replace(":", "x");
-}
-
-/**
- * Generate an RGBA PNG via Ideogram's native transparent-background endpoint.
- * Returns the URL of the generated image. Caller is responsible for
- * downloading the bytes immediately — Ideogram URLs expire.
- */
-export async function generateTransparent(
-  prompt: string,
-  aspectRatio: AspectRatio = "1:1",
-  options: { seed?: number; negativePrompt?: string } = {}
-): Promise<string> {
-  const apiKey = process.env.IDEOGRAM_API_KEY;
-  if (!apiKey) throw new Error("IDEOGRAM_API_KEY missing");
-
-  const fd = new FormData();
-  fd.append("prompt", prompt);
-  fd.append("aspect_ratio", toIdeogramAspect(aspectRatio));
-  fd.append("rendering_speed", "TURBO");
-  fd.append("magic_prompt", "OFF");
-  if (options.seed !== undefined) fd.append("seed", String(options.seed));
-  if (options.negativePrompt) fd.append("negative_prompt", options.negativePrompt);
-
-  const res = await fetch(ENDPOINT, {
-    method: "POST",
-    headers: { "Api-Key": apiKey },
-    body: fd,
-  });
-
-  if (!res.ok) {
-    throw new Error(`Ideogram ${res.status}: ${await res.text()}`);
-  }
-  const data = await res.json();
-  const url = data?.data?.[0]?.url;
-  if (!url) throw new Error(`No URL in Ideogram response: ${JSON.stringify(data)}`);
-  return url;
 }
 
 /** Rough internal $/image for instructional edits (secondhand pricing —
@@ -96,5 +59,68 @@ export async function editTransparent(
   const data = await res.json();
   const url = data?.data?.[0]?.url;
   if (!url) throw new Error(`No URL in Ideogram edit response: ${JSON.stringify(data)}`);
+  return url;
+}
+
+const V4_GENERATE_ENDPOINT =
+  "https://api.ideogram.ai/v1/ideogram-v4/generate-transparent";
+const V4_TIMEOUT_MS = 120_000;
+
+/** Rough internal $/image for a v4 TURBO generation. */
+export const GENERATE_COST_PER_IMAGE = 0.03;
+
+/** Ideogram 4.0 structured-prompt wire format (openapi V4JsonPrompt).
+ *  Supplying json_prompt disables magic prompt by contract; on the
+ *  transparent endpoint the background field is replaced server-side with
+ *  a transparent-background directive. */
+export type V4JsonPrompt = {
+  high_level_description: string;
+  style_description?: {
+    aesthetics?: string;
+    art_style?: string;
+    medium?: string;
+    lighting?: string;
+    color_palette?: string[];
+  };
+  compositional_deconstruction: {
+    background: string;
+    elements: Array<
+      | { type: "obj"; desc: string; color_palette?: string[] }
+      | { type: "text"; text: string; desc?: string; color_palette?: string[] }
+    >;
+  };
+};
+
+/**
+ * Generate an RGBA PNG via Ideogram 4.0's transparent endpoint using the
+ * structured json_prompt contract. Returns the image URL — caller downloads
+ * the bytes immediately, Ideogram URLs expire.
+ */
+export async function generateTransparentV4(
+  jsonPrompt: V4JsonPrompt,
+  aspectRatio: AspectRatio = "1:1"
+): Promise<string> {
+  const apiKey = process.env.IDEOGRAM_API_KEY;
+  if (!apiKey) throw new Error("IDEOGRAM_API_KEY missing");
+
+  const fd = new FormData();
+  fd.append("json_prompt", JSON.stringify(jsonPrompt));
+  fd.append("aspect_ratio", toIdeogramAspect(aspectRatio));
+  fd.append("rendering_speed", "TURBO");
+
+  const res = await withTimeout("generateTransparentV4", V4_TIMEOUT_MS, () =>
+    fetch(V4_GENERATE_ENDPOINT, {
+      method: "POST",
+      headers: { "Api-Key": apiKey },
+      body: fd,
+    })
+  );
+
+  if (!res.ok) {
+    throw new Error(`Ideogram v4 ${res.status}: ${await res.text()}`);
+  }
+  const data = await res.json();
+  const url = data?.data?.[0]?.url;
+  if (!url) throw new Error(`No URL in Ideogram v4 response: ${JSON.stringify(data)}`);
   return url;
 }

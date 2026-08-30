@@ -22,9 +22,10 @@ export type MockupPosition = {
 };
 
 /**
- * Ideogram v3 Turbo's supported aspect ratios. Used as the source-of-truth
- * enum for placement aspectRatio values so a typo in products.ts is a
- * compile error, not a runtime Replicate failure.
+ * Ideogram's supported aspect ratios (v4 generate and /v1/edit share the
+ * same NxM mapping). Used as the source-of-truth enum for placement
+ * aspectRatio values so a typo in products.ts is a compile error, not a
+ * runtime Replicate failure.
  */
 export type AspectRatio =
   | "1:1"
