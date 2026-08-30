@@ -285,6 +285,19 @@ disabled). The argument is bug classes, not portability: a spec with a
 required `subject` cannot be subjectless, which is #137 made
 unrepresentable rather than guarded against.
 
+Slice 2 status (2026-08-29): built. `design-spec.ts` (typed spec, subject +
+elements required — #137 unrepresentable), `constructDesignBrief` emits
+clarify/generate/edit; generates go to v4 generate-transparent via
+json_prompt (magic prompt disabled by contract, TURBO, $0.03), edits
+unchanged from slice 1. Deleted: constructFluxPrompt, the v3 generate
+client, isClarificationOnly/isSubjectlessPrompt (operation is explicit
+now). negativePrompt retired with v3 — affirmative style fields replace
+it. "variation" folds into generate (v4 generate-transparent takes no
+seed; no mechanical difference). image.prompt stores renderSpecSummary()
+for generates, the edit instruction for edits; the structured spec is not
+persisted (slice 3's job table gets design_spec_json). Not done: bbox
+layout control, quality tiers, any UI change.
+
 **Slice 3 — durable generation job.** New `image_generation` table +
 migration (next is 0011; standing rules — manual `prntd-preview` migrate
 before the Vercel preview works, prod migrate manual after
