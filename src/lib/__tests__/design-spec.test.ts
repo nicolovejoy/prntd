@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseDesignSpec, renderSpecSummary } from "../design-spec";
+import { parseDesignSpec, renderSpecSummary, fallbackSpec } from "../design-spec";
 
 const VALID = {
   subject: "A bear reading a book under a pine tree",
@@ -75,5 +75,33 @@ describe("renderSpecSummary", () => {
       elements: [{ type: "obj", desc: "a mountain" }],
     })!;
     expect(renderSpecSummary(spec)).toBe("A mountain");
+  });
+});
+
+describe("fallbackSpec", () => {
+  it("renders the user's own words as a valid spec", () => {
+    const spec = fallbackSpec("dog doing calisthenics");
+    expect(spec).toEqual({
+      subject: "dog doing calisthenics",
+      elements: [{ type: "obj", desc: "dog doing calisthenics" }],
+    });
+    // Round-trips through the validator — the generator sees a real spec.
+    expect(parseDesignSpec(spec)).toEqual(spec);
+  });
+
+  it("trims surrounding whitespace", () => {
+    expect(fallbackSpec("  a fox  ")?.subject).toBe("a fox");
+  });
+
+  it("caps a pasted essay so the subject stays a subject", () => {
+    const spec = fallbackSpec("x".repeat(1000));
+    expect(spec?.subject).toHaveLength(400);
+  });
+
+  it("returns null only when there is nothing to render", () => {
+    expect(fallbackSpec("")).toBeNull();
+    expect(fallbackSpec("   ")).toBeNull();
+    expect(fallbackSpec(null)).toBeNull();
+    expect(fallbackSpec(undefined)).toBeNull();
   });
 });
