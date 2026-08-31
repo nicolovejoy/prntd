@@ -249,3 +249,36 @@ describe("constructDesignBrief", () => {
     expect(result.message).toBe("null");
   });
 });
+
+describe("constructDesignBrief — the brief prompt's clarify contract", () => {
+  beforeEach(async () => {
+    const mockCreate = await getMockCreate();
+    mockCreate.mockReset();
+  });
+
+  it("tells the model a generate request always produces an image", async () => {
+    const mockCreate = await getMockCreate();
+    mockCreate.mockResolvedValue(
+      respond(
+        JSON.stringify({
+          operation: "generate",
+          message: "ok",
+          spec: { subject: "a fox", elements: [{ type: "obj", desc: "a fox" }] },
+        })
+      )
+    );
+
+    const { constructDesignBrief } = await import("../ai");
+    await constructDesignBrief([], [], "a fox");
+
+    const system = mockCreate.mock.calls[0][0].system as string;
+    // Studio slice 1: a thin idea is committed to, not asked about. The server
+    // renders the user's own words when clarify slips through anyway, so this
+    // instruction is what keeps that fallback rare rather than routine.
+    expect(system).toContain("A generate request always produces an image");
+    expect(system).toContain("This is close to never");
+    expect(system).toContain(
+      "Never answer a request for a design with a question instead of a design"
+    );
+  });
+});

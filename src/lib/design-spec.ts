@@ -24,6 +24,9 @@ export type DesignSpec = {
 
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 
+/** Cap on a fallback subject: a pasted essay is not a subject line. */
+const MAX_FALLBACK_SUBJECT = 400;
+
 function cleanString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
@@ -87,6 +90,22 @@ export function parseDesignSpec(input: unknown): DesignSpec | null {
     if (Object.keys(built).length > 0) style = built;
   }
   return { subject, ...(style ? { style } : {}), elements };
+}
+
+/**
+ * The last-resort spec, built from the user's own words. Generate always
+ * generates (studio slice 1): when the brief declines to produce a spec, the
+ * literal request is still something concrete to draw, and rendering it —
+ * alongside whatever question the brief wanted to ask — beats answering a
+ * generate request with prose and no image.
+ *
+ * Returns null only when there are no words at all to render.
+ */
+export function fallbackSpec(text: string | null | undefined): DesignSpec | null {
+  const subject =
+    typeof text === "string" ? text.trim().slice(0, MAX_FALLBACK_SUBJECT) : "";
+  if (!subject) return null;
+  return { subject, elements: [{ type: "obj", desc: subject }] };
 }
 
 /**

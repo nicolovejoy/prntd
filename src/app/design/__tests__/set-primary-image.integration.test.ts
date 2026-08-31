@@ -37,7 +37,6 @@ vi.mock("@/lib/auth", () => ({
 // design/actions.ts constructs the Anthropic client at import time; the
 // generation path isn't exercised here.
 vi.mock("@/lib/ai", () => ({
-  assessReadiness: vi.fn(),
   constructDesignBrief: vi.fn(),
   chatAboutDesign: vi.fn(),
 }));
