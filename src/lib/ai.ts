@@ -301,72 +301,6 @@ export async function chatAboutDesign(
   }
 }
 
-const READINESS_SYSTEM_PROMPT = `You judge whether a t-shirt design idea is concrete enough to draw. Reply with raw JSON only (no markdown fences):
-{
-  "ready": true | false,
-  "question": "if not ready, ONE short question pinning down the subject; empty string if ready",
-  "options": [ { "label": "Funny scenario", "value": "A frog in a funny scenario" } ]
-}
-
-Ready as soon as the SUBJECT (what is depicted) is concrete. Style/medium is NOT required — when it's unstated, the drawing step picks a fitting style the user can refine afterward. Not ready ONLY when the subject is too vague to draw anything (e.g. "something cool", "a shirt for my team"): then ask ONE question, with 2-5 likely directions in "options" as tappable chips { "label": short text, "value": the natural-language reply sent on tap }.
-NEVER name the choices inside "question" — not as a numbered/bulleted list and not mid-sentence. "Is it a funny scenario, a pun caption, or something absurdist?" is WRONG; "What's the vibe?" with those three in "options" is RIGHT — chips render each choice once, and prose repeats them.
-Ask at most one clarifying question per idea: if the conversation shows one was already asked, lean ready=true rather than asking another. Omit "options" (or use []) when ready. Keep "question" to 1-2 sentences; in user-facing copy say "generate" / "Generate" (the button label). When genuinely uncertain, lean ready=true — a real idea should never be blocked. When there are already images in this conversation and the turn reads as a refinement of one of them (e.g. "make it bigger", "different color"), always answer ready=true — the brief step handles edits, not this check.`;
-
-/**
- * Fast pre-check used by Generate/Compare to decide "render vs ask" without
- * paying the heavy constructDesignBrief round-trip. Runs on Haiku with a tiny
- * prompt (~1s) instead of Sonnet + a 45-line system prompt + 1024 tokens
- * (~6s). Fails OPEN: any parse problem or a missing flag resolves to
- * ready=true so a concrete prompt is never blocked by a hiccup —
- * constructDesignBrief's own clarify path remains the backstop.
- */
-export async function assessReadiness(
-  chatHistory: ChatMessage[],
-  images: DesignImage[],
-  userMessage?: string
-): Promise<{ ready: boolean; question: string; options: ChatOption[] }> {
-  const { messages, galleryContext } = buildMessages(
-    chatHistory,
-    images,
-    userMessage
-  );
-
-  try {
-    const response = await anthropic.messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 256,
-      system: READINESS_SYSTEM_PROMPT + galleryContext,
-      messages,
-    });
-
-    let text =
-      response.content?.[0]?.type === "text" ? response.content[0].text : "";
-    text = text.replace(/^```(?:json)?\s*\n?/m, "").replace(/\n?```\s*$/m, "").trim();
-
-    const parsed = JSON.parse(text);
-    const result = {
-      ready: parsed.ready !== false,
-      question: typeof parsed.question === "string" ? parsed.question : "",
-      options: quickReplyFromOptions(parsed.options),
-    };
-    // Same prose-list fallback as chat: a clarifying question that enumerates
-    // its choices as a numbered/bulleted list still renders tappable chips.
-    if (!result.ready && result.options.length === 0 && result.question) {
-      const salvaged = extractProseOptions(result.question);
-      if (salvaged) {
-        result.question = salvaged.message;
-        result.options = salvaged.options;
-      }
-    }
-    return result;
-  } catch (err) {
-    // Fail open: a parse problem, outage, or model error must never block a
-    // real idea. constructDesignBrief's own clarify path remains the backstop.
-    console.error("assessReadiness failed, treating as ready:", err);
-    return { ready: true, question: "", options: [] };
-  }
-}
-
 const NAME_SYSTEM_PROMPT = `You name t-shirt designs for an order management system. Look at the image and respond with 2–4 words that identify it at a glance.
 
 Rules:
@@ -469,7 +403,9 @@ Respond with raw JSON only (no markdown, no code fences):
 Choosing the operation:
 - "generate": the user wants a new design, or a different take on the idea (new subject, changed style, another version of the same concept).
 - "edit": the user is refining an existing design — changing, adding, removing, or adjusting parts while keeping the rest ("make the bear larger", "remove the lettering", "different font"). The referenced image is sent to an instruction-edit model together with your editInstruction.
-- "clarify": the subject is too vague to draw anything; put the single question in "message". Only a missing subject warrants clarify — if style is unstated, pick one that suits the subject and say which you chose in "message".
+- "clarify": ONLY when the conversation contains no design request at all to interpret. This is close to never.
+
+A generate request always produces an image. A thin or ambiguous idea is not a reason to withhold one: commit to your best interpretation, emit the spec, and put your question in "message" — the user sees the image and the question together, and answers it on the next turn. "Something with a dog" is enough; "dog doing calisthenics" is more than enough. Never answer a request for a design with a question instead of a design.
 
 The spec (operation "generate"):
 {
@@ -486,7 +422,7 @@ The spec (operation "generate"):
     { "type": "text", "text": "LITERAL TEXT TO RENDER", "desc": "typography style and placement notes" }
   ]
 }
-"subject" and at least one element are required — never emit a spec without a concrete subject.
+"subject" and at least one element are required — never emit a spec without a concrete subject. When the user was vague, invent the concrete detail rather than asking for it, and say in "message" what you chose.
 
 Print specifications (physics, not taste):
 - DTG printing, 12" x 16" print area.

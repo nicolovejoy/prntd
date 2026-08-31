@@ -1,7 +1,9 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { getImagePage, getConversationImages } from "../actions";
+import { getImageShareCard } from "@/lib/image-share";
 import { getLastPurchaseDefaults } from "@/app/preview/actions";
 import { auth, isAnonymousUser } from "@/lib/auth";
 import { multiPlacementEnabled } from "@/lib/blanks";
@@ -18,6 +20,32 @@ import { ConversationImages } from "./conversation-images";
 
 type Params = Promise<{ imageId: string }>;
 type Search = Promise<{ from?: string }>;
+
+/**
+ * Caption for the link preview whose picture `opengraph-image.tsx` draws.
+ * Same published-only rule, and for the same reason: an owner-private image
+ * has no listing, so there is no title to leak and the site defaults stand.
+ */
+export async function generateMetadata({
+  params,
+}: {
+  params: Params;
+}): Promise<Metadata> {
+  const { imageId } = await params;
+  const card = await getImageShareCard(imageId);
+  if (!card) return {};
+
+  const title = card.title ?? "A design on PRNTD";
+  const description = `Designed by ${card.designerName}. Put it on a shirt.`;
+  // og:image is left to the file convention — naming it here would override
+  // the generated card with a raw transparent PNG.
+  return {
+    title,
+    description,
+    openGraph: { type: "article", title, description },
+    twitter: { card: "summary_large_image", title, description },
+  };
+}
 
 export default async function PublishedImagePage({
   params,

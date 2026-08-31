@@ -148,17 +148,14 @@ export function ChatPanel({
   }, [loading, generating]);
 
 
-  // Shared submit path for both the composer and a tapped quick-reply chip, so
-  // generate-intent detection and input clearing behave identically. The
-  // composer stays open while a generation runs (#59) — only a chat turn in
-  // flight blocks; generate-intent text during a generation routes to chat
-  // (one generation at a time).
+  // A tapped quick-reply chip answers the assistant's question, so it goes to
+  // chat — the one gesture that still does. Text that reads as a bare "go
+  // ahead" is routed to Generate instead: answering "yes" with more prose is
+  // the non-event this slice exists to remove.
   function submitTurn(text: string) {
     const msg = text.trim();
     if (!msg || loading) return;
     setInput("");
-    // Routes to Generate unless the cap is reached — with three slots, a
-    // running generation is no longer a reason to demote this to chat.
     if (!atCapacity && isGenerateIntent(msg) && messages.length > 0) {
       onGenerate(msg);
       return;
@@ -166,22 +163,33 @@ export function ChatPanel({
     onSend(msg);
   }
 
-  function handleSend(e: React.FormEvent) {
+  // The composer has exactly ONE submit control and it generates (studio
+  // slice 1). Enter, the empty state's button and the working composer's
+  // primary all land here, so the gesture and the outcome never disagree.
+  function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    submitTurn(input);
-  }
-
-  function handleGenerate() {
-    if (atCapacity) return;
+    if (atCapacity || loading) return;
     const msg = input.trim() || undefined;
+    // Mirrors the button's disabled state: Enter on an empty composer with no
+    // conversation behind it has nothing to generate from, and would burn a
+    // brief call plus a consume/refund cycle to say so.
+    if (!msg && messages.length === 0) return;
     if (msg) setInput("");
     onGenerate(msg);
   }
-  // Soft nudge: until Claude judges the subject concrete, Generate sits as a
-  // secondary button and a hint shows — it pops to primary when ready. Always
-  // clickable; the fast thin-check catches a too-thin click in ~1s rather
-  // than greying the button into looking broken.
-  const notReadyTitle = "Add more detail, or generate anyway.";
+
+  // Chat is still reachable, but never by the submit gesture: it needs its own
+  // deliberate tap, and its label states what comes back (an answer, not an
+  // image).
+  function handleAsk() {
+    const msg = input.trim();
+    if (!msg || loading) return;
+    setInput("");
+    onSend(msg);
+  }
+
+  // Soft nudge only. Generate is always primary and always generates now, so
+  // readiness colours a hint, never the button.
   const showStyleHint = !readyToGenerate && messages.length > 0;
 
   if (isEmpty) {
@@ -191,7 +199,7 @@ export function ChatPanel({
           Describe a design
         </h2>
         <form
-          onSubmit={handleSend}
+          onSubmit={handleSubmit}
           className="mt-6 w-full max-w-xl flex gap-2"
         >
           <input
@@ -202,8 +210,13 @@ export function ChatPanel({
             className="flex-1 px-3 py-2 bg-surface border border-border rounded-md text-white placeholder:text-text-faint focus:border-border-hover focus:outline-none"
             disabled={loading}
           />
-          <Button type="submit" variant="primary" disabled={loading || !input.trim()}>
-            Send
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={loading || atCapacity || !input.trim()}
+            title={atCapacity ? "Three designs are already generating." : undefined}
+          >
+            Generate
           </Button>
         </form>
         {/* Chips always visible, catalog-style (no reveal delay). */}
@@ -396,7 +409,7 @@ export function ChatPanel({
       ) : (
       /* Composer — phone-first: input on its own row, actions wrap below,
           every control ≥44px. */
-      <form onSubmit={handleSend} className="p-3 sm:p-4 border-t border-border space-y-2">
+      <form onSubmit={handleSubmit} className="p-3 sm:p-4 border-t border-border space-y-2">
         <div className="flex gap-2 items-stretch">
           <button
             type="button"
@@ -423,29 +436,29 @@ export function ChatPanel({
         <div className="flex flex-wrap gap-2">
           <Button
             type="submit"
-            variant="secondary"
+            variant="primary"
             className="min-h-[44px] flex-1"
-            disabled={loading || !input.trim()}
-          >
-            Send
-          </Button>
-          <Button
-            type="button"
-            variant={readyToGenerate ? "primary" : "secondary"}
-            className="min-h-[44px] flex-1"
-            onClick={handleGenerate}
             disabled={
               loading || atCapacity || (messages.length === 0 && !input.trim())
             }
             title={
-              atCapacity
-                ? "Three designs are already generating."
-                : readyToGenerate
-                  ? undefined
-                  : notReadyTitle
+              atCapacity ? "Three designs are already generating." : undefined
             }
+            data-testid="composer-generate"
           >
             {generating ? "Generating…" : "Generate"}
+          </Button>
+          {/* Deliberately not the submit control, and deliberately not the
+              same weight: this returns an answer, Generate returns a design. */}
+          <Button
+            type="button"
+            variant="ghost"
+            className="min-h-[44px]"
+            onClick={handleAsk}
+            disabled={loading || !input.trim()}
+            data-testid="composer-ask"
+          >
+            Ask
           </Button>
         </div>
       </form>
