@@ -66,7 +66,6 @@ vi.mock("@/lib/auth", () => ({
 }));
 
 vi.mock("@/lib/ai", () => ({
-  assessReadiness: vi.fn(async () => ({ ready: true, question: "", options: [] })),
   constructDesignBrief: vi.fn(async () => ({
     operation: "generate",
     message: "Here it is",

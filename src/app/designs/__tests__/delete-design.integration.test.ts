@@ -40,7 +40,6 @@ vi.mock("@/lib/auth", () => ({
 }));
 vi.mock("@/lib/ai", () => ({
   generatePublishedNaming: async () => ({ title: "T", description: "D" }),
-  assessReadiness: vi.fn(),
   constructDesignBrief: vi.fn(),
   chatAboutDesign: vi.fn(),
 }));
