@@ -195,10 +195,15 @@ Everything else in this slice:
 
 ### Slice 5 — My Designs as the library, and the IA
 
-- My Designs becomes a grid of images rather than one card per conversation.
+- **Nav half shipped ahead of this slice, 2026-09-01** (Option A — re-map the
+  existing header now; the fuller bottom-tab redesign waits for this slice to
+  land and be lived with): Studio entered the nav as the lead link, "New
+  Design" was deleted (an unanchored Generate in the Studio composer IS new
+  design), and a signed-in landing at `/` redirects to `/studio`. Studio and
+  My Designs are peers in the nav today.
+- Still open, this slice: My Designs becomes a grid of images rather than one
+  card per conversation.
 - Image detail gains "Open conversation", reopening if archived.
-- Nav: Studio and My Designs are peers. Decide the landing surface for a
-  signed-in user — recommendation: Studio, since that is where work resumes.
 
 ## Constraints that apply throughout
 
