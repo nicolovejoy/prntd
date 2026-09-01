@@ -179,6 +179,11 @@ Everything else in this slice:
 - The anchor must survive a poll refresh landing mid-typing. This is where the
   ambiguity risk lives, and it is what a review of this slice should attack
   first.
+- **Added 2026-09-01 (Nico):** each lane gets an explicit Close — the manual
+  way to clear a dead design from the bench now, with slice 4's 3-day sweep
+  as the janitor for lanes nobody dismisses. Close is the existing
+  `closed_at` writer (reversible via Reopen), offered only while the lane has
+  no running generation.
 
 ### Slice 4 — Auto-archive
 

@@ -164,7 +164,16 @@ const AT_CAPACITY_MESSAGE = `You have ${GENERATION_CONCURRENCY_CAP} designs gene
 
 export async function generateDesign(
   designId: string,
-  userMessage?: string
+  userMessage?: string,
+  opts: {
+    /**
+     * Explicit anchor (studio slice 3): the image the user tapped before
+     * typing. Deterministic — the turn becomes an edit of exactly this image,
+     * whatever the brief would have classified. Must be one of the
+     * conversation's own images or the whole turn is refused.
+     */
+    anchorImageId?: string;
+  } = {}
 ): Promise<GenerateResult> {
   const hdrs = await headers();
   const session = await auth.api.getSession({ headers: hdrs });
@@ -230,7 +239,15 @@ export async function generateDesign(
   // happens below, outside the try.
   let prepared: PreparedGeneration;
   try {
-    prepared = await prepareGeneration({ designId, found, userMessage, userId, ip, dayKey });
+    prepared = await prepareGeneration({
+      designId,
+      found,
+      userMessage,
+      userId,
+      ip,
+      dayKey,
+      explicitAnchorId: opts.anchorImageId ?? null,
+    });
   } catch (err) {
     await refundGenerationQuota({ userId, ip, day: dayKey }).catch((e) =>
       console.error("refundGenerationQuota failed:", e)
@@ -287,6 +304,7 @@ async function prepareGeneration({
   userId,
   ip,
   dayKey,
+  explicitAnchorId,
 }: {
   designId: string;
   found: typeof designTable.$inferSelect;
@@ -294,6 +312,7 @@ async function prepareGeneration({
   userId: string;
   ip: string | null;
   dayKey: string;
+  explicitAnchorId: string | null;
 }): Promise<PreparedGeneration> {
   const messages = await getDesignMessages(designId);
   const images = await getDesignImagesForAIContext(designId);
@@ -322,9 +341,41 @@ async function prepareGeneration({
 
   const generator = getGenerator(found.activeGeneratorId);
 
-  let generateOp: GenerateOperation;
+  let generateOp: GenerateOperation | undefined;
   let anchorImageId: string | null = null;
-  if (brief.operation === "clarify") {
+
+  // Studio slice 3: a tapped-cell anchor is explicit and deterministic. The
+  // brief still writes the best edit instruction it can, but it never picks a
+  // different anchor and never downgrades the turn to a from-scratch generate
+  // — what the user tapped is what gets edited. An id that isn't one of this
+  // conversation's images is a stale tap or a forged id; refuse before any
+  // row exists (the caller's direct-refund catch covers this span).
+  const explicitAnchor = explicitAnchorId
+    ? images.find((img) => img.id === explicitAnchorId)
+    : undefined;
+  if (explicitAnchorId && !explicitAnchor) {
+    throw new Error("Anchor image is not part of this conversation");
+  }
+  if (explicitAnchor) {
+    const instruction =
+      brief.operation === "edit"
+        ? brief.editInstruction
+        : userMessage?.trim() || latestUserText(messagesForPrompt);
+    // No words at all behind the turn → nothing to instruct the edit with;
+    // fall through to the normal clarify handling below.
+    if (instruction) {
+      anchorImageId = explicitAnchor.id;
+      generateOp = {
+        kind: "edit",
+        instruction,
+        anchorImageUrl: explicitAnchor.url,
+      };
+    }
+  }
+
+  if (generateOp) {
+    // explicit anchor resolved above
+  } else if (brief.operation === "clarify") {
     // A clarify brief is no longer an exit. The user asked for a design, so
     // their literal request gets rendered and the brief's question rides along
     // as the assistant turn attached to that image — a question is an addition
@@ -453,6 +504,7 @@ async function prepareGeneration({
       assistantMessage: brief.message,
       storedPrompt,
       images,
+      anchorImageId,
       startedAt: job.startedAt,
     },
   };
@@ -472,6 +524,8 @@ type GenerationJobParams = {
   /** Thread images as of submit time — provenance anchors on these, never on
    * a later re-read a racing generation could have shifted. */
   images: DesignImage[];
+  /** The image this render anchored on (edits), mirroring the job row. */
+  anchorImageId: string | null;
   startedAt: Date;
 };
 
@@ -523,8 +577,16 @@ async function runGenerationJob(params: GenerationJobParams): Promise<void> {
     // Anchor provenance on the images the request was built from. Seeds are
     // excluded: the within-thread parent chain is between outputs — a seeded
     // thread's first generation records parent null + seed lineage (slice 3 §5).
+    // An edit that anchored on a specific OUTPUT records that output as its
+    // parent (studio slice 3 — "try it three ways" fans out from one image, so
+    // "latest output" would chain the fan into a line); seed anchors and
+    // from-scratch generates keep the latest-output fallback.
     const outputs = images.filter((img) => img.role !== "seed");
-    const parentImageId = outputs[outputs.length - 1]?.id ?? null;
+    const anchorOutput = params.anchorImageId
+      ? outputs.find((img) => img.id === params.anchorImageId)
+      : undefined;
+    const parentImageId =
+      anchorOutput?.id ?? outputs[outputs.length - 1]?.id ?? null;
     const seed = await getConversationSeedProvenance(designId);
     const now = new Date();
 
