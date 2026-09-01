@@ -92,16 +92,18 @@ export function SiteHeader({
     Boolean(session) &&
     !(session?.user as { isAnonymous?: boolean } | undefined)?.isAnonymous;
 
-  // Shop (the community storefront, /prints) leads for everyone — it's the
-  // open buy-existing flow. The design-your-own + personal links are
-  // auth-gated.
+  // Studio leads for signed-in users — it's where a design session lives and
+  // where work resumes. "New Design" is gone: an unanchored Generate in the
+  // Studio composer IS new design, so a second door to the same place was
+  // just incoherence. Shop (the community storefront, /prints) stays the
+  // open buy-existing flow for signed-out visitors.
   const links: NavLink[] = isAuthed
     ? [
-        { href: "/prints", label: "Shop" },
-        { href: "/design", label: "New Design" },
-        ...(showDashboard ? [{ href: "/dashboard", label: "Dashboard" }] : []),
+        { href: "/studio", label: "Studio" },
         { href: "/designs", label: "My Designs" },
+        { href: "/prints", label: "Shop" },
         { href: "/orders", label: "Orders" },
+        ...(showDashboard ? [{ href: "/dashboard", label: "Dashboard" }] : []),
         ...(isAdmin ? [{ href: "/admin", label: "Admin" }] : []),
       ]
     : [{ href: "/prints", label: "Shop" }];
@@ -121,10 +123,11 @@ export function SiteHeader({
 
         {/* Always in the bar itself, not inside the mobile dropdown: a phone
             user who left /design mid-generation has to see it without opening
-            a menu. Links to My Designs, where the thread is one tap away. */}
+            a menu. Links to the Studio, where a running generation renders as
+            a pending cell. */}
         {runningJobs > 0 && (
           <Link
-            href="/designs"
+            href="/studio"
             className="ml-3 mr-auto rounded-full border border-border px-2 py-0.5 text-xs text-text-muted hover:text-foreground transition-colors"
             data-testid="running-jobs-badge"
           >

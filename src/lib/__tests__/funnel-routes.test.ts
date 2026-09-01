@@ -8,6 +8,7 @@ describe("isFunnelRoute", () => {
     expect(isFunnelRoute("/order")).toBe(true);
     expect(isFunnelRoute("/order/confirm")).toBe(true);
     expect(isFunnelRoute("/cart")).toBe(true);
+    expect(isFunnelRoute("/studio")).toBe(true);
   });
 
   it("does not match sibling routes sharing a prefix", () => {

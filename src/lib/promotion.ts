@@ -21,6 +21,10 @@ export type ActivePromo = {
   blurb: string;
 };
 
+// Reach caveat (nav re-map, 2026-09-01): the banner's only render site is the
+// homepage, and `/` now redirects signed-in users to /studio — so a live promo
+// reaches only signed-out visitors and anonymous guests. Before relaunching a
+// campaign, decide whether returning customers need a surface for it too.
 export const ACTIVE_PROMO: ActivePromo | null = null;
 
 /**

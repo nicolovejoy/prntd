@@ -72,9 +72,14 @@ beforeEach(() => {
 });
 
 describe("StudioClient rendering", () => {
-  it("shows the empty state when there are no lanes", () => {
+  it("shows the empty state with a Shop path when there are no lanes", () => {
     render(<StudioClient initialLanes={[]} />);
     expect(screen.getByText("No open designs.")).toBeTruthy();
+    // A buy-only account lands here since / redirects signed-in users; the
+    // Shop link is their way onward.
+    expect(
+      screen.getByRole("link", { name: "Browse the Shop" }).getAttribute("href")
+    ).toBe("/prints");
   });
 
   it("renders a lane's cells with the primary marked", () => {

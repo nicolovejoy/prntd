@@ -216,9 +216,18 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
         <h1 className="text-xl sm:text-2xl font-bold mb-6">Studio</h1>
 
         {lanes.length === 0 ? (
-          <p className="text-text-faint text-lg text-center py-16">
-            No open designs.
-          </p>
+          // Also the first thing a buy-only account sees, since / redirects
+          // signed-in users here (nav re-map, 2026-09-01) — so the empty
+          // state offers the Shop, not just the composer.
+          <div className="text-center py-16 space-y-4">
+            <p className="text-text-faint text-lg">No open designs.</p>
+            <Link
+              href="/prints"
+              className="inline-block text-sm text-text-muted underline hover:text-foreground transition-colors"
+            >
+              Browse the Shop
+            </Link>
+          </div>
         ) : (
           lanes.map((lane) => (
             <Lane

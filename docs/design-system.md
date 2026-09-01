@@ -457,8 +457,9 @@ and covered by Part 1's samples.
 
 ### Global chrome (`app/layout.tsx`)
 
-1. **SiteHeader** (`components/site-header.tsx`) — logo, nav (Shop /
-   New Design / My Designs / Orders, Dashboard behind `STORES_ENABLED`), cart
+1. **SiteHeader** (`components/site-header.tsx`) — logo, nav (Studio /
+   My Designs / Shop / Orders, Dashboard behind `STORES_ENABLED`; "New
+   Design" removed 2026-09-01 — the Studio composer starts new work), cart
    count (flag `CART_ENABLED`), sign-in/out. Phone: hamburger dropdown. Anon
    guests read as signed-out.
 2. **Breadcrumbs** (`components/breadcrumbs.tsx`) — desktop: full trail;

@@ -15,6 +15,11 @@
 
 export type Crumb = { label: string; href: string };
 
+// `/` is auth-aware since the nav re-map (2026-09-01): signed-in users are
+// redirected to /studio server-side. The crumb keeps pointing at `/` on
+// purpose — "Home" means wherever the root resolves for this visitor, and a
+// pure helper can't know auth state. Cost: one extra server hop on Escape
+// from a top-level hub while signed in.
 export const HOME: Crumb = { label: "Home", href: "/" };
 
 /** Build a query string from whichever of `keys` are present in `params`. */
