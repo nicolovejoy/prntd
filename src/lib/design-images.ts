@@ -268,7 +268,7 @@ export async function insertDesignImage(params: {
 /**
  * Look up an existing placement-targeted render for a design. Used as
  * a cache-hit short-circuit so re-clicking the same product doesn't
- * re-spend Replicate credits.
+ * re-spend Ideogram credits.
  *
  * Returns the most recent matching row (latest wins if there are
  * multiple, which can happen if an earlier rewrite landed before

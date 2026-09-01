@@ -30,7 +30,6 @@ DATABASE_URL=libsql://prntd-dev-nicolovejoy.aws-us-west-2.turso.io
 DATABASE_AUTH_TOKEN=op://dev-secrets/prntd-dev-turso-token/credential
 
 # --- Image generation ---------------------------------------------------
-REPLICATE_API_TOKEN=op://dev-secrets/Replicate.API.Key/credential
 IDEOGRAM_API_KEY=op://dev-secrets/Ideogram.API.Key/credential
 ANTHROPIC_API_KEY=op://dev-secrets/prntd-anthropic/credential
 
