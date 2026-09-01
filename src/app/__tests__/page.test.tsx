@@ -35,17 +35,22 @@ vi.mock("@/lib/promotion", () => ({
 }));
 
 import Home from "../page";
+import { getDiscoverFeed } from "@/app/d/actions";
 
 beforeEach(() => {
   h.session = null;
   h.redirect.mockClear();
+  vi.mocked(getDiscoverFeed).mockClear();
 });
 
 describe("Home", () => {
-  it("redirects a signed-in real user to /studio", async () => {
+  it("redirects a signed-in real user to /studio, before any data fetch", async () => {
     h.session = { user: { id: "u1", isAnonymous: false } };
     await expect(Home()).rejects.toThrow("NEXT_REDIRECT:/studio");
     expect(h.redirect).toHaveBeenCalledWith("/studio");
+    // The spec's "before the feed/promo fetches": a redirect that runs after
+    // Promise.all would still pass the throw assertion above.
+    expect(getDiscoverFeed).not.toHaveBeenCalled();
   });
 
   it("renders the hero for an anonymous guest, without redirecting", async () => {

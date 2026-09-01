@@ -37,11 +37,13 @@ import { getHeaderState } from "@/components/site-header-actions";
 // all fall outside this set, so filtering by it isolates just the nav links.
 const NAV_LABELS = ["Studio", "My Designs", "Shop", "Orders", "Dashboard", "Admin"];
 
-function navLinkLabels() {
+// Label AND destination — a label pointing at the wrong route (say, Studio
+// still linking to /design) must fail, not just a wrong word.
+function navLinks() {
   return screen
     .getAllByRole("link")
-    .map((a) => a.textContent)
-    .filter((t): t is string => NAV_LABELS.includes(t ?? ""));
+    .filter((a) => NAV_LABELS.includes(a.textContent ?? ""))
+    .map((a) => [a.textContent, a.getAttribute("href")]);
 }
 
 async function settle() {
@@ -60,7 +62,12 @@ describe("SiteHeader signed-in nav", () => {
     render(<SiteHeader cartEnabled={false} storesEnabled={false} />);
     await settle();
 
-    expect(navLinkLabels()).toEqual(["Studio", "My Designs", "Shop", "Orders"]);
+    expect(navLinks()).toEqual([
+      ["Studio", "/studio"],
+      ["My Designs", "/designs"],
+      ["Shop", "/prints"],
+      ["Orders", "/orders"],
+    ]);
     expect(screen.queryByText("New Design")).toBeNull();
   });
 
@@ -69,12 +76,12 @@ describe("SiteHeader signed-in nav", () => {
     render(<SiteHeader cartEnabled={false} storesEnabled={true} />);
     await settle();
 
-    expect(navLinkLabels()).toEqual([
-      "Studio",
-      "My Designs",
-      "Shop",
-      "Orders",
-      "Dashboard",
+    expect(navLinks()).toEqual([
+      ["Studio", "/studio"],
+      ["My Designs", "/designs"],
+      ["Shop", "/prints"],
+      ["Orders", "/orders"],
+      ["Dashboard", "/dashboard"],
     ]);
   });
 
@@ -84,12 +91,12 @@ describe("SiteHeader signed-in nav", () => {
     render(<SiteHeader cartEnabled={false} storesEnabled={false} />);
     await settle();
 
-    expect(navLinkLabels()).toEqual([
-      "Studio",
-      "My Designs",
-      "Shop",
-      "Orders",
-      "Admin",
+    expect(navLinks()).toEqual([
+      ["Studio", "/studio"],
+      ["My Designs", "/designs"],
+      ["Shop", "/prints"],
+      ["Orders", "/orders"],
+      ["Admin", "/admin"],
     ]);
   });
 });
@@ -99,7 +106,7 @@ describe("SiteHeader signed-out nav", () => {
     render(<SiteHeader cartEnabled={false} storesEnabled={false} />);
     await settle();
 
-    expect(navLinkLabels()).toEqual(["Shop"]);
+    expect(navLinks()).toEqual([["Shop", "/prints"]]);
     expect(screen.getByRole("link", { name: "Sign in" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
   });
