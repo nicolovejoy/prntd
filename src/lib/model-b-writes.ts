@@ -271,6 +271,30 @@ export async function findMirrorProduct(
   return row?.id ?? null;
 }
 
+/**
+ * Error message for "this published image has no composition". Every
+ * published image has a mirror (publish writes one; the slice-1 backfill
+ * converted the pre-existing listings), so this is a broken invariant, not a
+ * state a caller should paper over: the Shop sale and the naming edit both
+ * refuse rather than book an order with no composition / silently discard the
+ * owner's edit.
+ */
+export const MISSING_COMPOSITION_ERROR =
+  "Published image has no composition";
+
+/**
+ * findMirrorProduct for callers that cannot proceed without one. Throws
+ * MISSING_COMPOSITION_ERROR instead of returning null.
+ */
+export async function requireMirrorProduct(
+  db: typeof appDb,
+  imageId: string
+): Promise<string> {
+  const id = await findMirrorProduct(db, imageId);
+  if (!id) throw new Error(MISSING_COMPOSITION_ERROR);
+  return id;
+}
+
 /** Build the mirror `product` row for a publish (or the backfill). */
 export function buildMirrorProductRow(params: {
   imageId: string;

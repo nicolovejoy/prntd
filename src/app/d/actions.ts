@@ -25,7 +25,7 @@ import { DEFAULT_BLANK_ID, multiPlacementEnabled } from "@/lib/blanks";
 import { createStripeCheckoutForOrder } from "@/app/order/actions";
 import { renderAndCacheMockup } from "@/lib/mockup-render";
 import { getPublishedFeed } from "@/lib/discover-feed";
-import { findMirrorProduct } from "@/lib/model-b-writes";
+import { requireMirrorProduct } from "@/lib/model-b-writes";
 import {
   assertUsablePlacementImage,
   getBuyPageBackSourceGroups,
@@ -423,10 +423,7 @@ export async function buyPublishedDesign(params: {
   // shouldn't have been buyable at all. Fail loudly rather than book an order
   // with no composition. `storeId` stays null: this is the PRNTD Shop, not an
   // organizer storefront (buyStoreProduct owns that path).
-  const storeProductId = await findMirrorProduct(db, params.imageId);
-  if (!storeProductId) {
-    throw new Error("Published image has no composition");
-  }
+  const storeProductId = await requireMirrorProduct(db, params.imageId);
 
   return createStripeCheckoutForOrder({
     userId: session.user.id,

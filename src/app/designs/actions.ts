@@ -23,6 +23,7 @@ import {
   listingSyncStatement,
   productMirrorStatement,
   findMirrorProduct,
+  requireMirrorProduct,
   type MirrorUpdate,
 } from "@/lib/model-b-writes";
 import { generatePublishedNaming } from "@/lib/ai";
@@ -418,6 +419,11 @@ export async function updatePublishedNaming(
   if (description !== undefined) set.description = description.trim();
   if (backgroundColor !== undefined) set.backdropColor = backgroundColor;
 
+  // The mirror update is a WHERE-guarded UPDATE: with no mirror row it
+  // matches nothing and the edit would vanish with a success return. A
+  // published image always has one, so assert it — same refusal as the Shop
+  // sale (requireMirrorProduct).
+  await requireMirrorProduct(db, imageId);
   await productMirrorStatement(db, imageId, { kind: "update", set });
 
   revalidatePath("/");
