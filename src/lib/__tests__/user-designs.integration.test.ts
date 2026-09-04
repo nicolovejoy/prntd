@@ -1,8 +1,9 @@
 /**
- * Integration test for getUserDesignsData (the /designs card list) against a
- * real (in-memory) libSQL DB — coverage ported from the retired
- * getUserDesigns server action when the query moved to src/lib for the
- * server-component render.
+ * Integration test for getUserImageLibrary (the My Designs grid, studio-plan
+ * slice 5) against a real (in-memory) libSQL DB. Replaces the coverage of the
+ * retired getUserDesignsData card query — My Designs lists images now, so the
+ * unit under test is the image query, but the same three questions are asked:
+ * owner isolation, what shows, and what is hidden.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { eq } from "drizzle-orm";
@@ -20,7 +21,7 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 
-import { getUserDesignsData } from "@/lib/user-designs";
+import { getUserImageLibrary } from "@/lib/user-designs";
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
 
@@ -29,59 +30,109 @@ beforeEach(async () => {
   await makeUser(h.db as Db, "owner");
 });
 
-describe("getUserDesignsData", () => {
-  it("lists the user's designs with thumbnails, excluding archived", async () => {
+describe("getUserImageLibrary", () => {
+  it("lists every image the user owns, newest first", async () => {
     const db = h.db as Db;
-    const design = await makeDesign(db, "owner");
-    const imageId = await makeSourceImage(db, {
-      designId: design.id,
+    const first = await makeDesign(db, "owner");
+    const older = await makeSourceImage(db, {
+      designId: first.id,
       ownerId: "owner",
-      imageUrl: "https://r2/current.png",
+      imageUrl: "https://r2/older.png",
+      createdAt: new Date("2026-08-01T00:00:00Z"),
     });
-    await db
-      .update(schema.design)
-      .set({ primaryImageId: imageId })
-      .where(eq(schema.design.id, design.id));
+    // A second conversation: the grid is flat, so both threads' images sit
+    // side by side ordered only by age.
+    const second = await makeDesign(db, "owner");
+    const newer = await makeSourceImage(db, {
+      designId: second.id,
+      ownerId: "owner",
+      imageUrl: "https://r2/newer.png",
+      createdAt: new Date("2026-08-02T00:00:00Z"),
+    });
 
-    const archived = await makeDesign(db, "owner");
-    await db
-      .update(schema.design)
-      .set({ status: "archived" })
-      .where(eq(schema.design.id, archived.id));
-
-    const designs = await getUserDesignsData("owner");
-    expect(designs).toHaveLength(1);
-    expect(designs[0].id).toBe(design.id);
-    expect(designs[0].imageUrl).toBe("https://r2/current.png");
-    expect(designs[0].primaryImagePublishedAt).toBeNull();
+    const images = await getUserImageLibrary("owner");
+    expect(images.map((i) => i.imageId)).toEqual([newer, older]);
+    expect(images[0].imageUrl).toBe("https://r2/newer.png");
+    expect(images[0].sourceDesignId).toBe(second.id);
+    expect(images[0].isPublished).toBe(false);
+    expect(images[0].isArchived).toBe(false);
   });
 
-  it("surfaces publish state + backdrop for a published primary image", async () => {
+  it("does not return other users' images", async () => {
+    const db = h.db as Db;
+    await makeUser(db, "someone-else");
+    const theirs = await makeDesign(db, "someone-else");
+    await makeSourceImage(db, {
+      designId: theirs.id,
+      ownerId: "someone-else",
+      imageUrl: "https://r2/theirs.png",
+    });
+
+    expect(await getUserImageLibrary("owner")).toEqual([]);
+  });
+
+  it("marks published images and carries their backdrop", async () => {
     const db = h.db as Db;
     const design = await makeDesign(db, "owner");
-    const publishedAt = new Date("2026-07-01T00:00:00Z");
-    const imageId = await makeSourceImage(db, {
+    await makeSourceImage(db, {
       designId: design.id,
       ownerId: "owner",
       imageUrl: "https://r2/published.png",
-      publishedAt,
+      publishedAt: new Date("2026-07-01T00:00:00Z"),
       backgroundColor: "Navy",
+    });
+
+    const [image] = await getUserImageLibrary("owner");
+    expect(image.isPublished).toBe(true);
+    expect(image.backgroundColor).toBe("Navy");
+  });
+
+  it("marks images whose conversation has been archived out of the Studio", async () => {
+    const db = h.db as Db;
+    const design = await makeDesign(db, "owner");
+    await makeSourceImage(db, {
+      designId: design.id,
+      ownerId: "owner",
+      imageUrl: "https://r2/closed.png",
     });
     await db
       .update(schema.design)
-      .set({ primaryImageId: imageId })
+      .set({ closedAt: new Date("2026-08-30T00:00:00Z") })
       .where(eq(schema.design.id, design.id));
 
-    const [d] = await getUserDesignsData("owner");
-    expect(d.primaryImagePublishedAt).toEqual(publishedAt);
-    expect(d.primaryImageBackgroundColor).toBe("Navy");
+    const [image] = await getUserImageLibrary("owner");
+    expect(image.isArchived).toBe(true);
   });
 
-  it("does not return other users' designs", async () => {
+  it("hides images whose conversation was archived away (status)", async () => {
     const db = h.db as Db;
-    await makeUser(db, "someone-else");
-    await makeDesign(db, "someone-else");
+    const design = await makeDesign(db, "owner");
+    await makeSourceImage(db, {
+      designId: design.id,
+      ownerId: "owner",
+      imageUrl: "https://r2/gone.png",
+    });
+    await db
+      .update(schema.design)
+      .set({ status: "archived" })
+      .where(eq(schema.design.id, design.id));
 
-    expect(await getUserDesignsData("owner")).toEqual([]);
+    expect(await getUserImageLibrary("owner")).toEqual([]);
+  });
+
+  it("keeps a legacy image with no source conversation", async () => {
+    const db = h.db as Db;
+    await db.insert(schema.image).values({
+      id: "legacy-image",
+      ownerId: "owner",
+      imageUrl: "https://r2/legacy.png",
+      aspectRatio: "1:1",
+      sourceDesignId: null,
+    });
+
+    const [image] = await getUserImageLibrary("owner");
+    expect(image.imageId).toBe("legacy-image");
+    expect(image.sourceDesignId).toBeNull();
+    expect(image.isArchived).toBe(false);
   });
 });
