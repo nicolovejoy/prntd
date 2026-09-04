@@ -85,6 +85,13 @@
       "when": 1788065451563,
       "tag": "0011_workable_cobalt_man",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1788557182693,
+      "tag": "0012_special_bucky",
+      "breakpoints": true
     }
   ]
 }
