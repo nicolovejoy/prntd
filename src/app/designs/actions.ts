@@ -26,6 +26,7 @@ import {
   type ListingUpdate,
 } from "@/lib/model-b-writes";
 import { generatePublishedNaming } from "@/lib/ai";
+import { getImageNamingContext } from "@/lib/design-images";
 import { DEFAULT_PUBLISH_BACKGROUND } from "@/lib/blanks";
 
 /**
@@ -307,7 +308,6 @@ export async function publishImage(
       id: imageTable.id,
       ownerId: imageTable.ownerId,
       imageUrl: imageTable.imageUrl,
-      prompt: imageTable.prompt,
       publishedAt: listingTable.publishedAt,
     })
     .from(imageTable)
@@ -324,7 +324,10 @@ export async function publishImage(
   // legacy "just publish" path (no opts) still works.
   let title = opts.title?.trim();
   if (!title) {
-    const gen = await generatePublishedNaming(image.imageUrl, image.prompt);
+    // #169: an edit's `prompt` is an instruction ("make the bear larger"),
+    // not a description of the picture — resolve the full provenance text.
+    const namingContext = await getImageNamingContext(imageId);
+    const gen = await generatePublishedNaming(image.imageUrl, namingContext);
     title = gen.title;
   }
   // No auto-generated descriptions: store one only when the caller sent it

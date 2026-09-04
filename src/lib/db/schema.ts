@@ -1,4 +1,7 @@
 import { sqliteTable, text, integer, real, uniqueIndex, index } from "drizzle-orm/sqlite-core";
+// Relative, not the `@/` alias: drizzle-kit loads this file outside the
+// Next.js/tsconfig path resolution.
+import type { DesignSpec } from "../design-spec";
 
 export const user = sqliteTable("user", {
   id: text("id").primaryKey(),
@@ -342,6 +345,16 @@ export const image = sqliteTable("image", {
   imageUrl: text("image_url").notNull(),
   aspectRatio: text("aspect_ratio").notNull(),
   prompt: text("prompt"),
+  // What `prompt` actually holds (#169). Since edit-as-operation (#168) the
+  // column is a scene summary for a generate and an EDIT INSTRUCTION for an
+  // edit, and consumers can't tell which without this. Null = a legacy row
+  // written before #169; readers treat it as a generate and fall back to
+  // today's prompt-only behaviour.
+  operation: text("operation", { enum: ["generate", "edit", "upload"] }),
+  // The structured brief a generate was rendered from (src/lib/design-spec.ts).
+  // Set for generates only — an edit has an instruction, not a spec, and an
+  // upload has neither. Null on every legacy row; no backfill.
+  designSpecJson: text("design_spec_json", { mode: "json" }).$type<DesignSpec>(),
   generator: text("generator"),
   generationCost: real("generation_cost").notNull().default(0),
   // Within-thread iteration chain (was design_image.parentImageId).

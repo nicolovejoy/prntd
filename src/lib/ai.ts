@@ -2,12 +2,35 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { ChatMessage } from "./db/schema";
 import type { DesignImage } from "./design-images";
 import { parseDesignSpec, type DesignSpec } from "./design-spec";
+import {
+  imageGalleryLine,
+  imageHistoryNote,
+  type ProvenanceNode,
+} from "./image-provenance";
 
 const anthropic = new Anthropic();
 
+/**
+ * A gallery entry as the provenance helper sees it (#169). `image.prompt` is a
+ * scene summary for a generate and an edit INSTRUCTION for an edit, so the
+ * context has to say which; rows written before #169 carry no operation and
+ * keep the old wording.
+ */
+function toProvenanceNode(img: DesignImage): ProvenanceNode {
+  return {
+    id: img.id,
+    operation: img.operation ?? null,
+    designSpec: img.designSpec ?? null,
+    prompt: img.prompt,
+    parentImageId: img.parentImageId ?? null,
+  };
+}
+
 function buildImageGalleryContext(images: DesignImage[]): string {
   if (images.length === 0) return "";
-  const lines = images.map((img) => `#${img.number}: "${img.prompt}"`);
+  const lines = images.map((img) =>
+    imageGalleryLine(toProvenanceNode(img), img.number)
+  );
   return `\nImages so far:\n${lines.join("\n")}\n\nEntries marked [user upload] are reference images the user provided. Use them as style/content inspiration. When the user references images by number (e.g., "#2"), you know which image they mean.`;
 }
 
@@ -208,11 +231,14 @@ function buildMessages(
 ) {
   const galleryContext = buildImageGalleryContext(images);
 
-  // Resolve the stored prompt for assistant messages via image_id →
-  // design_image.prompt (carried on DesignImage entries from
-  // getDesignImagesForAIContext). This is a spec summary for a generation or
-  // an edit instruction for an edit — whichever produced that image.
-  const promptByImageId = new Map(images.map((img) => [img.id, img.prompt]));
+  // Resolve what each assistant message's image actually is, via image_id →
+  // the image row's operation + prompt/spec (carried on DesignImage entries
+  // from getDesignImagesForAIContext). #169: a bare prompt string is a scene
+  // summary for a generate and an edit instruction for an edit, so the note
+  // says which.
+  const noteByImageId = new Map(
+    images.map((img) => [img.id, imageHistoryNote(toProvenanceNode(img))])
+  );
 
   const raw = chatHistory.map((msg) => {
     // Heal polluted history: an assistant row saved with an embedded JSON
@@ -222,13 +248,13 @@ function buildMessages(
       msg.role === "assistant"
         ? (extractChatEnvelope(msg.content)?.message ?? msg.content)
         : msg.content;
-    const storedPrompt =
+    const note =
       msg.role === "assistant" && msg.imageId
-        ? promptByImageId.get(msg.imageId)
+        ? noteByImageId.get(msg.imageId)
         : null;
     return {
       role: msg.role as "user" | "assistant",
-      content: storedPrompt ? `${content}\n\nPrompt used: ${storedPrompt}` : content,
+      content: note ? `${content}\n\n${note}` : content,
     };
   });
 
@@ -349,7 +375,12 @@ const PUBLISH_NAMING_SYSTEM_PROMPT = `You title t-shirt designs being shared in 
  */
 export async function generatePublishedNaming(
   imageUrl: string,
-  prompt: string | null
+  /**
+   * Pre-rendered provenance text (#169) — the design brief for a generate, or
+   * the original brief plus the edits applied since. Built by
+   * getImageNamingContext; null when the image has nothing recorded.
+   */
+  promptContext: string | null
 ): Promise<{ title: string }> {
   const fallback = { title: "Untitled Design" };
   try {
@@ -364,8 +395,8 @@ export async function generatePublishedNaming(
             { type: "image", source: { type: "url", url: imageUrl } },
             {
               type: "text",
-              text: prompt
-                ? `Prompt used to generate this image:\n${prompt}\n\nWrite the title.`
+              text: promptContext
+                ? `${promptContext}\n\nWrite the title.`
                 : "Write the title.",
             },
           ],

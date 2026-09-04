@@ -616,6 +616,15 @@ async function runGenerationJob(params: GenerationJobParams): Promise<void> {
           imageUrl: r2Url,
           aspectRatio: "1:1",
           prompt: params.storedPrompt,
+          // Keyed off the RESOLVED operation for the same reason storedPrompt
+          // is (studio slice 1): a clarify brief and an anchorless edit both
+          // come out the far side as generates. The spec rides along in the
+          // continuation's closure, so no job-row column is needed — a
+          // continuation that loses its instance never completes at all, it
+          // gets swept and refunded.
+          operation: params.generateOp.kind,
+          designSpec:
+            params.generateOp.kind === "generate" ? params.generateOp.spec : null,
           generator: params.generator.id,
           generationCost,
           parentImageId,
@@ -695,6 +704,7 @@ export async function uploadReferenceImage(
     imageUrl: r2Url,
     aspectRatio: "1:1",
     prompt: `[user upload] ${fileName}`,
+    operation: "upload",
     generationCost: 0,
   });
 

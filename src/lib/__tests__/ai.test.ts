@@ -537,3 +537,128 @@ describe("generateOrderName", () => {
     expect(name?.length).toBeLessThanOrEqual(60);
   });
 });
+
+describe("image context in chat calls (#169)", () => {
+  beforeEach(async () => {
+    const mockCreate = await getMockCreate();
+    mockCreate.mockReset();
+    mockCreate.mockResolvedValue({
+      content: [{ type: "text", text: "ok" }],
+    });
+  });
+
+  function image(over: Partial<DesignImage> & { id: string; number: number }): DesignImage {
+    return {
+      url: `https://r2/${over.id}.png`,
+      prompt: "",
+      publishedAt: null,
+      ...over,
+    };
+  }
+
+  it("labels the gallery per operation and keeps legacy rows verbatim", async () => {
+    const mockCreate = await getMockCreate();
+    const { chatAboutDesign } = await import("../ai");
+    await chatAboutDesign(
+      "what next?",
+      [],
+      [
+        image({
+          id: "a",
+          number: 1,
+          operation: "generate",
+          designSpec: {
+            subject: "A bear on a unicycle",
+            elements: [{ type: "obj", desc: "bear" }],
+          },
+          prompt: "A bear on a unicycle",
+        }),
+        image({
+          id: "b",
+          number: 2,
+          operation: "edit",
+          prompt: "make the bear larger",
+          parentImageId: "a",
+        }),
+        image({ id: "c", number: 3, operation: "upload", prompt: "[user upload] logo.png" }),
+        image({ id: "d", number: 4, prompt: "an old prompt" }),
+      ]
+    );
+
+    const system = mockCreate.mock.calls[0][0].system as string;
+    expect(system).toContain("#1: Generated from: A bear on a unicycle");
+    expect(system).toContain("#2: Edit applied: make the bear larger");
+    expect(system).toContain("#3: Uploaded: [user upload] logo.png");
+    expect(system).toContain('#4: "an old prompt"');
+  });
+
+  it("annotates an assistant turn with what its image is", async () => {
+    const mockCreate = await getMockCreate();
+    const { chatAboutDesign } = await import("../ai");
+    await chatAboutDesign(
+      "now what",
+      [msg("assistant", "Here it is.", "b")],
+      [image({ id: "b", number: 1, operation: "edit", prompt: "make the bear larger" })]
+    );
+
+    const messages = mockCreate.mock.calls[0][0].messages as {
+      role: string;
+      content: string;
+    }[];
+    expect(messages[0].content).toContain("Edit applied: make the bear larger");
+    expect(messages[0].content).not.toContain("Prompt used:");
+  });
+
+  it("keeps the legacy 'Prompt used:' annotation for a pre-#169 row", async () => {
+    const mockCreate = await getMockCreate();
+    const { chatAboutDesign } = await import("../ai");
+    await chatAboutDesign(
+      "now what",
+      [msg("assistant", "Here it is.", "d")],
+      [image({ id: "d", number: 1, prompt: "an old prompt" })]
+    );
+
+    const messages = mockCreate.mock.calls[0][0].messages as {
+      role: string;
+      content: string;
+    }[];
+    expect(messages[0].content).toContain("Prompt used: an old prompt");
+  });
+});
+
+describe("generatePublishedNaming (#169)", () => {
+  beforeEach(async () => {
+    const mockCreate = await getMockCreate();
+    mockCreate.mockReset();
+    mockCreate.mockResolvedValue({
+      content: [{ type: "text", text: '{"title":"Big Bear"}' }],
+    });
+  });
+
+  it("sends the provenance context it is handed, verbatim", async () => {
+    const mockCreate = await getMockCreate();
+    const { generatePublishedNaming } = await import("../ai");
+    const context =
+      "Original design: A bear on a unicycle. Later edits applied: make the bear larger";
+    const result = await generatePublishedNaming("https://r2/b.png", context);
+
+    expect(result.title).toBe("Big Bear");
+    const content = mockCreate.mock.calls[0][0].messages[0].content as {
+      type: string;
+      text?: string;
+    }[];
+    const text = content.find((c) => c.type === "text")?.text ?? "";
+    expect(text).toContain(context);
+  });
+
+  it("asks for a title with no context when there is none", async () => {
+    const mockCreate = await getMockCreate();
+    const { generatePublishedNaming } = await import("../ai");
+    await generatePublishedNaming("https://r2/b.png", null);
+    const content = mockCreate.mock.calls[0][0].messages[0].content as {
+      type: string;
+      text?: string;
+    }[];
+    expect(content.find((c) => c.type === "text")?.text).toBe("Write the title.");
+  });
+});
