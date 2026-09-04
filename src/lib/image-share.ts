@@ -7,13 +7,19 @@
  * is "use server", so anything exported from it becomes a server action, and
  * a Route Handler should not be importing one.
  */
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "./db";
-import { image as imageTable, listing as listingTable, user as userTable } from "./db/schema";
+import { image as imageTable, product as productTable, user as userTable } from "./db/schema";
+import {
+  isPublishedShopMirror,
+  mirrorFrontImageId,
+  mirrorIsHidden,
+  mirrorPublishedAt,
+} from "./composition-reads";
 
 export type ImageShareCard = {
   imageUrl: string;
-  /** Listing title; null when the owner never named it. */
+  /** Published title; null when the owner never named it. */
   title: string | null;
   designerName: string;
   /** Pinned storefront backdrop; null means the White default (#76). */
@@ -40,8 +46,13 @@ export function canShareImageCard(image: {
 
 /**
  * The share card for one image, or null when there is nothing shareable
- * (unknown id, never published, unpublished — the listing row is deleted —
- * or admin-hidden). Callers fall back to the site-wide card on null.
+ * (unknown id, never published, unpublished — the mirror row goes back to
+ * "draft" — or admin-hidden). Callers fall back to the site-wide card on null.
+ *
+ * Composition slice 2: title and backdrop come off the image's mirror
+ * `product` row, and the publish/hidden state with them. Still a left join, so
+ * an unpublished image returns a row, fails `canShareImageCard`, and gets the
+ * site card — unchanged behaviour.
  */
 export async function getImageShareCard(
   imageId: string
@@ -49,21 +60,29 @@ export async function getImageShareCard(
   const rows = await db
     .select({
       imageUrl: imageTable.imageUrl,
-      title: listingTable.title,
-      backgroundColor: listingTable.backgroundColor,
-      publishedAt: listingTable.publishedAt,
-      isHidden: listingTable.isHidden,
+      title: productTable.title,
+      backgroundColor: productTable.backdropColor,
+      status: productTable.status,
+      listedAt: productTable.listedAt,
       designerName: userTable.name,
     })
     .from(imageTable)
     .innerJoin(userTable, eq(userTable.id, imageTable.ownerId))
-    .leftJoin(listingTable, eq(listingTable.imageId, imageTable.id))
+    .leftJoin(
+      productTable,
+      and(isPublishedShopMirror(), eq(mirrorFrontImageId, imageTable.id))
+    )
     .where(eq(imageTable.id, imageId))
     .limit(1);
 
   const r = rows[0];
   if (!r) return null;
-  if (!canShareImageCard({ publishedAt: r.publishedAt, isHidden: r.isHidden ?? false })) {
+  if (
+    !canShareImageCard({
+      publishedAt: mirrorPublishedAt(r.status, r.listedAt),
+      isHidden: mirrorIsHidden(r.status),
+    })
+  ) {
     return null;
   }
 
