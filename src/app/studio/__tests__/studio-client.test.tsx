@@ -263,3 +263,20 @@ describe("closing a lane", () => {
     expect(screen.queryByTestId("studio-close-lane")).toBeNull();
   });
 });
+
+describe("StudioClient — archive link (slice 4)", () => {
+  it("offers a quiet route to the archive, empty bench or not", () => {
+    const { unmount } = render(<StudioClient initialLanes={[]} />);
+    expect(screen.getByRole("link", { name: "Archive" })).toHaveAttribute(
+      "href",
+      "/studio/archive"
+    );
+    unmount();
+
+    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+    expect(screen.getByRole("link", { name: "Archive" })).toHaveAttribute(
+      "href",
+      "/studio/archive"
+    );
+  });
+});
