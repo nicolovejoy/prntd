@@ -310,6 +310,7 @@ describe("backfill", () => {
       description: "Kept",
       backgroundColor: "Navy",
       feedRank: 4,
+      mirror: false,
     });
     const hidden = await makeSourceImage(testDb, {
       designId: design.id,
@@ -317,6 +318,7 @@ describe("backfill", () => {
       imageUrl: "https://img/b.png",
       publishedAt,
       isHidden: true,
+      mirror: false,
     });
 
     const dry = await backfillCompositionMirrors(testDb, { apply: false });

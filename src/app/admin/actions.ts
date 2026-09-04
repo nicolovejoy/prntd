@@ -8,7 +8,7 @@ import {
   orderItem as orderItemTable,
   design as designTable,
   image as imageTable,
-  listing as listingTable,
+  product as productTable,
   user as userTable,
   ledgerEntry,
   appError as appErrorTable,
@@ -18,6 +18,12 @@ import {
   productMirrorStatement,
 } from "@/lib/model-b-writes";
 import { eq, desc, asc, inArray, sum, count, sql } from "drizzle-orm";
+import {
+  isPublishedShopMirror,
+  listedMirrorPublishedAt,
+  mirrorFrontImageId,
+  mirrorIsHidden,
+} from "@/lib/composition-reads";
 import { alias } from "drizzle-orm/sqlite-core";
 import { revalidatePath } from "next/cache";
 import { createOrder, getOrderByExternalId } from "@/lib/printful";
@@ -343,26 +349,29 @@ export async function getRecentPublishedForAdmin(
 
   // Same order as the Shop feed (ranked first, then newest) so the admin
   // grid mirrors what customers see.
-  // Published = has a listing row (Model B); hidden ones stay in the grid so
-  // the admin can unhide them.
+  // Composition slice 2: published = has a non-draft mirror `product` row;
+  // hidden ones (status "hidden") stay in the grid so the admin can unhide
+  // them.
   const rows = await db
     .select({
       imageId: imageTable.id,
       imageUrl: imageTable.imageUrl,
-      title: listingTable.title,
-      publishedAt: listingTable.publishedAt,
-      isHidden: listingTable.isHidden,
-      feedRank: listingTable.feedRank,
+      title: productTable.title,
+      status: productTable.status,
+      listedAt: productTable.listedAt,
+      productCreatedAt: productTable.createdAt,
+      feedRank: productTable.feedRank,
       designerName: userTable.name,
       designerEmail: userTable.email,
     })
-    .from(listingTable)
-    .innerJoin(imageTable, eq(imageTable.id, listingTable.imageId))
+    .from(productTable)
+    .innerJoin(imageTable, eq(mirrorFrontImageId, imageTable.id))
     .innerJoin(userTable, eq(userTable.id, imageTable.ownerId))
+    .where(isPublishedShopMirror())
     .orderBy(
-      sql`${listingTable.feedRank} is null`,
-      asc(listingTable.feedRank),
-      desc(listingTable.publishedAt)
+      sql`${productTable.feedRank} is null`,
+      asc(productTable.feedRank),
+      desc(productTable.listedAt)
     )
     .limit(limit);
 
@@ -372,8 +381,8 @@ export async function getRecentPublishedForAdmin(
     title: r.title,
     designerName: r.designerName,
     designerEmail: r.designerEmail,
-    publishedAt: r.publishedAt,
-    isHidden: r.isHidden,
+    publishedAt: listedMirrorPublishedAt(r.listedAt, r.productCreatedAt),
+    isHidden: mirrorIsHidden(r.status),
     feedRank: r.feedRank,
   }));
 }
