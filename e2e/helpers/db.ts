@@ -105,6 +105,23 @@ export async function cleanupDesigns(designIds: string[]): Promise<void> {
     sql: `DELETE FROM listing WHERE image_id IN (SELECT image_id FROM conversation_image WHERE design_id IN (${placeholders}))`,
     args: designIds,
   });
+  // Composition mirrors: a published image's Shop composition (store_id NULL,
+  // design_id NULL, placements {front: <imageId>}) exists BECAUSE of the
+  // image, so a spec that publishes must not leak it. Organizer products
+  // carry a store_id or a design_id and are cleanupStores' job. Mirrors an
+  // order points at (order.store_product_id FKs product) are left behind —
+  // orders are financial records this helper never deletes.
+  await c.execute({
+    sql: `DELETE FROM product
+           WHERE store_id IS NULL AND design_id IS NULL
+             AND id NOT IN (
+               SELECT store_product_id FROM "order" WHERE store_product_id IS NOT NULL
+             )
+             AND json_extract(placements, '$.front') IN (
+               SELECT image_id FROM conversation_image WHERE design_id IN (${placeholders})
+             )`,
+    args: designIds,
+  });
   await c.execute({
     sql: `DELETE FROM image WHERE id IN (SELECT image_id FROM conversation_image WHERE design_id IN (${placeholders}))
           OR source_design_id IN (${placeholders})`,

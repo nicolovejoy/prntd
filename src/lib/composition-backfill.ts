@@ -1,6 +1,16 @@
 /**
  * Composition slice 1 backfill core (docs/composition-first-class-plan.md §4).
  *
+ * !! FROZEN SOURCE, as of the slice-4 writer cutover !!
+ * The publish-family writers no longer touch `listing.title` /
+ * `.description` / `.background_color` / `.feed_rank`. Those columns are a
+ * snapshot of the pre-cutover world: correct for rows published before the
+ * cutover, stale (usually null) for everything after. So the listing→product
+ * read direction below is meaningful ONLY for pre-cutover rows — which is
+ * exactly what a backfill is for — and the reverse comparison ("does the
+ * listing still agree with the product?") is no longer a correctness signal.
+ * verifyCompositionMirrors was narrowed to match; see its docblock.
+ *
  * Converts every `listing` row without a mirror `product` row into one, with
  * the same field mapping as the publish dual-write (model-b-writes.ts
  * productMirrorStatement) except that existing moderation/curation state is
@@ -103,9 +113,14 @@ export async function backfillCompositionMirrors(
 }
 
 /**
- * Post-run verification: for every listing, is there exactly one mirror and
- * do its mirrored fields match? Returns human-readable mismatch lines
- * (empty = clean). Reads only.
+ * Post-run verification: for every listing, is there exactly one mirror, and
+ * does it carry the state that must still agree — status vs. the visibility
+ * row's hidden flag, listedAt vs. publishedAt, the placements marker?
+ *
+ * Slice 4 dropped the sellable-field comparisons (title / description /
+ * backdrop / feed rank): the listing copies are frozen, so a row edited after
+ * the cutover legitimately differs and comparing them would fail every clean
+ * database. Returns human-readable mismatch lines (empty = clean). Reads only.
  */
 export async function verifyCompositionMirrors(db: DB): Promise<string[]> {
   const listings = await db.select().from(listingTable);
@@ -144,14 +159,12 @@ export async function verifyCompositionMirrors(db: DB): Promise<string[]> {
         `listing ${l.imageId}: mirror status ${m.status}, expected ${expectedStatus}`
       );
     }
-    if (m.title !== l.title) {
-      problems.push(`listing ${l.imageId}: mirror title mismatch`);
-    }
-    if (m.backdropColor !== l.backgroundColor) {
-      problems.push(`listing ${l.imageId}: mirror backdropColor mismatch`);
-    }
-    if ((m.feedRank ?? null) !== (l.feedRank ?? null)) {
-      problems.push(`listing ${l.imageId}: mirror feedRank mismatch`);
+    if (m.listedAt === null) {
+      problems.push(`listing ${l.imageId}: mirror has no listedAt (feed sort)`);
+    } else if (m.listedAt.getTime() !== l.publishedAt.getTime()) {
+      problems.push(
+        `listing ${l.imageId}: mirror listedAt != listing publishedAt`
+      );
     }
     if (JSON.stringify(m.placements) !== JSON.stringify(mirrorPlacements(l.imageId))) {
       problems.push(`listing ${l.imageId}: mirror placements mismatch`);

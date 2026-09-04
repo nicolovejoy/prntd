@@ -105,11 +105,16 @@ export const order = sqliteTable("order", {
   designId: text("design_id").notNull().references(() => design.id),
   printfulOrderId: text("printful_order_id"),
   stripeSessionId: text("stripe_session_id"),
-  // Organizer-pivot Phase 3 attribution (nullable, no backfill). A storefront
-  // sale links to the store + the organizer `product` (the design × blank ×
-  // price sellable) so a later payout phase can sum proceeds per org.
-  // `storeProductId` points at `product.id` — distinct from `order_item`'s
-  // `productId`, which holds a *blank* catalog id. Null for non-storefront orders.
+  // Composition attribution (nullable, no backfill). `storeProductId` points
+  // at `product.id` — distinct from `order_item`'s `productId`, which holds a
+  // *blank* catalog id — and is set for BOTH kinds of sale:
+  //   - organizer storefront (Phase 3): `storeId` set, product = the
+  //     organizer's sellable (design × blank × price);
+  //   - PRNTD Shop (composition slice 4): `storeId` NULL, product = the
+  //     published image's mirror composition.
+  // So a payout/proceeds query must key organizer revenue off `storeId`,
+  // NEVER off `storeProductId` alone — that would sweep in every Shop sale.
+  // Both stay null for design-your-own orders (/preview, /order, cart).
   storeId: text("store_id").references(() => store.id),
   storeProductId: text("store_product_id").references(() => product.id),
   displayName: text("display_name"),

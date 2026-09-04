@@ -1,9 +1,11 @@
 /**
- * Composition slice 1 (docs/composition-first-class-plan.md §5): every
- * publish-family action dual-writes the image's mirror `product` row next to
- * its `listing` statement, and the backfill converts pre-existing listings.
- * Runs against a real in-memory libSQL (#28), driving the server actions with
- * db + auth mocked so the batches actually run.
+ * The image's mirror `product` row — the Shop composition
+ * (docs/composition-first-class-plan.md §5). Every publish-family action
+ * maintains it, and the backfill converts pre-slice-1 listings. Since the
+ * slice-4 writer cutover it is the ONLY home of the sellable fields; the
+ * listing row beside it is the visibility grant. Runs against a real
+ * in-memory libSQL (#28), driving the server actions with db + auth mocked so
+ * the batches actually run.
  *
  * Mirror contract: storeId NULL, designId NULL, blankId NULL, placements
  * exactly { front: imageId }, price NULL. Publish inserts (or revives a
@@ -86,7 +88,7 @@ async function mirrorsOf(imageId: string) {
   });
 }
 
-describe("publish dual-write", () => {
+describe("publish-family mirror writes", () => {
   it("publish creates the mirror product with the contract fields", async () => {
     const { imageId } = await seedImage();
     await publishImage(imageId, { title: "T", backgroundColor: "Black" });
@@ -235,6 +237,45 @@ describe("delete interactions", () => {
     expect(await testDb.select().from(schema.product)).toHaveLength(0);
   });
 
+  it("a Shop-bought image archives instead of deleting — the order FKs its mirror", async () => {
+    // Composition slice 4 put order.store_product_id → product.id in play for
+    // Shop sales, so deleting the mirror out from under a sold order would
+    // trip that FK. The order guard fires first and archives the design.
+    const { designId, imageId } = await seedImage();
+    await publishImage(imageId, { title: "T" });
+    const [mirror] = await mirrorsOf(imageId);
+
+    await makeUser(testDb, "buyer-1");
+    const [order] = await testDb
+      .insert(schema.order)
+      .values({
+        userId: "buyer-1",
+        designId,
+        totalPrice: 24.12,
+        status: "paid",
+        storeProductId: mirror.id,
+      })
+      .returning();
+    await testDb.insert(schema.orderItem).values({
+      orderId: order.id,
+      designId,
+      productId: "bella-canvas-3001",
+      size: "L",
+      color: "Black",
+      placements: { front: imageId },
+      itemPrice: 19.43,
+    });
+
+    await deleteDesign(designId);
+
+    const [d] = await testDb
+      .select()
+      .from(schema.design)
+      .where(eq(schema.design.id, designId));
+    expect(d.status).toBe("archived");
+    expect(await mirrorsOf(imageId)).toHaveLength(1);
+  });
+
   it("deleteDesign keeps the mirror of an image that survives (detached)", async () => {
     const { designId, imageId } = await seedImage();
     await publishImage(imageId, { title: "T" });
@@ -365,6 +406,56 @@ describe("backfill", () => {
     const run = await backfillCompositionMirrors(testDb, { apply: true });
     expect(run).toMatchObject({ mirrorsFound: 1, mirrorsCreated: 0 });
     expect(await mirrorsOf(imageId)).toHaveLength(1);
+  });
+
+  it("verify ignores post-cutover sellable drift (the listing copies are frozen)", async () => {
+    // A pre-cutover row: sellable fields on the listing, mirror built by the
+    // backfill. Then an owner edits it — slice 4 writes the product only, so
+    // the two copies now differ by design.
+    const design = await makeDesign(testDb, "owner-1");
+    const imageId = await makeSourceImage(testDb, {
+      designId: design.id,
+      ownerId: "owner-1",
+      imageUrl: "https://img/legacy.png",
+      publishedAt: new Date("2026-06-01T00:00:00Z"),
+      title: "Old",
+      backgroundColor: "Navy",
+      feedRank: 2,
+      mirror: false,
+    });
+    await backfillCompositionMirrors(testDb, { apply: true });
+
+    await updatePublishedNaming(imageId, { title: "New", backgroundColor: "White" });
+    await setImageFeedRank(imageId, 9);
+
+    const [m] = await mirrorsOf(imageId);
+    expect(m.title).toBe("New");
+    expect(m.feedRank).toBe(9);
+    const [l] = await testDb
+      .select()
+      .from(schema.listing)
+      .where(eq(schema.listing.imageId, imageId));
+    expect(l.title).toBe("Old"); // frozen, not rewritten
+
+    expect(await verifyCompositionMirrors(testDb)).toEqual([]);
+  });
+
+  it("verify still catches a hidden-state or listedAt disagreement", async () => {
+    const { imageId } = await seedImage({ publishedAt: new Date() });
+    await backfillCompositionMirrors(testDb, { apply: true });
+    expect(await verifyCompositionMirrors(testDb)).toEqual([]);
+
+    // Poke the mirror out of agreement the way no writer ever would.
+    const [m] = await mirrorsOf(imageId);
+    await testDb
+      .update(schema.product)
+      .set({ status: "hidden", listedAt: new Date("2020-01-01T00:00:00Z") })
+      .where(eq(schema.product.id, m.id));
+
+    const problems = await verifyCompositionMirrors(testDb);
+    expect(problems).toHaveLength(2);
+    expect(problems.join(" ")).toContain("status");
+    expect(problems.join(" ")).toContain("listedAt");
   });
 
   it("reports a listing whose image row is missing instead of inserting", async () => {

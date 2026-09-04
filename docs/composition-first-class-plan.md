@@ -216,6 +216,29 @@ row (re-publish mints fresh listedAt, matching the Model B slice-4
 "fresh listing" judgment call). `buyPublishedDesign` starts writing
 `order.storeProductId` for Shop purchases.
 
+**Slice 4 status (shipped).** Writers cut over as planned. Judgment calls
+worth knowing before slice 5:
+
+- `setImageHidden` still writes both tables. Hidden is genuinely two things —
+  the visibility grant the pure guards read and the composition's status — so
+  it is not a leftover dual-write; the rename slice keeps it.
+- `updatePublishedNaming` and `setImageFeedRank` became single product
+  statements (nothing was left for them to write on the listing side), so
+  they no longer run inside a `db.batch`.
+- Double-publish race: the mirror insert is always batched with the listing
+  insert, and `listing.imageId` is a primary key, so the racing loser's whole
+  batch rolls back and a second mirror cannot be minted. No conditional
+  insert was added — it would duplicate the row builder for no added
+  guarantee. Slice 5 should add a real uniqueness constraint once the mirror
+  marker is re-keyed off the dropped `designId`.
+- `buyPublishedDesign` throws when a published image has no mirror rather
+  than booking an order with no composition.
+- The listing's four sellable columns are now FROZEN: correct for pre-cutover
+  rows, stale afterwards. `verifyCompositionMirrors` and
+  `scripts/check-composition-read-parity.ts` stopped comparing them and check
+  structure only (1:1 existence, hidden-state ↔ status, listed_at =
+  published_at). Run the parity script before the drops.
+
 **Slice 5 — drops + rename.** Drop `product.designId` (guards already
 collapsed in slice 1's validation rework), drop the four moved columns from
 `listing`, rename `listing` → `image_publication`. Parity check script

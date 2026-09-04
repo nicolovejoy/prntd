@@ -154,8 +154,10 @@ export async function createStripeCheckoutForOrder(params: {
   placements: Record<string, string> | null;
   checkoutImageUrl: string | null;
   cancelUrl: string;
-  /** Organizer-pivot attribution (Phase 3). Set for storefront sales so the
-   * order ties back to the store + organizer product; null otherwise. */
+  /** Composition attribution. `storeId` is the organizer storefront (null for
+   * a PRNTD Shop sale); `storeProductId` is the `product` row bought — the
+   * organizer's sellable, or the published image's mirror composition. Both
+   * null for design-your-own. See the schema comment on `order`. */
   storeId?: string | null;
   storeProductId?: string | null;
 }): Promise<{ url: string | null }> {
