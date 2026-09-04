@@ -68,6 +68,11 @@ export type PublishedImage = {
 export type ImagePage = Omit<PublishedImage, "publishedAt"> & {
   publishedAt: Date | null;
   sourceDesignId: string | null;
+  /**
+   * The source conversation has left the Studio (closed_at set). The owner's
+   * "Open conversation" reopens it on the way through (slice 5).
+   */
+  sourceConversationArchived: boolean;
 };
 
 /**
@@ -167,6 +172,7 @@ export async function getImagePage(
       designerId: userTable.id,
       forkedFromImageId: imageTable.seedImageId,
       sourceDesignId: imageTable.sourceDesignId,
+      sourceClosedAt: designTable.closedAt,
     })
     .from(imageTable)
     .innerJoin(userTable, eq(userTable.id, imageTable.ownerId))
@@ -174,6 +180,9 @@ export async function getImagePage(
       productTable,
       and(isPublishedShopMirror(), eq(mirrorFrontImageId, imageTable.id))
     )
+    // Left, not inner: legacy images carry no sourceDesignId, and the page
+    // must still render them.
+    .leftJoin(designTable, eq(designTable.id, imageTable.sourceDesignId))
     .where(eq(imageTable.id, imageId))
     .limit(1);
 
@@ -217,6 +226,7 @@ export async function getImagePage(
     isOwn,
     publishedAt,
     sourceDesignId: r.sourceDesignId,
+    sourceConversationArchived: r.sourceClosedAt !== null,
     forkChain,
   };
 }
@@ -407,3 +417,4 @@ export async function buyPublishedDesign(params: {
     cancelUrl: `${process.env.NEXT_PUBLIC_APP_URL}/d/${params.imageId}`,
   });
 }
+

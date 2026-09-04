@@ -306,8 +306,25 @@ describe("getImagePage (Model B reads)", () => {
     expect(img?.imageId).toBe(ids.sellerPrivateId);
     expect(img?.publishedAt).toBeNull();
     expect(img?.isOwn).toBe(true);
-    // The "View conversation" link needs the thread that produced it.
+    // The "Open conversation" action needs the thread that produced it.
     expect(img?.sourceDesignId).toBeTruthy();
+    expect(img?.sourceConversationArchived).toBe(false);
+  });
+
+  it("reports an archived source conversation (slice 5)", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    h.session = { user: { id: "seller", isAnonymous: false } };
+    const { getImagePage } = await import("@/app/d/actions");
+
+    const before = await getImagePage(ids.sellerPrivateId);
+    await db
+      .update(schema.design)
+      .set({ closedAt: new Date("2026-08-30T00:00:00Z") })
+      .where(schemaEq(schema.design.id, before!.sourceDesignId!));
+
+    const img = await getImagePage(ids.sellerPrivateId);
+    expect(img?.sourceConversationArchived).toBe(true);
   });
 
   it("walks the attribution chain over image.seed_image_id", async () => {
