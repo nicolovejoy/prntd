@@ -2,17 +2,22 @@
  * Shop feed query + ordering.
  *
  * The feed (homepage grid + /prints) lists published, non-hidden images,
- * one card per design. Position is admin-controlled via `listing.feed_rank`
+ * one card per design. Position is admin-controlled via `product.feed_rank`
  * (/admin/published): ranked images list first, lowest rank first; unranked
  * images follow, newest published first — exactly the pre-rank behavior.
+ *
+ * Composition slice 2: the sellable fields come off the image's mirror
+ * `product` row (docs/composition-first-class-plan.md §1 "job A"), not its
+ * `listing` row. See src/lib/composition-reads.ts.
  */
 import { db } from "@/lib/db";
 import {
   image as imageTable,
-  listing as listingTable,
+  product as productTable,
   user as userTable,
 } from "@/lib/db/schema";
-import { eq, desc, asc, sql } from "drizzle-orm";
+import { eq, and, desc, asc, sql } from "drizzle-orm";
+import { isShopMirror, mirrorFrontImageId } from "@/lib/composition-reads";
 
 export type FeedRow = {
   imageId: string;
@@ -70,35 +75,45 @@ export function orderFeedByRank<
  * ranked rows are never cut off by the over-fetch window.
  */
 export async function getPublishedFeed(limit = 60): Promise<FeedRow[]> {
-  // A listing row exists iff the image is published, so the join replaces the
-  // old published_at IS NOT NULL filter. The designer comes off image.ownerId
-  // (denormalized in Model B) — no design join left.
+  // Composition slice 2: the feed is a *product* query. A Shop mirror row
+  // exists iff the image is published, and `status = "listed"` is exactly the
+  // old `is_hidden = false` (hidden → status "hidden", unpublished → "draft"),
+  // so the same rows come back. The image joins on the mirror's front
+  // placement slot; the designer comes off image.ownerId (denormalized in
+  // Model B) — no design join left.
   const rows = await db
     .select({
       imageId: imageTable.id,
       designId: imageTable.sourceDesignId,
       imageUrl: imageTable.imageUrl,
-      title: listingTable.title,
-      description: listingTable.description,
-      backgroundColor: listingTable.backgroundColor,
-      publishedAt: listingTable.publishedAt,
-      feedRank: listingTable.feedRank,
+      title: productTable.title,
+      description: productTable.description,
+      backgroundColor: productTable.backdropColor,
+      listedAt: productTable.listedAt,
+      productCreatedAt: productTable.createdAt,
+      feedRank: productTable.feedRank,
       designerName: userTable.name,
       designerId: userTable.id,
     })
-    .from(listingTable)
-    .innerJoin(imageTable, eq(imageTable.id, listingTable.imageId))
+    .from(productTable)
+    .innerJoin(imageTable, eq(mirrorFrontImageId, imageTable.id))
     .innerJoin(userTable, eq(userTable.id, imageTable.ownerId))
-    .where(eq(listingTable.isHidden, false))
+    .where(and(isShopMirror(), eq(productTable.status, "listed")))
     .orderBy(
-      sql`${listingTable.feedRank} is null`,
-      asc(listingTable.feedRank),
-      desc(listingTable.publishedAt)
+      sql`${productTable.feedRank} is null`,
+      asc(productTable.feedRank),
+      desc(productTable.listedAt)
     )
     .limit(Math.min(limit * 4, 240));
 
   // An image with no source conversation is its own dedupe group.
+  // `listedAt` is set on every publish; the createdAt fallback only covers a
+  // hand-written row, and keeps FeedRow.publishedAt non-null for the callers.
   return orderFeedByRank(
-    rows.map((r) => ({ ...r, designId: r.designId ?? r.imageId }))
+    rows.map(({ listedAt, productCreatedAt, ...r }) => ({
+      ...r,
+      designId: r.designId ?? r.imageId,
+      publishedAt: listedAt ?? productCreatedAt,
+    }))
   ).slice(0, limit);
 }

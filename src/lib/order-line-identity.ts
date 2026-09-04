@@ -9,7 +9,9 @@
  *
  *   - the thumbnail: the pinned front placement image when the line has one
  *     (that's what actually gets printed), else the design's display image;
- *   - a name: the published listing title of the pinned front image, when it
+ *   - a name: the published title of the pinned front image — since
+ *     composition slice 2 that comes off the image's mirror `product` row —
+ *     when it
  *     has one. A design has no title of its own, so unpublished lines get
  *     null and the thumbnail carries the identity;
  *   - the designer (id + name) so attribution can be computed per line.
@@ -26,8 +28,12 @@ import {
   image as imageTable,
   conversationImage as conversationImageTable,
   placementRender as placementRenderTable,
-  listing as listingTable,
+  product as productTable,
 } from "@/lib/db/schema";
+import {
+  isPublishedShopMirror,
+  mirrorFrontImageId,
+} from "@/lib/composition-reads";
 
 /** The subset of an OrderLine this needs. */
 export type IdentifiableLine = {
@@ -38,7 +44,7 @@ export type IdentifiableLine = {
 export type OrderLineIdentity = {
   /** Absolute image URL (R2 public URLs already are), or null if unresolvable. */
   imageUrl: string | null;
-  /** Published listing title of the pinned front image, else null. */
+  /** Published title (mirror product) of the pinned front image, else null. */
   title: string | null;
   designerId: string | null;
   designerName: string | null;
@@ -47,7 +53,7 @@ export type OrderLineIdentity = {
 export type LineIdentityContext = {
   /** image id → url, covering both artifacts and placement renders. */
   urlByImageId: Map<string, string>;
-  /** image id → listing title (only published images appear). */
+  /** image id → published title (only published images appear). */
   titleByImageId: Map<string, string | null>;
   /** design id → display image url (primary, else latest output). */
   displayUrlByDesignId: Map<string, string>;
@@ -97,7 +103,7 @@ export async function loadLineIdentityContext(
   ];
   const designIds = [...new Set(lines.map((l) => l.designId).filter(Boolean))];
 
-  const [designRows, listingRows] = await Promise.all([
+  const [designRows, titleRows] = await Promise.all([
     designIds.length
       ? db
           .select({
@@ -112,16 +118,21 @@ export async function loadLineIdentityContext(
       : Promise.resolve([]),
     pinnedIds.length
       ? db
-          .select({ imageId: listingTable.imageId, title: listingTable.title })
-          .from(listingTable)
-          .where(inArray(listingTable.imageId, pinnedIds))
+          .select({ imageId: mirrorFrontImageId, title: productTable.title })
+          .from(productTable)
+          .where(
+            and(
+              isPublishedShopMirror(),
+              inArray(mirrorFrontImageId, pinnedIds)
+            )
+          )
       : Promise.resolve([]),
   ]);
 
   for (const d of designRows) {
     designerByDesignId.set(d.id, { id: d.ownerId, name: d.ownerName ?? null });
   }
-  for (const l of listingRows) {
+  for (const l of titleRows) {
     titleByImageId.set(l.imageId, l.title ?? null);
   }
 

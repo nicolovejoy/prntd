@@ -12,7 +12,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { eq as schemaEq } from "drizzle-orm";
 import { createTestDb } from "@/lib/__tests__/test-db";
 import * as schema from "@/lib/db/schema";
-import { makeUser, makeSourceImage } from "@/lib/__tests__/factories";
+import {
+  makeUser,
+  makeSourceImage,
+  setPublication,
+} from "@/lib/__tests__/factories";
 
 const h = vi.hoisted(() => ({
   db: null as unknown,
@@ -247,8 +251,8 @@ describe("getBuyPageBackSources gating", () => {
 });
 
 /**
- * The /d page read swap (Model B slice 2): the listing carries the public
- * copy, and the attribution chain walks image.seed_image_id instead of
+ * The /d page read swap: the image's publication carries the public copy
+ * (since composition slice 2 the sellable half lives on the mirror product), and the attribution chain walks image.seed_image_id instead of
  * design.forked_from_image_id. Since #136 slice 1 the same reader also
  * serves the owner their own unpublished images, so the visibility rule is
  * pinned here too — a private image must stay invisible to everyone else.
@@ -257,10 +261,11 @@ describe("getImagePage (Model B reads)", () => {
   it("serves the listing's copy and the designer", async () => {
     const db = h.db as Db;
     const ids = await seed(db);
-    await db
-      .update(schema.listing)
-      .set({ title: "Fox", description: "A fox", backgroundColor: "Black" })
-      .where(schemaEq(schema.listing.imageId, ids.listingId));
+    await setPublication(db, ids.listingId, {
+      title: "Fox",
+      description: "A fox",
+      backgroundColor: "Black",
+    });
 
     const { getImagePage } = await import("@/app/d/actions");
     const img = await getImagePage(ids.listingId);
@@ -287,10 +292,7 @@ describe("getImagePage (Model B reads)", () => {
     // Hidden beats ownership: an admin-hidden listing 404s for its owner too,
     // or moderation would leave the page linkable.
     h.session = { user: { id: "seller", isAnonymous: false } };
-    await db
-      .update(schema.listing)
-      .set({ isHidden: true })
-      .where(schemaEq(schema.listing.imageId, ids.listingId));
+    await setPublication(db, ids.listingId, { isHidden: true });
     expect(await getImagePage(ids.listingId)).toBeNull();
   });
 
@@ -311,10 +313,7 @@ describe("getImagePage (Model B reads)", () => {
   it("walks the attribution chain over image.seed_image_id", async () => {
     const db = h.db as Db;
     const ids = await seed(db);
-    await db
-      .update(schema.listing)
-      .set({ title: "Seed" })
-      .where(schemaEq(schema.listing.imageId, ids.listingId));
+    await setPublication(db, ids.listingId, { title: "Seed" });
 
     const [child] = await db
       .insert(schema.design)
@@ -336,10 +335,7 @@ describe("getImagePage (Model B reads)", () => {
     expect(img?.forkChain[0].title).toBe("Seed");
 
     // Hiding the parent breaks the public chain.
-    await db
-      .update(schema.listing)
-      .set({ isHidden: true })
-      .where(schemaEq(schema.listing.imageId, ids.listingId));
+    await setPublication(db, ids.listingId, { isHidden: true });
     expect((await getImagePage(childImageId))?.forkChain).toEqual([]);
   });
 });
