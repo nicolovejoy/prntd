@@ -11,7 +11,12 @@ import {
   resolveImagesByIds,
 } from "@/lib/design-images";
 import { resolveOrderLines } from "@/lib/order-lines";
-import { designerAttribution } from "@/lib/order-attribution";
+import {
+  contributorAttribution,
+  placementImageIds,
+  resolveContributors,
+} from "@/lib/order-attribution";
+import { loadImageOwners } from "@/lib/order-line-identity";
 
 export type UserOrder = Awaited<ReturnType<typeof getUserOrdersData>>[number];
 
@@ -77,7 +82,7 @@ export async function getUserOrdersData(buyerId: string) {
     ),
   }));
 
-  // Batch-resolve per-line thumbnails + designer attribution (no N+1).
+  // Batch-resolve per-line thumbnails + contributor attribution (no N+1).
   const lineDesignIds = [
     ...new Set(withLines.flatMap((w) => w.lines.map((l) => l.designId))),
   ];
@@ -90,14 +95,22 @@ export async function getUserOrdersData(buyerId: string) {
       )
     ),
   ];
+  // Every placement image, not just the front: a back drawn by someone else
+  // makes that person a contributor too (composition plan §3).
+  const allPlacementImageIds = [
+    ...new Set(
+      withLines.flatMap((w) => w.lines.flatMap((l) => placementImageIds(l.placements)))
+    ),
+  ];
 
   // Prefer each line's pinned `placements.front` (a design_image snapshot from
   // purchase time) over the design's current display image, so historical
-  // orders keep showing what was actually printed. The three lookups are
+  // orders keep showing what was actually printed. The four lookups are
   // independent — one round of parallel queries.
-  const [fallbackUrls, pinnedById, designerRows] = await Promise.all([
+  const [fallbackUrls, pinnedById, ownerByImageId, designerRows] = await Promise.all([
     resolveDesignDisplayImageUrls(lineDesignIds),
     resolveImagesByIds(pinnedImageIds),
+    loadImageOwners(db, allPlacementImageIds),
     lineDesignIds.length
       ? db
           .select({
@@ -130,7 +143,7 @@ export async function getUserOrdersData(buyerId: string) {
         (front ? pinnedUrlById.get(front) : undefined) ??
         fallbackUrls.get(l.designId) ??
         null;
-      const designer = designerByDesign.get(l.designId);
+      const legacyOwner = designerByDesign.get(l.designId);
       return {
         designId: l.designId,
         blankId: l.blankId,
@@ -138,13 +151,19 @@ export async function getUserOrdersData(buyerId: string) {
         color: l.color,
         quantity: l.quantity,
         imageUrl,
-        designedByName: designer
-          ? designerAttribution({
-              designerId: designer.designerId,
-              designerName: designer.designerName,
-              buyerId,
-            })
-          : null,
+        // Legacy lines (no placements JSON, or a pin that isn't an artifact)
+        // fall back to the conversation's owner so historical orders keep the
+        // attribution they have always shown.
+        designedByName: contributorAttribution({
+          contributors: resolveContributors({
+            placements: l.placements,
+            ownerByImageId,
+            fallback: legacyOwner
+              ? { userId: legacyOwner.designerId, name: legacyOwner.designerName }
+              : null,
+          }),
+          viewerId: buyerId,
+        }),
       };
     }),
   }));

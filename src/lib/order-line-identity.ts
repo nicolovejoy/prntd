@@ -14,7 +14,10 @@
  *     when it
  *     has one. A design has no title of its own, so unpublished lines get
  *     null and the thumbnail carries the identity;
- *   - the designer (id + name) so attribution can be computed per line.
+ *   - the contributor set: the distinct owners of the line's placement
+ *     images, front-first, so attribution names who actually drew what is
+ *     printed rather than whoever owns the conversation the purchase
+ *     happened in (composition plan §3).
  *
  * The DB reader takes `db` as a parameter rather than importing the singleton:
  * the email loader is already db-injected, and it keeps the real-DB tests
@@ -34,6 +37,11 @@ import {
   isPublishedShopMirror,
   mirrorFrontImageId,
 } from "@/lib/composition-reads";
+import {
+  placementImageIds,
+  resolveContributors,
+  type Contributor,
+} from "@/lib/order-attribution";
 
 /** The subset of an OrderLine this needs. */
 export type IdentifiableLine = {
@@ -46,8 +54,8 @@ export type OrderLineIdentity = {
   imageUrl: string | null;
   /** Published title (mirror product) of the pinned front image, else null. */
   title: string | null;
-  designerId: string | null;
-  designerName: string | null;
+  /** Distinct owners of the line's placement images, front-first. */
+  contributors: Contributor[];
 };
 
 export type LineIdentityContext = {
@@ -57,8 +65,11 @@ export type LineIdentityContext = {
   titleByImageId: Map<string, string | null>;
   /** design id → display image url (primary, else latest output). */
   displayUrlByDesignId: Map<string, string>;
-  /** design id → owner. */
-  designerByDesignId: Map<string, { id: string; name: string | null }>;
+  /** design id → owner. Only the legacy fallback for a line whose
+   * placements resolve to no image owner at all. */
+  designerByDesignId: Map<string, Contributor>;
+  /** placement image id → its owner. */
+  ownerByImageId: Map<string, Contributor>;
 };
 
 /**
@@ -71,14 +82,47 @@ export function buildLineIdentities(
   return lines.map((line) => {
     const front = line.placements?.front ?? null;
     const pinnedUrl = front ? ctx.urlByImageId.get(front) ?? null : null;
-    const designer = ctx.designerByDesignId.get(line.designId) ?? null;
     return {
       imageUrl: pinnedUrl ?? ctx.displayUrlByDesignId.get(line.designId) ?? null,
       title: front ? ctx.titleByImageId.get(front) ?? null : null,
-      designerId: designer?.id ?? null,
-      designerName: designer?.name ?? null,
+      contributors: resolveContributors({
+        placements: line.placements,
+        ownerByImageId: ctx.ownerByImageId,
+        fallback: ctx.designerByDesignId.get(line.designId) ?? null,
+      }),
     };
   });
+}
+
+/**
+ * Owners of a set of placement image ids, in one query. `/orders` builds its
+ * line data separately (it resolves thumbnails through `design-images`) and
+ * shares this so the contributor derivation has one definition.
+ *
+ * A placement id that names a placement render rather than an artifact simply
+ * doesn't come back — those carry no owner of their own.
+ */
+export async function loadImageOwners(
+  db: typeof appDb,
+  imageIds: string[]
+): Promise<Map<string, Contributor>> {
+  const owners = new Map<string, Contributor>();
+  const unique = [...new Set(imageIds)];
+  if (unique.length === 0) return owners;
+
+  const rows = await db
+    .select({
+      id: imageTable.id,
+      ownerId: imageTable.ownerId,
+      ownerName: userTable.name,
+    })
+    .from(imageTable)
+    .leftJoin(userTable, eq(userTable.id, imageTable.ownerId))
+    .where(inArray(imageTable.id, unique));
+  for (const r of rows) {
+    owners.set(r.id, { userId: r.ownerId, name: r.ownerName ?? null });
+  }
+  return owners;
 }
 
 /**
@@ -92,7 +136,8 @@ export async function loadLineIdentityContext(
   const urlByImageId = new Map<string, string>();
   const titleByImageId = new Map<string, string | null>();
   const displayUrlByDesignId = new Map<string, string>();
-  const designerByDesignId = new Map<string, { id: string; name: string | null }>();
+  const designerByDesignId = new Map<string, Contributor>();
+  const ownerByImageId = new Map<string, Contributor>();
 
   const pinnedIds = [
     ...new Set(
@@ -100,6 +145,11 @@ export async function loadLineIdentityContext(
         .map((l) => l.placements?.front)
         .filter((v): v is string => Boolean(v))
     ),
+  ];
+  // Every placement image on the order, not just the pinned front: the back
+  // can belong to a different person, and that person is a contributor.
+  const placementIds = [
+    ...new Set(lines.flatMap((l) => placementImageIds(l.placements))),
   ];
   const designIds = [...new Set(lines.map((l) => l.designId).filter(Boolean))];
 
@@ -130,7 +180,7 @@ export async function loadLineIdentityContext(
   ]);
 
   for (const d of designRows) {
-    designerByDesignId.set(d.id, { id: d.ownerId, name: d.ownerName ?? null });
+    designerByDesignId.set(d.id, { userId: d.ownerId, name: d.ownerName ?? null });
   }
   for (const l of titleRows) {
     titleByImageId.set(l.imageId, l.title ?? null);
@@ -140,14 +190,22 @@ export async function loadLineIdentityContext(
   const primaryIds = designRows
     .map((d) => d.primaryImageId)
     .filter((v): v is string => Boolean(v));
-  const wanted = [...new Set([...pinnedIds, ...primaryIds])];
+  const wanted = [...new Set([...placementIds, ...primaryIds])];
 
   if (wanted.length) {
     // Id reuse (Model B §2): an id may be an artifact or a placement render.
     const [artifacts, renders] = await Promise.all([
+      // One query serves both jobs: the URL of every id we might render and
+      // the owner of every placement image (the contributor derivation).
       db
-        .select({ id: imageTable.id, imageUrl: imageTable.imageUrl })
+        .select({
+          id: imageTable.id,
+          imageUrl: imageTable.imageUrl,
+          ownerId: imageTable.ownerId,
+          ownerName: userTable.name,
+        })
         .from(imageTable)
+        .leftJoin(userTable, eq(userTable.id, imageTable.ownerId))
         .where(inArray(imageTable.id, wanted)),
       db
         .select({
@@ -157,7 +215,10 @@ export async function loadLineIdentityContext(
         .from(placementRenderTable)
         .where(inArray(placementRenderTable.id, wanted)),
     ]);
-    for (const r of artifacts) urlByImageId.set(r.id, r.imageUrl);
+    for (const r of artifacts) {
+      urlByImageId.set(r.id, r.imageUrl);
+      ownerByImageId.set(r.id, { userId: r.ownerId, name: r.ownerName ?? null });
+    }
     for (const r of renders) {
       if (!urlByImageId.has(r.id)) urlByImageId.set(r.id, r.imageUrl);
     }
@@ -192,7 +253,13 @@ export async function loadLineIdentityContext(
     }
   }
 
-  return { urlByImageId, titleByImageId, displayUrlByDesignId, designerByDesignId };
+  return {
+    urlByImageId,
+    titleByImageId,
+    displayUrlByDesignId,
+    designerByDesignId,
+    ownerByImageId,
+  };
 }
 
 /**
