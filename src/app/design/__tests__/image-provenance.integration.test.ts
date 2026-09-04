@@ -184,6 +184,9 @@ describe("image provenance is persisted (#169)", () => {
     });
     await generateDesign(designId, "a bear on a unicycle, woodcut");
     await drainAfter();
+    // Captured while it is the only image — the join's row order is not
+    // guaranteed once the edit lands.
+    const [first] = await images(designId);
 
     briefMock.mockResolvedValue({
       operation: "edit",
@@ -194,7 +197,6 @@ describe("image provenance is persisted (#169)", () => {
     await generateDesign(designId, "make the bear larger");
     await drainAfter();
 
-    const [first] = await images(designId);
     const edit = (await images(designId)).find((r) => r.id !== first.id)!;
 
     const context = await getImageNamingContext(edit.id);
