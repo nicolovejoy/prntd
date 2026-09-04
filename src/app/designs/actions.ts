@@ -325,7 +325,6 @@ export async function publishImage(
       id: imageTable.id,
       ownerId: imageTable.ownerId,
       imageUrl: imageTable.imageUrl,
-      prompt: imageTable.prompt,
       publishedAt: listingTable.publishedAt,
     })
     .from(imageTable)
