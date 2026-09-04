@@ -13,7 +13,11 @@ import { eq } from "drizzle-orm";
 import { createTestDb } from "@/lib/__tests__/test-db";
 import { makeUser, makeSourceImage } from "@/lib/__tests__/factories";
 import * as schema from "@/lib/db/schema";
-import { getStudioLanesData, laneLastActiveAt } from "@/lib/studio";
+import {
+  getStudioArchiveData,
+  getStudioLanesData,
+  laneLastActiveAt,
+} from "@/lib/studio";
 import { insertGenerationJob, cancelGenerationJob } from "@/lib/generation-job";
 import { dayKeyUTC } from "@/lib/generation-quota";
 
@@ -252,5 +256,132 @@ describe("laneLastActiveAt", () => {
         pending: [{ startedAt: minutesAgo(1) }],
       })
     ).toEqual(minutesAgo(1));
+  });
+});
+
+describe("auto-archive on the Studio's own load (slice 4)", () => {
+  // The sweep inside getStudioLanesData has no injectable `now` at this call
+  // site — same as the stale-job sweep above — so idleness is wall-clock.
+  const daysAgo = (d: number) =>
+    new Date(NOW.getTime() - d * 24 * 60 * 60 * 1000);
+
+  it("drops a three-day-idle lane and files it in the archive", async () => {
+    const idle = await makeOpenDesign("owner", { updatedAt: daysAgo(4) });
+    const active = await makeOpenDesign("owner", { updatedAt: daysAgo(2) });
+
+    const lanes = await getStudioLanesData("owner", { db });
+
+    expect(lanes.map((l) => l.designId)).toEqual([active.id]);
+    const archive = await getStudioArchiveData("owner", { db });
+    expect(archive.map((a) => a.designId)).toEqual([idle.id]);
+  });
+
+  it("keeps a three-day-idle lane whose generation is still running", async () => {
+    const idle = await makeOpenDesign("owner", { updatedAt: daysAgo(4) });
+    // Started just now, so the stale-job sweep leaves it running.
+    await seedRunningJob(idle.id, "owner", { now: NOW });
+
+    const lanes = await getStudioLanesData("owner", { db });
+
+    expect(lanes.map((l) => l.designId)).toEqual([idle.id]);
+  });
+});
+
+describe("getStudioArchiveData", () => {
+  it("lists only the caller's closed conversations, newest closed first", async () => {
+    const older = await makeOpenDesign("owner", { closedAt: minutesAgo(90) });
+    const newer = await makeOpenDesign("owner", { closedAt: minutesAgo(10) });
+    await makeOpenDesign("owner");
+    await makeOpenDesign("owner", {
+      closedAt: minutesAgo(5),
+      status: "archived",
+    });
+    await makeUser(db, "stranger");
+    await makeOpenDesign("stranger", { closedAt: minutesAgo(1) });
+
+    const archive = await getStudioArchiveData("owner", { db });
+
+    expect(archive.map((a) => a.designId)).toEqual([newer.id, older.id]);
+    expect(archive[0].closedAt).toEqual(minutesAgo(10));
+  });
+
+  it("takes the hero from the primary image, else the newest one", async () => {
+    const pinned = await makeOpenDesign("owner", { closedAt: minutesAgo(10) });
+    const firstId = await makeSourceImage(db, {
+      designId: pinned.id,
+      ownerId: "owner",
+      imageUrl: "https://cdn.example/pinned.png",
+      createdAt: minutesAgo(60),
+    });
+    await makeSourceImage(db, {
+      designId: pinned.id,
+      ownerId: "owner",
+      imageUrl: "https://cdn.example/newer.png",
+      createdAt: minutesAgo(30),
+    });
+    await db
+      .update(schema.design)
+      .set({ primaryImageId: firstId })
+      .where(eq(schema.design.id, pinned.id));
+
+    const unpinned = await makeOpenDesign("owner", { closedAt: minutesAgo(20) });
+    await makeSourceImage(db, {
+      designId: unpinned.id,
+      ownerId: "owner",
+      imageUrl: "https://cdn.example/old.png",
+      createdAt: minutesAgo(60),
+    });
+    await makeSourceImage(db, {
+      designId: unpinned.id,
+      ownerId: "owner",
+      imageUrl: "https://cdn.example/latest.png",
+      createdAt: minutesAgo(15),
+    });
+
+    const archive = await getStudioArchiveData("owner", { db });
+
+    expect(archive.map((a) => a.heroImageUrl)).toEqual([
+      "https://cdn.example/pinned.png",
+      "https://cdn.example/latest.png",
+    ]);
+  });
+
+  it("titles a row like a lane: first user turn, else a prompt, else null", async () => {
+    const chatted = await makeOpenDesign("owner", { closedAt: minutesAgo(10) });
+    await db.insert(schema.chatMessage).values([
+      {
+        designId: chatted.id,
+        role: "user",
+        content: "geometric wolf head",
+        createdAt: minutesAgo(80),
+      },
+      {
+        designId: chatted.id,
+        role: "user",
+        content: "make it bigger",
+        createdAt: minutesAgo(70),
+      },
+    ]);
+    const prompted = await makeOpenDesign("owner", { closedAt: minutesAgo(20) });
+    await makeSourceImage(db, {
+      designId: prompted.id,
+      ownerId: "owner",
+      imageUrl: "https://cdn.example/p.png",
+      prompt: "retro sunset",
+    });
+    await makeOpenDesign("owner", { closedAt: minutesAgo(30) });
+
+    const archive = await getStudioArchiveData("owner", { db });
+
+    expect(archive.map((a) => a.title)).toEqual([
+      "geometric wolf head",
+      "retro sunset",
+      null,
+    ]);
+  });
+
+  it("returns [] when nothing is archived", async () => {
+    await makeOpenDesign("owner");
+    expect(await getStudioArchiveData("owner", { db })).toEqual([]);
   });
 });

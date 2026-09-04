@@ -213,7 +213,18 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
   return (
     <div className="min-h-screen flex flex-col">
       <main className="flex-1 px-4 sm:px-6 py-8 pb-40 max-w-4xl mx-auto w-full">
-        <h1 className="text-xl sm:text-2xl font-bold mb-6">Studio</h1>
+        <div className="flex items-baseline justify-between gap-3 mb-6">
+          <h1 className="text-xl sm:text-2xl font-bold">Studio</h1>
+          {/* Quiet by design: the archive is a retrieval door, not a
+              destination. Lanes leave on their own after three days
+              (studio-plan slice 4) and this is where they land. */}
+          <Link
+            href="/studio/archive"
+            className="text-sm text-text-muted hover:text-foreground transition-colors"
+          >
+            Archive
+          </Link>
+        </div>
 
         {lanes.length === 0 ? (
           // Also the first thing a buy-only account sees, since / redirects
