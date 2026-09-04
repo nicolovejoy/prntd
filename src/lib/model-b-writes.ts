@@ -140,42 +140,34 @@ export function buildPlacementRenderRow(params: {
 }
 
 /**
- * Build the `listing` row for a freshly published image. The row is the full
- * publish state (publishImage no-ops if already published, so this is always
- * an insert of a new row; a re-publish after unpublish starts fresh).
+ * Build the `listing` row for a freshly published image.
+ *
+ * Composition slice 4 (writer cutover): the row is now ONLY the image-
+ * visibility grant — `publishedAt` + `isHidden`. The sellable fields
+ * (title / description / backgroundColor / feedRank) live on the mirror
+ * `product` row and are written there alone; the listing's copies stay null
+ * on every row published from here on (slice 5 drops the columns).
  */
 export function buildListingRow(params: {
   imageId: string;
   publishedAt: Date;
   isHidden: boolean;
-  title: string | null;
-  description: string | null;
-  backgroundColor: string | null;
-  feedRank: number | null;
 }): ListingRow {
   return {
     imageId: params.imageId,
     publishedAt: params.publishedAt,
     isHidden: params.isHidden,
-    title: params.title,
-    description: params.description,
-    backgroundColor: params.backgroundColor,
-    feedRank: params.feedRank,
   };
 }
 
 /**
- * Fields a publish-family edit (naming / hidden / feed-rank) applies to an
- * existing listing. Undefined fields are left untouched. Update only — never
- * inserts — so editing an unpublished image (no listing row) is a natural
- * no-op.
+ * Fields a publish-family edit applies to an existing visibility row. Since
+ * the slice-4 cutover that is `isHidden` alone — naming, backdrop and feed
+ * rank are product state. Update only — never inserts — so editing an
+ * unpublished image (no listing row) is a natural no-op.
  */
 export type ListingUpdate = Partial<{
-  title: string | null;
-  description: string | null;
-  backgroundColor: string | null;
   isHidden: boolean;
-  feedRank: number | null;
 }>;
 
 export type ListingSyncOp =
@@ -183,20 +175,19 @@ export type ListingSyncOp =
       kind: "publish";
       publishedAt: Date;
       isHidden: boolean;
-      title: string | null;
-      description: string | null;
-      backgroundColor: string | null;
-      feedRank: number | null;
     }
   | { kind: "unpublish" }
   | { kind: "update"; set: ListingUpdate };
 
 /**
  * The single choke point every publish-family action routes through (risky
- * spot §3): given the operation, return the one `listing` statement — since
- * the slice-4 cutover, publish state lives nowhere else.
+ * spot §3): given the operation, return the one `listing` statement.
  *
- *  - publish  → insert the listing (publishImage no-ops if already published).
+ *  - publish  → insert the visibility row (publishImage no-ops if already
+ *               published). `imageId` is the primary key, so a racing second
+ *               publish fails here and rolls its whole `db.batch` back —
+ *               which is what keeps a second mirror product from being minted
+ *               (the mirror statement is always batched with this one).
  *  - unpublish→ delete it.
  *  - update   → partial update; no-op when the image has no listing (editing an
  *               unpublished image), so it never conjures a phantom listing.
@@ -212,10 +203,6 @@ export function listingSyncStatement(
         imageId,
         publishedAt: op.publishedAt,
         isHidden: op.isHidden,
-        title: op.title,
-        description: op.description,
-        backgroundColor: op.backgroundColor,
-        feedRank: op.feedRank,
       })
     );
   }
@@ -228,12 +215,16 @@ export function listingSyncStatement(
     .where(eq(listingTable.imageId, imageId));
 }
 
-// --- composition slice 1: the published image's mirror `product` row ---
+// --- the published image's mirror `product` row: the Shop composition ---
 // (docs/composition-first-class-plan.md §5.) Every publish-family action
 // batches a product statement next to its listing statement, so a published
 // image always has a composition row: storeId NULL (the PRNTD Shop),
 // designId NULL, blankId NULL (buyer picks the garment), placements exactly
-// { front: imageId }. Inert to all readers until the slice-2 read swap.
+// { front: imageId }.
+//
+// Slice 2 swapped every sellable reader onto this row; slice 4 (the writer
+// cutover) made it the only place the sellable fields are written. The
+// listing row beside it is now the image-visibility grant and nothing else.
 
 /** The exact placements object a mirror product row carries. */
 export function mirrorPlacements(imageId: string): Record<string, string> {
@@ -246,8 +237,15 @@ export function mirrorPlacements(imageId: string): Record<string, string> {
  * module (insert-time serialization is JSON.stringify of mirrorPlacements and
  * placements are never updated afterwards). `designId IS NULL` distinguishes
  * mirrors from loose organizer products (which always carry a designId).
- * Uniqueness is enforced by lookup-before-insert in the publish path only —
- * a DB-level guarantee is deferred (noted in the slice-1 PR).
+ *
+ * Uniqueness: the publish path looks up before inserting, and — because the
+ * mirror insert is always batched with the `listing` insert, whose imageId is
+ * a primary key — a second publish racing the first fails on that PK and
+ * rolls the whole batch back. So two mirrors for one image cannot be minted
+ * even under a double-publish race; there is deliberately no separate
+ * conditional insert (it would duplicate the row builder for no added
+ * guarantee). Slice 5 should still add a real uniqueness constraint once the
+ * mirror marker is re-keyed off `designId`.
  */
 function mirrorProductWhere(imageId: string) {
   return and(

@@ -408,12 +408,10 @@ export async function setImageFeedRank(
     throw new Error("Rank must be a whole number between 1 and 9999");
   }
 
-  // Slice-4 cutover: rank lives only on the listing (no-op if unpublished).
-  // Composition slice 1: mirrored onto the product row (no-op on drafts).
-  await db.batch([
-    listingSyncStatement(db, imageId, { kind: "update", set: { feedRank } }),
-    productMirrorStatement(db, imageId, { kind: "update", set: { feedRank } }),
-  ]);
+  // Composition slice 4: feed rank is sellable state, so it lives only on the
+  // mirror product row (no-op on drafts — an unpublished image isn't in the
+  // feed to rank).
+  await productMirrorStatement(db, imageId, { kind: "update", set: { feedRank } });
 
   // The Shop feed renders on / and /prints; bust both plus the admin grid.
   revalidatePath("/");
@@ -427,10 +425,9 @@ export async function setImageHidden(imageId: string, hidden: boolean) {
     throw new Error("Unauthorized");
   }
 
-  // Slice-4 cutover: moderation state lives only on the listing (no-op if
-  // unpublished — hidden is a feed concept, and unpublished images aren't in it).
-  // Composition slice 1: mirrored onto the product row's status
-  // (listed ↔ hidden; draft rows are left alone).
+  // Hidden is BOTH: the image-visibility grant the pure guards read
+  // (listing.is_hidden) and the composition's status (listed ↔ hidden). Both
+  // are written here; draft mirrors and unpublished images are left alone.
   await db.batch([
     listingSyncStatement(db, imageId, {
       kind: "update",

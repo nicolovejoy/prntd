@@ -186,7 +186,23 @@ describe("publish-family writer cutover", () => {
     return { designId, imageId };
   }
 
-  it("publishImage inserts a listing row and touches nothing else", async () => {
+  /** The image's mirror product row — since composition slice 4 the only
+   * place the sellable fields (title/description/backdrop/rank) are written. */
+  async function mirrorOf(imageId: string) {
+    const rows = await testDb.select().from(schema.product);
+    return rows.find((r) => (r.placements ?? {}).front === imageId);
+  }
+
+  /** Composition slice 4: the listing row is the visibility grant only, so
+   * its sellable columns must stay null on everything written post-cutover. */
+  function expectNoSellableColumns(listing: typeof schema.listing.$inferSelect) {
+    expect(listing.title).toBeNull();
+    expect(listing.description).toBeNull();
+    expect(listing.backgroundColor).toBeNull();
+    expect(listing.feedRank).toBeNull();
+  }
+
+  it("publishImage inserts a visibility row and lists the mirror product", async () => {
     const { imageId } = await seedSourceImage();
     await publishImage(imageId, { title: "T", backgroundColor: "Black" });
 
@@ -195,23 +211,25 @@ describe("publish-family writer cutover", () => {
       .from(schema.listing)
       .where(eq(schema.listing.imageId, imageId));
     expect(listing).toBeTruthy();
-    expect(listing.title).toBe("T");
-    expect(listing.backgroundColor).toBe("Black");
     expect(listing.isHidden).toBe(false);
-    expect(listing.feedRank).toBeNull();
+    expectNoSellableColumns(listing);
+
+    const mirror = await mirrorOf(imageId);
+    expect(mirror?.status).toBe("listed");
+    expect(mirror?.title).toBe("T");
+    expect(mirror?.backdropColor).toBe("Black");
+    expect(mirror?.feedRank).toBeNull();
+    expect(mirror?.listedAt?.getTime()).toBe(listing.publishedAt.getTime());
   });
 
   it("publishImage auto-proposes a title when none supplied", async () => {
     const { imageId } = await seedSourceImage();
     await publishImage(imageId);
 
-    const [listing] = await testDb
-      .select()
-      .from(schema.listing)
-      .where(eq(schema.listing.imageId, imageId));
-    expect(listing.title).toBe("Auto Title");
+    const mirror = await mirrorOf(imageId);
+    expect(mirror?.title).toBe("Auto Title");
     // Descriptions are never auto-generated (2026-07-29).
-    expect(listing.description).toBeNull();
+    expect(mirror?.description).toBeNull();
   });
 
   it("publishImage rejects a non-owner", async () => {
@@ -225,17 +243,43 @@ describe("publish-family writer cutover", () => {
     );
   });
 
-  it("updatePublishedNaming updates the listing only", async () => {
+  it("a racing double-publish mints exactly one mirror", async () => {
+    const { imageId } = await seedSourceImage();
+    // Both calls read "not published" before either commits; the listing's
+    // primary key makes the loser's whole batch roll back, so the mirror
+    // insert can't run twice.
+    const results = await Promise.allSettled([
+      publishImage(imageId, { title: "A" }),
+      publishImage(imageId, { title: "B" }),
+    ]);
+    expect(results.some((r) => r.status === "fulfilled")).toBe(true);
+
+    const mirrors = (await testDb.select().from(schema.product)).filter(
+      (r) => (r.placements ?? {}).front === imageId
+    );
+    expect(mirrors).toHaveLength(1);
+    expect(
+      await testDb
+        .select()
+        .from(schema.listing)
+        .where(eq(schema.listing.imageId, imageId))
+    ).toHaveLength(1);
+  });
+
+  it("updatePublishedNaming updates the mirror product only", async () => {
     const { imageId } = await seedSourceImage();
     await publishImage(imageId, { title: "T", backgroundColor: "Black" });
     await updatePublishedNaming(imageId, { title: "New", backgroundColor: "White" });
+
+    const mirror = await mirrorOf(imageId);
+    expect(mirror?.title).toBe("New");
+    expect(mirror?.backdropColor).toBe("White");
 
     const [listing] = await testDb
       .select()
       .from(schema.listing)
       .where(eq(schema.listing.imageId, imageId));
-    expect(listing.title).toBe("New");
-    expect(listing.backgroundColor).toBe("White");
+    expectNoSellableColumns(listing);
   });
 
   it("updatePublishedNaming refuses on an unpublished image", async () => {
@@ -245,7 +289,7 @@ describe("publish-family writer cutover", () => {
     ).rejects.toThrow("not published");
   });
 
-  it("setImageHidden / setImageFeedRank write the listing", async () => {
+  it("setImageHidden writes both halves; setImageFeedRank only the product", async () => {
     const { imageId } = await seedSourceImage();
     await publishImage(imageId, { title: "T" });
     await setImageHidden(imageId, true);
@@ -255,11 +299,17 @@ describe("publish-family writer cutover", () => {
       .select()
       .from(schema.listing)
       .where(eq(schema.listing.imageId, imageId));
+    // Hidden is the visibility grant the pure guards read AND the mirror's
+    // status; rank is sellable state and lives on the product alone.
     expect(listing.isHidden).toBe(true);
-    expect(listing.feedRank).toBe(3);
+    expectNoSellableColumns(listing);
+
+    const mirror = await mirrorOf(imageId);
+    expect(mirror?.status).toBe("hidden");
+    expect(mirror?.feedRank).toBe(3);
   });
 
-  it("unpublishImage deletes the listing; re-publish starts a fresh one", async () => {
+  it("unpublishImage deletes the listing and drafts the mirror; re-publish is fresh", async () => {
     const { imageId } = await seedSourceImage();
     await publishImage(imageId, {
       title: "Original",
@@ -274,17 +324,22 @@ describe("publish-family writer cutover", () => {
         .from(schema.listing)
         .where(eq(schema.listing.imageId, imageId))
     ).toHaveLength(0);
+    expect((await mirrorOf(imageId))?.status).toBe("draft");
 
     // Re-publish = fresh listing (cutover judgment call: prior title/backdrop/
-    // hidden/rank don't carry over — nothing persists them anymore).
+    // hidden/rank don't carry over — the revived mirror is overwritten).
     await publishImage(imageId);
     const [listing] = await testDb
       .select()
       .from(schema.listing)
       .where(eq(schema.listing.imageId, imageId));
-    expect(listing.title).toBe("Auto Title");
-    expect(listing.feedRank).toBeNull();
     expect(listing.isHidden).toBe(false);
+
+    const mirror = await mirrorOf(imageId);
+    expect(mirror?.status).toBe("listed");
+    expect(mirror?.title).toBe("Auto Title");
+    expect(mirror?.feedRank).toBeNull();
+    expect(mirror?.listedAt?.getTime()).toBe(listing.publishedAt.getTime());
   });
 
   it("editing an unpublished image conjures no listing", async () => {

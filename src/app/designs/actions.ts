@@ -23,7 +23,7 @@ import {
   listingSyncStatement,
   productMirrorStatement,
   findMirrorProduct,
-  type ListingUpdate,
+  type MirrorUpdate,
 } from "@/lib/model-b-writes";
 import { generatePublishedNaming } from "@/lib/ai";
 import { getImageNamingContext } from "@/lib/design-images";
@@ -280,7 +280,9 @@ async function designReferencedByOrders(
 }
 
 /**
- * Publish an image to the discover feed: insert its `listing` row.
+ * Publish an image to the discover feed: insert its `listing` visibility row
+ * and list its mirror `product` row (the Shop composition, which since the
+ * slice-4 cutover holds every sellable field).
  * Auto-generates the title via Claude when the owner left it blank
  * (editable later via updatePublishedNaming). Descriptions are never
  * auto-generated (2026-07-29 review); only an explicit caller-supplied
@@ -301,8 +303,8 @@ export async function publishImage(
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) throw new Error("Unauthorized");
 
-  // Slice-4 writer cutover: publish state lives ONLY in `listing`. The image
-  // row carries ownership (denormalized ownerId), so no design join needed.
+  // Model B: whether the image is published lives in `listing`. The image row
+  // carries ownership (denormalized ownerId), so no design join is needed.
   const [image] = await db
     .select({
       id: imageTable.id,
@@ -331,16 +333,19 @@ export async function publishImage(
     title = gen.title;
   }
   // No auto-generated descriptions: store one only when the caller sent it
-  // explicitly. Since unpublish deletes the listing row, a re-publish is a
-  // fresh listing — prior title/backdrop/hidden/feed-rank don't carry over
-  // (cutover judgment call; nothing persists them once design_image is gone).
+  // explicitly. A re-publish is a fresh listing — prior title/backdrop/
+  // hidden/feed-rank don't carry over, they're overwritten on the revived
+  // mirror product row.
   const description = opts.description?.trim();
 
   const publishedAt = new Date();
   const backgroundColor = opts.backgroundColor ?? DEFAULT_PUBLISH_BACKGROUND;
-  // Composition slice 1 dual-write: publish also creates (or revives) the
-  // image's mirror product row — the Shop composition. Lookup-before-insert
-  // keeps a re-publish from minting a second mirror.
+  // Composition slice 4 (writer cutover): the sellable state (title,
+  // description, backdrop, feed rank, listed-at) is written ONLY to the
+  // image's mirror product row — the Shop composition; the listing row beside
+  // it carries publishedAt/isHidden and nothing else. Lookup-before-insert
+  // keeps a re-publish from minting a second mirror, and the listing's
+  // primary key rolls the whole batch back if a concurrent publish races it.
   const existingMirrorId = await findMirrorProduct(db, imageId);
   // Publish never leaves the backdrop transparent (#73): no pick — or an
   // explicit null from a legacy caller — persists as White.
@@ -349,10 +354,6 @@ export async function publishImage(
       kind: "publish",
       publishedAt,
       isHidden: false,
-      title: title ?? null,
-      description: description ?? null,
-      backgroundColor,
-      feedRank: null,
     }),
     productMirrorStatement(db, imageId, {
       kind: "publish",
@@ -370,9 +371,10 @@ export async function publishImage(
 }
 
 /**
- * Owner edits the public listing on an already-published image.
- * Refuses if the image hasn't been published yet — listing only
- * exists for published images. published_at is never touched.
+ * Owner edits the public naming/backdrop of an already-published image.
+ * Refuses if the image hasn't been published yet — the mirror product is a
+ * draft then, and its update statement would no-op anyway. published_at (the
+ * listing row) is never touched.
  */
 export async function updatePublishedNaming(
   imageId: string,
@@ -408,28 +410,15 @@ export async function updatePublishedNaming(
   // sends title + description. The picker no longer offers a transparent
   // option (#73); a legacy null still displays as White via
   // publishedBackdrop, so the guard stays `!== undefined`, not truthiness.
-  const set: ListingUpdate = {};
+  // Composition slice 4: naming/backdrop are product state, so this writes
+  // the mirror product row only — the listing row holds no sellable fields
+  // any more. `backdropColor` is the product-side name for backgroundColor.
+  const set: MirrorUpdate = {};
   if (title !== undefined) set.title = title.trim();
   if (description !== undefined) set.description = description.trim();
-  if (backgroundColor !== undefined) set.backgroundColor = backgroundColor;
+  if (backgroundColor !== undefined) set.backdropColor = backgroundColor;
 
-  // Composition slice 1 dual-write: mirror the edit onto the product row
-  // (backdropColor is the product-side name for backgroundColor).
-  await db.batch([
-    listingSyncStatement(db, imageId, { kind: "update", set }),
-    productMirrorStatement(db, imageId, {
-      kind: "update",
-      set: {
-        ...(set.title !== undefined ? { title: set.title } : {}),
-        ...(set.description !== undefined
-          ? { description: set.description }
-          : {}),
-        ...(set.backgroundColor !== undefined
-          ? { backdropColor: set.backgroundColor }
-          : {}),
-      },
-    }),
-  ]);
+  await productMirrorStatement(db, imageId, { kind: "update", set });
 
   revalidatePath("/");
   revalidatePath("/prints");
@@ -438,13 +427,13 @@ export async function updatePublishedNaming(
 
 /**
  * Owner takes a published image back down — the reverse of publishImage.
- * Deletes the listing row, so the image leaves the discover feed (`/`,
- * `/prints`), stops being buyable (canBuyPublishedImage), and
- * /d/[imageId] 404s for everyone but the owner, who still reaches it as
- * their own private image (#136 slice 1). Re-publishing
- * creates a fresh listing: new published_at (sorts as newly published),
- * title re-proposed if not supplied, backdrop defaulted. No-op if
- * already unpublished.
+ * Deletes the listing row and drafts the mirror product, so the image leaves
+ * the discover feed (`/`, `/prints`), stops being buyable
+ * (canBuyPublishedImage), and /d/[imageId] 404s for everyone but the owner,
+ * who still reaches it as their own private image (#136 slice 1).
+ * Re-publishing is a fresh listing: new listed_at (sorts as newly published),
+ * title re-proposed if not supplied, backdrop defaulted, feed rank cleared.
+ * No-op if already unpublished.
  */
 export async function unpublishImage(imageId: string) {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -465,10 +454,10 @@ export async function unpublishImage(imageId: string) {
 
   if (!image.publishedAt) return;
 
-  // Unpublish = delete the listing row. Re-publish creates a fresh listing
-  // (title re-proposed, backdrop defaulted) — see publishImage. The mirror
-  // product flips to draft (row kept — a later re-publish revives it with a
-  // fresh listedAt, matching the listing's fresh-row semantics).
+  // Unpublish = mirror product → draft + delete the visibility row.
+  // Re-publish revives the same mirror with a fresh listedAt, a re-proposed
+  // title, a defaulted backdrop and no feed rank (the fresh-listing
+  // semantics, now carried by the product row).
   await db.batch([
     listingSyncStatement(db, imageId, { kind: "unpublish" }),
     productMirrorStatement(db, imageId, { kind: "unpublish" }),
