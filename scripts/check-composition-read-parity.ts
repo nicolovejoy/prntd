@@ -1,16 +1,22 @@
 /**
- * Pre-flight for composition slice 2 (the read swap: the Shop feed, the image
- * detail page, the admin published grid and order-line titles stop reading
- * `listing` and start reading the mirror `product` row).
+ * Structural parity between the image-visibility rows (`listing`) and the
+ * Shop compositions (`product` mirrors).
  *
- * Slice 1 has been dual-writing since 2026-08-17 and the backfill converted
- * the pre-existing listings, so every `listing` row should have exactly one
- * mirror product carrying the same sellable state. If it doesn't, deploying
- * the read swap makes those images vanish from the Shop (or come back with
- * the wrong title / backdrop / rank / hidden state).
+ * Written as the pre-flight for the slice-2 read swap, kept as the standing
+ * invariant check — including as the gate before slice 5 drops the moved
+ * columns and renames `listing` → `image_publication`.
  *
- * Run this against prod BEFORE the swap deploys. Exits 1 on any mismatch.
- * Read-only. Safe on prod. Not run by CI.
+ * SCOPE, since the slice-4 writer cutover: the sellable fields (title,
+ * description, background_color, feed_rank) are written to `product` ONLY.
+ * The listing's copies are frozen at their pre-cutover values, so they
+ * legitimately differ from the product on any row edited since — this script
+ * deliberately does NOT compare them. What must still agree is the structure:
+ *
+ *   - every listing has exactly one mirror product (and vice versa)
+ *   - hidden-state ↔ status (is_hidden ⇔ status = 'hidden', never 'draft')
+ *   - listed_at = published_at (the feed sort)
+ *
+ * Exits 1 on any mismatch. Read-only. Safe on prod. Not run by CI.
  *
  * Usage:
  *   DATABASE_URL=... DATABASE_AUTH_TOKEN=... npx tsx scripts/check-composition-read-parity.ts
@@ -23,8 +29,6 @@ if (!url) throw new Error("DATABASE_URL required");
 
 type Row = Record<string, unknown>;
 
-const str = (v: unknown): string | null =>
-  v === null || v === undefined ? null : String(v);
 const num = (v: unknown): number | null =>
   v === null || v === undefined ? null : Number(v);
 
@@ -45,9 +49,7 @@ async function main() {
 
   const listings = (
     await client.execute(
-      `select image_id, published_at, is_hidden, title, description,
-              background_color, feed_rank
-         from listing`
+      `select image_id, published_at, is_hidden from listing`
     )
   ).rows as unknown as Row[];
 
@@ -56,8 +58,7 @@ async function main() {
   const mirrors = (
     await client.execute(
       `select json_extract(placements, '$.front') as front_image_id,
-              id, status, title, description, backdrop_color, feed_rank,
-              listed_at, owner_id, blank_id, price
+              id, status, listed_at
          from product
         where store_id is null and design_id is null
           and json_extract(placements, '$.front') is not null`
@@ -77,7 +78,9 @@ async function main() {
     const imageId = String(l.image_id);
     const found = byImage.get(imageId) ?? [];
     if (found.length === 0) {
-      problems.push(`${imageId}: no mirror product — the read swap would hide it`);
+      problems.push(
+        `${imageId}: published image with no composition — invisible in the Shop, and unbuyable since slice 4`
+      );
       continue;
     }
     if (found.length > 1) {
@@ -88,29 +91,15 @@ async function main() {
     const expectedStatus = Number(l.is_hidden) ? "hidden" : "listed";
     if (String(m.status) !== expectedStatus) {
       problems.push(
-        `${imageId}: mirror status ${m.status}, expected ${expectedStatus}`
-      );
-    }
-    if (str(m.title) !== str(l.title)) {
-      problems.push(
-        `${imageId}: title "${str(m.title)}" != listing "${str(l.title)}"`
-      );
-    }
-    if (str(m.description) !== str(l.description)) {
-      problems.push(`${imageId}: description mismatch`);
-    }
-    if (str(m.backdrop_color) !== str(l.background_color)) {
-      problems.push(
-        `${imageId}: backdrop "${str(m.backdrop_color)}" != listing "${str(l.background_color)}"`
-      );
-    }
-    if (num(m.feed_rank) !== num(l.feed_rank)) {
-      problems.push(
-        `${imageId}: feedRank ${num(m.feed_rank)} != listing ${num(l.feed_rank)}`
+        `${imageId}: mirror status ${m.status}, expected ${expectedStatus} (hidden-state disagrees)`
       );
     }
     if (num(m.listed_at) === null) {
       problems.push(`${imageId}: mirror has no listed_at — the feed sort needs it`);
+    } else if (num(m.listed_at) !== num(l.published_at)) {
+      problems.push(
+        `${imageId}: listed_at ${num(m.listed_at)} != listing published_at ${num(l.published_at)}`
+      );
     }
   }
 
@@ -120,24 +109,27 @@ async function main() {
     for (const m of rows) {
       if (String(m.status) !== "draft" && !listedImageIds.has(imageId)) {
         problems.push(
-          `${imageId}: mirror is ${m.status} but the image has no listing — the swap would publish it`
+          `${imageId}: mirror is ${m.status} but the image has no visibility row — listed in the Shop with no publish grant`
         );
       }
     }
   }
 
-  console.log(`\nlistings: ${listings.length}`);
-  console.log(`shop mirrors: ${mirrors.length}`);
+  console.log(`\nvisibility rows (listing): ${listings.length}`);
+  console.log(`shop compositions (mirror products): ${mirrors.length}`);
 
   if (problems.length) {
     console.error(`\n${problems.length} PROBLEM(S):`);
     for (const p of problems) console.error(`  - ${p}`);
     console.error(
-      "\nRe-run scripts/backfill-composition-products.ts --apply, then re-check."
+      "\nA missing composition is fixable with scripts/backfill-composition-products.ts --apply." +
+        "\nA status / listed_at disagreement is not — investigate before re-running anything."
     );
     process.exit(1);
   }
-  console.log("\nparity clean — safe to deploy the slice-2 read swap.");
+  console.log(
+    "\nstructural parity clean: every published image has exactly one composition, and they agree on visibility + listed_at."
+  );
 }
 
 main().catch((err) => {
