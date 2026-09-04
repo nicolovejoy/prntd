@@ -3,7 +3,6 @@ import {
   isDesignEmpty,
   dedupeById,
   assertConversationOpen,
-  designCardHref,
   CONVERSATION_CLOSED_MESSAGE,
   shouldClampMessage,
   MESSAGE_CLAMP_CHARS,
@@ -24,20 +23,6 @@ describe("shouldClampMessage", () => {
 
   it("handles an empty message", () => {
     expect(shouldClampMessage("")).toBe(false);
-  });
-});
-
-describe("designCardHref", () => {
-  it("lands on the image page when the design has a primary image", () => {
-    expect(
-      designCardHref({ id: "design-1", primaryImageId: "img-9" })
-    ).toBe("/d/img-9?from=/designs");
-  });
-
-  it("falls back to the conversation when there is no image yet", () => {
-    expect(designCardHref({ id: "design-1", primaryImageId: null })).toBe(
-      "/design?id=design-1"
-    );
   });
 });
 

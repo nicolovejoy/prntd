@@ -10,21 +10,6 @@ export function isDesignEmpty(messageCount: number, imageCount: number): boolean
 }
 
 /**
- * Where a My Designs card lands (#136 slice 2). The card's subject is the
- * image, so it points at the image page; the conversation is one tap deeper
- * from there ("View conversation"). A thread with no image yet has no image
- * page to show, so it still opens the chat.
- */
-export function designCardHref(design: {
-  id: string;
-  primaryImageId: string | null;
-}): string {
-  return design.primaryImageId
-    ? `/d/${design.primaryImageId}?from=/designs`
-    : `/design?id=${design.id}`;
-}
-
-/**
  * A pasted prompt shouldn't set the page height (#147). Past this length a
  * user message renders clamped with a "Show more" toggle. Assistant turns are
  * never clamped — they're the reply you came back for.
@@ -34,6 +19,16 @@ export const MESSAGE_CLAMP_CHARS = 280;
 export function shouldClampMessage(content: string): boolean {
   return content.length > MESSAGE_CLAMP_CHARS;
 }
+
+/**
+ * The one confirm string every Delete uses (My Designs' card carried its own,
+ * and it was wrong). `deleteDesign` does not always delete: an order anywhere
+ * on the conversation archives it instead, and an image another design, a
+ * cart or an order still references is detached rather than removed. The copy
+ * says so, because the alternative is a promise the action does not keep.
+ */
+export const DELETE_CONVERSATION_CONFIRM =
+  "Delete this conversation? Images used in an order, another design, or a cart are kept. A conversation with an order is archived instead.";
 
 /** Error message the closed-conversation guard throws; the /design UI keys
  * its closed state off the server row, so this is just the action backstop. */

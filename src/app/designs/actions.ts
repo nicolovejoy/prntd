@@ -278,23 +278,6 @@ async function designReferencedByOrders(
   return pinned.length > 0;
 }
 
-export async function archiveDesign(designId: string) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) throw new Error("Unauthorized");
-
-  const found = await db.query.design.findFirst({
-    where: eq(designTable.id, designId),
-  });
-
-  if (!found) throw new Error("Design not found");
-  if (found.userId !== session.user.id) throw new Error("Unauthorized");
-
-  await db
-    .update(designTable)
-    .set({ status: "archived", updatedAt: new Date() })
-    .where(eq(designTable.id, designId));
-}
-
 /**
  * Publish an image to the discover feed: insert its `listing` row.
  * Auto-generates the title via Claude when the owner left it blank

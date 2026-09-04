@@ -53,7 +53,7 @@ const { setImageHidden, setImageFeedRank, getRecentPublishedForAdmin } =
   await import("@/app/admin/actions");
 const { getImagePage } = await import("@/app/d/actions");
 const { getPublishedFeed } = await import("@/lib/discover-feed");
-const { getUserDesignsData } = await import("@/lib/user-designs");
+const { getUserImageLibrary } = await import("@/lib/user-designs");
 const { getDesign, setPrimaryImage } = await import("@/app/design/actions");
 const { loadLineIdentityContext, buildLineIdentities } = await import(
   "@/lib/order-line-identity"
@@ -319,25 +319,27 @@ describe("My Designs backdrop reads the mirror product", () => {
     const { designId, imageId } = await seedImage();
     await setPrimaryImage(designId, imageId);
     await publishImage(imageId, { title: "Tiger", backgroundColor: "Black" });
+    // Two different values, so the assertion can only pass off the mirror.
     await patchMirror(imageId, { backdropColor: "Navy" });
     await patchListing(imageId, { backgroundColor: "Red" });
 
-    const designs = await getUserDesignsData(currentUserId);
-    const card = designs.find((d) => d.id === designId);
-    expect(card!.primaryImageBackgroundColor).toBe("Navy");
+    const images = await getUserImageLibrary(currentUserId);
+    const cell = images.find((i) => i.imageId === imageId);
+    expect(cell!.backgroundColor).toBe("Navy");
     // Publish state is job B and still comes off the listing.
-    expect(card!.primaryImagePublishedAt).toBeInstanceOf(Date);
+    expect(cell!.isPublished).toBe(true);
   });
 
   it("shows no backdrop once the mirror is a draft", async () => {
     const { designId, imageId } = await seedImage();
     await setPrimaryImage(designId, imageId);
     await publishImage(imageId, { title: "Tiger", backgroundColor: "Black" });
+    // Listing untouched: a pre-swap reader would still return "Black".
     await patchMirror(imageId, { status: "draft" });
 
-    const designs = await getUserDesignsData(currentUserId);
-    const card = designs.find((d) => d.id === designId);
-    expect(card!.primaryImageBackgroundColor).toBeNull();
+    const images = await getUserImageLibrary(currentUserId);
+    const cell = images.find((i) => i.imageId === imageId);
+    expect(cell!.backgroundColor).toBeNull();
   });
 });
 

@@ -17,6 +17,7 @@ import { PublishCta } from "./publish-cta";
 import { BuyHero } from "./buy-hero";
 import { StartFromImage } from "./start-from-image";
 import { ConversationImages } from "./conversation-images";
+import { ConversationActions } from "./conversation-actions";
 
 type Params = Promise<{ imageId: string }>;
 type Search = Promise<{ from?: string }>;
@@ -99,15 +100,14 @@ export default async function PublishedImagePage({
           <PublishCta imageId={img.imageId} imageUrl={img.imageUrl} />
         </div>
       )}
-      {isOwner && img.sourceDesignId && (
-        <p className="pt-1">
-          <Link
-            href={`/design?id=${img.sourceDesignId}`}
-            className="text-sm text-text-muted underline hover:no-underline"
-          >
-            View conversation
-          </Link>
-        </p>
+      {/* The conversation may be gone even when the image names one — an
+          image pinned by an order or a seed survives its thread's delete —
+          so the row is gated on the design row actually resolving. */}
+      {isOwner && img.sourceDesignId && img.hasSourceConversation && (
+        <ConversationActions
+          designId={img.sourceDesignId}
+          archived={img.sourceConversationArchived}
+        />
       )}
       {img.forkChain.length > 0 && (
         <p className="text-sm text-text-faint">

@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui";
 import { closeConversation, generateDesign } from "@/app/design/actions";
+import { deleteDesign } from "@/app/designs/actions";
+import { DELETE_CONVERSATION_CONFIRM } from "@/lib/design-view";
 import {
   GENERATION_CAP,
   isAtGenerationCap,
@@ -210,6 +212,29 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
     }
   }
 
+  // Delete the conversation outright. Close parks a design; this is the only
+  // route to removing one whose thread never produced an image — it has no
+  // cell in My Designs, so the image detail page cannot offer it (slice 5
+  // review, F1). Same action, same honest copy.
+  async function deleteLane(lane: StudioLane) {
+    if (!window.confirm(DELETE_CONVERSATION_CONFIRM)) return;
+    const prev = lanes;
+    setLanes((ls) => ls.filter((l) => l.designId !== lane.designId));
+    setAnchor((a) => (a?.designId === lane.designId ? null : a));
+    try {
+      // Expected refusals come back as { error } — a thrown server-action
+      // message is only a digest in prod.
+      const result = await deleteDesign(lane.designId);
+      if (result?.error) {
+        setLanes(prev);
+        setNotice(result.error);
+      }
+    } catch {
+      setLanes(prev);
+      setNotice("Couldn't delete that design. Try again.");
+    }
+  }
+
   return (
     <div className="min-h-screen flex flex-col">
       <main className="flex-1 px-4 sm:px-6 py-8 pb-40 max-w-4xl mx-auto w-full">
@@ -248,6 +273,7 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
               anchoredImageId={anchor?.imageId ?? null}
               onTapCell={toggleAnchor}
               onClose={closeLane}
+              onDelete={deleteLane}
             />
           ))
         )}
@@ -323,12 +349,14 @@ function Lane({
   anchoredImageId,
   onTapCell,
   onClose,
+  onDelete,
 }: {
   lane: StudioLane;
   nowMs: number;
   anchoredImageId: string | null;
   onTapCell: (lane: StudioLane, cell: StudioLane["cells"][number]) => void;
   onClose: (lane: StudioLane) => void;
+  onDelete: (lane: StudioLane) => void;
 }) {
   const sectionRef = useRef<HTMLElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -355,17 +383,27 @@ function Lane({
         <span className="text-xs text-text-faint shrink-0">
           {timeAgo(lane.lastActiveAt, nowMs)}
         </span>
-        {/* Absent while generating: closing mid-render would land the image
-            in a thread that just vanished from the bench. */}
+        {/* Both absent while generating: closing or deleting mid-render would
+            land the image in a thread that just vanished from the bench. */}
         {lane.pending.length === 0 && (
-          <button
-            type="button"
-            onClick={() => onClose(lane)}
-            className="shrink-0 text-xs text-text-faint hover:text-foreground"
-            data-testid="studio-close-lane"
-          >
-            Close
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={() => onClose(lane)}
+              className="shrink-0 text-xs text-text-faint hover:text-foreground"
+              data-testid="studio-close-lane"
+            >
+              Close
+            </button>
+            <button
+              type="button"
+              onClick={() => onDelete(lane)}
+              className="shrink-0 text-xs text-text-faint hover:text-foreground"
+              data-testid="studio-delete-lane"
+            >
+              Delete
+            </button>
+          </>
         )}
       </div>
 
