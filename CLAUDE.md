@@ -36,9 +36,9 @@ npm run dev          # Local dev server
 npm run build        # Production build
 npm run lint         # ESLint
 npm test             # Vitest run (no watch)
-npm run db:push      # Dev-only fast schema sync to the .env.local DB (prntd-dev branch). NOT for prod/preview — those use db:migrate (versioned migrations, see Migration discipline below)
+npm run db:push      # Dev-only fast schema sync to the .env.local DB (prntd-dev branch). NOT for prod/preview — those use db:migrate (versioned migrations, see Migration discipline below). Guarded by scripts/db-preflight.ts (#166)
 npm run db:generate  # Author a new versioned migration from schema.ts changes → drizzle/000N_*.sql
-npm run db:migrate   # Apply pending migrations (defaults to dev; prod/preview via inline creds — see Migration discipline)
+npm run db:migrate   # Apply pending migrations (defaults to dev; prod/preview via inline creds — see Migration discipline). Guarded by scripts/db-preflight.ts (#166)
 npm run db:studio    # Drizzle Studio (database GUI)
 npm test             # Run all tests (Vitest)
 npm run test:watch   # Vitest in watch mode
@@ -225,6 +225,8 @@ Two design docs + a roadmap. Memory: `project_conversation_image_model`.
   Before any real prod migrate: `turso db create prntd-backup-<date> --from-db prntd` (rollback). Prod migrate stays manual (byside parity, not fire-on-merge). Dev keeps `db:push` for fast iteration (B2) — but `db:generate` before merge so the migration chain stays current. Plan/rationale: `docs/migration-adoption-plan.md`, `docs/cicd-roadmap.md` §"Migration discipline".
 
   **Smoke test:** `scripts/migration-smoke.ts before|after` snapshots row counts around a migration and fails on dropped tables / lost rows (read-only, safe on any target incl. prod). **CI preview auto-apply (Option C) — done:** the e2e job runs `db:migrate` against `prntd-preview` (existing `PREVIEW_DATABASE_*` secrets) before Playwright, so schema-changing PRs keep the shared preview DB current (additive-only until per-PR branches, #31). **Deferred:** the `DB_TARGET` op-resolver + ops-script refactor (the inline-token one-liner made it unnecessary for migrate).
+
+  **DB target guard — DONE (#166).** `db:push`, `db:migrate`, and `db:seed` all run `scripts/db-preflight.ts` first (pure logic in `src/lib/db-target.ts`). It classifies the resolved `DATABASE_URL` host as `dev`/`preview`/`prod`/`memory`/`unknown` and refuses to proceed unless the target is `dev` or an in-memory DB, or the caller sets `DB_TARGET_CONFIRM=<target>` (e.g. `DB_TARGET_CONFIRM=prod`), or the URL was already set in the shell before `.env.local` loaded. That last case covers the inline-creds prod/preview one-liners below unchanged — they set `DATABASE_URL` on the command line, so the preflight treats them as deliberate and lets them through without any extra flag. Nothing is printed but the classified target and host; no token or other `.env.local` value is ever echoed.
 
 **Design system + UX rethink — IN REVIEW (PR #34, branch `docs/design-system`). Manine reviewed 2026-06-14.**
 
