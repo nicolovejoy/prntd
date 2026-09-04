@@ -12,7 +12,7 @@
  * Server-only (imports drizzle + schema). Client components import types
  * only; display helpers live in `studio-view.ts`.
  */
-import { and, asc, eq, inArray, isNull, ne, sql, desc } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, ne, sql, desc } from "drizzle-orm";
 import type { db as appDb } from "./db";
 import {
   design as designTable,
@@ -22,6 +22,7 @@ import {
   imageGeneration as imageGenerationTable,
 } from "./db/schema";
 import { sweepStaleJobs } from "./generation-job";
+import { sweepIdleConversations } from "./archive-conversations";
 
 // Type-only import so tests can inject an in-memory db without this module
 // constructing the libSQL client at import time (generation-job.ts pattern).
@@ -85,6 +86,13 @@ export async function getStudioLanesData(
   // Same lazy-sweep-on-read the thread and /designs loads do; narrowest scope
   // for this call site — only the cron sweeps scope: "all".
   await sweepStaleJobs({ scope: "user", userId, db });
+
+  // Auto-archive (slice 4), lazily on the read that happens anyway. Ordered
+  // AFTER the stale-job sweep on purpose: a job the sweep just failed no
+  // longer blocks its lane from archiving, so a conversation whose last act
+  // was a generation that died three days ago leaves the bench on this same
+  // load rather than the next one.
+  await sweepIdleConversations({ scope: "user", userId, db });
 
   // Open = closed_at null (the plan's definition). Archived-status designs are
   // additionally excluded: archive is "make this go away" (deleteDesign's
@@ -226,4 +234,118 @@ export async function getStudioLanesData(
   // stamps keep a deterministic order.
   lanes.sort((a, b) => b.lastActiveAt.getTime() - a.lastActiveAt.getTime());
   return lanes;
+}
+
+/** One closed conversation on /studio/archive. */
+export type ArchivedConversation = {
+  designId: string;
+  /** Same rule as a lane title: first user chat turn, else a prompt. */
+  title: string | null;
+  /** The conversation's primary image, else its newest one. */
+  heroImageUrl: string | null;
+  closedAt: Date;
+};
+
+/**
+ * Max conversations the archive lists. The archive is a retrieval door, not a
+ * complete record — anything older is reachable from My Designs via the
+ * image detail page's route back to its conversation.
+ */
+export const STUDIO_ARCHIVE_LIMIT = 100;
+
+/**
+ * The /studio/archive list for one user: closed conversations, newest-closed
+ * first. Auth lives at the caller, as with getStudioLanesData.
+ *
+ * Same flat shape as the lanes query — one design select, then two batched
+ * reads — because the same N+1 is available here and just as wrong.
+ *
+ * Deliberately does NOT sweep: this page is where a conversation lands after
+ * being archived, so archiving more of them on its load would be surprising.
+ * Only the Studio's own read and the cron backstop write closed_at.
+ */
+export async function getStudioArchiveData(
+  userId: string,
+  opts: { db?: AppDb } = {}
+): Promise<ArchivedConversation[]> {
+  const db = opts.db ?? (await import("./db")).db;
+
+  // `status = 'archived'` designs stay out for the same reason the lanes
+  // query excludes them: that flag is the user's older "make this go away",
+  // and /designs already hides them.
+  const designs = await db
+    .select({
+      id: designTable.id,
+      primaryImageId: designTable.primaryImageId,
+      closedAt: designTable.closedAt,
+    })
+    .from(designTable)
+    .where(
+      and(
+        eq(designTable.userId, userId),
+        isNotNull(designTable.closedAt),
+        ne(designTable.status, "archived")
+      )
+    )
+    .orderBy(desc(designTable.closedAt))
+    .limit(STUDIO_ARCHIVE_LIMIT);
+
+  if (designs.length === 0) return [];
+  const designIds = designs.map((d) => d.id);
+
+  const [imageRows, firstTurnRows] = await Promise.all([
+    db
+      .select({
+        designId: conversationImageTable.designId,
+        imageId: imageTable.id,
+        imageUrl: imageTable.imageUrl,
+        prompt: imageTable.prompt,
+      })
+      .from(conversationImageTable)
+      .innerJoin(imageTable, eq(imageTable.id, conversationImageTable.imageId))
+      .where(inArray(conversationImageTable.designId, designIds))
+      .orderBy(asc(imageTable.createdAt), sql`image.rowid asc`),
+    db
+      .select({
+        designId: chatMessageTable.designId,
+        content: chatMessageTable.content,
+        firstAt: sql<number>`min(${chatMessageTable.createdAt})`,
+      })
+      .from(chatMessageTable)
+      .where(
+        and(
+          inArray(chatMessageTable.designId, designIds),
+          eq(chatMessageTable.role, "user")
+        )
+      )
+      .groupBy(chatMessageTable.designId),
+  ]);
+
+  const imagesByDesign = new Map<string, typeof imageRows>();
+  for (const row of imageRows) {
+    const list = imagesByDesign.get(row.designId) ?? [];
+    list.push(row);
+    imagesByDesign.set(row.designId, list);
+  }
+  const titleByDesign = new Map(
+    firstTurnRows.map((row) => [row.designId, row.content])
+  );
+
+  return designs.map((design) => {
+    const images = imagesByDesign.get(design.id) ?? [];
+    const hero =
+      images.find((row) => row.imageId === design.primaryImageId) ??
+      images[images.length - 1];
+    const chatTitle = titleByDesign.get(design.id)?.trim();
+    const promptTitle = images
+      .find((row) => row.prompt && row.prompt.trim().length > 0)
+      ?.prompt?.trim();
+    return {
+      designId: design.id,
+      title: chatTitle || promptTitle || null,
+      heroImageUrl: hero?.imageUrl ?? null,
+      // Non-null by the query's isNotNull filter; the type is nullable.
+      closedAt: design.closedAt as Date,
+    };
+  });
 }
