@@ -20,6 +20,8 @@
  */
 import { and, eq, isNull, ne, sql } from "drizzle-orm";
 import type { db as appDb } from "@/lib/db";
+import type { DesignSpec } from "@/lib/design-spec";
+import type { ImageOperation } from "@/lib/image-provenance";
 import {
   image as imageTable,
   conversationImage as conversationImageTable,
@@ -58,6 +60,11 @@ export function buildImageRow(params: {
   imageUrl: string;
   aspectRatio: string;
   prompt?: string | null;
+  /** What produced the row, so a reader can tell a scene summary from an edit
+   * instruction (#169). Omitted only by tests/backfills → null (legacy). */
+  operation?: ImageOperation | null;
+  /** The structured brief a generate rendered — null for edits and uploads. */
+  designSpec?: DesignSpec | null;
   generator?: string | null;
   generationCost: number;
   parentImageId?: string | null;
@@ -76,6 +83,8 @@ export function buildImageRow(params: {
     imageUrl: params.imageUrl,
     aspectRatio: params.aspectRatio,
     prompt: params.prompt ?? null,
+    operation: params.operation ?? null,
+    designSpecJson: params.designSpec ?? null,
     generator: params.generator ?? null,
     generationCost: params.generationCost,
     parentImageId: params.parentImageId ?? null,

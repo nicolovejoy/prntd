@@ -25,6 +25,13 @@ import {
 import { eq, ne, and, asc, desc, inArray, sql } from "drizzle-orm";
 import { imageReferences } from "@/lib/design-publish";
 import { getBlank, type AspectRatio } from "@/lib/blanks";
+import type { DesignSpec } from "@/lib/design-spec";
+import {
+  buildNamingContext,
+  PROVENANCE_MAX_DEPTH,
+  type ImageOperation,
+  type ProvenanceNode,
+} from "@/lib/image-provenance";
 import {
   buildImageRow,
   buildOutputLinkRow,
@@ -71,6 +78,13 @@ export type DesignImage = {
   url: string;
   prompt: string;
   publishedAt: Date | null;
+  /** What produced the image (#169) — null on rows written before it. The AI
+   * context needs this to tell a scene summary from an edit instruction. */
+  operation?: ImageOperation | null;
+  /** The structured brief behind a generate; null otherwise. */
+  designSpec?: DesignSpec | null;
+  /** Provenance parent, for walking an edit chain back to its spec. */
+  parentImageId?: string | null;
   /** How the image is linked to the thread. A `seed` (fresh-start source,
    * slice 3) belongs to another conversation — it can anchor generations and
    * products but is never a provenance parent and is only detached, not
@@ -129,6 +143,9 @@ export async function getDesignImagesForAIContext(
     number: i + 1,
     url: s.imageUrl,
     prompt: s.prompt ?? "",
+    operation: s.operation,
+    designSpec: s.designSpec,
+    parentImageId: s.parentImageId,
     publishedAt: s.publishedAt,
     role: s.role,
   }));
@@ -185,6 +202,11 @@ export async function insertDesignImage(params: {
   imageUrl: string;
   aspectRatio: AspectRatio;
   prompt?: string | null;
+  /** What produced the image (#169). Placement renders ignore it — they land
+   * in placement_render, which has no such column. Omitted → null (legacy). */
+  operation?: ImageOperation | null;
+  /** The structured brief behind a generate; null for edits and uploads. */
+  designSpec?: DesignSpec | null;
   generationCost: number;
   productId?: string | null;
   placementId?: string | null;
@@ -253,6 +275,8 @@ export async function insertDesignImage(params: {
           imageUrl: params.imageUrl,
           aspectRatio: params.aspectRatio,
           prompt: params.prompt,
+          operation: params.operation,
+          designSpec: params.designSpec,
           generationCost: params.generationCost,
           parentImageId,
           seedImageId: seed?.seedImageId ?? null,
@@ -546,6 +570,9 @@ export type SourceImage = {
   prompt: string | null;
   createdAt: Date;
   publishedAt: Date | null;
+  operation: ImageOperation | null;
+  designSpec: DesignSpec | null;
+  parentImageId: string | null;
   /** See DesignImage.role — `seed` rows only appear with includeSeeds. */
   role: "output" | "seed";
 };
@@ -571,6 +598,9 @@ export async function getDesignSourceImages(
       imageUrl: imageTable.imageUrl,
       aspectRatio: imageTable.aspectRatio,
       prompt: imageTable.prompt,
+      operation: imageTable.operation,
+      designSpec: imageTable.designSpecJson,
+      parentImageId: imageTable.parentImageId,
       createdAt: imageTable.createdAt,
       publishedAt: listingTable.publishedAt,
       role: conversationImageTable.role,
@@ -593,6 +623,9 @@ export async function getDesignSourceImages(
     imageUrl: r.imageUrl,
     aspectRatio: r.aspectRatio as AspectRatio,
     prompt: r.prompt,
+    operation: r.operation,
+    designSpec: r.designSpec,
+    parentImageId: r.parentImageId,
     createdAt: r.createdAt,
     publishedAt: r.publishedAt,
     role: r.role,
@@ -832,4 +865,47 @@ export async function deleteDesignImageRow(
     .limit(1);
 
   return { newPrimaryId: remaining[0]?.id ?? null };
+}
+
+/**
+ * The text describing an image to the titling model (#169): the design brief
+ * for a generate, or — for an edit — the original brief plus every
+ * instruction applied since. Walks `parent_image_id` upward one row at a
+ * time, stopping at the first ancestor carrying a spec or at
+ * PROVENANCE_MAX_DEPTH, whichever comes first; the rendering itself is the
+ * pure buildNamingContext.
+ *
+ * Legacy rows (no `operation`) and uploads resolve to the row's own prompt,
+ * which is what publishImage has always sent.
+ */
+export async function getImageNamingContext(
+  imageId: string
+): Promise<string | null> {
+  const byId = new Map<string, ProvenanceNode>();
+  let currentId: string | null = imageId;
+  for (let depth = 0; depth < PROVENANCE_MAX_DEPTH && currentId; depth++) {
+    if (byId.has(currentId)) break; // cycle
+    const [row] = await db
+      .select({
+        id: imageTable.id,
+        operation: imageTable.operation,
+        designSpec: imageTable.designSpecJson,
+        prompt: imageTable.prompt,
+        parentImageId: imageTable.parentImageId,
+      })
+      .from(imageTable)
+      .where(eq(imageTable.id, currentId))
+      .limit(1);
+    if (!row) break;
+    byId.set(row.id, {
+      id: row.id,
+      operation: row.operation,
+      designSpec: row.designSpec ?? null,
+      prompt: row.prompt,
+      parentImageId: row.parentImageId,
+    });
+    if (row.designSpec) break;
+    currentId = row.parentImageId;
+  }
+  return buildNamingContext(imageId, byId);
 }
