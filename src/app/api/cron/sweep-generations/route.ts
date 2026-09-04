@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sweepOrphanedGenerations, defaultSweepGenerationsDeps } from "@/lib/sweep-generations";
+import { sweepIdleConversations } from "@/lib/archive-conversations";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -24,5 +25,24 @@ export async function GET(request: NextRequest) {
 
   const result = await sweepOrphanedGenerations(defaultSweepGenerationsDeps);
 
-  return NextResponse.json(result);
+  // Studio auto-archive (studio-plan slice 4) rides this cron rather than
+  // getting one of its own: `vercel.json` is at Vercel Hobby's two-cron
+  // limit. The Studio's own load is the primary sweep — this is the backstop
+  // for a user who stops opening it, which is exactly the user whose lanes
+  // need archiving. Ordered after the generation sweep so a job it just
+  // failed no longer holds its conversation open.
+  //
+  // Isolated: an archive failure must not turn a successful R2 reclaim into a
+  // 500, and Vercel retries nothing here — the next daily run picks it up.
+  let archivedConversations: number | null = null;
+  try {
+    const archive = await sweepIdleConversations({ scope: "all" });
+    archivedConversations = archive.archived;
+  } catch (err) {
+    console.error("[sweep-generations] conversation archive sweep failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  return NextResponse.json({ ...result, archivedConversations });
 }
