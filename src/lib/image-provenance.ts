@@ -10,7 +10,7 @@
  * Everything in this module is pure — the caller supplies the rows. The DB
  * side (loading an edit's ancestors) lives in design-images.ts.
  */
-import { renderSpecSummary, type DesignSpec } from "./design-spec";
+import { parseDesignSpec, renderSpecSummary, type DesignSpec } from "./design-spec";
 
 export type ImageOperation = "generate" | "edit" | "upload";
 
@@ -34,9 +34,22 @@ export type ProvenanceNode = {
  */
 export const PROVENANCE_MAX_DEPTH = 10;
 
+/**
+ * Validate a spec read back out of `image.design_spec_json`. The column is
+ * `.$type<DesignSpec>()`, which is a compile-time claim about rows we wrote —
+ * it guarantees nothing about a row hand-edited, half-written by an older
+ * shape, or restored from a backup. renderSpecSummary assumes `elements` is
+ * an array, so an unvalidated read could throw inside the chat gallery and
+ * take out a whole turn. Anything that doesn't parse degrades to null, which
+ * is the legacy/prompt-only path everywhere in this module.
+ */
+export function sanitizeStoredSpec(value: unknown): DesignSpec | null {
+  return parseDesignSpec(value);
+}
+
 function summarize(node: ProvenanceNode): string | null {
-  if (node.designSpec) return renderSpecSummary(node.designSpec);
-  return null;
+  const spec = sanitizeStoredSpec(node.designSpec);
+  return spec ? renderSpecSummary(spec) : null;
 }
 
 function legacyPromptContext(prompt: string | null): string | null {
@@ -62,7 +75,7 @@ export function specAncestry(
   while (current && !seen.has(current.id) && chain.length < PROVENANCE_MAX_DEPTH) {
     seen.add(current.id);
     chain.push(current);
-    if (current.designSpec) break;
+    if (sanitizeStoredSpec(current.designSpec)) break;
     current = current.parentImageId
       ? byId.get(current.parentImageId)
       : undefined;

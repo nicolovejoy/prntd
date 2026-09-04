@@ -135,6 +135,35 @@ describe("buildNamingContext", () => {
     );
   });
 
+  it("degrades to the prompt when the stored spec is malformed", () => {
+    // A row whose design_spec_json survived a hand edit / older shape:
+    // renderSpecSummary would throw on the missing elements array, which
+    // inside buildImageGalleryContext would take out a whole chat turn.
+    const malformed = { subject: "a bear" } as unknown as DesignSpec;
+    const g = node({
+      id: "a",
+      operation: "generate",
+      designSpec: malformed,
+      prompt: "a bear",
+    });
+    const e = node({
+      id: "b",
+      operation: "edit",
+      designSpec: null,
+      prompt: "make it bigger",
+      parentImageId: "a",
+    });
+    expect(buildNamingContext("a", index([g]))).toBe(
+      "Prompt used to generate this image:\na bear"
+    );
+    expect(imageContextLabel(g)).toBe("Generated from: a bear");
+    expect(imageGalleryLine(g, 1)).toBe("#1: Generated from: a bear");
+    // The edit's walk doesn't stop at the malformed ancestor's "spec" either.
+    expect(buildNamingContext("b", index([g, e]))).toBe(
+      "Prompt used to generate this image:\nmake it bigger"
+    );
+  });
+
   it("returns null for an unknown image and for one with nothing to say", () => {
     expect(buildNamingContext("nope", index([]))).toBeNull();
     expect(buildNamingContext("a", index([node({ id: "a" })]))).toBeNull();

@@ -28,6 +28,7 @@ import { getBlank, type AspectRatio } from "@/lib/blanks";
 import type { DesignSpec } from "@/lib/design-spec";
 import {
   buildNamingContext,
+  sanitizeStoredSpec,
   PROVENANCE_MAX_DEPTH,
   type ImageOperation,
   type ProvenanceNode,
@@ -624,7 +625,9 @@ export async function getDesignSourceImages(
     aspectRatio: r.aspectRatio as AspectRatio,
     prompt: r.prompt,
     operation: r.operation,
-    designSpec: r.designSpec,
+    // Validated on read: the column's `.$type<DesignSpec>()` is a claim about
+    // rows we wrote, not a guarantee about what is in the DB.
+    designSpec: sanitizeStoredSpec(r.designSpec),
     parentImageId: r.parentImageId,
     createdAt: r.createdAt,
     publishedAt: r.publishedAt,
@@ -900,11 +903,11 @@ export async function getImageNamingContext(
     byId.set(row.id, {
       id: row.id,
       operation: row.operation,
-      designSpec: row.designSpec ?? null,
+      designSpec: sanitizeStoredSpec(row.designSpec),
       prompt: row.prompt,
       parentImageId: row.parentImageId,
     });
-    if (row.designSpec) break;
+    if (sanitizeStoredSpec(row.designSpec)) break;
     currentId = row.parentImageId;
   }
   return buildNamingContext(imageId, byId);
