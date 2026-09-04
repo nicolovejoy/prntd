@@ -237,6 +237,45 @@ describe("delete interactions", () => {
     expect(await testDb.select().from(schema.product)).toHaveLength(0);
   });
 
+  it("a Shop-bought image archives instead of deleting — the order FKs its mirror", async () => {
+    // Composition slice 4 put order.store_product_id → product.id in play for
+    // Shop sales, so deleting the mirror out from under a sold order would
+    // trip that FK. The order guard fires first and archives the design.
+    const { designId, imageId } = await seedImage();
+    await publishImage(imageId, { title: "T" });
+    const [mirror] = await mirrorsOf(imageId);
+
+    await makeUser(testDb, "buyer-1");
+    const [order] = await testDb
+      .insert(schema.order)
+      .values({
+        userId: "buyer-1",
+        designId,
+        totalPrice: 24.12,
+        status: "paid",
+        storeProductId: mirror.id,
+      })
+      .returning();
+    await testDb.insert(schema.orderItem).values({
+      orderId: order.id,
+      designId,
+      productId: "bella-canvas-3001",
+      size: "L",
+      color: "Black",
+      placements: { front: imageId },
+      itemPrice: 19.43,
+    });
+
+    await deleteDesign(designId);
+
+    const [d] = await testDb
+      .select()
+      .from(schema.design)
+      .where(eq(schema.design.id, designId));
+    expect(d.status).toBe("archived");
+    expect(await mirrorsOf(imageId)).toHaveLength(1);
+  });
+
   it("deleteDesign keeps the mirror of an image that survives (detached)", async () => {
     const { designId, imageId } = await seedImage();
     await publishImage(imageId, { title: "T" });
