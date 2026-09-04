@@ -46,7 +46,10 @@ import {
   getDesignDisplayImageUrl,
   getDesignImageById,
 } from "@/lib/design-images";
-import { designerAttribution } from "@/lib/order-attribution";
+import {
+  contributorAttribution,
+  designerAttribution,
+} from "@/lib/order-attribution";
 import { resolveOrderLineIdentities } from "@/lib/order-line-identity";
 import { isAdminEmail } from "@/lib/admin";
 
@@ -611,10 +614,12 @@ export async function getOrderDetail(orderId: string) {
     ...line,
     imageUrl: identities[i]?.imageUrl ?? null,
     title: identities[i]?.title ?? null,
-    designedByName: designerAttribution({
-      designerId: identities[i]?.designerId ?? null,
-      designerName: identities[i]?.designerName ?? null,
-      buyerId: orders[0].buyerId,
+    // Contributors are the owners of the line's placement images, so a
+    // two-sided shirt drawn by two people names both (composition plan §3).
+    // Suppression is against the buyer, not the admin reading the page.
+    designedByName: contributorAttribution({
+      contributors: identities[i]?.contributors ?? [],
+      viewerId: orders[0].buyerId,
     }),
   }));
 

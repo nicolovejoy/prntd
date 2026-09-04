@@ -121,9 +121,10 @@ describe("resolveOrderLineIdentities", () => {
     expect(identities[0].title).toBeNull();
     expect(identities[1].title).toBe("Neon Raccoon");
 
-    expect(identities[0].designerId).toBe("buyer");
-    expect(identities[1].designerId).toBe("seller");
-    expect(identities[1].designerName).toBe("seller");
+    // Line 1 has no placements, so it falls back to the conversation owner;
+    // line 2 derives its contributor from the pinned image's owner.
+    expect(identities[0].contributors).toEqual([{ userId: "buyer", name: "buyer" }]);
+    expect(identities[1].contributors).toEqual([{ userId: "seller", name: "seller" }]);
   });
 
   it("falls back to the design's latest output when it has no primary pointer", async () => {
@@ -168,7 +169,7 @@ describe("resolveOrderLineIdentities", () => {
     ]);
 
     expect(identities).toEqual([
-      { imageUrl: null, title: null, designerId: null, designerName: null },
+      { imageUrl: null, title: null, contributors: [] },
     ]);
   });
 });
@@ -178,20 +179,29 @@ describe("buildLineIdentities (pure)", () => {
     urlByImageId: new Map([["img-a", "https://a.png"]]),
     titleByImageId: new Map([["img-a", "Title A"]]),
     displayUrlByDesignId: new Map([["d1", "https://d1.png"]]),
-    designerByDesignId: new Map([["d1", { id: "u1", name: "Nico" }]]),
+    designerByDesignId: new Map([["d1", { userId: "u1", name: "Nico" }]]),
+    ownerByImageId: new Map([["img-a", { userId: "u1", name: "Nico" }]]),
   };
 
   it("prefers the pinned front over the design display image", () => {
     expect(
       buildLineIdentities([{ designId: "d1", placements: { front: "img-a" } }], ctx)
     ).toEqual([
-      { imageUrl: "https://a.png", title: "Title A", designerId: "u1", designerName: "Nico" },
+      {
+        imageUrl: "https://a.png",
+        title: "Title A",
+        contributors: [{ userId: "u1", name: "Nico" }],
+      },
     ]);
   });
 
   it("falls back to the design display image with no title", () => {
     expect(buildLineIdentities([{ designId: "d1", placements: null }], ctx)).toEqual([
-      { imageUrl: "https://d1.png", title: null, designerId: "u1", designerName: "Nico" },
+      {
+        imageUrl: "https://d1.png",
+        title: null,
+        contributors: [{ userId: "u1", name: "Nico" }],
+      },
     ]);
   });
 
@@ -199,7 +209,11 @@ describe("buildLineIdentities (pure)", () => {
     expect(
       buildLineIdentities([{ designId: "d1", placements: { front: "gone" } }], ctx)
     ).toEqual([
-      { imageUrl: "https://d1.png", title: null, designerId: "u1", designerName: "Nico" },
+      {
+        imageUrl: "https://d1.png",
+        title: null,
+        contributors: [{ userId: "u1", name: "Nico" }],
+      },
     ]);
   });
 });
