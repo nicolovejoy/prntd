@@ -64,6 +64,7 @@ export async function getImageShareCard(
       backgroundColor: productTable.backdropColor,
       status: productTable.status,
       listedAt: productTable.listedAt,
+      productCreatedAt: productTable.createdAt,
       designerName: userTable.name,
     })
     .from(imageTable)
@@ -79,7 +80,7 @@ export async function getImageShareCard(
   if (!r) return null;
   if (
     !canShareImageCard({
-      publishedAt: mirrorPublishedAt(r.status, r.listedAt),
+      publishedAt: mirrorPublishedAt(r.status, r.listedAt, r.productCreatedAt),
       isHidden: mirrorIsHidden(r.status),
     })
   ) {

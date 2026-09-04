@@ -116,6 +116,7 @@ async function fetchForkChainRow(imageId: string): Promise<ForkChainRow | null> 
       title: productTable.title,
       status: productTable.status,
       listedAt: productTable.listedAt,
+      productCreatedAt: productTable.createdAt,
       designerName: userTable.name,
       forkedFromImageId: imageTable.seedImageId,
     })
@@ -134,7 +135,7 @@ async function fetchForkChainRow(imageId: string): Promise<ForkChainRow | null> 
     title: r.title,
     designerName: r.designerName,
     forkedFromImageId: r.forkedFromImageId,
-    publishedAt: mirrorPublishedAt(r.status, r.listedAt),
+    publishedAt: mirrorPublishedAt(r.status, r.listedAt, r.productCreatedAt),
     isHidden: mirrorIsHidden(r.status),
   };
 }
@@ -161,6 +162,7 @@ export async function getImagePage(
       backgroundColor: productTable.backdropColor,
       status: productTable.status,
       listedAt: productTable.listedAt,
+      productCreatedAt: productTable.createdAt,
       designerName: userTable.name,
       designerId: userTable.id,
       forkedFromImageId: imageTable.seedImageId,
@@ -178,7 +180,7 @@ export async function getImagePage(
   const r = rows[0];
   if (!r) return null;
 
-  const publishedAt = mirrorPublishedAt(r.status, r.listedAt);
+  const publishedAt = mirrorPublishedAt(r.status, r.listedAt, r.productCreatedAt);
   const isHidden = mirrorIsHidden(r.status);
 
   let viewerId: string | null = null;

@@ -53,6 +53,8 @@ const { setImageHidden, setImageFeedRank, getRecentPublishedForAdmin } =
   await import("@/app/admin/actions");
 const { getImagePage } = await import("@/app/d/actions");
 const { getPublishedFeed } = await import("@/lib/discover-feed");
+const { getUserDesignsData } = await import("@/lib/user-designs");
+const { getDesign, setPrimaryImage } = await import("@/app/design/actions");
 const { loadLineIdentityContext, buildLineIdentities } = await import(
   "@/lib/order-line-identity"
 );
@@ -88,6 +90,17 @@ async function patchMirror(
     .update(schema.product)
     .set(set)
     .where(eq(schema.product.id, mirror.id));
+}
+
+/** Direct write to the image's listing row (bypasses the dual-write). */
+async function patchListing(
+  imageId: string,
+  set: Partial<typeof schema.listing.$inferInsert>
+) {
+  await testDb
+    .update(schema.listing)
+    .set(set)
+    .where(eq(schema.listing.imageId, imageId));
 }
 
 describe("feed reads the mirror product", () => {
@@ -228,6 +241,22 @@ describe("getImagePage reads the mirror product", () => {
     expect(await getImagePage(imageId)).toBeNull();
   });
 
+  it("falls back to createdAt when a published mirror has no listedAt", async () => {
+    // The one publish-timestamp rule (composition-reads.mirrorPublishedAt):
+    // the feed and /d must agree, or an image lists in the Shop and 404s on
+    // its own page for everyone but the owner.
+    const { imageId } = await seedImage();
+    await publishImage(imageId, { title: "Tiger", backgroundColor: "Black" });
+    await patchMirror(imageId, { listedAt: null });
+    await makeUser(testDb, "someone-else");
+    currentUserId = "someone-else";
+
+    const page = await getImagePage(imageId);
+    expect(page).not.toBeNull();
+    expect(page!.publishedAt).toBeInstanceOf(Date);
+    expect(await getPublishedFeed()).toHaveLength(1);
+  });
+
   it("treats a draft mirror as unpublished after unpublish", async () => {
     const { imageId } = await seedImage();
     await publishImage(imageId, { title: "Tiger", backgroundColor: "Black" });
@@ -245,19 +274,35 @@ describe("admin published grid reads the mirror product", () => {
     const { imageId } = await seedImage();
     await publishImage(imageId, { title: "Tiger", backgroundColor: "Black" });
     await setImageFeedRank(imageId, 3);
+    // Diverge every mirrored field so the row can only have come from the
+    // product; on the pre-swap reader each assertion below reads the listing.
+    await patchMirror(imageId, { title: "Product Title", feedRank: 7 });
+    await patchListing(imageId, { title: "Listing Title", feedRank: 3 });
 
     const rows = await getRecentPublishedForAdmin();
     expect(rows).toHaveLength(1);
     expect(rows[0].imageId).toBe(imageId);
-    expect(rows[0].title).toBe("Tiger");
-    expect(rows[0].feedRank).toBe(3);
+    expect(rows[0].title).toBe("Product Title");
+    expect(rows[0].feedRank).toBe(7);
     expect(rows[0].isHidden).toBe(false);
     expect(rows[0].publishedAt).toBeInstanceOf(Date);
 
-    await setImageHidden(imageId, true);
+    // Hidden state too: the mirror says hidden, the listing says visible.
+    await patchMirror(imageId, { status: "hidden" });
+    await patchListing(imageId, { isHidden: false });
     const hidden = await getRecentPublishedForAdmin();
     expect(hidden).toHaveLength(1);
     expect(hidden[0].isHidden).toBe(true);
+  });
+
+  it("drops an image whose mirror is a draft, even with the listing intact", async () => {
+    const { imageId } = await seedImage();
+    await publishImage(imageId, { title: "Tiger", backgroundColor: "Black" });
+    // Only the mirror is retired — the listing row stays, so a pre-swap
+    // reader would still list this image.
+    await patchMirror(imageId, { status: "draft" });
+
+    expect(await getRecentPublishedForAdmin()).toHaveLength(0);
   });
 
   it("drops an unpublished image from the grid", async () => {
@@ -266,6 +311,55 @@ describe("admin published grid reads the mirror product", () => {
     await unpublishImage(imageId);
 
     expect(await getRecentPublishedForAdmin()).toHaveLength(0);
+  });
+});
+
+describe("My Designs backdrop reads the mirror product", () => {
+  it("follows the product backdrop while publish state stays on the listing", async () => {
+    const { designId, imageId } = await seedImage();
+    await setPrimaryImage(designId, imageId);
+    await publishImage(imageId, { title: "Tiger", backgroundColor: "Black" });
+    await patchMirror(imageId, { backdropColor: "Navy" });
+    await patchListing(imageId, { backgroundColor: "Red" });
+
+    const designs = await getUserDesignsData(currentUserId);
+    const card = designs.find((d) => d.id === designId);
+    expect(card!.primaryImageBackgroundColor).toBe("Navy");
+    // Publish state is job B and still comes off the listing.
+    expect(card!.primaryImagePublishedAt).toBeInstanceOf(Date);
+  });
+
+  it("shows no backdrop once the mirror is a draft", async () => {
+    const { designId, imageId } = await seedImage();
+    await setPrimaryImage(designId, imageId);
+    await publishImage(imageId, { title: "Tiger", backgroundColor: "Black" });
+    await patchMirror(imageId, { status: "draft" });
+
+    const designs = await getUserDesignsData(currentUserId);
+    const card = designs.find((d) => d.id === designId);
+    expect(card!.primaryImageBackgroundColor).toBeNull();
+  });
+});
+
+describe("getDesign backdrop reads the mirror product", () => {
+  it("follows the product backdrop, not the listing backdrop", async () => {
+    const { designId, imageId } = await seedImage();
+    await setPrimaryImage(designId, imageId);
+    await publishImage(imageId, { title: "Tiger", backgroundColor: "Black" });
+    await patchMirror(imageId, { backdropColor: "Navy" });
+    await patchListing(imageId, { backgroundColor: "Red" });
+
+    expect((await getDesign(designId))!.backgroundColor).toBe("Navy");
+  });
+
+  it("drops the pinned backdrop once the mirror is a draft", async () => {
+    const { designId, imageId } = await seedImage();
+    await setPrimaryImage(designId, imageId);
+    await publishImage(imageId, { title: "Tiger", backgroundColor: "Black" });
+    // Listing untouched: a pre-swap reader would still return "Black".
+    await patchMirror(imageId, { status: "draft" });
+
+    expect((await getDesign(designId))!.backgroundColor).toBeNull();
   });
 });
 

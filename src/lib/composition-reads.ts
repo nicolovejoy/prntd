@@ -33,6 +33,10 @@ export const mirrorFrontImageId = sql<string>`json_extract(${productTable.placem
 /**
  * Rows that are PRNTD Shop mirror compositions, whatever their status
  * (draft included — unpublish leaves the row behind as a draft).
+ *
+ * Slice 5 drops `product.designId`, at which point the `design_id IS NULL`
+ * clause stops distinguishing anything and this predicate has to be re-keyed
+ * on whatever survives as the mirror marker (see the plan's slice-5 notes).
  */
 export function isShopMirror(): SQL {
   return and(
@@ -56,13 +60,38 @@ export function mirrorIsHidden(status: string | null): boolean {
 }
 
 /**
- * Mirror status + listedAt → the nullable `publishedAt` readers expect.
- * A draft mirror keeps its old listedAt, so status decides.
+ * The one publish-timestamp rule, so every reader agrees on it.
+ *
+ * `listed_at` is set on every publish; the `created_at` fallback covers only a
+ * hand-written row, and exists so a published mirror with a null `listed_at`
+ * can't be visible on one surface and 404 on another. The parity script fails
+ * on a null `listed_at` so this never silently absorbs a real problem.
+ */
+function publishedAtOf(listedAt: Date | null, createdAt: Date): Date {
+  return listedAt ?? createdAt;
+}
+
+/**
+ * Mirror status + timestamps → the nullable `publishedAt` readers expect.
+ * A draft mirror keeps its old listedAt, so status decides; an absent mirror
+ * (left join miss, status null) is simply not published.
  */
 export function mirrorPublishedAt(
   status: string | null,
-  listedAt: Date | null
+  listedAt: Date | null,
+  createdAt: Date | null
 ): Date | null {
-  if (status === null || status === "draft") return null;
-  return listedAt;
+  if (status === null || status === "draft" || createdAt === null) return null;
+  return publishedAtOf(listedAt, createdAt);
+}
+
+/**
+ * Same rule for readers whose query already excludes drafts (the feed, the
+ * admin grid), where the result is known to be non-null.
+ */
+export function listedMirrorPublishedAt(
+  listedAt: Date | null,
+  createdAt: Date
+): Date {
+  return publishedAtOf(listedAt, createdAt);
 }

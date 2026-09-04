@@ -20,6 +20,7 @@ import {
 import { eq, desc, asc, inArray, sum, count, sql } from "drizzle-orm";
 import {
   isPublishedShopMirror,
+  listedMirrorPublishedAt,
   mirrorFrontImageId,
   mirrorIsHidden,
 } from "@/lib/composition-reads";
@@ -380,9 +381,7 @@ export async function getRecentPublishedForAdmin(
     title: r.title,
     designerName: r.designerName,
     designerEmail: r.designerEmail,
-    // listedAt is set on every publish; createdAt only covers a hand-written
-    // row, and keeps the non-null contract of AdminPublishedImage.
-    publishedAt: r.listedAt ?? r.productCreatedAt,
+    publishedAt: listedMirrorPublishedAt(r.listedAt, r.productCreatedAt),
     isHidden: mirrorIsHidden(r.status),
     feedRank: r.feedRank,
   }));

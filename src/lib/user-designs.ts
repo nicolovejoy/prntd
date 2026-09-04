@@ -2,8 +2,13 @@ import { db } from "@/lib/db";
 import {
   design as designTable,
   listing as listingTable,
+  product as productTable,
 } from "@/lib/db/schema";
 import { eq, desc, and, not, inArray } from "drizzle-orm";
+import {
+  isPublishedShopMirror,
+  mirrorFrontImageId,
+} from "@/lib/composition-reads";
 import { resolveDesignDisplayImageUrls } from "@/lib/design-images";
 import { sweepStaleJobs } from "@/lib/generation-job";
 
@@ -72,20 +77,39 @@ async function loadPublishState(
 > {
   if (primaryIds.length === 0) return new Map();
   try {
-    // Publish state lives in `listing` — a row exists iff published, so an
-    // unpublished primary is simply absent from the map.
-    const primaryRows = await db
-      .select({
-        id: listingTable.imageId,
-        publishedAt: listingTable.publishedAt,
-        backgroundColor: listingTable.backgroundColor,
-      })
-      .from(listingTable)
-      .where(inArray(listingTable.imageId, primaryIds));
+    // Two halves, two homes (docs/composition-first-class-plan.md §1):
+    // publish state is the job-B visibility grant and stays on `listing` (a
+    // row exists iff published, so an unpublished primary is simply absent);
+    // the backdrop is a job-A sellable field and comes off the mirror
+    // `product` row since composition slice 2.
+    const [primaryRows, backdropRows] = await Promise.all([
+      db
+        .select({
+          id: listingTable.imageId,
+          publishedAt: listingTable.publishedAt,
+        })
+        .from(listingTable)
+        .where(inArray(listingTable.imageId, primaryIds)),
+      db
+        .select({
+          id: mirrorFrontImageId,
+          backdropColor: productTable.backdropColor,
+        })
+        .from(productTable)
+        .where(
+          and(isPublishedShopMirror(), inArray(mirrorFrontImageId, primaryIds))
+        ),
+    ]);
+    const backdrops = new Map(
+      backdropRows.map((r) => [r.id, r.backdropColor ?? null])
+    );
     return new Map(
       primaryRows.map((r) => [
         r.id,
-        { publishedAt: r.publishedAt, backgroundColor: r.backgroundColor },
+        {
+          publishedAt: r.publishedAt,
+          backgroundColor: backdrops.get(r.id) ?? null,
+        },
       ])
     );
   } catch (err) {

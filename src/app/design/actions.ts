@@ -28,9 +28,14 @@ import {
   image as imageTable,
   conversationImage as conversationImageTable,
   listing as listingTable,
+  product as productTable,
   imageGeneration as imageGenerationTable,
 } from "@/lib/db/schema";
 import { eq, and, sql, inArray } from "drizzle-orm";
+import {
+  isPublishedShopMirror,
+  mirrorFrontImageId,
+} from "@/lib/composition-reads";
 import { buildImageRow, buildOutputLinkRow } from "@/lib/model-b-writes";
 import { chatAboutDesign, constructDesignBrief } from "@/lib/ai";
 import { uploadImageObject, deleteImageObject } from "@/lib/r2";
@@ -1093,14 +1098,20 @@ export async function getDesign(designId: string) {
 
   // Primary image's pinned backdrop color (#16) — /preview's color default
   // (§3): the design was published on this color, so show it on it.
-  // Read from the listing — it exists only while the image is published,
-  // which is exactly when the pinned backdrop applies.
+  // Composition slice 2: read from the image's mirror `product` row, and only
+  // while it is published (non-draft), which is exactly when the pinned
+  // backdrop applies — the same condition the listing row used to encode.
   let backgroundColor: string | null = null;
   if (found.primaryImageId) {
     const [primary] = await db
-      .select({ backgroundColor: listingTable.backgroundColor })
-      .from(listingTable)
-      .where(eq(listingTable.imageId, found.primaryImageId))
+      .select({ backgroundColor: productTable.backdropColor })
+      .from(productTable)
+      .where(
+        and(
+          isPublishedShopMirror(),
+          eq(mirrorFrontImageId, found.primaryImageId)
+        )
+      )
       .limit(1);
     backgroundColor = primary?.backgroundColor ?? null;
   }

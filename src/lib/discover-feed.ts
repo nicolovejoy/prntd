@@ -17,7 +17,11 @@ import {
   user as userTable,
 } from "@/lib/db/schema";
 import { eq, and, desc, asc, sql } from "drizzle-orm";
-import { isShopMirror, mirrorFrontImageId } from "@/lib/composition-reads";
+import {
+  isShopMirror,
+  listedMirrorPublishedAt,
+  mirrorFrontImageId,
+} from "@/lib/composition-reads";
 
 export type FeedRow = {
   imageId: string;
@@ -107,13 +111,13 @@ export async function getPublishedFeed(limit = 60): Promise<FeedRow[]> {
     .limit(Math.min(limit * 4, 240));
 
   // An image with no source conversation is its own dedupe group.
-  // `listedAt` is set on every publish; the createdAt fallback only covers a
-  // hand-written row, and keeps FeedRow.publishedAt non-null for the callers.
+  // The publish timestamp goes through the shared rule so the feed, /d, the
+  // admin grid and the share card can never disagree about it.
   return orderFeedByRank(
     rows.map(({ listedAt, productCreatedAt, ...r }) => ({
       ...r,
       designId: r.designId ?? r.imageId,
-      publishedAt: listedAt ?? productCreatedAt,
+      publishedAt: listedMirrorPublishedAt(listedAt, productCreatedAt),
     }))
   ).slice(0, limit);
 }
