@@ -5,7 +5,7 @@ import {
   listing as listingTable,
   product as productTable,
 } from "@/lib/db/schema";
-import { eq, desc, and, ne, or, isNull, inArray, sql } from "drizzle-orm";
+import { eq, desc, and, inArray, sql } from "drizzle-orm";
 import {
   isPublishedShopMirror,
   mirrorFrontImageId,
@@ -23,7 +23,11 @@ export type LibraryImage = {
   backgroundColor: string | null;
   /** The conversation that produced it; null for legacy rows. */
   sourceDesignId: string | null;
-  /** That conversation has left the Studio (closed_at set, slice 4). */
+  /**
+   * That conversation is out of the Studio — either archived off the bench
+   * (closed_at, slice 4) or archived away (status, deleteDesign's fallback
+   * for an ordered design).
+   */
   isArchived: boolean;
 };
 
@@ -59,24 +63,18 @@ export async function getUserImageLibrary(
         publishedAt: listingTable.publishedAt,
         sourceDesignId: imageTable.sourceDesignId,
         sourceClosedAt: designTable.closedAt,
+        sourceStatus: designTable.status,
       })
       .from(imageTable)
       .leftJoin(listingTable, eq(listingTable.imageId, imageTable.id))
       .leftJoin(designTable, eq(designTable.id, imageTable.sourceDesignId))
-      .where(
-        and(
-          eq(imageTable.ownerId, userId),
-          // `status = 'archived'` is the older "make this go away" (it is
-          // what deleteDesign falls back to for an ordered design), and both
-          // the Studio and the archive list hide those conversations. Legacy
-          // images with no source conversation still belong to the user, so a
-          // null join is kept.
-          or(
-            isNull(designTable.status),
-            ne(designTable.status, "archived")
-          )
-        )
-      )
+      // Ownership is the only filter. The library is the whole record of what
+      // the user has made, so a conversation being archived — off the bench
+      // (closed_at) or away (status, which is what deleteDesign leaves behind
+      // for an ordered design) — marks its images, it does not hide them.
+      // Hiding an ordered design's artwork would take the reorder route with
+      // it, since /d is how a design reaches /preview now.
+      .where(eq(imageTable.ownerId, userId))
       // created_at is seconds-resolution, so same-second inserts need the
       // rowid tiebreak to order deterministically (getDesignSourceImages
       // convention, reversed — the library is newest first).
@@ -96,7 +94,7 @@ export async function getUserImageLibrary(
     isPublished: row.publishedAt !== null,
     backgroundColor: backdrops.get(row.imageId) ?? null,
     sourceDesignId: row.sourceDesignId,
-    isArchived: row.sourceClosedAt !== null,
+    isArchived: row.sourceClosedAt !== null || row.sourceStatus === "archived",
   }));
 }
 

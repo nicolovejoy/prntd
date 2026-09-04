@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { openConversation } from "@/app/d/conversation-actions";
 import { deleteDesign } from "@/app/designs/actions";
+import { DELETE_CONVERSATION_CONFIRM } from "@/lib/design-view";
 
 /**
  * The owner's two conversation-level controls on the image detail page
@@ -36,13 +37,7 @@ export function ConversationActions({
   }
 
   async function remove() {
-    if (
-      !window.confirm(
-        "Delete this conversation and the images it made? This cannot be undone."
-      )
-    ) {
-      return;
-    }
+    if (!window.confirm(DELETE_CONVERSATION_CONFIRM)) return;
     setBusy("delete");
     try {
       // Expected refusals come back as { error } — prod masks thrown
@@ -58,7 +53,9 @@ export function ConversationActions({
       setBusy(null);
       return;
     }
-    // This page's image is usually gone with the conversation.
+    // This page's image is usually gone with the conversation — and when it
+    // survives (order/seed/cart reference) the library is still where the
+    // user should land.
     window.location.assign("/designs");
   }
 

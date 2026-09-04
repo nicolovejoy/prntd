@@ -104,20 +104,63 @@ describe("getUserImageLibrary", () => {
     expect(image.isArchived).toBe(true);
   });
 
-  it("hides images whose conversation was archived away (status)", async () => {
+  it("keeps images whose conversation was archived away (status), marked", async () => {
     const db = h.db as Db;
     const design = await makeDesign(db, "owner");
     await makeSourceImage(db, {
       designId: design.id,
       ownerId: "owner",
-      imageUrl: "https://r2/gone.png",
+      imageUrl: "https://r2/ordered-then-archived.png",
     });
+    // What deleteDesign leaves behind for an ordered design. The library is
+    // the record of what the user made, and this is the only route back to
+    // reordering it.
     await db
       .update(schema.design)
       .set({ status: "archived" })
       .where(eq(schema.design.id, design.id));
 
-    expect(await getUserImageLibrary("owner")).toEqual([]);
+    const images = await getUserImageLibrary("owner");
+    expect(images).toHaveLength(1);
+    expect(images[0].isArchived).toBe(true);
+  });
+
+  it("keeps an ordered design's images, unmarked", async () => {
+    const db = h.db as Db;
+    const design = await makeDesign(db, "owner");
+    await makeSourceImage(db, {
+      designId: design.id,
+      ownerId: "owner",
+      imageUrl: "https://r2/ordered.png",
+    });
+    await db
+      .update(schema.design)
+      .set({ status: "ordered" })
+      .where(eq(schema.design.id, design.id));
+
+    const images = await getUserImageLibrary("owner");
+    expect(images).toHaveLength(1);
+    expect(images[0].isArchived).toBe(false);
+  });
+
+  it("marks an image that is both published and archived", async () => {
+    const db = h.db as Db;
+    const design = await makeDesign(db, "owner");
+    await makeSourceImage(db, {
+      designId: design.id,
+      ownerId: "owner",
+      imageUrl: "https://r2/both.png",
+      publishedAt: new Date("2026-07-01T00:00:00Z"),
+      backgroundColor: "Navy",
+    });
+    await db
+      .update(schema.design)
+      .set({ closedAt: new Date("2026-08-30T00:00:00Z") })
+      .where(eq(schema.design.id, design.id));
+
+    const [image] = await getUserImageLibrary("owner");
+    expect(image.isPublished).toBe(true);
+    expect(image.isArchived).toBe(true);
   });
 
   it("keeps a legacy image with no source conversation", async () => {

@@ -308,7 +308,27 @@ describe("getImagePage (Model B reads)", () => {
     expect(img?.isOwn).toBe(true);
     // The "Open conversation" action needs the thread that produced it.
     expect(img?.sourceDesignId).toBeTruthy();
+    expect(img?.hasSourceConversation).toBe(true);
     expect(img?.sourceConversationArchived).toBe(false);
+  });
+
+  it("reports no source conversation when the design row is gone", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    h.session = { user: { id: "seller", isAnonymous: false } };
+    const { getImagePage } = await import("@/app/d/actions");
+
+    // An image survives its conversation's delete when an order, seed or cart
+    // still references it; the stale sourceDesignId must not offer a route
+    // back to a thread that no longer exists.
+    await db
+      .update(schema.image)
+      .set({ sourceDesignId: "deleted-design" })
+      .where(schemaEq(schema.image.id, ids.sellerPrivateId));
+
+    const img = await getImagePage(ids.sellerPrivateId);
+    expect(img?.sourceDesignId).toBe("deleted-design");
+    expect(img?.hasSourceConversation).toBe(false);
   });
 
   it("reports an archived source conversation (slice 5)", async () => {
@@ -325,6 +345,22 @@ describe("getImagePage (Model B reads)", () => {
 
     const img = await getImagePage(ids.sellerPrivateId);
     expect(img?.sourceConversationArchived).toBe(true);
+    expect(img?.hasSourceConversation).toBe(true);
+  });
+
+  it("reports an archived-away (status) source conversation", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    h.session = { user: { id: "seller", isAnonymous: false } };
+    const { getImagePage } = await import("@/app/d/actions");
+
+    const before = await getImagePage(ids.sellerPrivateId);
+    await db
+      .update(schema.design)
+      .set({ status: "archived" })
+      .where(schemaEq(schema.design.id, before!.sourceDesignId!));
+
+    expect((await getImagePage(ids.sellerPrivateId))?.sourceConversationArchived).toBe(true);
   });
 
   it("walks the attribution chain over image.seed_image_id", async () => {

@@ -28,6 +28,12 @@ export function LibraryGrid({ images }: { images: LibraryImage[] }) {
         const backdrop = img.isPublished
           ? publishedBackdrop(img.backgroundColor)
           : { className: "bg-checkerboard", style: undefined };
+        const marker = [
+          img.isPublished ? "Published" : null,
+          img.isArchived ? "Archived" : null,
+        ]
+          .filter(Boolean)
+          .join(" · ");
         return (
           <Link
             key={img.imageId}
@@ -47,19 +53,13 @@ export function LibraryGrid({ images }: { images: LibraryImage[] }) {
                 decoding="async"
                 className="object-contain"
               />
-              {/* Quiet markers, one line, bottom of the cell — state the
-                  reader needs to tell two thumbnails apart, nothing more. */}
-              {(img.isPublished || img.isArchived) && (
-                <span className="absolute inset-x-0 bottom-0 px-1.5 py-1 text-[10px] leading-none text-white bg-black/45 truncate">
-                  {[
-                    img.isPublished ? "Published" : null,
-                    img.isArchived ? "Archived" : null,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </span>
-              )}
             </div>
+            {/* Quiet marker under the tile rather than over the artwork: one
+                line, house type scale and text tokens, and it never covers
+                the thing the cell exists to show. */}
+            {marker && (
+              <p className="mt-1 text-xs text-text-faint truncate">{marker}</p>
+            )}
           </Link>
         );
       })}

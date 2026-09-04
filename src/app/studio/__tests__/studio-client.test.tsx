@@ -30,9 +30,13 @@ vi.mock("@/app/design/actions", () => ({
   })),
   closeConversation: vi.fn(async () => {}),
 }));
+vi.mock("@/app/designs/actions", () => ({
+  deleteDesign: vi.fn(async () => ({})),
+}));
 
 import { getStudioLanes } from "../actions";
 import { generateDesign, closeConversation } from "@/app/design/actions";
+import { deleteDesign } from "@/app/designs/actions";
 
 // jsdom implements neither; the component calls both.
 window.HTMLElement.prototype.scrollIntoView = vi.fn();
@@ -261,6 +265,49 @@ describe("closing a lane", () => {
   it("offers no Close while a generation is running", () => {
     render(<StudioClient initialLanes={[lane({ pending: [pendingJob("j1")] })]} />);
     expect(screen.queryByTestId("studio-close-lane")).toBeNull();
+  });
+});
+
+describe("deleting a lane (slice 5 review, F1)", () => {
+  beforeEach(() => {
+    // The confirm is the only thing standing between a tap and a delete.
+    window.confirm = vi.fn(() => true);
+  });
+
+  it("Delete removes the lane and deletes the conversation", async () => {
+    render(<StudioClient initialLanes={[lane()]} />);
+
+    fireEvent.click(screen.getByTestId("studio-delete-lane"));
+
+    expect(screen.queryByTestId("studio-lane")).toBeNull();
+    await waitFor(() => expect(deleteDesign).toHaveBeenCalledWith("design-1"));
+  });
+
+  it("keeps the lane and shows the reason when the delete is refused", async () => {
+    vi.mocked(deleteDesign).mockResolvedValueOnce({
+      error: "This design is used by a shop product. Delete the product first.",
+    });
+    render(<StudioClient initialLanes={[lane()]} />);
+
+    fireEvent.click(screen.getByTestId("studio-delete-lane"));
+
+    await waitFor(() => expect(screen.getByTestId("studio-lane")).toBeTruthy());
+    expect(screen.getByText(/used by a shop product/)).toBeTruthy();
+  });
+
+  it("does nothing when the confirm is dismissed", () => {
+    window.confirm = vi.fn(() => false);
+    render(<StudioClient initialLanes={[lane()]} />);
+
+    fireEvent.click(screen.getByTestId("studio-delete-lane"));
+
+    expect(screen.getByTestId("studio-lane")).toBeTruthy();
+    expect(deleteDesign).not.toHaveBeenCalled();
+  });
+
+  it("offers no Delete while a generation is running", () => {
+    render(<StudioClient initialLanes={[lane({ pending: [pendingJob("j1")] })]} />);
+    expect(screen.queryByTestId("studio-delete-lane")).toBeNull();
   });
 });
 

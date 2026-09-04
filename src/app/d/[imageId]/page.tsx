@@ -100,7 +100,10 @@ export default async function PublishedImagePage({
           <PublishCta imageId={img.imageId} imageUrl={img.imageUrl} />
         </div>
       )}
-      {isOwner && img.sourceDesignId && (
+      {/* The conversation may be gone even when the image names one — an
+          image pinned by an order or a seed survives its thread's delete —
+          so the row is gated on the design row actually resolving. */}
+      {isOwner && img.sourceDesignId && img.hasSourceConversation && (
         <ConversationActions
           designId={img.sourceDesignId}
           archived={img.sourceConversationArchived}

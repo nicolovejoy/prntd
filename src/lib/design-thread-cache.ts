@@ -49,17 +49,6 @@ const TTL_MS = 10 * 60 * 1000;
 
 const cache = createTtlCache<DesignThreadSnapshot>({ ttlMs: TTL_MS });
 
-/**
- * Prefetch a design thread unless one is already fresh or in-flight (deduped).
- * Failures are swallowed — warming is best-effort and never user-visible.
- */
-export function warmDesignThread(
-  designId: string,
-  loader: () => Promise<DesignThreadSnapshot>
-): void {
-  void cache.warm(designId, loader).catch(() => {});
-}
-
 /** Synchronous read for the /design page mount. undefined when absent/expired. */
 export function readThreadSnapshot(
   designId: string

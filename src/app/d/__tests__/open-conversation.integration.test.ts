@@ -55,6 +55,17 @@ vi.mock("@/lib/generators/registry", () => ({
 
 const { openConversation } = await import("@/app/d/conversation-actions");
 
+async function designRow(designId: string) {
+  const [row] = await testDb
+    .select({
+      closedAt: schema.design.closedAt,
+      status: schema.design.status,
+    })
+    .from(schema.design)
+    .where(eq(schema.design.id, designId));
+  return row;
+}
+
 async function closedAtOf(designId: string) {
   const [row] = await testDb
     .select({ closedAt: schema.design.closedAt })
@@ -103,6 +114,47 @@ describe("openConversation", () => {
 
     await expect(openConversation(design.id)).rejects.toThrow(/Unauthorized/);
     expect(await closedAtOf(design.id)).toEqual(closedAt);
+  });
+
+  it("brings an archived-away conversation back as ordered", async () => {
+    const design = await makeDesign(testDb, "owner");
+    // What deleteDesign leaves behind when an order references the design:
+    // status archived, which the Studio's lane query filters out. Reopening
+    // has to undo that too or the lane never returns to the bench.
+    await testDb
+      .update(schema.design)
+      .set({ status: "archived", closedAt: new Date("2026-08-30T00:00:00Z") })
+      .where(eq(schema.design.id, design.id));
+
+    await openConversation(design.id);
+
+    const row = await designRow(design.id);
+    expect(row.closedAt).toBeNull();
+    expect(row.status).toBe("ordered");
+  });
+
+  it("leaves a non-archived status alone", async () => {
+    const design = await makeDesign(testDb, "owner");
+    await testDb
+      .update(schema.design)
+      .set({ status: "draft" })
+      .where(eq(schema.design.id, design.id));
+
+    await openConversation(design.id);
+
+    expect((await designRow(design.id)).status).toBe("draft");
+  });
+
+  it("refuses someone else's archived-away conversation", async () => {
+    await makeUser(testDb, "stranger");
+    const design = await makeDesign(testDb, "stranger");
+    await testDb
+      .update(schema.design)
+      .set({ status: "archived" })
+      .where(eq(schema.design.id, design.id));
+
+    await expect(openConversation(design.id)).rejects.toThrow(/Unauthorized/);
+    expect((await designRow(design.id)).status).toBe("archived");
   });
 
   it("refuses a signed-out caller", async () => {

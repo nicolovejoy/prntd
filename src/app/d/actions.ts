@@ -69,8 +69,17 @@ export type ImagePage = Omit<PublishedImage, "publishedAt"> & {
   publishedAt: Date | null;
   sourceDesignId: string | null;
   /**
-   * The source conversation has left the Studio (closed_at set). The owner's
-   * "Open conversation" reopens it on the way through (slice 5).
+   * The source conversation still exists AND is reachable. False for a legacy
+   * image with no sourceDesignId and for one whose conversation has since been
+   * deleted (the image survives a delete when an order, seed or cart pins it),
+   * where offering "Open conversation" would lead nowhere.
+   */
+  hasSourceConversation: boolean;
+  /**
+   * The source conversation has left the Studio — `closed_at` (the sweep or an
+   * explicit Close) or `status = 'archived'` (deleteDesign's fallback for an
+   * ordered design). The owner's "Open conversation" undoes both on the way
+   * through (slice 5).
    */
   sourceConversationArchived: boolean;
 };
@@ -172,7 +181,9 @@ export async function getImagePage(
       designerId: userTable.id,
       forkedFromImageId: imageTable.seedImageId,
       sourceDesignId: imageTable.sourceDesignId,
+      sourceDesignRowId: designTable.id,
       sourceClosedAt: designTable.closedAt,
+      sourceStatus: designTable.status,
     })
     .from(imageTable)
     .innerJoin(userTable, eq(userTable.id, imageTable.ownerId))
@@ -226,7 +237,9 @@ export async function getImagePage(
     isOwn,
     publishedAt,
     sourceDesignId: r.sourceDesignId,
-    sourceConversationArchived: r.sourceClosedAt !== null,
+    hasSourceConversation: r.sourceDesignRowId !== null,
+    sourceConversationArchived:
+      r.sourceClosedAt !== null || r.sourceStatus === "archived",
     forkChain,
   };
 }
