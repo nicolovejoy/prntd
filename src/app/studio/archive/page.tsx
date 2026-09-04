@@ -72,7 +72,14 @@ export default async function StudioArchivePage() {
                 action={reopenFromArchive.bind(null, conversation.designId)}
                 className="shrink-0"
               >
-                <Button type="submit" variant="ghost" size="sm">
+                {/* min-h-11 = 44px: the phone tap target, which `size="sm"`
+                    (~26px) does not reach on its own. */}
+                <Button
+                  type="submit"
+                  variant="secondary"
+                  size="sm"
+                  className="min-h-11 px-4"
+                >
                   Reopen
                 </Button>
               </form>

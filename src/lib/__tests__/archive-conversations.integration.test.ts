@@ -282,3 +282,70 @@ describe("sweepIdleConversations", () => {
     expect(await closedAtOf(boundary.id)).toBeNull();
   });
 });
+
+/**
+ * The window the snapshot reads cannot close on their own: libSQL over
+ * serverless HTTP has no interactive transaction, so a generation started
+ * between the running-job read and the write must be caught by the write's
+ * own predicate.
+ *
+ * The hook fires on `db.batch` — the exact call that executes the archive
+ * statements — so the racing insert lands after every read and before every
+ * write, which is the real interleaving.
+ */
+function withInsertBeforeWrite(db: Db, hook: () => Promise<void>): Db {
+  let fired = false;
+  return new Proxy(db, {
+    get(target, prop) {
+      const value = Reflect.get(target, prop);
+      if (prop === "batch" && typeof value === "function") {
+        return async (...args: unknown[]) => {
+          if (!fired) {
+            fired = true;
+            await hook();
+          }
+          return (value as (...a: unknown[]) => unknown).apply(target, args);
+        };
+      }
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  }) as Db;
+}
+
+describe("sweepIdleConversations — write-time guard", () => {
+  it("does not archive a conversation whose generation started after the snapshot", async () => {
+    const raced = await makeDesignAt("owner", daysAgo(9));
+    const quiet = await makeDesignAt("owner", daysAgo(8));
+
+    const dbWithRace = withInsertBeforeWrite(db, async () => {
+      const res = await insertGenerationJob({
+        designId: raced.id,
+        userId: "owner",
+        operation: "generate",
+        imageId: crypto.randomUUID(),
+        r2Key: `images/${crypto.randomUUID()}.png`,
+        anchorImageId: null,
+        generationNumber: 1,
+        dayKey: dayKeyUTC(NOW),
+        ip: null,
+        cost: 0.03,
+        now: NOW,
+        db,
+      });
+      if (!res.ok) throw new Error("expected the racing insert to succeed");
+    });
+
+    const result = await sweepIdleConversations({
+      scope: "all",
+      now: NOW,
+      db: dbWithRace,
+    });
+
+    // The prefilter saw both as archivable; only the write's predicate can
+    // tell them apart.
+    expect(result.scanned).toBe(2);
+    expect(result.designIds).toEqual([quiet.id]);
+    expect(await closedAtOf(raced.id)).toBeNull();
+    expect(await closedAtOf(quiet.id)).toEqual(NOW);
+  });
+});

@@ -13,7 +13,7 @@
  * the existing sweep-generations cron as the backstop, exactly the shape
  * `sweepStaleJobs` established in generation-job.ts.
  */
-import { and, asc, eq, inArray, isNull, lt } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 import type { db as appDb } from "./db";
 import {
   design as designTable,
@@ -80,9 +80,11 @@ async function resolveDb(db?: AppDb): Promise<AppDb> {
  * `limit` bounds a run, oldest-idle first, so a backlog drains in order
  * across repeated calls rather than starving whichever rows sort last.
  *
- * The write is conditional (`… where id = ? and closed_at is null`), which is
- * what makes a second sweep a no-op and what makes racing a user's own manual
- * Close harmless: the loser transitions zero rows and does not count it.
+ * The write carries BOTH guards in its own where clause — `closed_at is null`
+ * and `not exists (a running job for this design)`. The reads above are only a
+ * prefilter: a generation started between the snapshot and the write must not
+ * be archived out from under, and there is no transaction to hold the two
+ * together. A loser transitions zero rows and is not counted.
  */
 export async function sweepIdleConversations(
   params: ({ scope: "user"; userId: string } | { scope: "all" }) & {
@@ -152,21 +154,48 @@ export async function sweepIdleConversations(
     if (row.createdAt.getTime() >= cutoff.getTime()) blocked.add(row.designId);
   }
 
-  const designIds: string[] = [];
-  for (const id of ids) {
-    if (blocked.has(id)) continue;
-    // Conditional, so a conversation the user closed (or reopened and used)
-    // between the select and here is left exactly as they left it. Note this
-    // deliberately does not touch `updated_at`: archiving is the janitor, not
-    // activity, and `laneLastActiveAt` should keep telling the truth about
-    // when the lane last moved.
-    const written = await db
-      .update(designTable)
-      .set({ closedAt: now })
-      .where(and(eq(designTable.id, id), isNull(designTable.closedAt)))
-      .returning({ id: designTable.id });
-    if (written.length === 1) designIds.push(id);
+  const candidateIds = ids.filter((id) => !blocked.has(id));
+  if (candidateIds.length === 0) {
+    return { scanned: ids.length, archived: 0, designIds: [] };
   }
 
+  // Every guard that decides whether a conversation may close lives INSIDE the
+  // statement, and the reads above are only a prefilter. libSQL over
+  // serverless HTTP has no interactive transaction (db.transaction is
+  // unsupported — hence db.batch everywhere in this codebase), so a
+  // generation started between the snapshot and the write would otherwise be
+  // archived out from under a running render. Same shape as insertGenerationJob's
+  // cap-of-3 predicate: the condition is evaluated by the one statement, and a
+  // loser affects zero rows.
+  //
+  // `closed_at is null` is the other half — it makes a second sweep a no-op
+  // and makes racing a user's own manual Close harmless.
+  //
+  // Note none of this touches `updated_at`: archiving is the janitor, not
+  // activity, and `laneLastActiveAt` should keep telling the truth about when
+  // the lane last moved.
+  const statements = candidateIds.map((id) =>
+    db
+      .update(designTable)
+      .set({ closedAt: now })
+      .where(
+        and(
+          eq(designTable.id, id),
+          isNull(designTable.closedAt),
+          sql`not exists (
+            select 1 from image_generation
+            where design_id = ${id} and status = 'running'
+          )`
+        )
+      )
+      .returning({ id: designTable.id })
+  );
+
+  // One round trip for the whole batch instead of one per conversation; each
+  // statement's own `returning` rows are preserved per position, which is
+  // what the archived/not-archived count reads.
+  const results = await db.batch([statements[0], ...statements.slice(1)]);
+
+  const designIds = candidateIds.filter((_, i) => results[i]?.length === 1);
   return { scanned: ids.length, archived: designIds.length, designIds };
 }
