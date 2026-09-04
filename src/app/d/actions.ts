@@ -25,6 +25,7 @@ import { DEFAULT_BLANK_ID, multiPlacementEnabled } from "@/lib/blanks";
 import { createStripeCheckoutForOrder } from "@/app/order/actions";
 import { renderAndCacheMockup } from "@/lib/mockup-render";
 import { getPublishedFeed } from "@/lib/discover-feed";
+import { findMirrorProduct } from "@/lib/model-b-writes";
 import {
   assertUsablePlacementImage,
   getBuyPageBackSourceGroups,
@@ -415,6 +416,18 @@ export async function buyPublishedDesign(params: {
     back: !!backImageId,
   });
 
+  // Composition slice 4: a Shop purchase now records the composition it
+  // bought. Every published image has a mirror product (publish writes one;
+  // the slice-1 backfill converted the pre-existing listings), and the
+  // sellable surfaces already read it — so a missing mirror means the image
+  // shouldn't have been buyable at all. Fail loudly rather than book an order
+  // with no composition. `storeId` stays null: this is the PRNTD Shop, not an
+  // organizer storefront (buyStoreProduct owns that path).
+  const storeProductId = await findMirrorProduct(db, params.imageId);
+  if (!storeProductId) {
+    throw new Error("Published image has no composition");
+  }
+
   return createStripeCheckoutForOrder({
     userId: session.user.id,
     designId: image.designId,
@@ -428,6 +441,7 @@ export async function buyPublishedDesign(params: {
     },
     checkoutImageUrl: image.imageUrl,
     cancelUrl: `${process.env.NEXT_PUBLIC_APP_URL}/d/${params.imageId}`,
+    storeProductId,
   });
 }
 

@@ -200,6 +200,50 @@ describe("buyPublishedDesign with a back design", () => {
     expect(order.totalPrice).toBe(24.12);
   });
 
+  it("records the composition bought: order.storeProductId = the mirror product", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+
+    await buyPublishedDesign({
+      imageId: ids.listingId,
+      productId: "bella-canvas-3001",
+      size: "M",
+      color: "Black",
+    });
+
+    const [order] = await db.select().from(schema.order);
+    const mirror = (await db.select().from(schema.product)).find(
+      (p) => (p.placements ?? {}).front === ids.listingId
+    );
+    expect(mirror).toBeTruthy();
+    // Composition slice 4: the Shop purchase points at the composition, not
+    // just the design. storeId stays null — this is the PRNTD Shop, not an
+    // organizer storefront.
+    expect(order.storeProductId).toBe(mirror!.id);
+    expect(order.storeId).toBeNull();
+  });
+
+  it("refuses (and books nothing) when the published image has no mirror product", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    // The pre-slice-1 shape: a listing with no composition. Publishing can't
+    // produce this any more, and the backfill converted the historical rows —
+    // so it means something is wrong, not that the sale should proceed.
+    await db.delete(schema.product);
+
+    await expect(
+      buyPublishedDesign({
+        imageId: ids.listingId,
+        productId: "bella-canvas-3001",
+        size: "M",
+        color: "Black",
+      })
+    ).rejects.toThrow("no composition");
+
+    expect(await db.select().from(schema.order)).toHaveLength(0);
+    expect(await db.select().from(schema.orderItem)).toHaveLength(0);
+  });
+
   it("keeps the front-only path unchanged when no back is passed", async () => {
     const db = h.db as Db;
     const ids = await seed(db);
