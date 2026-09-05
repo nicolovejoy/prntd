@@ -20,6 +20,10 @@ const h = vi.hoisted(() => ({
 
 vi.mock("../actions", () => ({
   getStudioLanes: vi.fn(async () => h.polledLanes),
+  deleteConversations: vi.fn(async (ids: string[]) => ({
+    deleted: ids,
+    skipped: [],
+  })),
 }));
 vi.mock("@/app/design/actions", () => ({
   generateDesign: vi.fn(async () => ({
@@ -34,7 +38,7 @@ vi.mock("@/app/designs/actions", () => ({
   deleteDesign: vi.fn(async () => ({})),
 }));
 
-import { getStudioLanes } from "../actions";
+import { deleteConversations, getStudioLanes } from "../actions";
 import { generateDesign, closeConversation } from "@/app/design/actions";
 import { deleteDesign } from "@/app/designs/actions";
 
@@ -325,5 +329,164 @@ describe("StudioClient — archive link (slice 4)", () => {
       "href",
       "/studio/archive"
     );
+  });
+});
+
+describe("select mode (#189)", () => {
+  const three = () => [
+    lane({ designId: "d1", title: "one", cells: [cell("img-1")] }),
+    lane({ designId: "d2", title: "two", cells: [cell("img-2")] }),
+    lane({ designId: "d3", title: "three" }),
+  ];
+
+  beforeEach(() => {
+    window.confirm = vi.fn(() => true);
+  });
+
+  it("is offered only when there are lanes", () => {
+    const { unmount } = render(<StudioClient initialLanes={[]} />);
+    expect(screen.queryByTestId("select-mode")).toBeNull();
+    unmount();
+    render(<StudioClient initialLanes={three()} />);
+    expect(screen.getByTestId("select-mode")).toBeTruthy();
+  });
+
+  it("Select swaps the composer for the bar and shows a checkbox per lane", () => {
+    render(<StudioClient initialLanes={three()} />);
+
+    fireEvent.click(screen.getByTestId("select-mode"));
+
+    expect(screen.queryByTestId("studio-composer")).toBeNull();
+    expect(screen.getByTestId("select-bar")).toBeTruthy();
+    expect(screen.getAllByTestId("lane-checkbox")).toHaveLength(3);
+    expect(screen.getByTestId("selected-count").textContent).toBe("0 selected");
+    expect(
+      (screen.getByTestId("bulk-delete") as HTMLButtonElement).disabled
+    ).toBe(true);
+    // The per-lane verbs step aside while selecting.
+    expect(screen.queryByTestId("studio-delete-lane")).toBeNull();
+    expect(screen.queryByTestId("studio-close-lane")).toBeNull();
+  });
+
+  it("checkbox, header tap and cell tap all toggle the lane; the count follows", () => {
+    render(<StudioClient initialLanes={three()} />);
+    fireEvent.click(screen.getByTestId("select-mode"));
+
+    fireEvent.click(screen.getAllByTestId("lane-checkbox")[0]);
+    expect(screen.getByTestId("selected-count").textContent).toBe("1 selected");
+
+    fireEvent.click(screen.getByText("two"));
+    expect(screen.getByTestId("selected-count").textContent).toBe("2 selected");
+
+    // A cell tap selects rather than anchors.
+    fireEvent.click(screen.getAllByTestId("studio-cell")[0]);
+    expect(screen.getByTestId("selected-count").textContent).toBe("1 selected");
+    expect(screen.queryByTestId("anchor-chip")).toBeNull();
+  });
+
+  it("Select all picks every selectable lane; a generating lane is left out", () => {
+    render(
+      <StudioClient
+        initialLanes={[
+          ...three(),
+          lane({ designId: "d4", pending: [pendingJob("j")] }),
+        ]}
+      />
+    );
+    fireEvent.click(screen.getByTestId("select-mode"));
+
+    const boxes = screen.getAllByTestId("lane-checkbox") as HTMLInputElement[];
+    expect(boxes[3].disabled).toBe(true);
+
+    fireEvent.click(screen.getByTestId("select-all"));
+    expect(screen.getByTestId("selected-count").textContent).toBe("3 selected");
+    expect(boxes[3].checked).toBe(false);
+  });
+
+  it("Done and Escape leave select mode and clear the selection", () => {
+    render(<StudioClient initialLanes={three()} />);
+
+    fireEvent.click(screen.getByTestId("select-mode"));
+    fireEvent.click(screen.getAllByTestId("lane-checkbox")[0]);
+    fireEvent.click(screen.getByTestId("select-done"));
+    expect(screen.getByTestId("studio-composer")).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("select-mode"));
+    expect(screen.getByTestId("selected-count").textContent).toBe("0 selected");
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByTestId("select-bar")).toBeNull();
+  });
+
+  it("Delete confirms once, calls the action with the ids, removes the lanes", async () => {
+    // The refetch after the delete returns server truth: the survivor.
+    h.polledLanes = [three()[1]];
+    render(<StudioClient initialLanes={three()} />);
+    fireEvent.click(screen.getByTestId("select-mode"));
+    fireEvent.click(screen.getAllByTestId("lane-checkbox")[0]);
+    fireEvent.click(screen.getAllByTestId("lane-checkbox")[2]);
+
+    fireEvent.click(screen.getByTestId("bulk-delete"));
+
+    expect(window.confirm).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(window.confirm).mock.calls[0][0]).toContain(
+      "Delete 2 conversations and their images?"
+    );
+    await waitFor(() =>
+      expect(deleteConversations).toHaveBeenCalledWith(["d1", "d3"])
+    );
+    await waitFor(() =>
+      expect(screen.getAllByTestId("studio-lane")).toHaveLength(1)
+    );
+    expect(screen.getByText("two")).toBeTruthy();
+    // Back to the composer once it's done.
+    expect(screen.getByTestId("studio-composer")).toBeTruthy();
+  });
+
+  it("puts a kept lane back and says why", async () => {
+    vi.mocked(deleteConversations).mockResolvedValueOnce({
+      deleted: ["d1"],
+      skipped: [{ id: "d2", reason: "ordered" }],
+    });
+    // d3 was deleted too in the mock's view; the server says d2 survives.
+    h.polledLanes = [three()[1]];
+    render(<StudioClient initialLanes={three()} />);
+    fireEvent.click(screen.getByTestId("select-mode"));
+    fireEvent.click(screen.getByTestId("select-all"));
+
+    fireEvent.click(screen.getByTestId("bulk-delete"));
+
+    // Optimistically all three leave…
+    expect(screen.queryByTestId("studio-lane")).toBeNull();
+    // …then the one the server kept comes back with a notice.
+    await waitFor(() => expect(screen.getByText("two")).toBeTruthy());
+    expect(screen.queryByText("one")).toBeNull();
+    expect(screen.getByText("1 kept — it has an order.")).toBeTruthy();
+  });
+
+  it("restores everything when the action throws", async () => {
+    vi.mocked(deleteConversations).mockRejectedValueOnce(new Error("boom"));
+    render(<StudioClient initialLanes={three()} />);
+    fireEvent.click(screen.getByTestId("select-mode"));
+    fireEvent.click(screen.getByTestId("select-all"));
+
+    fireEvent.click(screen.getByTestId("bulk-delete"));
+
+    await waitFor(() =>
+      expect(screen.getAllByTestId("studio-lane")).toHaveLength(3)
+    );
+    expect(screen.getByText(/Couldn't delete those designs/)).toBeTruthy();
+  });
+
+  it("does nothing when the confirm is dismissed", () => {
+    window.confirm = vi.fn(() => false);
+    render(<StudioClient initialLanes={three()} />);
+    fireEvent.click(screen.getByTestId("select-mode"));
+    fireEvent.click(screen.getByTestId("select-all"));
+
+    fireEvent.click(screen.getByTestId("bulk-delete"));
+
+    expect(deleteConversations).not.toHaveBeenCalled();
+    expect(screen.getAllByTestId("studio-lane")).toHaveLength(3);
+    expect(screen.getByTestId("select-bar")).toBeTruthy();
   });
 });

@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { formatClosedDate, formatElapsed, timeAgo } from "@/lib/studio-view";
+import {
+  bulkDeleteConfirm,
+  bulkDeleteSkipNotice,
+  formatClosedDate,
+  formatElapsed,
+  timeAgo,
+} from "@/lib/studio-view";
 
 describe("formatElapsed", () => {
   it("formats seconds under a minute", () => {
@@ -54,5 +60,42 @@ describe("formatClosedDate", () => {
   it("uses the Pacific year for the same-year test", () => {
     // 2027-01-01T02:00Z is Dec 31 2026 in Los Angeles — same year as `now`.
     expect(formatClosedDate(new Date("2027-01-01T02:00:00Z"), now)).toBe("Dec 31");
+  });
+});
+
+describe("bulkDeleteConfirm", () => {
+  it("counts and pluralises, and says what is kept", () => {
+    expect(bulkDeleteConfirm(1)).toBe(
+      "Delete 1 conversation and its images? Images used in an order, another design, or a cart are kept. Conversations with an order are kept."
+    );
+    expect(bulkDeleteConfirm(6)).toMatch(
+      /^Delete 6 conversations and their images\?/
+    );
+  });
+});
+
+describe("bulkDeleteSkipNotice", () => {
+  it("is null when nothing was skipped", () => {
+    expect(bulkDeleteSkipNotice([])).toBeNull();
+  });
+
+  it("says nothing about ids that weren't the caller's", () => {
+    expect(bulkDeleteSkipNotice([{ id: "x", reason: "not_found" }])).toBeNull();
+  });
+
+  it("counts by reason, one plain sentence each", () => {
+    expect(
+      bulkDeleteSkipNotice([
+        { id: "a", reason: "ordered" },
+        { id: "b", reason: "ordered" },
+        { id: "c", reason: "product" },
+        { id: "d", reason: "failed" },
+      ])
+    ).toBe(
+      "2 kept — they have orders. 1 kept — a shop product uses it. 1 couldn't be deleted. Try again."
+    );
+    expect(bulkDeleteSkipNotice([{ id: "a", reason: "ordered" }])).toBe(
+      "1 kept — it has an order."
+    );
   });
 });
