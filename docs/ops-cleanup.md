@@ -24,9 +24,16 @@ so the script applies exactly the rules the UI does.
     survive.
   - `BLOCKED-by-order` — the pin that blocked the conversation.
 
-Only designs owned by the `--user` email match, with `created_at` inside
-`[--since, --until]` inclusive (`--until` defaults to now). `created_at` is a
-whole-seconds column.
+Only designs owned by the `--user` email match (case-insensitive; Better-Auth
+stores emails lowercased), with `created_at` inside `[--since, --until]`
+inclusive (`--until` defaults to now). `created_at` is a whole-seconds column.
+
+`--since` / `--until` must be ISO-8601 with an explicit zone — `Z` or a
+`±HH:MM` offset, e.g. `2026-09-04T00:00:00Z` or `2026-09-03T17:00:00-07:00`.
+A naive `2026-09-04T00:00:00` is rejected: JS would parse it as local time
+(07:00Z on a Pacific laptop) while a bare `2026-09-04` parses as UTC, so a
+window typed without a zone lands hours away from what was meant. The header
+line prints the resolved UTC bounds; check them.
 
 ## Running it
 
@@ -34,6 +41,15 @@ Dry run by default. It prints the DB target it resolved (`dev` / `preview` /
 `prod` / `memory` / `unknown`) and one line per matching conversation, with one
 indented line per image saying what would happen. Read that output before
 adding `--apply`.
+
+`--apply` is gated on that target:
+
+- `dev` or a file/in-memory DB — no flag needed.
+- `prod` — also pass `--confirm-prod`.
+- `preview` — also pass `--confirm-preview`.
+- `unknown` — refused outright. The Turso dashboard hands out `https://` and
+  `wss://` URLs that `classifyDbTarget` can't place; use the `libsql://` form
+  so the guard can see what it is targeting.
 
 Dry run against the `.env.local` (dev) DB:
 
@@ -64,7 +80,8 @@ DATABASE_URL=libsql://prntd-nicolovejoy.aws-us-west-2.turso.io DATABASE_AUTH_TOK
 ```
 
 Add `--until <ISO-8601>` to cap the window. Preview is the same one-liner with
-`prntd-preview` in the host and `turso db tokens create prntd-preview`.
+`prntd-preview` in the host, `turso db tokens create prntd-preview`, and
+`--confirm-preview` in place of `--confirm-prod`.
 
 Notes:
 

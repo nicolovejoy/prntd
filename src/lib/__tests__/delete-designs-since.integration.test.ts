@@ -11,7 +11,12 @@ import { eq } from "drizzle-orm";
 import { createTestDb } from "@/lib/__tests__/test-db";
 import { makeUser, makeDesign, makeSourceImage } from "@/lib/__tests__/factories";
 import * as schema from "@/lib/db/schema";
-import { deleteDesignsSince, r2KeysForPlan } from "@/lib/delete-designs-since";
+import {
+  applyGuard,
+  deleteDesignsSince,
+  parseWindowTimestamp,
+  r2KeysForPlan,
+} from "@/lib/delete-designs-since";
 import { planDesignDeletion } from "@/lib/delete-design";
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
@@ -329,6 +334,15 @@ describe("deleteDesignsSince — scope", () => {
     expect(await db.select().from(schema.image)).toHaveLength(1);
   });
 
+  it("matches the email case-insensitively (Better-Auth stores it lowercased)", async () => {
+    const mine = await makeDesignAt("u1", sec(10));
+
+    const result = await run({ apply: false, email: "  U1@Example.COM " });
+
+    expect(result.userId).toBe("u1");
+    expect(result.reports.map((r) => r.designId)).toEqual([mine.id]);
+  });
+
   it("refuses an unknown email", async () => {
     await expect(run({ apply: false, email: "nobody@example.com" })).rejects.toThrow(
       /No user with email/
@@ -419,5 +433,61 @@ describe("r2KeysForPlan", () => {
     expect(r2KeysForPlan(plan, keyFromUrl).sort()).toEqual(
       ["designs/legacy/1.png", "designs/x/render.png", "images/from-url.png"].sort()
     );
+  });
+});
+
+describe("applyGuard — --apply against each DB target", () => {
+  const none = { confirmProd: false, confirmPreview: false };
+
+  it("passes dev and memory with no flag", () => {
+    expect(applyGuard("dev", none)).toEqual({ ok: true });
+    expect(applyGuard("memory", none)).toEqual({ ok: true });
+  });
+
+  it("prod needs --confirm-prod; --confirm-preview does not count", () => {
+    expect(applyGuard("prod", none).ok).toBe(false);
+    expect(applyGuard("prod", { ...none, confirmPreview: true }).ok).toBe(false);
+    expect(applyGuard("prod", { ...none, confirmProd: true })).toEqual({ ok: true });
+  });
+
+  it("preview needs --confirm-preview; --confirm-prod does not count", () => {
+    expect(applyGuard("preview", none).ok).toBe(false);
+    expect(applyGuard("preview", { ...none, confirmProd: true }).ok).toBe(false);
+    expect(applyGuard("preview", { ...none, confirmPreview: true })).toEqual({ ok: true });
+  });
+
+  it("refuses an unclassifiable URL even with both flags, pointing at the libsql:// form", () => {
+    const r = applyGuard("unknown", { confirmProd: true, confirmPreview: true });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/libsql:\/\//);
+  });
+});
+
+describe("parseWindowTimestamp — explicit zone required", () => {
+  it("accepts Z and ±HH:MM offsets and resolves them to the same instant", () => {
+    expect(parseWindowTimestamp("2026-09-04T00:00:00Z")?.toISOString()).toBe(
+      "2026-09-04T00:00:00.000Z"
+    );
+    expect(parseWindowTimestamp("2026-09-03T17:00:00-07:00")?.toISOString()).toBe(
+      "2026-09-04T00:00:00.000Z"
+    );
+    expect(parseWindowTimestamp("2026-09-04T02:30+02:30")?.toISOString()).toBe(
+      "2026-09-04T00:00:00.000Z"
+    );
+    expect(parseWindowTimestamp(" 2026-09-04T00:00:00.500Z ")?.toISOString()).toBe(
+      "2026-09-04T00:00:00.500Z"
+    );
+  });
+
+  it("rejects naive timestamps and bare dates (both would silently pick a zone)", () => {
+    expect(parseWindowTimestamp("2026-09-04T00:00:00")).toBeNull();
+    expect(parseWindowTimestamp("2026-09-04")).toBeNull();
+    expect(parseWindowTimestamp("2026-09-04 00:00:00Z")).toBeNull();
+    expect(parseWindowTimestamp("yesterday")).toBeNull();
+    expect(parseWindowTimestamp("")).toBeNull();
+  });
+
+  it("rejects a well-formed string that is not a real instant", () => {
+    expect(parseWindowTimestamp("2026-13-45T00:00:00Z")).toBeNull();
   });
 });

@@ -13,6 +13,7 @@
  */
 import { and, asc, eq, gte, lte } from "drizzle-orm";
 import type { db as appDb } from "@/lib/db";
+import type { DbTarget } from "@/lib/db-target";
 import {
   chatMessage as chatMessageTable,
   design as designTable,
@@ -27,6 +28,66 @@ import {
 } from "@/lib/delete-design";
 
 type Db = typeof appDb;
+
+/**
+ * Whether `--apply` may proceed against the classified DB target. Only dev
+ * and an in-memory/file DB pass with no flag; prod needs `--confirm-prod`,
+ * preview `--confirm-preview`. `unknown` (an `https://` or `wss://` Turso
+ * URL, which classifyDbTarget can't place) refuses outright — a dashboard
+ * URL must not be a way around the prod confirmation.
+ */
+export function applyGuard(
+  target: DbTarget,
+  flags: { confirmProd: boolean; confirmPreview: boolean }
+): { ok: true } | { ok: false; reason: string } {
+  switch (target) {
+    case "dev":
+    case "memory":
+      return { ok: true };
+    case "prod":
+      return flags.confirmProd
+        ? { ok: true }
+        : {
+            ok: false,
+            reason:
+              "Refusing --apply against prod without --confirm-prod. Re-run the dry run, read it, then add --confirm-prod.",
+          };
+    case "preview":
+      return flags.confirmPreview
+        ? { ok: true }
+        : {
+            ok: false,
+            reason:
+              "Refusing --apply against preview without --confirm-preview.",
+          };
+    case "unknown":
+      return {
+        ok: false,
+        reason:
+          "Refusing --apply: DATABASE_URL could not be classified as dev/preview/prod. Use the libsql:// form of the Turso URL (not https:// or wss://) so the target is recognised.",
+      };
+  }
+}
+
+/**
+ * Parse a `--since` / `--until` value. Only an ISO-8601 string with an
+ * explicit zone is accepted — `Z` or a `±HH:MM` offset. A naive
+ * `2026-09-04T00:00:00` parses as LOCAL time in JS (07:00Z on a Pacific
+ * laptop) while a bare `2026-09-04` parses as UTC, so a window typed without
+ * a zone silently lands hours away from what was meant. Returns null when
+ * rejected.
+ */
+export function parseWindowTimestamp(raw: string): Date | null {
+  const trimmed = raw.trim();
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})$/.test(trimmed)) {
+    return null;
+  }
+  const d = new Date(trimmed);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+export const WINDOW_TIMESTAMP_FORM =
+  "an ISO-8601 timestamp with an explicit zone, e.g. 2026-09-04T00:00:00Z or 2026-09-03T17:00:00-07:00";
 
 export interface DeleteDesignsSinceOptions {
   email: string;
@@ -170,12 +231,14 @@ export async function deleteDesignsSince(
     throw new Error("--until must not be earlier than --since");
   }
 
+  // Better-Auth lowercases emails at sign-up; match the stored form.
+  const email = opts.email.trim().toLowerCase();
   const [owner] = await db
     .select({ id: userTable.id })
     .from(userTable)
-    .where(eq(userTable.email, opts.email))
+    .where(eq(userTable.email, email))
     .limit(1);
-  if (!owner) throw new Error(`No user with email ${opts.email}`);
+  if (!owner) throw new Error(`No user with email ${email}`);
 
   const designs = await db
     .select({ id: designTable.id, createdAt: designTable.createdAt })
