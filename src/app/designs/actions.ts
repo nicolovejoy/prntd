@@ -5,20 +5,12 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
   design as designTable,
-  chatMessage as chatMessageTable,
-  order as orderTable,
-  orderItem as orderItemTable,
-  cartItem as cartItemTable,
-  product as productTable,
   image as imageTable,
-  conversationImage as conversationImageTable,
-  placementRender as placementRenderTable,
   listing as listingTable,
-  imageGeneration as imageGenerationTable,
 } from "@/lib/db/schema";
-import { eq, and, ne, count, inArray, or, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { imageReferences } from "@/lib/design-publish";
+import { planDesignDeletion, executeDesignDeletion } from "@/lib/delete-design";
 import {
   listingSyncStatement,
   productMirrorStatement,
@@ -37,16 +29,10 @@ import { DEFAULT_PUBLISH_BACKGROUND } from "@/lib/blanks";
  * stays "Delete" — the user's intent is "make this go away", and either
  * outcome satisfies that.
  *
- * Clears every child that foreign-keys design.id — chat_message,
- * conversation_image, placement_render, cart_item, image_generation — before the design row
- * itself. All reference design.id with no ON DELETE cascade, so skipping any
- * of them makes the parent delete fail the FK constraint (this is why
- * deleting a chatted-in draft used to error out).
- *
- * Uses db.batch (not db.transaction): libSQL's interactive transactions
- * aren't supported over the serverless HTTP connection, but batch runs all
- * the deletes atomically — so we never leave a design row behind with its
- * children already nuked, or vice versa.
+ * The rules — which tables FK design.id, when an image detaches instead of
+ * deleting, what blocks — live in src/lib/delete-design.ts, shared with the
+ * delete-designs-since ops script. This wrapper adds the session + ownership
+ * check and decides what a blocked plan turns into.
  */
 export async function deleteDesign(
   designId: string
@@ -61,36 +47,16 @@ export async function deleteDesign(
   if (!found) throw new Error("Design not found");
   if (found.userId !== session.user.id) throw new Error("Unauthorized");
 
-  // Every id this design minted: output-linked artifacts + placement renders
-  // (both can be pinned in order placements). Seeds are excluded: a seed
-  // link points at another design's image, never one of ours to delete.
-  const [outputRows, renderRows] = await Promise.all([
-    db
-      .select({ id: conversationImageTable.imageId })
-      .from(conversationImageTable)
-      .where(
-        and(
-          eq(conversationImageTable.designId, designId),
-          eq(conversationImageTable.role, "output")
-        )
-      ),
-    db
-      .select({ id: placementRenderTable.id })
-      .from(placementRenderTable)
-      .where(eq(placementRenderTable.designId, designId)),
-  ]);
-  const imageIds = [
-    ...new Set([...outputRows, ...renderRows].map((r) => r.id)),
-  ];
+  const plan = await planDesignDeletion(db, designId);
 
   // Orders are financial records and never cascade. Since Phase 1c the lines
   // are authoritative, so an order can reference this design three ways: the
   // header design_id, an order_item line (a cart order's non-head designs
   // appear ONLY there), or an image id pinned inside a line's placements (a
   // back design picked from another thread, #72/#95). The old header-only
-  // count missed the last two and the hard delete below died on the
-  // order_item FK — the masked prod error in #121.
-  if (await designReferencedByOrders(designId, imageIds)) {
+  // count missed the last two and the hard delete died on the order_item FK
+  // — the masked prod error in #121.
+  if (plan.orderReferenced) {
     await db
       .update(designTable)
       .set({ status: "archived", updatedAt: new Date() })
@@ -101,184 +67,16 @@ export async function deleteDesign(
   // product.design_id FKs this design; deleting would break the organizer's
   // sellable. Surface it instead of dying on the constraint (server-action
   // throws are masked in prod).
-  const [{ c: productCount }] = await db
-    .select({ c: count() })
-    .from(productTable)
-    .where(eq(productTable.designId, designId));
-  if (productCount > 0) {
+  if (plan.productCount > 0) {
     return {
       error: "This design is used by a shop product. Delete the product first.",
     };
   }
 
-  // Ref-count (slice 4, plan §7): an image referenced elsewhere survives the
-  // thread delete — a conversation link from another design (seed carried
-  // into a fresh-start thread), a shop product's placements, or a cart line's
-  // placements. Order references were handled above (whole design archives).
-  // Image ids are UUIDs, so the JSON substring matches can't false-positive.
-  const sharedRows = imageIds.length
-    ? await db
-        .select({ imageId: conversationImageTable.imageId })
-        .from(conversationImageTable)
-        .where(
-          and(
-            inArray(conversationImageTable.imageId, imageIds),
-            ne(conversationImageTable.designId, designId)
-          )
-        )
-    : [];
-  const linkedElsewhere = new Set(sharedRows.map((r) => r.imageId));
-  const productPinned = new Set<string>();
-  const cartPinned = new Set<string>();
-  // Mirror product rows (composition slice 1): a published image's own Shop
-  // composition (storeId+designId NULL, placements exactly {front: imageId}).
-  // A mirror must not keep its image alive — it exists BECAUSE of the image —
-  // so mirrors are excluded from the pin probe and deleted alongside the
-  // image row + listing below, the same lifecycle the listing row already had.
-  const mirrorIdByImage = new Map<string, string>();
-  if (imageIds.length) {
-    const [productPins, cartPins] = await Promise.all([
-      db
-        .select({
-          id: productTable.id,
-          storeId: productTable.storeId,
-          designId: productTable.designId,
-          placements: productTable.placements,
-        })
-        .from(productTable)
-        .where(
-          or(
-            ...imageIds.map(
-              (id) => sql`${productTable.placements} LIKE ${"%" + id + "%"}`
-            )
-          )
-        ),
-      db
-        .select({ placements: cartItemTable.placements })
-        .from(cartItemTable)
-        .where(
-          and(
-            // This design's own cart lines are deleted below; only lines for
-            // OTHER designs pin an image worth keeping alive.
-            ne(cartItemTable.designId, designId),
-            or(
-              ...imageIds.map(
-                (id) => sql`${cartItemTable.placements} LIKE ${"%" + id + "%"}`
-              )
-            )
-          )
-        ),
-    ]);
-    const imageIdSet = new Set(imageIds);
-    for (const row of productPins) {
-      const placements = row.placements ?? {};
-      const entries = Object.entries(placements);
-      const isOwnMirror =
-        row.storeId === null &&
-        row.designId === null &&
-        entries.length === 1 &&
-        entries[0][0] === "front" &&
-        imageIdSet.has(entries[0][1]);
-      if (isOwnMirror) {
-        mirrorIdByImage.set(entries[0][1], row.id);
-        continue;
-      }
-      for (const id of Object.values(placements)) productPinned.add(id);
-    }
-    for (const row of cartPins) {
-      for (const id of Object.values(row.placements ?? {})) cartPinned.add(id);
-    }
-  }
-  const removableImageIds = imageIds.filter(
-    (id) =>
-      imageReferences({
-        order: false, // handled above — any order ref archived the design
-        otherConversation: linkedElsewhere.has(id),
-        product: productPinned.has(id),
-        cart: cartPinned.has(id),
-      }) === "delete"
-  );
-  const removableMirrorIds = removableImageIds
-    .map((id) => mirrorIdByImage.get(id))
-    .filter((id): id is string => id !== undefined);
-
-  await db.batch([
-    db.delete(chatMessageTable).where(eq(chatMessageTable.designId, designId)),
-    db
-      .delete(conversationImageTable)
-      .where(eq(conversationImageTable.designId, designId)),
-    db
-      .delete(placementRenderTable)
-      .where(eq(placementRenderTable.designId, designId)),
-    // Cart lines FK design_id too; a deleted design can't be fulfilled, so
-    // drop them (any user's cart — the line is dead either way).
-    db.delete(cartItemTable).where(eq(cartItemTable.designId, designId)),
-    // Generation job rows FK design_id as well (#124's class again: a table
-    // added later that the delete batch doesn't know about takes the whole
-    // delete down on the constraint). A RUNNING job goes too, and what happens
-    // to its in-flight continuation is: the completion batch's image /
-    // conversation_image / chat_message inserts are unconditional and die on
-    // the FK, the continuation catches that and cleans up the R2 object, then
-    // failGenerationJob finds no row — so the quota unit is silently lost.
-    // Acceptable: the user deleted the thread the render was for.
-    db
-      .delete(imageGenerationTable)
-      .where(eq(imageGenerationTable.designId, designId)),
-    ...(removableImageIds.length
-      ? [
-          db.delete(imageTable).where(inArray(imageTable.id, removableImageIds)),
-          db
-            .delete(listingTable)
-            .where(inArray(listingTable.imageId, removableImageIds)),
-        ]
-      : []),
-    // Mirror products of deleted images go with them (a detached image —
-    // referenced elsewhere — keeps its listing AND its mirror).
-    ...(removableMirrorIds.length
-      ? [
-          db
-            .delete(productTable)
-            .where(inArray(productTable.id, removableMirrorIds)),
-        ]
-      : []),
-    db.delete(designTable).where(eq(designTable.id, designId)),
-  ]);
+  await executeDesignDeletion(db, plan);
   return {};
 }
 
-/** Any order reference: header design_id, an order_item line, or one of the
- * design's image ids pinned in a line's placements JSON (image ids are UUIDs,
- * so a substring match can't false-positive). */
-async function designReferencedByOrders(
-  designId: string,
-  imageIds: string[]
-): Promise<boolean> {
-  const [{ c: headerCount }] = await db
-    .select({ c: count() })
-    .from(orderTable)
-    .where(eq(orderTable.designId, designId));
-  if (headerCount > 0) return true;
-
-  const [{ c: lineCount }] = await db
-    .select({ c: count() })
-    .from(orderItemTable)
-    .where(eq(orderItemTable.designId, designId));
-  if (lineCount > 0) return true;
-
-  if (imageIds.length === 0) return false;
-  const pinned = await db
-    .select({ id: orderItemTable.id })
-    .from(orderItemTable)
-    .where(
-      or(
-        ...imageIds.map(
-          (id) => sql`${orderItemTable.placements} LIKE ${"%" + id + "%"}`
-        )
-      )
-    )
-    .limit(1);
-  return pinned.length > 0;
-}
 
 /**
  * Publish an image to the discover feed: insert its `listing` visibility row
