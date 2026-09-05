@@ -87,11 +87,6 @@ export default async function Home() {
             hello@prntd.org
           </a>
         </p>
-        <p>
-          <Link href="/dashboard" className="underline hover:text-text-muted">
-            Open a shop →
-          </Link>
-        </p>
       </footer>
     </div>
   );

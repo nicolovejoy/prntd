@@ -6,7 +6,13 @@
  *
  * Compose gates on a non-anonymous account (getComposableDesigns returns [] for
  * guests), so this is the one funnel surface the anon session helper can't
- * cover. STORES_ENABLED is set in the Playwright webServer env.
+ * cover.
+ *
+ * Organizer storefronts are retired (#191) and STORES_ENABLED is off in
+ * every deployed environment. The local webServer (playwright.config.ts)
+ * still boots with the flag on, so this keeps running there; against a
+ * remote target (E2E_BASE_URL) it self-skips unless STORES_ENABLED=true is
+ * asserted explicitly, because /dashboard is a 404 with the flag off.
  */
 import { test, expect } from "@playwright/test";
 import {
@@ -18,6 +24,11 @@ import {
 } from "./helpers/db";
 import { waitForSessionCookie } from "./helpers/session";
 import { signUpFreshAccount } from "./helpers/auth";
+
+test.skip(
+  Boolean(process.env.E2E_BASE_URL) && process.env.STORES_ENABLED !== "true",
+  "organizer storefronts retired (#191): remote target has STORES_ENABLED off"
+);
 
 test("organizer compose: create shop, add + edit product, edit shop, list + publish, public storefront", async ({
   page,
