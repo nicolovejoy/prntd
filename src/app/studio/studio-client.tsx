@@ -328,7 +328,11 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
       )
     );
     try {
-      await cancelGeneration(jobId);
+      const ok = await cancelGeneration(jobId);
+      // False = the image landed before the cancel (it stays). The cell we
+      // just removed was the only thing keeping the poll loop alive, so fetch
+      // once now rather than leaving the landed cell hidden until a focus.
+      if (!ok) void pollOnce();
     } catch {
       // Nothing to recover: the row either settled first or was never ours.
     }

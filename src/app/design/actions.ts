@@ -536,6 +536,23 @@ type GenerationJobParams = {
   startedAt: Date;
 };
 
+/**
+ * Best-effort delete of an orphaned R2 object, LOGGED on failure. A
+ * `cancelled` row is terminal and never swept, so a delete that fails here
+ * has no second chance — a silent catch would make it a permanent orphan
+ * nobody can find. Never throws: every caller is on a path that must not
+ * reject.
+ */
+async function deleteOrphanedObject(jobId: string, imageId: string) {
+  await deleteImageObject(imageId).catch((e) =>
+    console.warn("[generation] orphan delete failed", {
+      jobId,
+      imageId,
+      error: e instanceof Error ? e.message : String(e),
+    })
+  );
+}
+
 /** Accrue a render's cost on the design (internal accounting, never priced). */
 async function bookGenerationCost(designId: string, generationCost: number) {
   await db
@@ -616,7 +633,7 @@ async function runGenerationJob(params: GenerationJobParams): Promise<void> {
         jobId,
         designId,
       });
-      await deleteImageObject(imageId).catch(() => {});
+      await deleteOrphanedObject(jobId, imageId);
       return;
     }
 
@@ -730,7 +747,7 @@ async function runGenerationJob(params: GenerationJobParams): Promise<void> {
     // check (discard matched) or the sweep failed this job first (neither
     // matched — the refund stands). The object we uploaded is an orphan in
     // both cases.
-    await deleteImageObject(imageId).catch(() => {});
+    await deleteOrphanedObject(jobId, imageId);
     console.info(
       discarded.rowsAffected === 1
         ? "[generation] discarded a cancelled job after upload"
@@ -740,7 +757,7 @@ async function runGenerationJob(params: GenerationJobParams): Promise<void> {
   } catch (err) {
     // Best-effort cleanup of the (possibly) uploaded object, then the one
     // transition that also refunds. Never rethrow: this runs detached.
-    await deleteImageObject(imageId).catch(() => {});
+    await deleteOrphanedObject(jobId, imageId);
     const message = err instanceof Error ? err.message : String(err);
     console.error("[generation] job failed", { jobId, designId, error: message });
     await failGenerationJob({ jobId, error: message, db }).catch((e) =>

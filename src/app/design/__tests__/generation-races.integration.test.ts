@@ -433,6 +433,29 @@ describe("generateDesign — job insert + continuation", () => {
     expect(await userQuotaCount()).toBe(1);
   });
 
+  it("logs, never swallows, a failed orphan delete on the in-batch discard (review minor 1)", async () => {
+    const designId = await seedDesign(0);
+    const res = expectQueued(await generateDesign(designId, "one"));
+    uploadMock.mockImplementationOnce(async (imageId: string) => {
+      await cancelGenerationJob({ jobId: res.jobId, userId: "u1", db: testDb });
+      return `https://r2/images/${imageId}.png`;
+    });
+    deleteMock.mockRejectedValueOnce(new Error("r2 down"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await drainAfter();
+
+    // A `cancelled` row is terminal and never swept, so this warning is the
+    // only trace of the orphan.
+    expect(warn).toHaveBeenCalledWith(
+      "[generation] orphan delete failed",
+      expect.objectContaining({ jobId: res.jobId, imageId: res.imageId, error: "r2 down" })
+    );
+    const [job] = await jobs(designId);
+    expect(job.status).toBe("cancelled");
+    warn.mockRestore();
+  });
+
   it("leaves a landed image alone when the cancel arrives after it", async () => {
     const designId = await seedDesign(0);
     const res = expectQueued(await generateDesign(designId, "one"));
