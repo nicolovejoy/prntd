@@ -36,6 +36,8 @@ import { getHeaderState } from "@/components/site-header-actions";
 // PRNTD (logo), Cart, Feedback, Sign in/out, and the running-jobs badge text
 // all fall outside this set, so filtering by it isolates just the nav links.
 const NAV_LABELS = ["Studio", "My Designs", "Shop", "Orders", "Dashboard", "Admin"];
+// "Dashboard" stays in the set so a regression that re-adds the retired
+// organizer entry point (#191) shows up as an extra link, not a silent pass.
 
 // Label AND destination — a label pointing at the wrong route (say, Studio
 // still linking to /design) must fail, not just a wrong word.
@@ -59,7 +61,7 @@ beforeEach(() => {
 describe("SiteHeader signed-in nav", () => {
   it("is exactly Studio, My Designs, Shop, Orders in order, with New Design absent", async () => {
     h.session = { user: { id: "u1" } };
-    render(<SiteHeader cartEnabled={false} storesEnabled={false} />);
+    render(<SiteHeader cartEnabled={false} />);
     await settle();
 
     expect(navLinks()).toEqual([
@@ -71,24 +73,19 @@ describe("SiteHeader signed-in nav", () => {
     expect(screen.queryByText("New Design")).toBeNull();
   });
 
-  it("shows Dashboard only when storesEnabled is true", async () => {
+  it("never shows Dashboard — organizer storefronts are retired (#191)", async () => {
     h.session = { user: { id: "u1" } };
-    render(<SiteHeader cartEnabled={false} storesEnabled={true} />);
+    render(<SiteHeader cartEnabled={false} />);
     await settle();
 
-    expect(navLinks()).toEqual([
-      ["Studio", "/studio"],
-      ["My Designs", "/designs"],
-      ["Shop", "/prints"],
-      ["Orders", "/orders"],
-      ["Dashboard", "/dashboard"],
-    ]);
+    expect(navLinks().map(([label]) => label)).not.toContain("Dashboard");
+    expect(screen.queryByRole("link", { name: "Dashboard" })).toBeNull();
   });
 
   it("shows Admin only when getHeaderState reports isAdmin", async () => {
     h.session = { user: { id: "u1" } };
     h.headerState = { isAdmin: true, cartCount: 0, runningJobs: 0 };
-    render(<SiteHeader cartEnabled={false} storesEnabled={false} />);
+    render(<SiteHeader cartEnabled={false} />);
     await settle();
 
     expect(navLinks()).toEqual([
@@ -103,7 +100,7 @@ describe("SiteHeader signed-in nav", () => {
 
 describe("SiteHeader signed-out nav", () => {
   it("shows Shop + Sign in only", async () => {
-    render(<SiteHeader cartEnabled={false} storesEnabled={false} />);
+    render(<SiteHeader cartEnabled={false} />);
     await settle();
 
     expect(navLinks()).toEqual([["Shop", "/prints"]]);
@@ -116,7 +113,7 @@ describe("running-jobs badge", () => {
   it("links to /studio", async () => {
     h.session = { user: { id: "u1" } };
     h.headerState = { isAdmin: false, cartCount: 0, runningJobs: 2 };
-    render(<SiteHeader cartEnabled={false} storesEnabled={false} />);
+    render(<SiteHeader cartEnabled={false} />);
 
     const badge = await screen.findByTestId("running-jobs-badge");
     expect(badge.getAttribute("href")).toBe("/studio");

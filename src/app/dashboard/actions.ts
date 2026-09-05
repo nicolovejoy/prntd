@@ -20,11 +20,6 @@ import { getBlank, type AspectRatio } from "@/lib/blanks";
 type Store = typeof storeTable.$inferSelect;
 type Product = typeof productTable.$inferSelect;
 
-/** Client-readable: whether the Dashboard nav link + routes should show. */
-export async function isStoresEnabled(): Promise<boolean> {
-  return storesEnabled();
-}
-
 function assertEnabled() {
   if (!storesEnabled()) throw new Error("Stores are not enabled");
 }

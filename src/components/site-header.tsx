@@ -12,11 +12,9 @@ type NavLink = { href: string; label: string };
 
 export function SiteHeader({
   cartEnabled: showCart,
-  storesEnabled: showDashboard,
 }: {
   /** Resolved server-side (plain env reads, no round trip — #127). */
   cartEnabled: boolean;
-  storesEnabled: boolean;
 }) {
   const { data: session } = authClient.useSession();
   const buildDate = process.env.NEXT_PUBLIC_BUILD_DATE ?? "dev";
@@ -96,14 +94,14 @@ export function SiteHeader({
   // where work resumes. "New Design" is gone: an unanchored Generate in the
   // Studio composer IS new design, so a second door to the same place was
   // just incoherence. Shop (the community storefront, /prints) stays the
-  // open buy-existing flow for signed-out visitors.
+  // open buy-existing flow for signed-out visitors. Organizer storefronts
+  // are retired (#191) — no Dashboard entry.
   const links: NavLink[] = isAuthed
     ? [
         { href: "/studio", label: "Studio" },
         { href: "/designs", label: "My Designs" },
         { href: "/prints", label: "Shop" },
         { href: "/orders", label: "Orders" },
-        ...(showDashboard ? [{ href: "/dashboard", label: "Dashboard" }] : []),
         ...(isAdmin ? [{ href: "/admin", label: "Admin" }] : []),
       ]
     : [{ href: "/prints", label: "Shop" }];
