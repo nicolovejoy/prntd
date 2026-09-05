@@ -13,9 +13,14 @@ import {
   isPollHalted,
   nextPollDelayMs,
 } from "@/lib/generation-poll";
-import { formatElapsed, timeAgo } from "@/lib/studio-view";
+import {
+  bulkDeleteConfirm,
+  bulkDeleteSkipNotice,
+  formatElapsed,
+  timeAgo,
+} from "@/lib/studio-view";
 import type { StudioLane } from "@/lib/studio";
-import { getStudioLanes } from "./actions";
+import { deleteConversations, getStudioLanes } from "./actions";
 
 /**
  * /studio — the working surface (studio-plan slices 2+3): lanes render, a
@@ -40,6 +45,15 @@ import { getStudioLanes } from "./actions";
  * `lanes` wholesale with server truth, and the anchor (plus the draft text)
  * must survive that landing mid-typing. It's cleared only when its image
  * genuinely leaves the surface (the conversation closed or was deleted).
+ *
+ * Select mode (#189): "Select" in the title row turns each lane header into a
+ * checkbox row and swaps the composer for a bar with the count, Select all,
+ * Delete and Done. While selecting, a tap anywhere on a lane — header or
+ * cell — toggles that lane; anchoring is off, so one gesture means one thing.
+ * A lane with a running generation can't be selected (its per-lane Close and
+ * Delete are hidden for the same reason). Escape leaves select mode. The
+ * selection is a Set of design ids kept beside the lanes, so a poll landing
+ * mid-selection keeps it; ids whose lane left the surface are dropped.
  */
 
 type Anchor = {
@@ -67,6 +81,9 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
   const [pollNonce, setPollNonce] = useState(0);
   // Ticks once a second while something is pending, for the elapsed labels.
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const polling = useRef(false);
   const pollStartedAt = useRef<number | null>(null);
@@ -145,7 +162,88 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
     );
   }, [lanes]);
 
+  // Selection follows the lanes: an id whose lane left (deleted elsewhere,
+  // closed in another tab, or now generating) can't stay selected, or Delete
+  // would act on something not on screen.
+  const selectableIds = lanes
+    .filter((l) => l.pending.length === 0)
+    .map((l) => l.designId);
+  useEffect(() => {
+    const live = new Set(selectableIds);
+    setSelected((s) => {
+      if ([...s].every((id) => live.has(id))) return s;
+      return new Set([...s].filter((id) => live.has(id)));
+    });
+    // selectableIds is derived from lanes; lanes is the real dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lanes]);
+
+  useEffect(() => {
+    if (!selectMode) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") exitSelectMode();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [selectMode]);
+
+  function enterSelectMode() {
+    setSelectMode(true);
+    setSelected(new Set());
+    setAnchor(null);
+    setNotice(null);
+  }
+
+  function exitSelectMode() {
+    setSelectMode(false);
+    setSelected(new Set());
+  }
+
+  function toggleSelected(designId: string) {
+    setSelected((s) => {
+      const next = new Set(s);
+      if (next.has(designId)) next.delete(designId);
+      else next.add(designId);
+      return next;
+    });
+  }
+
+  function selectAll() {
+    setSelected(new Set(selectableIds));
+  }
+
+  // One confirm, then one action for the whole selection. Optimistic: the
+  // selected lanes leave now; the ones the server kept come back, with a
+  // plain line saying why. Then a refetch, so what's on screen is server
+  // truth and not the client's guess about a partial failure.
+  async function bulkDelete() {
+    const ids = [...selected];
+    if (ids.length === 0 || bulkDeleting) return;
+    if (!window.confirm(bulkDeleteConfirm(ids.length))) return;
+    const prev = lanes;
+    const chosen = new Set(ids);
+    setBulkDeleting(true);
+    setLanes((ls) => ls.filter((l) => !chosen.has(l.designId)));
+    try {
+      const result = await deleteConversations(ids);
+      const gone = new Set(result.deleted);
+      setLanes(prev.filter((l) => !gone.has(l.designId)));
+      setNotice(bulkDeleteSkipNotice(result.skipped));
+      exitSelectMode();
+      await pollOnce();
+    } catch {
+      setLanes(prev);
+      setNotice("Couldn't delete those designs. Try again.");
+    } finally {
+      setBulkDeleting(false);
+    }
+  }
+
   function toggleAnchor(lane: StudioLane, cell: StudioLane["cells"][number]) {
+    if (selectMode) {
+      if (lane.pending.length === 0) toggleSelected(lane.designId);
+      return;
+    }
     setAnchor((a) =>
       a?.imageId === cell.imageId
         ? null
@@ -240,15 +338,29 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
       <main className="flex-1 px-4 sm:px-6 py-8 pb-40 max-w-4xl mx-auto w-full">
         <div className="flex items-baseline justify-between gap-3 mb-6">
           <h1 className="text-xl sm:text-2xl font-bold">Studio</h1>
-          {/* Quiet by design: the archive is a retrieval door, not a
-              destination. Lanes leave on their own after three days
-              (studio-plan slice 4) and this is where they land. */}
-          <Link
-            href="/studio/archive"
-            className="text-sm text-text-muted hover:text-foreground transition-colors"
-          >
-            Archive
-          </Link>
+          <div className="flex items-baseline gap-4">
+            {/* Only when there is something to select; in select mode the
+                bottom bar's Done is the way out, so the control hides. */}
+            {lanes.length > 0 && !selectMode && (
+              <button
+                type="button"
+                onClick={enterSelectMode}
+                className="text-sm text-text-muted hover:text-foreground transition-colors"
+                data-testid="select-mode"
+              >
+                Select
+              </button>
+            )}
+            {/* Quiet by design: the archive is a retrieval door, not a
+                destination. Lanes leave on their own after three days
+                (studio-plan slice 4) and this is where they land. */}
+            <Link
+              href="/studio/archive"
+              className="text-sm text-text-muted hover:text-foreground transition-colors"
+            >
+              Archive
+            </Link>
+          </div>
         </div>
 
         {lanes.length === 0 ? (
@@ -271,7 +383,10 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
               lane={lane}
               nowMs={nowMs}
               anchoredImageId={anchor?.imageId ?? null}
+              selectMode={selectMode}
+              selected={selected.has(lane.designId)}
               onTapCell={toggleAnchor}
+              onToggleSelect={toggleSelected}
               onClose={closeLane}
               onDelete={deleteLane}
             />
@@ -279,66 +394,123 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
         )}
       </main>
 
-      <div className="fixed bottom-0 inset-x-0 border-t border-border bg-surface px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
-        <div className="max-w-4xl mx-auto space-y-2">
-          {anchor && (
-            <div
-              className="flex items-center gap-2 min-w-0"
-              data-testid="anchor-chip"
-            >
-              <div className="relative w-8 h-8 rounded overflow-hidden bg-checkerboard shrink-0 border border-border">
-                <Image
-                  src={anchor.imageUrl}
-                  alt=""
-                  fill
-                  sizes="32px"
-                  className="object-cover"
-                />
-              </div>
-              <span className="text-xs text-text-muted truncate">
-                Editing · {anchor.title ?? "Untitled"}
-              </span>
-              <button
-                type="button"
-                aria-label="Clear anchor"
-                onClick={() => setAnchor(null)}
-                className="shrink-0 px-1 text-text-muted hover:text-foreground"
+      {selectMode ? (
+        <div
+          className="fixed bottom-0 inset-x-0 border-t border-border bg-surface px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]"
+          data-testid="select-bar"
+        >
+          <div className="max-w-4xl mx-auto space-y-2">
+            {notice && <p className="text-xs text-text-muted">{notice}</p>}
+            <div className="flex items-center gap-3">
+              <span
+                className="text-sm tabular-nums min-w-0 flex-1 truncate"
+                data-testid="selected-count"
               >
-                ✕
-              </button>
+                {selected.size} selected
+              </span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={selectAll}
+                disabled={
+                  selectableIds.length === 0 ||
+                  selected.size === selectableIds.length
+                }
+                className="min-h-11"
+                data-testid="select-all"
+              >
+                Select all
+              </Button>
+              <Button
+                type="button"
+                variant="danger"
+                size="sm"
+                onClick={() => void bulkDelete()}
+                disabled={selected.size === 0 || bulkDeleting}
+                className="min-h-11"
+                data-testid="bulk-delete"
+              >
+                Delete
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={exitSelectMode}
+                disabled={bulkDeleting}
+                className="min-h-11"
+                data-testid="select-done"
+              >
+                Done
+              </Button>
             </div>
-          )}
-          {atCap && (
-            <p className="text-xs text-text-muted" data-testid="cap-notice">
-              {AT_CAP_COPY}
-            </p>
-          )}
-          {notice && <p className="text-xs text-text-muted">{notice}</p>}
-          <form
-            className="flex gap-2"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void submit();
-            }}
-          >
-            <input
-              type="text"
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder={anchor ? "Describe the change" : "Describe a design"}
-              className="flex-1 px-3 py-2 bg-surface border border-border rounded-md text-white placeholder:text-text-faint focus:border-border-hover focus:outline-none"
-              data-testid="studio-composer"
-            />
-            <Button
-              type="submit"
-              disabled={!text.trim() || atCap}
-              data-testid="studio-generate"
-            >
-              Generate
-            </Button>
-          </form>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="fixed bottom-0 inset-x-0 border-t border-border bg-surface px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+          <div className="max-w-4xl mx-auto space-y-2">
+            {anchor && (
+              <div
+                className="flex items-center gap-2 min-w-0"
+                data-testid="anchor-chip"
+              >
+                <div className="relative w-8 h-8 rounded overflow-hidden bg-checkerboard shrink-0 border border-border">
+                  <Image
+                    src={anchor.imageUrl}
+                    alt=""
+                    fill
+                    sizes="32px"
+                    className="object-cover"
+                  />
+                </div>
+                <span className="text-xs text-text-muted truncate">
+                  Editing · {anchor.title ?? "Untitled"}
+                </span>
+                <button
+                  type="button"
+                  aria-label="Clear anchor"
+                  onClick={() => setAnchor(null)}
+                  className="shrink-0 px-1 text-text-muted hover:text-foreground"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+            {atCap && (
+              <p className="text-xs text-text-muted" data-testid="cap-notice">
+                {AT_CAP_COPY}
+              </p>
+            )}
+            {notice && <p className="text-xs text-text-muted">{notice}</p>}
+            <form
+              className="flex gap-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void submit();
+              }}
+            >
+              <input
+                type="text"
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                placeholder={
+                  anchor ? "Describe the change" : "Describe a design"
+                }
+                className="flex-1 px-3 py-2 bg-surface border border-border rounded-md text-white placeholder:text-text-faint focus:border-border-hover focus:outline-none"
+                data-testid="studio-composer"
+              />
+              <Button
+                type="submit"
+                disabled={!text.trim() || atCap}
+                data-testid="studio-generate"
+              >
+                Generate
+              </Button>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -347,20 +519,30 @@ function Lane({
   lane,
   nowMs,
   anchoredImageId,
+  selectMode,
+  selected,
   onTapCell,
+  onToggleSelect,
   onClose,
   onDelete,
 }: {
   lane: StudioLane;
   nowMs: number;
   anchoredImageId: string | null;
+  selectMode: boolean;
+  selected: boolean;
   onTapCell: (lane: StudioLane, cell: StudioLane["cells"][number]) => void;
+  onToggleSelect: (designId: string) => void;
   onClose: (lane: StudioLane) => void;
   onDelete: (lane: StudioLane) => void;
 }) {
   const sectionRef = useRef<HTMLElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const cellCount = lane.cells.length + lane.pending.length;
+  const generating = lane.pending.length > 0;
+  // Selectable = nothing running. Deleting under a render would land the
+  // image in a thread that just left the bench; the checkbox says why.
+  const selectable = selectMode && !generating;
 
   // Land on the newest work: cells run oldest → newest, so a lane wider than
   // the phone opens (and stays) scrolled to its right edge as results arrive.
@@ -370,22 +552,63 @@ function Lane({
   }, [cellCount]);
 
   return (
-    <section ref={sectionRef} className="mb-8" data-testid="studio-lane">
-      <div className="flex items-baseline justify-between gap-3 mb-2">
-        <Link
-          href={`/design?id=${lane.designId}`}
-          className="min-w-0 flex-1 hover:underline"
-        >
-          <h2 className="text-sm font-medium truncate">
+    <section
+      ref={sectionRef}
+      className="mb-8"
+      data-testid="studio-lane"
+      data-selected={selectMode ? selected : undefined}
+    >
+      <div
+        className={`flex items-center justify-between gap-3 mb-2 ${
+          selectable ? "cursor-pointer" : ""
+        }`}
+        onClick={selectable ? () => onToggleSelect(lane.designId) : undefined}
+      >
+        {selectMode && (
+          // A real checkbox for the a11y tree, sized to a 44px target. The
+          // header row toggles too, so the box is the marker, not the only
+          // place to tap.
+          <label
+            className={`flex items-center justify-center shrink-0 w-11 h-11 -ml-2 ${
+              generating ? "opacity-30" : "cursor-pointer"
+            }`}
+            onClick={(e) => e.stopPropagation()}
+            title={generating ? "Generating" : undefined}
+          >
+            <input
+              type="checkbox"
+              checked={selected}
+              disabled={generating}
+              onChange={() => onToggleSelect(lane.designId)}
+              aria-label={`Select ${lane.title ?? "Untitled"}`}
+              className="w-5 h-5 accent-accent"
+              data-testid="lane-checkbox"
+            />
+          </label>
+        )}
+        {selectMode ? (
+          <h2 className="min-w-0 flex-1 text-sm font-medium truncate">
             {lane.title ?? "Untitled"}
           </h2>
-        </Link>
+        ) : (
+          <Link
+            href={`/design?id=${lane.designId}`}
+            className="min-w-0 flex-1 hover:underline"
+          >
+            <h2 className="text-sm font-medium truncate">
+              {lane.title ?? "Untitled"}
+            </h2>
+          </Link>
+        )}
         <span className="text-xs text-text-faint shrink-0">
-          {timeAgo(lane.lastActiveAt, nowMs)}
+          {selectMode && generating
+            ? "Generating"
+            : timeAgo(lane.lastActiveAt, nowMs)}
         </span>
         {/* Both absent while generating: closing or deleting mid-render would
-            land the image in a thread that just vanished from the bench. */}
-        {lane.pending.length === 0 && (
+            land the image in a thread that just vanished from the bench. And
+            absent in select mode: the bar's Delete is the one verb there. */}
+        {!generating && !selectMode && (
           <>
             <button
               type="button"

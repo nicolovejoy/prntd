@@ -45,3 +45,61 @@ export function formatClosedDate(date: Date, now: Date = new Date()): string {
     ...(yearOf(date) === yearOf(now) ? {} : { year: "numeric" }),
   }).format(date);
 }
+
+/** Why deleteConversations left a conversation alone (studio/actions.ts). */
+export type BulkDeleteSkipReason =
+  | "ordered"
+  | "product"
+  | "not_found"
+  | "failed";
+
+export interface BulkDeleteResult {
+  deleted: string[];
+  skipped: { id: string; reason: BulkDeleteSkipReason }[];
+}
+
+/**
+ * The one confirm before a bulk delete. Same voice as
+ * DELETE_CONVERSATION_CONFIRM: says what is kept, because the action keeps
+ * it. Differs from the single Delete in one respect it states plainly — a
+ * conversation with an order is skipped, not archived.
+ */
+export function bulkDeleteConfirm(count: number): string {
+  const noun = count === 1 ? "conversation" : "conversations";
+  const poss = count === 1 ? "its" : "their";
+  return `Delete ${count} ${noun} and ${poss} images? Images used in an order, another design, or a cart are kept. Conversations with an order are kept.`;
+}
+
+/**
+ * One plain line about what a bulk delete left behind, or null when nothing
+ * was skipped. Counts by reason; `not_found` (an id that was gone or never
+ * the caller's) says nothing — there was no lane of theirs to lose.
+ */
+export function bulkDeleteSkipNotice(
+  skipped: BulkDeleteResult["skipped"]
+): string | null {
+  const by = (reason: BulkDeleteSkipReason) =>
+    skipped.filter((s) => s.reason === reason).length;
+  const ordered = by("ordered");
+  const product = by("product");
+  const failed = by("failed");
+  const parts: string[] = [];
+  if (ordered > 0) {
+    parts.push(
+      ordered === 1
+        ? "1 kept — it has an order."
+        : `${ordered} kept — they have orders.`
+    );
+  }
+  if (product > 0) {
+    parts.push(
+      product === 1
+        ? "1 kept — a shop product uses it."
+        : `${product} kept — shop products use them.`
+    );
+  }
+  if (failed > 0) {
+    parts.push(`${failed} couldn't be deleted. Try again.`);
+  }
+  return parts.length > 0 ? parts.join(" ") : null;
+}
