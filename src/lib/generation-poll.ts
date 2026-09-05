@@ -119,7 +119,10 @@ export interface JobPollResult {
   running: RunningJob[];
   settled: {
     jobId: string;
-    status: "succeeded" | "failed";
+    /** `cancelled` = the continuation discarded the result (#187): the job is
+     * done, nothing to show, nothing to refresh — the client just stops
+     * tracking it. */
+    status: "succeeded" | "failed" | "cancelled";
     imageId: string | null;
     failure: GenerationFailure | null;
   }[];

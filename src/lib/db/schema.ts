@@ -458,12 +458,16 @@ export const appError = sqliteTable("app_error", {
  * a server action that holds the request open for the full provider round
  * trip: this row is the job record, minted before the provider call and
  * updated when the call settles. `running` transitions to exactly one of
- * `succeeded`/`failed` — cancellation is recorded via `cancelledAt`, not a
- * third status, so every transition predicate everywhere stays
+ * `succeeded`/`failed`/`cancelled`. A cancel REQUEST is recorded via
+ * `cancelledAt` on the still-running row (the provider call cannot be
+ * stopped); the terminal `cancelled` status is written only by the
+ * continuation when it comes back and finds the request, discarding the
+ * result (#187). Every transition predicate everywhere stays
  * `status = 'running'` (the hardening contract from the rewritten plan: a
  * refund only fires off `UPDATE ... WHERE status = 'running'` reporting one
  * row, which is what makes it safe against a concurrent sweep or a
- * cancellation racing the provider's real completion).
+ * cancellation racing the provider's real completion). `cancelled` refunds
+ * nothing and books its cost like a success; only `failed` refunds.
  *
  * `imageId` is minted before the provider call and doubles as the R2 key
  * stem; the `image` row itself is written only once the job succeeds, so
@@ -480,9 +484,14 @@ export const imageGeneration = sqliteTable(
     id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
     designId: text("design_id").notNull().references(() => design.id),
     userId: text("user_id").notNull().references(() => user.id),
-    // running -> succeeded | failed. Cancellation is `cancelled_at`, not a
-    // status, so every transition predicate stays `status = 'running'`.
-    status: text("status", { enum: ["running", "succeeded", "failed"] }).notNull(),
+    // running -> succeeded | failed | cancelled. The cancel REQUEST is
+    // `cancelled_at` on a running row; `cancelled` is the terminal status the
+    // continuation writes when it discards the result. Every transition
+    // predicate stays `status = 'running'`. No CHECK constraint in the DB (the
+    // enum is TypeScript-only), so adding the value needed no migration.
+    status: text("status", {
+      enum: ["running", "succeeded", "failed", "cancelled"],
+    }).notNull(),
     operation: text("operation", { enum: ["generate", "edit"] }).notNull(),
     // Minted before the provider call; also the R2 key stem. Opaque id, no FK
     // — the image row does not exist until the job succeeds.

@@ -4,7 +4,11 @@ import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui";
-import { closeConversation, generateDesign } from "@/app/design/actions";
+import {
+  cancelGeneration,
+  closeConversation,
+  generateDesign,
+} from "@/app/design/actions";
 import { deleteDesign } from "@/app/designs/actions";
 import { DELETE_CONVERSATION_CONFIRM } from "@/lib/design-view";
 import {
@@ -310,6 +314,30 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
     }
   }
 
+  // Cancel one pending generation (#187): the result is discarded server-side
+  // when the render comes back, so the cell can leave now. The next poll
+  // agrees — a cancel-requested job is already out of the lane's `pending`.
+  // The slot itself frees when the render returns, so a submit in the
+  // meantime can still meet the server's cap; that refusal is shown as-is.
+  async function cancelJob(lane: StudioLane, jobId: string) {
+    setLanes((ls) =>
+      ls.map((l) =>
+        l.designId === lane.designId
+          ? { ...l, pending: l.pending.filter((job) => job.jobId !== jobId) }
+          : l
+      )
+    );
+    try {
+      const ok = await cancelGeneration(jobId);
+      // False = the image landed before the cancel (it stays). The cell we
+      // just removed was the only thing keeping the poll loop alive, so fetch
+      // once now rather than leaving the landed cell hidden until a focus.
+      if (!ok) void pollOnce();
+    } catch {
+      // Nothing to recover: the row either settled first or was never ours.
+    }
+  }
+
   // Delete the conversation outright. Close parks a design; this is the only
   // route to removing one whose thread never produced an image — it has no
   // cell in My Designs, so the image detail page cannot offer it (slice 5
@@ -389,6 +417,7 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
               onToggleSelect={toggleSelected}
               onClose={closeLane}
               onDelete={deleteLane}
+              onCancel={cancelJob}
             />
           ))
         )}
@@ -525,6 +554,7 @@ function Lane({
   onToggleSelect,
   onClose,
   onDelete,
+  onCancel,
 }: {
   lane: StudioLane;
   nowMs: number;
@@ -535,6 +565,7 @@ function Lane({
   onToggleSelect: (designId: string) => void;
   onClose: (lane: StudioLane) => void;
   onDelete: (lane: StudioLane) => void;
+  onCancel: (lane: StudioLane, jobId: string) => void;
 }) {
   const sectionRef = useRef<HTMLElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -679,6 +710,14 @@ function Lane({
             <span className="text-xs text-text-faint tabular-nums">
               {formatElapsed(nowMs - job.startedAt.getTime())}
             </span>
+            <button
+              type="button"
+              onClick={() => onCancel(lane, job.jobId)}
+              className="text-xs text-text-faint hover:text-foreground min-h-[44px] px-3"
+              data-testid="cancel-generation"
+            >
+              Cancel
+            </button>
           </div>
         ))}
       </div>
