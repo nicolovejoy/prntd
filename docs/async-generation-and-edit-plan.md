@@ -347,13 +347,27 @@ libSQL over serverless HTTP has no interactive transaction — count-then-insert
 would have been racy.
 
 Cancel is `cancelled_at`, not a status — every transition predicate everywhere
-stays `status='running'`, so cancel needed no new state machine. **Answering
+stays `status='running'`, so cancel needed no new state machine. ~~**Answering
 slice 3's own open question: yes, a cancelled job's image still gets written**
-if the render finishes — cancel means "stop watching," not "kill the render,"
-and there is no server-side mechanism to abort an in-flight Ideogram call. The
-cancelled job also keeps holding its concurrency slot for the render's real
-duration, not released early, because the completion batch runs unconditionally
-on cancellation. A cancelled job that goes stale (still `running` past
+if the render finishes~~ — **superseded 2026-09-05 (#187): a cancelled job
+DISCARDS its result.** The request is still `cancelled_at` on the running row
+(cancel means "stop watching," not "kill the render," and there is no
+server-side mechanism to abort an in-flight Ideogram call), but when the
+continuation comes back and finds it, nothing is written — no `image`, no
+conversation link, no chat turn, no primary claim, and the R2 object is never
+uploaded (or deleted, if the cancel landed during the upload). The row moves
+to a fourth, terminal status `cancelled` via `discardCancelledJobStatement`,
+which is what frees the concurrency slot; that status is TS-enum-only (no DB
+CHECK), so no migration. It is not `failed` because `failed` refunds by
+contract; a cancel is billed (cost still booked on the design) and never
+refunded. The completion batch makes the decision atomic: the conditional
+succeed transition (`running AND cancelled_at IS NULL`) runs first, and every
+row the batch lands is `INSERT … SELECT … WHERE status='succeeded'` against
+that row in the same transaction (`insertIfJobSucceededStatement`), so a
+cancel cannot slip between a check and the insert. A cancel that arrives after
+the image landed reports false and changes nothing. The cancelled job still
+holds its concurrency slot for the render's real duration, since only the
+returning continuation can transition it. A cancelled job that goes stale (still `running` past
 `STALE_JOB_MS`, 5 minutes) is refunded by the same path as any other stale job —
 deliberately not filtered out, because a cancelled-and-then-genuinely-dead job
 bought nothing regardless of whether the user was still watching. That does

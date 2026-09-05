@@ -558,8 +558,9 @@ function DesignPageInner({ initialThreadPromise }: Props) {
   /**
    * Cancel one running generation (#59, now durable). The server marks the job
    * row cancelled, so this holds across tabs and reloads where the old
-   * client-side ref did not. The render itself still runs and is still billed;
-   * cancelling only forfeits its claim on the design's primary image.
+   * client-side ref did not. The render itself still runs and is still billed,
+   * but its result is discarded when it comes back (#187) — no image arrives
+   * in the thread. A cancel that lands after the image did changes nothing.
    *
    * Untracked locally either way, which also stops polling for it — the user
    * walked away from this one.

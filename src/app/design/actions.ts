@@ -13,6 +13,8 @@ import {
   insertGenerationJob,
   failGenerationJob,
   succeedJobStatement,
+  discardCancelledJobStatement,
+  insertIfJobSucceededStatement,
   countRunningJobsForUser,
   getRunningJobsForDesign,
   sweepStaleJobs,
@@ -534,15 +536,37 @@ type GenerationJobParams = {
   startedAt: Date;
 };
 
+/** Accrue a render's cost on the design (internal accounting, never priced). */
+async function bookGenerationCost(designId: string, generationCost: number) {
+  await db
+    .update(designTable)
+    .set({ generationCost: sql`${designTable.generationCost} + ${generationCost}` })
+    .where(eq(designTable.id, designId));
+}
+
 /**
  * The background half of a generation: provider call → R2 → one atomic batch
  * of writes. Runs inside `after()`, so it must never reject.
  *
+ * Cancellation (#187): a cancelled job discards its result. The request is
+ * checked twice. Once right after the provider returns, BEFORE the fetch and
+ * the R2 upload — the flow allows it because the provider hands back a URL,
+ * nothing of ours exists yet, so the common case never uploads an object it
+ * would only delete. And once more inside the write batch, where the check
+ * is not a read but the conditional succeed transition itself: every row the
+ * batch lands is `INSERT … SELECT … WHERE status = 'succeeded'` against the
+ * job row that the batch's first statement just updated (or did not), all in
+ * one transaction. A cancel that commits between the early check and the
+ * batch is therefore caught by the batch; one that commits after the batch
+ * finds a settled row and does nothing. Either way the cost is booked — the
+ * render was paid for — and quota is never refunded for a cancel.
+ *
  * Accepted edge case: a continuation slower than CONTINUATION_DEADLINE_MS can
- * land after the lazy sweeper already failed and refunded this job. The
+ * come back after the lazy sweeper already failed and refunded this job. The
  * deadline check below closes the common case (skip the write, drop the
- * object); what remains is a user who got both their image and their quota
- * unit back. Generous, rare, harmless — deliberately not engineered away.
+ * object); a continuation that clears it and still loses the transition
+ * (neither succeed nor discard matched) lands nothing and drops the object
+ * too — the sweep's refund stands and the user simply gets no image.
  */
 async function runGenerationJob(params: GenerationJobParams): Promise<void> {
   const {
@@ -557,6 +581,23 @@ async function runGenerationJob(params: GenerationJobParams): Promise<void> {
     const sourceUrl = await params.generator.generate(params.generateOp, {
       aspect: "1:1",
     });
+
+    // Early discard: the cheapest place to honour a cancel is before we own
+    // any bytes. The conditional transition (running AND cancel requested) is
+    // the decision; it matches at most once for the row's lifetime, so the
+    // cost is booked exactly once and never for a job the sweep already
+    // failed. A crash between the two statements loses only the internal
+    // cost line, never a user-visible row.
+    const early = await discardCancelledJobStatement(db, jobId, new Date());
+    if (early.rowsAffected === 1) {
+      await bookGenerationCost(designId, generationCost);
+      console.info("[generation] discarded a cancelled job before upload", {
+        jobId,
+        designId,
+      });
+      return;
+    }
+
     const response = await fetch(sourceUrl);
     const buffer = Buffer.from(await response.arrayBuffer());
     const r2Url = await uploadImageObject(imageId, buffer);
@@ -595,20 +636,35 @@ async function runGenerationJob(params: GenerationJobParams): Promise<void> {
     const seed = await getConversationSeedProvenance(designId);
     const now = new Date();
 
-    // One batch so a mid-sequence crash can't leave an image with no assistant
-    // message. The two design updates are deliberately separate:
-    //  - cost accrues UNCONDITIONALLY (the render was paid for either way);
-    //  - the primary-image claim is guarded, so a newer succeeded generation
-    //    keeps the hero, and a cancelled job appends its image without
-    //    clobbering what the user moved on to. The subquery skips CANCELLED
-    //    newer generations for the same reason this job skips the claim when
-    //    itself cancelled: a generation the user walked away from is not a
-    //    hero, so it must not block an older, still-wanted one from becoming
-    //    one.
-    // Folding the cost increment into the guarded statement would silently
-    // drop the cost whenever a newer job had already claimed primary.
-    await db.batch([
-      db.insert(imageTable).values(
+    // One batch (one libSQL transaction) so a mid-sequence crash can't leave an
+    // image with no assistant message, and so the cancel decision and the
+    // rows it governs commit together. Order matters:
+    //  1. the two job transitions go FIRST — succeed (running, not cancelled)
+    //     and discard (running, cancelled). At most one matches; a job the
+    //     sweep already failed matches neither.
+    //  2. the image row, the conversation link and the chat turn are
+    //     `INSERT … SELECT … WHERE status = 'succeeded'` against the job row
+    //     as updated by step 1 in this same transaction. No read of
+    //     `cancelled_at` is involved, so a cancel cannot slip in between a
+    //     check and the insert: it either committed before this transaction
+    //     (discard matches, nothing lands) or it waits behind it and then
+    //     finds a settled row (cancelGenerationJob reports false).
+    //  3. cost accrues UNCONDITIONALLY — the render was paid for either way,
+    //     cancelled included. Folding it into a guarded statement would
+    //     silently drop the cost whenever the claim was skipped.
+    //  4. the primary-image claim is guarded: only a job that just succeeded
+    //     claims, and only if no newer succeeded generation already holds the
+    //     hero. The subquery skips newer generations that are not succeeded
+    //     (cancelled ones since #187; historical cancelled-but-succeeded rows
+    //     via `cancelled_at is null`) so a generation the user walked away
+    //     from never blocks an older, still-wanted one from becoming the hero.
+    const [succeeded, discarded] = await db.batch([
+      succeedJobStatement(db, jobId, now),
+      discardCancelledJobStatement(db, jobId, now),
+      insertIfJobSucceededStatement(
+        db,
+        jobId,
+        imageTable,
         buildImageRow({
           id: imageId,
           ownerId: params.ownerId,
@@ -632,8 +688,13 @@ async function runGenerationJob(params: GenerationJobParams): Promise<void> {
           originalDesignerId: seed?.originalDesignerId ?? null,
         })
       ),
-      db.insert(conversationImageTable).values(buildOutputLinkRow(designId, imageId)),
-      db.insert(chatMessageTable).values({
+      insertIfJobSucceededStatement(
+        db,
+        jobId,
+        conversationImageTable,
+        buildOutputLinkRow(designId, imageId)
+      ),
+      insertIfJobSucceededStatement(db, jobId, chatMessageTable, {
         designId,
         role: "assistant" as const,
         content: params.assistantMessage,
@@ -650,6 +711,9 @@ async function runGenerationJob(params: GenerationJobParams): Promise<void> {
         update design
         set primary_image_id = ${imageId}, mockup_urls = null
         where id = ${designId}
+          and exists (
+            select 1 from image_generation where id = ${jobId} and status = 'succeeded'
+          )
           and not exists (
             select 1 from image_generation g
             where g.design_id = ${designId}
@@ -657,13 +721,22 @@ async function runGenerationJob(params: GenerationJobParams): Promise<void> {
               and g.cancelled_at is null
               and g.generation_number > ${generationNumber}
           )
-          and (select cancelled_at from image_generation where id = ${jobId}) is null
       `),
-      // Runs whether or not the job was cancelled: this transition is what
-      // releases the concurrency slot, and cancellation must only affect the
-      // primary claim above (generation-job.ts, succeedJobStatement).
-      succeedJobStatement(db, jobId, now),
     ]);
+
+    if (succeeded.rowsAffected === 1) return;
+
+    // Nothing landed: either the cancel request won the race after the early
+    // check (discard matched) or the sweep failed this job first (neither
+    // matched — the refund stands). The object we uploaded is an orphan in
+    // both cases.
+    await deleteImageObject(imageId).catch(() => {});
+    console.info(
+      discarded.rowsAffected === 1
+        ? "[generation] discarded a cancelled job after upload"
+        : "[generation] continuation lost the transition; nothing landed",
+      { jobId, designId }
+    );
   } catch (err) {
     // Best-effort cleanup of the (possibly) uploaded object, then the one
     // transition that also refunds. Never rethrow: this runs detached.
@@ -915,6 +988,11 @@ export async function setPrimaryImage(designId: string, imageId: string) {
  * the render, so the row genuinely still holds its concurrency slot), but a
  * cancelled job is not something the UI should render as an active spinner
  * — the caller already knows it cancelled that job.
+ *
+ * A job that reached the terminal `cancelled` status (#187: the continuation
+ * came back and discarded the result) is reported as settled with neither an
+ * image nor a failure — it tells a tracking client (another tab, say) to stop
+ * waiting, and nothing else.
  */
 export async function getDesignJobs(
   designId: string,
@@ -923,7 +1001,7 @@ export async function getDesignJobs(
   running: { jobId: string; generationNumber: number; startedAt: number }[];
   settled: {
     jobId: string;
-    status: "succeeded" | "failed";
+    status: "succeeded" | "failed" | "cancelled";
     imageId: string | null;
     failure: GenerationFailure | null;
   }[];
@@ -947,7 +1025,7 @@ export async function getDesignJobs(
 
   let settled: {
     jobId: string;
-    status: "succeeded" | "failed";
+    status: "succeeded" | "failed" | "cancelled";
     imageId: string | null;
     failure: GenerationFailure | null;
   }[] = [];
@@ -963,8 +1041,12 @@ export async function getDesignJobs(
       );
     settled = rows
       .filter(
-        (row): row is typeof row & { status: "succeeded" | "failed" } =>
-          row.status === "succeeded" || row.status === "failed"
+        (
+          row
+        ): row is typeof row & { status: "succeeded" | "failed" | "cancelled" } =>
+          row.status === "succeeded" ||
+          row.status === "failed" ||
+          row.status === "cancelled"
       )
       .map((row) => ({
         jobId: row.id,
@@ -986,13 +1068,14 @@ export async function getDesignJobs(
  *
  * Owner-gated in the lifecycle layer by matching `user_id`, so a forged job id
  * from another thread affects zero rows. Cancelling does NOT stop the provider
- * call — the render was paid for and will finish; it only clears the job's
- * claim on the design's primary image (see runGenerationJob's guarded update).
- * Unlike the old client-only ref this crosses tabs: the row is the state.
+ * call — the render was paid for and will finish — but its result is
+ * discarded when it comes back (#187): no image, no chat turn, no primary
+ * claim; the cost is still booked and the quota unit is not refunded. Unlike
+ * the old client-only ref this crosses tabs: the row is the state.
  *
  * Returns whether a row was actually cancelled; a false is not an error (the
- * job may have settled between the tap and the call), so the UI drops the row
- * either way.
+ * job may have settled between the tap and the call — in which case its image
+ * stays), so the UI drops the row either way.
  */
 export async function cancelGeneration(jobId: string): Promise<boolean> {
   const session = await auth.api.getSession({ headers: await headers() });

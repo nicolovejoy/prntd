@@ -8,17 +8,20 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { and, eq } from "drizzle-orm";
 import { createTestDb } from "./test-db";
 import { makeUser, makeDesign } from "./factories";
-import { generationUsage, imageGeneration } from "@/lib/db/schema";
+import { generationUsage, imageGeneration, image as imageTable } from "@/lib/db/schema";
 import { consumeGenerationQuota, dayKeyUTC } from "@/lib/generation-quota";
+import { buildImageRow } from "@/lib/model-b-writes";
 import {
   GENERATION_CONCURRENCY_CAP,
   STALE_JOB_MS,
   cancelGenerationJob,
   countRunningJobsForUser,
   countActiveGenerationsForUser,
+  discardCancelledJobStatement,
   failGenerationJob,
   getRunningJobsForDesign,
   insertGenerationJob,
+  insertIfJobSucceededStatement,
   succeedJobStatement,
   sweepStaleJobs,
 } from "@/lib/generation-job";
@@ -384,6 +387,189 @@ describe("cancelGenerationJob", () => {
     await failGenerationJob({ jobId: job.id, error: "boom", now: NOW, db });
 
     expect(await cancelGenerationJob({ jobId: job.id, userId: USER, db })).toBe(false);
+  });
+
+  it("refuses a job the continuation already discarded", async () => {
+    const job = await seedJob();
+    await cancelGenerationJob({ jobId: job.id, userId: USER, db });
+    await discardCancelledJobStatement(db, job.id, NOW);
+
+    expect(await cancelGenerationJob({ jobId: job.id, userId: USER, db })).toBe(false);
+  });
+});
+
+describe("discardCancelledJobStatement (#187)", () => {
+  async function jobRow(id: string) {
+    const [row] = await db.select().from(imageGeneration).where(eq(imageGeneration.id, id));
+    return row;
+  }
+
+  it("moves a cancel-requested running job to `cancelled` without a refund, freeing its slot", async () => {
+    await consumeGenerationQuota({ userId: USER, isAnonymous: false, ip: IP, now: NOW, db });
+    const day = dayKeyUTC(NOW);
+    expect(await usageCount(`user:${USER}`, day)).toBe(1);
+
+    const job = await seedJob();
+    await cancelGenerationJob({ jobId: job.id, userId: USER, db });
+    expect(await countRunningJobsForUser(USER, db)).toBe(1);
+
+    const result = await discardCancelledJobStatement(db, job.id, NOW);
+    expect(result.rowsAffected).toBe(1);
+
+    const row = await jobRow(job.id);
+    expect(row.status).toBe("cancelled");
+    expect(row.finishedAt?.getTime()).toBe(NOW.getTime());
+    expect(row.cancelledAt).not.toBeNull();
+    expect(row.error).toBeNull();
+
+    // No refund: a cancel is billed. Both buckets untouched.
+    expect(await usageCount(`user:${USER}`, day)).toBe(1);
+    expect(await usageCount(`ip:${IP}`, day)).toBe(1);
+
+    // Terminal, so the cap no longer counts it and nothing displays it.
+    expect(await countRunningJobsForUser(USER, db)).toBe(0);
+    expect(await countActiveGenerationsForUser(USER, db)).toBe(0);
+    expect(await getRunningJobsForDesign(designId, db)).toEqual([]);
+  });
+
+  it("admits a fourth job the moment a cancelled one is discarded", async () => {
+    const jobs = [];
+    for (let i = 0; i < GENERATION_CONCURRENCY_CAP; i++) {
+      jobs.push(await seedJob({ generationNumber: i + 1 }));
+    }
+    await cancelGenerationJob({ jobId: jobs[0].id, userId: USER, db });
+
+    // A cancel REQUEST alone frees nothing — the render is still in flight.
+    const refused = await seedJob({ generationNumber: 4 }).catch((e: Error) => e);
+    expect(refused).toBeInstanceOf(Error);
+
+    await discardCancelledJobStatement(db, jobs[0].id, NOW);
+    const admitted = await seedJob({ generationNumber: 4 });
+    expect(admitted.status).toBe("running");
+  });
+
+  it("is a no-op on a running job with no cancel request", async () => {
+    const job = await seedJob();
+    const result = await discardCancelledJobStatement(db, job.id, NOW);
+    expect(result.rowsAffected).toBe(0);
+    expect((await jobRow(job.id)).status).toBe("running");
+  });
+
+  it("cannot resurrect a job the sweeper already failed", async () => {
+    const job = await seedJob();
+    await cancelGenerationJob({ jobId: job.id, userId: USER, db });
+    await failGenerationJob({ jobId: job.id, error: "Generation timed out", now: NOW, db });
+
+    const result = await discardCancelledJobStatement(db, job.id, NOW);
+    expect(result.rowsAffected).toBe(0);
+    expect((await jobRow(job.id)).status).toBe("failed");
+  });
+
+  it("is the exact complement of succeedJobStatement — one matches, never both", async () => {
+    const plain = await seedJob({ generationNumber: 1 });
+    const cancelled = await seedJob({ generationNumber: 2 });
+    await cancelGenerationJob({ jobId: cancelled.id, userId: USER, db });
+
+    // Same order the completion batch uses.
+    const [s1, d1] = await db.batch([
+      succeedJobStatement(db, plain.id, NOW),
+      discardCancelledJobStatement(db, plain.id, NOW),
+    ]);
+    expect([s1.rowsAffected, d1.rowsAffected]).toEqual([1, 0]);
+
+    const [s2, d2] = await db.batch([
+      succeedJobStatement(db, cancelled.id, NOW),
+      discardCancelledJobStatement(db, cancelled.id, NOW),
+    ]);
+    expect([s2.rowsAffected, d2.rowsAffected]).toEqual([0, 1]);
+
+    expect((await jobRow(plain.id)).status).toBe("succeeded");
+    expect((await jobRow(cancelled.id)).status).toBe("cancelled");
+  });
+});
+
+describe("insertIfJobSucceededStatement (#187)", () => {
+  const spec = {
+    subject: "a fox",
+    elements: [{ type: "obj" as const, desc: "a fox" }],
+  };
+
+  function row(id: string) {
+    return buildImageRow({
+      id,
+      ownerId: USER,
+      designId,
+      // Fixed rather than id-derived so two rows compare equal minus `id`.
+      imageUrl: "https://r2/images/fox.png",
+      aspectRatio: "1:1",
+      prompt: "a fox",
+      operation: "generate",
+      designSpec: spec,
+      generator: "ideogram",
+      generationCost: 0.03,
+      parentImageId: null,
+      createdAt: NOW,
+    });
+  }
+
+  async function imageRow(id: string) {
+    const [found] = await db.select().from(imageTable).where(eq(imageTable.id, id));
+    return found ?? null;
+  }
+
+  it("lands a row identical to a values() insert once the job is succeeded", async () => {
+    const job = await seedJob();
+    await succeedJobStatement(db, job.id, NOW);
+
+    const viaSelect = crypto.randomUUID();
+    const viaValues = crypto.randomUUID();
+    const result = await insertIfJobSucceededStatement(db, job.id, imageTable, row(viaSelect));
+    expect(result.rowsAffected).toBe(1);
+    await db.insert(imageTable).values(row(viaValues));
+
+    // json (design_spec_json) and timestamp (created_at) columns round-trip
+    // through the same driver mapping as a normal insert.
+    const a = await imageRow(viaSelect);
+    const b = await imageRow(viaValues);
+    expect(a).not.toBeNull();
+    expect({ ...a, id: null }).toEqual({ ...b, id: null });
+    expect(a!.designSpecJson).toEqual(spec);
+    expect(a!.createdAt.getTime()).toBe(NOW.getTime());
+  });
+
+  it("applies a column's $defaultFn when the row omits it", async () => {
+    const job = await seedJob();
+    await succeedJobStatement(db, job.id, NOW);
+
+    const id = crypto.randomUUID();
+    const { createdAt: _omit, ...withoutCreatedAt } = row(id);
+    void _omit;
+    const before = Date.now();
+    await insertIfJobSucceededStatement(db, job.id, imageTable, withoutCreatedAt);
+
+    const found = await imageRow(id);
+    expect(found).not.toBeNull();
+    // Seconds precision (timestamp mode), so allow the truncation.
+    expect(found!.createdAt.getTime()).toBeGreaterThanOrEqual(before - 1000);
+  });
+
+  it("lands nothing while the job is still running", async () => {
+    const job = await seedJob();
+    const id = crypto.randomUUID();
+    const result = await insertIfJobSucceededStatement(db, job.id, imageTable, row(id));
+    expect(result.rowsAffected).toBe(0);
+    expect(await imageRow(id)).toBeNull();
+  });
+
+  it("lands nothing for a cancelled job", async () => {
+    const job = await seedJob();
+    await cancelGenerationJob({ jobId: job.id, userId: USER, db });
+    await discardCancelledJobStatement(db, job.id, NOW);
+
+    const id = crypto.randomUUID();
+    const result = await insertIfJobSucceededStatement(db, job.id, imageTable, row(id));
+    expect(result.rowsAffected).toBe(0);
+    expect(await imageRow(id)).toBeNull();
   });
 });
 

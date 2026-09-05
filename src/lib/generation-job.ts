@@ -11,7 +11,20 @@
  * 2. The refund credits the day the generation was *started*, read off the
  *    row's `day_key`, not whatever day it is when the failure is noticed.
  */
-import { sql, and, eq, lt, asc, count, isNull } from "drizzle-orm";
+import {
+  sql,
+  and,
+  eq,
+  lt,
+  asc,
+  count,
+  isNull,
+  isNotNull,
+  getTableColumns,
+  type SQL,
+  type SQLWrapper,
+} from "drizzle-orm";
+import type { SQLiteTable } from "drizzle-orm/sqlite-core";
 import type { db as appDb } from "./db";
 import { imageGeneration } from "./db/schema";
 import { refundGenerationQuota } from "./generation-quota";
@@ -173,31 +186,120 @@ export async function failGenerationJob(params: {
  * success. The statement matching zero rows is the correct outcome there, not
  * an error.
  *
+ * Also conditional on `cancelled_at is null` (#187): a job the user cancelled
+ * never becomes succeeded — its result is discarded. The completion path runs
+ * this FIRST in its batch and makes every row it lands conditional on this
+ * statement having matched (insertIfJobSucceededStatement), so the decision
+ * between "land" and "discard" is one row-level UPDATE inside one
+ * transaction. A cancel that commits before the batch wins; one that arrives
+ * after finds `status = 'succeeded'` and affects zero rows. There is no
+ * window in which a read of `cancelled_at` could go stale.
+ *
  * No refund counterpart exists here — success keeps the quota unit.
  *
- * REQUIRED OF THE COMPLETION PATH (Task 3): run this whether or not the job was
- * cancelled. Cancellation deliberately leaves `status = 'running'`, so this is
- * the only thing that releases a cancelled job's concurrency slot. Skipping it
- * for cancelled jobs would pin the slot until the stale sweep at
- * STALE_JOB_MS — the accepted cost of cancelled jobs holding a slot is the
- * render's real duration, and only this call keeps it that way.
+ * REQUIRED OF THE COMPLETION PATH: pair this with discardCancelledJobStatement
+ * in the same batch. For one running job exactly one of the two matches, and
+ * whichever does is what releases the concurrency slot. Running only this one
+ * would pin a cancelled job's slot until the stale sweep at STALE_JOB_MS.
  */
 export function succeedJobStatement(db: AppDb, jobId: string, now: Date) {
   return db
     .update(imageGeneration)
     .set({ status: "succeeded", finishedAt: now })
-    .where(and(eq(imageGeneration.id, jobId), eq(imageGeneration.status, "running")));
+    .where(
+      and(
+        eq(imageGeneration.id, jobId),
+        eq(imageGeneration.status, "running"),
+        isNull(imageGeneration.cancelledAt)
+      )
+    );
 }
 
 /**
- * Owner-gated cancel. Sets `cancelled_at` and leaves `status = 'running'` —
- * the provider call is still in flight and will still land, and keeping the
- * status untouched means every transition predicate in this file stays
- * `status = 'running'`. Consumers treat a cancelled job as "may append its
- * image, may never clobber newer state" — enforced by the guarded
- * primary-image claim in runGenerationJob, not by any client-side state.
+ * The running -> cancelled half (#187): the terminal status for a job whose
+ * user cancelled it before the result landed. Matches only a row that is
+ * still `running` AND carries a cancel request (`cancelled_at`), so it is the
+ * exact complement of succeedJobStatement.
  *
- * No refund: the render runs and is billed regardless.
+ * `cancelled` is its own status rather than `failed` with a reason because
+ * `failed` carries a refund by contract: failGenerationJob transitions and
+ * refunds together, the sweep counts every `failed` row as refunded, and the
+ * polling UI maps `failed` to error copy. A cancel is billed, refunds nothing,
+ * and the UI shows nothing for it. Every transition predicate in this file
+ * still reads `status = 'running'`, so the new terminal state is invisible to
+ * the cap count, the stale sweep, getRunningJobsForDesign and the Studio's
+ * pending cells without any of them changing.
+ *
+ * Callers book the generation's cost alongside this statement (the render was
+ * paid for) and delete the R2 object if they had already uploaded it. No
+ * refund: see cancelGenerationJob.
+ */
+export function discardCancelledJobStatement(db: AppDb, jobId: string, now: Date) {
+  return db
+    .update(imageGeneration)
+    .set({ status: "cancelled", finishedAt: now })
+    .where(
+      and(
+        eq(imageGeneration.id, jobId),
+        eq(imageGeneration.status, "running"),
+        isNotNull(imageGeneration.cancelledAt)
+      )
+    );
+}
+
+/**
+ * `INSERT … SELECT … FROM image_generation WHERE id = ? AND status =
+ * 'succeeded'` — an insert that lands only if the job is marked succeeded.
+ * Composed into the completion batch AFTER succeedJobStatement, where the
+ * same transaction has already flipped the status (or not), so the image
+ * row, the conversation link and the chat turn can never land for a
+ * cancelled or swept job, and no read-then-write is involved.
+ *
+ * Columns come from the drizzle table so the row keeps its usual shape: an
+ * omitted key falls through to the column's `$defaultFn` (ids, timestamps), a
+ * present value goes through `mapToDriverValue` (json and timestamp modes),
+ * and a key with neither is left out for the DB default.
+ */
+export function insertIfJobSucceededStatement<T extends SQLiteTable>(
+  db: AppDb,
+  jobId: string,
+  table: T,
+  row: T["$inferInsert"]
+) {
+  const names: SQLWrapper[] = [];
+  const values: SQL[] = [];
+  for (const [key, column] of Object.entries(getTableColumns(table))) {
+    let value = (row as Record<string, unknown>)[key];
+    if (value === undefined && column.defaultFn) value = column.defaultFn();
+    if (value === undefined) continue;
+    names.push(sql.identifier(column.name));
+    values.push(sql`${value === null ? null : column.mapToDriverValue(value)}`);
+  }
+  return db.run(sql`
+    insert into ${table} (${sql.join(names, sql`, `)})
+    select ${sql.join(values, sql`, `)}
+    from image_generation
+    where id = ${jobId} and status = 'succeeded'
+  `);
+}
+
+/**
+ * Owner-gated cancel REQUEST. Sets `cancelled_at` and leaves `status =
+ * 'running'` — the provider call is still in flight and cannot be stopped,
+ * and keeping the status untouched means every transition predicate in this
+ * file stays `status = 'running'`. The continuation honours the request when
+ * the result comes back (#187): it discards the image (nothing is written to
+ * `image`/`conversation_image`/`chat_message`, no primary claim, the R2
+ * object is deleted or never uploaded) and moves the row to the terminal
+ * `cancelled` status via discardCancelledJobStatement, which is what frees
+ * the concurrency slot.
+ *
+ * Returns false for a job that already settled — including one that landed
+ * a moment ago. That is the "cancelled after landing" case and it changes
+ * nothing: the image stays.
+ *
+ * No refund, ever: the render runs and is billed regardless, and its cost is
+ * still booked against the design.
  */
 export async function cancelGenerationJob(params: {
   jobId: string;
@@ -222,13 +324,15 @@ export async function cancelGenerationJob(params: {
 /**
  * Every job for this design that has not reached a terminal status.
  *
- * INCLUDES CANCELLED JOBS, and that is intentional — cancel does not stop the
- * render, so a cancelled job is genuinely still running and still holding its
- * concurrency slot. Consumers MUST consult `cancelledAt` on each row rather
- * than treating the whole list as in-flight work: rendering a cancelled
- * generation as an active spinner is the bug this note exists to prevent. Use
- * the list for slot/lifecycle accounting; filter on `cancelledAt === null`
- * for anything the user is meant to read as "still working".
+ * INCLUDES CANCEL-REQUESTED JOBS, and that is intentional — cancel does not
+ * stop the render, so until the continuation notices the request and moves
+ * the row to `cancelled`, the job is genuinely still running and still
+ * holding its concurrency slot. Consumers MUST consult `cancelledAt` on each
+ * row rather than treating the whole list as in-flight work: rendering a
+ * cancelled generation as an active spinner is the bug this note exists to
+ * prevent. Use the list for slot/lifecycle accounting; filter on
+ * `cancelledAt === null` for anything the user is meant to read as "still
+ * working".
  */
 export async function getRunningJobsForDesign(
   designId: string,
@@ -248,8 +352,9 @@ export async function getRunningJobsForDesign(
  * SLOT accounting: how many of the user's concurrency slots are occupied.
  *
  * Counts cancelled-but-running jobs, and must — cancel does not stop the
- * render, so the row keeps its slot until the continuation lands. This is the
- * number the cap is checked against, and the only correct one for that job.
+ * render, so the row keeps its slot until the continuation comes back and
+ * discards the result. This is the number the cap is checked against, and
+ * the only correct one for that job.
  *
  * It is deliberately NOT the number to show anyone: see
  * countActiveGenerationsForUser. Serving both meanings from one function is
@@ -300,14 +405,16 @@ export async function countActiveGenerationsForUser(
  * type-check as `{}` and silently sweep every user's jobs. `{ scope: "all" }`
  * has to be said out loud, and only the cron says it.
  *
- * Cancelled jobs are deliberately NOT excluded, though sweeping one refunds a
- * unit for a generation the user chose to walk away from. Cancel means "I
- * stopped watching", not "the render failed" — the render keeps going and
- * normally succeeds well inside STALE_JOB_MS, so the sweep never sees it. A
- * cancelled job still running at the cutoff genuinely produced nothing, and a
- * unit that bought nothing is refundable whether or not the user was still
- * watching. Reading this as free quota requires the render to actually die,
- * which the user cannot cause. Do not add a `cancelled_at is null` filter.
+ * Cancel-requested jobs (still `running`, `cancelled_at` set) are deliberately
+ * NOT excluded, though sweeping one refunds a unit for a generation the user
+ * chose to walk away from. Cancel does not stop the render — it keeps going
+ * and normally comes back well inside STALE_JOB_MS, at which point the
+ * continuation moves the row to the terminal `cancelled` status with NO
+ * refund, and the sweep never sees it. A cancelled job still `running` at the
+ * cutoff genuinely produced nothing, and a unit that bought nothing is
+ * refundable whether or not the user was still watching. Reading this as free
+ * quota requires the render to actually die, which the user cannot cause. Do
+ * not add a `cancelled_at is null` filter.
  *
  * `limit` bounds how many stale rows one call will fetch and process, oldest
  * first (so a backlog drains in order across repeated calls rather than

@@ -33,13 +33,18 @@ vi.mock("@/app/design/actions", () => ({
     imageId: "img-new",
   })),
   closeConversation: vi.fn(async () => {}),
+  cancelGeneration: vi.fn(async () => true),
 }));
 vi.mock("@/app/designs/actions", () => ({
   deleteDesign: vi.fn(async () => ({})),
 }));
 
 import { deleteConversations, getStudioLanes } from "../actions";
-import { generateDesign, closeConversation } from "@/app/design/actions";
+import {
+  generateDesign,
+  closeConversation,
+  cancelGeneration,
+} from "@/app/design/actions";
 import { deleteDesign } from "@/app/designs/actions";
 
 // jsdom implements neither; the component calls both.
@@ -269,6 +274,38 @@ describe("closing a lane", () => {
   it("offers no Close while a generation is running", () => {
     render(<StudioClient initialLanes={[lane({ pending: [pendingJob("j1")] })]} />);
     expect(screen.queryByTestId("studio-close-lane")).toBeNull();
+  });
+});
+
+describe("cancelling a pending generation (#187)", () => {
+  it("Cancel on the pending cell calls cancelGeneration and drops the cell", async () => {
+    render(
+      <StudioClient
+        initialLanes={[lane({ cells: [cell("img-1")], pending: [pendingJob("job-1")] })]}
+      />
+    );
+
+    fireEvent.click(screen.getByTestId("cancel-generation"));
+
+    // Optimistic: the cell leaves now; the lane and its finished work stay.
+    expect(screen.queryByTestId("studio-pending-cell")).toBeNull();
+    expect(screen.getAllByTestId("studio-cell")).toHaveLength(1);
+    expect(screen.getByTestId("studio-lane")).toBeTruthy();
+    await waitFor(() => expect(cancelGeneration).toHaveBeenCalledWith("job-1"));
+  });
+
+  it("cancels only the tapped job when a lane has several pending", async () => {
+    render(
+      <StudioClient
+        initialLanes={[lane({ pending: [pendingJob("job-1"), pendingJob("job-2")] })]}
+      />
+    );
+
+    fireEvent.click(screen.getAllByTestId("cancel-generation")[1]);
+
+    expect(screen.getAllByTestId("studio-pending-cell")).toHaveLength(1);
+    await waitFor(() => expect(cancelGeneration).toHaveBeenCalledWith("job-2"));
+    expect(cancelGeneration).toHaveBeenCalledTimes(1);
   });
 });
 

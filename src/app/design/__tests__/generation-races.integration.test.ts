@@ -360,7 +360,8 @@ describe("generateDesign — job insert + continuation", () => {
     expect((await jobs(designId)).every((j) => j.status === "succeeded")).toBe(true);
   });
 
-  it("lets a cancelled job append its image without claiming primary", async () => {
+  it("discards the result of a job cancelled mid-render: billed, nothing lands, no upload (#187)", async () => {
+    process.env.GUEST_FUNNEL_ENABLED = "true";
     const designId = await seedDesign(0);
     const existing = await seedSourceImage(designId, "https://r2/existing.png");
     await testDb
@@ -369,23 +370,101 @@ describe("generateDesign — job insert + continuation", () => {
       .where(eq(schema.design.id, designId));
 
     const res = expectQueued(await generateDesign(designId, "one"));
+    expect(await userQuotaCount()).toBe(1);
     expect(await cancelGenerationJob({ jobId: res.jobId, userId: "u1", db: testDb })).toBe(
       true
     );
 
     await drainAfter();
 
-    const design = await getDesignRow(designId);
-    // Image + cost land; the hero the user moved on to is untouched.
-    expect(design.primaryImageId).toBe(existing);
-    expect(design.generationCost).toBeCloseTo(0.03);
-    expect((await sourceImages(designId)).map((i) => i.id)).toContain(res.imageId);
+    // The provider result never became ours: the cancel is honoured before the
+    // fetch + upload, so there is no object to delete either.
+    expect(uploadMock).not.toHaveBeenCalled();
+    expect(deleteMock).not.toHaveBeenCalled();
 
-    // The slot is released even though the job was cancelled — the transition
-    // is what frees it (generation-job.ts, succeedJobStatement).
+    // Nothing landed — no image, no link, no assistant turn — and the hero the
+    // user moved on to is untouched.
+    expect((await sourceImages(designId)).map((i) => i.id)).toEqual([existing]);
+    expect((await chatMessages(designId)).map((m) => m.role)).toEqual(["user"]);
+    const design = await getDesignRow(designId);
+    expect(design.primaryImageId).toBe(existing);
+    // Still billed: the render ran.
+    expect(design.generationCost).toBeCloseTo(0.03);
+
+    // Terminal `cancelled`, not `failed` — and no refund.
+    const [job] = await jobs(designId);
+    expect(job.status).toBe("cancelled");
+    expect(job.finishedAt).not.toBeNull();
+    expect(job.cancelledAt).not.toBeNull();
+    expect(job.error).toBeNull();
+    expect(await userQuotaCount()).toBe(1);
+  });
+
+  it("closes the race: a cancel that lands during the upload is caught by the batch, not a stale read", async () => {
+    process.env.GUEST_FUNNEL_ENABLED = "true";
+    const designId = await seedDesign(0);
+    const res = expectQueued(await generateDesign(designId, "one"));
+
+    // The early check has already passed (the job was not cancelled when the
+    // provider returned); the cancel commits while the bytes are in flight to
+    // R2 — after the check, before the write batch.
+    uploadMock.mockImplementationOnce(async (imageId: string) => {
+      expect(
+        await cancelGenerationJob({ jobId: res.jobId, userId: "u1", db: testDb })
+      ).toBe(true);
+      return `https://r2/images/${imageId}.png`;
+    });
+
+    await drainAfter();
+
+    // The batch's first statement (the conditional succeed) saw the cancel;
+    // every insert was conditional on it, so none landed.
+    expect(uploadMock).toHaveBeenCalledTimes(1);
+    expect(deleteMock).toHaveBeenCalledWith(res.imageId);
+    expect(await sourceImages(designId)).toHaveLength(0);
+    expect((await chatMessages(designId)).map((m) => m.role)).toEqual(["user"]);
+    const design = await getDesignRow(designId);
+    expect(design.primaryImageId).toBeNull();
+    // Booked exactly once, by the batch — the early path did not run.
+    expect(design.generationCost).toBeCloseTo(0.03);
+
+    const [job] = await jobs(designId);
+    expect(job.status).toBe("cancelled");
+    expect(await userQuotaCount()).toBe(1);
+  });
+
+  it("leaves a landed image alone when the cancel arrives after it", async () => {
+    const designId = await seedDesign(0);
+    const res = expectQueued(await generateDesign(designId, "one"));
+    await drainAfter();
+
+    expect(await cancelGeneration(res.jobId)).toBe(false);
+
+    expect((await sourceImages(designId)).map((i) => i.id)).toEqual([res.imageId]);
+    expect((await getDesignRow(designId)).primaryImageId).toBe(res.imageId);
     const [job] = await jobs(designId);
     expect(job.status).toBe("succeeded");
-    expect(job.cancelledAt).not.toBeNull();
+    expect(job.cancelledAt).toBeNull();
+    expect(deleteMock).not.toHaveBeenCalled();
+  });
+
+  it("frees the slot when the discard lands: a fourth generation is admitted", async () => {
+    const designId = await seedDesign(0);
+    const first = expectQueued(await generateDesign(designId, "one"));
+    for (let i = 1; i < GENERATION_CONCURRENCY_CAP; i++) {
+      expectQueued(await generateDesign(designId, `n${i}`));
+    }
+    expect((await generateDesign(designId, "four")).kind).toBe("at_capacity");
+
+    // A cancel request alone changes nothing for the cap — the render is still
+    // in flight and holds its slot.
+    expect(await cancelGeneration(first.jobId)).toBe(true);
+    // (the at_capacity turn above queued no continuation; index 0 is `first`)
+    expect((await generateDesign(designId, "four again")).kind).toBe("at_capacity");
+
+    await drainOne(0);
+
+    expectQueued(await generateDesign(designId, "four, admitted"));
   });
 
   it("lets an older job claim primary when the newer one was cancelled", async () => {
@@ -394,18 +473,25 @@ describe("generateDesign — job insert + continuation", () => {
     const first = expectQueued(await generateDesign(designId, "one"));
     const second = expectQueued(await generateDesign(designId, "two"));
 
-    // The user cancels the newer generation, then it lands first.
+    // The user cancels the newer generation, then it comes back first — and
+    // is discarded (#187): no image, no claim.
     expect(
       await cancelGenerationJob({ jobId: second.jobId, userId: "u1", db: testDb })
     ).toBe(true);
     await drainOne(1);
     expect((await getDesignRow(designId)).primaryImageId).toBeNull();
+    expect(await sourceImages(designId)).toHaveLength(0);
 
     await drainOne(0);
 
     // The only generation the user still wants becomes the hero. A cancelled
-    // newer job must not block the claim just because it succeeded.
+    // newer job must not block the claim: it is terminal `cancelled`, which
+    // the claim's "newer succeeded generation" subquery does not count.
     expect((await getDesignRow(designId)).primaryImageId).toBe(first.imageId);
+    expect((await jobs(designId)).map((j) => j.status).sort()).toEqual([
+      "cancelled",
+      "succeeded",
+    ]);
   });
 
   it("deletes the orphaned R2 object and fails the job when the DB batch fails", async () => {
@@ -739,6 +825,21 @@ describe("cancelGeneration + getDesignJobs (the UI's read/write surface)", () =>
     const state = await getDesignJobs(designId, [res.jobId]);
     expect(state.running).toEqual([]);
     expect(state.settled).toEqual([]);
+  });
+
+  it("reports a discarded job as settled `cancelled` — no image, no failure (#187)", async () => {
+    const designId = await seedDesign(0);
+    const res = expectQueued(await generateDesign(designId, "one"));
+    await cancelGeneration(res.jobId);
+    await drainAfter();
+
+    // A tracking client (another tab) learns to stop waiting, and nothing
+    // else: no thread refresh to trigger, no error copy to show.
+    const state = await getDesignJobs(designId, [res.jobId]);
+    expect(state.running).toEqual([]);
+    expect(state.settled).toEqual([
+      { jobId: res.jobId, status: "cancelled", imageId: null, failure: null },
+    ]);
   });
 });
 

@@ -196,6 +196,22 @@ describe("reduceJobPoll", () => {
     expect(step.errorCopy).toBeNull();
   });
 
+  it("settles a tracked `cancelled` job quietly: no refresh, no error copy (#187)", () => {
+    // Another tab cancelled a job this one was still tracking; the
+    // continuation discarded it. Stop waiting, show nothing.
+    const step = reduceJobPoll({
+      trackedJobIds: ["j1"],
+      result: result({
+        settled: [{ jobId: "j1", status: "cancelled", imageId: null, failure: null }],
+      }),
+      chatTurnInFlight: false,
+      consecutiveErrors: 0,
+    });
+    expect(step.settling).toEqual(["j1"]);
+    expect(step.refreshThread).toBe(false);
+    expect(step.errorCopy).toBeNull();
+  });
+
   it("reports both when a batch settles one success and one failure", () => {
     const step = reduceJobPoll({
       trackedJobIds: ["j1", "j2"],
