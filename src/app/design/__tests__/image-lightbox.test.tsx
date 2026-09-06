@@ -148,10 +148,32 @@ describe("ImageLightbox closing", () => {
   it("backdrop click closes; a click inside the content does not", () => {
     const { onClose } = renderLightbox();
     fireEvent.click(screen.getByText("#7 of 3"));
-    fireEvent.click(screen.getByRole("img", { name: "Design #7 on dark" }));
+    fireEvent.click(screen.getByRole("img", { name: "Design #7" }));
     expect(onClose).not.toHaveBeenCalled();
     fireEvent.click(screen.getByTestId("image-lightbox"));
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("focuses the Close button on mount", () => {
+    renderLightbox();
+    expect(screen.getByRole("button", { name: "Close" })).toHaveFocus();
+  });
+});
+
+describe("ImageLightbox single view", () => {
+  it("renders exactly one img for the current image", () => {
+    renderLightbox();
+    expect(screen.getAllByRole("img")).toHaveLength(1);
+    expect(screen.getByRole("img")).toHaveAttribute(
+      "alt",
+      "Design #7"
+    );
+  });
+
+  it("has no side-by-side toggle", () => {
+    renderLightbox();
+    expect(screen.queryByText("Side by side")).toBeNull();
+    expect(screen.queryByText("Single view")).toBeNull();
   });
 });
 
