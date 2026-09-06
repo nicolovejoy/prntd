@@ -289,7 +289,7 @@ differ.
 - **Funnel** — Studio → Preview → Order → Confirm. Linear, breadcrumbed.
 - **Shelf** — the personal archive: `/designs`, `/orders`.
 - **Counter** — `/admin`. Back of shop.
-- **Dashboard** — `/dashboard`. Where organizers run their shops.
+- **Dashboard** — `/dashboard`. Where organizers run their shops — retired (#191).
 
 **Surfaces & regions**
 
@@ -458,7 +458,7 @@ and covered by Part 1's samples.
 ### Global chrome (`app/layout.tsx`)
 
 1. **SiteHeader** (`components/site-header.tsx`) — logo, nav (Studio /
-   My Designs / Shop / Orders, Dashboard behind `STORES_ENABLED`; "New
+   My Designs / Shop / Orders, Dashboard behind `STORES_ENABLED` — retired (#191); "New
    Design" removed 2026-09-01 — the Studio composer starts new work), cart
    count (flag `CART_ENABLED`), sign-in/out. Phone: hamburger dropdown. Anon
    guests read as signed-out.
@@ -483,7 +483,7 @@ Signed-in, route back to work.
 4. **Shop teaser** — `PublishedGrid` 12-card feed + "See all" → /prints.
 5. **Promo banner** — conditional, config-driven (`lib/promotion.ts`).
 6. **Pricing line** — driven by `minRetailPrice()`, never hardcoded.
-7. **Footer** — contact email + "Open a shop →" (`/dashboard`).
+7. **Footer** — contact email + "Open a shop →" (`/dashboard`) — retired (#191).
 
 ### `/design` Studio (`app/design/page.tsx`)
 
@@ -580,7 +580,7 @@ depth is issue #45.
 1. **Product grid** — the organizer's listed products.
 2. **Buy page** (`[productId]`) — mockup Stage, size/color, buy CTA.
 
-### `/dashboard` Organizer dashboard (`app/dashboard/…`) — flag `STORES_ENABLED`
+### `/dashboard` Organizer dashboard (`app/dashboard/…`) — flag `STORES_ENABLED` — retired (#191)
 
 Job: create and run a shop.
 

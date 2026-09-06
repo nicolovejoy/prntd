@@ -81,3 +81,30 @@ the PR body (backup → migrate → verify).
 Use superpowers:subagent-driven-development to execute (one implementer per
 task, task review after each, whole-branch review at the end). Ledger lives
 in `.superpowers/sdd/<plan-basename>/progress.md`.
+
+## Status
+
+Built on this branch (`cloud/composition-slice-5-drops`); migration 0013
+awaits Nico's hand-apply from the PR body. Deviations from the plan text
+above:
+
+- Mirror identity is keyed on the generated column `product.front_image_id`
+  (`json_extract(placements, '$.front')`, VIRTUAL) with the unique index
+  `product_front_image_unique` — not "re-keyed off `design_id`", which is
+  gone. A generated column rather than an expression index because
+  drizzle-kit 0.31 emits invalid SQL for expression indexes on SQLite.
+- The migration DELETES the test-era organizer `product` rows behind a
+  guard (scratch table `CHECK (n = 0)` fed by the two order counts); the
+  plan only said "a non-zero count is a stop" for `order.store_id`. The
+  guard also covers orders whose `store_product_id` is an organizer product.
+- The `"product"` bulk-delete skip reason was removed rather than kept:
+  with `product.design_id` gone a product can only pin an image, and
+  `imageReferences()` already treats a pin as detach.
+- `composition-backfill.ts` and its script were deleted (source columns
+  gone), the same call the Model B drop made for its backfill.
+- `scripts/check-composition-read-parity.ts` is dual-mode (logic in
+  `src/lib/composition-parity.ts`, real-DB tested): pre-0013 reports the
+  guard's stop conditions, duplicate fronts and the rows the migration will
+  delete; post-0013 verifies the drops, the rename's columns, the generated
+  column, the index, the ledger row and structural parity.
+  `scripts/check-model-b-parity.ts` was deleted (gated 0009, long applied).

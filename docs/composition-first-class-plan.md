@@ -52,7 +52,7 @@ slice, one migration, mechanical. Open question 4.)
 ```
 id           text PK
 ownerId      text notNull → user.id      -- who composed / sells it
-storeId      text → store.id             -- null = the PRNTD Shop
+storeId      text → store.id             -- null = the PRNTD Shop (dropped in slice 5 with #191)
 blankId      text                        -- NOW NULLABLE: null = buyer picks the garment
 placements   json Record<placementKey, imageId>  -- notNull, ≥1 entry (front required)
 price        real                        -- null = computed; non-null REQUIRES blankId
@@ -116,7 +116,8 @@ start-from-image, `/d` visibility, or the #95 security posture.
 ### Untouched
 
 `order`, `order_item`, `cart_item`, `image`, `conversation_image`,
-`placement_render`, `store`, ledger — no schema change. `order_item` is
+`placement_render`, `store` (dropped in slice 5 with #191), ledger — no
+schema change. `order_item` is
 already the composition-at-purchase and stays authoritative for orders.
 `order.storeProductId` finally earns its keep: every Shop purchase (not just
 organizer-storefront ones) can now reference the product row it bought,
@@ -245,6 +246,52 @@ collapsed in slice 1's validation rework), drop the four moved columns from
 first, `migration-smoke.ts` skipped for the drop per the standing rule, use
 a check-composition-parity script instead (same pattern as
 `check-model-b-parity.ts`, which gated the last drop).
+
+**Slice 5 status (built 2026-09-06 — migration 0013 awaits Nico's hand-apply;
+see the PR body).** What shipped, and where it differs from the paragraph
+above:
+
+- The drops include #191 step 2: `store`, `product_offering`,
+  `order.store_id` and `product.store_id` go in the same migration as
+  `product.design_id`, the four frozen `listing` columns, and the
+  `listing` → `image_publication` rename. Routes, `store-service.ts` and the
+  store-compose e2e spec went in the code half of the same branch.
+- The "one composition per front image" rule is a VIRTUAL generated column
+  `product.front_image_id = json_extract(placements, '$.front')` plus an
+  ordinary unique index `product_front_image_unique` on it — not an
+  expression index. drizzle-kit 0.31 splits an expression index on its comma
+  and quotes the halves, which is invalid SQL in both the migration and the
+  schema-derived test DB; the generated column also gives every reader a real
+  column to join on (`composition-reads.ts` `mirrorFrontImageId`).
+- The migration DELETES the test-era organizer `product` rows (`design_id` or
+  `store_id` set) before the column drops. Without both columns they would be
+  indistinguishable from Shop compositions, and a stale one pinning the same
+  front image would collide with the new index. A guard runs first: a scratch
+  table with `CHECK (n = 0)` fed by the count of orders carrying `store_id`
+  and the count of orders whose `store_product_id` is an organizer product.
+  `drizzle-kit migrate` runs the file as one batch, so a non-zero count fails
+  the batch and rolls it back — a stop, not silent loss.
+- `product` is recreated by hand (copy → drop → rename), not
+  `ALTER TABLE … DROP COLUMN`: Drizzle declares FKs as table-level
+  constraints, and libSQL refuses to drop a column a table-level FOREIGN KEY
+  names. `order.store_id` had an inline REFERENCES, so its plain DROP COLUMN
+  works.
+- The four frozen `listing` columns were dropped WITHOUT reconciling into
+  `product`. They were stale by design since slice 4; `product` has been the
+  only writer target since then.
+- `composition-backfill.ts` and `scripts/backfill-composition-products.ts`
+  were deleted: their source columns no longer exist.
+- The `"product"` bulk-delete skip reason was removed. With `product.design_id`
+  gone a product can only PIN an image, and `imageReferences()` already treats
+  a pin as detach, never block — the reason could no longer fire.
+- The `listing…` helper names in `model-b-writes.ts` were renamed
+  `publication…` (`publicationSyncStatement`, `buildPublicationRow`).
+- Verification is `scripts/check-composition-read-parity.ts`, now dual-mode:
+  pre-0013 it reports the guard's stop conditions, duplicate fronts, and the
+  organizer rows the migration will delete; post-0013 it verifies every drop,
+  the rename's column set, the generated column, the index, the 0013 ledger
+  row, and structural parity. `migration-smoke.ts` exits 1 on any dropped
+  table and does not apply.
 
 Not in these slices, deliberately: any URL/route change for `/d`, a
 "compose a two-sided shirt for the Shop" UI, merged organizer+PRNTD feeds,

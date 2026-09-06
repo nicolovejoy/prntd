@@ -1,3 +1,5 @@
+> **RETIRED 2026-09-05 (#191).** Organizer storefronts were retired; the flag/entry points went in PR #193 and the tables, routes and service in composition slice 5 (migration 0013). Kept for history.
+
 # Organizer pivot — phased TDD implementation plan
 
 2026-06-18. Build plan for the positioning pivot (`docs/positioning-pivot.md`) and

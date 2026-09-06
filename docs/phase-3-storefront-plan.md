@@ -1,3 +1,5 @@
+> **RETIRED 2026-09-05 (#191).** Organizer storefronts were retired; the flag/entry points went in PR #193 and the tables, routes and service in composition slice 5 (migration 0013). Kept for history.
+
 # Phase 3 — `/shop/[slug]` storefront (organizer pivot, section B)
 
 The public destination for a store's Copy-link (currently 404s). A shopper browses
