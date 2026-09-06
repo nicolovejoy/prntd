@@ -7,6 +7,7 @@ import Link from "next/link";
 import { Button, Card } from "@/components/ui";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
+import { getColorHex } from "@/lib/blanks";
 
 export default function ConfirmPage() {
   return (
@@ -24,7 +25,14 @@ function ConfirmPageInner() {
     id: string;
     status: string;
     totalPrice: number;
-    lines: { blankId: string; size: string; color: string; quantity: number }[];
+    lines: {
+      blankId: string;
+      size: string;
+      color: string;
+      quantity: number;
+      imageUrl: string | null;
+      backImageUrl: string | null;
+    }[];
   } | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -75,11 +83,53 @@ function ConfirmPageInner() {
             <span className="font-mono">{order.id.slice(0, 8)}</span>
           </div>
           {order.lines.map((line, i) => (
-            <div key={i} className="flex justify-between">
-              <span className="text-text-muted">
-                {order.lines.length > 1 ? `Item ${i + 1}` : "Item"}
-              </span>
-              <span>
+            <div key={i} className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                {line.imageUrl && (
+                  <div className="flex gap-1 flex-shrink-0">
+                    <div className="flex flex-col items-center gap-0.5">
+                      <div
+                        className="w-12 h-12 rounded p-1 overflow-hidden"
+                        style={{ backgroundColor: getColorHex(line.blankId, line.color) }}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={line.imageUrl}
+                          alt="Front design"
+                          className="w-full h-full object-contain"
+                        />
+                      </div>
+                      {line.backImageUrl && (
+                        <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
+                          Front
+                        </span>
+                      )}
+                    </div>
+                    {line.backImageUrl && (
+                      <div className="flex flex-col items-center gap-0.5">
+                        <div
+                          className="w-12 h-12 rounded p-1 overflow-hidden"
+                          style={{ backgroundColor: getColorHex(line.blankId, line.color) }}
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={line.backImageUrl}
+                            alt="Back design"
+                            className="w-full h-full object-contain"
+                          />
+                        </div>
+                        <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
+                          Back
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+                <span className="text-text-muted truncate">
+                  {order.lines.length > 1 ? `Item ${i + 1}` : "Item"}
+                </span>
+              </div>
+              <span className="text-right">
                 {line.size} / {line.color}
                 {line.quantity > 1 && ` ×${line.quantity}`}
               </span>

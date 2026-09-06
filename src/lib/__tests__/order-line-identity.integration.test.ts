@@ -169,14 +169,82 @@ describe("resolveOrderLineIdentities", () => {
     ]);
 
     expect(identities).toEqual([
-      { imageUrl: null, title: null, contributors: [] },
+      { imageUrl: null, backImageUrl: null, title: null, contributors: [] },
     ]);
+  });
+
+  it("resolves a pinned front AND back to two distinct URLs (#167)", async () => {
+    await makeUser(db, "u1");
+    const design = await makeDesign(db, "u1");
+    const frontImage = await makeSourceImage(db, {
+      designId: design.id,
+      ownerId: "u1",
+      imageUrl: "https://img.example/front.png",
+    });
+    const backImage = await makeSourceImage(db, {
+      designId: design.id,
+      ownerId: "u1",
+      imageUrl: "https://img.example/back.png",
+    });
+
+    const [identity] = await resolveOrderLineIdentities(db, [
+      { designId: design.id, placements: { front: frontImage, back: backImage } },
+    ]);
+
+    expect(identity.imageUrl).toBe("https://img.example/front.png");
+    expect(identity.backImageUrl).toBe("https://img.example/back.png");
+    expect(identity.backImageUrl).not.toBe(identity.imageUrl);
+  });
+
+  it("resolves a back pinned to a placement-render id (Model B id reuse)", async () => {
+    await makeUser(db, "u1");
+    const design = await makeDesign(db, "u1");
+    const frontImage = await makeSourceImage(db, {
+      designId: design.id,
+      ownerId: "u1",
+      imageUrl: "https://img.example/front.png",
+    });
+    const renderId = crypto.randomUUID();
+    await db.insert(schema.placementRender).values({
+      id: renderId,
+      designId: design.id,
+      blankId: "bella-canvas-3001",
+      placementId: "back",
+      imageUrl: "https://img.example/back-render.png",
+      aspectRatio: "1:1",
+    });
+
+    const [identity] = await resolveOrderLineIdentities(db, [
+      { designId: design.id, placements: { front: frontImage, back: renderId } },
+    ]);
+
+    expect(identity.imageUrl).toBe("https://img.example/front.png");
+    expect(identity.backImageUrl).toBe("https://img.example/back-render.png");
+  });
+
+  it("a line without a back pin has no back image", async () => {
+    await makeUser(db, "u1");
+    const design = await makeDesign(db, "u1");
+    const frontImage = await makeSourceImage(db, {
+      designId: design.id,
+      ownerId: "u1",
+      imageUrl: "https://img.example/front.png",
+    });
+
+    const [identity] = await resolveOrderLineIdentities(db, [
+      { designId: design.id, placements: { front: frontImage } },
+    ]);
+
+    expect(identity.backImageUrl).toBeNull();
   });
 });
 
 describe("buildLineIdentities (pure)", () => {
   const ctx = {
-    urlByImageId: new Map([["img-a", "https://a.png"]]),
+    urlByImageId: new Map([
+      ["img-a", "https://a.png"],
+      ["img-b", "https://b.png"],
+    ]),
     titleByImageId: new Map([["img-a", "Title A"]]),
     displayUrlByDesignId: new Map([["d1", "https://d1.png"]]),
     designerByDesignId: new Map([["d1", { userId: "u1", name: "Nico" }]]),
@@ -189,16 +257,35 @@ describe("buildLineIdentities (pure)", () => {
     ).toEqual([
       {
         imageUrl: "https://a.png",
+        backImageUrl: null,
         title: "Title A",
         contributors: [{ userId: "u1", name: "Nico" }],
       },
     ]);
   });
 
+  it("resolves the back pin through the same url map (#167)", () => {
+    const [identity] = buildLineIdentities(
+      [{ designId: "d1", placements: { front: "img-a", back: "img-b" } }],
+      ctx
+    );
+    expect(identity.imageUrl).toBe("https://a.png");
+    expect(identity.backImageUrl).toBe("https://b.png");
+  });
+
+  it("an unresolvable back pin is null, never the design display image", () => {
+    const [identity] = buildLineIdentities(
+      [{ designId: "d1", placements: { front: "img-a", back: "gone" } }],
+      ctx
+    );
+    expect(identity.backImageUrl).toBeNull();
+  });
+
   it("falls back to the design display image with no title", () => {
     expect(buildLineIdentities([{ designId: "d1", placements: null }], ctx)).toEqual([
       {
         imageUrl: "https://d1.png",
+        backImageUrl: null,
         title: null,
         contributors: [{ userId: "u1", name: "Nico" }],
       },
@@ -211,6 +298,7 @@ describe("buildLineIdentities (pure)", () => {
     ).toEqual([
       {
         imageUrl: "https://d1.png",
+        backImageUrl: null,
         title: null,
         contributors: [{ userId: "u1", name: "Nico" }],
       },

@@ -7,6 +7,7 @@ import {
 } from "@/lib/db/schema";
 import { asc, eq } from "drizzle-orm";
 import { resolveOrderLines } from "@/lib/order-lines";
+import { resolveOrderLineIdentities } from "@/lib/order-line-identity";
 
 export async function getOrderBySession(stripeSessionId: string) {
   const found = await db.query.order.findFirst({
@@ -32,11 +33,21 @@ export async function getOrderBySession(stripeSessionId: string) {
     .where(eq(orderItemTable.orderId, found.id))
     .orderBy(asc(orderItemTable.createdAt));
 
-  const lines = resolveOrderLines(items).map((l) => ({
+  const resolved = resolveOrderLines(items);
+  // Front + back thumbnails (#167), one batched call for the whole order —
+  // the same mapper /orders and the admin order detail use.
+  const identities = await resolveOrderLineIdentities(
+    db,
+    resolved.map((l) => ({ designId: l.designId, placements: l.placements }))
+  );
+
+  const lines = resolved.map((l, i) => ({
     blankId: l.blankId,
     size: l.size,
     color: l.color,
     quantity: l.quantity,
+    imageUrl: identities[i].imageUrl,
+    backImageUrl: identities[i].backImageUrl,
   }));
 
   return {

@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useImperativeHandle,
+  useState,
+  type ReactNode,
+  type Ref,
+} from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui";
 import { SizePicker, ColorPicker } from "@/components/product-options";
@@ -19,6 +25,14 @@ import { ensureGuestSession } from "@/lib/ensure-guest-session";
 import { addToCart } from "@/app/cart/actions";
 import { buyPublishedDesign, getBuyPageBackSources } from "../actions";
 
+/** A picked back design: the source image id and its artwork URL. */
+export type BackPick = { id: string; imageUrl: string };
+
+export type BuyPanelHandle = {
+  /** Open the back-design picker (fetching its groups on first open). */
+  openBackPicker: () => void;
+};
+
 /**
  * Buy-existing UI on `/d/[imageId]`. Collapsed by default (#128): two peer
  * CTAs under the image — "Order" (no price: the total depends on options
@@ -31,6 +45,7 @@ import { buyPublishedDesign, getBuyPageBackSources } from "../actions";
  * so it updates instantly without a server round-trip.
  */
 export function BuyPanel({
+  ref,
   imageId,
   isLoggedIn,
   preferredColor,
@@ -41,7 +56,13 @@ export function BuyPanel({
   onExpandedChange,
   onProductChange,
   onColorChange,
+  onBackChange,
 }: {
+  /** Imperative handle (#167): lets the hero's add-a-back tile open this
+   * panel's picker without lifting the picker state out of the panel. The
+   * picker only renders in the expanded stack, and the tile is only visible
+   * while expanded, so the handle assumes expanded. */
+  ref?: Ref<BuyPanelHandle>;
   imageId: string;
   isLoggedIn: boolean;
   /** The design's pinned backdrop color; pre-selected when this product carries it. */
@@ -65,6 +86,9 @@ export function BuyPanel({
   onExpandedChange?: (expanded: boolean) => void;
   onProductChange?: (productId: string) => void;
   onColorChange?: (color: string) => void;
+  /** The picked back design, or null (#167: the hero renders a back tile
+   * for it). Same report-only contract as the three above. */
+  onBackChange?: (back: BackPick | null) => void;
 }) {
   // Progressive disclosure (#128): the picker stack stays hidden until the
   // visitor taps Order.
@@ -118,11 +142,14 @@ export function BuyPanel({
 
   // Back design (#25 on /d): picked source image, the picker's open state,
   // and its groups (null until first fetched — one fetch per page view).
-  const [back, setBack] = useState<{ id: string; imageUrl: string } | null>(
-    null
-  );
+  const [back, setBack] = useState<BackPick | null>(null);
   const [backPickerOpen, setBackPickerOpen] = useState(false);
   const [backGroups, setBackGroups] = useState<BackSourceGroup[] | null>(null);
+
+  useEffect(() => {
+    onBackChange?.(back);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [back]);
 
   function openBackPicker() {
     setBackPickerOpen(true);
@@ -131,6 +158,8 @@ export function BuyPanel({
       .then(({ groups }) => setBackGroups(groups))
       .catch(() => setBackGroups([]));
   }
+
+  useImperativeHandle(ref, () => ({ openBackPicker }));
 
   // Switching product can invalidate the current size/color. Size resets to
   // unselected (never silently re-picked); an invalidated color resets per

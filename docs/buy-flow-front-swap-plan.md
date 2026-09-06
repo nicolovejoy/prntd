@@ -270,7 +270,9 @@ Back    [44px thumb]  Change   ×          ← or: Add a back design (+$8.00)
   state instead of a separate link, so the two placements read as peers —
   which is the point of the issue.
 - The Front/Back hero toggle above the mockup is unchanged, including staying
-  hidden until a back is in play (#61).
+  hidden until a back is in play (#61). **(Superseded by #167: the toggle
+  is gone; the hero shows the front and a smaller back tile beside it, tap to
+  swap prominence — see "#167 status" below.)**
 - The sticky bottom bar is untouched; the total already lives there.
 
 ### /d (BuyPanel, expanded)
@@ -379,9 +381,42 @@ Each has a recommendation; "go with recommendations" is a sufficient reply.
 
 ## Status
 
-- **Slice 1: built** in this PR (server-side front pin, inert). Tests:
+- **Slice 1: shipped** (PR #158 — server-side front pin, inert). Tests:
   `src/app/order/__tests__/front-pin.integration.test.ts`.
-- Slices 2 and 3: not started. Slice 2 is gated on nothing; slice 3 waits on
-  open questions 1 and 6.
-</content>
-</invoke>
+- **Slice 2: shipped** (PR #164 — `/preview` front picker via `?front=`
+  only-when-differing, Placements block, Swap, plus the two defects in
+  "Two defects found while reading" and a third instance in
+  `prefetchProductMockups`).
+- **Slice 3: HELD** (open questions 1 and 6 answered "go with
+  recommendations" — swap only, after #135 slice 1 — but Nico held it on
+  2026-08-17 pending the composition model; `/d` has no front row and no
+  swap). #167 below does not touch it.
+
+## #167 status (both sides at once)
+
+Issue #167, decided 2026-08-17, replaced the "single hero + Front/Back
+toggle" presentation this plan assumed in §6 on BOTH buy surfaces:
+
+- `/preview`: the toggle is gone. The hero is one side (front by default)
+  and, when a back is picked, a smaller back tile sits under it; tapping the
+  tile makes that side the hero. Both sides are requested when a back
+  exists — placement render and Printful mockup each, the back after the
+  front's mockup fetch settles. A back render or mockup failure shows in
+  the tile itself with a retry. With no back but a back-capable product,
+  the tile slot is an "Add a back design (+$8.00)" entry point that opens the
+  same source picker the Placements block's Change opens; the picker gained
+  a Cancel. The placement state model (`frontImageId`/`backImageId`, the
+  `?front=`/`?back=` params, the Placements block, Swap) is unchanged.
+- `/d/[imageId]`: the back preview this page never had. `getListingBackMockup`
+  (visibility-gated like `getListingMockup` — `canViewImagePage` for the page
+  image AND `canUseAsPlacementSource` for the back source, flag-gated) renders
+  the picked back; `BuyHero` shows hero + tile driven by `BuyPanel`'s back
+  pick, with the same instant-artwork → mockup crossfade and in-tile error +
+  retry. Still no front picker and no swap here (slice 3 hold).
+- Decision 2's first slice: the order confirmation page and `/orders` show a
+  back thumbnail next to the front when the line's `placements.back` exists,
+  read from `order-line-identity.ts`'s `backImageUrl`. Cart line and the
+  Stripe line item stay front-only.
+- Shared pieces: `sidesLayout` in `src/lib/instant-preview.ts` decides hero
+  vs tile; `src/components/side-mockup.tsx` is the one layered side preview
+  both surfaces render twice.

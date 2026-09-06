@@ -124,27 +124,61 @@ export function OrdersList({ orders }: { orders: UserOrder[] }) {
                 <div className="space-y-2">
                   {order.lines.map((line, i) => (
                     <div key={i} className="flex gap-4">
-                      {/* Design thumbnail on the line's selected color */}
-                      <div
-                        className="w-16 h-16 rounded p-1.5 flex-shrink-0 overflow-hidden"
-                        style={{
-                          backgroundColor: line.imageUrl
-                            ? getColorHex(line.blankId, line.color)
-                            : undefined,
-                        }}
-                      >
-                        {line.imageUrl ? (
-                          <Image
-                            src={line.imageUrl}
-                            alt="Design"
-                            width={64}
-                            height={64}
-                            sizes="64px"
-                            className="w-full h-full object-contain"
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-text-faint text-xs bg-surface-raised rounded">
-                            —
+                      {/* Design thumbnail(s) on the line's selected color; a
+                          second tile for the back print when the line has one. */}
+                      <div className="flex gap-1.5 flex-shrink-0">
+                        <div className="flex flex-col items-center gap-0.5">
+                          <div
+                            className="w-16 h-16 rounded p-1.5 overflow-hidden"
+                            style={{
+                              backgroundColor: line.imageUrl
+                                ? getColorHex(line.blankId, line.color)
+                                : undefined,
+                            }}
+                          >
+                            {line.imageUrl ? (
+                              <Image
+                                src={line.imageUrl}
+                                alt="Front design"
+                                width={64}
+                                height={64}
+                                sizes="64px"
+                                className="w-full h-full object-contain"
+                              />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-text-faint text-xs bg-surface-raised rounded">
+                                —
+                              </div>
+                            )}
+                          </div>
+                          {line.imageUrl && line.backImageUrl && (
+                            <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
+                              Front
+                            </span>
+                          )}
+                        </div>
+                        {line.imageUrl && line.backImageUrl && (
+                          <div className="flex flex-col items-center gap-0.5">
+                            <div
+                              className="w-16 h-16 rounded p-1.5 overflow-hidden"
+                              style={{
+                                backgroundColor: getColorHex(line.blankId, line.color),
+                              }}
+                            >
+                              <Image
+                                src={line.backImageUrl}
+                                alt="Back design"
+                                width={64}
+                                height={64}
+                                sizes="64px"
+                                className="w-full h-full object-contain"
+                              />
+                            </div>
+                            {line.imageUrl && (
+                              <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
+                                Back
+                              </span>
+                            )}
                           </div>
                         )}
                       </div>

@@ -134,6 +134,138 @@ describe("getUserOrdersData", () => {
     expect(orders[0].lines[0].imageUrl).toBe("https://r2/legacy.png");
   });
 
+  it("resolves a distinct back thumbnail when the line pins one (#167)", async () => {
+    const db = h.db as Db;
+    const a = await seedDesignWithImage(db, "buyer", "https://r2/front.png");
+    const backImageId = await makeSourceImage(db, {
+      designId: a.designId,
+      ownerId: "buyer",
+      imageUrl: "https://r2/back.png",
+    });
+    const [order] = await db
+      .insert(schema.order)
+      .values({
+        userId: "buyer",
+        designId: a.designId,
+        totalPrice: 27.43,
+        status: "paid",
+      })
+      .returning();
+    await db.insert(schema.orderItem).values({
+      orderId: order.id,
+      designId: a.designId,
+      productId: "bella-canvas-3001",
+      size: "M",
+      color: "White",
+      quantity: 1,
+      placements: { front: a.imageId, back: backImageId },
+      itemPrice: 27.43,
+    });
+
+    const orders = await getUserOrdersData("buyer");
+    expect(orders[0].lines[0].imageUrl).toBe("https://r2/front.png");
+    expect(orders[0].lines[0].backImageUrl).toBe("https://r2/back.png");
+    expect(orders[0].lines[0].backImageUrl).not.toBe(orders[0].lines[0].imageUrl);
+  });
+
+  it("leaves backImageUrl null for a front-only line", async () => {
+    const db = h.db as Db;
+    const a = await seedDesignWithImage(db, "buyer", "https://r2/front-only.png");
+    const [order] = await db
+      .insert(schema.order)
+      .values({
+        userId: "buyer",
+        designId: a.designId,
+        totalPrice: 19.43,
+        status: "paid",
+      })
+      .returning();
+    await db.insert(schema.orderItem).values({
+      orderId: order.id,
+      designId: a.designId,
+      productId: "bella-canvas-3001",
+      size: "M",
+      color: "White",
+      quantity: 1,
+      placements: { front: a.imageId },
+      itemPrice: 19.43,
+    });
+
+    const orders = await getUserOrdersData("buyer");
+    expect(orders[0].lines[0].backImageUrl).toBeNull();
+  });
+
+  it("pairs each line of a multi-line order with its own identity, even behind a zero-line order (#198 task 3)", async () => {
+    const db = h.db as Db;
+    const a = await seedDesignWithImage(db, "buyer", "https://r2/one.png");
+    const b = await seedDesignWithImage(db, "buyer", "https://r2/two.png");
+    const c = await seedDesignWithImage(db, "buyer", "https://r2/three.png");
+
+    // A more recent order with NO order_item rows sorts first (desc
+    // createdAt) and contributes zero lines to the flat identities array.
+    // The offset for every order after it must skip past nothing, exactly
+    // as if this order weren't here at all.
+    await db.insert(schema.order).values({
+      userId: "buyer",
+      designId: a.designId,
+      totalPrice: 19.43,
+      status: "pending",
+      createdAt: new Date("2026-09-06T12:00:00Z"),
+    });
+
+    const [multiLine] = await db
+      .insert(schema.order)
+      .values({
+        userId: "buyer",
+        designId: a.designId,
+        totalPrice: 3 * 19.43,
+        status: "paid",
+        createdAt: new Date("2026-09-06T11:00:00Z"),
+      })
+      .returning();
+    await db.insert(schema.orderItem).values([
+      {
+        orderId: multiLine.id,
+        designId: a.designId,
+        productId: "bella-canvas-3001",
+        size: "S",
+        color: "White",
+        quantity: 1,
+        placements: { front: a.imageId },
+        itemPrice: 19.43,
+      },
+      {
+        orderId: multiLine.id,
+        designId: b.designId,
+        productId: "bella-canvas-3001",
+        size: "M",
+        color: "Black",
+        quantity: 1,
+        placements: { front: b.imageId },
+        itemPrice: 19.43,
+      },
+      {
+        orderId: multiLine.id,
+        designId: c.designId,
+        productId: "bella-canvas-3001",
+        size: "L",
+        color: "Navy",
+        quantity: 1,
+        placements: { front: c.imageId },
+        itemPrice: 19.43,
+      },
+    ]);
+
+    const orders = await getUserOrdersData("buyer");
+    expect(orders).toHaveLength(2);
+    expect(orders[0].lines).toHaveLength(0);
+    expect(orders[1].lines.map((l) => l.imageUrl)).toEqual([
+      "https://r2/one.png",
+      "https://r2/two.png",
+      "https://r2/three.png",
+    ]);
+  });
+
   it("only returns the buyer's own orders", async () => {
     const db = h.db as Db;
     await db
