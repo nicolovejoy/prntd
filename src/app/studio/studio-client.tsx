@@ -816,48 +816,47 @@ function Lane({
           );
         })}
 
-        {lane.pending.map((job) => (
-          <div
-            key={job.jobId}
-            data-testid="studio-pending-cell"
-            className="shrink-0 w-28 h-28 rounded-md border border-dashed border-border bg-surface flex flex-col items-center justify-center gap-1"
-          >
-            <span className="text-xs text-text-muted animate-pulse">
-              Generating…
-            </span>
-            <span className="text-xs text-text-faint tabular-nums">
-              {formatElapsed(nowMs - job.startedAt.getTime())}
-            </span>
-            {/* Cancel needs a real job row, but the space is reserved from
-                the start: the control renders inert and invisible until the
-                jobId lands, so the label and elapsed time don't shift under
-                the user when it appears. */}
-            {(() => {
-              const unresolved = unresolvedCellIds.has(job.jobId);
-              return (
-                <button
-                  type="button"
-                  disabled={unresolved}
-                  aria-hidden={unresolved || undefined}
-                  tabIndex={unresolved ? -1 : undefined}
-                  onClick={
-                    unresolved ? undefined : () => onCancel(lane, job.jobId)
-                  }
-                  className={`text-xs text-text-faint hover:text-foreground min-h-[44px] px-3 ${
-                    unresolved ? "invisible" : ""
-                  }`}
-                  data-testid={
-                    unresolved
-                      ? "cancel-generation-placeholder"
-                      : "cancel-generation"
-                  }
-                >
-                  Cancel
-                </button>
-              );
-            })()}
-          </div>
-        ))}
+        {lane.pending.map((job) => {
+          // No job row behind an overlay cell until generateDesign returns,
+          // so Cancel has nothing to act on yet.
+          const unresolved = unresolvedCellIds.has(job.jobId);
+          return (
+            <div
+              key={job.jobId}
+              data-testid="studio-pending-cell"
+              className="shrink-0 w-28 h-28 rounded-md border border-dashed border-border bg-surface flex flex-col items-center justify-center gap-1"
+            >
+              <span className="text-xs text-text-muted animate-pulse">
+                Generating…
+              </span>
+              <span className="text-xs text-text-faint tabular-nums">
+                {formatElapsed(nowMs - job.startedAt.getTime())}
+              </span>
+              {/* The space is reserved from the start: the control renders
+                  inert and invisible until the jobId lands, so the label and
+                  elapsed time don't shift under the user when it appears. */}
+              <button
+                type="button"
+                disabled={unresolved}
+                aria-hidden={unresolved || undefined}
+                tabIndex={unresolved ? -1 : undefined}
+                onClick={
+                  unresolved ? undefined : () => onCancel(lane, job.jobId)
+                }
+                className={`text-xs text-text-faint hover:text-foreground min-h-[44px] px-3 ${
+                  unresolved ? "invisible" : ""
+                }`}
+                data-testid={
+                  unresolved
+                    ? "cancel-generation-placeholder"
+                    : "cancel-generation"
+                }
+              >
+                Cancel
+              </button>
+            </div>
+          );
+        })}
       </div>
     </section>
   );

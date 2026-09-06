@@ -855,6 +855,29 @@ describe("the optimistic pending cell — review fixes (#187)", () => {
     expect(placeholder.className).toContain("invisible");
   });
 
+  it("cancels an optimistic cell that has its real jobId (the #194 path)", async () => {
+    // The submit's own poll finds no lane for this design yet, so the entry
+    // survives with a real jobId — the cell is still the overlay's, and its
+    // Cancel has to reach the real job.
+    h.polledLanes = [];
+    render(<StudioClient initialLanes={[]} />);
+
+    submitText("a red dragon");
+    await waitFor(() => expect(getStudioLanes).toHaveBeenCalledTimes(1));
+    const cancel = await screen.findByTestId("cancel-generation");
+
+    fireEvent.click(cancel);
+
+    await waitFor(() =>
+      expect(cancelGeneration).toHaveBeenCalledWith("job-new")
+    );
+    expect(screen.queryByTestId("studio-pending-cell")).toBeNull();
+    // The synthetic lane had nothing else in it, so it goes too.
+    expect(screen.queryByTestId("studio-lane")).toBeNull();
+    // cancelGeneration returned true: the next poll tick is enough.
+    expect(getStudioLanes).toHaveBeenCalledTimes(1);
+  });
+
   it("scrolls the new lane into view on an unanchored submit", () => {
     deferGenerate();
     render(<StudioClient initialLanes={[lane()]} />);
