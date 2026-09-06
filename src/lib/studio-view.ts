@@ -175,15 +175,22 @@ export function applyOptimistic(
     return { ...lane, pending: [...lane.pending, ...group.map(optimisticCell)] };
   });
 
-  const newLanes: StudioLane[] = [...byDesign.entries()].map(
-    ([designId, group]) => ({
+  // Two unanchored submits in a row are two synthetic lanes, and they follow
+  // the bench's own activity-desc order: the newest submit leads. A lane's
+  // date is the newest of its entries, so a second submit into the same
+  // not-yet-server-visible design moves it up rather than pinning it to the
+  // first one's start.
+  const newLanes: StudioLane[] = [...byDesign.entries()]
+    .map(([designId, group]) => ({
       designId,
       title: null,
-      lastActiveAt: group[0].startedAt,
+      lastActiveAt: new Date(
+        Math.max(...group.map((e) => e.startedAt.getTime()))
+      ),
       cells: [],
       pending: group.map(optimisticCell),
-    })
-  );
+    }))
+    .sort((a, b) => b.lastActiveAt.getTime() - a.lastActiveAt.getTime());
 
   return [...newLanes, ...merged];
 }

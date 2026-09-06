@@ -228,3 +228,42 @@ describe("unseenOptimisticCount", () => {
     expect(unseenOptimisticCount([], [])).toBe(0);
   });
 });
+
+describe("applyOptimistic ordering of synthetic lanes", () => {
+  it("renders two unanchored submits newest-first", () => {
+    const older = entry({
+      localId: "local-a",
+      designId: "design-a",
+      startedAt: new Date("2026-09-05T00:00:01Z"),
+    });
+    const newer = entry({
+      localId: "local-b",
+      designId: "design-b",
+      startedAt: new Date("2026-09-05T00:00:05Z"),
+    });
+
+    // Submit order is oldest-first, the way the client appends them.
+    const result = applyOptimistic([], [older, newer]);
+
+    expect(result.map((l) => l.designId)).toEqual(["design-b", "design-a"]);
+  });
+
+  it("dates a synthetic lane by the newest of its own entries", () => {
+    const first = entry({
+      localId: "local-a",
+      designId: "design-a",
+      startedAt: new Date("2026-09-05T00:00:01Z"),
+    });
+    const second = entry({
+      localId: "local-b",
+      designId: "design-a",
+      startedAt: new Date("2026-09-05T00:00:09Z"),
+    });
+
+    const result = applyOptimistic([], [first, second]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].lastActiveAt).toEqual(new Date("2026-09-05T00:00:09Z"));
+    expect(result[0].pending).toHaveLength(2);
+  });
+});

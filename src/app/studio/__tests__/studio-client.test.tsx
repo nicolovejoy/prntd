@@ -552,3 +552,197 @@ describe("select mode (#189)", () => {
     expect(screen.getByTestId("select-bar")).toBeTruthy();
   });
 });
+
+/**
+ * The pending cell must appear the instant Generate is pressed (#187 point
+ * 2): before #187 nothing rendered until generateDesign returned and the
+ * first poll landed. The overlay is applied at render time on top of server
+ * lanes, so a poll's setLanes can never wipe it.
+ */
+describe("the optimistic pending cell (#187)", () => {
+  /** Holds generateDesign open so the pre-resolution state is observable. */
+  function deferGenerate() {
+    let settle!: (result: unknown) => void;
+    const pending = new Promise((resolve) => {
+      settle = resolve;
+    });
+    vi.mocked(generateDesign).mockReturnValueOnce(pending as never);
+    return settle;
+  }
+
+  function submitText(value: string) {
+    fireEvent.change(screen.getByTestId("studio-composer"), {
+      target: { value },
+    });
+    fireEvent.submit(screen.getByTestId("studio-composer").closest("form")!);
+  }
+
+  it("shows a pending cell before the action resolves, without Cancel", () => {
+    deferGenerate();
+    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+
+    fireEvent.click(screen.getByTestId("studio-cell"));
+    submitText("make it blue");
+
+    const pending = screen.getByTestId("studio-pending-cell");
+    expect(pending.textContent).toContain("Generating…");
+    // No jobId yet, so nothing to cancel — same markup otherwise, so the cell
+    // doesn't jump when Cancel appears.
+    expect(screen.queryByTestId("cancel-generation")).toBeNull();
+  });
+
+  it("an unanchored submit shows a new lane at the top with the cell", () => {
+    deferGenerate();
+    render(<StudioClient initialLanes={[lane()]} />);
+
+    submitText("a red dragon");
+
+    const lanes = screen.getAllByTestId("studio-lane");
+    expect(lanes).toHaveLength(2);
+    expect(lanes[0].querySelector('[data-testid="studio-pending-cell"]')).toBeTruthy();
+    expect(lanes[1].textContent).toContain("geometric wolf head");
+  });
+
+  it("a poll landing while the action is in flight does not remove the cell", async () => {
+    deferGenerate();
+    // Server truth still knows nothing about the submit.
+    h.polledLanes = [lane({ cells: [cell("img-1")] })];
+    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+
+    fireEvent.click(screen.getByTestId("studio-cell"));
+    submitText("make it blue");
+
+    fireEvent(window, new Event("focus"));
+    await waitFor(() => expect(getStudioLanes).toHaveBeenCalled());
+
+    expect(screen.getByTestId("studio-pending-cell")).toBeTruthy();
+  });
+
+  it("shows exactly one cell once the job is queued and a poll lists it", async () => {
+    h.polledLanes = [
+      lane({ cells: [cell("img-1")], pending: [pendingJob("job-new", 0)] }),
+    ];
+    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+
+    fireEvent.click(screen.getByTestId("studio-cell"));
+    submitText("make it blue");
+
+    await waitFor(() => expect(getStudioLanes).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(screen.getAllByTestId("studio-pending-cell")).toHaveLength(1)
+    );
+    // The server row carries a real jobId, so Cancel is back.
+    expect(screen.getByTestId("cancel-generation")).toBeTruthy();
+    expect(screen.getAllByTestId("studio-lane")).toHaveLength(1);
+  });
+
+  it("removes the cell and gives the words back when the turn is refused", async () => {
+    vi.mocked(generateDesign).mockResolvedValueOnce({
+      kind: "limit",
+      message: "You've reached today's free design limit. Sign in to keep designing.",
+    });
+    render(<StudioClient initialLanes={[lane()]} />);
+
+    submitText("a red dragon");
+    expect(screen.getByTestId("studio-pending-cell")).toBeTruthy();
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("studio-pending-cell")).toBeNull()
+    );
+    expect(screen.getByText(/free design limit/)).toBeTruthy();
+    expect(
+      (screen.getByTestId("studio-composer") as HTMLInputElement).value
+    ).toBe("a red dragon");
+    // The synthetic lane goes with it.
+    expect(screen.getAllByTestId("studio-lane")).toHaveLength(1);
+  });
+
+  it("removes the cell when the action throws", async () => {
+    vi.mocked(generateDesign).mockRejectedValueOnce(new Error("boom"));
+    render(<StudioClient initialLanes={[lane()]} />);
+
+    submitText("a red dragon");
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("studio-pending-cell")).toBeNull()
+    );
+    expect(screen.getByText(/Something went wrong/)).toBeTruthy();
+  });
+
+  it("counts the optimistic cell once — a queued job it can now see is not double-counted", async () => {
+    // One server generation running + one submit = two of three.
+    h.polledLanes = [
+      lane({
+        cells: [cell("img-1")],
+        pending: [pendingJob("j1"), pendingJob("job-new", 0)],
+      }),
+    ];
+    render(
+      <StudioClient
+        initialLanes={[lane({ cells: [cell("img-1")], pending: [pendingJob("j1")] })]}
+      />
+    );
+
+    fireEvent.click(screen.getByTestId("studio-cell"));
+    submitText("make it blue");
+
+    await waitFor(() => expect(getStudioLanes).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(screen.getAllByTestId("studio-pending-cell")).toHaveLength(2)
+    );
+    // Were the settled entry still counted, this would read 3 and lock out.
+    expect(screen.queryByTestId("cap-notice")).toBeNull();
+    fireEvent.change(screen.getByTestId("studio-composer"), {
+      target: { value: "one more" },
+    });
+    expect(
+      (screen.getByTestId("studio-generate") as HTMLButtonElement).disabled
+    ).toBe(false);
+  });
+
+  it("reaches the cap with two server generations and one in flight", () => {
+    deferGenerate();
+    render(
+      <StudioClient
+        initialLanes={[
+          lane({
+            cells: [cell("img-1")],
+            pending: [pendingJob("j1"), pendingJob("j2")],
+          }),
+        ]}
+      />
+    );
+
+    fireEvent.click(screen.getByTestId("studio-cell"));
+    submitText("make it blue");
+
+    expect(screen.getByTestId("cap-notice").textContent).toContain("3 generating");
+    expect(
+      (screen.getByTestId("studio-generate") as HTMLButtonElement).disabled
+    ).toBe(true);
+  });
+
+  it("a lane with only an optimistic cell is not selectable", () => {
+    deferGenerate();
+    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+
+    fireEvent.click(screen.getByTestId("studio-cell"));
+    submitText("make it blue");
+    fireEvent.click(screen.getByTestId("select-mode"));
+
+    const box = screen.getByTestId("lane-checkbox") as HTMLInputElement;
+    expect(box.disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("select-all"));
+    expect(screen.getByTestId("selected-count").textContent).toBe("0 selected");
+  });
+
+  it("leaves the anchor where the user put it across the submit", () => {
+    deferGenerate();
+    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+
+    fireEvent.click(screen.getByTestId("studio-cell"));
+    submitText("make it blue");
+
+    expect(screen.getByTestId("anchor-chip")).toBeTruthy();
+  });
+});
