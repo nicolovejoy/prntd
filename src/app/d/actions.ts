@@ -363,6 +363,81 @@ export async function getListingMockup(params: {
 }
 
 /**
+ * Back-placement Printful mockup for the image detail page's expanded hero
+ * (#167 decision 1): the buyer picked a back design in `BuyPanel`, and the
+ * back tile shows it on the real garment instead of nothing.
+ *
+ * Gates, in order, never weaker than the front's (`getListingMockup`):
+ *
+ *  1. `MULTI_PLACEMENT_ENABLED` — the buy CTA ignores a back without it, so
+ *     the mockup must too.
+ *  2. The page image exists and has a design (the render is cached on that
+ *     design's `mockupUrls`, like every other mockup).
+ *  3. `canViewImagePage` for the page image — the same visibility rule the
+ *     page and the front mockup use; no ownership gate, since any visitor
+ *     who can see the buy page must be able to see its preview.
+ *  4. `canUseAsPlacementSource` for the back pick, via the checkout guard
+ *     `assertUsablePlacementImage` — the same bar `buyPublishedDesign` holds
+ *     the pick to, so the preview and the purchase agree on what may print.
+ *     Signed-out callers reach only published, not-hidden backs.
+ *  5. Render. `renderAndCacheMockup` throws on an unknown product, color or
+ *     placement before any write, and nothing is written here ahead of it,
+ *     so a bad request can't poison the cache.
+ *
+ * Like the front, the picked image prints as-is (no
+ * `getOrCreatePlacementRender`): every active blank's front and back
+ * placements share an aspect, and this page has no reframe path. Scale is
+ * fixed at 1.0 — no scale control on this page.
+ */
+export async function getListingBackMockup(params: {
+  /** The page image (goes on the front). */
+  imageId: string;
+  /** The buyer's back pick. */
+  backImageId: string;
+  productId: string;
+  colorName: string;
+}): Promise<{ mockupUrl: string }> {
+  if (!multiPlacementEnabled()) {
+    throw new Error("Back designs are not enabled");
+  }
+
+  const session = await auth.api.getSession({ headers: await headers() });
+  const viewerId = session?.user.id ?? null;
+
+  const image = await getDesignImageWithOwner(params.imageId);
+  if (!image || !image.designId) throw new Error("Image not found");
+
+  if (
+    !canViewImagePage({
+      image: { publishedAt: image.publishedAt, isHidden: image.isHidden },
+      imageOwnerId: image.ownerId,
+      userId: viewerId,
+    })
+  ) {
+    throw new Error("Unauthorized");
+  }
+
+  // The order's design is the SELLER's here, which the guard gives no weight
+  // (see canUseAsPlacementSource) — the back must be the viewer's own or
+  // published. An empty userId is a signed-out viewer: it matches no owner.
+  await assertUsablePlacementImage(
+    params.backImageId,
+    image.designId,
+    viewerId ?? ""
+  );
+
+  return renderAndCacheMockup({
+    designId: image.designId,
+    productId: params.productId,
+    colorName: params.colorName,
+    scale: 1.0,
+    placementId: "back",
+    sourceImageId: params.backImageId,
+    userId: viewerId,
+  });
+}
+
+/**
  * Buy-existing path: a logged-in user purchases a published image from
  * `/d/[imageId]` without designing one. Account-gated by decision (orders
  * must tie to an account so they're trackable in /orders) — the auth check

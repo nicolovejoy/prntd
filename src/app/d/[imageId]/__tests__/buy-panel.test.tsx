@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { createRef } from "react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import { getBlankOrThrow } from "@/lib/blanks";
-import { BuyPanel } from "../buy-panel";
+import { BuyPanel, type BuyPanelHandle } from "../buy-panel";
 
 vi.mock("../../actions", () => ({
   buyPublishedDesign: vi.fn().mockResolvedValue({ url: null, needsAuth: false }),
@@ -289,5 +290,53 @@ describe("BuyPanel add to cart (#146)", () => {
     expect(
       (addToCart as ReturnType<typeof vi.fn>).mock.calls[0][0]
     ).not.toHaveProperty("designId");
+  });
+});
+
+// #167: the hero mirrors the back pick (to render a back tile) and opens the
+// panel's picker from its add-a-back tile. The panel stays the source of
+// truth for both; these are the report and the handle it exposes.
+describe("BuyPanel back pick reporting + handle (#167)", () => {
+  it("onBackChange reports null on mount, then the pick", async () => {
+    const onBackChange = vi.fn();
+    render(
+      <BuyPanel
+        imageId="img-1"
+        isLoggedIn
+        backEnabled
+        onBackChange={onBackChange}
+      />
+    );
+    expect(onBackChange).toHaveBeenCalledTimes(1);
+    expect(onBackChange).toHaveBeenLastCalledWith(null);
+
+    expand();
+    fireEvent.click(screen.getByText(/Add a back design/));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "My designs option" })
+    );
+    expect(onBackChange).toHaveBeenLastCalledWith({
+      id: "back-1",
+      imageUrl: "https://img.example/back-1.png",
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove back design" })
+    );
+    expect(onBackChange).toHaveBeenLastCalledWith(null);
+  });
+
+  it("the handle's openBackPicker shows the picker", () => {
+    const ref = createRef<BuyPanelHandle>();
+    render(<BuyPanel ref={ref} imageId="img-1" isLoggedIn backEnabled />);
+    expand();
+    expect(
+      screen.queryByText("Pick an image to print on the back.")
+    ).not.toBeInTheDocument();
+
+    act(() => ref.current!.openBackPicker());
+    expect(
+      screen.getByText("Pick an image to print on the back.")
+    ).toBeInTheDocument();
   });
 });
