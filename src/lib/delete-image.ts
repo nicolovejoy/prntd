@@ -12,9 +12,9 @@
  *    design has this image as its primary). Orders are financial records.
  *  - A reference from another conversation (a seed carried into a fresh-start
  *    thread), a shop product's placements, or a cart line's placements
- *    downgrades the delete to a link-detach: the image row, its listing and
+ *    downgrades the delete to a link-detach: the image row, its publication row and
  *    its mirror product survive.
- *  - Otherwise the image row, its listing, its mirror `product` row, its
+ *  - Otherwise the image row, its publication row, its mirror `product` row, its
  *    placement_render row (id reuse) and its conversation links go.
  *
  * Two scopes, one plan:
@@ -38,7 +38,7 @@ import {
   image as imageTable,
   conversationImage as conversationImageTable,
   placementRender as placementRenderTable,
-  listing as listingTable,
+  imagePublication as imagePublicationTable,
 } from "@/lib/db/schema";
 import { imageReferences, imageReferencedByOrders } from "@/lib/design-publish";
 import { findMirrorProduct } from "@/lib/model-b-writes";
@@ -66,7 +66,7 @@ export interface ImageDeletionPlan {
   imageUrl: string | null;
   r2Key: string | null;
   /** The image's own mirror `product` row (its Shop composition), deleted
-   * with the image the way its listing always was. */
+   * with the image the way its publication row always was. */
   mirrorProductId: string | null;
   /** `designId` currently points primary_image_id at this image. */
   wasPrimary: boolean;
@@ -334,7 +334,7 @@ export async function executeImageDeletion(
     ...(plan.outcome === "delete"
       ? [
           db.delete(imageTable).where(eq(imageTable.id, imageId)),
-          db.delete(listingTable).where(eq(listingTable.imageId, imageId)),
+          db.delete(imagePublicationTable).where(eq(imagePublicationTable.imageId, imageId)),
           db
             .delete(placementRenderTable)
             .where(eq(placementRenderTable.id, imageId)),

@@ -1,8 +1,9 @@
 /**
  * Model B write builders (docs/model-b-migration-plan.md).
  *
- * These are the ONLY write shapes (`image`, `conversation_image`, `listing`,
- * `placement_render`) — `design_image` was dropped in slice 5. The builders
+ * These are the ONLY write shapes (`image`, `conversation_image`,
+ * `image_publication`, `placement_render`) — `design_image` was dropped in
+ * Model B slice 5. The builders
  * stay the single source of the column mapping: both insert sites (the inline
  * batch in generateDesign and insertDesignImage) and every publish-family
  * action route through here (risky spots §3, §5).
@@ -15,24 +16,24 @@
  *
  * Immutability guardrail (§3): this module builds image INSERT rows only. It
  * deliberately exposes NO helper that updates image.imageUrl / r2Key / prompt.
- * A published listing points at an image row nothing mutates, so publishing is
- * a snapshot by construction. `model-b-writes.test.ts` locks this in.
+ * A published composition points at an image row nothing mutates, so
+ * publishing is a snapshot by construction. `model-b-writes.test.ts` locks this in.
  */
-import { and, eq, isNull, ne, sql } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import type { db as appDb } from "@/lib/db";
 import type { DesignSpec } from "@/lib/design-spec";
 import type { ImageOperation } from "@/lib/image-provenance";
 import {
   image as imageTable,
   conversationImage as conversationImageTable,
-  listing as listingTable,
+  imagePublication as imagePublicationTable,
   placementRender as placementRenderTable,
   product as productTable,
 } from "@/lib/db/schema";
 
 type ImageRow = typeof imageTable.$inferInsert;
 type ConversationImageRow = typeof conversationImageTable.$inferInsert;
-type ListingRow = typeof listingTable.$inferInsert;
+type PublicationRow = typeof imagePublicationTable.$inferInsert;
 type PlacementRenderRow = typeof placementRenderTable.$inferInsert;
 
 /**
@@ -140,19 +141,17 @@ export function buildPlacementRenderRow(params: {
 }
 
 /**
- * Build the `listing` row for a freshly published image.
- *
- * Composition slice 4 (writer cutover): the row is now ONLY the image-
- * visibility grant — `publishedAt` + `isHidden`. The sellable fields
- * (title / description / backgroundColor / feedRank) live on the mirror
- * `product` row and are written there alone; the listing's copies stay null
- * on every row published from here on (slice 5 drops the columns).
+ * Build the `image_publication` row for a freshly published image — the
+ * image-visibility grant, `publishedAt` + `isHidden` and nothing else. The
+ * sellable fields (title / description / backdrop / feed rank) live on the
+ * image's `product` composition and are written there alone (composition
+ * slice 4 cut the writers over; slice 5 dropped the frozen copies).
  */
-export function buildListingRow(params: {
+export function buildPublicationRow(params: {
   imageId: string;
   publishedAt: Date;
   isHidden: boolean;
-}): ListingRow {
+}): PublicationRow {
   return {
     imageId: params.imageId,
     publishedAt: params.publishedAt,
@@ -164,24 +163,24 @@ export function buildListingRow(params: {
  * Fields a publish-family edit applies to an existing visibility row. Since
  * the slice-4 cutover that is `isHidden` alone — naming, backdrop and feed
  * rank are product state. Update only — never inserts — so editing an
- * unpublished image (no listing row) is a natural no-op.
+ * unpublished image (no publication row) is a natural no-op.
  */
-export type ListingUpdate = Partial<{
+export type PublicationUpdate = Partial<{
   isHidden: boolean;
 }>;
 
-export type ListingSyncOp =
+export type PublicationSyncOp =
   | {
       kind: "publish";
       publishedAt: Date;
       isHidden: boolean;
     }
   | { kind: "unpublish" }
-  | { kind: "update"; set: ListingUpdate };
+  | { kind: "update"; set: PublicationUpdate };
 
 /**
  * The single choke point every publish-family action routes through (risky
- * spot §3): given the operation, return the one `listing` statement.
+ * spot §3): given the operation, return the one `image_publication` statement.
  *
  *  - publish  → insert the visibility row (publishImage no-ops if already
  *               published). `imageId` is the primary key, so a racing second
@@ -189,17 +188,17 @@ export type ListingSyncOp =
  *               which is what keeps a second mirror product from being minted
  *               (the mirror statement is always batched with this one).
  *  - unpublish→ delete it.
- *  - update   → partial update; no-op when the image has no listing (editing an
- *               unpublished image), so it never conjures a phantom listing.
+ *  - update   → partial update; no-op when the image has no publication row
+ *               (editing an unpublished image), so it never conjures one.
  */
-export function listingSyncStatement(
+export function publicationSyncStatement(
   db: typeof appDb,
   imageId: string,
-  op: ListingSyncOp
+  op: PublicationSyncOp
 ) {
   if (op.kind === "publish") {
-    return db.insert(listingTable).values(
-      buildListingRow({
+    return db.insert(imagePublicationTable).values(
+      buildPublicationRow({
         imageId,
         publishedAt: op.publishedAt,
         isHidden: op.isHidden,
@@ -207,24 +206,26 @@ export function listingSyncStatement(
     );
   }
   if (op.kind === "unpublish") {
-    return db.delete(listingTable).where(eq(listingTable.imageId, imageId));
+    return db.delete(imagePublicationTable).where(eq(imagePublicationTable.imageId, imageId));
   }
   return db
-    .update(listingTable)
+    .update(imagePublicationTable)
     .set(op.set)
-    .where(eq(listingTable.imageId, imageId));
+    .where(eq(imagePublicationTable.imageId, imageId));
 }
 
-// --- the published image's mirror `product` row: the Shop composition ---
+// --- the published image's `product` row: the Shop composition ---
 // (docs/composition-first-class-plan.md §5.) Every publish-family action
-// batches a product statement next to its listing statement, so a published
-// image always has a composition row: storeId NULL (the PRNTD Shop),
-// designId NULL, blankId NULL (buyer picks the garment), placements exactly
-// { front: imageId }.
+// batches a product statement next to its publication statement, so a
+// published image always has a composition row: blankId NULL (buyer picks the
+// garment), price NULL (computed per pick), placements exactly
+// { front: imageId }. "Mirror" in the names below is the slice-1 word for
+// this row, from when it mirrored a listing; since slice 5 it is the only
+// population `product` has.
 //
 // Slice 2 swapped every sellable reader onto this row; slice 4 (the writer
 // cutover) made it the only place the sellable fields are written. The
-// listing row beside it is now the image-visibility grant and nothing else.
+// `image_publication` row beside it is the visibility grant and nothing else.
 
 /** The exact placements object a mirror product row carries. */
 export function mirrorPlacements(imageId: string): Record<string, string> {
@@ -232,27 +233,17 @@ export function mirrorPlacements(imageId: string): Record<string, string> {
 }
 
 /**
- * Predicate identifying the mirror product for an image. Exact-JSON match on
- * placements is sound because mirror rows are only ever written through this
- * module (insert-time serialization is JSON.stringify of mirrorPlacements and
- * placements are never updated afterwards). `designId IS NULL` distinguishes
- * mirrors from loose organizer products (which always carry a designId).
- *
- * Uniqueness: the publish path looks up before inserting, and — because the
- * mirror insert is always batched with the `listing` insert, whose imageId is
- * a primary key — a second publish racing the first fails on that PK and
- * rolls the whole batch back. So two mirrors for one image cannot be minted
- * even under a double-publish race; there is deliberately no separate
- * conditional insert (it would duplicate the row builder for no added
- * guarantee). Slice 5 should still add a real uniqueness constraint once the
- * mirror marker is re-keyed off `designId`.
+ * Predicate identifying the composition for an image: the row whose front
+ * placement slot is that image. `front_image_id` is the generated column over
+ * `placements.front`, and `product_front_image_unique` on it makes "one
+ * composition per front image" a DB guarantee (composition slice 5) — the
+ * publish path still looks up first (findMirrorProduct) so a re-publish
+ * revives the draft row instead of failing on the index, and a
+ * double-publish race now dies on this index as well as on the
+ * `image_publication` primary key it is batched with.
  */
 function mirrorProductWhere(imageId: string) {
-  return and(
-    isNull(productTable.storeId),
-    isNull(productTable.designId),
-    sql`${productTable.placements} = ${JSON.stringify(mirrorPlacements(imageId))}`
-  );
+  return eq(productTable.frontImageId, imageId);
 }
 
 /**
@@ -308,8 +299,6 @@ export function buildMirrorProductRow(params: {
 }): typeof productTable.$inferInsert {
   return {
     ownerId: params.ownerId,
-    storeId: null,
-    designId: null,
     blankId: null,
     placements: mirrorPlacements(params.imageId),
     price: null,
@@ -348,8 +337,8 @@ export type ProductMirrorOp =
       /**
        * Result of findMirrorProduct, resolved by the caller before batching:
        * null → insert a fresh mirror; an id → revive that draft row
-       * (fresh listedAt, feedRank cleared — matching the listing's
-       * fresh-row-on-republish semantics).
+       * (fresh listedAt, feedRank cleared — the fresh-row-on-republish
+       * semantics the visibility row has always had).
        */
       existingMirrorId: string | null;
     }
@@ -357,14 +346,15 @@ export type ProductMirrorOp =
   | { kind: "update"; set: MirrorUpdate };
 
 /**
- * The mirror-product counterpart of listingSyncStatement: one statement to
- * batch alongside the listing statement.
+ * The mirror-product counterpart of publicationSyncStatement: one statement to
+ * batch alongside the publication statement.
  *
  *  - publish  → insert the mirror, or revive the existing draft row.
  *  - unpublish→ status "draft" (row kept; re-publish revives it).
  *  - update   → partial update, guarded to non-draft rows so it no-ops
- *               exactly when the listing update does (an unpublished image
- *               has no listing; its mirror — if any — is a draft).
+ *               exactly when the publication update does (an unpublished
+ *               image has no publication row; its mirror — if any — is a
+ *               draft).
  */
 export function productMirrorStatement(
   db: typeof appDb,

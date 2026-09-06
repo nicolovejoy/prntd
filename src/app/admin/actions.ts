@@ -14,7 +14,7 @@ import {
   appError as appErrorTable,
 } from "@/lib/db/schema";
 import {
-  listingSyncStatement,
+  publicationSyncStatement,
   productMirrorStatement,
 } from "@/lib/model-b-writes";
 import { eq, desc, asc, inArray, sum, count, sql } from "drizzle-orm";
@@ -429,10 +429,11 @@ export async function setImageHidden(imageId: string, hidden: boolean) {
   }
 
   // Hidden is BOTH: the image-visibility grant the pure guards read
-  // (listing.is_hidden) and the composition's status (listed ↔ hidden). Both
+  // (image_publication.is_hidden) and the composition's status (listed ↔
+  // hidden). Both
   // are written here; draft mirrors and unpublished images are left alone.
   await db.batch([
-    listingSyncStatement(db, imageId, {
+    publicationSyncStatement(db, imageId, {
       kind: "update",
       set: { isHidden: hidden },
     }),

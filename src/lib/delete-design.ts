@@ -11,13 +11,13 @@
  *  - Any order reference — header design_id, an order_item line, or one of the
  *    design's image ids pinned inside a line's placements — blocks the whole
  *    delete. Orders are financial records and never cascade.
- *  - A `product` row whose design_id FKs the design blocks too (an organizer
- *    sellable; delete the product first).
  *  - Per image: a conversation link from ANOTHER design (a seed carried into a
- *    fresh-start thread), a shop product's placements, or another design's
- *    cart line's placements downgrade the delete to a link-detach — the image
- *    row survives, only this design's link goes. Otherwise the image row, its
- *    listing and its mirror product are deleted.
+ *    fresh-start thread), another composition's placements, or another
+ *    design's cart line's placements downgrade the delete to a link-detach —
+ *    the image row survives, only this design's link goes. Otherwise the
+ *    image row, its publication row and its own composition are deleted.
+ *    (Until composition slice 5 a `product` could also FK the design directly
+ *    — an organizer sellable — and blocked the delete; that column is gone.)
  *  - Everything else that FKs design.id (chat_message, conversation_image,
  *    placement_render, cart_item, image_generation) goes with the design row,
  *    in one db.batch.
@@ -34,7 +34,7 @@ import {
   image as imageTable,
   conversationImage as conversationImageTable,
   placementRender as placementRenderTable,
-  listing as listingTable,
+  imagePublication as imagePublicationTable,
   imageGeneration as imageGenerationTable,
 } from "@/lib/db/schema";
 import { imageReferences } from "@/lib/design-publish";
@@ -60,8 +60,6 @@ export interface DesignDeletionPlan {
   designId: string;
   /** Header, line, or pinned-image order reference — the delete is blocked. */
   orderReferenced: boolean;
-  /** `product` rows FK-ing design_id (organizer sellables) — also blocked. */
-  productCount: number;
   /** Every image id the design minted (output links + placement renders). */
   imageIds: string[];
   /** Per-image decision for the `image` rows among `imageIds`. */
@@ -73,7 +71,7 @@ export interface DesignDeletionPlan {
 }
 
 export function isDeletionBlocked(plan: DesignDeletionPlan): boolean {
-  return plan.orderReferenced || plan.productCount > 0;
+  return plan.orderReferenced;
 }
 
 /** Any order reference: header design_id, an order_item line, or one of the
@@ -153,24 +151,19 @@ export async function planDesignDeletion(
     ...new Set([...outputRows, ...renderRows].map((r) => r.id)),
   ];
 
-  const [orders, [{ c: productCount }]] = await Promise.all([
-    orderReferences(db, designId, imageIds),
-    db
-      .select({ c: count() })
-      .from(productTable)
-      .where(eq(productTable.designId, designId)),
-  ]);
+  const orders = await orderReferences(db, designId, imageIds);
 
   // Ref-count: an image referenced elsewhere survives the thread delete.
   // Image ids are UUIDs, so the JSON substring matches can't false-positive.
   const linkedElsewhere = new Set<string>();
   const productPinned = new Set<string>();
   const cartPinned = new Set<string>();
-  // Mirror product rows (composition slice 1): a published image's own Shop
-  // composition (storeId+designId NULL, placements exactly {front: imageId}).
-  // A mirror must not keep its image alive — it exists BECAUSE of the image —
-  // so mirrors are excluded from the pin probe and deleted alongside the
-  // image row + listing, the same lifecycle the listing row already had.
+  // A published image's own composition (placements exactly {front: imageId})
+  // must not keep its image alive — it exists BECAUSE of the image — so it is
+  // excluded from the pin probe and deleted alongside the image row +
+  // publication row, the same lifecycle the publication row already had. Any
+  // OTHER composition that pins the image (a second slot, or a different
+  // front) is a real reference and detaches instead.
   const mirrorIdByImage = new Map<string, string>();
   let imageRows: {
     id: string;
@@ -191,8 +184,6 @@ export async function planDesignDeletion(
       db
         .select({
           id: productTable.id,
-          storeId: productTable.storeId,
-          designId: productTable.designId,
           placements: productTable.placements,
         })
         .from(productTable)
@@ -234,8 +225,6 @@ export async function planDesignDeletion(
       const placements = row.placements ?? {};
       const entries = Object.entries(placements);
       const isOwnMirror =
-        row.storeId === null &&
-        row.designId === null &&
         entries.length === 1 &&
         entries[0][0] === "front" &&
         imageIdSet.has(entries[0][1]);
@@ -287,7 +276,6 @@ export async function planDesignDeletion(
   return {
     designId,
     orderReferenced: orders.header || orders.line || orders.pinned.size > 0,
-    productCount,
     imageIds,
     images,
     placementRenders: renderRows,
@@ -312,7 +300,7 @@ export async function executeDesignDeletion(
 ): Promise<void> {
   if (isDeletionBlocked(plan)) {
     throw new Error(
-      `Refusing to delete design ${plan.designId}: referenced by an order or a shop product`
+      `Refusing to delete design ${plan.designId}: referenced by an order`
     );
   }
   const { designId, removableImageIds, removableMirrorIds } = plan;
@@ -343,12 +331,12 @@ export async function executeDesignDeletion(
       ? [
           db.delete(imageTable).where(inArray(imageTable.id, removableImageIds)),
           db
-            .delete(listingTable)
-            .where(inArray(listingTable.imageId, removableImageIds)),
+            .delete(imagePublicationTable)
+            .where(inArray(imagePublicationTable.imageId, removableImageIds)),
         ]
       : []),
-    // Mirror products of deleted images go with them (a detached image —
-    // referenced elsewhere — keeps its listing AND its mirror).
+    // Compositions of deleted images go with them (a detached image —
+    // referenced elsewhere — keeps its publication row AND its composition).
     ...(removableMirrorIds.length
       ? [
           db

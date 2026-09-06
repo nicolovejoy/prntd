@@ -99,25 +99,23 @@ export async function cleanupDesigns(designIds: string[]): Promise<void> {
     args: designIds,
   });
   // Model B rows: images key off the design's output links (or
-  // source_design_id), listings off the image ids, links + renders off
-  // design_id.
+  // source_design_id), publication rows off the image ids, links + renders
+  // off design_id.
   await c.execute({
-    sql: `DELETE FROM listing WHERE image_id IN (SELECT image_id FROM conversation_image WHERE design_id IN (${placeholders}))`,
+    sql: `DELETE FROM image_publication WHERE image_id IN (SELECT image_id FROM conversation_image WHERE design_id IN (${placeholders}))`,
     args: designIds,
   });
-  // Composition mirrors: a published image's Shop composition (store_id NULL,
-  // design_id NULL, placements {front: <imageId>}) exists BECAUSE of the
-  // image, so a spec that publishes must not leak it. Organizer products
-  // carry a store_id or a design_id and are cleanupStores' job. Mirrors an
-  // order points at (order.store_product_id FKs product) are left behind —
-  // orders are financial records this helper never deletes.
+  // Compositions: a published image's Shop composition (placements
+  // {front: <imageId>}, keyed by the generated front_image_id column) exists
+  // BECAUSE of the image, so a spec that publishes must not leak it.
+  // Compositions an order points at (order.store_product_id FKs product) are
+  // left behind — orders are financial records this helper never deletes.
   await c.execute({
     sql: `DELETE FROM product
-           WHERE store_id IS NULL AND design_id IS NULL
-             AND id NOT IN (
+           WHERE id NOT IN (
                SELECT store_product_id FROM "order" WHERE store_product_id IS NOT NULL
              )
-             AND json_extract(placements, '$.front') IN (
+             AND front_image_id IN (
                SELECT image_id FROM conversation_image WHERE design_id IN (${placeholders})
              )`,
     args: designIds,
@@ -263,26 +261,8 @@ export async function cleanupOrdersForDesigns(
 }
 
 /**
- * Remove the stores + products an organizer spec built through the UI.
- * Products first (FK to store + design), then stores. Scoped by owner so a
- * spec only deletes its own account's rows.
- */
-export async function cleanupStoresAndProducts(ownerId: string): Promise<void> {
-  if (!ownerId) return;
-  const c = db();
-  await c.execute({
-    sql: "DELETE FROM product WHERE owner_id = ?",
-    args: [ownerId],
-  });
-  await c.execute({
-    sql: "DELETE FROM store WHERE owner_id = ?",
-    args: [ownerId],
-  });
-}
-
-/**
  * Remove the throwaway account a spec signed up. Session + account rows FK to
- * user, so they go first. Call AFTER the user's designs/stores/products are
+ * user, so they go first. Call AFTER the user's designs/products are
  * cleaned (those also FK to user).
  */
 export async function cleanupUser(userId: string): Promise<void> {

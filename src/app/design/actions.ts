@@ -28,7 +28,7 @@ import {
   chatMessage as chatMessageTable,
   image as imageTable,
   conversationImage as conversationImageTable,
-  listing as listingTable,
+  imagePublication as imagePublicationTable,
   product as productTable,
   imageGeneration as imageGenerationTable,
 } from "@/lib/db/schema";
@@ -1090,11 +1090,11 @@ export async function startConversationFromImage(
   const [seed] = await db
     .select({
       ownerId: imageTable.ownerId,
-      publishedAt: listingTable.publishedAt,
-      isHidden: listingTable.isHidden,
+      publishedAt: imagePublicationTable.publishedAt,
+      isHidden: imagePublicationTable.isHidden,
     })
     .from(imageTable)
-    .leftJoin(listingTable, eq(listingTable.imageId, imageTable.id))
+    .leftJoin(imagePublicationTable, eq(imagePublicationTable.imageId, imageTable.id))
     .where(eq(imageTable.id, imageId))
     .limit(1);
   if (!seed) throw new Error("Image not found");
@@ -1103,7 +1103,7 @@ export async function startConversationFromImage(
     !canStartFromImage({
       image: {
         publishedAt: seed.publishedAt,
-        // No listing row = not published (and not hidden).
+        // No publication row = not published (and not hidden).
         isHidden: seed.isHidden ?? false,
       },
       imageOwnerId: seed.ownerId,
@@ -1167,7 +1167,7 @@ export async function getDesign(designId: string) {
   // (§3): the design was published on this color, so show it on it.
   // Composition slice 2: read from the image's mirror `product` row, and only
   // while it is published (non-draft), which is exactly when the pinned
-  // backdrop applies — the same condition the listing row used to encode.
+  // backdrop applies — the same condition the visibility row used to encode.
   let backgroundColor: string | null = null;
   if (found.primaryImageId) {
     const [primary] = await db

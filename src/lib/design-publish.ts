@@ -72,12 +72,14 @@ export type ImageReferenceFlags = {
 };
 
 export type ImageReferenceDecision =
-  /** No references — the image row (and its listing) may be hard-deleted. */
+  /** No references — the image row (and its image_publication row) may be
+   * hard-deleted. */
   | "delete"
   /** Order-referenced: refuse outright. What was printed must stay resolvable. */
   | "blocked"
   /** Referenced elsewhere (link/product/cart): detach this conversation's
-   * link only; the image row, listing and other references survive. */
+   * link only; the image row, its image_publication row and other references
+   * survive. */
   | "detach";
 
 /**
@@ -127,7 +129,7 @@ export function canBuyPublishedImage(image: {
  * and the guard agree.
  */
 export function canUseAsPlacementSource(params: {
-  /** Publish state only — Model B keeps it in `listing`, and the guard has
+  /** Publish state only — Model B keeps it in `image_publication`, and the guard has
    * never had a thread-membership grant to spend a designId on. */
   image: {
     publishedAt: Date | null;

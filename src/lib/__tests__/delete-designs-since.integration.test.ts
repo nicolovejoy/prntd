@@ -173,8 +173,8 @@ describe("deleteDesignsSince — apply", () => {
     expect(await db.select().from(schema.chatMessage)).toHaveLength(0);
     expect(await db.select().from(schema.imageGeneration)).toHaveLength(0);
     expect(await db.select().from(schema.placementRender)).toHaveLength(0);
-    // The published image's listing + mirror product go with it.
-    expect(await db.select().from(schema.listing)).toHaveLength(0);
+    // The published image's publication row + composition go with it.
+    expect(await db.select().from(schema.imagePublication)).toHaveLength(0);
     expect(await db.select().from(schema.product)).toHaveLength(0);
     expect(deleted.sort()).toEqual(
       ["designs/x/render.png", "images/a.png", "images/b.png"].sort()
@@ -301,18 +301,43 @@ describe("deleteDesignsSince — order references", () => {
     expect(await db.select().from(schema.chatMessage)).toHaveLength(1);
   });
 
-  it("skips a conversation a shop product FKs (organizer sellable)", async () => {
+  it("detaches an image another composition pins and deletes the rest of the conversation", async () => {
     const d = await makeDesignAt("u1", sec(10));
+    const pinnedId = await makeSourceImage(db, {
+      designId: d.id,
+      ownerId: "u1",
+      imageUrl: "https://r2/images/pinned.png",
+    });
+    // Outside the window, so only its image is in play.
+    const other = await makeDesignAt("u1", sec(4000));
+    const otherFront = await makeSourceImage(db, {
+      designId: other.id,
+      ownerId: "u1",
+      imageUrl: "https://r2/images/other-front.png",
+    });
+    // A two-sided Shop composition with the in-window image on the back. Since
+    // composition slice 5 a product cannot FK a design, so it never skips a
+    // conversation — it only keeps the pinned image (and its R2 object) alive.
     await db.insert(schema.product).values({
       ownerId: "u1",
-      designId: d.id,
-      blankId: "bella-canvas-3001",
+      placements: { front: otherFront, back: pinnedId },
+    });
+    const removed: string[] = [];
+
+    const result = await run({
+      apply: true,
+      deleteObject: async (key) => {
+        removed.push(key);
+      },
     });
 
-    const result = await run({ apply: true });
-
-    expect(result.skipped).toEqual([{ designId: d.id, reason: "product" }]);
-    expect(await designIds()).toEqual([d.id]);
+    expect(result.skipped).toEqual([]);
+    expect(result.deleted).toEqual([d.id]);
+    expect(await designIds()).toEqual([other.id]);
+    expect(
+      await db.select().from(schema.image).where(eq(schema.image.id, pinnedId))
+    ).toHaveLength(1);
+    expect(removed).toEqual([]);
   });
 });
 

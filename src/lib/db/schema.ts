@@ -1,4 +1,5 @@
 import { sqliteTable, text, integer, real, uniqueIndex, index } from "drizzle-orm/sqlite-core";
+import { sql } from "drizzle-orm";
 // Relative, not the `@/` alias: drizzle-kit loads this file outside the
 // Next.js/tsconfig path resolution.
 import type { DesignSpec } from "../design-spec";
@@ -106,16 +107,12 @@ export const order = sqliteTable("order", {
   printfulOrderId: text("printful_order_id"),
   stripeSessionId: text("stripe_session_id"),
   // Composition attribution (nullable, no backfill). `storeProductId` points
-  // at `product.id` — distinct from `order_item`'s `productId`, which holds a
-  // *blank* catalog id — and is set for BOTH kinds of sale:
-  //   - organizer storefront (Phase 3): `storeId` set, product = the
-  //     organizer's sellable (design × blank × price);
-  //   - PRNTD Shop (composition slice 4): `storeId` NULL, product = the
-  //     published image's mirror composition.
-  // So a payout/proceeds query must key organizer revenue off `storeId`,
-  // NEVER off `storeProductId` alone — that would sweep in every Shop sale.
-  // Both stay null for design-your-own orders (/preview, /order, cart).
-  storeId: text("store_id").references(() => store.id),
+  // at `product.id` — the composition bought for a Shop sale, set by
+  // `buyPublishedDesign` (composition slice 4). Null for design-your-own
+  // orders (/preview, /order, cart). Distinct from `order_item.productId`,
+  // which holds a *blank* catalog id. Organizer storefronts are retired
+  // (#191) and `store_id` was dropped with them in migration 0013, so every
+  // non-null value here is a PRNTD Shop sale.
   storeProductId: text("store_product_id").references(() => product.id),
   displayName: text("display_name"),
   quality: text("quality"),  // deprecated — kept for historical orders
@@ -199,92 +196,67 @@ export const cartItem = sqliteTable("cart_item", {
 });
 
 /**
- * Organizer-first pivot (Phase 1). A named, shareable shop owned by an
- * organizer. Many-per-organizer, optimized-for-one: no unique constraint on
- * ownerId, but the dashboard defaults hard to a single store. `slug` is the
- * public URL key (/shop/<slug>), unique across all stores. Re-parented to the
- * real account on the guest→account claim (auth.ts onLinkAccount), alongside
- * design/order/cart. Object model: docs/organizer-pivot-plan.md.
- */
-export const store = sqliteTable("store", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  ownerId: text("owner_id").notNull().references(() => user.id),
-  slug: text("slug").notNull().unique(),
-  name: text("name").notNull(),
-  description: text("description"),
-  // The one per-store brand color (a name from the blank palette, or a hex).
-  // Null → falls back to the monochrome chrome.
-  accentColor: text("accent_color"),
-  status: text("status", { enum: ["draft", "live", "hidden"] }).notNull().default("draft"),
-  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-});
-
-/**
- * A catalog category of blanks with an availability window (new / seasonal /
- * expiring). Maps to Printful's catalog-categories; the dated window is ours
- * and generalizes the per-blank `discontinued` flag. PRNTD-owned (no ownerId).
- * `availableFrom`/`availableUntil` null → always on.
- */
-export const productOffering = sqliteTable("product_offering", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  name: text("name").notNull(),
-  // Join to Printful's category id when this mirrors one of theirs.
-  printfulCategoryId: integer("printful_category_id"),
-  availableFrom: integer("available_from", { mode: "timestamp" }),
-  availableUntil: integer("available_until", { mode: "timestamp" }),
-  sortOrder: integer("sort_order").notNull().default(0),
-  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-});
-
-/**
  * The sellable composition: image(s) placed on a blank, priced
- * (docs/composition-first-class-plan.md). Two populations share the table:
+ * (docs/composition-first-class-plan.md §2). Since composition slice 5 the
+ * table holds ONE population — the Shop composition of a published image, one
+ * row per front image. Organizer products (the Phase 2 shape, keyed by a
+ * `design_id` and optionally shelved in a `store`) went with the storefronts
+ * (#191): migration 0013 deleted the test-era rows and dropped both columns.
  *
- *  - Organizer products (the original Phase 2 shape): `designId` + `blankId`
- *    set, optionally shelved in a store.
- *  - Shop mirror rows (composition slice 1 dual-write): one per published
- *    image — `storeId` NULL, `designId` NULL, `placements` exactly
- *    `{ front: imageId }`, `blankId` NULL (buyer picks the garment),
- *    `price` NULL (computed per pick). Sellable fields (`title`/
- *    `description`/`backdropColor`/`feedRank`/`listedAt`) mirror the
- *    image's `listing` row until the slice-2 read swap. Nothing reads
- *    mirrors yet.
+ *  - `placements` maps a placement key → the `image` id printed there. Every
+ *    row today is exactly `{ front: imageId }`; §2 allows more slots later,
+ *    with `front` staying required.
+ *  - `blankId` is a catalog blank id (blanks.ts, e.g. "bella-canvas-3001") —
+ *    NOT a FK, the catalog is config not a table. NULL = the buyer picks the
+ *    garment, which is what every Shop composition does today.
+ *  - `price` NULL = computed per pick (computeOrderTotal). A fixed price would
+ *    require a fixed blank (§2 invariant 2).
+ *  - `status`: `draft` = not published (unpublish keeps the row so a re-publish
+ *    revives it), `listed` = public, `hidden` = admin moderation (published,
+ *    off the feed). The sellable fields (`title`/`description`/
+ *    `backdropColor`/`feedRank`/`listedAt`) live here and nowhere else since
+ *    the slice-4 writer cutover; the image's `image_publication` row beside it
+ *    carries only the visibility grant.
  *
- * `blankId` is a catalog blank id (blanks.ts, e.g. "bella-canvas-3001") —
- * NOT a FK, the catalog is config not a table; NULL = buyer's choice.
- * `placements` maps a placement key (front/front_large/back/…) → the `image`
- * id printed there. `storeId` nullable: an organizer product can exist loose
- * before it's added to a shop (loose organizer rows keep `designId`, which
- * is what distinguishes them from mirrors). `price` null → the computed
- * default (computeOrderTotal). `designId` is nullable during the composition
- * migration and drops entirely in its final slice. Re-parented on the
- * guest→account claim.
+ * `frontImageId` is a VIRTUAL generated column over `placements.front`, and
+ * `product_front_image_unique` on it is the DB-enforced "one composition per
+ * front image" rule the slice-4 status note asked for once `designId` was
+ * gone. Readers join and filter on it (composition-reads.ts
+ * `mirrorFrontImageId`). It is a generated column rather than an expression
+ * index because drizzle-kit cannot emit a valid SQLite expression index — it
+ * splits the expression on its comma and backtick-quotes the halves — while a
+ * generated column round-trips cleanly through both the migration and the
+ * schema-derived test DB. Re-parented on the guest→account claim via
+ * `ownerId`.
  */
-export const product = sqliteTable("product", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  ownerId: text("owner_id").notNull().references(() => user.id),
-  storeId: text("store_id").references(() => store.id),
-  designId: text("design_id").references(() => design.id),
-  blankId: text("blank_id"),
-  // placement key → image id (e.g. { front_large: "<imageId>" }).
-  placements: text("placements", { mode: "json" }).$type<Record<string, string>>(),
-  // Organizer price override; null = computed default at checkout.
-  price: real("price"),
-  status: text("status", { enum: ["draft", "listed", "hidden"] }).notNull().default("draft"),
-  position: integer("position").notNull().default(0),
-  // Sellable fields moved from `listing` (composition slice 1; the listing
-  // copies remain authoritative for readers until the slice-2 read swap).
-  title: text("title"),
-  description: text("description"),
-  backdropColor: text("backdrop_color"),
-  feedRank: integer("feed_rank"),
-  // When the composition went public (mirrors listing.publishedAt; feed sort).
-  listedAt: integer("listed_at", { mode: "timestamp" }),
-  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
-});
+export const product = sqliteTable(
+  "product",
+  {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    ownerId: text("owner_id").notNull().references(() => user.id),
+    blankId: text("blank_id"),
+    // placement key → image id; `{ front: "<imageId>" }` on every row today.
+    placements: text("placements", { mode: "json" }).$type<Record<string, string>>(),
+    // Fixed price; null = computed default at checkout.
+    price: real("price"),
+    status: text("status", { enum: ["draft", "listed", "hidden"] }).notNull().default("draft"),
+    position: integer("position").notNull().default(0),
+    title: text("title"),
+    description: text("description"),
+    backdropColor: text("backdrop_color"),
+    feedRank: integer("feed_rank"),
+    // When the composition went public (= image_publication.published_at; feed sort).
+    listedAt: integer("listed_at", { mode: "timestamp" }),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+    // Derived, never written: the front placement slot as a joinable column.
+    frontImageId: text("front_image_id").generatedAlwaysAs(
+      sql`json_extract(placements, '$.front')`,
+      { mode: "virtual" }
+    ),
+  },
+  (t) => [uniqueIndex("product_front_image_unique").on(t.frontImageId)]
+);
 
 export const ledgerEntry = sqliteTable(
   "ledger_entry",
@@ -334,7 +306,8 @@ export const generationUsage = sqliteTable(
  *
  * Immutability guardrail (§3): nothing may update `imageUrl`/`r2Key`/`prompt`
  * after insert — the write layer (src/lib/model-b-writes.ts) exposes no such
- * helper, so a listing that points at a row is a snapshot by construction.
+ * helper, so a published composition that points at a row is a snapshot by
+ * construction.
  *
  * Image-id columns (parent/seed/original-designer/source-design) are opaque
  * text, no FK — matching the id-reuse contract and avoiding backfill/
@@ -396,19 +369,23 @@ export const conversationImage = sqliteTable(
 );
 
 /**
- * Model B published-listing state, split off `design_image` (simplification
- * item 3, table dropped slice 5). One listing per image (PK = imageId). A row
- * exists iff the image is published — unpublish deletes it. `imageId` is
- * opaque text (no FK).
+ * The image-visibility grant: Model B's publish state, split off
+ * `design_image` (simplification item 3) and renamed from `listing` in
+ * composition slice 5 — under the composition model the *product* is the
+ * listing, and a table named `listing` that is not the listing was a
+ * permanent trap (plan §7 Q4). One row per image (PK = imageId); a row exists
+ * iff the image is public — unpublish deletes it. `publishedAt` + `isHidden`
+ * are exactly the inputs of the pure guards in design-publish.ts
+ * (canBuyPublishedImage, canUseAsPlacementSource, canStartFromImage,
+ * canViewImagePage) and their DB feeders. The sellable fields (title /
+ * description / backdrop / feed rank) live on the image's `product`
+ * composition; the frozen copies this table used to carry were dropped in
+ * migration 0013. `imageId` is opaque text (no FK).
  */
-export const listing = sqliteTable("listing", {
+export const imagePublication = sqliteTable("image_publication", {
   imageId: text("image_id").primaryKey(),
   publishedAt: integer("published_at", { mode: "timestamp" }).notNull(),
   isHidden: integer("is_hidden", { mode: "boolean" }).notNull().default(false),
-  title: text("title"),
-  description: text("description"),
-  backgroundColor: text("background_color"),
-  feedRank: integer("feed_rank"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
 

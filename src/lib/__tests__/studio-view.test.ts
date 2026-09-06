@@ -105,12 +105,9 @@ describe("bulkDeleteSkipNotice", () => {
       bulkDeleteSkipNotice([
         { id: "a", reason: "ordered" },
         { id: "b", reason: "ordered" },
-        { id: "c", reason: "product" },
         { id: "d", reason: "failed" },
       ])
-    ).toBe(
-      "2 kept — they have orders. 1 kept — a shop product uses it. 1 couldn't be deleted. Try again."
-    );
+    ).toBe("2 kept — they have orders. 1 couldn't be deleted. Try again.");
     expect(bulkDeleteSkipNotice([{ id: "a", reason: "ordered" }])).toBe(
       "1 kept — it has an order."
     );

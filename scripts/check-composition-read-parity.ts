@@ -1,134 +1,81 @@
 /**
- * Structural parity between the image-visibility rows (`listing`) and the
- * Shop compositions (`product` mirrors).
+ * Composition parity check — dual mode around migration 0013 (composition
+ * slice 5 + organizer-storefront retirement step 2, #191). Logic lives in
+ * `src/lib/composition-parity.ts` (typechecked, real-DB tested); this is the
+ * CLI. The mode is detected from the database's tables:
  *
- * Written as the pre-flight for the slice-2 read swap, kept as the standing
- * invariant check — including as the gate before slice 5 drops the moved
- * columns and renames `listing` → `image_publication`.
+ * PRE-0013 (`listing` present) — Nico's PRE-CHECK before applying 0013. Proves
+ * the migration will run and will delete only what it is meant to:
+ *   - the guard's two stop conditions are reported as problems: any `order`
+ *     with a `store_id`, and any order whose `store_product_id` points at an
+ *     organizer product (design_id or store_id set). Either makes the guard
+ *     fail and the whole batch roll back — this check names the rows first.
+ *   - two surviving Shop compositions pinning the same front image: the new
+ *     unique index `product_front_image_unique` could not be built.
+ *   - the standing structural parity: every listing has exactly one Shop
+ *     composition (store_id + design_id NULL, keyed on placements.front),
+ *     is_hidden ⇔ status = 'hidden' (never 'draft'), listed_at = published_at,
+ *     and no non-draft composition without a listing.
+ *   - as NOTES (not failures): the organizer product rows the migration WILL
+ *     DELETE, one line each; compositions with no front slot.
  *
- * SCOPE, since the slice-4 writer cutover: the sellable fields (title,
- * description, background_color, feed_rank) are written to `product` ONLY.
- * The listing's copies are frozen at their pre-cutover values, so they
- * legitimately differ from the product on any row edited since — this script
- * deliberately does NOT compare them. What must still agree is the structure:
+ * POST-0013 (`image_publication` present) — Nico's VERIFY after applying.
+ * Problems if `store`, `product_offering`, `listing`, `__slice5_guard` or
+ * `__new_product` still exist; `image_publication` is not exactly its four
+ * columns; `order.store_id` or `product.store_id`/`design_id` survive;
+ * `product.front_image_id` (VIRTUAL generated) or its unique index is
+ * missing; `__drizzle_migrations` has no row at or after 0013's journal
+ * `when`; or the same structural parity fails against `front_image_id`.
  *
- *   - every listing has exactly one mirror product (and vice versa)
- *   - hidden-state ↔ status (is_hidden ⇔ status = 'hidden', never 'draft')
- *   - listed_at = published_at (the feed sort)
+ * `scripts/migration-smoke.ts` exits 1 on ANY dropped table, so it cannot
+ * verify a drop migration — this script is the verify step for 0013.
  *
- * Exits 1 on any mismatch. Read-only. Safe on prod. Not run by CI.
+ * Read-only. Safe on prod. Not run by CI. Exits 1 on any problem.
  *
- * Usage:
- *   DATABASE_URL=... DATABASE_AUTH_TOKEN=... npx tsx scripts/check-composition-read-parity.ts
+ * Usage (dev via .env.local; prod/preview via inline creds as for db:migrate):
+ *   npx tsx --env-file=.env.local scripts/check-composition-read-parity.ts
+ *   DATABASE_URL=libsql://prntd-nicolovejoy.aws-us-west-2.turso.io DATABASE_AUTH_TOKEN=$(turso db tokens create prntd) npx tsx scripts/check-composition-read-parity.ts
  */
 import { createClient } from "@libsql/client";
+import { checkCompositionParity } from "../src/lib/composition-parity";
 
 const url = process.env.DATABASE_URL;
 const authToken = process.env.DATABASE_AUTH_TOKEN;
 if (!url) throw new Error("DATABASE_URL required");
 
-type Row = Record<string, unknown>;
-
-const num = (v: unknown): number | null =>
-  v === null || v === undefined ? null : Number(v);
-
 async function main() {
   const client = createClient({ url: url!, authToken });
   console.log("host:", new URL(url!.replace("libsql://", "https://")).host);
 
-  const tables = await client.execute(
-    "select name from sqlite_master where type='table' and name in ('listing','product')"
-  );
-  const present = new Set(tables.rows.map((r) => String(r.name)));
-  for (const t of ["listing", "product"]) {
-    if (!present.has(t)) {
-      console.error(`MISSING table ${t}. Stop.`);
-      process.exit(2);
-    }
+  const report = await checkCompositionParity(client);
+  console.log(`mode: ${report.mode}`);
+
+  console.log("\ncounts:");
+  for (const [key, value] of Object.entries(report.counts)) {
+    console.log(`  ${key}: ${value}`);
   }
 
-  const listings = (
-    await client.execute(
-      `select image_id, published_at, is_hidden from listing`
-    )
-  ).rows as unknown as Row[];
-
-  // Mirror rows: the PRNTD Shop compositions (no store, no design), keyed by
-  // their front placement slot — exactly what the slice-2 readers join on.
-  const mirrors = (
-    await client.execute(
-      `select json_extract(placements, '$.front') as front_image_id,
-              id, status, listed_at
-         from product
-        where store_id is null and design_id is null
-          and json_extract(placements, '$.front') is not null`
-    )
-  ).rows as unknown as Row[];
-
-  const byImage = new Map<string, Row[]>();
-  for (const m of mirrors) {
-    const key = String(m.front_image_id);
-    const list = byImage.get(key) ?? [];
-    list.push(m);
-    byImage.set(key, list);
+  if (report.notes.length) {
+    console.log("\nnotes:");
+    for (const note of report.notes) console.log(`  ${note}`);
   }
 
-  const problems: string[] = [];
-  for (const l of listings) {
-    const imageId = String(l.image_id);
-    const found = byImage.get(imageId) ?? [];
-    if (found.length === 0) {
-      problems.push(
-        `${imageId}: published image with no composition — invisible in the Shop, and unbuyable since slice 4`
-      );
-      continue;
-    }
-    if (found.length > 1) {
-      problems.push(`${imageId}: ${found.length} mirror products (expected 1)`);
-      continue;
-    }
-    const m = found[0];
-    const expectedStatus = Number(l.is_hidden) ? "hidden" : "listed";
-    if (String(m.status) !== expectedStatus) {
-      problems.push(
-        `${imageId}: mirror status ${m.status}, expected ${expectedStatus} (hidden-state disagrees)`
-      );
-    }
-    if (num(m.listed_at) === null) {
-      problems.push(`${imageId}: mirror has no listed_at — the feed sort needs it`);
-    } else if (num(m.listed_at) !== num(l.published_at)) {
-      problems.push(
-        `${imageId}: listed_at ${num(m.listed_at)} != listing published_at ${num(l.published_at)}`
-      );
-    }
-  }
-
-  // A published mirror with no listing would newly appear in the Shop.
-  const listedImageIds = new Set(listings.map((l) => String(l.image_id)));
-  for (const [imageId, rows] of byImage) {
-    for (const m of rows) {
-      if (String(m.status) !== "draft" && !listedImageIds.has(imageId)) {
-        problems.push(
-          `${imageId}: mirror is ${m.status} but the image has no visibility row — listed in the Shop with no publish grant`
-        );
-      }
-    }
-  }
-
-  console.log(`\nvisibility rows (listing): ${listings.length}`);
-  console.log(`shop compositions (mirror products): ${mirrors.length}`);
-
-  if (problems.length) {
-    console.error(`\n${problems.length} PROBLEM(S):`);
-    for (const p of problems) console.error(`  - ${p}`);
+  if (report.problems.length) {
+    console.error(`\n${report.problems.length} PROBLEM(S):`);
+    for (const p of report.problems) console.error(`  - ${p}`);
     console.error(
-      "\nA missing composition is fixable with scripts/backfill-composition-products.ts --apply." +
-        "\nA status / listed_at disagreement is not — investigate before re-running anything."
+      report.mode === "pre-0013"
+        ? "\nDo NOT apply migration 0013 until every problem above is resolved." +
+          "\nProblems tagged [parity] are read-path defects (a published image the Shop cannot show, or one shown without a grant) — the migration itself would still run, but fix them first; every other problem would make the migration refuse or fail."
+        : "\nMigration 0013 did not land as written — stop and compare against drizzle/0013_flat_mentor.sql."
     );
     process.exit(1);
   }
+
   console.log(
-    "\nstructural parity clean: every published image has exactly one composition, and they agree on visibility + listed_at."
+    report.mode === "pre-0013"
+      ? "\nPRE-0013 CHECK CLEAN — safe to apply migration 0013"
+      : "\nPOST-0013 VERIFY CLEAN"
   );
 }
 
