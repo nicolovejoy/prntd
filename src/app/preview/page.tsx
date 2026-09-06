@@ -557,14 +557,13 @@ function PreviewPageInner() {
   // resolution can't leave the page stuck mockup-less. mockupError blocks
   // the auto-fire so a persistent failure doesn't loop; retry is the
   // explicit button in the side's panel.
-  // Also waits on an in-flight back fetch: the back only starts once the
-  // front has settled, but a front render retry can land while the back is
-  // still out, and the two Printful calls must not overlap in that direction
-  // either.
+  // Never waits on the back: the front is what the buyer looks at first, so
+  // an in-flight back fetch (Printful polling allows up to 55s) must not
+  // stall it. The back's own gate (frontMockupSettled, below) is what keeps
+  // the two Printful calls from overlapping.
   useEffect(() => {
     if (!frontImageUrl) return;
     if (mockupLoading.front || mockupError.front || mockups.front) return;
-    if (mockupLoading.back) return;
     void renderMockupFor("front");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -574,7 +573,6 @@ function PreviewPageInner() {
     mockupLoading.front,
     mockupError.front,
     mockups.front,
-    mockupLoading.back,
   ]);
 
   // The front's mockup fetch has settled: fetched, failed, or never going to

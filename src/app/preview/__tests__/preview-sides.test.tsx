@@ -71,6 +71,7 @@ vi.mock("../actions", () => ({
 }));
 
 import PreviewPage from "../page";
+import { getBackDesignSources } from "../actions";
 
 const WITH_BACK = "id=d1&product=bella-canvas-3001&color=Black&back=img-back";
 const NO_BACK = "id=d1&product=bella-canvas-3001&color=Black";
@@ -175,6 +176,58 @@ describe("/preview sides (#167)", () => {
     expect(mockupCallsFor("front")).toHaveLength(1);
     // The back call carries its picked source.
     expect(mockupCallsFor("back")[0][5]).toBe("img-back");
+  });
+
+  it("a front change is not blocked by an in-flight back fetch", async () => {
+    params = new URLSearchParams(WITH_BACK);
+    // The back fetch is never resolved for the whole test — it stays
+    // in-flight throughout, which is exactly the condition the front must
+    // not wait on.
+    const back = deferred<{ mockupUrl: string }>();
+    vi.mocked(getBackDesignSources).mockResolvedValueOnce({
+      groups: [
+        {
+          id: "this-design",
+          label: "This design",
+          images: [
+            { id: "img-back", imageUrl: "https://img.example/back.png" },
+            {
+              id: "img-front-alt",
+              imageUrl: "https://img.example/front-alt.png",
+            },
+          ],
+        },
+      ],
+    });
+    generateMockup.mockImplementation(
+      (_d: string, _c: string, _p: string, _s: number, placement = "front") =>
+        placement === "back"
+          ? back.promise
+          : Promise.resolve({ mockupUrl: "https://mock.example/front.jpg" })
+    );
+    render(<PreviewPage />);
+
+    // Front settles quickly; the back fetch starts once it does (frontMockupSettled)
+    // and then sits pending for the rest of this test.
+    await waitFor(() => expect(mockupCallsFor("front")).toHaveLength(1));
+    await waitFor(() => expect(mockupCallsFor("back")).toHaveLength(1));
+
+    // Pick a different front source while the back fetch is still in flight.
+    // jsdom has no scrollTo implementation; the picker button calls it as a
+    // side effect unrelated to what this test checks.
+    window.scrollTo = vi.fn();
+    fireEvent.click(screen.getAllByRole("button", { name: "Change" })[0]);
+    const options = await screen.findAllByAltText("This design option");
+    const altOption = options.find((img) =>
+      (img as HTMLImageElement).src.includes("front-alt")
+    );
+    fireEvent.click(altOption!.closest("button")!);
+
+    // The front issues its own fetch for the new source without waiting for
+    // the still-pending back promise to settle.
+    await waitFor(() => expect(mockupCallsFor("front")).toHaveLength(2));
+    expect(mockupCallsFor("front")[1][5]).toBe("img-front-alt");
+    expect(mockupCallsFor("back")).toHaveLength(1);
   });
 
   it("a failed back mockup shows an alert with retry in the tile, not the hero", async () => {
