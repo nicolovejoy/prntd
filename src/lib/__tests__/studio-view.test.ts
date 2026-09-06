@@ -1,11 +1,18 @@
 import { describe, it, expect } from "vitest";
 import {
+  applyOptimistic,
   bulkDeleteConfirm,
   bulkDeleteSkipNotice,
   formatClosedDate,
   formatElapsed,
+  settleOptimistic,
   timeAgo,
+  unseenOptimisticCount,
+  type OptimisticEntry,
 } from "@/lib/studio-view";
+import type { StudioLane } from "@/lib/studio";
+
+import { STALE_OPTIMISTIC_MS } from "../generation-poll";
 
 describe("formatElapsed", () => {
   it("formats seconds under a minute", () => {
@@ -97,5 +104,234 @@ describe("bulkDeleteSkipNotice", () => {
     expect(bulkDeleteSkipNotice([{ id: "a", reason: "ordered" }])).toBe(
       "1 kept — it has an order."
     );
+  });
+});
+
+function lane(overrides: Partial<StudioLane> = {}): StudioLane {
+  return {
+    designId: "design-1",
+    title: "existing lane",
+    lastActiveAt: new Date("2026-09-05T00:00:00Z"),
+    cells: [],
+    pending: [],
+    ...overrides,
+  };
+}
+
+function entry(overrides: Partial<OptimisticEntry> = {}): OptimisticEntry {
+  return {
+    localId: "local-1",
+    designId: "design-1",
+    anchorImageId: null,
+    // Now, not a fixed instant: settleOptimistic drops entries older than
+    // STALE_OPTIMISTIC_MS, so a hardcoded past date would age these out.
+    startedAt: new Date(),
+    jobId: null,
+    ...overrides,
+  };
+}
+
+describe("applyOptimistic", () => {
+  it("appends an anchored entry into its existing lane's pending", () => {
+    const lanes = [lane({ designId: "design-1" })];
+    const result = applyOptimistic(lanes, [
+      entry({ designId: "design-1", anchorImageId: "img-1" }),
+    ]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].designId).toBe("design-1");
+    expect(result[0].pending).toHaveLength(1);
+    expect(result[0].pending[0].optimistic).toBe(true);
+  });
+
+  it("synthesizes a new lane at index 0, title null, when the design isn't in server lanes yet", () => {
+    const lanes = [lane({ designId: "design-1" })];
+    const result = applyOptimistic(lanes, [
+      entry({ designId: "design-new", localId: "local-2" }),
+    ]);
+
+    expect(result).toHaveLength(2);
+    expect(result[0].designId).toBe("design-new");
+    expect(result[0].title).toBeNull();
+    expect(result[0].cells).toEqual([]);
+    expect(result[0].pending).toHaveLength(1);
+    expect(result[1].designId).toBe("design-1");
+  });
+
+  it("gives the overlay cell the local id as jobId until a real one is known", () => {
+    const result = applyOptimistic([], [entry({ localId: "local-9", jobId: null })]);
+    expect(result[0].pending[0].jobId).toBe("local-9");
+  });
+
+  it("uses the real jobId once known", () => {
+    const result = applyOptimistic(
+      [lane({ designId: "design-1" })],
+      [entry({ designId: "design-1", jobId: "job-9" })]
+    );
+    expect(result[0].pending[0].jobId).toBe("job-9");
+  });
+});
+
+describe("settleOptimistic", () => {
+  it("keeps an entry with a null jobId no matter what server lanes say", () => {
+    const withLane = [lane({ designId: "design-1" })];
+    const kept = settleOptimistic(withLane, [entry({ jobId: null })]);
+    expect(kept).toHaveLength(1);
+
+    const keptStillEmpty = settleOptimistic([], [entry({ jobId: null })]);
+    expect(keptStillEmpty).toHaveLength(1);
+  });
+
+  it("drops an entry once its jobId shows up in some lane's pending", () => {
+    const lanes = [
+      lane({
+        designId: "design-1",
+        pending: [{ jobId: "job-1", generationNumber: 3, startedAt: new Date() }],
+      }),
+    ];
+    const kept = settleOptimistic(lanes, [
+      entry({ designId: "design-1", jobId: "job-1" }),
+    ]);
+    expect(kept).toHaveLength(0);
+  });
+
+  it("drops an entry whose jobId isn't pending once its design lane exists (finished or cancelled)", () => {
+    const lanes = [lane({ designId: "design-1", pending: [] })];
+    const kept = settleOptimistic(lanes, [
+      entry({ designId: "design-1", jobId: "job-1" }),
+    ]);
+    expect(kept).toHaveLength(0);
+  });
+
+  it("keeps an entry whose jobId isn't pending while its design lane isn't visible yet", () => {
+    const kept = settleOptimistic([], [
+      entry({ designId: "design-new", jobId: "job-1" }),
+    ]);
+    expect(kept).toHaveLength(1);
+  });
+});
+
+describe("unseenOptimisticCount", () => {
+  it("excludes entries already visible server-side, counts the rest", () => {
+    const lanes = [
+      lane({
+        designId: "design-1",
+        pending: [{ jobId: "job-visible", generationNumber: 1, startedAt: new Date() }],
+      }),
+    ];
+    const entries = [
+      entry({ designId: "design-1", jobId: "job-visible" }), // visible — excluded
+      entry({ designId: "design-1", jobId: null, localId: "local-a" }), // in flight — counted
+      entry({ designId: "design-2", jobId: "job-unseen", localId: "local-b" }), // queued but not yet in any lane — counted
+    ];
+
+    expect(unseenOptimisticCount(lanes, entries)).toBe(2);
+  });
+
+  it("is zero when there are no entries", () => {
+    expect(unseenOptimisticCount([], [])).toBe(0);
+  });
+});
+
+describe("applyOptimistic ordering of synthetic lanes", () => {
+  it("renders two unanchored submits newest-first", () => {
+    const older = entry({
+      localId: "local-a",
+      designId: "design-a",
+      startedAt: new Date("2026-09-05T00:00:01Z"),
+    });
+    const newer = entry({
+      localId: "local-b",
+      designId: "design-b",
+      startedAt: new Date("2026-09-05T00:00:05Z"),
+    });
+
+    // Submit order is oldest-first, the way the client appends them.
+    const result = applyOptimistic([], [older, newer]);
+
+    expect(result.map((l) => l.designId)).toEqual(["design-b", "design-a"]);
+  });
+
+  it("dates a synthetic lane by the newest of its own entries", () => {
+    const first = entry({
+      localId: "local-a",
+      designId: "design-a",
+      startedAt: new Date("2026-09-05T00:00:01Z"),
+    });
+    const second = entry({
+      localId: "local-b",
+      designId: "design-a",
+      startedAt: new Date("2026-09-05T00:00:09Z"),
+    });
+
+    const result = applyOptimistic([], [first, second]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].lastActiveAt).toEqual(new Date("2026-09-05T00:00:09Z"));
+    expect(result[0].pending).toHaveLength(2);
+  });
+});
+
+describe("settleOptimistic against a stale snapshot (#187 review)", () => {
+  const knownAt = new Date("2026-09-05T00:00:10Z").getTime();
+
+  it("keeps an entry when the snapshot's fetch began before the jobId was known", () => {
+    // The poll's getStudioLanes went out before generateDesign wrote the row,
+    // so "lane exists and doesn't list the job" says nothing about this job.
+    const lanes = [lane({ designId: "design-1", pending: [] })];
+    const kept = settleOptimistic(
+      lanes,
+      [entry({ jobId: "job-9", jobIdKnownAtMs: knownAt })],
+      { snapshotStartedAtMs: knownAt - 500, nowMs: knownAt + 1000 }
+    );
+    expect(kept).toHaveLength(1);
+  });
+
+  it("drops it once a snapshot fetched after the jobId was known still omits it", () => {
+    const lanes = [lane({ designId: "design-1", pending: [] })];
+    const kept = settleOptimistic(
+      lanes,
+      [entry({ jobId: "job-9", jobIdKnownAtMs: knownAt })],
+      { snapshotStartedAtMs: knownAt + 500, nowMs: knownAt + 1000 }
+    );
+    expect(kept).toHaveLength(0);
+  });
+
+  it("still drops a job the stale snapshot DOES list as pending", () => {
+    const lanes = [
+      lane({
+        designId: "design-1",
+        pending: [
+          { jobId: "job-9", generationNumber: 1, startedAt: new Date(knownAt) },
+        ],
+      }),
+    ];
+    const kept = settleOptimistic(
+      lanes,
+      [entry({ jobId: "job-9", jobIdKnownAtMs: knownAt })],
+      { snapshotStartedAtMs: knownAt - 500, nowMs: knownAt + 1000 }
+    );
+    expect(kept).toHaveLength(0);
+  });
+
+  it("drops an entry older than the client's stale window, jobId or not", () => {
+    const startedAt = new Date("2026-09-05T00:00:00Z");
+    const now = startedAt.getTime() + STALE_OPTIMISTIC_MS + 1;
+    expect(
+      settleOptimistic([], [entry({ startedAt, jobId: null })], { nowMs: now })
+    ).toHaveLength(0);
+    expect(
+      settleOptimistic(
+        [],
+        [entry({ startedAt, jobId: "job-9", jobIdKnownAtMs: startedAt.getTime() })],
+        { nowMs: now }
+      )
+    ).toHaveLength(0);
+    // One tick inside the window it survives.
+    expect(
+      settleOptimistic([], [entry({ startedAt, jobId: null })], {
+        nowMs: startedAt.getTime() + STALE_OPTIMISTIC_MS - 1,
+      })
+    ).toHaveLength(1);
   });
 });

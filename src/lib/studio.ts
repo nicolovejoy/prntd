@@ -42,6 +42,14 @@ export type StudioPendingCell = {
   jobId: string;
   generationNumber: number;
   startedAt: Date;
+  /**
+   * Set only on a client-side overlay cell rendered before the server's
+   * image_generation row is visible yet (issue #187, src/lib/studio-view.ts
+   * applyOptimistic). getStudioLanesData never sets this — every cell it
+   * returns is a real row, so this stays backward-compatible for callers
+   * that only ever see server-sourced cells.
+   */
+  optimistic?: true;
 };
 
 export type StudioLane = {

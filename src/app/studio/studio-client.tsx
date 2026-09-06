@@ -18,11 +18,15 @@ import {
   nextPollDelayMs,
 } from "@/lib/generation-poll";
 import {
+  applyOptimistic,
   bulkDeleteConfirm,
   bulkDeleteSkipNotice,
   formatElapsed,
+  settleOptimistic,
   timeAgo,
+  unseenOptimisticCount,
 } from "@/lib/studio-view";
+import type { OptimisticEntry } from "@/lib/studio-view";
 import type { StudioLane } from "@/lib/studio";
 import { deleteConversations, getStudioLanes } from "./actions";
 
@@ -44,6 +48,14 @@ import { deleteConversations, getStudioLanes } from "./actions";
  * and lets the server's lazy sweep clear overdue rows — which is why the
  * poll target is the surface itself rather than per-design getDesignJobs
  * calls (a fan-out that couldn't discover new lanes at all).
+ *
+ * Optimistic cells (#187): a submit puts its pending cell (and, unanchored, a
+ * lane at the top of the bench) on screen immediately, held in `optimistic`
+ * beside the lanes and overlaid at render time by applyOptimistic. Keeping it
+ * out of `lanes` is what makes a poll's wholesale setLanes safe; each refresh
+ * then retires the entries server truth can account for (settleOptimistic).
+ * The cap counts only the entries the server cannot see yet, and Cancel waits
+ * for the real jobId.
  *
  * The anchor lives OUTSIDE the lane state on purpose: a poll refresh replaces
  * `lanes` wholesale with server truth, and the anchor (plus the draft text)
@@ -75,10 +87,11 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
   const [lanes, setLanes] = useState<StudioLane[]>(initialLanes);
   const [anchor, setAnchor] = useState<Anchor | null>(null);
   const [text, setText] = useState("");
-  // In-flight generateDesign calls: the job row doesn't exist until the
-  // action returns, so these count toward the cap or a fast triple-tap would
-  // send a fourth request for the server to reject (generation-poll.ts).
-  const [submitting, setSubmitting] = useState(0);
+  // Submits this tab has fired that server lanes may not show yet (#187):
+  // the pending cell has to appear the instant Generate is pressed, not a
+  // round trip later. Kept BESIDE the lanes and overlaid at render time, so
+  // a poll's setLanes(fresh) can never wipe a cell mid-flight.
+  const [optimistic, setOptimistic] = useState<OptimisticEntry[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [pollErrors, setPollErrors] = useState(0);
   // Bumped after every completed poll so the timer effect re-arms.
@@ -88,22 +101,52 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  // The synthetic lane an unanchored submit just created. It goes to the top
+  // of the bench, which is off-screen if the user had scrolled down, so the
+  // lane scrolls itself into view when it mounts (phone-first: the whole
+  // point of #187 is seeing that the tap registered).
+  const [revealDesignId, setRevealDesignId] = useState<string | null>(null);
 
   const polling = useRef(false);
   const pollStartedAt = useRef<number | null>(null);
 
-  const pendingCount = lanes.reduce((n, lane) => n + lane.pending.length, 0);
-  const atCap = isAtGenerationCap(pendingCount, submitting);
+  // What the bench renders: server truth plus this tab's own overlay.
+  const renderedLanes = applyOptimistic(lanes, optimistic);
+  // Server pending drives polling and the cap's first argument; the second is
+  // only the overlay the server cannot see yet, so a cell that has landed in
+  // server lanes is never counted twice.
+  const serverPendingCount = lanes.reduce((n, l) => n + l.pending.length, 0);
+  const renderedPendingCount = renderedLanes.reduce(
+    (n, l) => n + l.pending.length,
+    0
+  );
+  const atCap = isAtGenerationCap(
+    serverPendingCount,
+    unseenOptimisticCount(lanes, optimistic)
+  );
+  // Cancel needs a real job row; an entry whose action hasn't returned yet
+  // renders its cell without the control (its cell is keyed on the localId).
+  const unresolvedCellIds = new Set(
+    optimistic.filter((e) => e.jobId === null).map((e) => e.localId)
+  );
 
   const pollOnce = useCallback(async () => {
     if (polling.current) return;
     polling.current = true;
+    // When THIS fetch went out. A poll can straddle the job-row write, and a
+    // snapshot taken before it can't testify that the job is gone.
+    const snapshotStartedAtMs = Date.now();
     try {
       const fresh = await getStudioLanes();
       // Server truth replaces the lanes — and only the lanes. The anchor and
       // the draft are the local state this refresh must not clobber; both
       // live in their own useState and are untouched here.
       setLanes(fresh);
+      // Drop the overlay entries this refresh has made redundant — server
+      // truth wins for everything the server can now see.
+      setOptimistic((entries) =>
+        settleOptimistic(fresh, entries, { snapshotStartedAtMs })
+      );
       setPollErrors(0);
     } catch {
       // Transient transport failure: keep what's rendered, spend budget.
@@ -117,7 +160,11 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
   // Poll only while a generation is in flight; stop entirely otherwise.
   // Halted is a stop, not a give-up — the wake handler below clears the
   // budget, so the loop resumes when the user looks at the tab again.
-  const active = pendingCount > 0 && !isPollHalted(pollErrors);
+  // An overlay entry keeps the loop alive too, so polling starts the instant
+  // a cell appears — harmless if the job row isn't written yet.
+  const active =
+    (serverPendingCount > 0 || optimistic.length > 0) &&
+    !isPollHalted(pollErrors);
   useEffect(() => {
     if (!active) {
       pollStartedAt.current = null;
@@ -149,10 +196,10 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
 
   // Elapsed labels tick locally between polls.
   useEffect(() => {
-    if (pendingCount === 0) return;
+    if (renderedPendingCount === 0) return;
     const timer = setInterval(() => setNowMs(Date.now()), 1000);
     return () => clearInterval(timer);
-  }, [pendingCount]);
+  }, [renderedPendingCount]);
 
   // The anchor survives every refresh EXCEPT its image genuinely leaving the
   // surface (conversation closed in another tab, design deleted). Then the
@@ -169,7 +216,7 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
   // Selection follows the lanes: an id whose lane left (deleted elsewhere,
   // closed in another tab, or now generating) can't stay selected, or Delete
   // would act on something not on screen.
-  const selectableIds = lanes
+  const selectableIds = renderedLanes
     .filter((l) => l.pending.length === 0)
     .map((l) => l.designId);
   useEffect(() => {
@@ -178,9 +225,10 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
       if ([...s].every((id) => live.has(id))) return s;
       return new Set([...s].filter((id) => live.has(id)));
     });
-    // selectableIds is derived from lanes; lanes is the real dependency.
+    // selectableIds is derived from lanes + the overlay; those are the real
+    // dependencies (the array itself is rebuilt every render).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lanes]);
+  }, [lanes, optimistic]);
 
   useEffect(() => {
     if (!selectMode) return;
@@ -190,6 +238,16 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [selectMode]);
+
+  // Put back entries an optimistic removal took out, without touching
+  // anything that arrived meanwhile (a Generate fired during the round trip).
+  function restoreOptimistic(removed: OptimisticEntry[]) {
+    if (removed.length === 0) return;
+    setOptimistic((es) => [
+      ...es,
+      ...removed.filter((r) => !es.some((e) => e.localId === r.localId)),
+    ]);
+  }
 
   function enterSelectMode() {
     setSelectMode(true);
@@ -225,9 +283,14 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
     if (ids.length === 0 || bulkDeleting) return;
     if (!window.confirm(bulkDeleteConfirm(ids.length))) return;
     const prev = lanes;
+    // Read the entries this delete removes, but never write the array back
+    // wholesale: a Generate fired during the round trip adds its own entry,
+    // and restoring a snapshot would erase it.
     const chosen = new Set(ids);
+    const removedOptimistic = optimistic.filter((e) => chosen.has(e.designId));
     setBulkDeleting(true);
     setLanes((ls) => ls.filter((l) => !chosen.has(l.designId)));
+    setOptimistic((es) => es.filter((e) => !chosen.has(e.designId)));
     try {
       const result = await deleteConversations(ids);
       const gone = new Set(result.deleted);
@@ -237,6 +300,7 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
       await pollOnce();
     } catch {
       setLanes(prev);
+      restoreOptimistic(removedOptimistic);
       setNotice("Couldn't delete those designs. Try again.");
     } finally {
       setBulkDeleting(false);
@@ -269,11 +333,25 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
     const submitAnchor = anchor;
     setText("");
     setNotice(null);
-    setSubmitting((n) => n + 1);
     // No anchor → a fresh conversation: generateDesign creates the design row
     // for an unseen id, so the client mints one and the lane appears on the
     // refetch below.
     const targetDesignId = submitAnchor?.designId ?? crypto.randomUUID();
+    // The cell goes up now (#187). An anchored submit appends to that lane; an
+    // unanchored one synthesizes a lane at the top of the bench, which on a
+    // phone is the first thing above the composer.
+    const localId = crypto.randomUUID();
+    if (!submitAnchor) setRevealDesignId(targetDesignId);
+    setOptimistic((entries) => [
+      ...entries,
+      {
+        localId,
+        designId: targetDesignId,
+        anchorImageId: submitAnchor?.imageId ?? null,
+        startedAt: new Date(),
+        jobId: null,
+      },
+    ]);
     try {
       const result = await generateDesign(
         targetDesignId,
@@ -281,20 +359,30 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
         submitAnchor ? { anchorImageId: submitAnchor.imageId } : {}
       );
       if (result.kind === "queued") {
+        // Now the cell has a real job behind it: Cancel appears, and the next
+        // poll that lists the job retires the overlay entry.
+        setOptimistic((entries) =>
+          entries.map((e) =>
+            e.localId === localId
+              ? { ...e, jobId: result.jobId, jobIdKnownAtMs: Date.now() }
+              : e
+          )
+        );
         // The anchor deliberately stays put (plan, slice 3): successive
         // instructions fan out from the image the user chose; building on a
         // result means tapping it.
         await pollOnce();
       } else {
+        // The turn didn't run, so the cell it promised has to go.
+        setOptimistic((entries) => entries.filter((e) => e.localId !== localId));
         setNotice(result.message);
         // Give the words back if the box is still empty — the turn didn't run.
         setText((t) => t || trimmed);
       }
     } catch {
+      setOptimistic((entries) => entries.filter((e) => e.localId !== localId));
       setNotice(GENERATE_FAILED_COPY);
       setText((t) => t || trimmed);
-    } finally {
-      setSubmitting((n) => n - 1);
     }
   }
 
@@ -304,12 +392,19 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
   // will be. Optimistic: the lane leaves now, comes back on error.
   async function closeLane(lane: StudioLane) {
     const prev = lanes;
+    const removedOptimistic = optimistic.filter(
+      (e) => e.designId === lane.designId
+    );
     setLanes((ls) => ls.filter((l) => l.designId !== lane.designId));
+    // A lane this tab removes takes its own overlay cells with it; otherwise
+    // the closed conversation would come straight back as a synthetic lane.
+    setOptimistic((es) => es.filter((e) => e.designId !== lane.designId));
     setAnchor((a) => (a?.designId === lane.designId ? null : a));
     try {
       await closeConversation(lane.designId);
     } catch {
       setLanes(prev);
+      restoreOptimistic(removedOptimistic);
       setNotice("Couldn't close that design. Try again.");
     }
   }
@@ -320,6 +415,9 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
   // The slot itself frees when the render returns, so a submit in the
   // meantime can still meet the server's cap; that refusal is shown as-is.
   async function cancelJob(lane: StudioLane, jobId: string) {
+    // Cancel is offered only once the jobId is real, so an entry matching it
+    // is one whose cell is still an overlay — it leaves with the server cell.
+    setOptimistic((entries) => entries.filter((e) => e.jobId !== jobId));
     setLanes((ls) =>
       ls.map((l) =>
         l.designId === lane.designId
@@ -345,7 +443,11 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
   async function deleteLane(lane: StudioLane) {
     if (!window.confirm(DELETE_CONVERSATION_CONFIRM)) return;
     const prev = lanes;
+    const removedOptimistic = optimistic.filter(
+      (e) => e.designId === lane.designId
+    );
     setLanes((ls) => ls.filter((l) => l.designId !== lane.designId));
+    setOptimistic((es) => es.filter((e) => e.designId !== lane.designId));
     setAnchor((a) => (a?.designId === lane.designId ? null : a));
     try {
       // Expected refusals come back as { error } — a thrown server-action
@@ -353,10 +455,12 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
       const result = await deleteDesign(lane.designId);
       if (result?.error) {
         setLanes(prev);
+        restoreOptimistic(removedOptimistic);
         setNotice(result.error);
       }
     } catch {
       setLanes(prev);
+      restoreOptimistic(removedOptimistic);
       setNotice("Couldn't delete that design. Try again.");
     }
   }
@@ -369,7 +473,7 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
           <div className="flex items-baseline gap-4">
             {/* Only when there is something to select; in select mode the
                 bottom bar's Done is the way out, so the control hides. */}
-            {lanes.length > 0 && !selectMode && (
+            {renderedLanes.length > 0 && !selectMode && (
               <button
                 type="button"
                 onClick={enterSelectMode}
@@ -391,7 +495,7 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
           </div>
         </div>
 
-        {lanes.length === 0 ? (
+        {renderedLanes.length === 0 ? (
           // Also the first thing a buy-only account sees, since / redirects
           // signed-in users here (nav re-map, 2026-09-01) — so the empty
           // state offers the Shop, not just the composer.
@@ -405,7 +509,7 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
             </Link>
           </div>
         ) : (
-          lanes.map((lane) => (
+          renderedLanes.map((lane) => (
             <Lane
               key={lane.designId}
               lane={lane}
@@ -418,6 +522,8 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
               onClose={closeLane}
               onDelete={deleteLane}
               onCancel={cancelJob}
+              unresolvedCellIds={unresolvedCellIds}
+              reveal={lane.designId === revealDesignId}
             />
           ))
         )}
@@ -555,6 +661,8 @@ function Lane({
   onClose,
   onDelete,
   onCancel,
+  unresolvedCellIds,
+  reveal,
 }: {
   lane: StudioLane;
   nowMs: number;
@@ -566,6 +674,10 @@ function Lane({
   onClose: (lane: StudioLane) => void;
   onDelete: (lane: StudioLane) => void;
   onCancel: (lane: StudioLane, jobId: string) => void;
+  /** Overlay cells whose generateDesign call hasn't returned a jobId yet. */
+  unresolvedCellIds: Set<string>;
+  /** Newly synthesized by an unanchored submit — scroll it into view. */
+  reveal: boolean;
 }) {
   const sectionRef = useRef<HTMLElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -581,6 +693,12 @@ function Lane({
     const el = scrollRef.current;
     if (el) el.scrollLeft = el.scrollWidth;
   }, [cellCount]);
+
+  // A lane that appears at the top of the bench on submit is above the
+  // viewport whenever the user had scrolled down; bring it to them.
+  useEffect(() => {
+    if (reveal) sectionRef.current?.scrollIntoView({ block: "start" });
+  }, [reveal]);
 
   return (
     <section
@@ -698,28 +816,47 @@ function Lane({
           );
         })}
 
-        {lane.pending.map((job) => (
-          <div
-            key={job.jobId}
-            data-testid="studio-pending-cell"
-            className="shrink-0 w-28 h-28 rounded-md border border-dashed border-border bg-surface flex flex-col items-center justify-center gap-1"
-          >
-            <span className="text-xs text-text-muted animate-pulse">
-              Generating…
-            </span>
-            <span className="text-xs text-text-faint tabular-nums">
-              {formatElapsed(nowMs - job.startedAt.getTime())}
-            </span>
-            <button
-              type="button"
-              onClick={() => onCancel(lane, job.jobId)}
-              className="text-xs text-text-faint hover:text-foreground min-h-[44px] px-3"
-              data-testid="cancel-generation"
+        {lane.pending.map((job) => {
+          // No job row behind an overlay cell until generateDesign returns,
+          // so Cancel has nothing to act on yet.
+          const unresolved = unresolvedCellIds.has(job.jobId);
+          return (
+            <div
+              key={job.jobId}
+              data-testid="studio-pending-cell"
+              className="shrink-0 w-28 h-28 rounded-md border border-dashed border-border bg-surface flex flex-col items-center justify-center gap-1"
             >
-              Cancel
-            </button>
-          </div>
-        ))}
+              <span className="text-xs text-text-muted animate-pulse">
+                Generating…
+              </span>
+              <span className="text-xs text-text-faint tabular-nums">
+                {formatElapsed(nowMs - job.startedAt.getTime())}
+              </span>
+              {/* The space is reserved from the start: the control renders
+                  inert and invisible until the jobId lands, so the label and
+                  elapsed time don't shift under the user when it appears. */}
+              <button
+                type="button"
+                disabled={unresolved}
+                aria-hidden={unresolved || undefined}
+                tabIndex={unresolved ? -1 : undefined}
+                onClick={
+                  unresolved ? undefined : () => onCancel(lane, job.jobId)
+                }
+                className={`text-xs text-text-faint hover:text-foreground min-h-[44px] px-3 ${
+                  unresolved ? "invisible" : ""
+                }`}
+                data-testid={
+                  unresolved
+                    ? "cancel-generation-placeholder"
+                    : "cancel-generation"
+                }
+              >
+                Cancel
+              </button>
+            </div>
+          );
+        })}
       </div>
     </section>
   );
