@@ -1,7 +1,6 @@
 /**
  * DB-level core of "delete one image" — the plan/execute split behind the
  * `deleteDesignImage` server action (src/app/design/actions.ts), the
- * `deleteDesignImageRow` write helper (src/lib/design-images.ts) and the
  * bulk `deleteImages` action on My Designs (src/app/designs/actions.ts).
  * Mirrors src/lib/delete-design.ts, one object down: the caller supplies the
  * session gate and decides what a non-deletable plan turns into, this layer
@@ -149,9 +148,9 @@ export async function planImageDeletion(
   };
 
   // No image row: nothing to report to a library caller. A design-scoped
-  // caller still gets a "delete" plan, because its execute is the same set of
-  // no-op deletes the pre-extraction deleteDesignImageRow ran (a placement
-  // render id has no image row and is deleted by id).
+  // caller still gets a "delete" plan — its execute is a set of no-op deletes
+  // plus the placement_render delete, which is how a render id (no `image`
+  // row, id reused) has always been removed.
   if (!row && !opts.designId) return { ...base, outcome: "not-found" };
   if (row && opts.userId && row.ownerId !== opts.userId) {
     return { ...base, outcome: "not-owned" };
@@ -249,8 +248,8 @@ export async function planImageDeletion(
  * aren't supported over the serverless HTTP connection. R2 objects are NOT
  * touched here; the plan carries `r2Key`/`imageUrl` for a caller that cleans
  * up. Returns the id the scope design's primary_image_id should become and
- * whether it needs writing — the caller owns that update, the way
- * deleteDesignImageRow always has.
+ * whether it needs writing — the caller owns that update, and it needs
+ * writing only when the image that went WAS the primary.
  */
 export async function executeImageDeletion(
   db: Db,
@@ -293,15 +292,14 @@ export async function executeImageDeletion(
       : []),
   ]);
 
-  if (!designId || !plan.designExists) {
-    return { primaryImageId: null, primaryChanged: false };
-  }
-
-  // A seed detach only moves the primary when the seed WAS the primary (the
-  // thread's own generations are untouched); every other outcome recomputes
-  // it to the most recent remaining source image, which is what
-  // deleteDesignImageRow has always returned.
-  if (seedLink && !plan.wasPrimary) {
+  // The primary moves only when the image that just went WAS the primary.
+  // Recomputing it for any delete would silently re-point a thread whose
+  // primary the owner picked (setPrimaryImage, #149), and — worse — it moves
+  // an order's legacy fallback target: a pre-placements order line resolves
+  // to design.primary_image_id, so shifting the primary off image A makes A
+  // deletable on the very next id in the same bulk call. Blocked stays
+  // blocked because the fallback keeps pointing at A.
+  if (!designId || !plan.designExists || !plan.wasPrimary) {
     return { primaryImageId: null, primaryChanged: false };
   }
 

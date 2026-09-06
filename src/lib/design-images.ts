@@ -21,10 +21,6 @@ import {
   type ChatMessage,
 } from "@/lib/db/schema";
 import { eq, and, asc, desc, inArray, sql } from "drizzle-orm";
-import {
-  planImageDeletion,
-  executeImageDeletion,
-} from "@/lib/delete-image";
 import { getBlank, type AspectRatio } from "@/lib/blanks";
 import type { DesignSpec } from "@/lib/design-spec";
 import {
@@ -771,25 +767,6 @@ export async function resolveDesignDisplayImageUrls(
   }
 
   return out;
-}
-
-/**
- * Delete an image from a design. Thin wrapper over src/lib/delete-image.ts
- * (the plan/execute split shared with the bulk library delete): the rules —
- * order references block, a reference from another conversation / shop
- * product / cart line downgrades to a link-detach — live there.
- *
- * Returns the id that should become the design's new primary_image_id (the
- * most recent remaining source image), or null if there are none left.
- * Caller is responsible for updating design.primary_image_id.
- */
-export async function deleteDesignImageRow(
-  designId: string,
-  imageId: string
-): Promise<{ newPrimaryId: string | null }> {
-  const plan = await planImageDeletion(db, imageId, { designId });
-  const { primaryImageId } = await executeImageDeletion(db, plan);
-  return { newPrimaryId: primaryImageId };
 }
 
 /**

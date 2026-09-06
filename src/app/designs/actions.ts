@@ -109,7 +109,8 @@ export interface BulkImageDeleteResult {
  *    all. The user removes the other reference first, then deletes;
  *  - the rest are deleted one batch per image, never one batch across them:
  *    a failure mid-way leaves the earlier ones deleted and reports the failed
- *    one as `not-found`, which is what the grid should show either way.
+ *    one as `failed` — the row is still there, so the grid says so rather
+ *    than claiming the image is gone.
  *
  * R2 objects are removed after each DB batch, best-effort: a failed object
  * delete is logged and never fails the action, because the row is already
@@ -161,7 +162,7 @@ export async function deleteImages(
       console.error(
         `[designs] deleteImages: ${imageId} failed: ${err instanceof Error ? err.message : String(err)}`
       );
-      result.skipped.push({ imageId, reason: "not-found" });
+      result.skipped.push({ imageId, reason: "failed" });
       continue;
     }
     result.deleted.push(imageId);

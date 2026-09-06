@@ -43,12 +43,32 @@ vi.mock("@/lib/r2", () => ({
   imageKeyFromUrl: (url: string) => url.replace("https://r2/", ""),
 }));
 
+/** Set to make the next executeImageDeletion throw — the only way to reach
+ * the action's `failed` branch, since the rules refuse before any write. */
+let failNextWrite = false;
+vi.mock("@/lib/delete-image", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/delete-image")>();
+  return {
+    ...actual,
+    executeImageDeletion: async (
+      ...args: Parameters<typeof actual.executeImageDeletion>
+    ) => {
+      if (failNextWrite) {
+        failNextWrite = false;
+        throw new Error("libsql exploded");
+      }
+      return actual.executeImageDeletion(...args);
+    },
+  };
+});
+
 const { deleteImages } = await import("@/app/designs/actions");
 
 beforeEach(async () => {
   testDb = await createTestDb();
   currentUserId = "u1";
   deleteObjectByKey.mockClear();
+  failNextWrite = false;
   await makeUser(testDb, "u1");
   await makeUser(testDb, "u2");
 });
@@ -342,5 +362,109 @@ describe("deleteImages — thread state", () => {
     expect(result.skipped).toEqual([{ imageId: ordered, reason: "order" }]);
     expect(await imageRows(free)).toHaveLength(0);
     expect(await imageRows(ordered)).toHaveLength(1);
+  });
+});
+
+describe("deleteImages — thread state", () => {
+  it("leaves primary_image_id alone when the deleted image was not the primary", async () => {
+    const d = await makeDesign(testDb, "u1");
+    // Three images so the assertion can't pass by accident: the owner pinned
+    // the OLDEST (setPrimaryImage, #149), and a recompute would jump to the
+    // newest remaining.
+    const pinned = await makeSourceImage(testDb, {
+      designId: d.id,
+      ownerId: "u1",
+      imageUrl: "https://r2/images/pinned.png",
+      createdAt: new Date(1000),
+    });
+    const middle = await makeSourceImage(testDb, {
+      designId: d.id,
+      ownerId: "u1",
+      imageUrl: "https://r2/images/middle.png",
+      createdAt: new Date(2000),
+    });
+    const newest = await makeSourceImage(testDb, {
+      designId: d.id,
+      ownerId: "u1",
+      imageUrl: "https://r2/images/newest.png",
+      createdAt: new Date(3000),
+    });
+    await testDb
+      .update(schema.design)
+      .set({ primaryImageId: pinned })
+      .where(eq(schema.design.id, d.id));
+
+    await deleteImages([middle]);
+
+    const row = await testDb.query.design.findFirst({
+      where: eq(schema.design.id, d.id),
+    });
+    expect(row?.primaryImageId).toBe(pinned);
+    expect(row?.primaryImageId).not.toBe(newest);
+  });
+
+  it("cannot delete a legacy order's fallback image by deleting another first", async () => {
+    // A (primary) is what a pre-placements order line resolves to. Deleting C
+    // must not shift the primary off A, or A stops being blocked mid-call.
+    const d = await makeDesign(testDb, "u1");
+    const a = await makeSourceImage(testDb, {
+      designId: d.id,
+      ownerId: "u1",
+      imageUrl: "https://r2/images/a.png",
+      createdAt: new Date(1000),
+    });
+    await makeSourceImage(testDb, {
+      designId: d.id,
+      ownerId: "u1",
+      imageUrl: "https://r2/images/b.png",
+      createdAt: new Date(2000),
+    });
+    const c = await makeSourceImage(testDb, {
+      designId: d.id,
+      ownerId: "u1",
+      imageUrl: "https://r2/images/c.png",
+      createdAt: new Date(3000),
+    });
+    await testDb
+      .update(schema.design)
+      .set({ primaryImageId: a })
+      .where(eq(schema.design.id, d.id));
+    await makeOrderWithLine({
+      userId: "u1",
+      headDesignId: d.id,
+      lineDesignId: d.id,
+      placements: null,
+    });
+
+    const result = await deleteImages([c, a]);
+
+    expect(result.deleted).toEqual([c]);
+    expect(result.skipped).toEqual([{ imageId: a, reason: "order" }]);
+    expect(await imageRows(a)).toHaveLength(1);
+    const row = await testDb.query.design.findFirst({
+      where: eq(schema.design.id, d.id),
+    });
+    expect(row?.primaryImageId).toBe(a);
+  });
+});
+
+describe("deleteImages — a write that throws", () => {
+  it("reports `failed` and leaves the row when the delete batch throws", async () => {
+    const d = await makeDesign(testDb, "u1");
+    const imageId = await makeSourceImage(testDb, {
+      designId: d.id,
+      ownerId: "u1",
+      imageUrl: "https://r2/images/boom.png",
+    });
+    failNextWrite = true;
+
+    const result = await deleteImages([imageId]);
+
+    expect(result).toEqual({
+      deleted: [],
+      skipped: [{ imageId, reason: "failed" }],
+    });
+    expect(await imageRows(imageId)).toHaveLength(1);
+    expect(deleteObjectByKey).not.toHaveBeenCalled();
   });
 });

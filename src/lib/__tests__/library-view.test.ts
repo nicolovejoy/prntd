@@ -19,12 +19,18 @@ describe("imageDeleteSkipCopy", () => {
     );
   });
 
+  it("distinguishes a failed write from a kept image", () => {
+    expect(imageDeleteSkipCopy("failed")).toBe("Couldn't delete");
+    expect(imageDeleteSkipCopy("failed")).not.toBe(imageDeleteSkipCopy("in-use"));
+  });
+
   it("covers every reason with a non-empty phrase", () => {
     const reasons: ImageDeleteSkipReason[] = [
       "order",
       "in-use",
       "not-owned",
       "not-found",
+      "failed",
     ];
     for (const r of reasons) expect(imageDeleteSkipCopy(r).length).toBeGreaterThan(0);
   });
