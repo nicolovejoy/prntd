@@ -627,6 +627,17 @@ describe("the optimistic pending cell (#187)", () => {
     expect(lanes[1].textContent).toContain("geometric wolf head");
   });
 
+  it("titles the new lane with the prompt, not Untitled (#203)", () => {
+    deferGenerate();
+    render(<StudioClient initialLanes={[lane()]} />);
+
+    submitText("big dogs don't jiggle");
+
+    const lanes = screen.getAllByTestId("studio-lane");
+    expect(within(lanes[0]).getByText("big dogs don't jiggle")).toBeTruthy();
+    expect(within(lanes[0]).queryByText("Untitled")).toBeNull();
+  });
+
   it("a poll landing while the action is in flight does not remove the cell", async () => {
     deferGenerate();
     // Server truth still knows nothing about the submit.

@@ -137,6 +137,7 @@ function entry(overrides: Partial<OptimisticEntry> = {}): OptimisticEntry {
     // STALE_OPTIMISTIC_MS, so a hardcoded past date would age these out.
     startedAt: new Date(),
     jobId: null,
+    prompt: "",
     ...overrides,
   };
 }
@@ -179,6 +180,58 @@ describe("applyOptimistic", () => {
       [entry({ designId: "design-1", jobId: "job-9" })]
     );
     expect(result[0].pending[0].jobId).toBe("job-9");
+  });
+
+  it("titles a synthetic lane with the entry's prompt (#203)", () => {
+    const result = applyOptimistic(
+      [],
+      [entry({ designId: "design-new", prompt: "big dogs don't jiggle" })]
+    );
+    expect(result[0].title).toBe("big dogs don't jiggle");
+  });
+
+  it("titles a synthetic lane from the earlier startedAt, not array order", () => {
+    const later = entry({
+      designId: "design-new",
+      localId: "local-a",
+      prompt: "second prompt",
+      startedAt: new Date("2026-09-06T00:00:05Z"),
+    });
+    const earlier = entry({
+      designId: "design-new",
+      localId: "local-b",
+      prompt: "first prompt",
+      startedAt: new Date("2026-09-06T00:00:01Z"),
+    });
+
+    // Passed newest-first, so array order alone would pick the wrong one.
+    const result = applyOptimistic([], [later, earlier]);
+
+    expect(result[0].title).toBe("first prompt");
+  });
+
+  it("titles a synthetic lane null when the prompt is whitespace-only", () => {
+    const result = applyOptimistic(
+      [],
+      [entry({ designId: "design-new", prompt: "   " })]
+    );
+    expect(result[0].title).toBeNull();
+  });
+
+  it("keeps an existing lane's title over the entry's prompt", () => {
+    const result = applyOptimistic(
+      [lane({ designId: "design-1", title: "existing lane" })],
+      [entry({ designId: "design-1", prompt: "a new prompt" })]
+    );
+    expect(result[0].title).toBe("existing lane");
+  });
+
+  it("gives a null-titled existing lane the entry's prompt", () => {
+    const result = applyOptimistic(
+      [lane({ designId: "design-1", title: null })],
+      [entry({ designId: "design-1", prompt: "a new prompt" })]
+    );
+    expect(result[0].title).toBe("a new prompt");
   });
 });
 
