@@ -65,7 +65,8 @@ async function main() {
     for (const p of report.problems) console.error(`  - ${p}`);
     console.error(
       report.mode === "pre-0013"
-        ? "\nDo NOT apply migration 0013 until every problem above is resolved."
+        ? "\nDo NOT apply migration 0013 until every problem above is resolved." +
+          "\nProblems tagged [parity] are read-path defects (a published image the Shop cannot show, or one shown without a grant) — the migration itself would still run, but fix them first; every other problem would make the migration refuse or fail."
         : "\nMigration 0013 did not land as written — stop and compare against drizzle/0013_flat_mentor.sql."
     );
     process.exit(1);

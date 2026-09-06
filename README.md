@@ -21,7 +21,7 @@ Guests can use the whole design→preview→order funnel without an account (ano
 ```
 Next.js 16 (App Router, Server Actions) on Vercel
 │
-├─ Turso (libSQL) + Drizzle ORM — 15 tables, versioned migrations
+├─ Turso (libSQL) + Drizzle ORM — 18 tables, versioned migrations
 ├─ Better-Auth — email/password + anonymous guest sessions
 ├─ Anthropic API — Claude Sonnet 4.6 (prompt construction), Haiku 4.5 (readiness check)
 ├─ Replicate — ideogram-v3-turbo, recraft-v3, BiRefNet background removal

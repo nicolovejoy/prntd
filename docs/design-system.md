@@ -570,7 +570,7 @@ Job: browse Prints, pick one to buy.
    ("by you" for own).
 2. Header ("Shop" + one-liner, persona-dependent); empty state.
 
-### `/shop/[slug]` Organizer storefront (`app/shop/[slug]/…`)
+### `/shop/[slug]` Organizer storefront (`app/shop/[slug]/…`) — retired (#191)
 
 Job: sell an organizer's products to their audience. Persona note: this
 surface belongs to the organizer, not PRNTD — chrome copy here should stay at

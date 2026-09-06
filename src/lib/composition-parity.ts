@@ -38,21 +38,24 @@ export type CompositionParityReport = {
 type Journal = { entries: { tag: string; when: number }[] };
 
 /**
- * The 0013 entry's `when` from drizzle's journal. The libSQL migrator marks a
- * migration applied by inserting a `__drizzle_migrations` row whose
- * `created_at` is this value, and skips entries whose `when` is ≤ the newest
- * row — so "0013 has been applied" is "a ledger row with created_at ≥ when".
- * Read at module load; the module is used only by the script and its tests,
- * both of which run from the repo root.
+ * A journal entry's `when`. The libSQL migrator marks a migration applied by
+ * inserting a `__drizzle_migrations` row whose `created_at` is this value, and
+ * skips entries whose `when` is ≤ the newest row — so "0013 has been applied"
+ * is "a ledger row with created_at ≥ 0013's when", and a pre-0013 database
+ * that is really at 0012 has its newest row AT 0012's when. Read at module
+ * load; the module is used only by the script and its tests, both of which
+ * run from the repo root.
  */
-export const MIGRATION_0013_WHEN: number = (() => {
+function journalWhen(prefix: RegExp): number {
   const journal = JSON.parse(
     readFileSync(join(process.cwd(), "drizzle", "meta", "_journal.json"), "utf8")
   ) as Journal;
-  const entry = journal.entries.find((e) => /^0013_/.test(e.tag));
-  if (!entry) throw new Error("drizzle/meta/_journal.json has no 0013 entry");
+  const entry = journal.entries.find((e) => prefix.test(e.tag));
+  if (!entry) throw new Error(`drizzle/meta/_journal.json has no ${prefix} entry`);
   return entry.when;
-})();
+}
+export const MIGRATION_0012_WHEN: number = journalWhen(/^0012_/);
+export const MIGRATION_0013_WHEN: number = journalWhen(/^0013_/);
 
 /** The visibility grant, reduced: exactly these four columns, in this order, after 0013. */
 export const IMAGE_PUBLICATION_COLUMNS = ["image_id", "published_at", "is_hidden", "created_at"];
@@ -197,21 +200,51 @@ async function checkPre(
   const problems: string[] = [];
   const notes: string[] = [];
 
+  // Scratch tables the migration creates. A leftover from an interrupted run
+  // makes its CREATE TABLE fail — a rollback, but one that reads like a bug.
+  for (const t of ["__slice5_guard", "__new_product"]) {
+    if (tables.has(t)) {
+      problems.push(
+        `table ${t} already exists — migration 0013 creates it as a scratch table and would fail on CREATE TABLE; drop the leftover by hand first`
+      );
+    }
+  }
+
   const listings = (
     await client.execute(
       "select image_id, published_at, is_hidden from `listing`"
     )
   ).rows;
 
-  // Rows that SURVIVE the migration: the Shop compositions (no store, no
-  // design). front_image_id here is what the generated column will compute.
-  const survivors = (
+  // Malformed placements: json_extract throws on them, so neither the
+  // survivors query below nor the migration's CREATE UNIQUE INDEX (which
+  // evaluates the generated column for every row, AFTER the drops) can run.
+  const badJson = (
     await client.execute(
-      `select id, status, listed_at, json_extract(placements, '$.front') as front_image_id
-         from \`product\`
-        where store_id is null and design_id is null`
+      "select id from `product` where placements is not null and not json_valid(placements) order by id"
     )
   ).rows;
+  if (badJson.length) {
+    problems.push(
+      `${badJson.length} product row(s) have malformed placements JSON — migration 0013's unique index cannot evaluate them (it would fail after the drops and roll back); fix by hand first: ${badJson
+        .map((r) => String(r.id))
+        .join(", ")}`
+    );
+  }
+
+  // Rows that SURVIVE the migration: the Shop compositions (no store, no
+  // design). front_image_id here is what the generated column will compute.
+  // Skipped when any placements JSON is malformed — json_extract would throw,
+  // and the structural pass would then misreport every listing as orphaned.
+  const survivors = badJson.length
+    ? []
+    : (
+        await client.execute(
+          `select id, status, listed_at, json_extract(placements, '$.front') as front_image_id
+             from \`product\`
+            where store_id is null and design_id is null`
+        )
+      ).rows;
 
   // Rows the migration DELETES: organizer products (test-era only).
   const organizer = (
@@ -272,13 +305,19 @@ async function checkPre(
     }
   }
 
-  const structural = structuralProblems("listing", listings, survivors);
-  // The structural pass already reports a shared front as "N compositions pin
-  // it"; the duplicate-front problem above is the one that names the index.
-  problems.push(
-    ...structural.problems.filter((p) => !/compositions pin it as front/.test(p))
-  );
-  notes.push(...structural.notes);
+  if (badJson.length === 0) {
+    const structural = structuralProblems("listing", listings, survivors);
+    // The structural pass already reports a shared front as "N compositions
+    // pin it"; the duplicate-front problem above is the one that names the
+    // index. Everything else from it is a read-path defect, not a migration
+    // blocker — tagged so the CLI can say so.
+    problems.push(
+      ...structural.problems
+        .filter((p) => !/compositions pin it as front/.test(p))
+        .map((p) => `[parity] ${p}`)
+    );
+    notes.push(...structural.notes);
+  }
 
   if (organizer.length) {
     notes.push(
@@ -293,6 +332,24 @@ async function checkPre(
     notes.push("no organizer product rows — migration 0013's DELETE is a no-op here");
   }
 
+  // Where the migrator thinks this database is. `db:migrate` applies every
+  // journal entry newer than the newest ledger row, so a database that is not
+  // actually at 0012 gets a wider batch than "just 0013".
+  if (tables.has("__drizzle_migrations")) {
+    const last = num(
+      (await client.execute("select max(created_at) as n from `__drizzle_migrations`")).rows[0].n
+    );
+    notes.push(
+      last === MIGRATION_0012_WHEN
+        ? `migrations ledger: newest created_at ${last} = 0012's journal when — db:migrate will apply exactly 0013`
+        : `migrations ledger: newest created_at ${last ?? "none"} ≠ 0012's journal when ${MIGRATION_0012_WHEN} — db:migrate applies every journal entry newer than that row, not just 0013`
+    );
+  } else {
+    notes.push(
+      "no __drizzle_migrations table — never migrated by drizzle-kit; db:migrate would attempt the whole chain from 0000"
+    );
+  }
+
   return {
     mode: "pre-0013",
     problems,
@@ -305,6 +362,7 @@ async function checkPre(
       ordersWithStoreId: storeOrders.length,
       ordersOnOrganizerProducts: organizerOrders.length,
       duplicateFronts,
+      malformedPlacements: badJson.length,
     },
   };
 }

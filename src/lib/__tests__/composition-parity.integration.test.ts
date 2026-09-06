@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { createClient, type Client } from "@libsql/client";
 import {
   checkCompositionParity,
+  MIGRATION_0012_WHEN,
   MIGRATION_0013_WHEN,
 } from "@/lib/composition-parity";
 
@@ -104,7 +105,44 @@ describe("checkCompositionParity — pre-0013 (Nico's pre-check)", () => {
     });
     expect(report.notes).toEqual([
       "no organizer product rows — migration 0013's DELETE is a no-op here",
+      "no __drizzle_migrations table — never migrated by drizzle-kit; db:migrate would attempt the whole chain from 0000",
     ]);
+    expect(report.counts.malformedPlacements).toBe(0);
+  });
+
+  it("malformed placements JSON is a problem naming the row, not a crash", async () => {
+    await client.execute(
+      "INSERT INTO `product` (`id`, `owner_id`, `placements`, `status`, `position`, `created_at`, `updated_at`) VALUES ('bad', 'u', 'not json', 'draft', 0, 0, 0)"
+    );
+    const report = await checkCompositionParity(client);
+    expect(report.problems).toHaveLength(1);
+    expect(report.problems[0]).toMatch(/^1 product row\(s\) have malformed placements JSON/);
+    expect(report.problems[0]).toContain("bad");
+    expect(report.counts.malformedPlacements).toBe(1);
+    // The structural pass is skipped rather than misreporting every listing
+    // as orphaned once the survivors query cannot run.
+    expect(report.problems.some((p) => /\[parity\]/.test(p))).toBe(false);
+  });
+
+  it("a leftover scratch table from an interrupted run is a problem", async () => {
+    await client.execute("CREATE TABLE `__new_product` (`id` text)");
+    const report = await checkCompositionParity(client);
+    expect(report.problems).toEqual([
+      "table __new_product already exists — migration 0013 creates it as a scratch table and would fail on CREATE TABLE; drop the leftover by hand first",
+    ]);
+  });
+
+  it("reports where the migrator thinks the database is", async () => {
+    await ledger(client, MIGRATION_0012_WHEN);
+    const at12 = await checkCompositionParity(client);
+    expect(at12.notes).toContain(
+      `migrations ledger: newest created_at ${MIGRATION_0012_WHEN} = 0012's journal when — db:migrate will apply exactly 0013`
+    );
+    await client.execute("DELETE FROM `__drizzle_migrations`");
+    await ledger(client, MIGRATION_0012_WHEN - 1);
+    const behind = await checkCompositionParity(client);
+    expect(behind.notes.some((n) => /≠ 0012's journal when .* not just 0013/.test(n))).toBe(true);
+    expect(behind.problems).toEqual([]);
   });
 
   it("an order carrying store_id is a problem (guard statement 1)", async () => {
@@ -166,7 +204,7 @@ describe("checkCompositionParity — pre-0013 (Nico's pre-check)", () => {
     expect(report.problems).toEqual([]);
     expect(report.counts.organizerProducts).toBe(2);
     expect(report.counts.compositions).toBe(1);
-    expect(report.notes).toEqual([
+    expect(report.notes.filter((n) => !/^(migrations ledger|no __drizzle_migrations)/.test(n))).toEqual([
       "2 organizer product row(s) will be DELETED by migration 0013 (design_id or store_id set; test-era — the guard refuses the migration if any order still references one):",
       "  org  store_id=s  design_id=d  status=listed  title=Club Tee  created_at=1970-01-01T00:00:00.000Z",
       "  loose  store_id=—  design_id=d  status=draft  title=—  created_at=1970-01-02T00:00:00.000Z",
@@ -179,7 +217,7 @@ describe("checkCompositionParity — pre-0013 (Nico's pre-check)", () => {
     );
     const report = await checkCompositionParity(client);
     expect(report.problems).toEqual([
-      "img2: published image with no composition — invisible in the Shop, and unbuyable since slice 4",
+      "[parity] img2: published image with no composition — invisible in the Shop, and unbuyable since slice 4",
     ]);
   });
 
@@ -243,6 +281,13 @@ describe("checkCompositionParity — post-0013 (Nico's verify)", () => {
       "img1: composition comp is listed, expected hidden (hidden-state disagrees with image_publication.is_hidden)",
       "img1: composition listed_at 5 != image_publication.published_at 9",
     ]);
+  });
+
+  it("a later ledger row (0014 and beyond) still counts as 0013 applied", async () => {
+    await client.execute("DELETE FROM `__drizzle_migrations`");
+    await ledger(client, MIGRATION_0013_WHEN + 100_000);
+    const report = await checkCompositionParity(client);
+    expect(report.problems).toEqual([]);
   });
 
   it("a missing 0013 ledger row is a problem", async () => {
