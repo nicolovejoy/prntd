@@ -86,3 +86,41 @@ export function resolveHeroDisplay(i: HeroDisplayInput): HeroDisplay {
     !showError && !i.mockupError && !mockupVisible && i.renderStatus !== "idle";
   return { showError, artworkUrl, mockupUrl, mockupVisible, pendingExact };
 }
+
+export type Side = "front" | "back";
+
+export type SidesLayoutInput = {
+  /** A back source is picked. */
+  hasBack: boolean;
+  /** The side the user last tapped to make large. Ignored when there is no back. */
+  prominent: Side;
+  /** A back may be added here (flag on + product supports back + surface offers it). */
+  backOffered: boolean;
+};
+
+export type SidesLayout = {
+  /** Rendered large. */
+  hero: Side;
+  /** The small slot: the other side, the add-a-back entry point, or nothing. */
+  tile: { kind: "side"; side: Side } | { kind: "add-back" } | { kind: "none" };
+};
+
+/**
+ * Which side is the hero and what the small tile slot holds (#167). Both buy
+ * surfaces show the shirt as an object — front hero plus a smaller back tile
+ * — instead of a Front/Back toggle.
+ *
+ * Without a back the front is always the hero, whatever `prominent` says: the
+ * user may have made the back large and then removed it, and a hero pointing
+ * at a side that no longer exists would render an empty panel.
+ */
+export function sidesLayout(i: SidesLayoutInput): SidesLayout {
+  if (!i.hasBack) {
+    return {
+      hero: "front",
+      tile: i.backOffered ? { kind: "add-back" } : { kind: "none" },
+    };
+  }
+  const other: Side = i.prominent === "front" ? "back" : "front";
+  return { hero: i.prominent, tile: { kind: "side", side: other } };
+}

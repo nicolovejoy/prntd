@@ -4,6 +4,7 @@ import {
   mockupBackdrop,
   relativeLuminance,
   resolveHeroDisplay,
+  sidesLayout,
   type HeroDisplayInput,
 } from "../instant-preview";
 
@@ -162,5 +163,46 @@ describe("mockupBackdrop", () => {
     expect(mockupBackdrop("#ffffff")).toBe("#f7f7f7");
     // Yellow
     expect(mockupBackdrop("#ffd667")).toBe("#f7f7f7");
+  });
+});
+
+describe("sidesLayout", () => {
+  it("no back, back offered -> front hero, add-back tile", () => {
+    expect(
+      sidesLayout({ hasBack: false, prominent: "front", backOffered: true })
+    ).toEqual({ hero: "front", tile: { kind: "add-back" } });
+  });
+
+  it("no back, back not offered -> front hero, empty tile slot", () => {
+    expect(
+      sidesLayout({ hasBack: false, prominent: "front", backOffered: false })
+    ).toEqual({ hero: "front", tile: { kind: "none" } });
+  });
+
+  it("no back ignores a stale prominent back (back was made large, then removed)", () => {
+    expect(
+      sidesLayout({ hasBack: false, prominent: "back", backOffered: true })
+    ).toEqual({ hero: "front", tile: { kind: "add-back" } });
+    expect(
+      sidesLayout({ hasBack: false, prominent: "back", backOffered: false })
+    ).toEqual({ hero: "front", tile: { kind: "none" } });
+  });
+
+  it("with a back, front prominent -> front hero, back tile", () => {
+    expect(
+      sidesLayout({ hasBack: true, prominent: "front", backOffered: true })
+    ).toEqual({ hero: "front", tile: { kind: "side", side: "back" } });
+  });
+
+  it("with a back, back prominent -> back hero, front tile", () => {
+    expect(
+      sidesLayout({ hasBack: true, prominent: "back", backOffered: true })
+    ).toEqual({ hero: "back", tile: { kind: "side", side: "front" } });
+  });
+
+  it("with a back, the tile is the other side whether or not a back is offered", () => {
+    expect(
+      sidesLayout({ hasBack: true, prominent: "front", backOffered: false })
+    ).toEqual({ hero: "front", tile: { kind: "side", side: "back" } });
   });
 });

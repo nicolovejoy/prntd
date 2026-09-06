@@ -9,6 +9,11 @@
  *
  *   - the thumbnail: the pinned front placement image when the line has one
  *     (that's what actually gets printed), else the design's display image;
+ *   - the back image: the URL of `placements.back` when the line has one, so
+ *     confirmation and order history can show both sides of a two-sided
+ *     shirt (#167). Resolved through the same id → url map as the front —
+ *     the context reader already fetches every placement id — so no extra
+ *     query;
  *   - a name: the published title of the pinned front image — since
  *     composition slice 2 that comes off the image's mirror `product` row —
  *     when it
@@ -52,6 +57,9 @@ export type IdentifiableLine = {
 export type OrderLineIdentity = {
   /** Absolute image URL (R2 public URLs already are), or null if unresolvable. */
   imageUrl: string | null;
+  /** URL of the pinned back placement image, or null when the line has no
+   * back or its id does not resolve. */
+  backImageUrl: string | null;
   /** Published title (mirror product) of the pinned front image, else null. */
   title: string | null;
   /** Distinct owners of the line's placement images, front-first. */
@@ -81,9 +89,13 @@ export function buildLineIdentities(
 ): OrderLineIdentity[] {
   return lines.map((line) => {
     const front = line.placements?.front ?? null;
+    const back = line.placements?.back ?? null;
     const pinnedUrl = front ? ctx.urlByImageId.get(front) ?? null : null;
     return {
       imageUrl: pinnedUrl ?? ctx.displayUrlByDesignId.get(line.designId) ?? null,
+      // No design-level fallback for the back: a line without a back pin has
+      // no back print, and showing the design image there would claim one.
+      backImageUrl: back ? ctx.urlByImageId.get(back) ?? null : null,
       title: front ? ctx.titleByImageId.get(front) ?? null : null,
       contributors: resolveContributors({
         placements: line.placements,
@@ -186,7 +198,7 @@ export async function loadLineIdentityContext(
     titleByImageId.set(l.imageId, l.title ?? null);
   }
 
-  // Ids we need URLs for: every pinned front plus every design's primary.
+  // Ids we need URLs for: every placement id plus every design's primary.
   const primaryIds = designRows
     .map((d) => d.primaryImageId)
     .filter((v): v is string => Boolean(v));
