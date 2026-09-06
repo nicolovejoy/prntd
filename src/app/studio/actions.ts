@@ -36,9 +36,9 @@ export async function getStudioLanes(): Promise<StudioLane[]> {
  *
  *  - ids that don't exist or belong to someone else are reported `not_found`
  *    (one answer for both, so the action can't be used to probe ownership);
- *  - a conversation referenced by an order or a shop product is skipped WHOLE
- *    — not archived like the single Delete does, not partially deleted — and
- *    reported `ordered` / `product`;
+ *  - a conversation referenced by an order is skipped WHOLE — not archived
+ *    like the single Delete does, not partially deleted — and reported
+ *    `ordered`;
  *  - the rest are deleted one batch per conversation, never one batch across
  *    them: a failure mid-way leaves the earlier ones deleted and reports the
  *    failed one as `failed`, so the client can put its lane back.
@@ -85,10 +85,7 @@ export async function deleteConversations(
     }
     const plan = await planDesignDeletion(db, id);
     if (isDeletionBlocked(plan)) {
-      result.skipped.push({
-        id,
-        reason: plan.orderReferenced ? "ordered" : "product",
-      });
+      result.skipped.push({ id, reason: "ordered" });
       continue;
     }
     try {

@@ -6,9 +6,9 @@
  * (/admin/published): ranked images list first, lowest rank first; unranked
  * images follow, newest published first — exactly the pre-rank behavior.
  *
- * Composition slice 2: the sellable fields come off the image's mirror
- * `product` row (docs/composition-first-class-plan.md §1 "job A"), not its
- * `listing` row. See src/lib/composition-reads.ts.
+ * Composition slice 2: the sellable fields come off the image's `product`
+ * composition (docs/composition-first-class-plan.md §1 "job A"), not its
+ * visibility row. See src/lib/composition-reads.ts.
  */
 import { db } from "@/lib/db";
 import {
@@ -16,9 +16,8 @@ import {
   product as productTable,
   user as userTable,
 } from "@/lib/db/schema";
-import { eq, and, desc, asc, sql } from "drizzle-orm";
+import { eq, desc, asc, sql } from "drizzle-orm";
 import {
-  isShopMirror,
   listedMirrorPublishedAt,
   mirrorFrontImageId,
 } from "@/lib/composition-reads";
@@ -79,12 +78,12 @@ export function orderFeedByRank<
  * ranked rows are never cut off by the over-fetch window.
  */
 export async function getPublishedFeed(limit = 60): Promise<FeedRow[]> {
-  // Composition slice 2: the feed is a *product* query. A Shop mirror row
-  // exists iff the image is published, and `status = "listed"` is exactly the
-  // old `is_hidden = false` (hidden → status "hidden", unpublished → "draft"),
-  // so the same rows come back. The image joins on the mirror's front
-  // placement slot; the designer comes off image.ownerId (denormalized in
-  // Model B) — no design join left.
+  // Composition slice 2: the feed is a *product* query. Every product row is a
+  // Shop composition (slice 5 dropped the organizer population), and
+  // `status = "listed"` is exactly the old `is_hidden = false` (hidden →
+  // status "hidden", unpublished → "draft"), so the same rows come back. The
+  // image joins on the composition's front placement slot; the designer comes
+  // off image.ownerId (denormalized in Model B) — no design join left.
   const rows = await db
     .select({
       imageId: imageTable.id,
@@ -102,7 +101,7 @@ export async function getPublishedFeed(limit = 60): Promise<FeedRow[]> {
     .from(productTable)
     .innerJoin(imageTable, eq(mirrorFrontImageId, imageTable.id))
     .innerJoin(userTable, eq(userTable.id, imageTable.ownerId))
-    .where(and(isShopMirror(), eq(productTable.status, "listed")))
+    .where(eq(productTable.status, "listed"))
     .orderBy(
       sql`${productTable.feedRank} is null`,
       asc(productTable.feedRank),

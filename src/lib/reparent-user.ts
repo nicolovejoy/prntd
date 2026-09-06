@@ -16,13 +16,13 @@ import {
  * sequential updates used to orphan the not-yet-moved tables (cart, product)
  * for the cleanup to cascade away. Atomic now: all moved or none.
  *
- * design_image + chat_message follow via design_id; everything else owns a
- * user/owner column directly. `product` rows are the Shop compositions a
+ * chat_message follows via design_id; everything else owns a user/owner
+ * column directly. `product` rows are the Shop compositions a
  * published image mirrors (composition slice 1) — owned via `product.ownerId`,
  * so a guest who published before signing up keeps the mirror. The Model B
  * `image` table denormalizes owner_id, so it re-parents directly here
- * (placement_render / conversation_image follow via design_id, listing via
- * its image). `image_generation.user_id` is a real FK to `user.id` and
+ * (placement_render / conversation_image follow via design_id,
+ * image_publication via its image). `image_generation.user_id` is a real FK to `user.id` and
  * outlives the generation (the row is only removed with the design), so a
  * guest who generated once and then signed up would make the anonymous
  * plugin's delete fail on that FK if it were left behind. When later

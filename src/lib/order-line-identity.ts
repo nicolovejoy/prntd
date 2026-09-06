@@ -183,7 +183,9 @@ export async function loadLineIdentityContext(
     designerByDesignId.set(d.id, { userId: d.ownerId, name: d.ownerName ?? null });
   }
   for (const l of titleRows) {
-    titleByImageId.set(l.imageId, l.title ?? null);
+    // front_image_id is a nullable generated column; the inArray filter above
+    // already excludes null, this only narrows the type.
+    if (l.imageId) titleByImageId.set(l.imageId, l.title ?? null);
   }
 
   // Ids we need URLs for: every pinned front plus every design's primary.

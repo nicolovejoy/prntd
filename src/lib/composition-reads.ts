@@ -1,57 +1,38 @@
 /**
- * Composition slice 2 read helpers (docs/composition-first-class-plan.md §5).
+ * Composition read helpers (docs/composition-first-class-plan.md §5).
  *
  * The four "job A" sellable surfaces — the Shop feed, the image detail page,
  * the admin published grid and order-line titles — read their title /
- * description / backdrop / feed rank / listed-at from the image's mirror
- * `product` row instead of its `listing` row. `listing` keeps job B (the
- * image-visibility grant read by the pure guards in design-publish.ts and
- * their feeders); nothing in this module touches that.
+ * description / backdrop / feed rank / listed-at from the image's `product`
+ * composition. `image_publication` keeps job B (the image-visibility grant
+ * read by the pure guards in design-publish.ts and their feeders); nothing in
+ * this module touches that.
  *
- * A mirror row is identified exactly as slice 1 writes it
- * (model-b-writes.ts `buildMirrorProductRow`, composition-backfill.ts):
- * `store_id IS NULL AND design_id IS NULL` and `placements` = `{front: <imageId>}`.
- * Slice 1 identified it by whole-JSON equality; the readers need to *join*
- * on the front slot, so they extract it with `json_extract` — same slot, an
- * expression a query can join and filter on.
- *
- * `design_id IS NULL` is load-bearing, not belt-and-braces: an organizer
- * product that has not been shelved in a store yet also has `store_id IS
- * NULL` (store-service.createProduct) and can be set to `status = "listed"`,
- * so filtering on store_id alone would leak organizer compositions into the
- * PRNTD Shop feed.
+ * Since composition slice 5 every `product` row IS a Shop composition — the
+ * organizer population (`design_id` / `store_id` set) went with the
+ * storefronts (#191), so there is no "is this a mirror?" predicate any more.
+ * A composition is found by its front placement slot, which the schema
+ * exposes as the generated column `product.front_image_id` (unique, so one
+ * composition per front image is DB-enforced).
  */
-import { and, isNull, ne, sql, type SQL } from "drizzle-orm";
+import { ne, type SQL } from "drizzle-orm";
 import { product as productTable } from "@/lib/db/schema";
 
 /**
- * SQL expression yielding a mirror product's front-placement image id.
- * Join/filter target for every read site.
+ * A composition's front-placement image id — the join/filter target for
+ * every read site. The generated column `front_image_id` over
+ * `json_extract(placements, '$.front')`; the export name predates the column
+ * so call sites did not churn.
  */
-export const mirrorFrontImageId = sql<string>`json_extract(${productTable.placements}, '$.front')`;
+export const mirrorFrontImageId = productTable.frontImageId;
 
 /**
- * Rows that are PRNTD Shop mirror compositions, whatever their status
- * (draft included — unpublish leaves the row behind as a draft).
- *
- * Slice 5 drops `product.designId`, at which point the `design_id IS NULL`
- * clause stops distinguishing anything and this predicate has to be re-keyed
- * on whatever survives as the mirror marker (see the plan's slice-5 notes).
- */
-export function isShopMirror(): SQL {
-  return and(
-    isNull(productTable.storeId),
-    isNull(productTable.designId)
-  ) as SQL;
-}
-
-/**
- * Shop mirrors whose image is currently published: `draft` is what unpublish
+ * Compositions whose image is currently published: `draft` is what unpublish
  * leaves behind, so it means "not published"; `listed` and `hidden` are both
  * published (hidden is admin moderation, which the admin grid still shows).
  */
 export function isPublishedShopMirror(): SQL {
-  return and(isShopMirror(), ne(productTable.status, "draft")) as SQL;
+  return ne(productTable.status, "draft");
 }
 
 /** Mirror status → the boolean the pure guards and the admin grid expect. */

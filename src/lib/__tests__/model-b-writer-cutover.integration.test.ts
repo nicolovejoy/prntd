@@ -217,26 +217,16 @@ describe("publish-family writer cutover", () => {
     return rows.find((r) => (r.placements ?? {}).front === imageId);
   }
 
-  /** Composition slice 4: the listing row is the visibility grant only, so
-   * its sellable columns must stay null on everything written post-cutover. */
-  function expectNoSellableColumns(listing: typeof schema.listing.$inferSelect) {
-    expect(listing.title).toBeNull();
-    expect(listing.description).toBeNull();
-    expect(listing.backgroundColor).toBeNull();
-    expect(listing.feedRank).toBeNull();
-  }
-
   it("publishImage inserts a visibility row and lists the mirror product", async () => {
     const { imageId } = await seedSourceImage();
     await publishImage(imageId, { title: "T", backgroundColor: "Black" });
 
     const [listing] = await testDb
       .select()
-      .from(schema.listing)
-      .where(eq(schema.listing.imageId, imageId));
+      .from(schema.imagePublication)
+      .where(eq(schema.imagePublication.imageId, imageId));
     expect(listing).toBeTruthy();
     expect(listing.isHidden).toBe(false);
-    expectNoSellableColumns(listing);
 
     const mirror = await mirrorOf(imageId);
     expect(mirror?.status).toBe("listed");
@@ -302,8 +292,8 @@ describe("publish-family writer cutover", () => {
     expect(
       await testDb
         .select()
-        .from(schema.listing)
-        .where(eq(schema.listing.imageId, imageId))
+        .from(schema.imagePublication)
+        .where(eq(schema.imagePublication.imageId, imageId))
     ).toHaveLength(1);
   });
 
@@ -315,12 +305,6 @@ describe("publish-family writer cutover", () => {
     const mirror = await mirrorOf(imageId);
     expect(mirror?.title).toBe("New");
     expect(mirror?.backdropColor).toBe("White");
-
-    const [listing] = await testDb
-      .select()
-      .from(schema.listing)
-      .where(eq(schema.listing.imageId, imageId));
-    expectNoSellableColumns(listing);
   });
 
   it("updatePublishedNaming refuses rather than lose the edit when the mirror is missing", async () => {
@@ -351,12 +335,11 @@ describe("publish-family writer cutover", () => {
 
     const [listing] = await testDb
       .select()
-      .from(schema.listing)
-      .where(eq(schema.listing.imageId, imageId));
+      .from(schema.imagePublication)
+      .where(eq(schema.imagePublication.imageId, imageId));
     // Hidden is the visibility grant the pure guards read AND the mirror's
     // status; rank is sellable state and lives on the product alone.
     expect(listing.isHidden).toBe(true);
-    expectNoSellableColumns(listing);
 
     const mirror = await mirrorOf(imageId);
     expect(mirror?.status).toBe("hidden");
@@ -375,8 +358,8 @@ describe("publish-family writer cutover", () => {
     expect(
       await testDb
         .select()
-        .from(schema.listing)
-        .where(eq(schema.listing.imageId, imageId))
+        .from(schema.imagePublication)
+        .where(eq(schema.imagePublication.imageId, imageId))
     ).toHaveLength(0);
     expect((await mirrorOf(imageId))?.status).toBe("draft");
 
@@ -385,8 +368,8 @@ describe("publish-family writer cutover", () => {
     await publishImage(imageId);
     const [listing] = await testDb
       .select()
-      .from(schema.listing)
-      .where(eq(schema.listing.imageId, imageId));
+      .from(schema.imagePublication)
+      .where(eq(schema.imagePublication.imageId, imageId));
     expect(listing.isHidden).toBe(false);
 
     const mirror = await mirrorOf(imageId);
@@ -402,8 +385,8 @@ describe("publish-family writer cutover", () => {
     await setImageHidden(imageId, true);
     const listing = await testDb
       .select()
-      .from(schema.listing)
-      .where(eq(schema.listing.imageId, imageId));
+      .from(schema.imagePublication)
+      .where(eq(schema.imagePublication.imageId, imageId));
     expect(listing).toHaveLength(0);
   });
 });
@@ -434,6 +417,6 @@ describe("deleteDesign clears Model B rows", () => {
     expect(await testDb.select().from(schema.image)).toHaveLength(0);
     expect(await testDb.select().from(schema.conversationImage)).toHaveLength(0);
     expect(await testDb.select().from(schema.placementRender)).toHaveLength(0);
-    expect(await testDb.select().from(schema.listing)).toHaveLength(0);
+    expect(await testDb.select().from(schema.imagePublication)).toHaveLength(0);
   });
 });

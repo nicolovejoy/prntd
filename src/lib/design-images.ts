@@ -3,8 +3,8 @@
  *
  * The Model B migration (docs/model-b-migration-plan.md) is complete: every
  * read and write resolves against `image` + `conversation_image` for source
- * artifacts, `placement_render` for the render cache, `listing` for publish
- * state. `design_image` was dropped in slice 5.
+ * artifacts, `placement_render` for the render cache, `image_publication` for
+ * publish state. `design_image` was dropped in slice 5.
  *
  * Id reuse (§2) is what made the slice-2 read swap invisible to callers: a
  * pinned placement id resolves whether it was minted as an artifact or a
@@ -19,7 +19,7 @@ import {
   image as imageTable,
   conversationImage as conversationImageTable,
   placementRender as placementRenderTable,
-  listing as listingTable,
+  imagePublication as imagePublicationTable,
   type ChatMessage,
 } from "@/lib/db/schema";
 import { eq, ne, and, asc, desc, inArray, sql } from "drizzle-orm";
@@ -417,7 +417,7 @@ export async function getDesignImageById(id: string): Promise<ImageRow | null> {
 
 /**
  * Fetch an image plus the fields the placement-source guard needs: publish /
- * moderation state (from `listing`) and the owner (#72). `image.ownerId` is
+ * moderation state (from `image_publication`) and the owner (#72). `image.ownerId` is
  * denormalized, so the artifact path no longer joins `design`; renders still
  * do, since only their conversation carries an owner.
  */
@@ -433,8 +433,8 @@ export async function getDesignImageWithOwner(
       aspectRatio: imageTable.aspectRatio,
       prompt: imageTable.prompt,
       ownerId: imageTable.ownerId,
-      publishedAt: listingTable.publishedAt,
-      isHidden: listingTable.isHidden,
+      publishedAt: imagePublicationTable.publishedAt,
+      isHidden: imagePublicationTable.isHidden,
     })
     .from(imageTable)
     .leftJoin(
@@ -444,7 +444,7 @@ export async function getDesignImageWithOwner(
         eq(conversationImageTable.role, "output")
       )
     )
-    .leftJoin(listingTable, eq(listingTable.imageId, imageTable.id))
+    .leftJoin(imagePublicationTable, eq(imagePublicationTable.imageId, imageTable.id))
     .where(eq(imageTable.id, id))
     .limit(1);
 
@@ -455,7 +455,7 @@ export async function getDesignImageWithOwner(
       imageUrl: artifact.imageUrl,
       aspectRatio: artifact.aspectRatio as AspectRatio,
       prompt: artifact.prompt,
-      // No listing row = not published. isHidden is listing-only state, so an
+      // No publication row = not published. isHidden lives only there, so an
       // unpublished image reads as not hidden — same as the old columns.
       publishedAt: artifact.publishedAt,
       isHidden: artifact.isHidden ?? false,
@@ -603,12 +603,12 @@ export async function getDesignSourceImages(
       designSpec: imageTable.designSpecJson,
       parentImageId: imageTable.parentImageId,
       createdAt: imageTable.createdAt,
-      publishedAt: listingTable.publishedAt,
+      publishedAt: imagePublicationTable.publishedAt,
       role: conversationImageTable.role,
     })
     .from(conversationImageTable)
     .innerJoin(imageTable, eq(imageTable.id, conversationImageTable.imageId))
-    .leftJoin(listingTable, eq(listingTable.imageId, imageTable.id))
+    .leftJoin(imagePublicationTable, eq(imagePublicationTable.imageId, imageTable.id))
     .where(
       and(
         eq(conversationImageTable.designId, designId),
@@ -778,7 +778,7 @@ export async function resolveDesignDisplayImageUrls(
  * image is still referenced elsewhere — a conversation link from another
  * design (seed), a shop product's placements, or a cart line's placements —
  * only this design's link (and the legacy design_image row) is removed; the
- * image row, its listing and the other references survive. Order references
+ * image row, its publication row and the other references survive. Order references
  * are the caller's job to refuse BEFORE calling (they block, not detach).
  *
  * Returns the id that should become the design's new primary_image_id (the
@@ -789,11 +789,11 @@ export async function deleteDesignImageRow(
   designId: string,
   imageId: string
 ): Promise<{ newPrimaryId: string | null }> {
-  // The image's own mirror product (composition slice 1: its Shop listing as
-  // a composition — storeId+designId NULL, placements {front: imageId}) must
-  // not keep the image alive: it exists because of the image, so it's
-  // excluded from the pin probe and deleted with the image row below, the
-  // same lifecycle the listing row already had.
+  // The image's own `product` composition (placements exactly
+  // {front: imageId}, found via front_image_id) must not keep the image
+  // alive: it exists because of the image, so it's excluded from the pin
+  // probe and deleted with the image row below, the same lifecycle the
+  // publication row already had.
   const mirrorId = await findMirrorProduct(db, imageId);
   const [linkedElsewhere, productPins, cartPins] = await Promise.all([
     db
@@ -844,7 +844,7 @@ export async function deleteDesignImageRow(
       ? []
       : [
           db.delete(imageTable).where(eq(imageTable.id, imageId)),
-          db.delete(listingTable).where(eq(listingTable.imageId, imageId)),
+          db.delete(imagePublicationTable).where(eq(imagePublicationTable.imageId, imageId)),
           db
             .delete(placementRenderTable)
             .where(eq(placementRenderTable.id, imageId)),

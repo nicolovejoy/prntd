@@ -4,10 +4,9 @@
  * tested against the real-DB harness without shelling out.
  *
  * Per conversation this applies the same rules the Delete button does
- * (src/lib/delete-design.ts): an order reference or a shop product FK skips
- * the whole conversation — never a partial delete; seed links, product pins
- * and cart pins detach their image instead of deleting it; everything else
- * goes. On `apply`, R2 objects for deleted image rows and the conversation's
+ * (src/lib/delete-design.ts): an order reference skips the whole conversation
+ * — never a partial delete; seed links, composition pins and cart pins detach
+ * their image instead of deleting it; everything else goes. On `apply`, R2 objects for deleted image rows and the conversation's
  * placement renders are removed after the DB batch, best-effort (a failed
  * object delete is logged, never re-raised — the DB rows are already gone).
  */
@@ -112,14 +111,14 @@ export interface ConversationReport {
   plan: DesignDeletionPlan;
   /** What happened (apply) or would happen (dry run). */
   action: "delete" | "skip";
-  skipReason?: "order" | "product";
+  skipReason?: "order";
 }
 
 export interface DeleteDesignsSinceResult {
   userId: string;
   matched: number;
   deleted: string[];
-  skipped: { designId: string; reason: "order" | "product" }[];
+  skipped: { designId: string; reason: "order" }[];
   r2Deleted: number;
   r2Failed: number;
   reports: ConversationReport[];
@@ -186,13 +185,13 @@ export function formatReport(
   report: ConversationReport,
   mode: "dry-run" | "apply"
 ): string[] {
-  const { designId, createdAt, label, plan, action, skipReason } = report;
+  const { designId, createdAt, label, plan, action } = report;
   const verb =
     action === "delete"
       ? mode === "apply"
         ? "DELETED"
         : "would delete"
-      : `SKIPPED (${skipReason === "order" ? "referenced by an order" : "used by a shop product"})`;
+      : "SKIPPED (referenced by an order)";
   const head = [
     designId.slice(0, 8),
     createdAt.toISOString(),
@@ -273,9 +272,7 @@ export async function deleteDesignsSince(
       label,
       plan,
       action: blocked ? "skip" : "delete",
-      ...(blocked
-        ? { skipReason: plan.orderReferenced ? "order" : "product" }
-        : {}),
+      ...(blocked ? { skipReason: "order" as const } : {}),
     };
     result.reports.push(report);
     for (const line of formatReport(report, mode)) log(line);

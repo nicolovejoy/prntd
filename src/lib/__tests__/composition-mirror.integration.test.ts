@@ -1,19 +1,19 @@
 /**
- * The image's mirror `product` row — the Shop composition
+ * The image's `product` row — the Shop composition
  * (docs/composition-first-class-plan.md §5). Every publish-family action
- * maintains it, and the backfill converts pre-slice-1 listings. Since the
- * slice-4 writer cutover it is the ONLY home of the sellable fields; the
- * listing row beside it is the visibility grant. Runs against a real
- * in-memory libSQL (#28), driving the server actions with db + auth mocked so
- * the batches actually run.
+ * maintains it; since the slice-4 writer cutover it is the ONLY home of the
+ * sellable fields, and the `image_publication` row beside it is the
+ * visibility grant. Runs against a real in-memory libSQL (#28), driving the
+ * server actions with db + auth mocked so the batches actually run.
  *
- * Mirror contract: storeId NULL, designId NULL, blankId NULL, placements
- * exactly { front: imageId }, price NULL. Publish inserts (or revives a
- * draft), unpublish flips to draft (row kept), edits mirror through only on
- * non-draft rows. Never two mirrors for one image.
+ * Composition contract: blankId NULL, placements exactly { front: imageId },
+ * price NULL, found by the generated `front_image_id` column. Publish inserts
+ * (or revives a draft), unpublish flips to draft (row kept), edits mirror
+ * through only on non-draft rows. Never two compositions for one front image
+ * — DB-enforced by `product_front_image_unique` since composition slice 5.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { and, eq, isNull } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { createTestDb } from "./test-db";
 import { makeUser, makeDesign, makeSourceImage } from "./factories";
 import * as schema from "@/lib/db/schema";
@@ -54,9 +54,6 @@ const { publishImage, unpublishImage, updatePublishedNaming, deleteDesign } =
   await import("@/app/designs/actions");
 const { setImageHidden, setImageFeedRank } = await import("@/app/admin/actions");
 const { deleteDesignImageRow } = await import("@/lib/design-images");
-const { backfillCompositionMirrors, verifyCompositionMirrors } = await import(
-  "@/lib/composition-backfill"
-);
 
 beforeEach(async () => {
   testDb = await createTestDb();
@@ -64,28 +61,22 @@ beforeEach(async () => {
   await makeUser(testDb, "owner-1");
 });
 
-async function seedImage(params?: { publishedAt?: Date }) {
+async function seedImage() {
   const design = await makeDesign(testDb, "owner-1");
   const imageId = await makeSourceImage(testDb, {
     designId: design.id,
     ownerId: "owner-1",
     imageUrl: "https://img/pub.png",
-    publishedAt: params?.publishedAt ?? null,
   });
   return { designId: design.id, imageId };
 }
 
+/** Every product row whose front slot is the image — the way readers find it. */
 async function mirrorsOf(imageId: string) {
-  const rows = await testDb
+  return testDb
     .select()
     .from(schema.product)
-    .where(
-      and(isNull(schema.product.storeId), isNull(schema.product.designId))
-    );
-  return rows.filter((r) => {
-    const entries = Object.entries(r.placements ?? {});
-    return entries.length === 1 && entries[0][0] === "front" && entries[0][1] === imageId;
-  });
+    .where(eq(schema.product.frontImageId, imageId));
 }
 
 describe("publish-family mirror writes", () => {
@@ -97,8 +88,6 @@ describe("publish-family mirror writes", () => {
     expect(mirrors).toHaveLength(1);
     const m = mirrors[0];
     expect(m.ownerId).toBe("owner-1");
-    expect(m.storeId).toBeNull();
-    expect(m.designId).toBeNull();
     expect(m.blankId).toBeNull();
     expect(m.placements).toEqual({ front: imageId });
     expect(m.price).toBeNull();
@@ -107,12 +96,12 @@ describe("publish-family mirror writes", () => {
     expect(m.description).toBeNull();
     expect(m.backdropColor).toBe("Black");
     expect(m.feedRank).toBeNull();
-    // listedAt tracks the listing's publishedAt.
-    const [listing] = await testDb
+    // listedAt tracks the publication row's publishedAt.
+    const [publication] = await testDb
       .select()
-      .from(schema.listing)
-      .where(eq(schema.listing.imageId, imageId));
-    expect(m.listedAt?.getTime()).toBe(listing.publishedAt.getTime());
+      .from(schema.imagePublication)
+      .where(eq(schema.imagePublication.imageId, imageId));
+    expect(m.listedAt?.getTime()).toBe(publication.publishedAt.getTime());
   });
 
   it("unpublish flips the mirror to draft and keeps the row", async () => {
@@ -123,12 +112,12 @@ describe("publish-family mirror writes", () => {
     const mirrors = await mirrorsOf(imageId);
     expect(mirrors).toHaveLength(1);
     expect(mirrors[0].status).toBe("draft");
-    // Listing is gone (existing semantics).
+    // Publication row is gone (existing semantics).
     expect(
       await testDb
         .select()
-        .from(schema.listing)
-        .where(eq(schema.listing.imageId, imageId))
+        .from(schema.imagePublication)
+        .where(eq(schema.imagePublication.imageId, imageId))
     ).toHaveLength(0);
   });
 
@@ -197,29 +186,27 @@ describe("publish-family mirror writes", () => {
     expect(m.title).toBe("T");
   });
 
-  it("publish-family writes leave organizer products alone", async () => {
-    // An organizer product that pins the same image must never be mistaken
-    // for the mirror (it has a designId).
-    const { designId, imageId } = await seedImage();
-    await testDb.insert(schema.product).values({
-      ownerId: "owner-1",
-      designId,
-      blankId: "bella-canvas-3001",
-      placements: { front: imageId },
-      status: "listed",
-    });
-
+  it("a second composition for the same front image is rejected by the DB", async () => {
+    // Composition slice 5: `product_front_image_unique` on the generated
+    // front_image_id column. The publish path never gets here (it looks the
+    // row up first and revives it), so this pins the constraint itself.
+    const { imageId } = await seedImage();
     await publishImage(imageId, { title: "T" });
-    await setImageHidden(imageId, true);
-    await unpublishImage(imageId);
 
-    const organizer = await testDb
-      .select()
-      .from(schema.product)
-      .where(eq(schema.product.designId, designId));
-    expect(organizer).toHaveLength(1);
-    expect(organizer[0].status).toBe("listed");
-    expect(organizer[0].title).toBeNull();
+    // Drizzle wraps the libSQL error ("Failed query: …"); the constraint
+    // name is on the cause.
+    const err = await testDb
+      .insert(schema.product)
+      .values({ ownerId: "owner-1", placements: { front: imageId } })
+      .then(
+        () => null,
+        (e: unknown) => e
+      );
+    expect(err).toBeInstanceOf(Error);
+    expect(String((err as Error).cause ?? err)).toMatch(
+      /UNIQUE constraint failed: product\.front_image_id/
+    );
+    expect(await mirrorsOf(imageId)).toHaveLength(1);
   });
 });
 
@@ -232,7 +219,7 @@ describe("delete interactions", () => {
     await deleteDesign(designId);
 
     expect(await testDb.select().from(schema.image)).toHaveLength(0);
-    expect(await testDb.select().from(schema.listing)).toHaveLength(0);
+    expect(await testDb.select().from(schema.imagePublication)).toHaveLength(0);
     // The mirror doesn't strand deletion and doesn't survive as an orphan.
     expect(await testDb.select().from(schema.product)).toHaveLength(0);
   });
@@ -317,155 +304,30 @@ describe("delete interactions", () => {
     expect(await testDb.select().from(schema.product)).toHaveLength(0);
   });
 
-  it("deleteDesignImageRow still detaches when a real organizer product pins the image", async () => {
+  it("deleteDesignImageRow still detaches when another composition pins the image", async () => {
     const { designId, imageId } = await seedImage();
     await publishImage(imageId, { title: "T" });
+    // A two-sided composition with this image on the back and another
+    // conversation's image on the front — a real reference, unlike the
+    // image's own front-only composition.
     const other = await makeDesign(testDb, "owner-1");
+    const otherFront = await makeSourceImage(testDb, {
+      designId: other.id,
+      ownerId: "owner-1",
+      imageUrl: "https://img/other-front.png",
+    });
     await testDb.insert(schema.product).values({
       ownerId: "owner-1",
-      designId: other.id,
       blankId: "bella-canvas-3001",
-      placements: { front_large: imageId },
+      placements: { front: otherFront, back: imageId },
     });
 
     await deleteDesignImageRow(designId, imageId);
 
-    // Image survives for the organizer product; mirror survives with it.
+    // Image survives for the other composition; its own survives with it.
     expect(
       await testDb.select().from(schema.image).where(eq(schema.image.id, imageId))
     ).toHaveLength(1);
     expect(await mirrorsOf(imageId)).toHaveLength(1);
-  });
-});
-
-describe("backfill", () => {
-  it("creates mirrors for listings without one, carrying fields over", async () => {
-    const publishedAt = new Date("2026-06-01T00:00:00Z");
-    const design = await makeDesign(testDb, "owner-1");
-    const listed = await makeSourceImage(testDb, {
-      designId: design.id,
-      ownerId: "owner-1",
-      imageUrl: "https://img/a.png",
-      publishedAt,
-      title: "Carried",
-      description: "Kept",
-      backgroundColor: "Navy",
-      feedRank: 4,
-      mirror: false,
-    });
-    const hidden = await makeSourceImage(testDb, {
-      designId: design.id,
-      ownerId: "owner-1",
-      imageUrl: "https://img/b.png",
-      publishedAt,
-      isHidden: true,
-      mirror: false,
-    });
-
-    const dry = await backfillCompositionMirrors(testDb, { apply: false });
-    expect(dry).toMatchObject({
-      listings: 2,
-      mirrorsFound: 0,
-      mirrorsCreated: 2,
-    });
-    // Dry run wrote nothing.
-    expect(await testDb.select().from(schema.product)).toHaveLength(0);
-
-    const applied = await backfillCompositionMirrors(testDb, { apply: true });
-    expect(applied.mirrorsCreated).toBe(2);
-
-    const [mListed] = await mirrorsOf(listed);
-    expect(mListed.status).toBe("listed");
-    expect(mListed.title).toBe("Carried");
-    expect(mListed.description).toBe("Kept");
-    expect(mListed.backdropColor).toBe("Navy");
-    expect(mListed.feedRank).toBe(4);
-    expect(mListed.listedAt?.getTime()).toBe(publishedAt.getTime());
-
-    const [mHidden] = await mirrorsOf(hidden);
-    expect(mHidden.status).toBe("hidden");
-
-    expect(await verifyCompositionMirrors(testDb)).toEqual([]);
-  });
-
-  it("is idempotent — a second run finds everything and creates nothing", async () => {
-    const { imageId } = await seedImage({ publishedAt: new Date() });
-    await backfillCompositionMirrors(testDb, { apply: true });
-    const second = await backfillCompositionMirrors(testDb, { apply: true });
-    expect(second).toMatchObject({
-      listings: 1,
-      mirrorsFound: 1,
-      mirrorsCreated: 0,
-    });
-    expect(await mirrorsOf(imageId)).toHaveLength(1);
-  });
-
-  it("skips dual-written listings (publish already made the mirror)", async () => {
-    const { imageId } = await seedImage();
-    await publishImage(imageId, { title: "T" });
-    const run = await backfillCompositionMirrors(testDb, { apply: true });
-    expect(run).toMatchObject({ mirrorsFound: 1, mirrorsCreated: 0 });
-    expect(await mirrorsOf(imageId)).toHaveLength(1);
-  });
-
-  it("verify ignores post-cutover sellable drift (the listing copies are frozen)", async () => {
-    // A pre-cutover row: sellable fields on the listing, mirror built by the
-    // backfill. Then an owner edits it — slice 4 writes the product only, so
-    // the two copies now differ by design.
-    const design = await makeDesign(testDb, "owner-1");
-    const imageId = await makeSourceImage(testDb, {
-      designId: design.id,
-      ownerId: "owner-1",
-      imageUrl: "https://img/legacy.png",
-      publishedAt: new Date("2026-06-01T00:00:00Z"),
-      title: "Old",
-      backgroundColor: "Navy",
-      feedRank: 2,
-      mirror: false,
-    });
-    await backfillCompositionMirrors(testDb, { apply: true });
-
-    await updatePublishedNaming(imageId, { title: "New", backgroundColor: "White" });
-    await setImageFeedRank(imageId, 9);
-
-    const [m] = await mirrorsOf(imageId);
-    expect(m.title).toBe("New");
-    expect(m.feedRank).toBe(9);
-    const [l] = await testDb
-      .select()
-      .from(schema.listing)
-      .where(eq(schema.listing.imageId, imageId));
-    expect(l.title).toBe("Old"); // frozen, not rewritten
-
-    expect(await verifyCompositionMirrors(testDb)).toEqual([]);
-  });
-
-  it("verify still catches a hidden-state or listedAt disagreement", async () => {
-    const { imageId } = await seedImage({ publishedAt: new Date() });
-    await backfillCompositionMirrors(testDb, { apply: true });
-    expect(await verifyCompositionMirrors(testDb)).toEqual([]);
-
-    // Poke the mirror out of agreement the way no writer ever would.
-    const [m] = await mirrorsOf(imageId);
-    await testDb
-      .update(schema.product)
-      .set({ status: "hidden", listedAt: new Date("2020-01-01T00:00:00Z") })
-      .where(eq(schema.product.id, m.id));
-
-    const problems = await verifyCompositionMirrors(testDb);
-    expect(problems).toHaveLength(2);
-    expect(problems.join(" ")).toContain("status");
-    expect(problems.join(" ")).toContain("listedAt");
-  });
-
-  it("reports a listing whose image row is missing instead of inserting", async () => {
-    await testDb.insert(schema.listing).values({
-      imageId: "ghost-image",
-      publishedAt: new Date(),
-    });
-    const run = await backfillCompositionMirrors(testDb, { apply: true });
-    expect(run.missingImageIds).toEqual(["ghost-image"]);
-    expect(run.mirrorsCreated).toBe(0);
-    expect(await testDb.select().from(schema.product)).toHaveLength(0);
   });
 });

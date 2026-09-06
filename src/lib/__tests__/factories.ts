@@ -7,7 +7,7 @@
 import type { db as appDb } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
 import { buildMirrorProductRow } from "@/lib/model-b-writes";
-import { and, eq, isNull } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 type Db = typeof appDb;
 
@@ -24,8 +24,9 @@ export async function makeDesign(db: Db, userId: string) {
 
 /**
  * Seed a source image the Model B way: `image` + `conversation_image
- * (role=output)`, plus a `listing` when published — the shape every write
- * path has produced since the slice-4 cutover (`design_image` is gone as of
+ * (role=output)`, plus an `image_publication` row and its `product`
+ * composition when published — the shape every write path has produced since
+ * the composition slice-4 cutover (`design_image` is gone as of Model B
  * slice 5).
  *
  * `ownerId` must be the design's owner — image.ownerId is the denormalized
@@ -50,10 +51,6 @@ export async function makeSourceImage(
     description?: string | null;
     backgroundColor?: string | null;
     feedRank?: number | null;
-    /** Set false to seed a listing with NO mirror product — the pre-slice-1
-     * world (sellable fields still on the listing row), which only the
-     * composition backfill test still needs. */
-    mirror?: boolean;
   }
 ): Promise<string> {
   const aspectRatio = params.aspectRatio ?? "1:1";
@@ -79,28 +76,16 @@ export async function makeSourceImage(
   });
 
   if (params.publishedAt) {
-    // Composition slice 4: the listing row is the image-visibility grant
-    // only. The pre-slice-1 seed (`mirror: false`) still fills its sellable
-    // columns, because that is exactly the legacy shape the backfill reads.
-    const legacy = params.mirror === false;
-    await db.insert(schema.listing).values({
+    // The publication row is the image-visibility grant only. A published
+    // image always has its `product` composition beside it, and since slice 2
+    // that row is what the sellable surfaces read — seeding only the
+    // publication row would produce an image the feed, /d, the admin grid and
+    // order-line titles can't see.
+    await db.insert(schema.imagePublication).values({
       imageId: id,
       publishedAt: params.publishedAt,
       isHidden: params.isHidden ?? false,
-      ...(legacy
-        ? {
-            title: params.title ?? null,
-            description: params.description ?? null,
-            backgroundColor: params.backgroundColor ?? null,
-            feedRank: params.feedRank ?? null,
-          }
-        : {}),
     });
-    if (legacy) return id;
-    // A published image always has its mirror `product` row, and since slice 2
-    // that row is what the sellable surfaces read. Seeding only the listing
-    // would produce an image the feed, /d, the admin grid and order-line
-    // titles can't see.
     await db.insert(schema.product).values(
       buildMirrorProductRow({
         imageId: id,
@@ -120,9 +105,9 @@ export async function makeSourceImage(
 /**
  * Edit a published image's public state the way the publish-family actions
  * do since the slice-4 cutover: sellable fields (title / description /
- * backdrop / feed rank) go to the mirror `product` row alone; `isHidden`
+ * backdrop / feed rank) go to the `product` composition alone; `isHidden`
  * goes to both, because it is simultaneously the visibility grant the pure
- * guards read (`listing`) and the composition's status (`product`).
+ * guards read (`image_publication`) and the composition's status (`product`).
  */
 export async function setPublication(
   db: Db,
@@ -135,7 +120,7 @@ export async function setPublication(
     feedRank?: number | null;
   }
 ) {
-  const listingSet: Partial<typeof schema.listing.$inferInsert> = {};
+  const listingSet: Partial<typeof schema.imagePublication.$inferInsert> = {};
   const productSet: Partial<typeof schema.product.$inferInsert> = {};
   if (fields.title !== undefined) productSet.title = fields.title;
   if (fields.description !== undefined) productSet.description = fields.description;
@@ -150,22 +135,15 @@ export async function setPublication(
 
   if (Object.keys(listingSet).length > 0) {
     await db
-      .update(schema.listing)
+      .update(schema.imagePublication)
       .set(listingSet)
-      .where(eq(schema.listing.imageId, imageId));
+      .where(eq(schema.imagePublication.imageId, imageId));
   }
 
-  const mirrors = await db
-    .select({ id: schema.product.id, placements: schema.product.placements })
-    .from(schema.product)
-    .where(
-      and(isNull(schema.product.storeId), isNull(schema.product.designId))
-    );
-  const mirror = mirrors.find((m) => (m.placements ?? {}).front === imageId);
-  if (mirror && Object.keys(productSet).length > 0) {
+  if (Object.keys(productSet).length > 0) {
     await db
       .update(schema.product)
       .set(productSet)
-      .where(eq(schema.product.id, mirror.id));
+      .where(eq(schema.product.frontImageId, imageId));
   }
 }

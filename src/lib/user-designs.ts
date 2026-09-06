@@ -2,7 +2,7 @@ import { db } from "@/lib/db";
 import {
   design as designTable,
   image as imageTable,
-  listing as listingTable,
+  imagePublication as imagePublicationTable,
   product as productTable,
 } from "@/lib/db/schema";
 import { eq, desc, and, inArray, sql } from "drizzle-orm";
@@ -17,7 +17,7 @@ export type LibraryImage = {
   imageId: string;
   imageUrl: string;
   createdAt: Date;
-  /** A listing row exists — the image is on the storefront. */
+  /** A publication row exists — the image is on the storefront. */
   isPublished: boolean;
   /** Pinned storefront backdrop, null for unpublished work (#73). */
   backgroundColor: string | null;
@@ -57,16 +57,16 @@ export async function getUserImageLibrary(
         imageId: imageTable.id,
         imageUrl: imageTable.imageUrl,
         createdAt: imageTable.createdAt,
-        // Publish state is the job-B visibility grant and stays on `listing`
-        // (docs/composition-first-class-plan.md §1) — a row exists iff the
-        // image is published.
-        publishedAt: listingTable.publishedAt,
+        // Publish state is the job-B visibility grant and stays on
+        // `image_publication` (docs/composition-first-class-plan.md §1) — a
+        // row exists iff the image is published.
+        publishedAt: imagePublicationTable.publishedAt,
         sourceDesignId: imageTable.sourceDesignId,
         sourceClosedAt: designTable.closedAt,
         sourceStatus: designTable.status,
       })
       .from(imageTable)
-      .leftJoin(listingTable, eq(listingTable.imageId, imageTable.id))
+      .leftJoin(imagePublicationTable, eq(imagePublicationTable.imageId, imageTable.id))
       .leftJoin(designTable, eq(designTable.id, imageTable.sourceDesignId))
       // Ownership is the only filter. The library is the whole record of what
       // the user has made, so a conversation being archived — off the bench
@@ -100,9 +100,9 @@ export async function getUserImageLibrary(
 
 /**
  * Pinned storefront backdrop per image. A job-A sellable field, so since
- * composition slice 2 it comes off the mirror `product` row, not
- * `listing.background_color` (that reader is gone from every sellable
- * surface, and the column goes with the composition plan's slice 4).
+ * composition slice 2 it comes off the `product` composition, not the
+ * visibility row (whose frozen `background_color` copy was dropped in
+ * composition slice 5).
  *
  * Best-effort: if this query fails the grid renders the artwork on the
  * checkerboard rather than not rendering at all.
@@ -121,7 +121,13 @@ async function loadBackdrops(
       .where(
         and(isPublishedShopMirror(), inArray(mirrorFrontImageId, imageIds))
       );
-    return new Map(rows.map((r) => [r.id, r.backdropColor ?? null]));
+    // front_image_id is a nullable generated column; the inArray filter above
+    // already excludes null, the filter here only narrows the type.
+    return new Map(
+      rows.flatMap((r) =>
+        r.id ? [[r.id, r.backdropColor ?? null] as const] : []
+      )
+    );
   } catch (err) {
     console.error("getUserImageLibrary: backdrop lookup failed", err);
     return new Map();

@@ -163,28 +163,25 @@ describe("deleteConversations — rules", () => {
     ]);
   });
 
-  it("reports a conversation an organizer product FKs as product, untouched", async () => {
-    const d = await makeDesign(testDb, "owner");
-    const [store] = await testDb
-      .insert(schema.store)
-      .values({ ownerId: "owner", slug: "s", name: "S" })
-      .returning();
+  it("deletes a conversation whose image another composition pins — the image detaches, not the delete", async () => {
+    const mine = await conversationWithImage("owner", "images/mine.png");
+    const other = await conversationWithImage("owner", "images/other.png");
+    // A two-sided Shop composition with this conversation's image on the back:
+    // a real reference (composition slice 5 — a `product` can no longer FK a
+    // design directly, so a product never blocks a delete; it only keeps the
+    // pinned image alive).
     await testDb.insert(schema.product).values({
       ownerId: "owner",
-      storeId: store.id,
-      designId: d.id,
-      blankId: "bella-canvas-3001",
-      placements: {},
-      price: 25,
+      placements: { front: other.imageId, back: mine.imageId },
     });
 
-    const result = await deleteConversations([d.id]);
+    const result = await deleteConversations([mine.designId]);
 
-    expect(result).toEqual({
-      deleted: [],
-      skipped: [{ id: d.id, reason: "product" }],
-    });
-    expect(await designRow(d.id)).toBeDefined();
+    expect(result).toEqual({ deleted: [mine.designId], skipped: [] });
+    expect(await designRow(mine.designId)).toBeUndefined();
+    expect(await imageRow(mine.imageId)).toBeDefined();
+    // A detached image keeps its R2 object.
+    expect(vi.mocked(deleteObjectByKey)).not.toHaveBeenCalled();
   });
 
   it("treats someone else's conversation and an unknown id alike: not_found, nothing deleted", async () => {

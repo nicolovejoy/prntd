@@ -112,14 +112,13 @@ describe("readers on dual-written rows", () => {
     expect(await getPublishedFeed()).toEqual([]);
   });
 
-  it("a hidden listing leaves the feed but stays resolvable by id", async () => {
+  it("a hidden publication leaves the feed but stays resolvable by id", async () => {
     const ids = await seed();
     const publishedAt = new Date(Date.UTC(2026, 0, 1, 11, 55));
-    await testDb.insert(schema.listing).values({
+    await testDb.insert(schema.imagePublication).values({
       imageId: ids.secondId,
       publishedAt,
       isHidden: true,
-      title: "Hidden",
     });
 
     expect(await getPublishedFeed()).toEqual([]);

@@ -2,7 +2,7 @@
  * One-off: purge orphaned e2e rows left in prntd-dev/prntd-preview when a spec
  * timed out before its finally{} cleanup ran. Matches the throwaway organizer
  * accounts (e2e-org-*@prntd.test) + seeded designs (id like e2e-%) and removes
- * their stores/products/designs/sessions/accounts/user. Same never-prod guard
+ * their products/designs/sessions/accounts/user. Same never-prod guard
  * as e2e/helpers/db.ts. Run: `npx tsx --env-file=.env.local scripts/cleanup-e2e-leftovers.ts`
  */
 import { config } from "dotenv";
@@ -30,7 +30,6 @@ async function main() {
 
   for (const id of ids) {
     await c.execute({ sql: "DELETE FROM product WHERE owner_id = ?", args: [id] });
-    await c.execute({ sql: "DELETE FROM store WHERE owner_id = ?", args: [id] });
     // Seeded designs are owned by these users; drop their images first (FK).
     const designs = await c.execute({
       sql: "SELECT id FROM design WHERE user_id = ?",
@@ -40,7 +39,7 @@ async function main() {
     for (const did of dids) {
       await c.execute({ sql: "DELETE FROM cart_item WHERE design_id = ?", args: [did] });
       await c.execute({
-        sql: "DELETE FROM listing WHERE image_id IN (SELECT image_id FROM conversation_image WHERE design_id = ?)",
+        sql: "DELETE FROM image_publication WHERE image_id IN (SELECT image_id FROM conversation_image WHERE design_id = ?)",
         args: [did],
       });
       await c.execute({
@@ -69,7 +68,7 @@ async function main() {
     args: [],
   });
   await c.execute({
-    sql: "DELETE FROM listing WHERE image_id IN (SELECT image_id FROM conversation_image WHERE design_id LIKE 'e2e-%')",
+    sql: "DELETE FROM image_publication WHERE image_id IN (SELECT image_id FROM conversation_image WHERE design_id LIKE 'e2e-%')",
     args: [],
   });
   const orphanImgs = await c.execute({

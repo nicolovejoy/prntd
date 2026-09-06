@@ -5,7 +5,8 @@
  * Prod bug (#121, 2026-07-28): deleteDesign's order guard only counted
  * `order.design_id`, but three other tables FK `design.id` — `order_item`
  * (authoritative lines since Phase 1c; a cart order's non-head designs appear
- * ONLY there), `cart_item`, and `product`. Hard-deleting a design any of them
+ * ONLY there), `cart_item`, and — until composition slice 5 dropped
+ * `product.design_id` — `product`. Hard-deleting a design any of them
  * referenced failed the FK constraint inside db.batch → masked Server
  * Components error on prod.
  */
@@ -152,21 +153,7 @@ describe("deleteDesign — rows that FK design.id (#121)", () => {
     ).toHaveLength(1);
   });
 
-  it("refuses with a message when a shop product uses the design (product FK)", async () => {
-    const d = await makeDesign(testDb, "u1");
-    await testDb.insert(schema.product).values({
-      ownerId: "u1",
-      designId: d.id,
-      blankId: "bella-canvas-3001",
-    });
-
-    const result = await deleteDesign(d.id);
-
-    expect(result?.error).toMatch(/product/i);
-    expect(await designRow(d.id)).toBeDefined();
-  });
-
-  it("keeps an image (and its listing) that another conversation seed-links; deletes the rest", async () => {
+  it("keeps an image (and its publication row) that another conversation seed-links; deletes the rest", async () => {
     const d = await makeDesign(testDb, "u1");
     const sharedId = await makeSourceImage(testDb, {
       designId: d.id,
@@ -190,12 +177,12 @@ describe("deleteDesign — rows that FK design.id (#121)", () => {
     await deleteDesign(d.id);
 
     expect(await designRow(d.id)).toBeUndefined();
-    // Shared image + listing survive so the other thread keeps rendering.
+    // Shared image + publication row survive so the other thread keeps rendering.
     expect(
       await testDb.select().from(schema.image).where(eq(schema.image.id, sharedId))
     ).toHaveLength(1);
     expect(
-      await testDb.select().from(schema.listing).where(eq(schema.listing.imageId, sharedId))
+      await testDb.select().from(schema.imagePublication).where(eq(schema.imagePublication.imageId, sharedId))
     ).toHaveLength(1);
     // The other design's link is untouched.
     expect(
@@ -317,26 +304,33 @@ describe("deleteDesignImage — cross-design references", () => {
       await testDb.select().from(schema.image).where(eq(schema.image.id, imageId))
     ).toHaveLength(0);
     expect(
-      await testDb.select().from(schema.listing).where(eq(schema.listing.imageId, imageId))
+      await testDb.select().from(schema.imagePublication).where(eq(schema.imagePublication.imageId, imageId))
     ).toHaveLength(0);
     expect(
       await testDb.select().from(schema.conversationImage)
     ).toHaveLength(0);
   });
 
-  it("keeps the image row when a shop product pins it (detach, slice 4)", async () => {
+  it("keeps the image row when another composition pins it (detach, slice 4)", async () => {
     const d = await makeDesign(testDb, "u1");
     const imageId = await makeSourceImage(testDb, {
       designId: d.id,
       ownerId: "u1",
       imageUrl: "https://img/on-product.png",
     });
+    // A two-sided Shop composition with this image on the back (its front is
+    // another conversation's image) — a real reference, unlike the image's
+    // own front-only composition.
     const other = await makeDesign(testDb, "u1");
+    const otherFront = await makeSourceImage(testDb, {
+      designId: other.id,
+      ownerId: "u1",
+      imageUrl: "https://img/other-front.png",
+    });
     await testDb.insert(schema.product).values({
       ownerId: "u1",
-      designId: other.id,
       blankId: "bella-canvas-3001",
-      placements: { front_large: imageId },
+      placements: { front: otherFront, back: imageId },
     });
 
     await deleteDesignImage(d.id, imageId);
@@ -379,7 +373,7 @@ describe("deleteDesignImage — cross-design references", () => {
 });
 
 describe("deleteDesign — slice-4 ref-count", () => {
-  it("keeps an image a shop product pins while deleting the rest of the thread", async () => {
+  it("keeps an image another composition pins while deleting the rest of the thread", async () => {
     const d = await makeDesign(testDb, "u1");
     const pinnedId = await makeSourceImage(testDb, {
       designId: d.id,
@@ -392,11 +386,15 @@ describe("deleteDesign — slice-4 ref-count", () => {
       imageUrl: "https://img/loose.png",
     });
     const other = await makeDesign(testDb, "u1");
+    const otherFront = await makeSourceImage(testDb, {
+      designId: other.id,
+      ownerId: "u1",
+      imageUrl: "https://img/other-front.png",
+    });
     await testDb.insert(schema.product).values({
       ownerId: "u1",
-      designId: other.id,
       blankId: "bella-canvas-3001",
-      placements: { front_large: pinnedId },
+      placements: { front: otherFront, back: pinnedId },
     });
 
     await deleteDesign(d.id);
