@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useCallback, useState, type ReactNode } from "react";
+import { useEffect, useCallback, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui";
 
 /**
@@ -45,7 +45,7 @@ export function ImageLightbox({
   const [starting, setStarting] = useState(false);
   const image = images[currentIndex];
   const isSeed = image?.role === "seed";
-  const [sideBySide, setSideBySide] = useState(true);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -68,6 +68,12 @@ export function ImageLightbox({
     return () => window.removeEventListener("keydown", handleKeyDown, true);
   }, [handleKeyDown]);
 
+  // Focus Close on open so keyboard/screen-reader users land inside the
+  // dialog immediately. No focus trap — out of scope for this pass.
+  useEffect(() => {
+    closeButtonRef.current?.focus();
+  }, []);
+
   if (!image) return null;
 
   const hasActions =
@@ -79,7 +85,7 @@ export function ImageLightbox({
       role="dialog"
       aria-modal="true"
       data-testid="image-lightbox"
-      className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
+      className="fixed inset-0 z-50 bg-background flex flex-col items-center justify-center pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
       onClick={onClose}
     >
       <div
@@ -88,18 +94,11 @@ export function ImageLightbox({
       >
         {/* Header */}
         <div className="flex items-center justify-between w-full">
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-text-muted font-mono">
-              #{image.number} of {images.length}
-            </span>
-            <button
-              onClick={() => setSideBySide((s) => !s)}
-              className="text-[10px] px-2 py-0.5 rounded text-text-faint hover:text-text-muted transition-colors"
-            >
-              {sideBySide ? "Single view" : "Side by side"}
-            </button>
-          </div>
+          <span className="text-sm text-text-muted font-mono">
+            #{image.number} of {images.length}
+          </span>
           <button
+            ref={closeButtonRef}
             onClick={onClose}
             aria-label="Close"
             className="min-w-11 min-h-11 flex items-center justify-center text-text-muted hover:text-white text-2xl leading-none"
@@ -122,36 +121,11 @@ export function ImageLightbox({
 
           {/* Image container */}
           <div className="flex-1 flex items-center justify-center gap-4">
-            {sideBySide ? (
-              <>
-                <button
-                  className="flex-1 flex items-center justify-center rounded-lg bg-gray-900 p-4 cursor-zoom-in"
-                  onClick={() => setSideBySide(false)}
-                >
-                  <img
-                    src={image.url}
-                    alt={`Design #${image.number} on dark`}
-                    className="max-h-[60vh] max-w-full object-contain"
-                  />
-                </button>
-                <button
-                  className="flex-1 flex items-center justify-center rounded-lg bg-white p-4 cursor-zoom-in"
-                  onClick={() => setSideBySide(false)}
-                >
-                  <img
-                    src={image.url}
-                    alt={`Design #${image.number} on light`}
-                    className="max-h-[60vh] max-w-full object-contain"
-                  />
-                </button>
-              </>
-            ) : (
-              <img
-                src={image.url}
-                alt={`Design #${image.number}`}
-                className="max-h-[70vh] max-w-full object-contain rounded-lg"
-              />
-            )}
+            <img
+              src={image.url}
+              alt={`Design #${image.number}`}
+              className="max-h-[70vh] max-w-full object-contain rounded-lg"
+            />
           </div>
 
           {/* Right arrow */}
