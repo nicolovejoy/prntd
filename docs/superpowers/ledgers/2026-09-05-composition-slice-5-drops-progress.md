@@ -243,3 +243,22 @@ Not done: nothing from the review was deferred.
 ## Rulings made during the build
 
 (appended as they happen)
+
+## After the PR opened
+
+- PR #201 came up `mergeable_state: dirty`: main had moved (#196, #200,
+  #199 merged after the branch point) and a conflicting PR runs zero CI.
+  Merged `origin/main` in (merge commit, not a rebase — the PR was already
+  open). Four textual conflicts (CLAUDE.md, designs/actions.ts, the
+  composition-mirror test, design-images.ts — `deleteDesignImageRow` had
+  moved into main's new `delete-image.ts`), plus two files with NO textual
+  conflict that referenced the dropped schema: `delete-image.ts` (`listing`
+  table) and its test (an organizer-product seed with `designId`). Repointed
+  both; the seed became "another composition pins the image on the back".
+  Gate on the merged tree: 1461 tests / 131 files, build clean.
+- Slip: the test-seed fix was applied AFTER `git add`, so the merge commit
+  carried the old seed and CI's check job failed on typecheck in 48s. Fixed
+  in the next commit. Lesson: stage last, or re-run `git status` before
+  committing a conflict resolution.
+- PR body updated to the post-merge gate numbers; CLAUDE.md session entry +
+  this ledger committed on the branch.
