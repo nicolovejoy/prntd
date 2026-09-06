@@ -59,6 +59,11 @@ export type SideMockupProps = {
   onSelect?: () => void;
   /** Accessible name for the select button. */
   selectLabel?: string;
+  /** Whether the Front/Back pill renders. Default `true` (today's
+   * behaviour). The caller should pass `false` when only one side is on
+   * screen — a lone panel with no counterpart has nothing for the label to
+   * distinguish it from. */
+  showSideLabel?: boolean;
   /** Size classes from the caller (w/h/max-h). */
   className?: string;
   testId?: string;
@@ -78,6 +83,7 @@ export function SideMockup({
   error = null,
   onSelect,
   selectLabel,
+  showSideLabel = true,
   className = "",
   testId,
 }: SideMockupProps) {
@@ -166,12 +172,14 @@ export function SideMockup({
       {/* Side label: a translucent pill so it reads on any shirt color. Sits
           outside the select button so the button's name stays `selectLabel`,
           and stays readable to assistive tech so a panel with no select
-          button still says which side it is. */}
-      <span
-        className="pointer-events-none absolute top-1.5 left-1.5 z-10 rounded-sm bg-black/45 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-white backdrop-blur-sm"
-      >
-        {SIDE_LABEL[side]}
-      </span>
+          button still says which side it is. Only rendered when the layout
+          actually has two sides — with one side on screen there is nothing
+          for "Front" to distinguish it from. */}
+      {showSideLabel && (
+        <span className="pointer-events-none absolute top-1.5 left-1.5 z-10 rounded-sm bg-black/45 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-white backdrop-blur-sm">
+          {SIDE_LABEL[side]}
+        </span>
+      )}
 
       {/* Error overlay. Sibling of the select button (z above it), so retry
           is a real button and its click never reaches `onSelect`. */}

@@ -42,6 +42,35 @@ describe("SideMockup", () => {
     expect(screen.queryByText("Front")).not.toBeInTheDocument();
   });
 
+  it("hides the side label when showSideLabel is false; shows it by default", () => {
+    const { rerender } = render(
+      <SideMockup
+        side="front"
+        variant="hero"
+        display={ready}
+        colorHex="#000000"
+        alt="front mockup"
+        pendingLabel="Final preview loading…"
+        onMockupLoad={noop}
+        showSideLabel={false}
+      />
+    );
+    expect(screen.queryByText("Front")).not.toBeInTheDocument();
+
+    rerender(
+      <SideMockup
+        side="front"
+        variant="hero"
+        display={ready}
+        colorHex="#000000"
+        alt="front mockup"
+        pendingLabel="Final preview loading…"
+        onMockupLoad={noop}
+      />
+    );
+    expect(screen.getByText("Front")).toBeInTheDocument();
+  });
+
   it("renders the instant artwork on the shirt color", () => {
     render(
       <SideMockup

@@ -6,7 +6,11 @@ import { getListingMockup, getListingBackMockup } from "../actions";
 import { PublishedImageView } from "./published-image-view";
 import { BuyPanel, type BackPick, type BuyPanelHandle } from "./buy-panel";
 import { SideMockup } from "@/components/side-mockup";
-import { getBlank, DEFAULT_BLANK_ID } from "@/lib/blanks";
+import {
+  getBlank,
+  DEFAULT_BLANK_ID,
+  productSupportsPlacement,
+} from "@/lib/blanks";
 import {
   resolveHeroDisplay,
   sidesLayout,
@@ -257,8 +261,14 @@ export function BuyHero({
   const layout = sidesLayout({
     hasBack: !!back,
     prominent,
-    backOffered: !!backEnabled,
+    // Mirrors /preview's `showBack`: the add-back tile only makes sense when
+    // the blank actually has a back placement to print on.
+    backOffered:
+      !!backEnabled && !!product && productSupportsPlacement(product, "back"),
   });
+  // Two panels on screen at once — the Front/Back pill only means something
+  // when there's a counterpart to distinguish it from.
+  const twoSided = layout.tile.kind === "side";
 
   // Always "ready": unlike /preview there's no placement re-render to wait
   // on — this page prints the exact picked images, fixed.
@@ -324,6 +334,7 @@ export function BuyHero({
                 patchSlot(layout.hero, { loadedMockupUrl: url })
               }
               error={errorFor(layout.hero)}
+              showSideLabel={twoSided}
               className="w-full h-72 sm:h-80 md:h-96 border border-border"
               testId="side-hero"
             />
@@ -344,6 +355,7 @@ export function BuyHero({
                 selectLabel={
                   tileSide === "back" ? "Show back large" : "Show front large"
                 }
+                showSideLabel={twoSided}
                 className={`${tileSize} border border-border`}
                 testId="side-tile"
               />

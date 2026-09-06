@@ -121,6 +121,19 @@ describe("BuyHero (#167)", () => {
     expect(screen.getByText("Total")).toBeInTheDocument();
   });
 
+  it("the side label pill shows only once a back is picked (two panels on screen)", async () => {
+    renderHero({ backEnabled: true });
+    expand();
+    await screen.findByTestId("side-hero");
+    // Lone front (the add-back tile, not a second side panel): no pill.
+    expect(screen.queryByText("Front")).not.toBeInTheDocument();
+
+    await pickBack();
+    await screen.findByTestId("side-tile");
+    expect(screen.getByText("Front")).toBeInTheDocument();
+    expect(screen.getByText("Back")).toBeInTheDocument();
+  });
+
   it("with backEnabled and no back, the tile slot offers Add a back design and opens the panel picker", async () => {
     renderHero({ backEnabled: true });
     expand();

@@ -215,6 +215,9 @@ function PreviewPageInner() {
   const backShown = showBack && !!backImageId;
   // Which side is large and what the small slot holds (#167).
   const layout = sidesLayout({ hasBack: backShown, prominent, backOffered: showBack });
+  // Two panels on screen at once — the Front/Back pill only means something
+  // when there's a counterpart to distinguish it from.
+  const twoSided = layout.tile.kind === "side";
   const heroMockup = mockups[layout.hero];
   // What's on the front right now, and whether it's an explicit non-default
   // pin (#138). Only a differing pin travels — into the URL, the checkout
@@ -896,6 +899,7 @@ function PreviewPageInner() {
         error={sideError(side)}
         onSelect={() => setProminent(side)}
         selectLabel={side === "back" ? "Show back large" : "Show front large"}
+        showSideLabel={twoSided}
         className={`${tileSizeClass} border border-border`}
         testId="side-tile"
       />
@@ -1008,6 +1012,7 @@ function PreviewPageInner() {
                 error={sideError(layout.hero)}
                 onSelect={heroMockupReady ? () => setLightboxOpen(true) : undefined}
                 selectLabel="View full size"
+                showSideLabel={twoSided}
                 className="w-64 h-80 max-h-[50vh] md:max-h-none md:w-80 md:h-96 shadow-lg"
                 testId="side-hero"
               />

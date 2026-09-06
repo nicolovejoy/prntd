@@ -256,6 +256,26 @@ describe("/preview sides (#167)", () => {
     expect(mockupCallsFor("back")[1][4]).toBe("back");
   });
 
+  it("the side label pill shows only when both sides are on screen", async () => {
+    params = new URLSearchParams(NO_BACK);
+    const { unmount } = render(<PreviewPage />);
+
+    // Lone front: no second panel to distinguish it from. Scoped to the
+    // hero panel itself — the page's Placements block below also has its
+    // own unrelated "Front"/"Back" row labels.
+    const hero = await screen.findByTestId("side-hero");
+    expect(within(hero).queryByText("Front")).not.toBeInTheDocument();
+    unmount();
+
+    params = new URLSearchParams(WITH_BACK);
+    render(<PreviewPage />);
+
+    const heroWithBack = await screen.findByTestId("side-hero");
+    const tile = await screen.findByTestId("side-tile");
+    expect(within(heroWithBack).getByText("Front")).toBeInTheDocument();
+    expect(within(tile).getByText("Back")).toBeInTheDocument();
+  });
+
   it("without a back: the add-back tile opens the back picker; Cancel closes it", async () => {
     params = new URLSearchParams(NO_BACK);
     render(<PreviewPage />);
