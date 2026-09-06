@@ -134,6 +134,67 @@ describe("getUserOrdersData", () => {
     expect(orders[0].lines[0].imageUrl).toBe("https://r2/legacy.png");
   });
 
+  it("resolves a distinct back thumbnail when the line pins one (#167)", async () => {
+    const db = h.db as Db;
+    const a = await seedDesignWithImage(db, "buyer", "https://r2/front.png");
+    const backImageId = await makeSourceImage(db, {
+      designId: a.designId,
+      ownerId: "buyer",
+      imageUrl: "https://r2/back.png",
+    });
+    const [order] = await db
+      .insert(schema.order)
+      .values({
+        userId: "buyer",
+        designId: a.designId,
+        totalPrice: 27.43,
+        status: "paid",
+      })
+      .returning();
+    await db.insert(schema.orderItem).values({
+      orderId: order.id,
+      designId: a.designId,
+      productId: "bella-canvas-3001",
+      size: "M",
+      color: "White",
+      quantity: 1,
+      placements: { front: a.imageId, back: backImageId },
+      itemPrice: 27.43,
+    });
+
+    const orders = await getUserOrdersData("buyer");
+    expect(orders[0].lines[0].imageUrl).toBe("https://r2/front.png");
+    expect(orders[0].lines[0].backImageUrl).toBe("https://r2/back.png");
+    expect(orders[0].lines[0].backImageUrl).not.toBe(orders[0].lines[0].imageUrl);
+  });
+
+  it("leaves backImageUrl null for a front-only line", async () => {
+    const db = h.db as Db;
+    const a = await seedDesignWithImage(db, "buyer", "https://r2/front-only.png");
+    const [order] = await db
+      .insert(schema.order)
+      .values({
+        userId: "buyer",
+        designId: a.designId,
+        totalPrice: 19.43,
+        status: "paid",
+      })
+      .returning();
+    await db.insert(schema.orderItem).values({
+      orderId: order.id,
+      designId: a.designId,
+      productId: "bella-canvas-3001",
+      size: "M",
+      color: "White",
+      quantity: 1,
+      placements: { front: a.imageId },
+      itemPrice: 19.43,
+    });
+
+    const orders = await getUserOrdersData("buyer");
+    expect(orders[0].lines[0].backImageUrl).toBeNull();
+  });
+
   it("only returns the buyer's own orders", async () => {
     const db = h.db as Db;
     await db

@@ -2,21 +2,11 @@ import { db } from "@/lib/db";
 import {
   order as orderTable,
   orderItem as orderItemTable,
-  design as designTable,
-  user as userTable,
 } from "@/lib/db/schema";
 import { eq, asc, desc, inArray } from "drizzle-orm";
-import {
-  resolveDesignDisplayImageUrls,
-  resolveImagesByIds,
-} from "@/lib/design-images";
 import { resolveOrderLines } from "@/lib/order-lines";
-import {
-  contributorAttribution,
-  placementImageIds,
-  resolveContributors,
-} from "@/lib/order-attribution";
-import { loadImageOwners } from "@/lib/order-line-identity";
+import { contributorAttribution } from "@/lib/order-attribution";
+import { resolveOrderLineIdentities } from "@/lib/order-line-identity";
 
 export type UserOrder = Awaited<ReturnType<typeof getUserOrdersData>>[number];
 
@@ -82,52 +72,16 @@ export async function getUserOrdersData(buyerId: string) {
     ),
   }));
 
-  // Batch-resolve per-line thumbnails + contributor attribution (no N+1).
-  const lineDesignIds = [
-    ...new Set(withLines.flatMap((w) => w.lines.map((l) => l.designId))),
-  ];
-  const pinnedImageIds = [
-    ...new Set(
-      withLines.flatMap((w) =>
-        w.lines
-          .map((l) => l.placements.front)
-          .filter((v): v is string => Boolean(v))
-      )
-    ),
-  ];
-  // Every placement image, not just the front: a back drawn by someone else
-  // makes that person a contributor too (composition plan §3).
-  const allPlacementImageIds = [
-    ...new Set(
-      withLines.flatMap((w) => w.lines.flatMap((l) => placementImageIds(l.placements)))
-    ),
-  ];
-
-  // Prefer each line's pinned `placements.front` (a design_image snapshot from
-  // purchase time) over the design's current display image, so historical
-  // orders keep showing what was actually printed. The four lookups are
-  // independent — one round of parallel queries.
-  const [fallbackUrls, pinnedById, ownerByImageId, designerRows] = await Promise.all([
-    resolveDesignDisplayImageUrls(lineDesignIds),
-    resolveImagesByIds(pinnedImageIds),
-    loadImageOwners(db, allPlacementImageIds),
-    lineDesignIds.length
-      ? db
-          .select({
-            designId: designTable.id,
-            designerId: designTable.userId,
-            designerName: userTable.name,
-          })
-          .from(designTable)
-          .leftJoin(userTable, eq(userTable.id, designTable.userId))
-          .where(inArray(designTable.id, lineDesignIds))
-      : Promise.resolve([]),
-  ]);
-  const pinnedUrlById = new Map(
-    [...pinnedById].map(([id, img]) => [id, img.imageUrl])
+  // Thumbnail + back image + contributor attribution, batched once for every
+  // line across every order (never N+1) via the shared identity mapper —
+  // the same rules the confirmation page and admin order detail use.
+  const allLines = withLines.flatMap((w) => w.lines);
+  const identities = await resolveOrderLineIdentities(
+    db,
+    allLines.map((l) => ({ designId: l.designId, placements: l.placements }))
   );
-  const designerByDesign = new Map(designerRows.map((r) => [r.designId, r]));
 
+  let cursor = 0;
   return withLines.map(({ order, lines }) => ({
     id: order.id,
     status: order.status,
@@ -138,30 +92,17 @@ export async function getUserOrdersData(buyerId: string) {
     archivedAt: order.archivedAt,
     displayName: order.displayName,
     lines: lines.map((l) => {
-      const front = l.placements.front;
-      const imageUrl =
-        (front ? pinnedUrlById.get(front) : undefined) ??
-        fallbackUrls.get(l.designId) ??
-        null;
-      const legacyOwner = designerByDesign.get(l.designId);
+      const identity = identities[cursor++];
       return {
         designId: l.designId,
         blankId: l.blankId,
         size: l.size,
         color: l.color,
         quantity: l.quantity,
-        imageUrl,
-        // Legacy lines (no placements JSON, or a pin that isn't an artifact)
-        // fall back to the conversation's owner so historical orders keep the
-        // attribution they have always shown.
+        imageUrl: identity.imageUrl,
+        backImageUrl: identity.backImageUrl,
         designedByName: contributorAttribution({
-          contributors: resolveContributors({
-            placements: l.placements,
-            ownerByImageId,
-            fallback: legacyOwner
-              ? { userId: legacyOwner.designerId, name: legacyOwner.designerName }
-              : null,
-          }),
+          contributors: identity.contributors,
           viewerId: buyerId,
         }),
       };
