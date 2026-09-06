@@ -76,24 +76,32 @@ import type { ChatMessage } from "@/lib/db/schema";
 import type { DesignImage } from "@/lib/design-images";
 import type { ImageGenerator } from "@/lib/generators/types";
 
-async function getOrCreateDesign(designId: string, userId: string) {
-  let found = await db.query.design.findFirst({
+/**
+ * The design row if it exists and belongs to `userId`, else `null`. Throws
+ * `Unauthorized` if the row exists under another user — the ownership rule
+ * lives here so every caller (including `getOrCreateDesign`) shares it.
+ */
+async function findOwnedDesign(designId: string, userId: string) {
+  const found = await db.query.design.findFirst({
     where: eq(designTable.id, designId),
   });
-
-  if (!found) {
-    const [created] = await db
-      .insert(designTable)
-      .values({
-        id: designId,
-        userId,
-      })
-      .returning();
-    found = created;
-  }
-
+  if (!found) return null;
   if (found.userId !== userId) throw new Error("Unauthorized");
   return found;
+}
+
+async function getOrCreateDesign(designId: string, userId: string) {
+  const found = await findOwnedDesign(designId, userId);
+  if (found) return found;
+
+  const [created] = await db
+    .insert(designTable)
+    .values({
+      id: designId,
+      userId,
+    })
+    .returning();
+  return created;
 }
 
 /** First IP from the forwarded-for chain (the client), or null. */
@@ -188,9 +196,14 @@ export async function generateDesign(
   const session = await auth.api.getSession({ headers: hdrs });
   if (!session) throw new Error("Unauthorized");
 
-  const found = await getOrCreateDesign(designId, session.user.id);
+  // Find only — NOT create. Creating the row is deferred past the quota and
+  // capacity checks below (#197): a refused submit on a never-seen designId
+  // must leave no row behind, or a refresh shows a dead "Untitled" design.
+  let found = await findOwnedDesign(designId, session.user.id);
   // Refuse before the quota spend — a closed thread must not burn a unit.
-  assertConversationOpen(found);
+  // Only meaningful for an EXISTING conversation; a brand-new designId can't
+  // be closed yet.
+  if (found) assertConversationOpen(found);
   const ip = clientIp(hdrs);
   const userId = session.user.id;
   const now = new Date();
@@ -224,6 +237,16 @@ export async function generateDesign(
       console.error("refundGenerationQuota failed:", e)
     );
     return { kind: "at_capacity", message: AT_CAPACITY_MESSAGE };
+  }
+
+  // Both refusal paths above have returned by now — the row is created only
+  // for a submit that survived quota and capacity.
+  if (!found) {
+    const [created] = await db
+      .insert(designTable)
+      .values({ id: designId, userId })
+      .returning();
+    found = created;
   }
 
   // The user's turn lands NOW, not when the render completes. The action
