@@ -361,6 +361,7 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
         anchorImageId: submitAnchor?.imageId ?? null,
         startedAt: new Date(),
         jobId: null,
+        prompt: trimmed,
       },
     ]);
     try {

@@ -135,6 +135,14 @@ export type OptimisticEntry = {
   startedAt: Date;
   jobId: string | null;
   /**
+   * The trimmed composer text this submit fired with (#203). Every submit
+   * has one, so the field is required. It stands in for the lane's title
+   * until the server lane carries the first user chat turn — a synthetic
+   * lane, or an existing lane the server hasn't titled yet, shows this
+   * instead of "Untitled".
+   */
+  prompt: string;
+  /**
    * Client clock (ms) when `jobId` was learned. A poll's fetch can straddle
    * the job-row write — it goes out before the row exists and lands after the
    * action has resolved — and that snapshot's silence about the job means
@@ -159,18 +167,35 @@ function optimisticCell(entry: OptimisticEntry): StudioPendingCell {
 }
 
 /**
+ * The prompt to show as a lane's provisional title (#203): the EARLIEST
+ * entry in the group by `startedAt` — the first words typed into that
+ * conversation, matching what the server will eventually carry as its
+ * first user chat turn. Null when that prompt is empty after trim, so
+ * render sites fall back to "Untitled" rather than showing blank text.
+ */
+function earliestPrompt(group: OptimisticEntry[]): string | null {
+  const earliest = group.reduce((a, b) =>
+    b.startedAt.getTime() < a.startedAt.getTime() ? b : a
+  );
+  const trimmed = earliest.prompt.trim();
+  return trimmed === "" ? null : trimmed;
+}
+
+/**
  * Overlays optimistic entries onto server lanes for rendering. Pure, and
  * called on every render (not folded into lane state) so a poll's
  * `setLanes(fresh)` can never wipe a cell mid-flight — see the plan's
  * Design section.
  *
  * An entry whose designId matches a server lane is appended to that lane's
- * `pending`. An entry with no matching lane (a fresh, unanchored
- * conversation the server hasn't created yet) gets a synthetic lane at
- * index 0, `title: null`, so it's the first thing above the composer on a
- * phone-width bench. Callers are expected to pass only entries
- * `settleOptimistic` has not dropped — this function does not re-check
- * jobId visibility itself.
+ * `pending`. A lane the server hasn't titled yet (`title: null`) takes the
+ * group's earliest prompt as a provisional title (#203); a lane that
+ * already has a title keeps it. An entry with no matching lane (a fresh,
+ * unanchored conversation the server hasn't created yet) gets a synthetic
+ * lane at index 0, titled the same way, so it's the first thing above the
+ * composer on a phone-width bench. Callers are expected to pass only
+ * entries `settleOptimistic` has not dropped — this function does not
+ * re-check jobId visibility itself.
  */
 export function applyOptimistic(
   lanes: StudioLane[],
@@ -189,7 +214,11 @@ export function applyOptimistic(
     const group = byDesign.get(lane.designId);
     if (!group) return lane;
     byDesign.delete(lane.designId);
-    return { ...lane, pending: [...lane.pending, ...group.map(optimisticCell)] };
+    return {
+      ...lane,
+      title: lane.title ?? earliestPrompt(group),
+      pending: [...lane.pending, ...group.map(optimisticCell)],
+    };
   });
 
   // Two unanchored submits in a row are two synthetic lanes, and they follow
@@ -200,7 +229,7 @@ export function applyOptimistic(
   const newLanes: StudioLane[] = [...byDesign.entries()]
     .map(([designId, group]) => ({
       designId,
-      title: null,
+      title: earliestPrompt(group),
       lastActiveAt: new Date(
         Math.max(...group.map((e) => e.startedAt.getTime()))
       ),
