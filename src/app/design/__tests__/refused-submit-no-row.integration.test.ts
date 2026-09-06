@@ -197,3 +197,50 @@ describe("generateDesign: no design row on a refused submit (#197)", () => {
     expect(afterQueue.callbacks).toHaveLength(0);
   });
 });
+
+describe("concurrent double-submit on a fresh id (fix round 1)", () => {
+  it("both submits win: one row, two jobs, two user turns — no refund, no throw", async () => {
+    await seedUser();
+    const designId = crypto.randomUUID();
+
+    // True concurrency: both calls independently await findOwnedDesign,
+    // consumeGenerationQuota, and countRunningJobsForUser before either
+    // reaches the insert — real single-threaded-JS interleaving, not a
+    // simulated one. Confirmed by the assertions below: if the two calls ran
+    // serially instead, the second would just find the first's row (no
+    // unique-violation branch exercised) but the outcome — one row, two
+    // jobs, two turns, no refund — would look identical either way, which is
+    // exactly the point: both orderings must be safe.
+    const [a, b] = await Promise.all([
+      generateDesign(designId, "a red dragon"),
+      generateDesign(designId, "a blue dragon"),
+    ]);
+
+    expect(a.kind).toBe("queued");
+    expect(b.kind).toBe("queued");
+
+    const rows = await testDb
+      .select()
+      .from(schema.design)
+      .where(eq(schema.design.id, designId));
+    expect(rows).toHaveLength(1);
+    expect(rows[0].userId).toBe("u1");
+
+    const jobRows = await testDb
+      .select()
+      .from(schema.imageGeneration)
+      .where(eq(schema.imageGeneration.designId, designId));
+    expect(jobRows).toHaveLength(2);
+
+    const msgs = await testDb
+      .select()
+      .from(schema.chatMessage)
+      .where(eq(schema.chatMessage.designId, designId));
+    expect(msgs.filter((m) => m.role === "user")).toHaveLength(2);
+
+    // Both submits legitimately spent a unit; neither the winner nor the
+    // loser gets refunded (only visible when the funnel flag counts quota —
+    // off by default here, so this just pins "no throw propagated").
+    expect(afterQueue.callbacks).toHaveLength(2);
+  });
+});

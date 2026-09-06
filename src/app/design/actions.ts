@@ -71,6 +71,7 @@ import {
   type GenerationFailure,
 } from "@/lib/generation-poll";
 import { renderSpecSummary, fallbackSpec } from "@/lib/design-spec";
+import { isUniqueViolation } from "@/lib/ledger";
 import { latestUserText } from "@/lib/design-prompt";
 import type { ChatMessage } from "@/lib/db/schema";
 import type { DesignImage } from "@/lib/design-images";
@@ -240,13 +241,40 @@ export async function generateDesign(
   }
 
   // Both refusal paths above have returned by now — the row is created only
-  // for a submit that survived quota and capacity.
+  // for a submit that survived quota and capacity. Two concurrent submits on
+  // the same never-seen-before designId (double-tap, client retry) can both
+  // reach here having both spent a unit; the loser's insert hits the id's
+  // primary-key uniqueness. That is not a failure of ITS turn — the winner's
+  // row IS this conversation now — so re-read and continue with it rather
+  // than refunding or throwing. Both submits legitimately spent a unit and
+  // both render into the now-shared conversation, exactly as two anchored
+  // submits into an existing design already do.
+  //
+  // Wrapped in a one-statement `db.batch` (not a bare `.insert()`) so a
+  // unique-constraint violation surfaces in the shape `isUniqueViolation`
+  // recognizes: a lone `.insert().returning()` call gets wrapped in a
+  // DrizzleQueryError whose own `.message` never contains the SQLite error
+  // text (only `.cause.message` does), while `db.batch` surfaces it directly
+  // — the same reason the webhook's paid-claim batch (#37) can use this
+  // check as-is.
   if (!found) {
-    const [created] = await db
-      .insert(designTable)
-      .values({ id: designId, userId })
-      .returning();
-    found = created;
+    try {
+      const [[created]] = await db.batch([
+        db.insert(designTable).values({ id: designId, userId }).returning(),
+      ]);
+      found = created;
+    } catch (err) {
+      if (!isUniqueViolation(err)) throw err;
+      found = await findOwnedDesign(designId, userId);
+      if (!found) {
+        // The row that won the race is gone by the time we looked — nothing
+        // sane to continue with. This unit is unspent work; give it back.
+        await refundGenerationQuota({ userId, ip, day: dayKey }).catch((e) =>
+          console.error("refundGenerationQuota failed:", e)
+        );
+        throw err;
+      }
+    }
   }
 
   // The user's turn lands NOW, not when the render completes. The action
