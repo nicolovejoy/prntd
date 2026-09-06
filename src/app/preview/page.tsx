@@ -562,8 +562,8 @@ function PreviewPageInner() {
   // explicit button in the side's panel.
   // Never waits on the back: the front is what the buyer looks at first, so
   // an in-flight back fetch (Printful polling allows up to 55s) must not
-  // stall it. The back's own gate (frontMockupSettled, below) is what keeps
-  // the two Printful calls from overlapping.
+  // stall it. The back's own gate (frontMockupSettled, below) ensures the
+  // back does not start until the front settles.
   useEffect(() => {
     if (!frontImageUrl) return;
     if (mockupLoading.front || mockupError.front || mockups.front) return;
@@ -586,9 +586,8 @@ function PreviewPageInner() {
     !mockupLoading.front &&
     (!!mockups.front || mockupError.front || renderStates.front.status === "error");
 
-  // Same for the back (#167), only once the front has settled — the two
-  // Printful fetches never run concurrently, and the front (what the buyer
-  // sees first) is never slowed by the back.
+  // Fetch the back's mockup once the front has settled (#167). The front
+  // (what the buyer sees first) is never slowed by an in-flight back fetch.
   useEffect(() => {
     if (!backShown || renderStates.back.status !== "ready") return;
     if (!frontMockupSettled) return;
