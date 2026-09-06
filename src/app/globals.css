@@ -19,10 +19,12 @@
      for hairlines / ink for 1px rules" per the design review. */
   --border: #bfbdb8;
   --border-hover: #141311;
-  /* Muted/faint are ink mixed toward the ground (40% / 50%), not an
-     inverted grey-on-black ramp. */
-  --text-muted: #6f6d6a;
-  --text-faint: #868480;
+  /* Muted/faint are ink mixed toward the ground (24% / 40%), not an
+     inverted grey-on-black ramp. Both clear 4.5:1 on the ground — faint is
+     used at text-sm across the app (not decorative-only), so it must pass
+     AA for normal text too, same as muted. */
+  --text-muted: #4b4946;
+  --text-faint: #6f6d6a;
   /* The primary "inversion" is now ink-on-ground (outlined ink button),
      not a filled white-on-black chip. accent-fg reuses the ground so an
      ink-filled surface (if one is ever needed) reads correctly. */

@@ -342,13 +342,17 @@ separator):
 (overlay)         ink/20%   modals, lightbox scrim   [gap: not yet a token]
 ```
 
-Line + text — muted/faint are ink mixed 40% / 50% toward the ground:
+Line + text — muted/faint are ink mixed 24% / 40% toward the ground. Both
+clear 4.5:1 on the ground: `text-faint` is used at `text-sm` across ~90
+call sites on substantive copy (not just fine print/decoration), so it has
+to pass AA for normal text the same as muted, not just the 3:1 large-text
+floor:
 
 ```
 --border          #bfbdb8   resting (hairline) — ink at ~25% over the ground
 --border-hover    #141311   hover/focus/emphasis — solid ink, 1px
---text-muted      #6f6d6a   secondary text — ink 40% toward ground
---text-faint      #868480   tertiary/metadata — ink 50% toward ground
+--text-muted      #4b4946   secondary text — ink 24% toward ground
+--text-faint      #6f6d6a   tertiary/metadata — ink 40% toward ground
 ```
 
 Accent — the one inversion is now ink-on-ground (an outlined ink button),
@@ -383,8 +387,8 @@ AA for normal text, ≥3:1 for large text/UI components):
 
 ```
 ink       (#141311) on ground (#f8f5ef)  → 17.06:1
-muted     (#6f6d6a) on ground            →  4.74:1   (passes AA normal text)
-faint     (#868480) on ground            →  3.43:1   (large text / UI only)
+muted     (#4b4946) on ground            →  8.25:1   (passes AA normal text)
+faint     (#6f6d6a) on ground            →  4.74:1   (passes AA normal text)
 rose      (#a83250) on ground (#f8f5ef)  →  5.96:1   (passes AA normal text)
 rose      (#a83250) on white (#ffffff)   →  6.49:1   (passes AA normal text)
 white     (#ffffff) on rose fill         →  6.49:1   (solid Generate button)
