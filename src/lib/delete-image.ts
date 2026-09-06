@@ -166,29 +166,52 @@ export async function planImageDeletion(
     wasPrimary: scope?.primaryImageId === imageId,
   };
 
+  // Design-scoped reachability. The caller proved it owns `designId`, not the
+  // image — so without this, an id that is no longer linked to ANY thread (its
+  // owner detached it, or the conversation that seeded it was deleted) could
+  // be deleted from any design at all, and any user's placement_render row
+  // could be dropped by id. Ownership of a design only authorises the images
+  // that design can actually see: a conversation link of either role, or a
+  // render this design produced.
+  if (opts.designId) {
+    const [links, renders] = await Promise.all([
+      db
+        .select({ role: conversationImageTable.role })
+        .from(conversationImageTable)
+        .where(
+          and(
+            eq(conversationImageTable.designId, opts.designId),
+            eq(conversationImageTable.imageId, imageId)
+          )
+        ),
+      db
+        .select({ id: placementRenderTable.id })
+        .from(placementRenderTable)
+        .where(
+          and(
+            eq(placementRenderTable.id, imageId),
+            eq(placementRenderTable.designId, opts.designId)
+          )
+        )
+        .limit(1),
+    ]);
+    if (links.length === 0 && renders.length === 0) {
+      return { ...plan, outcome: "not-found" };
+    }
+    // A seed link means the image lives in another conversation: "deleting" it
+    // from this one is a link-detach. Recorded now so a seed id can never
+    // reach the global deletes below; applied after the order check, which
+    // refuses either way.
+    plan.seedLink = links.some((l) => l.role === "seed");
+  }
+
   if (
     await orderReferencesImage(db, imageId, scopeId, scope?.primaryImageId ?? null)
   ) {
     return { ...plan, outcome: "blocked-by-order" };
   }
 
-  // A seed link means the image lives in another conversation: "deleting" it
-  // from this one is a link-detach, checked before the ref-count so a seed id
-  // can never reach the global deletes.
-  if (opts.designId) {
-    const [seed] = await db
-      .select({ id: conversationImageTable.id })
-      .from(conversationImageTable)
-      .where(
-        and(
-          eq(conversationImageTable.designId, opts.designId),
-          eq(conversationImageTable.imageId, imageId),
-          eq(conversationImageTable.role, "seed")
-        )
-      )
-      .limit(1);
-    if (seed) return { ...plan, outcome: "detach-seed", seedLink: true };
-  }
+  if (plan.seedLink) return { ...plan, outcome: "detach-seed" };
 
   const mirrorProductId = await findMirrorProduct(db, imageId);
   const [linkedElsewhere, productPins, cartPins] = await Promise.all([
@@ -240,16 +263,17 @@ export async function planImageDeletion(
 }
 
 /**
- * Apply a plan. Refuses anything the rules didn't allow — a blocked, unowned
- * or missing image never reaches a write, and the caller decides what to say
+ * Apply a plan. Refuses every outcome the rules didn't allow — blocked,
+ * unowned, or unreachable/missing — so nothing an unauthorised caller asked
+ * for reaches a write in either mode, and the caller decides what to say
  * about it.
  *
- * Uses db.batch (not db.transaction): libSQL's interactive transactions
- * aren't supported over the serverless HTTP connection. R2 objects are NOT
+ * One db.batch (not db.transaction: libSQL's interactive transactions aren't
+ * supported over the serverless HTTP connection) carries the deletes AND, when
+ * the deleted image was the design's primary, the primary_image_id update —
+ * so the row and the pointer at it can never disagree. R2 objects are NOT
  * touched here; the plan carries `r2Key`/`imageUrl` for a caller that cleans
- * up. Returns the id the scope design's primary_image_id should become and
- * whether it needs writing — the caller owns that update, and it needs
- * writing only when the image that went WAS the primary.
+ * up. The return value reports the new primary; the caller writes nothing.
  */
 export async function executeImageDeletion(
   db: Db,
@@ -272,6 +296,39 @@ export async function executeImageDeletion(
     ...(seedLink ? [eq(conversationImageTable.role, "seed" as const)] : [])
   );
 
+  // The primary moves only when the image that just went WAS the primary.
+  // Recomputing it for any delete would silently re-point a thread whose
+  // primary the owner picked (setPrimaryImage, #149), and — worse — it moves
+  // an order's legacy fallback target: a pre-placements order line resolves
+  // to design.primary_image_id, so shifting the primary off image A makes A
+  // deletable on the very next id in the same bulk call. Blocked stays
+  // blocked because the fallback keeps pointing at A.
+  const movePrimary = Boolean(designId && plan.designExists && plan.wasPrimary);
+
+  // Resolved BEFORE the batch so the update can ride inside it: a follow-up
+  // UPDATE could fail after the rows were already gone, leaving
+  // primary_image_id pointing at a deleted id (the column is FK-less, so
+  // nothing would catch it) and the caller reporting a failure for an image
+  // that is in fact deleted. Excludes the image being deleted, since it is
+  // still linked at select time.
+  let newPrimaryId: string | null = null;
+  if (movePrimary && designId) {
+    const [remaining] = await db
+      .select({ id: imageTable.id })
+      .from(conversationImageTable)
+      .innerJoin(imageTable, eq(imageTable.id, conversationImageTable.imageId))
+      .where(
+        and(
+          eq(conversationImageTable.designId, designId),
+          eq(conversationImageTable.role, "output"),
+          ne(imageTable.id, imageId)
+        )
+      )
+      .orderBy(desc(imageTable.createdAt), sql`image.rowid desc`)
+      .limit(1);
+    newPrimaryId = remaining?.id ?? null;
+  }
+
   await db.batch([
     db.delete(conversationImageTable).where(linkFilter),
     ...(plan.outcome === "delete"
@@ -290,33 +347,17 @@ export async function executeImageDeletion(
             : []),
         ]
       : []),
+    ...(movePrimary && designId
+      ? [
+          db
+            .update(designTable)
+            .set({ primaryImageId: newPrimaryId, updatedAt: new Date() })
+            .where(eq(designTable.id, designId)),
+        ]
+      : []),
   ]);
 
-  // The primary moves only when the image that just went WAS the primary.
-  // Recomputing it for any delete would silently re-point a thread whose
-  // primary the owner picked (setPrimaryImage, #149), and — worse — it moves
-  // an order's legacy fallback target: a pre-placements order line resolves
-  // to design.primary_image_id, so shifting the primary off image A makes A
-  // deletable on the very next id in the same bulk call. Blocked stays
-  // blocked because the fallback keeps pointing at A.
-  if (!designId || !plan.designExists || !plan.wasPrimary) {
-    return { primaryImageId: null, primaryChanged: false };
-  }
-
-  const [remaining] = await db
-    .select({ id: imageTable.id })
-    .from(conversationImageTable)
-    .innerJoin(imageTable, eq(imageTable.id, conversationImageTable.imageId))
-    .where(
-      and(
-        eq(conversationImageTable.designId, designId),
-        eq(conversationImageTable.role, "output")
-      )
-    )
-    .orderBy(desc(imageTable.createdAt), sql`image.rowid desc`)
-    .limit(1);
-
-  return { primaryImageId: remaining?.id ?? null, primaryChanged: true };
+  return { primaryImageId: newPrimaryId, primaryChanged: movePrimary };
 }
 
 /** The R2 object key for a planned image, best-effort: the stored key, else

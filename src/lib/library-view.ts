@@ -46,17 +46,18 @@ export function bulkImageDeleteTitle(count: number): string {
 }
 
 /**
- * The one line of consequence under it. The order rule is the only one worth
- * saying up front — the others (an image another conversation or a cart still
- * points at) are rare and reported after the fact by the notice below.
+ * The one line of consequence under it. Names every case the action keeps, in
+ * the same words as the conversation-level line (bulkDeleteConsequence in
+ * studio-view.ts) — an earlier draft mentioned only orders, which understated
+ * three of the four in-use rules.
  *
- * Takes the count (mirroring bulkDeleteConsequence in studio-view) though the
- * line reads the same for one image or twenty — the caller shouldn't have to
- * know which helpers happen to vary.
+ * Takes the count (mirroring bulkDeleteConsequence) though the line reads the
+ * same for one image or twenty — the caller shouldn't have to know which
+ * helpers happen to vary.
  */
 export function bulkImageDeleteConsequence(count: number): string {
   void count;
-  return "Images used in an order are kept.";
+  return "Images used in an order, another design, or a cart are kept.";
 }
 
 /**

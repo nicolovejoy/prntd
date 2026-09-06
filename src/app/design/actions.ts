@@ -842,7 +842,9 @@ export async function selectImage(designId: string, imageUrl: string) {
  * (shared with the bulk library delete): an order reference refuses; a seed
  * link, a shop product pin or a cart pin downgrade the delete to a
  * link-detach; otherwise the image row, its listing and its mirror product
- * go. Recomputes primary_image_id when the plan moved it.
+ * go. An id this thread can't reach is "Image not found" — owning the design
+ * doesn't authorise deleting an image it never had. primary_image_id moves
+ * inside the same batch when the deleted image was the primary.
  */
 export async function deleteDesignImage(designId: string, imageId: string) {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -869,16 +871,14 @@ export async function deleteDesignImage(designId: string, imageId: string) {
     throw new Error("Can't delete this image — it's referenced by an order.");
   }
 
-  const { primaryImageId, primaryChanged } = await executeImageDeletion(
-    db,
-    plan
-  );
-  if (primaryChanged) {
-    await db
-      .update(designTable)
-      .set({ primaryImageId, updatedAt: new Date() })
-      .where(eq(designTable.id, designId));
-  }
+  // Owning the design authorises only the images that design can see (a
+  // conversation link of either role, or a render it produced). An id it
+  // can't reach isn't this thread's to delete, whoever owns it.
+  if (plan.outcome === "not-found") throw new Error("Image not found");
+
+  // One batch, including the primary_image_id move when this image was the
+  // thread's primary — no follow-up write to fail after the rows are gone.
+  await executeImageDeletion(db, plan);
 }
 
 /**

@@ -63,6 +63,9 @@ vi.mock("@/lib/delete-image", async (importOriginal) => {
 });
 
 const { deleteImages } = await import("@/app/designs/actions");
+const { planImageDeletion, executeImageDeletion } = await import(
+  "@/lib/delete-image"
+);
 
 beforeEach(async () => {
   testDb = await createTestDb();
@@ -365,7 +368,7 @@ describe("deleteImages — thread state", () => {
   });
 });
 
-describe("deleteImages — thread state", () => {
+describe("deleteImages — primary_image_id is never moved off a live image", () => {
   it("leaves primary_image_id alone when the deleted image was not the primary", async () => {
     const d = await makeDesign(testDb, "u1");
     // Three images so the assertion can't pass by accident: the owner pinned
@@ -466,5 +469,60 @@ describe("deleteImages — a write that throws", () => {
     });
     expect(await imageRows(imageId)).toHaveLength(1);
     expect(deleteObjectByKey).not.toHaveBeenCalled();
+  });
+});
+
+describe("executeImageDeletion — the primary move rides in the batch", () => {
+  it("has already written primary_image_id when it returns, with no caller update", async () => {
+    const d = await makeDesign(testDb, "u1");
+    const older = await makeSourceImage(testDb, {
+      designId: d.id,
+      ownerId: "u1",
+      imageUrl: "https://r2/images/older.png",
+      createdAt: new Date(1000),
+    });
+    const primary = await makeSourceImage(testDb, {
+      designId: d.id,
+      ownerId: "u1",
+      imageUrl: "https://r2/images/primary.png",
+      createdAt: new Date(2000),
+    });
+    await testDb
+      .update(schema.design)
+      .set({ primaryImageId: primary })
+      .where(eq(schema.design.id, d.id));
+
+    // Straight to the module — nothing here writes design.primary_image_id
+    // afterwards, so a value in the row can only have come from the batch.
+    const plan = await planImageDeletion(testDb, primary, { userId: "u1" });
+    const result = await executeImageDeletion(testDb, plan);
+
+    expect(result).toEqual({ primaryImageId: older, primaryChanged: true });
+    const row = await testDb.query.design.findFirst({
+      where: eq(schema.design.id, d.id),
+    });
+    expect(row?.primaryImageId).toBe(older);
+    expect(await imageRows(primary)).toHaveLength(0);
+  });
+
+  it("clears the primary when nothing is left in the thread", async () => {
+    const d = await makeDesign(testDb, "u1");
+    const only = await makeSourceImage(testDb, {
+      designId: d.id,
+      ownerId: "u1",
+      imageUrl: "https://r2/images/only.png",
+    });
+    await testDb
+      .update(schema.design)
+      .set({ primaryImageId: only })
+      .where(eq(schema.design.id, d.id));
+
+    const plan = await planImageDeletion(testDb, only, { userId: "u1" });
+    await executeImageDeletion(testDb, plan);
+
+    const row = await testDb.query.design.findFirst({
+      where: eq(schema.design.id, d.id),
+    });
+    expect(row?.primaryImageId).toBeNull();
   });
 });

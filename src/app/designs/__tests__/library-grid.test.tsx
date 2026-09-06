@@ -140,7 +140,7 @@ describe("My Designs select mode", () => {
     fireEvent.click(screen.getByTestId("library-delete"));
     await screen.findByTestId("confirm-sheet");
     expect(screen.getByText("Delete 2 images?")).toBeTruthy();
-    expect(screen.getByText("Images used in an order are kept.")).toBeTruthy();
+    expect(screen.getByText("Images used in an order, another design, or a cart are kept.")).toBeTruthy();
     fireEvent.click(screen.getByTestId("confirm-sheet-confirm"));
 
     await waitFor(() => expect(deleteImages).toHaveBeenCalledWith(["i1", "i3"]));

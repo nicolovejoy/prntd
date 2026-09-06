@@ -60,6 +60,7 @@ beforeEach(async () => {
   testDb = await createTestDb();
   currentUserId = "u1";
   await makeUser(testDb, "u1");
+  await makeUser(testDb, "u2");
 });
 
 async function designRow(id: string) {
@@ -454,5 +455,63 @@ describe("deleteDesign — generation job rows", () => {
         .from(schema.imageGeneration)
         .where(eq(schema.imageGeneration.designId, d.id))
     ).toHaveLength(0);
+  });
+});
+
+describe("deleteDesignImage — owning a design doesn't authorise every image id", () => {
+  it("refuses an image the design has no link to, even an unlinked one", async () => {
+    // Victim's image, detached from every conversation (its owner removed it
+    // from the thread, or the thread that seeded it was deleted) — the row
+    // survives because a product still pins it.
+    const victimDesign = await makeDesign(testDb, "u2");
+    const victimImage = await makeSourceImage(testDb, {
+      designId: victimDesign.id,
+      ownerId: "u2",
+      imageUrl: "https://img/victim.png",
+    });
+    await testDb
+      .delete(schema.conversationImage)
+      .where(eq(schema.conversationImage.imageId, victimImage));
+
+    // Attacker owns their own design and passes the victim's image id.
+    currentUserId = "u1";
+    const attackerDesign = await makeDesign(testDb, "u1");
+
+    await expect(
+      deleteDesignImage(attackerDesign.id, victimImage)
+    ).rejects.toThrow(/not found/i);
+    expect(
+      await testDb
+        .select()
+        .from(schema.image)
+        .where(eq(schema.image.id, victimImage))
+    ).toHaveLength(1);
+  });
+
+  it("refuses another design's placement_render id", async () => {
+    const victimDesign = await makeDesign(testDb, "u2");
+    const [render] = await testDb
+      .insert(schema.placementRender)
+      .values({
+        designId: victimDesign.id,
+        blankId: "bella-canvas-3001",
+        placementId: "front",
+        imageUrl: "https://img/victim-render.png",
+        aspectRatio: "1:1",
+      })
+      .returning();
+
+    currentUserId = "u1";
+    const attackerDesign = await makeDesign(testDb, "u1");
+
+    await expect(
+      deleteDesignImage(attackerDesign.id, render.id)
+    ).rejects.toThrow(/not found/i);
+    expect(
+      await testDb
+        .select()
+        .from(schema.placementRender)
+        .where(eq(schema.placementRender.id, render.id))
+    ).toHaveLength(1);
   });
 });

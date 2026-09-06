@@ -148,16 +148,9 @@ export async function deleteImages(
     }
 
     try {
-      const { primaryImageId, primaryChanged } = await executeImageDeletion(
-        db,
-        plan
-      );
-      if (primaryChanged && plan.designId) {
-        await db
-          .update(designTable)
-          .set({ primaryImageId, updatedAt: new Date() })
-          .where(eq(designTable.id, plan.designId));
-      }
+      // One batch, including the primary_image_id move — nothing to follow up,
+      // so a partial write can't leave the thread pointing at a deleted image.
+      await executeImageDeletion(db, plan);
     } catch (err) {
       console.error(
         `[designs] deleteImages: ${imageId} failed: ${err instanceof Error ? err.message : String(err)}`
