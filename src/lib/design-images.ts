@@ -14,16 +14,17 @@ import { db } from "@/lib/db";
 import {
   design as designTable,
   chatMessage as chatMessageTable,
-  cartItem as cartItemTable,
-  product as productTable,
   image as imageTable,
   conversationImage as conversationImageTable,
   placementRender as placementRenderTable,
   listing as listingTable,
   type ChatMessage,
 } from "@/lib/db/schema";
-import { eq, ne, and, asc, desc, inArray, sql } from "drizzle-orm";
-import { imageReferences } from "@/lib/design-publish";
+import { eq, and, asc, desc, inArray, sql } from "drizzle-orm";
+import {
+  planImageDeletion,
+  executeImageDeletion,
+} from "@/lib/delete-image";
 import { getBlank, type AspectRatio } from "@/lib/blanks";
 import type { DesignSpec } from "@/lib/design-spec";
 import {
@@ -37,7 +38,6 @@ import {
   buildImageRow,
   buildOutputLinkRow,
   buildPlacementRenderRow,
-  findMirrorProduct,
 } from "@/lib/model-b-writes";
 
 // created_at is second-resolution, so rows written in the same second tie.
@@ -774,100 +774,22 @@ export async function resolveDesignDisplayImageUrls(
 }
 
 /**
- * Delete an image from a design. Ref-counted (slice 4, plan §7): when the
- * image is still referenced elsewhere — a conversation link from another
- * design (seed), a shop product's placements, or a cart line's placements —
- * only this design's link (and the legacy design_image row) is removed; the
- * image row, its listing and the other references survive. Order references
- * are the caller's job to refuse BEFORE calling (they block, not detach).
+ * Delete an image from a design. Thin wrapper over src/lib/delete-image.ts
+ * (the plan/execute split shared with the bulk library delete): the rules —
+ * order references block, a reference from another conversation / shop
+ * product / cart line downgrades to a link-detach — live there.
  *
  * Returns the id that should become the design's new primary_image_id (the
- * most recent remaining source image), or null if there are no source images
- * left. Caller is responsible for updating design.primary_image_id.
+ * most recent remaining source image), or null if there are none left.
+ * Caller is responsible for updating design.primary_image_id.
  */
 export async function deleteDesignImageRow(
   designId: string,
   imageId: string
 ): Promise<{ newPrimaryId: string | null }> {
-  // The image's own mirror product (composition slice 1: its Shop listing as
-  // a composition — storeId+designId NULL, placements {front: imageId}) must
-  // not keep the image alive: it exists because of the image, so it's
-  // excluded from the pin probe and deleted with the image row below, the
-  // same lifecycle the listing row already had.
-  const mirrorId = await findMirrorProduct(db, imageId);
-  const [linkedElsewhere, productPins, cartPins] = await Promise.all([
-    db
-      .select({ id: conversationImageTable.id })
-      .from(conversationImageTable)
-      .where(
-        and(
-          eq(conversationImageTable.imageId, imageId),
-          ne(conversationImageTable.designId, designId)
-        )
-      )
-      .limit(1),
-    // Image ids are UUIDs, so the JSON substring match can't false-positive.
-    db
-      .select({ id: productTable.id })
-      .from(productTable)
-      .where(
-        and(
-          sql`${productTable.placements} LIKE ${"%" + imageId + "%"}`,
-          ...(mirrorId ? [ne(productTable.id, mirrorId)] : [])
-        )
-      )
-      .limit(1),
-    db
-      .select({ id: cartItemTable.id })
-      .from(cartItemTable)
-      .where(sql`${cartItemTable.placements} LIKE ${"%" + imageId + "%"}`)
-      .limit(1),
-  ]);
-
-  const decision = imageReferences({
-    order: false, // refused by the caller before this runs
-    otherConversation: linkedElsewhere.length > 0,
-    product: productPins.length > 0,
-    cart: cartPins.length > 0,
-  });
-
-  await db.batch([
-    db
-      .delete(conversationImageTable)
-      .where(
-        and(
-          eq(conversationImageTable.imageId, imageId),
-          eq(conversationImageTable.designId, designId)
-        )
-      ),
-    ...(decision === "detach"
-      ? []
-      : [
-          db.delete(imageTable).where(eq(imageTable.id, imageId)),
-          db.delete(listingTable).where(eq(listingTable.imageId, imageId)),
-          db
-            .delete(placementRenderTable)
-            .where(eq(placementRenderTable.id, imageId)),
-          ...(mirrorId
-            ? [db.delete(productTable).where(eq(productTable.id, mirrorId))]
-            : []),
-        ]),
-  ]);
-
-  const remaining = await db
-    .select({ id: imageTable.id })
-    .from(conversationImageTable)
-    .innerJoin(imageTable, eq(imageTable.id, conversationImageTable.imageId))
-    .where(
-      and(
-        eq(conversationImageTable.designId, designId),
-        eq(conversationImageTable.role, "output")
-      )
-    )
-    .orderBy(desc(imageTable.createdAt), IMAGE_SEQ_DESC)
-    .limit(1);
-
-  return { newPrimaryId: remaining[0]?.id ?? null };
+  const plan = await planImageDeletion(db, imageId, { designId });
+  const { primaryImageId } = await executeImageDeletion(db, plan);
+  return { newPrimaryId: primaryImageId };
 }
 
 /**
