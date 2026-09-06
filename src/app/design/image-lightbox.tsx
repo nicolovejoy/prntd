@@ -1,8 +1,20 @@
 "use client";
 
-import { useEffect, useCallback, useState } from "react";
-import type { DesignImage } from "@/lib/design-images";
+import { useEffect, useCallback, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui";
+
+/**
+ * The minimum an image needs to be shown here. `DesignImage` (the /design
+ * thread) is a structural superset; the image detail page's conversation
+ * strip supplies the same fields.
+ */
+export type LightboxImage = {
+  id: string;
+  number: number;
+  url: string;
+  publishedAt?: Date | null;
+  role?: "output" | "seed";
+};
 
 export function ImageLightbox({
   images,
@@ -13,16 +25,21 @@ export function ImageLightbox({
   onMakeProducts,
   onPublish,
   onStartFrom,
+  actions,
 }: {
-  images: DesignImage[];
+  images: LightboxImage[];
   currentIndex: number;
   onClose: () => void;
   onNavigate: (index: number) => void;
-  onDelete: (imageId: string) => void;
-  onMakeProducts: (imageUrl: string) => void;
-  onPublish: (imageId: string) => void | Promise<void>;
+  /** Each action button renders only when its callback is given. */
+  onDelete?: (imageId: string) => void;
+  onMakeProducts?: (imageUrl: string) => void;
+  onPublish?: (imageId: string) => void | Promise<void>;
   /** Fresh start (slice 3): open a new conversation seeded by this image. */
   onStartFrom?: (imageId: string) => void | Promise<void>;
+  /** Consumer-specific controls for the shown image, rendered first in the
+   * actions row. */
+  actions?: ReactNode;
 }) {
   const [publishing, setPublishing] = useState(false);
   const [starting, setStarting] = useState(false);
@@ -53,9 +70,16 @@ export function ImageLightbox({
 
   if (!image) return null;
 
+  const hasActions =
+    (actions != null && actions !== false) ||
+    Boolean(onMakeProducts || onStartFrom || onPublish || onDelete);
+
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center"
+      role="dialog"
+      aria-modal="true"
+      data-testid="image-lightbox"
+      className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
       onClick={onClose}
     >
       <div
@@ -77,7 +101,8 @@ export function ImageLightbox({
           </div>
           <button
             onClick={onClose}
-            className="text-text-muted hover:text-white text-2xl leading-none"
+            aria-label="Close"
+            className="min-w-11 min-h-11 flex items-center justify-center text-text-muted hover:text-white text-2xl leading-none"
           >
             &times;
           </button>
@@ -89,7 +114,8 @@ export function ImageLightbox({
           <button
             onClick={() => currentIndex > 0 && onNavigate(currentIndex - 1)}
             disabled={currentIndex === 0}
-            className="text-3xl text-text-muted hover:text-white disabled:opacity-20 shrink-0"
+            aria-label="Previous image"
+            className="min-w-11 min-h-11 flex items-center justify-center text-3xl text-text-muted hover:text-white disabled:opacity-20 shrink-0"
           >
             &lsaquo;
           </button>
@@ -134,81 +160,93 @@ export function ImageLightbox({
               currentIndex < images.length - 1 && onNavigate(currentIndex + 1)
             }
             disabled={currentIndex === images.length - 1}
-            className="text-3xl text-text-muted hover:text-white disabled:opacity-20 shrink-0"
+            aria-label="Next image"
+            className="min-w-11 min-h-11 flex items-center justify-center text-3xl text-text-muted hover:text-white disabled:opacity-20 shrink-0"
           >
             &rsaquo;
           </button>
         </div>
 
-        {/* Actions */}
-        <div className="flex flex-wrap gap-3 justify-center">
-          <Button onClick={() => onMakeProducts(image.url)}>
-            Make Products
-          </Button>
-          {onStartFrom && (
-            <Button
-              variant="secondary"
-              disabled={!image.id || starting}
-              onClick={async () => {
-                if (!image.id) return;
-                setStarting(true);
-                try {
-                  await onStartFrom(image.id);
-                } finally {
-                  setStarting(false);
-                }
-              }}
-              data-testid="start-from-image"
-            >
-              {starting ? "Starting…" : "New design from this"}
-            </Button>
-          )}
-          {isSeed ? null : image.publishedAt ? (
-            <span className="self-center text-sm text-text-faint">
-              Published ·{" "}
-              <a
-                href={`/d/${image.id}`}
-                target="_blank"
-                rel="noreferrer"
-                className="underline hover:text-text-muted"
-              >
-                view
-              </a>
-            </span>
-          ) : (
-            <Button
-              variant="secondary"
-              disabled={!image.id || publishing}
-              onClick={async () => {
-                if (!image.id) return;
-                setPublishing(true);
-                try {
-                  await onPublish(image.id);
-                } finally {
-                  setPublishing(false);
-                }
-              }}
-            >
-              {publishing ? "Publishing…" : "Publish"}
-            </Button>
-          )}
-          <Button
-            variant="danger"
-            onClick={() => image.id && onDelete(image.id)}
-            disabled={!image.id || (!isSeed && Boolean(image.publishedAt))}
-            title={
-              isSeed
-                ? "Removes the starting image from this design only."
-                : image.publishedAt
-                  ? "Published images cannot be deleted."
-                  : undefined
-            }
+        {/* Actions — only when there is something to put in the row. */}
+        {hasActions && (
+          <div
+            className="flex flex-wrap gap-3 justify-center"
+            data-testid="lightbox-actions"
           >
-            {/* A seed belongs to another design — removing it here only
-                detaches it from this thread (deleteDesignImage). */}
-            {isSeed ? "Remove" : "Delete"}
-          </Button>
-        </div>
+            {actions}
+            {onMakeProducts && (
+              <Button onClick={() => onMakeProducts(image.url)}>
+                Make Products
+              </Button>
+            )}
+            {onStartFrom && (
+              <Button
+                variant="secondary"
+                disabled={!image.id || starting}
+                onClick={async () => {
+                  if (!image.id) return;
+                  setStarting(true);
+                  try {
+                    await onStartFrom(image.id);
+                  } finally {
+                    setStarting(false);
+                  }
+                }}
+                data-testid="start-from-image"
+              >
+                {starting ? "Starting…" : "New design from this"}
+              </Button>
+            )}
+            {onPublish &&
+              (isSeed ? null : image.publishedAt ? (
+                <span className="self-center text-sm text-text-faint">
+                  Published ·{" "}
+                  <a
+                    href={`/d/${image.id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline hover:text-text-muted"
+                  >
+                    view
+                  </a>
+                </span>
+              ) : (
+                <Button
+                  variant="secondary"
+                  disabled={!image.id || publishing}
+                  onClick={async () => {
+                    if (!image.id) return;
+                    setPublishing(true);
+                    try {
+                      await onPublish(image.id);
+                    } finally {
+                      setPublishing(false);
+                    }
+                  }}
+                >
+                  {publishing ? "Publishing…" : "Publish"}
+                </Button>
+              ))}
+            {onDelete && (
+              <Button
+                variant="danger"
+                onClick={() => image.id && onDelete(image.id)}
+                disabled={!image.id || (!isSeed && Boolean(image.publishedAt))}
+                title={
+                  isSeed
+                    ? "Removes the starting image from this design only."
+                    : image.publishedAt
+                      ? "Published images cannot be deleted."
+                      : undefined
+                }
+              >
+                {/* A seed belongs to another design — removing it here only
+                    detaches it from this thread (deleteDesignImage). */}
+                {isSeed ? "Remove" : "Delete"}
+              </Button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
