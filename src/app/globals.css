@@ -1,21 +1,41 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
+/* Paper (variant PaperB, "quieter"), light only — see docs/design-system.md
+   "Tokens" for the full palette + computed AA contrast ratios. There is no
+   dark-mode mechanism: no @media (prefers-color-scheme) branch, by design. */
 :root {
-  --background: #0a0a0a;
-  --foreground: #ededed;
-  --surface: #111111;
-  --surface-raised: #1a1a1a;
-  --border: #2e2e2e;
-  --border-hover: #444444;
-  --text-muted: #999999;
-  --text-faint: #666666;
-  --accent: #ffffff;
-  --accent-fg: #000000;
+  /* Warm off-white ground. oklch(0.97 0.008 80) ≈ #f8f5ef in sRGB. */
+  --background: oklch(0.97 0.008 80);
+  --foreground: #141311; /* ink */
+  /* Paper surfaces sit slightly cleaner/whiter than the page ground; no
+     elevation shadows distinguish them, only the 1px border (see --border). */
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  /* The paper "well" for artwork/media that used to sit on a checkerboard —
+     see .bg-checkerboard below. Ink mixed 8% into the ground. */
+  --surface-well: #e6e3dd;
+  /* Hairline (resting) vs solid ink (hover/focus, emphasis) — "ink at ~25%
+     for hairlines / ink for 1px rules" per the design review. */
+  --border: #bfbdb8;
+  --border-hover: #141311;
+  /* Muted/faint are ink mixed toward the ground (40% / 50%), not an
+     inverted grey-on-black ramp. */
+  --text-muted: #6f6d6a;
+  --text-faint: #868480;
+  /* The primary "inversion" is now ink-on-ground (outlined ink button),
+     not a filled white-on-black chip. accent-fg reuses the ground so an
+     ink-filled surface (if one is ever needed) reads correctly. */
+  --accent: var(--foreground);
+  --accent-fg: var(--background);
+  /* The one accent hue in the whole system (rose, "One Mark"): the
+     wordmark and the solid Generate button, nothing else. */
+  --accent-rose: #a83250;
   /* The one status color pair (Clean Label): money-in/terminal-good vs
-     money-out/destructive. Chrome stays monochrome otherwise. */
-  --positive: #4ade80;
-  --negative: #f87171;
+     money-out/destructive. Chrome stays monochrome otherwise. Recoloured
+     for the light ground (were dark-theme #4ade80/#f87171). */
+  --positive: #166534;
+  --negative: #b91c1c;
 }
 
 @theme inline {
@@ -23,12 +43,14 @@
   --color-foreground: var(--foreground);
   --color-surface: var(--surface);
   --color-surface-raised: var(--surface-raised);
+  --color-surface-well: var(--surface-well);
   --color-border: var(--border);
   --color-border-hover: var(--border-hover);
   --color-text-muted: var(--text-muted);
   --color-text-faint: var(--text-faint);
   --color-accent: var(--accent);
   --color-accent-fg: var(--accent-fg);
+  --color-accent-rose: var(--accent-rose);
   --color-positive: var(--positive);
   --color-negative: var(--negative);
   --font-sans: var(--font-geist-sans);
@@ -41,13 +63,10 @@ body {
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }
 
+/* Transparency/media well. Was a checkerboard; on paper that's noise, so
+   this is now a plain bordered well — the class name stays so existing call
+   sites keep compiling (component-level cleanup is a later task). */
 .bg-checkerboard {
-  background-image:
-    linear-gradient(45deg, #e0e0e0 25%, transparent 25%),
-    linear-gradient(-45deg, #e0e0e0 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, #e0e0e0 75%),
-    linear-gradient(-45deg, transparent 75%, #e0e0e0 75%);
-  background-size: 16px 16px;
-  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
-  background-color: #ffffff;
+  background-color: var(--surface-well);
+  border: 1px solid var(--border);
 }

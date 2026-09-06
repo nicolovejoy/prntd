@@ -318,47 +318,85 @@ differ.
 Defined in `src/app/globals.css` (Tailwind v4 `@theme inline`). Semantic, not
 literal — components must use these, never raw `gray-*` / hex.
 
-Elevation (4 steps, all near-black):
+**Paper (variant PaperB, "quieter") — light only, shipped 2026-09.** There is
+no dark-mode mechanism: no `prefers-color-scheme` branch, only tokens. Every
+token below is warm off-white ground + near-black ink, mixed toward each
+other for the intermediate steps — never an inverted grey-on-black ramp.
+
+Ground + ink:
 
 ```
---background      #0a0a0a   page
---surface         #111111   inputs, wells
---surface-raised  #1a1a1a   cards
-(overlay)         black/90  modals, lightbox   [gap: not yet a token]
+--background   oklch(0.97 0.008 80) ≈ #f8f5ef   page ground (warm off-white)
+--foreground   #141311                          ink (primary text)
 ```
 
-Line + text:
+Surfaces (no elevation shadows anywhere — 1px borders are the only
+separator):
 
 ```
---border          #2e2e2e   resting
---border-hover    #444444   hover/focus
---foreground      #ededed   primary text
---text-muted      #999999   secondary text
---text-faint      #666666   tertiary/metadata
+--surface         #ffffff   inputs, plain paper wells
+--surface-raised  #ffffff   cards (same paper; a border does the work)
+--surface-well    #e6e3dd   media/transparency well — ink mixed 8% into the
+                             ground. Replaces the checkerboard: see
+                             `.bg-checkerboard` below.
+(overlay)         ink/20%   modals, lightbox scrim   [gap: not yet a token]
 ```
 
-Accent:
+Line + text — muted/faint are ink mixed 40% / 50% toward the ground:
 
 ```
---accent          #ffffff   the one inversion color
---accent-fg       #000000   text on accent
+--border          #bfbdb8   resting (hairline) — ink at ~25% over the ground
+--border-hover    #141311   hover/focus/emphasis — solid ink, 1px
+--text-muted      #6f6d6a   secondary text — ink 40% toward ground
+--text-faint      #868480   tertiary/metadata — ink 50% toward ground
 ```
 
-Utility: `.bg-checkerboard` — transparency indicator for raw PNGs (thumbnails,
-unset backdrops).
-
-Proposed additions **[gap]**:
+Accent — the one inversion is now ink-on-ground (an outlined ink button),
+not a filled white-on-black chip; `accent`/`accent-fg` alias the ink/ground
+pair directly so any future filled-ink surface stays correct by construction:
 
 ```
---overlay         rgba(0,0,0,.9)   tokenize the modal scrim
---positive        green-400-ish    money-in, success (ledger, profit)
---negative        red-400-ish      money-out, destructive, errors
---attention       yellow-400-ish   pending states
+--accent      var(--foreground)   ink
+--accent-fg   var(--background)   ground (text on an ink fill)
 ```
 
-…and collapse the 11 badge hues (see Gaps) onto those three plus neutral.
-Option B would add one more: `--ink-accent` (riso blue/red). A and C add
-nothing.
+Rose — ONE accent hue in the whole system ("One Mark"): the wordmark and the
+solid Generate button (Studio composer submit, landing hero Generate).
+Nothing else is rose. A fuller rose palette may come later as a token-only
+swap — every rose reference in the app must go through this token.
+
+```
+--accent-rose   #a83250
+```
+
+Status pair (Clean Label): money-in/terminal-good vs money-out/destructive.
+Chrome stays monochrome otherwise — recoloured for the light ground (were
+dark-theme `#4ade80`/`#f87171`):
+
+```
+--positive   #166534
+--negative   #b91c1c
+```
+
+**Computed AA contrast ratios** (WCAG relative-luminance formula; ≥4.5:1 is
+AA for normal text, ≥3:1 for large text/UI components):
+
+```
+ink       (#141311) on ground (#f8f5ef)  → 17.06:1
+muted     (#6f6d6a) on ground            →  4.74:1   (passes AA normal text)
+faint     (#868480) on ground            →  3.43:1   (large text / UI only)
+rose      (#a83250) on ground (#f8f5ef)  →  5.96:1   (passes AA normal text)
+rose      (#a83250) on white (#ffffff)   →  6.49:1   (passes AA normal text)
+white     (#ffffff) on rose fill         →  6.49:1   (solid Generate button)
+positive  (#166534) on ground            →  6.55:1
+negative  (#b91c1c) on ground            →  5.95:1
+```
+
+Utility: `.bg-checkerboard` — was a literal checkerboard (transparency
+indicator for raw PNGs); on paper that read as noise, so it's now a plain
+bordered well (`background-color: var(--surface-well)` + a 1px
+`var(--border)` hairline). The class name is kept so existing call sites
+keep compiling.
 
 ### Type
 
