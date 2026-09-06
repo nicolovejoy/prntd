@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { updatePublishedNaming, unpublishImage } from "@/app/designs/actions";
 import { publishedBackdrop, DEFAULT_PUBLISH_BACKGROUND } from "@/lib/blanks";
 import { BackgroundPicker } from "@/components/background-picker";
-import { Button } from "@/components/ui";
+import { Button, useConfirm } from "@/components/ui";
 
 /**
  * The published design's image with its storefront backdrop. The owner gets
@@ -38,6 +38,7 @@ export function PublishedImageView({
   );
   const [pending, startTransition] = useTransition();
   const backdrop = publishedBackdrop(bg);
+  const { confirm, element: confirmSheet } = useConfirm();
 
   function pick(color: string) {
     const prev = bg;
@@ -53,10 +54,14 @@ export function PublishedImageView({
     });
   }
 
-  function unpublish() {
-    if (!window.confirm("Take this design down from the storefront? You can re-publish it later.")) {
-      return;
-    }
+  async function unpublish() {
+    const ok = await confirm({
+      title: "Take this design down from the storefront?",
+      body: "You can re-publish it later.",
+      confirmLabel: "Un-publish",
+      danger: true,
+    });
+    if (!ok) return;
     startTransition(async () => {
       await unpublishImage(imageId);
       // The page is no longer public — send the owner back to their designs.
@@ -66,6 +71,7 @@ export function PublishedImageView({
 
   return (
     <div className="space-y-3">
+      {confirmSheet}
       <div
         className={`rounded-lg overflow-hidden border border-border ${backdrop.className}`}
         style={backdrop.style}

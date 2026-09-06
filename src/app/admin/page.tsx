@@ -11,7 +11,7 @@ import {
   setOrderTags,
   setOrderClassification,
 } from "./actions";
-import { Badge, Button, Card } from "@/components/ui";
+import { Badge, Button, Card, useConfirm } from "@/components/ui";
 import { getColorHex } from "@/lib/blanks";
 import {
   ORDER_CLASSIFICATIONS,
@@ -49,6 +49,7 @@ export default function AdminPage() {
   const [retrying, setRetrying] = useState<string | null>(null);
   const [recovering, setRecovering] = useState<string | null>(null);
   const [filterState, dispatch] = useReducer(filterReducer, initialFilterState);
+  const { confirm, element: confirmSheet } = useConfirm();
 
   async function fetchData() {
     const d = await getAdminData();
@@ -65,7 +66,11 @@ export default function AdminPage() {
   }
 
   async function handleRetry(orderId: string) {
-    if (!window.confirm("Retry Printful submission for this order?")) return;
+    const ok = await confirm({
+      title: "Retry Printful submission for this order?",
+      confirmLabel: "Retry",
+    });
+    if (!ok) return;
     setRetrying(orderId);
     try {
       await retryPrintfulSubmission(orderId);
@@ -79,12 +84,13 @@ export default function AdminPage() {
   }
 
   async function handleRecover(orderId: string) {
-    if (
-      !window.confirm(
-        "Replay the Stripe webhook for this stuck pending order? This will charge through the full flow: paid → submitted → emails."
-      )
-    )
-      return;
+    const ok = await confirm({
+      title: "Replay the Stripe webhook for this stuck pending order?",
+      body: "This will charge through the full flow: paid → submitted → emails.",
+      confirmLabel: "Recover",
+      danger: true,
+    });
+    if (!ok) return;
     setRecovering(orderId);
     try {
       const result = await recoverPendingOrder(orderId);
@@ -105,7 +111,13 @@ export default function AdminPage() {
   }
 
   async function handleArchive(orderId: string) {
-    if (!window.confirm("Archive this order? It will be hidden from the customer.")) return;
+    const ok = await confirm({
+      title: "Archive this order?",
+      body: "It will be hidden from the customer.",
+      confirmLabel: "Archive",
+      danger: true,
+    });
+    if (!ok) return;
     await archiveOrder(orderId);
     updateOrder(orderId, { archivedAt: new Date() });
   }
@@ -176,6 +188,7 @@ export default function AdminPage() {
 
   return (
     <div className="max-w-6xl mx-auto py-8 px-4">
+      {confirmSheet}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-xl font-bold">Admin</h1>
         <div className="flex items-center gap-4">

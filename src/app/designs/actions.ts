@@ -1,7 +1,7 @@
 "use server";
 
 import { headers } from "next/headers";
-import { auth } from "@/lib/auth";
+import { auth, isAnonymousUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
   design as designTable,
@@ -11,6 +11,13 @@ import {
 import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { planDesignDeletion, executeDesignDeletion } from "@/lib/delete-design";
+import {
+  planImageDeletion,
+  executeImageDeletion,
+  r2KeyForImagePlan,
+} from "@/lib/delete-image";
+import { deleteObjectByKey, imageKeyFromUrl } from "@/lib/r2";
+import type { ImageDeleteSkipReason } from "@/lib/library-view";
 import {
   listingSyncStatement,
   productMirrorStatement,
@@ -75,6 +82,103 @@ export async function deleteDesign(
 
   await executeDesignDeletion(db, plan);
   return {};
+}
+
+
+export interface BulkImageDeleteResult {
+  deleted: string[];
+  skipped: { imageId: string; reason: ImageDeleteSkipReason }[];
+}
+
+/**
+ * Bulk delete from My Designs' select mode (#195). The library is a flat grid
+ * of every image the user owns, so the rules are image-level and live in
+ * src/lib/delete-image.ts — this wrapper adds the session gate, maps each
+ * plan's outcome to something the grid can say, and cleans up R2.
+ *
+ *  - an id that is gone, or was never the caller's, is reported
+ *    `not-found` / `not-owned` and never touched;
+ *  - an image an order line pins — its own thread's line, or another order's
+ *    placements (a back design picked from My Designs/Shop) — is kept and
+ *    reported `order`. Orders are financial records; what was printed must
+ *    stay resolvable;
+ *  - an image something else still points at (a seed link in another
+ *    conversation, a shop product, a cart line) is kept whole and reported
+ *    `in-use`. A detach here would delete the link and leave the tile — the
+ *    library lists by owner, not by conversation — so nothing is written at
+ *    all. The user removes the other reference first, then deletes;
+ *  - the rest are deleted one batch per image, never one batch across them:
+ *    a failure mid-way leaves the earlier ones deleted and reports the failed
+ *    one as `failed` — the row is still there, so the grid says so rather
+ *    than claiming the image is gone.
+ *
+ * R2 objects are removed after each DB batch, best-effort: a failed object
+ * delete is logged and never fails the action, because the row is already
+ * gone and no sweep can find the object again — an orphaned object costs
+ * storage, a thrown action costs the user a tile that is in fact deleted.
+ */
+export async function deleteImages(
+  imageIds: string[]
+): Promise<BulkImageDeleteResult> {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session || isAnonymousUser(session.user)) {
+    throw new Error("Unauthorized");
+  }
+  const ids = [...new Set(imageIds)];
+  const result: BulkImageDeleteResult = { deleted: [], skipped: [] };
+  if (ids.length === 0) return result;
+
+  let publishedRemoved = false;
+
+  for (const imageId of ids) {
+    const plan = await planImageDeletion(db, imageId, {
+      userId: session.user.id,
+    });
+    if (plan.outcome !== "delete") {
+      const reason: ImageDeleteSkipReason =
+        plan.outcome === "blocked-by-order"
+          ? "order"
+          : plan.outcome === "not-owned"
+            ? "not-owned"
+            : plan.outcome === "not-found"
+              ? "not-found"
+              : "in-use";
+      result.skipped.push({ imageId, reason });
+      continue;
+    }
+
+    try {
+      // One batch, including the primary_image_id move — nothing to follow up,
+      // so a partial write can't leave the thread pointing at a deleted image.
+      await executeImageDeletion(db, plan);
+    } catch (err) {
+      console.error(
+        `[designs] deleteImages: ${imageId} failed: ${err instanceof Error ? err.message : String(err)}`
+      );
+      result.skipped.push({ imageId, reason: "failed" });
+      continue;
+    }
+    result.deleted.push(imageId);
+    if (plan.mirrorProductId) publishedRemoved = true;
+
+    const key = r2KeyForImagePlan(plan, imageKeyFromUrl);
+    if (key) {
+      try {
+        await deleteObjectByKey(key);
+      } catch (err) {
+        console.error(
+          `[designs] deleteImages: R2 delete failed for ${imageId}: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+    }
+  }
+
+  revalidatePath("/designs");
+  if (publishedRemoved) {
+    revalidatePath("/");
+    revalidatePath("/prints");
+  }
+  return result;
 }
 
 

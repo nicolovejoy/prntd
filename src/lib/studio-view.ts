@@ -64,14 +64,21 @@ export interface BulkDeleteResult {
 
 /**
  * The one confirm before a bulk delete. Same voice as
- * DELETE_CONVERSATION_CONFIRM: says what is kept, because the action keeps
- * it. Differs from the single Delete in one respect it states plainly — a
- * conversation with an order is skipped, not archived.
+ * DELETE_CONVERSATION_TITLE/CONSEQUENCE (design-view.ts): says what is kept,
+ * because the action keeps it. Differs from the single Delete in one respect
+ * it states plainly — a conversation with an order is skipped, not archived.
+ *
+ * Split into a title (the sheet's question) and a consequence (the sheet's
+ * body) so neither repeats the other.
  */
-export function bulkDeleteConfirm(count: number): string {
+export function bulkDeleteTitle(count: number): string {
   const noun = count === 1 ? "conversation" : "conversations";
+  return `Delete ${count} ${noun}?`;
+}
+
+export function bulkDeleteConsequence(count: number): string {
   const poss = count === 1 ? "its" : "their";
-  return `Delete ${count} ${noun} and ${poss} images? Images used in an order, another design, or a cart are kept. Conversations with an order are kept.`;
+  return `This deletes ${poss} images too. Images used in an order, another design, or a cart are kept. Conversations with an order are kept instead.`;
 }
 
 /**
