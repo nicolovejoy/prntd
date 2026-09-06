@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button } from "@/components/ui";
+import { Button, useConfirm } from "@/components/ui";
 import {
   cancelGeneration,
   closeConversation,
@@ -106,6 +106,7 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
   // lane scrolls itself into view when it mounts (phone-first: the whole
   // point of #187 is seeing that the tap registered).
   const [revealDesignId, setRevealDesignId] = useState<string | null>(null);
+  const { confirm, element: confirmSheet } = useConfirm();
 
   const polling = useRef(false);
   const pollStartedAt = useRef<number | null>(null);
@@ -281,7 +282,13 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
   async function bulkDelete() {
     const ids = [...selected];
     if (ids.length === 0 || bulkDeleting) return;
-    if (!window.confirm(bulkDeleteConfirm(ids.length))) return;
+    const ok = await confirm({
+      title: `Delete ${ids.length} ${ids.length === 1 ? "conversation" : "conversations"}?`,
+      body: bulkDeleteConfirm(ids.length),
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (!ok) return;
     const prev = lanes;
     // Read the entries this delete removes, but never write the array back
     // wholesale: a Generate fired during the round trip adds its own entry,
@@ -441,7 +448,13 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
   // cell in My Designs, so the image detail page cannot offer it (slice 5
   // review, F1). Same action, same honest copy.
   async function deleteLane(lane: StudioLane) {
-    if (!window.confirm(DELETE_CONVERSATION_CONFIRM)) return;
+    const ok = await confirm({
+      title: "Delete this conversation?",
+      body: DELETE_CONVERSATION_CONFIRM,
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (!ok) return;
     const prev = lanes;
     const removedOptimistic = optimistic.filter(
       (e) => e.designId === lane.designId
@@ -467,6 +480,7 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
 
   return (
     <div className="min-h-screen flex flex-col">
+      {confirmSheet}
       <main className="flex-1 px-4 sm:px-6 py-8 pb-40 max-w-4xl mx-auto w-full">
         <div className="flex items-baseline justify-between gap-3 mb-6">
           <h1 className="text-xl sm:text-2xl font-bold">Studio</h1>

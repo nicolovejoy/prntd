@@ -335,17 +335,14 @@ describe("cancelling a pending generation (#187)", () => {
 });
 
 describe("deleting a lane (slice 5 review, F1)", () => {
-  beforeEach(() => {
-    // The confirm is the only thing standing between a tap and a delete.
-    window.confirm = vi.fn(() => true);
-  });
-
   it("Delete removes the lane and deletes the conversation", async () => {
     render(<StudioClient initialLanes={[lane()]} />);
 
     fireEvent.click(screen.getByTestId("studio-delete-lane"));
+    await screen.findByTestId("confirm-sheet");
+    fireEvent.click(screen.getByTestId("confirm-sheet-confirm"));
 
-    expect(screen.queryByTestId("studio-lane")).toBeNull();
+    await waitFor(() => expect(screen.queryByTestId("studio-lane")).toBeNull());
     await waitFor(() => expect(deleteDesign).toHaveBeenCalledWith("design-1"));
   });
 
@@ -356,17 +353,21 @@ describe("deleting a lane (slice 5 review, F1)", () => {
     render(<StudioClient initialLanes={[lane()]} />);
 
     fireEvent.click(screen.getByTestId("studio-delete-lane"));
+    await screen.findByTestId("confirm-sheet");
+    fireEvent.click(screen.getByTestId("confirm-sheet-confirm"));
 
     await waitFor(() => expect(screen.getByTestId("studio-lane")).toBeTruthy());
     expect(screen.getByText(/used by a shop product/)).toBeTruthy();
   });
 
-  it("does nothing when the confirm is dismissed", () => {
-    window.confirm = vi.fn(() => false);
+  it("does nothing when the confirm is dismissed", async () => {
     render(<StudioClient initialLanes={[lane()]} />);
 
     fireEvent.click(screen.getByTestId("studio-delete-lane"));
+    await screen.findByTestId("confirm-sheet");
+    fireEvent.click(screen.getByText("Cancel"));
 
+    await waitFor(() => expect(screen.queryByTestId("confirm-sheet")).not.toBeInTheDocument());
     expect(screen.getByTestId("studio-lane")).toBeTruthy();
     expect(deleteDesign).not.toHaveBeenCalled();
   });
@@ -400,10 +401,6 @@ describe("select mode (#189)", () => {
     lane({ designId: "d2", title: "two", cells: [cell("img-2")] }),
     lane({ designId: "d3", title: "three" }),
   ];
-
-  beforeEach(() => {
-    window.confirm = vi.fn(() => true);
-  });
 
   it("is offered only when there are lanes", () => {
     const { unmount } = render(<StudioClient initialLanes={[]} />);
@@ -489,10 +486,13 @@ describe("select mode (#189)", () => {
 
     fireEvent.click(screen.getByTestId("bulk-delete"));
 
-    expect(window.confirm).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(window.confirm).mock.calls[0][0]).toContain(
-      "Delete 2 conversations and their images?"
-    );
+    await screen.findByTestId("confirm-sheet");
+    expect(screen.getByText("Delete 2 conversations?")).toBeTruthy();
+    expect(
+      screen.getByText(/Delete 2 conversations and their images\?/)
+    ).toBeTruthy();
+    fireEvent.click(screen.getByTestId("confirm-sheet-confirm"));
+
     await waitFor(() =>
       expect(deleteConversations).toHaveBeenCalledWith(["d1", "d3"])
     );
@@ -516,10 +516,14 @@ describe("select mode (#189)", () => {
     fireEvent.click(screen.getByTestId("select-all"));
 
     fireEvent.click(screen.getByTestId("bulk-delete"));
+    await screen.findByTestId("confirm-sheet");
+    fireEvent.click(screen.getByTestId("confirm-sheet-confirm"));
 
-    // Optimistically all three leave…
-    expect(screen.queryByTestId("studio-lane")).toBeNull();
-    // …then the one the server kept comes back with a notice.
+    // The optimistic all-gone step is no longer separately observable — the
+    // confirm is now an awaited promise, so its resolution and the mocked
+    // deleteConversations/pollOnce that follow settle within the same
+    // microtask flush. What matters is the final state: the one the server
+    // kept comes back with a notice.
     await waitFor(() => expect(screen.getByText("two")).toBeTruthy());
     expect(screen.queryByText("one")).toBeNull();
     expect(screen.getByText("1 kept — it has an order.")).toBeTruthy();
@@ -532,6 +536,8 @@ describe("select mode (#189)", () => {
     fireEvent.click(screen.getByTestId("select-all"));
 
     fireEvent.click(screen.getByTestId("bulk-delete"));
+    await screen.findByTestId("confirm-sheet");
+    fireEvent.click(screen.getByTestId("confirm-sheet-confirm"));
 
     await waitFor(() =>
       expect(screen.getAllByTestId("studio-lane")).toHaveLength(3)
@@ -539,14 +545,16 @@ describe("select mode (#189)", () => {
     expect(screen.getByText(/Couldn't delete those designs/)).toBeTruthy();
   });
 
-  it("does nothing when the confirm is dismissed", () => {
-    window.confirm = vi.fn(() => false);
+  it("does nothing when the confirm is dismissed", async () => {
     render(<StudioClient initialLanes={three()} />);
     fireEvent.click(screen.getByTestId("select-mode"));
     fireEvent.click(screen.getByTestId("select-all"));
 
     fireEvent.click(screen.getByTestId("bulk-delete"));
+    await screen.findByTestId("confirm-sheet");
+    fireEvent.click(screen.getByText("Cancel"));
 
+    await waitFor(() => expect(screen.queryByTestId("confirm-sheet")).not.toBeInTheDocument());
     expect(deleteConversations).not.toHaveBeenCalled();
     expect(screen.getAllByTestId("studio-lane")).toHaveLength(3);
     expect(screen.getByTestId("select-bar")).toBeTruthy();

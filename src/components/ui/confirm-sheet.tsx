@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Modal } from "./modal";
 import { Button } from "./button";
 
@@ -45,13 +45,18 @@ export function ConfirmSheet({
     if (open) cancelRef.current?.focus();
   }, [open]);
 
+  const titleId = useId();
+
   return (
     <Modal open={open} onClose={onCancel}>
       <div
         data-testid="confirm-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         className="fixed inset-x-0 bottom-0 w-full rounded-t-xl border-t border-border bg-surface p-5 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] sm:static sm:w-96 sm:rounded-xl sm:border sm:pb-5"
       >
-        <h2 className="text-base font-medium text-foreground">{title}</h2>
+        <h2 id={titleId} className="text-base font-medium text-foreground">{title}</h2>
         {body ? <p className="mt-2 text-sm text-text-muted">{body}</p> : null}
         <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button
@@ -126,6 +131,21 @@ export function useConfirm() {
       prev?.resolve(result);
       return null;
     });
+  }, []);
+
+  // If the owning component unmounts while a sheet is open (e.g. an
+  // optimistic action navigates away), resolve as false instead of leaving
+  // the caller's await hanging forever. The ref is kept current in its own
+  // effect (not during render — refs are for event handlers/effects only)
+  // so the unmount cleanup below always resolves the latest pending prompt.
+  const pendingRef = useRef(pending);
+  useEffect(() => {
+    pendingRef.current = pending;
+  }, [pending]);
+  useEffect(() => {
+    return () => {
+      pendingRef.current?.resolve(false);
+    };
   }, []);
 
   const element = pending ? (

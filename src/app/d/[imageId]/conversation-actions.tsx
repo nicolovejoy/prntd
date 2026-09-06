@@ -4,6 +4,7 @@ import { useState } from "react";
 import { openConversation } from "@/app/d/conversation-actions";
 import { deleteDesign } from "@/app/designs/actions";
 import { DELETE_CONVERSATION_CONFIRM } from "@/lib/design-view";
+import { useConfirm } from "@/components/ui";
 
 /**
  * The owner's two conversation-level controls on the image detail page
@@ -24,6 +25,7 @@ export function ConversationActions({
   archived: boolean;
 }) {
   const [busy, setBusy] = useState<"open" | "delete" | null>(null);
+  const { confirm, element: confirmSheet } = useConfirm();
 
   async function open() {
     setBusy("open");
@@ -37,7 +39,13 @@ export function ConversationActions({
   }
 
   async function remove() {
-    if (!window.confirm(DELETE_CONVERSATION_CONFIRM)) return;
+    const ok = await confirm({
+      title: "Delete this conversation?",
+      body: DELETE_CONVERSATION_CONFIRM,
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (!ok) return;
     setBusy("delete");
     try {
       // Expected refusals come back as { error } — prod masks thrown
@@ -61,6 +69,7 @@ export function ConversationActions({
 
   return (
     <div className="flex flex-wrap items-center gap-4 pt-1">
+      {confirmSheet}
       {/* Text buttons, min-h-11 for the 44px phone tap target. */}
       <button
         type="button"

@@ -99,6 +99,16 @@ describe("ConfirmSheet", () => {
     expect(screen.getByTestId("confirm-sheet-confirm")).toBeDisabled();
     expect(screen.getByText("Cancel")).toBeDisabled();
   });
+
+  it("exposes dialog semantics labelled by its own title", () => {
+    render(<ConfirmSheet open title="Delete this?" onConfirm={() => {}} onCancel={() => {}} />);
+    const dialog = screen.getByTestId("confirm-sheet");
+    expect(dialog).toHaveAttribute("role", "dialog");
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+    const labelledBy = dialog.getAttribute("aria-labelledby");
+    expect(labelledBy).toBeTruthy();
+    expect(document.getElementById(labelledBy!)).toHaveTextContent("Delete this?");
+  });
 });
 
 describe("useConfirm", () => {
@@ -205,5 +215,14 @@ describe("useConfirm", () => {
     expect(screen.queryByText("First")).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId("confirm-sheet-confirm"));
     await waitFor(() => expect(onSecond).toHaveBeenCalledWith(true));
+  });
+
+  it("resolves false if the owning component unmounts while the sheet is open", async () => {
+    const onResult = vi.fn();
+    const { unmount } = render(<Harness onResult={onResult} />);
+    fireEvent.click(screen.getByText("trigger"));
+    await screen.findByTestId("confirm-sheet");
+    unmount();
+    await waitFor(() => expect(onResult).toHaveBeenCalledWith(false));
   });
 });
