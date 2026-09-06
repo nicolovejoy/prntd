@@ -12,6 +12,8 @@ import {
 } from "@/lib/studio-view";
 import type { StudioLane } from "@/lib/studio";
 
+import { STALE_OPTIMISTIC_MS } from "../generation-poll";
+
 describe("formatElapsed", () => {
   it("formats seconds under a minute", () => {
     expect(formatElapsed(0)).toBe("0:00");
@@ -121,7 +123,9 @@ function entry(overrides: Partial<OptimisticEntry> = {}): OptimisticEntry {
     localId: "local-1",
     designId: "design-1",
     anchorImageId: null,
-    startedAt: new Date("2026-09-05T00:00:01Z"),
+    // Now, not a fixed instant: settleOptimistic drops entries older than
+    // STALE_OPTIMISTIC_MS, so a hardcoded past date would age these out.
+    startedAt: new Date(),
     jobId: null,
     ...overrides,
   };
@@ -265,5 +269,69 @@ describe("applyOptimistic ordering of synthetic lanes", () => {
     expect(result).toHaveLength(1);
     expect(result[0].lastActiveAt).toEqual(new Date("2026-09-05T00:00:09Z"));
     expect(result[0].pending).toHaveLength(2);
+  });
+});
+
+describe("settleOptimistic against a stale snapshot (#187 review)", () => {
+  const knownAt = new Date("2026-09-05T00:00:10Z").getTime();
+
+  it("keeps an entry when the snapshot's fetch began before the jobId was known", () => {
+    // The poll's getStudioLanes went out before generateDesign wrote the row,
+    // so "lane exists and doesn't list the job" says nothing about this job.
+    const lanes = [lane({ designId: "design-1", pending: [] })];
+    const kept = settleOptimistic(
+      lanes,
+      [entry({ jobId: "job-9", jobIdKnownAtMs: knownAt })],
+      { snapshotStartedAtMs: knownAt - 500, nowMs: knownAt + 1000 }
+    );
+    expect(kept).toHaveLength(1);
+  });
+
+  it("drops it once a snapshot fetched after the jobId was known still omits it", () => {
+    const lanes = [lane({ designId: "design-1", pending: [] })];
+    const kept = settleOptimistic(
+      lanes,
+      [entry({ jobId: "job-9", jobIdKnownAtMs: knownAt })],
+      { snapshotStartedAtMs: knownAt + 500, nowMs: knownAt + 1000 }
+    );
+    expect(kept).toHaveLength(0);
+  });
+
+  it("still drops a job the stale snapshot DOES list as pending", () => {
+    const lanes = [
+      lane({
+        designId: "design-1",
+        pending: [
+          { jobId: "job-9", generationNumber: 1, startedAt: new Date(knownAt) },
+        ],
+      }),
+    ];
+    const kept = settleOptimistic(
+      lanes,
+      [entry({ jobId: "job-9", jobIdKnownAtMs: knownAt })],
+      { snapshotStartedAtMs: knownAt - 500, nowMs: knownAt + 1000 }
+    );
+    expect(kept).toHaveLength(0);
+  });
+
+  it("drops an entry older than the client's stale window, jobId or not", () => {
+    const startedAt = new Date("2026-09-05T00:00:00Z");
+    const now = startedAt.getTime() + STALE_OPTIMISTIC_MS + 1;
+    expect(
+      settleOptimistic([], [entry({ startedAt, jobId: null })], { nowMs: now })
+    ).toHaveLength(0);
+    expect(
+      settleOptimistic(
+        [],
+        [entry({ startedAt, jobId: "job-9", jobIdKnownAtMs: startedAt.getTime() })],
+        { nowMs: now }
+      )
+    ).toHaveLength(0);
+    // One tick inside the window it survives.
+    expect(
+      settleOptimistic([], [entry({ startedAt, jobId: null })], {
+        nowMs: startedAt.getTime() + STALE_OPTIMISTIC_MS - 1,
+      })
+    ).toHaveLength(1);
   });
 });

@@ -17,6 +17,17 @@
  */
 export const GENERATION_CAP = 3;
 
+/**
+ * How long the client keeps an optimistic pending cell (#187) that server
+ * lanes have never accounted for. A job the server knows about settles inside
+ * `STALE_JOB_MS` (5 min) — the server's own sweep cutoff, re-declared here
+ * with margin rather than imported because generation-job.ts pulls drizzle
+ * into the client bundle, the same reason GENERATION_CAP is duplicated. Past
+ * this the entry is the client's own ghost: it would hold a cap slot and keep
+ * the poll loop alive forever, so it is dropped.
+ */
+export const STALE_OPTIMISTIC_MS = 6 * 60 * 1000;
+
 /** Poll cadence while a generation is in flight. */
 export interface PollSchedule {
   /** Delay used while inside `fastWindowMs` of the first poll. */

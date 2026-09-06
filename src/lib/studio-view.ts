@@ -6,6 +6,7 @@
  * into this module's runtime — same pattern studio-client.tsx already uses.
  */
 import type { StudioLane, StudioPendingCell } from "./studio";
+import { STALE_OPTIMISTIC_MS } from "./generation-poll";
 
 /** Elapsed time on a pending cell: "0:07", "1:23". Clock skew clamps to 0. */
 export function formatElapsed(ms: number): string {
@@ -126,6 +127,15 @@ export type OptimisticEntry = {
   anchorImageId: string | null;
   startedAt: Date;
   jobId: string | null;
+  /**
+   * Client clock (ms) when `jobId` was learned. A poll's fetch can straddle
+   * the job-row write — it goes out before the row exists and lands after the
+   * action has resolved — and that snapshot's silence about the job means
+   * nothing. settleOptimistic only trusts "lane exists, job absent" from a
+   * snapshot whose fetch STARTED after this stamp. Undefined on an entry with
+   * no jobId yet.
+   */
+  jobIdKnownAtMs?: number;
 };
 
 function optimisticCell(entry: OptimisticEntry): StudioPendingCell {
@@ -199,27 +209,43 @@ export function applyOptimistic(
  * Which optimistic entries still need to be kept in local state after a
  * fresh set of server lanes lands. Plan's resolution rule (Design section):
  *
- * - `jobId: null` (the generateDesign call hasn't returned yet) — always
- *   kept; the server has nothing to say about it yet.
+ * - older than STALE_OPTIMISTIC_MS — dropped whatever else is true. Nothing
+ *   the server ever accounts for lives that long, so what's left is the
+ *   client's own ghost, and it would otherwise hold a cap slot and keep the
+ *   poll loop alive forever.
+ * - `jobId: null` (the generateDesign call hasn't returned yet) — kept; the
+ *   server has nothing to say about it yet.
  * - a known `jobId` found in some lane's `pending` — dropped; the server
- *   is now rendering the real cell, so the overlay would duplicate it.
+ *   is now rendering the real cell, so the overlay would duplicate it. True
+ *   of any snapshot, however old: seeing the row is positive evidence.
  * - a known `jobId` not found in any lane's `pending`, but its design's
- *   lane exists server-side — dropped; the job already finished or was
- *   cancelled (server truth), so there's nothing left to overlay.
- * - a known `jobId` not found anywhere, and its design's lane doesn't
- *   exist server-side yet — kept; the row isn't visible yet (a poll raced
- *   ahead of the write, or the design itself hasn't been created yet).
+ *   lane exists server-side — dropped ONLY when this snapshot's fetch began
+ *   after the jobId was known (`snapshotStartedAtMs` vs `jobIdKnownAtMs`).
+ *   Then the absence is server truth: the job finished or was cancelled. A
+ *   snapshot fetched before the row was written is simply blind to it, and
+ *   acting on that silence deletes a live cell and stops the poll loop.
+ * - anything else — kept; the row isn't visible yet.
+ *
+ * `snapshotStartedAtMs` defaults to now (a caller with no fetch timing gets
+ * the old, stricter behaviour) and `nowMs` to Date.now().
  */
 export function settleOptimistic(
   lanes: StudioLane[],
-  entries: OptimisticEntry[]
+  entries: OptimisticEntry[],
+  options: { snapshotStartedAtMs?: number; nowMs?: number } = {}
 ): OptimisticEntry[] {
+  const nowMs = options.nowMs ?? Date.now();
+  const snapshotStartedAtMs = options.snapshotStartedAtMs ?? nowMs;
   return entries.filter((entry) => {
+    if (nowMs - entry.startedAt.getTime() >= STALE_OPTIMISTIC_MS) return false;
     if (entry.jobId === null) return true;
     const visiblyPending = lanes.some((lane) =>
       lane.pending.some((job) => job.jobId === entry.jobId)
     );
     if (visiblyPending) return false;
+    // A snapshot that went out before the job row existed can't testify to
+    // its absence.
+    if (snapshotStartedAtMs < (entry.jobIdKnownAtMs ?? 0)) return true;
     const laneExists = lanes.some((lane) => lane.designId === entry.designId);
     return !laneExists;
   });

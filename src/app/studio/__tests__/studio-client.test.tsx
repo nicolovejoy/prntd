@@ -10,7 +10,7 @@
  * lives in generation-poll's own unit tests.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { StudioClient } from "../studio-client";
 import type { StudioLane } from "@/lib/studio";
 
@@ -744,5 +744,123 @@ describe("the optimistic pending cell (#187)", () => {
     submitText("make it blue");
 
     expect(screen.getByTestId("anchor-chip")).toBeTruthy();
+  });
+});
+
+/** Fixes from the task-2 review round. */
+describe("the optimistic pending cell — review fixes (#187)", () => {
+  function deferGenerate() {
+    let settle!: (result: unknown) => void;
+    const pending = new Promise((resolve) => {
+      settle = resolve;
+    });
+    vi.mocked(generateDesign).mockReturnValueOnce(pending as never);
+    return settle;
+  }
+
+  function submitText(value: string) {
+    fireEvent.change(screen.getByTestId("studio-composer"), {
+      target: { value },
+    });
+    fireEvent.submit(screen.getByTestId("studio-composer").closest("form")!);
+  }
+
+  it("survives a poll whose fetch began before the job row was written, and keeps polling", async () => {
+    vi.useFakeTimers();
+    try {
+      const settleGenerate = deferGenerate();
+      let settlePoll!: (lanes: unknown) => void;
+      vi.mocked(getStudioLanes).mockReturnValueOnce(
+        new Promise((resolve) => {
+          settlePoll = resolve as never;
+        }) as never
+      );
+
+      render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+      fireEvent.click(screen.getByTestId("studio-cell"));
+      submitText("make it blue");
+
+      // The timer poll goes out while generateDesign is still in flight.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(getStudioLanes).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(50);
+      });
+      // Now the action resolves; its own pollOnce is a no-op, one is running.
+      await act(async () => {
+        settleGenerate({
+          kind: "queued",
+          jobId: "job-new",
+          generationNumber: 1,
+          imageId: "img-new",
+        });
+        await Promise.resolve();
+      });
+
+      // The in-flight fetch lands, blind to a row written after it went out.
+      await act(async () => {
+        settlePoll([lane({ cells: [cell("img-1")] })]);
+        await Promise.resolve();
+      });
+
+      expect(screen.getByTestId("studio-pending-cell")).toBeTruthy();
+
+      // And the loop is still armed — the cell isn't stranded until a wake.
+      h.polledLanes = [lane({ cells: [cell("img-1")] })];
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(getStudioLanes).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a cell submitted during a lane close that then fails", async () => {
+    let failClose!: () => void;
+    vi.mocked(closeConversation).mockReturnValueOnce(
+      new Promise((_resolve, reject) => {
+        failClose = () => reject(new Error("boom"));
+      }) as never
+    );
+    deferGenerate();
+    render(<StudioClient initialLanes={[lane()]} />);
+
+    fireEvent.click(screen.getByTestId("studio-close-lane"));
+    submitText("a red dragon");
+    expect(screen.getByTestId("studio-pending-cell")).toBeTruthy();
+
+    // The close fails and puts its lane back — without erasing the entry that
+    // arrived while it was in flight.
+    failClose();
+    await waitFor(() =>
+      expect(screen.getByText(/Couldn't close that design/)).toBeTruthy()
+    );
+    expect(screen.getByTestId("studio-pending-cell")).toBeTruthy();
+  });
+
+  it("reserves the Cancel space so the cell doesn't jump when the jobId lands", () => {
+    deferGenerate();
+    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+
+    fireEvent.click(screen.getByTestId("studio-cell"));
+    submitText("make it blue");
+
+    expect(screen.queryByTestId("cancel-generation")).toBeNull();
+    const placeholder = screen.getByTestId("cancel-generation-placeholder");
+    expect((placeholder as HTMLButtonElement).disabled).toBe(true);
+    expect(placeholder.className).toContain("invisible");
+  });
+
+  it("scrolls the new lane into view on an unanchored submit", () => {
+    deferGenerate();
+    render(<StudioClient initialLanes={[lane()]} />);
+
+    submitText("a red dragon");
+
+    expect(window.HTMLElement.prototype.scrollIntoView).toHaveBeenCalled();
   });
 });
