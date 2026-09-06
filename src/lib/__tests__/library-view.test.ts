@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
+  bulkImageDeleteConsequence,
+  bulkImageDeleteNotice,
+  bulkImageDeleteTitle,
   imageDeleteSkipCopy,
   type ImageDeleteSkipReason,
 } from "@/lib/library-view";
@@ -33,5 +36,64 @@ describe("imageDeleteSkipCopy", () => {
       "failed",
     ];
     for (const r of reasons) expect(imageDeleteSkipCopy(r).length).toBeGreaterThan(0);
+  });
+});
+
+describe("bulkImageDeleteTitle", () => {
+  it("names the one-image case without a number", () => {
+    expect(bulkImageDeleteTitle(1)).toBe("Delete this image?");
+  });
+
+  it("counts the rest", () => {
+    expect(bulkImageDeleteTitle(3)).toBe("Delete 3 images?");
+  });
+});
+
+describe("bulkImageDeleteConsequence", () => {
+  it("is one line, the same either way", () => {
+    expect(bulkImageDeleteConsequence(1)).toBe(
+      "Images used in an order are kept."
+    );
+    expect(bulkImageDeleteConsequence(4)).toBe(bulkImageDeleteConsequence(1));
+  });
+});
+
+describe("bulkImageDeleteNotice", () => {
+  it("says nothing when nothing was skipped", () => {
+    expect(bulkImageDeleteNotice([])).toBeNull();
+  });
+
+  it("states the one skipped image's reason", () => {
+    expect(bulkImageDeleteNotice([{ imageId: "a", reason: "order" }])).toBe(
+      "1 image wasn't deleted — Used in an order."
+    );
+  });
+
+  it("groups by reason with counts, in one sentence", () => {
+    expect(
+      bulkImageDeleteNotice([
+        { imageId: "a", reason: "order" },
+        { imageId: "b", reason: "in-use" },
+        { imageId: "c", reason: "order" },
+      ])
+    ).toBe("3 images weren't deleted — Used in an order (2), Used elsewhere (1).");
+  });
+
+  it("collapses not-owned and not-found into one group", () => {
+    expect(
+      bulkImageDeleteNotice([
+        { imageId: "a", reason: "not-owned" },
+        { imageId: "b", reason: "not-found" },
+      ])
+    ).toBe("2 images weren't deleted — No longer available (2).");
+  });
+
+  it("reports a failed write with the rest", () => {
+    expect(
+      bulkImageDeleteNotice([
+        { imageId: "a", reason: "failed" },
+        { imageId: "b", reason: "order" },
+      ])
+    ).toBe("2 images weren't deleted — Used in an order (1), Couldn't delete (1).");
   });
 });
