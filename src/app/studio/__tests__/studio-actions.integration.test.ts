@@ -4,7 +4,11 @@
  * AND anonymous-guest callers — the page redirects them, but the action is
  * reachable directly and must hold the same line.
  *
- * Auth is mocked; the database is real.
+ * Auth is mocked; the database is real. `next/server`'s `after` is mocked
+ * (#204: getStudioLanes schedules the Studio sweeps with it) — a collector,
+ * not a no-op, though these tests only need it to not throw outside a real
+ * request scope; sweep behavior itself is covered in
+ * studio.integration.test.ts and studio-archive.integration.test.ts.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { createTestDb } from "@/lib/__tests__/test-db";
@@ -19,12 +23,21 @@ const h = vi.hoisted(() => ({
   anonymous: false,
 }));
 
+const afterQueue = vi.hoisted(() => ({
+  callbacks: [] as Array<() => unknown>,
+}));
+
 vi.mock("@/lib/db", () => ({
   get db() {
     return testDb;
   },
 }));
 vi.mock("next/headers", () => ({ headers: async () => new Headers() }));
+vi.mock("next/server", () => ({
+  after: (cb: () => unknown) => {
+    afterQueue.callbacks.push(cb);
+  },
+}));
 vi.mock("@/lib/auth", () => ({
   auth: {
     api: {
@@ -44,6 +57,7 @@ beforeEach(async () => {
   testDb = await createTestDb();
   h.userId = "owner";
   h.anonymous = false;
+  afterQueue.callbacks.length = 0;
   await makeUser(testDb, "owner");
 });
 

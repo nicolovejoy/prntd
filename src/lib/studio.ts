@@ -81,26 +81,58 @@ export function laneLastActiveAt(input: {
 }
 
 /**
+ * Runs the Studio's two lazy sweeps (stale-job timeout, idle-conversation
+ * archive) for one user, in that order — a job the first sweep just failed
+ * no longer blocks its lane from archiving in the second. Callers schedule
+ * this with `after()` (#204: profiled at 45-70ms, 20-64% of a Studio load,
+ * for sweeps that usually find nothing to do) rather than awaiting it inline,
+ * so `getStudioLanesData` no longer runs them itself — the data it returns
+ * may be one sweep behind, and the next poll (which runs while any job is
+ * pending, so it always follows a fresh `after()` schedule) shows the swept
+ * state.
+ *
+ * Never rejects: each sweep is caught and logged independently so a DB
+ * hiccup in one doesn't stop the other from running, and neither can turn
+ * into an unhandled rejection on the shared Fluid instance (see the comment
+ * above `after(() => runGenerationJob(...))` in design/actions.ts).
+ */
+export async function sweepStudioForUser(
+  userId: string,
+  db?: AppDb
+): Promise<void> {
+  try {
+    await sweepStaleJobs({ scope: "user", userId, db });
+  } catch (err) {
+    console.error(
+      "[studio] sweepStudioForUser: sweepStaleJobs failed",
+      err instanceof Error ? err.message : String(err)
+    );
+  }
+  try {
+    await sweepIdleConversations({ scope: "user", userId, db });
+  } catch (err) {
+    console.error(
+      "[studio] sweepStudioForUser: sweepIdleConversations failed",
+      err instanceof Error ? err.message : String(err)
+    );
+  }
+}
+
+/**
  * The /studio lanes for one user. Query core shared by the server component
  * render and the polled server action — auth lives at the caller.
+ *
+ * Does NOT run the stale-job / idle-conversation sweeps (see
+ * `sweepStudioForUser`) — callers schedule those separately with `after()`
+ * so they run after the response, off the render path. This read may
+ * therefore show a job as pending past its timeout, or a lane that is
+ * idle-eligible but not yet archived; both self-correct on the next poll.
  */
 export async function getStudioLanesData(
   userId: string,
   opts: { db?: AppDb } = {}
 ): Promise<StudioLane[]> {
   const db = opts.db ?? (await import("./db")).db;
-
-  // An overdue running job would otherwise render as a pending cell forever.
-  // Same lazy-sweep-on-read the thread and /designs loads do; narrowest scope
-  // for this call site — only the cron sweeps scope: "all".
-  await sweepStaleJobs({ scope: "user", userId, db });
-
-  // Auto-archive (slice 4), lazily on the read that happens anyway. Ordered
-  // AFTER the stale-job sweep on purpose: a job the sweep just failed no
-  // longer blocks its lane from archiving, so a conversation whose last act
-  // was a generation that died three days ago leaves the bench on this same
-  // load rather than the next one.
-  await sweepIdleConversations({ scope: "user", userId, db });
 
   // Open = closed_at null (the plan's definition). Archived-status designs are
   // additionally excluded: archive is "make this go away" (deleteDesign's

@@ -1,13 +1,19 @@
 /**
  * The archive round trip (studio-plan slice 4) end to end against a real
- * in-memory libSQL: an idle conversation leaves the Studio on the Studio's
- * own load, shows up in the archive list, and Reopen puts the lane back.
+ * in-memory libSQL: an idle conversation leaves the Studio, shows up in the
+ * archive list, and Reopen puts the lane back.
  *
  * The reopen half goes through the real `reopenConversation` — the point of
  * the slice is that archiving is a new writer of an EXISTING state, so a test
  * that nulled `closed_at` itself would prove nothing. Auth and the vendor
  * modules `design/actions` pulls in at import time are mocked; the database
  * is real.
+ *
+ * Since #204 the idle sweep runs via `after()`, off the render path, so
+ * `getStudioLanes()` no longer archives inline — the COLLECTOR pattern
+ * (generation-races.integration.test.ts) drains the queued sweep explicitly.
+ * A no-op `after` would leave the sweep unrun and the archive assertions
+ * vacuous.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { createTestDb } from "@/lib/__tests__/test-db";
@@ -19,6 +25,17 @@ let testDb: Db;
 
 const h = vi.hoisted(() => ({ userId: "owner" as string | null }));
 
+const afterQueue = vi.hoisted(() => ({
+  callbacks: [] as Array<() => unknown>,
+}));
+
+/** Run every queued `after()` continuation, in registration order. */
+async function drainAfter() {
+  while (afterQueue.callbacks.length) {
+    await afterQueue.callbacks.shift()!();
+  }
+}
+
 vi.mock("@/lib/db", () => ({
   get db() {
     return testDb;
@@ -27,7 +44,11 @@ vi.mock("@/lib/db", () => ({
 vi.mock("next/headers", () => ({ headers: async () => new Headers() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
-vi.mock("next/server", () => ({ after: vi.fn() }));
+vi.mock("next/server", () => ({
+  after: (cb: () => unknown) => {
+    afterQueue.callbacks.push(cb);
+  },
+}));
 vi.mock("@/lib/auth", () => ({
   auth: {
     api: {
@@ -62,6 +83,7 @@ const FOUR_DAYS_AGO = new Date(Date.now() - 4 * 24 * 60 * 60 * 1000);
 beforeEach(async () => {
   testDb = await createTestDb();
   h.userId = "owner";
+  afterQueue.callbacks.length = 0;
   vi.mocked(redirect).mockClear();
   await makeUser(testDb, "owner");
 });
@@ -73,19 +95,28 @@ describe("archive round trip", () => {
       .values({ userId: "owner", updatedAt: FOUR_DAYS_AGO })
       .returning();
 
-    // The Studio's own load is the sweep.
-    expect(await getStudioLanes()).toEqual([]);
+    // The sweep is scheduled via after() (#204), off the render path, so
+    // this first load still shows the lane — then the drained sweep
+    // archives it.
+    expect((await getStudioLanes()).map((l) => l.designId)).toEqual([
+      design.id,
+    ]);
+    await drainAfter();
 
     const archived = await getStudioArchiveData("owner", { db: testDb });
     expect(archived.map((a) => a.designId)).toEqual([design.id]);
+
+    // The next poll (after the sweep) shows the swept state.
+    expect(await getStudioLanes()).toEqual([]);
 
     await reopenFromArchive(design.id);
     expect(vi.mocked(redirect)).toHaveBeenCalledWith("/studio");
 
     // Back on the bench, and out of the archive. Reopen bumps updatedAt, so
-    // the lane is not immediately re-archived by the load's own sweep.
+    // the lane is not immediately re-archived by the next sweep.
     const lanes = await getStudioLanes();
     expect(lanes.map((l) => l.designId)).toEqual([design.id]);
+    await drainAfter();
     expect(await getStudioArchiveData("owner", { db: testDb })).toEqual([]);
   });
 

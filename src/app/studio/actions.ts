@@ -2,6 +2,7 @@
 
 import { and, eq, inArray } from "drizzle-orm";
 import { headers } from "next/headers";
+import { after } from "next/server";
 import { auth, isAnonymousUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { design as designTable } from "@/lib/db/schema";
@@ -12,7 +13,11 @@ import {
 } from "@/lib/delete-design";
 import { r2KeysForPlan } from "@/lib/delete-designs-since";
 import { deleteObjectByKey, imageKeyFromUrl } from "@/lib/r2";
-import { getStudioLanesData, type StudioLane } from "@/lib/studio";
+import {
+  getStudioLanesData,
+  sweepStudioForUser,
+  type StudioLane,
+} from "@/lib/studio";
 import type { BulkDeleteResult } from "@/lib/studio-view";
 
 /**
@@ -21,12 +26,18 @@ import type { BulkDeleteResult } from "@/lib/studio-view";
  * lazily-swept stale job all land in one response. Same gate as the page —
  * the Studio is a personal-record surface, so anonymous guests are refused
  * like signed-out callers.
+ *
+ * The sweeps run via `after()` (#204), scheduled BEFORE the read so a
+ * thrown read still lets them run — same shape as the page. This poll's own
+ * response can be one sweep behind; the sweep it just scheduled shows up on
+ * the NEXT poll, which is guaranteed to happen while any job is pending.
  */
 export async function getStudioLanes(): Promise<StudioLane[]> {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session || isAnonymousUser(session.user)) {
     throw new Error("Unauthorized");
   }
+  after(() => sweepStudioForUser(session.user.id));
   return getStudioLanesData(session.user.id);
 }
 
