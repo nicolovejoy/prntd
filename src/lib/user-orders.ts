@@ -72,17 +72,28 @@ export async function getUserOrdersData(buyerId: string) {
     ),
   }));
 
+  // Each order's starting index into the flat identities array below,
+  // assigned in the same pass that flattens `withLines` into `allLines`.
+  // An order carries its own offset rather than a shared counter advanced
+  // while pairing results back afterward — a zero-line order just contributes
+  // an offset nothing reads, instead of relying on a side effect not firing.
+  let runningOffset = 0;
+  const withOffsets = withLines.map((w) => {
+    const offset = runningOffset;
+    runningOffset += w.lines.length;
+    return { ...w, offset };
+  });
+
   // Thumbnail + back image + contributor attribution, batched once for every
   // line across every order (never N+1) via the shared identity mapper —
   // the same rules the confirmation page and admin order detail use.
-  const allLines = withLines.flatMap((w) => w.lines);
+  const allLines = withOffsets.flatMap((w) => w.lines);
   const identities = await resolveOrderLineIdentities(
     db,
     allLines.map((l) => ({ designId: l.designId, placements: l.placements }))
   );
 
-  let cursor = 0;
-  return withLines.map(({ order, lines }) => ({
+  return withOffsets.map(({ order, lines, offset }) => ({
     id: order.id,
     status: order.status,
     totalPrice: order.totalPrice,
@@ -91,8 +102,8 @@ export async function getUserOrdersData(buyerId: string) {
     createdAt: order.createdAt,
     archivedAt: order.archivedAt,
     displayName: order.displayName,
-    lines: lines.map((l) => {
-      const identity = identities[cursor++];
+    lines: lines.map((l, i) => {
+      const identity = identities[offset + i];
       return {
         designId: l.designId,
         blankId: l.blankId,
