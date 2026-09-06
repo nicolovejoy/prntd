@@ -26,7 +26,6 @@ import { db } from "@/lib/db";
 import {
   design as designTable,
   chatMessage as chatMessageTable,
-  orderItem as orderItemTable,
   image as imageTable,
   conversationImage as conversationImageTable,
   imagePublication as imagePublicationTable,
@@ -49,7 +48,6 @@ import {
   findDesignImageByUrl,
   getDesignSourceImages,
   getDesignPlacementRenders,
-  deleteDesignImageRow,
   getDesignDisplayImageUrl,
   getDesignMessages,
   insertChatMessage,
@@ -58,7 +56,11 @@ import {
   type SourceImage,
   type ProductVersionGroup,
 } from "@/lib/design-images";
-import { imageReferencedByOrders, canStartFromImage } from "@/lib/design-publish";
+import { canStartFromImage } from "@/lib/design-publish";
+import {
+  planImageDeletion,
+  executeImageDeletion,
+} from "@/lib/delete-image";
 import {
   getDesignThreadData,
   type DesignThreadData,
@@ -836,12 +838,13 @@ export async function selectImage(designId: string, imageUrl: string) {
 }
 
 /**
- * Delete an image from a design. Refuses when any order line pins the
- * image via placements (e.g. order_item.placements.front references this id),
- * so a deletion can't orphan an order's recorded thumbnail. Other references
- * (seed link, shop product, cart) downgrade the delete to a link-detach —
- * ref-counted in deleteDesignImageRow. Recomputes primary_image_id to the
- * most recent remaining source image when the delete proceeds.
+ * Delete an image from a design. The rules live in src/lib/delete-image.ts
+ * (shared with the bulk library delete): an order reference refuses; a seed
+ * link, a shop product pin or a cart pin downgrade the delete to a
+ * link-detach; otherwise the image row, its listing and its mirror product
+ * go. An id this thread can't reach is "Image not found" — owning the design
+ * doesn't authorise deleting an image it never had. primary_image_id moves
+ * inside the same batch when the deleted image was the primary.
  */
 export async function deleteDesignImage(designId: string, imageId: string) {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -853,75 +856,29 @@ export async function deleteDesignImage(designId: string, imageId: string) {
   if (!found || found.userId !== session.user.id)
     throw new Error("Unauthorized");
 
+  // Ownership is the design check above — a seed image belongs to another
+  // conversation (possibly another user), and detaching it from this thread
+  // is the design owner's call. So the plan is design-scoped, not
+  // image-scoped.
+  const plan = await planImageDeletion(db, imageId, { designId });
+
   // Publishing is reversible, so deletion is no longer blocked on publish
-  // state — only on real order references. Refuse if an order line depends on
-  // this image (pinned in placements, or the primary a legacy line with no
-  // placements falls back to); deleting would orphan the order's print.
-  const orderLines = await db
-    .select({ placements: orderItemTable.placements })
-    .from(orderItemTable)
-    .where(eq(orderItemTable.designId, designId));
-
-  // Another design's order line can pin this image too — a back design picked
-  // from My Designs/Shop (#72/#95) lands in that order's placements while its
-  // line design_id stays the order's own design. Image ids are UUIDs, so the
-  // substring match can't false-positive.
-  const pinnedElsewhere = await db
-    .select({ id: orderItemTable.id })
-    .from(orderItemTable)
-    .where(sql`${orderItemTable.placements} LIKE ${"%" + imageId + "%"}`)
-    .limit(1);
-
-  if (
-    pinnedElsewhere.length > 0 ||
-    imageReferencedByOrders(imageId, found.primaryImageId, orderLines)
-  ) {
-    throw new Error(
-      "Can't delete this image — it's referenced by an order."
-    );
+  // state — only on real order references: an order line pinning this image
+  // (any order's, since a back design can be picked from another thread —
+  // #72/#95), or the legacy fallback where a line with no placements resolves
+  // to the design's primary. Deleting would orphan the order's print.
+  if (plan.outcome === "blocked-by-order") {
+    throw new Error("Can't delete this image — it's referenced by an order.");
   }
 
-  // A seed image (fresh-start, slice 3) belongs to another conversation:
-  // "deleting" it here only detaches the link from this thread — the image
-  // row and its home thread are untouched. Checked before the row delete so
-  // a seed id can never reach deleteDesignImageRow's global deletes.
-  const [seedLink] = await db
-    .select({ id: conversationImageTable.id })
-    .from(conversationImageTable)
-    .where(
-      and(
-        eq(conversationImageTable.designId, designId),
-        eq(conversationImageTable.imageId, imageId),
-        eq(conversationImageTable.role, "seed")
-      )
-    )
-    .limit(1);
-  if (seedLink) {
-    await db
-      .delete(conversationImageTable)
-      .where(eq(conversationImageTable.id, seedLink.id));
-    if (found.primaryImageId === imageId) {
-      const remaining = await getDesignSourceImages(designId);
-      await db
-        .update(designTable)
-        .set({
-          primaryImageId: remaining[remaining.length - 1]?.id ?? null,
-          updatedAt: new Date(),
-        })
-        .where(eq(designTable.id, designId));
-    }
-    return;
-  }
+  // Owning the design authorises only the images that design can see (a
+  // conversation link of either role, or a render it produced). An id it
+  // can't reach isn't this thread's to delete, whoever owns it.
+  if (plan.outcome === "not-found") throw new Error("Image not found");
 
-  const { newPrimaryId } = await deleteDesignImageRow(designId, imageId);
-
-  await db
-    .update(designTable)
-    .set({
-      primaryImageId: newPrimaryId,
-      updatedAt: new Date(),
-    })
-    .where(eq(designTable.id, designId));
+  // One batch, including the primary_image_id move when this image was the
+  // thread's primary — no follow-up write to fail after the rows are gone.
+  await executeImageDeletion(db, plan);
 }
 
 /**

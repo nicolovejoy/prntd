@@ -21,14 +21,20 @@ export function shouldClampMessage(content: string): boolean {
 }
 
 /**
- * The one confirm string every Delete uses (My Designs' card carried its own,
+ * The one confirm copy every Delete uses (My Designs' card carried its own,
  * and it was wrong). `deleteDesign` does not always delete: an order anywhere
  * on the conversation archives it instead, and an image another design, a
- * cart or an order still references is detached rather than removed. The copy
- * says so, because the alternative is a promise the action does not keep.
+ * cart or an order still references is detached rather than removed. The
+ * consequence line says so, because the alternative is a promise the action
+ * does not keep.
+ *
+ * Split into a title (the sheet's question) and a consequence (the sheet's
+ * body) so neither repeats the other — a single combined string used to open
+ * with the same question the sheet's title already asks.
  */
-export const DELETE_CONVERSATION_CONFIRM =
-  "Delete this conversation? Images used in an order, another design, or a cart are kept. A conversation with an order is archived instead.";
+export const DELETE_CONVERSATION_TITLE = "Delete this conversation?";
+export const DELETE_CONVERSATION_CONSEQUENCE =
+  "Images used in an order, another design, or a cart are kept. A conversation with an order is archived instead.";
 
 /** Error message the closed-conversation guard throws; the /design UI keys
  * its closed state off the server row, so this is just the action backstop. */

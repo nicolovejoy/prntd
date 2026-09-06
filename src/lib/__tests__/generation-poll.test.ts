@@ -9,11 +9,12 @@ import {
   classifyGenerationFailure,
   GENERATION_FAILURE_COPY,
   GENERATION_CAP,
+  STALE_OPTIMISTIC_MS,
   DEFAULT_POLL_SCHEDULE,
   mergeJobPollState,
   type JobPollResult,
 } from "../generation-poll";
-import { GENERATION_CONCURRENCY_CAP } from "../generation-job";
+import { GENERATION_CONCURRENCY_CAP, STALE_JOB_MS } from "../generation-job";
 
 describe("nextPollDelayMs", () => {
   it("polls fast for the first 30 seconds", () => {
@@ -73,6 +74,12 @@ describe("isAtGenerationCap", () => {
 
   it("matches the server-side cap", () => {
     expect(GENERATION_CAP).toBe(GENERATION_CONCURRENCY_CAP);
+  });
+
+  it("ages out an optimistic cell only after the server would have swept it", () => {
+    // Dropping a client cell before the server's own stale cutoff would take
+    // away a generation that is still legitimately running (#187).
+    expect(STALE_OPTIMISTIC_MS).toBeGreaterThan(STALE_JOB_MS);
   });
 });
 

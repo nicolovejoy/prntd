@@ -53,7 +53,17 @@ process.env.ADMIN_EMAIL = "owner@example.com";
 const { publishImage, unpublishImage, updatePublishedNaming, deleteDesign } =
   await import("@/app/designs/actions");
 const { setImageHidden, setImageFeedRank } = await import("@/app/admin/actions");
-const { deleteDesignImageRow } = await import("@/lib/design-images");
+const { planImageDeletion, executeImageDeletion } = await import(
+  "@/lib/delete-image"
+);
+
+/** What the /design thread delete does to one image: plan scoped to that
+ * conversation, then execute. Was deleteDesignImageRow before #195. */
+async function deleteImageFromDesign(designId: string, imageId: string) {
+  const plan = await planImageDeletion(testDb, imageId, { designId });
+  return executeImageDeletion(testDb, plan);
+}
+
 
 beforeEach(async () => {
   testDb = await createTestDb();
@@ -292,11 +302,11 @@ describe("delete interactions", () => {
     expect(await testDb.select().from(schema.product)).toHaveLength(0);
   });
 
-  it("deleteDesignImageRow deletes the mirror with the image", async () => {
+  it("the thread image delete deletes the mirror with the image", async () => {
     const { designId, imageId } = await seedImage();
     await publishImage(imageId, { title: "T" });
 
-    await deleteDesignImageRow(designId, imageId);
+    await deleteImageFromDesign(designId, imageId);
 
     expect(
       await testDb.select().from(schema.image).where(eq(schema.image.id, imageId))
@@ -304,7 +314,7 @@ describe("delete interactions", () => {
     expect(await testDb.select().from(schema.product)).toHaveLength(0);
   });
 
-  it("deleteDesignImageRow still detaches when another composition pins the image", async () => {
+  it("the thread image delete still detaches when another composition pins the image", async () => {
     const { designId, imageId } = await seedImage();
     await publishImage(imageId, { title: "T" });
     // A two-sided composition with this image on the back and another
@@ -322,7 +332,7 @@ describe("delete interactions", () => {
       placements: { front: otherFront, back: imageId },
     });
 
-    await deleteDesignImageRow(designId, imageId);
+    await deleteImageFromDesign(designId, imageId);
 
     // Image survives for the other composition; its own survives with it.
     expect(

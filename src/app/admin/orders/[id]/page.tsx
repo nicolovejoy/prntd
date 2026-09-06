@@ -14,7 +14,7 @@ import {
   setOrderClassification,
   setOrderTags,
 } from "../../actions";
-import { Badge, Button, Card } from "@/components/ui";
+import { Badge, Button, Card, useConfirm } from "@/components/ui";
 import { getBlank, getColorHex } from "@/lib/blanks";
 import {
   ORDER_CLASSIFICATIONS,
@@ -40,6 +40,7 @@ export default function OrderDetailPage() {
   const [retrying, setRetrying] = useState(false);
   const [recovering, setRecovering] = useState(false);
   const [refunding, setRefunding] = useState(false);
+  const { confirm, element: confirmSheet } = useConfirm();
 
   async function fetchOrder() {
     const o = await getOrderDetail(params.id);
@@ -48,7 +49,11 @@ export default function OrderDetailPage() {
   }
 
   async function handleRetry() {
-    if (!window.confirm("Retry Printful submission for this order?")) return;
+    const ok = await confirm({
+      title: "Retry Printful submission for this order?",
+      confirmLabel: "Retry",
+    });
+    if (!ok) return;
     setRetrying(true);
     try {
       await retryPrintfulSubmission(params.id);
@@ -62,12 +67,13 @@ export default function OrderDetailPage() {
   }
 
   async function handleRecover() {
-    if (
-      !window.confirm(
-        "Replay the Stripe webhook for this stuck pending order? This will run pending → paid → submitted and send emails."
-      )
-    )
-      return;
+    const ok = await confirm({
+      title: "Replay the Stripe webhook for this stuck pending order?",
+      body: "This will run pending → paid → submitted and send emails.",
+      confirmLabel: "Recover",
+      danger: true,
+    });
+    if (!ok) return;
     setRecovering(true);
     try {
       const result = await recoverPendingOrder(params.id);
@@ -88,12 +94,13 @@ export default function OrderDetailPage() {
   }
 
   async function handleRefund() {
-    if (
-      !window.confirm(
-        "Refund this customer via Stripe? This issues a real refund and cannot be undone."
-      )
-    )
-      return;
+    const ok = await confirm({
+      title: "Refund this customer via Stripe?",
+      body: "This issues a real refund and cannot be undone.",
+      confirmLabel: "Refund",
+      danger: true,
+    });
+    if (!ok) return;
     setRefunding(true);
     try {
       const result = await refundOrder(params.id);
@@ -112,7 +119,12 @@ export default function OrderDetailPage() {
   }
 
   async function handleArchive() {
-    if (!window.confirm("Archive this order?")) return;
+    const ok = await confirm({
+      title: "Archive this order?",
+      confirmLabel: "Archive",
+      danger: true,
+    });
+    if (!ok) return;
     await archiveOrder(params.id);
     setOrder((prev) => (prev ? { ...prev, archivedAt: new Date() } : prev));
   }
@@ -173,6 +185,7 @@ export default function OrderDetailPage() {
 
   return (
     <div className="max-w-4xl mx-auto py-8 px-4">
+      {confirmSheet}
       <Breadcrumbs
         trail={breadcrumbTrail(`/admin/orders/${params.id}`)}
         current={`Order ${params.id.slice(0, 8)}`}

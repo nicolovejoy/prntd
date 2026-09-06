@@ -10,9 +10,10 @@
  * lives in generation-poll's own unit tests.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 import { StudioClient } from "../studio-client";
 import type { StudioLane } from "@/lib/studio";
+import type { BulkDeleteResult } from "@/lib/studio-view";
 
 const h = vi.hoisted(() => ({
   polledLanes: [] as unknown[],
@@ -335,17 +336,14 @@ describe("cancelling a pending generation (#187)", () => {
 });
 
 describe("deleting a lane (slice 5 review, F1)", () => {
-  beforeEach(() => {
-    // The confirm is the only thing standing between a tap and a delete.
-    window.confirm = vi.fn(() => true);
-  });
-
   it("Delete removes the lane and deletes the conversation", async () => {
     render(<StudioClient initialLanes={[lane()]} />);
 
     fireEvent.click(screen.getByTestId("studio-delete-lane"));
+    await screen.findByTestId("confirm-sheet");
+    fireEvent.click(screen.getByTestId("confirm-sheet-confirm"));
 
-    expect(screen.queryByTestId("studio-lane")).toBeNull();
+    await waitFor(() => expect(screen.queryByTestId("studio-lane")).toBeNull());
     await waitFor(() => expect(deleteDesign).toHaveBeenCalledWith("design-1"));
   });
 
@@ -359,17 +357,21 @@ describe("deleting a lane (slice 5 review, F1)", () => {
     render(<StudioClient initialLanes={[lane()]} />);
 
     fireEvent.click(screen.getByTestId("studio-delete-lane"));
+    await screen.findByTestId("confirm-sheet");
+    fireEvent.click(screen.getByTestId("confirm-sheet-confirm"));
 
     await waitFor(() => expect(screen.getByTestId("studio-lane")).toBeTruthy());
     expect(screen.getByText(/Could not delete this design/)).toBeTruthy();
   });
 
-  it("does nothing when the confirm is dismissed", () => {
-    window.confirm = vi.fn(() => false);
+  it("does nothing when the confirm is dismissed", async () => {
     render(<StudioClient initialLanes={[lane()]} />);
 
     fireEvent.click(screen.getByTestId("studio-delete-lane"));
+    const sheet = await screen.findByTestId("confirm-sheet");
+    fireEvent.click(within(sheet).getByText("Cancel"));
 
+    await waitFor(() => expect(screen.queryByTestId("confirm-sheet")).not.toBeInTheDocument());
     expect(screen.getByTestId("studio-lane")).toBeTruthy();
     expect(deleteDesign).not.toHaveBeenCalled();
   });
@@ -403,10 +405,6 @@ describe("select mode (#189)", () => {
     lane({ designId: "d2", title: "two", cells: [cell("img-2")] }),
     lane({ designId: "d3", title: "three" }),
   ];
-
-  beforeEach(() => {
-    window.confirm = vi.fn(() => true);
-  });
 
   it("is offered only when there are lanes", () => {
     const { unmount } = render(<StudioClient initialLanes={[]} />);
@@ -492,10 +490,13 @@ describe("select mode (#189)", () => {
 
     fireEvent.click(screen.getByTestId("bulk-delete"));
 
-    expect(window.confirm).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(window.confirm).mock.calls[0][0]).toContain(
-      "Delete 2 conversations and their images?"
-    );
+    await screen.findByTestId("confirm-sheet");
+    expect(screen.getByText("Delete 2 conversations?")).toBeTruthy();
+    expect(
+      screen.getByText(/This deletes their images too\./)
+    ).toBeTruthy();
+    fireEvent.click(screen.getByTestId("confirm-sheet-confirm"));
+
     await waitFor(() =>
       expect(deleteConversations).toHaveBeenCalledWith(["d1", "d3"])
     );
@@ -508,10 +509,19 @@ describe("select mode (#189)", () => {
   });
 
   it("puts a kept lane back and says why", async () => {
-    vi.mocked(deleteConversations).mockResolvedValueOnce({
-      deleted: ["d1"],
-      skipped: [{ id: "d2", reason: "ordered" }],
-    });
+    // A deferred promise the test controls: since confirm() is itself now
+    // awaited, resolving deleteConversations immediately (as a plain mock
+    // would) races the optimistic setLanes against the "final" state in the
+    // same microtask flush and the intermediate state is never observable.
+    // Holding it open lets the test assert the optimistic all-gone step
+    // deterministically, then resolve and assert the corrected final state.
+    let resolveDelete!: (result: BulkDeleteResult) => void;
+    vi.mocked(deleteConversations).mockImplementationOnce(
+      () =>
+        new Promise<BulkDeleteResult>((resolve) => {
+          resolveDelete = resolve;
+        })
+    );
     // d3 was deleted too in the mock's view; the server says d2 survives.
     h.polledLanes = [three()[1]];
     render(<StudioClient initialLanes={three()} />);
@@ -519,9 +529,19 @@ describe("select mode (#189)", () => {
     fireEvent.click(screen.getByTestId("select-all"));
 
     fireEvent.click(screen.getByTestId("bulk-delete"));
+    await screen.findByTestId("confirm-sheet");
+    fireEvent.click(screen.getByTestId("confirm-sheet-confirm"));
 
-    // Optimistically all three leave…
-    expect(screen.queryByTestId("studio-lane")).toBeNull();
+    // Optimistically all three leave — this is the assertion that pins
+    // bulkDelete's `setLanes(ls => ls.filter(...))` line, and it now holds
+    // deterministically because deleteConversations hasn't resolved yet.
+    await waitFor(() => expect(screen.queryByTestId("studio-lane")).toBeNull());
+
+    resolveDelete({
+      deleted: ["d1"],
+      skipped: [{ id: "d2", reason: "ordered" }],
+    });
+
     // …then the one the server kept comes back with a notice.
     await waitFor(() => expect(screen.getByText("two")).toBeTruthy());
     expect(screen.queryByText("one")).toBeNull();
@@ -535,6 +555,8 @@ describe("select mode (#189)", () => {
     fireEvent.click(screen.getByTestId("select-all"));
 
     fireEvent.click(screen.getByTestId("bulk-delete"));
+    await screen.findByTestId("confirm-sheet");
+    fireEvent.click(screen.getByTestId("confirm-sheet-confirm"));
 
     await waitFor(() =>
       expect(screen.getAllByTestId("studio-lane")).toHaveLength(3)
@@ -542,16 +564,353 @@ describe("select mode (#189)", () => {
     expect(screen.getByText(/Couldn't delete those designs/)).toBeTruthy();
   });
 
-  it("does nothing when the confirm is dismissed", () => {
-    window.confirm = vi.fn(() => false);
+  it("does nothing when the confirm is dismissed", async () => {
     render(<StudioClient initialLanes={three()} />);
     fireEvent.click(screen.getByTestId("select-mode"));
     fireEvent.click(screen.getByTestId("select-all"));
 
     fireEvent.click(screen.getByTestId("bulk-delete"));
+    const sheet = await screen.findByTestId("confirm-sheet");
+    fireEvent.click(within(sheet).getByText("Cancel"));
 
+    await waitFor(() => expect(screen.queryByTestId("confirm-sheet")).not.toBeInTheDocument());
     expect(deleteConversations).not.toHaveBeenCalled();
     expect(screen.getAllByTestId("studio-lane")).toHaveLength(3);
     expect(screen.getByTestId("select-bar")).toBeTruthy();
+  });
+});
+
+/**
+ * The pending cell must appear the instant Generate is pressed (#187 point
+ * 2): before #187 nothing rendered until generateDesign returned and the
+ * first poll landed. The overlay is applied at render time on top of server
+ * lanes, so a poll's setLanes can never wipe it.
+ */
+describe("the optimistic pending cell (#187)", () => {
+  /** Holds generateDesign open so the pre-resolution state is observable. */
+  function deferGenerate() {
+    let settle!: (result: unknown) => void;
+    const pending = new Promise((resolve) => {
+      settle = resolve;
+    });
+    vi.mocked(generateDesign).mockReturnValueOnce(pending as never);
+    return settle;
+  }
+
+  function submitText(value: string) {
+    fireEvent.change(screen.getByTestId("studio-composer"), {
+      target: { value },
+    });
+    fireEvent.submit(screen.getByTestId("studio-composer").closest("form")!);
+  }
+
+  it("shows a pending cell before the action resolves, without Cancel", () => {
+    deferGenerate();
+    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+
+    fireEvent.click(screen.getByTestId("studio-cell"));
+    submitText("make it blue");
+
+    const pending = screen.getByTestId("studio-pending-cell");
+    expect(pending.textContent).toContain("Generating…");
+    // No jobId yet, so nothing to cancel — same markup otherwise, so the cell
+    // doesn't jump when Cancel appears.
+    expect(screen.queryByTestId("cancel-generation")).toBeNull();
+  });
+
+  it("an unanchored submit shows a new lane at the top with the cell", () => {
+    deferGenerate();
+    render(<StudioClient initialLanes={[lane()]} />);
+
+    submitText("a red dragon");
+
+    const lanes = screen.getAllByTestId("studio-lane");
+    expect(lanes).toHaveLength(2);
+    expect(lanes[0].querySelector('[data-testid="studio-pending-cell"]')).toBeTruthy();
+    expect(lanes[1].textContent).toContain("geometric wolf head");
+  });
+
+  it("a poll landing while the action is in flight does not remove the cell", async () => {
+    deferGenerate();
+    // Server truth still knows nothing about the submit.
+    h.polledLanes = [lane({ cells: [cell("img-1")] })];
+    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+
+    fireEvent.click(screen.getByTestId("studio-cell"));
+    submitText("make it blue");
+
+    fireEvent(window, new Event("focus"));
+    await waitFor(() => expect(getStudioLanes).toHaveBeenCalled());
+
+    expect(screen.getByTestId("studio-pending-cell")).toBeTruthy();
+  });
+
+  it("shows exactly one cell once the job is queued and a poll lists it", async () => {
+    h.polledLanes = [
+      lane({ cells: [cell("img-1")], pending: [pendingJob("job-new", 0)] }),
+    ];
+    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+
+    fireEvent.click(screen.getByTestId("studio-cell"));
+    submitText("make it blue");
+
+    await waitFor(() => expect(getStudioLanes).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(screen.getAllByTestId("studio-pending-cell")).toHaveLength(1)
+    );
+    // The server row carries a real jobId, so Cancel is back.
+    expect(screen.getByTestId("cancel-generation")).toBeTruthy();
+    expect(screen.getAllByTestId("studio-lane")).toHaveLength(1);
+  });
+
+  it("removes the cell and gives the words back when the turn is refused", async () => {
+    vi.mocked(generateDesign).mockResolvedValueOnce({
+      kind: "limit",
+      message: "You've reached today's free design limit. Sign in to keep designing.",
+    });
+    render(<StudioClient initialLanes={[lane()]} />);
+
+    submitText("a red dragon");
+    expect(screen.getByTestId("studio-pending-cell")).toBeTruthy();
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("studio-pending-cell")).toBeNull()
+    );
+    expect(screen.getByText(/free design limit/)).toBeTruthy();
+    expect(
+      (screen.getByTestId("studio-composer") as HTMLInputElement).value
+    ).toBe("a red dragon");
+    // The synthetic lane goes with it.
+    expect(screen.getAllByTestId("studio-lane")).toHaveLength(1);
+  });
+
+  it("removes the cell when the action throws", async () => {
+    vi.mocked(generateDesign).mockRejectedValueOnce(new Error("boom"));
+    render(<StudioClient initialLanes={[lane()]} />);
+
+    submitText("a red dragon");
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("studio-pending-cell")).toBeNull()
+    );
+    expect(screen.getByText(/Something went wrong/)).toBeTruthy();
+  });
+
+  it("counts the optimistic cell once — a queued job it can now see is not double-counted", async () => {
+    // One server generation running + one submit = two of three.
+    h.polledLanes = [
+      lane({
+        cells: [cell("img-1")],
+        pending: [pendingJob("j1"), pendingJob("job-new", 0)],
+      }),
+    ];
+    render(
+      <StudioClient
+        initialLanes={[lane({ cells: [cell("img-1")], pending: [pendingJob("j1")] })]}
+      />
+    );
+
+    fireEvent.click(screen.getByTestId("studio-cell"));
+    submitText("make it blue");
+
+    await waitFor(() => expect(getStudioLanes).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(screen.getAllByTestId("studio-pending-cell")).toHaveLength(2)
+    );
+    // Were the settled entry still counted, this would read 3 and lock out.
+    expect(screen.queryByTestId("cap-notice")).toBeNull();
+    fireEvent.change(screen.getByTestId("studio-composer"), {
+      target: { value: "one more" },
+    });
+    expect(
+      (screen.getByTestId("studio-generate") as HTMLButtonElement).disabled
+    ).toBe(false);
+  });
+
+  it("reaches the cap with two server generations and one in flight", () => {
+    deferGenerate();
+    render(
+      <StudioClient
+        initialLanes={[
+          lane({
+            cells: [cell("img-1")],
+            pending: [pendingJob("j1"), pendingJob("j2")],
+          }),
+        ]}
+      />
+    );
+
+    fireEvent.click(screen.getByTestId("studio-cell"));
+    submitText("make it blue");
+
+    expect(screen.getByTestId("cap-notice").textContent).toContain("3 generating");
+    expect(
+      (screen.getByTestId("studio-generate") as HTMLButtonElement).disabled
+    ).toBe(true);
+  });
+
+  it("a lane with only an optimistic cell is not selectable", () => {
+    deferGenerate();
+    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+
+    fireEvent.click(screen.getByTestId("studio-cell"));
+    submitText("make it blue");
+    fireEvent.click(screen.getByTestId("select-mode"));
+
+    const box = screen.getByTestId("lane-checkbox") as HTMLInputElement;
+    expect(box.disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("select-all"));
+    expect(screen.getByTestId("selected-count").textContent).toBe("0 selected");
+  });
+
+  it("leaves the anchor where the user put it across the submit", () => {
+    deferGenerate();
+    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+
+    fireEvent.click(screen.getByTestId("studio-cell"));
+    submitText("make it blue");
+
+    expect(screen.getByTestId("anchor-chip")).toBeTruthy();
+  });
+});
+
+/** Fixes from the task-2 review round. */
+describe("the optimistic pending cell — review fixes (#187)", () => {
+  function deferGenerate() {
+    let settle!: (result: unknown) => void;
+    const pending = new Promise((resolve) => {
+      settle = resolve;
+    });
+    vi.mocked(generateDesign).mockReturnValueOnce(pending as never);
+    return settle;
+  }
+
+  function submitText(value: string) {
+    fireEvent.change(screen.getByTestId("studio-composer"), {
+      target: { value },
+    });
+    fireEvent.submit(screen.getByTestId("studio-composer").closest("form")!);
+  }
+
+  it("survives a poll whose fetch began before the job row was written, and keeps polling", async () => {
+    vi.useFakeTimers();
+    try {
+      const settleGenerate = deferGenerate();
+      let settlePoll!: (lanes: unknown) => void;
+      vi.mocked(getStudioLanes).mockReturnValueOnce(
+        new Promise((resolve) => {
+          settlePoll = resolve as never;
+        }) as never
+      );
+
+      render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+      fireEvent.click(screen.getByTestId("studio-cell"));
+      submitText("make it blue");
+
+      // The timer poll goes out while generateDesign is still in flight.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(getStudioLanes).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(50);
+      });
+      // Now the action resolves; its own pollOnce is a no-op, one is running.
+      await act(async () => {
+        settleGenerate({
+          kind: "queued",
+          jobId: "job-new",
+          generationNumber: 1,
+          imageId: "img-new",
+        });
+        await Promise.resolve();
+      });
+
+      // The in-flight fetch lands, blind to a row written after it went out.
+      await act(async () => {
+        settlePoll([lane({ cells: [cell("img-1")] })]);
+        await Promise.resolve();
+      });
+
+      expect(screen.getByTestId("studio-pending-cell")).toBeTruthy();
+
+      // And the loop is still armed — the cell isn't stranded until a wake.
+      h.polledLanes = [lane({ cells: [cell("img-1")] })];
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(getStudioLanes).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a cell submitted during a lane close that then fails", async () => {
+    let failClose!: () => void;
+    vi.mocked(closeConversation).mockReturnValueOnce(
+      new Promise((_resolve, reject) => {
+        failClose = () => reject(new Error("boom"));
+      }) as never
+    );
+    deferGenerate();
+    render(<StudioClient initialLanes={[lane()]} />);
+
+    fireEvent.click(screen.getByTestId("studio-close-lane"));
+    submitText("a red dragon");
+    expect(screen.getByTestId("studio-pending-cell")).toBeTruthy();
+
+    // The close fails and puts its lane back — without erasing the entry that
+    // arrived while it was in flight.
+    failClose();
+    await waitFor(() =>
+      expect(screen.getByText(/Couldn't close that design/)).toBeTruthy()
+    );
+    expect(screen.getByTestId("studio-pending-cell")).toBeTruthy();
+  });
+
+  it("reserves the Cancel space so the cell doesn't jump when the jobId lands", () => {
+    deferGenerate();
+    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+
+    fireEvent.click(screen.getByTestId("studio-cell"));
+    submitText("make it blue");
+
+    expect(screen.queryByTestId("cancel-generation")).toBeNull();
+    const placeholder = screen.getByTestId("cancel-generation-placeholder");
+    expect((placeholder as HTMLButtonElement).disabled).toBe(true);
+    expect(placeholder.className).toContain("invisible");
+  });
+
+  it("cancels an optimistic cell that has its real jobId (the #194 path)", async () => {
+    // The submit's own poll finds no lane for this design yet, so the entry
+    // survives with a real jobId — the cell is still the overlay's, and its
+    // Cancel has to reach the real job.
+    h.polledLanes = [];
+    render(<StudioClient initialLanes={[]} />);
+
+    submitText("a red dragon");
+    await waitFor(() => expect(getStudioLanes).toHaveBeenCalledTimes(1));
+    const cancel = await screen.findByTestId("cancel-generation");
+
+    fireEvent.click(cancel);
+
+    await waitFor(() =>
+      expect(cancelGeneration).toHaveBeenCalledWith("job-new")
+    );
+    expect(screen.queryByTestId("studio-pending-cell")).toBeNull();
+    // The synthetic lane had nothing else in it, so it goes too.
+    expect(screen.queryByTestId("studio-lane")).toBeNull();
+    // cancelGeneration returned true: the next poll tick is enough.
+    expect(getStudioLanes).toHaveBeenCalledTimes(1);
+  });
+
+  it("scrolls the new lane into view on an unanchored submit", () => {
+    deferGenerate();
+    render(<StudioClient initialLanes={[lane()]} />);
+
+    submitText("a red dragon");
+
+    expect(window.HTMLElement.prototype.scrollIntoView).toHaveBeenCalled();
   });
 });
