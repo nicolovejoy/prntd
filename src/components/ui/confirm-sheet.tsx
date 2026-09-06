@@ -19,11 +19,11 @@ export type ConfirmSheetProps = {
 };
 
 /**
- * House replacement for window.confirm (#195 — "looks shitty"). Phone-first:
- * slides up from the bottom as a sheet under `sm:`, a centred dialog from
- * `sm:` up. Built on Modal, which already handles the backdrop click and
- * Escape (preventDefault, so Breadcrumbs' Escape-to-go-up doesn't also
- * fire) — both map to onCancel here.
+ * House replacement for the browser's native confirm dialog (#195 — "looks
+ * shitty"). Phone-first: slides up from the bottom as a sheet under `sm:`, a
+ * centred dialog from `sm:` up. Built on Modal, which already handles the
+ * backdrop click and Escape (preventDefault, so Breadcrumbs' Escape-to-go-up
+ * doesn't also fire) — both map to onCancel here.
  */
 export function ConfirmSheet({
   open,

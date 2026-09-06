@@ -3,7 +3,10 @@
 import { useState } from "react";
 import { openConversation } from "@/app/d/conversation-actions";
 import { deleteDesign } from "@/app/designs/actions";
-import { DELETE_CONVERSATION_CONFIRM } from "@/lib/design-view";
+import {
+  DELETE_CONVERSATION_CONSEQUENCE,
+  DELETE_CONVERSATION_TITLE,
+} from "@/lib/design-view";
 import { useConfirm } from "@/components/ui";
 
 /**
@@ -40,8 +43,8 @@ export function ConversationActions({
 
   async function remove() {
     const ok = await confirm({
-      title: "Delete this conversation?",
-      body: DELETE_CONVERSATION_CONFIRM,
+      title: DELETE_CONVERSATION_TITLE,
+      body: DELETE_CONVERSATION_CONSEQUENCE,
       confirmLabel: "Delete",
       danger: true,
     });

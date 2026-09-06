@@ -88,6 +88,7 @@ export default function AdminPage() {
       title: "Replay the Stripe webhook for this stuck pending order?",
       body: "This will charge through the full flow: paid → submitted → emails.",
       confirmLabel: "Recover",
+      danger: true,
     });
     if (!ok) return;
     setRecovering(orderId);

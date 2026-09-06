@@ -10,9 +10,10 @@
  * lives in generation-poll's own unit tests.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 import { StudioClient } from "../studio-client";
 import type { StudioLane } from "@/lib/studio";
+import type { BulkDeleteResult } from "@/lib/studio-view";
 
 const h = vi.hoisted(() => ({
   polledLanes: [] as unknown[],
@@ -364,8 +365,8 @@ describe("deleting a lane (slice 5 review, F1)", () => {
     render(<StudioClient initialLanes={[lane()]} />);
 
     fireEvent.click(screen.getByTestId("studio-delete-lane"));
-    await screen.findByTestId("confirm-sheet");
-    fireEvent.click(screen.getByText("Cancel"));
+    const sheet = await screen.findByTestId("confirm-sheet");
+    fireEvent.click(within(sheet).getByText("Cancel"));
 
     await waitFor(() => expect(screen.queryByTestId("confirm-sheet")).not.toBeInTheDocument());
     expect(screen.getByTestId("studio-lane")).toBeTruthy();
@@ -489,7 +490,7 @@ describe("select mode (#189)", () => {
     await screen.findByTestId("confirm-sheet");
     expect(screen.getByText("Delete 2 conversations?")).toBeTruthy();
     expect(
-      screen.getByText(/Delete 2 conversations and their images\?/)
+      screen.getByText(/This deletes their images too\./)
     ).toBeTruthy();
     fireEvent.click(screen.getByTestId("confirm-sheet-confirm"));
 
@@ -505,10 +506,19 @@ describe("select mode (#189)", () => {
   });
 
   it("puts a kept lane back and says why", async () => {
-    vi.mocked(deleteConversations).mockResolvedValueOnce({
-      deleted: ["d1"],
-      skipped: [{ id: "d2", reason: "ordered" }],
-    });
+    // A deferred promise the test controls: since confirm() is itself now
+    // awaited, resolving deleteConversations immediately (as a plain mock
+    // would) races the optimistic setLanes against the "final" state in the
+    // same microtask flush and the intermediate state is never observable.
+    // Holding it open lets the test assert the optimistic all-gone step
+    // deterministically, then resolve and assert the corrected final state.
+    let resolveDelete!: (result: BulkDeleteResult) => void;
+    vi.mocked(deleteConversations).mockImplementationOnce(
+      () =>
+        new Promise<BulkDeleteResult>((resolve) => {
+          resolveDelete = resolve;
+        })
+    );
     // d3 was deleted too in the mock's view; the server says d2 survives.
     h.polledLanes = [three()[1]];
     render(<StudioClient initialLanes={three()} />);
@@ -519,11 +529,17 @@ describe("select mode (#189)", () => {
     await screen.findByTestId("confirm-sheet");
     fireEvent.click(screen.getByTestId("confirm-sheet-confirm"));
 
-    // The optimistic all-gone step is no longer separately observable — the
-    // confirm is now an awaited promise, so its resolution and the mocked
-    // deleteConversations/pollOnce that follow settle within the same
-    // microtask flush. What matters is the final state: the one the server
-    // kept comes back with a notice.
+    // Optimistically all three leave — this is the assertion that pins
+    // bulkDelete's `setLanes(ls => ls.filter(...))` line, and it now holds
+    // deterministically because deleteConversations hasn't resolved yet.
+    await waitFor(() => expect(screen.queryByTestId("studio-lane")).toBeNull());
+
+    resolveDelete({
+      deleted: ["d1"],
+      skipped: [{ id: "d2", reason: "ordered" }],
+    });
+
+    // …then the one the server kept comes back with a notice.
     await waitFor(() => expect(screen.getByText("two")).toBeTruthy());
     expect(screen.queryByText("one")).toBeNull();
     expect(screen.getByText("1 kept — it has an order.")).toBeTruthy();
@@ -551,8 +567,8 @@ describe("select mode (#189)", () => {
     fireEvent.click(screen.getByTestId("select-all"));
 
     fireEvent.click(screen.getByTestId("bulk-delete"));
-    await screen.findByTestId("confirm-sheet");
-    fireEvent.click(screen.getByText("Cancel"));
+    const sheet = await screen.findByTestId("confirm-sheet");
+    fireEvent.click(within(sheet).getByText("Cancel"));
 
     await waitFor(() => expect(screen.queryByTestId("confirm-sheet")).not.toBeInTheDocument());
     expect(deleteConversations).not.toHaveBeenCalled();

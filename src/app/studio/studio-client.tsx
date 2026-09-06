@@ -10,7 +10,10 @@ import {
   generateDesign,
 } from "@/app/design/actions";
 import { deleteDesign } from "@/app/designs/actions";
-import { DELETE_CONVERSATION_CONFIRM } from "@/lib/design-view";
+import {
+  DELETE_CONVERSATION_CONSEQUENCE,
+  DELETE_CONVERSATION_TITLE,
+} from "@/lib/design-view";
 import {
   GENERATION_CAP,
   isAtGenerationCap,
@@ -19,8 +22,9 @@ import {
 } from "@/lib/generation-poll";
 import {
   applyOptimistic,
-  bulkDeleteConfirm,
+  bulkDeleteConsequence,
   bulkDeleteSkipNotice,
+  bulkDeleteTitle,
   formatElapsed,
   settleOptimistic,
   timeAgo,
@@ -283,8 +287,8 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
     const ids = [...selected];
     if (ids.length === 0 || bulkDeleting) return;
     const ok = await confirm({
-      title: `Delete ${ids.length} ${ids.length === 1 ? "conversation" : "conversations"}?`,
-      body: bulkDeleteConfirm(ids.length),
+      title: bulkDeleteTitle(ids.length),
+      body: bulkDeleteConsequence(ids.length),
       confirmLabel: "Delete",
       danger: true,
     });
@@ -449,8 +453,8 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
   // review, F1). Same action, same honest copy.
   async function deleteLane(lane: StudioLane) {
     const ok = await confirm({
-      title: "Delete this conversation?",
-      body: DELETE_CONVERSATION_CONFIRM,
+      title: DELETE_CONVERSATION_TITLE,
+      body: DELETE_CONVERSATION_CONSEQUENCE,
       confirmLabel: "Delete",
       danger: true,
     });

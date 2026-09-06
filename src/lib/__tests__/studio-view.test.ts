@@ -1,8 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   applyOptimistic,
-  bulkDeleteConfirm,
+  bulkDeleteConsequence,
   bulkDeleteSkipNotice,
+  bulkDeleteTitle,
   formatClosedDate,
   formatElapsed,
   settleOptimistic,
@@ -70,14 +71,23 @@ describe("formatClosedDate", () => {
   });
 });
 
-describe("bulkDeleteConfirm", () => {
-  it("counts and pluralises, and says what is kept", () => {
-    expect(bulkDeleteConfirm(1)).toBe(
-      "Delete 1 conversation and its images? Images used in an order, another design, or a cart are kept. Conversations with an order are kept."
+describe("bulkDeleteTitle", () => {
+  it("counts and pluralises", () => {
+    expect(bulkDeleteTitle(1)).toBe("Delete 1 conversation?");
+    expect(bulkDeleteTitle(6)).toBe("Delete 6 conversations?");
+  });
+});
+
+describe("bulkDeleteConsequence", () => {
+  it("says what is kept, singular and plural", () => {
+    expect(bulkDeleteConsequence(1)).toBe(
+      "This deletes its images too. Images used in an order, another design, or a cart are kept. Conversations with an order are kept instead."
     );
-    expect(bulkDeleteConfirm(6)).toMatch(
-      /^Delete 6 conversations and their images\?/
-    );
+    expect(bulkDeleteConsequence(6)).toMatch(/^This deletes their images too\./);
+  });
+
+  it("never repeats the title's question", () => {
+    expect(bulkDeleteConsequence(6)).not.toMatch(/^Delete/);
   });
 });
 

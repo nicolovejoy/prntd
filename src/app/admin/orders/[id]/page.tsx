@@ -71,6 +71,7 @@ export default function OrderDetailPage() {
       title: "Replay the Stripe webhook for this stuck pending order?",
       body: "This will run pending → paid → submitted and send emails.",
       confirmLabel: "Recover",
+      danger: true,
     });
     if (!ok) return;
     setRecovering(true);
