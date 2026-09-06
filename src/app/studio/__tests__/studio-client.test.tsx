@@ -351,14 +351,17 @@ describe("deleting a lane (slice 5 review, F1)", () => {
 
   it("keeps the lane and shows the reason when the delete is refused", async () => {
     vi.mocked(deleteDesign).mockResolvedValueOnce({
-      error: "This design is used by a shop product. Delete the product first.",
+      // deleteDesign archives an ordered conversation rather than returning an
+      // error today; this exercises the client's handling of the `error`
+      // shape the action's return type still allows.
+      error: "Could not delete this design.",
     });
     render(<StudioClient initialLanes={[lane()]} />);
 
     fireEvent.click(screen.getByTestId("studio-delete-lane"));
 
     await waitFor(() => expect(screen.getByTestId("studio-lane")).toBeTruthy());
-    expect(screen.getByText(/used by a shop product/)).toBeTruthy();
+    expect(screen.getByText(/Could not delete this design/)).toBeTruthy();
   });
 
   it("does nothing when the confirm is dismissed", () => {

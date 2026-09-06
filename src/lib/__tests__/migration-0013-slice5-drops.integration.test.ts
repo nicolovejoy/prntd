@@ -291,6 +291,39 @@ describe("migration 0013 — composition slice 5 drops, through the real migrato
     await expectUntouched();
   });
 
+  it("late failure: two surviving compositions sharing a front make the unique index fail AFTER the drops — and everything still rolls back", async () => {
+    // The guard cases above fail at statement 2–3, before any DDL, so their
+    // "untouched" is cheap. This one fails at CREATE UNIQUE INDEX, after the
+    // organizer delete, the rename, the column drops and the product recreate
+    // have all run inside the batch — the failure prod would hit if two mirrors
+    // ever ended up pinning one front image.
+    await client.execute(
+      `INSERT INTO \`product\` (\`id\`, \`owner_id\`, \`placements\`, \`status\`, \`position\`, \`title\`, \`created_at\`, \`updated_at\`)
+       VALUES ('mir2', 'u', '{"front":"img1"}', 'draft', 0, 'Second Mirror', 0, 0)`
+    );
+    const productsBefore = Number(
+      (await client.execute("SELECT count(*) AS n FROM `product`")).rows[0].n
+    );
+    expect(productsBefore).toBe(4);
+
+    await expect(runMigrator()).rejects.toThrow(/UNIQUE/i);
+
+    await expectUntouched();
+    // Every product row survives, organizer rows included; the listing keeps
+    // its four frozen sellable columns; the ledger has only the seeded row.
+    expect(
+      Number((await client.execute("SELECT count(*) AS n FROM `product`")).rows[0].n)
+    ).toBe(productsBefore);
+    expect(await columns(client, "listing")).toEqual(
+      expect.arrayContaining(["title", "description", "background_color", "feed_rank"])
+    );
+    expect(await columns(client, "product")).toContain("store_id");
+    expect(await columns(client, "product")).not.toContain("front_image_id");
+    expect(
+      (await client.execute("SELECT `title` FROM `product` WHERE `id` = 'mir2'")).rows[0].title
+    ).toBe("Second Mirror");
+  });
+
   it("guard: an order whose store_product_id is an organizer product rejects the same way", async () => {
     // No store_id anywhere — only the join catches this one.
     await client.execute(

@@ -27,7 +27,7 @@
 -- COLUMN` (what drizzle-kit emitted): Drizzle declares FKs as table-level
 -- constraints, and libSQL refuses to drop a column a table-level FOREIGN KEY
 -- clause names ("unknown column "store_id" in foreign key definition").
--- `order.store_id` (migration 0001) was added with an inline REFERENCES, so its
+-- `order.store_id` (migration 0002) was added with an inline REFERENCES, so its
 -- plain DROP COLUMN works. The INSERT…SELECT lists the surviving columns
 -- explicitly and every one of them exists on the OLD table, so SQLite's
 -- double-quoted-string fallback — which turned unknown "columns" into string
@@ -43,11 +43,17 @@
 -- and backtick-quotes the halves — invalid SQL in both the migration and the
 -- test-DB derivation.
 --
--- The PRAGMA foreign_keys pair is a no-op inside the migrate batch (SQLite
--- ignores it inside a transaction, and the migrator has already turned
--- enforcement off). It is kept for a statement-by-statement run (a manual
--- shell, the chain-apply test's pre-0013 replay) so the DROP TABLE product
--- between the copy and the rename cannot trip order.store_product_id.
+-- APPLY ONLY VIA `npm run db:migrate`. The guard depends on the migrator
+-- running this whole file as one client.migrate() batch (FKs off, BEGIN …
+-- COMMIT, rollback on any failure). A statement-by-statement run — `turso db
+-- shell < file`, `.read`, pasting into a console — has NO transaction: the
+-- guard's failing INSERTs would be reported and execution would simply
+-- continue, dropping `store`, `listing` and `order.store_id` with the
+-- pre-check unmet. That leaves the database half-migrated and recoverable only
+-- from the backup. The PRAGMA foreign_keys pair below is a no-op inside the
+-- batch (SQLite ignores it inside a transaction, and the migrator has already
+-- turned enforcement off); it is harmless and stays only so the file reads
+-- like 0010.
 CREATE TABLE `__slice5_guard` (`n` integer NOT NULL CHECK (`n` = 0));--> statement-breakpoint
 INSERT INTO `__slice5_guard` SELECT count(*) FROM `order` WHERE `store_id` IS NOT NULL;--> statement-breakpoint
 INSERT INTO `__slice5_guard` SELECT count(*) FROM `order` o JOIN `product` p ON p.`id` = o.`store_product_id` WHERE p.`design_id` IS NOT NULL OR p.`store_id` IS NOT NULL;--> statement-breakpoint
