@@ -1006,7 +1006,11 @@ function Lane({
                   Primary
                 </span>
               )}
-              {cell.isPrimary && <span className="sr-only">Primary</span>}
+              {/* No sr-only echo for "Primary": the visible label above IS
+                  real text in the accessibility tree, so a second sr-only
+                  span would announce it twice. "Editing" gets one because
+                  its only signal is the 2px border — a colour/width change
+                  with no text of its own, and otherwise unannounceable. */}
               {anchored && <span className="sr-only">Editing</span>}
             </button>
           );
