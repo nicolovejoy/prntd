@@ -94,10 +94,12 @@ export default function CartPage() {
       />
 
       <div className="w-full max-w-2xl">
-        <h1 className="text-xl font-semibold mb-6">Your cart</h1>
+        <h1 className="text-xl sm:text-2xl font-bold mb-6">Your cart</h1>
 
         {cart === null && !loadFailed && (
-          <p className="text-text-muted">Loading…</p>
+          <p className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-faint">
+            Loading…
+          </p>
         )}
 
         {loadFailed && (
@@ -130,25 +132,25 @@ export default function CartPage() {
 
         {cart && cart.items.length > 0 && (
           <>
-            <ul className="divide-y divide-border border-y border-border">
+            <ul className="border-t border-border">
               {cart.items.map((item) => (
                 <li
                   key={item.id}
                   data-testid="cart-line-item"
-                  className="flex items-center gap-4 py-4"
+                  className="border-b border-border flex items-center gap-4 py-4"
                 >
-                  <div className="w-16 h-16 shrink-0 rounded-md bg-checkerboard border border-border overflow-hidden">
+                  <div className="w-16 h-16 shrink-0 bg-surface-well border border-border overflow-hidden">
                     {item.imageUrl && (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={item.imageUrl}
-                        alt=""
+                        alt={item.productName}
                         className="w-full h-full object-contain"
                       />
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium truncate">{item.productName}</p>
+                    <p className="text-sm font-medium truncate">{item.productName}</p>
                     <p className="text-sm text-text-muted">
                       {item.color} / {item.size}
                       {item.hasBack ? " · front + back" : ""}
@@ -156,13 +158,13 @@ export default function CartPage() {
                     </p>
                   </div>
                   <div className="text-right shrink-0">
-                    <p className="font-medium">
+                    <p className="font-mono text-sm">
                       ${(item.unitPrice * item.quantity).toFixed(2)}
                     </p>
                     <button
                       onClick={() => handleRemove(item.id)}
                       disabled={removing === item.id}
-                      className="text-xs text-text-faint hover:text-text-muted transition-colors mt-1"
+                      className="min-h-11 inline-flex items-center text-xs text-text-muted underline underline-offset-[3px] hover:text-foreground disabled:no-underline disabled:text-text-faint transition-colors"
                     >
                       {removing === item.id ? "Removing…" : "Remove"}
                     </button>
@@ -173,16 +175,22 @@ export default function CartPage() {
 
             <div className="space-y-2 text-sm mt-4">
               <div className="flex justify-between">
-                <span className="text-text-muted">Items</span>
-                <span>${cart.itemSubtotal.toFixed(2)}</span>
+                <span className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted">
+                  Items
+                </span>
+                <span className="font-mono text-sm">${cart.itemSubtotal.toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-text-muted">Shipping (bundled)</span>
-                <span>${cart.shipping.toFixed(2)}</span>
+                <span className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted">
+                  Shipping (bundled)
+                </span>
+                <span className="font-mono text-sm">${cart.shipping.toFixed(2)}</span>
               </div>
-              <div className="flex justify-between font-bold border-t border-border pt-2">
-                <span>Total</span>
-                <span>${cart.total.toFixed(2)}</span>
+              <div className="flex justify-between border-t border-border pt-2">
+                <span className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted">
+                  Total
+                </span>
+                <span className="font-mono text-sm font-medium">${cart.total.toFixed(2)}</span>
               </div>
             </div>
 
