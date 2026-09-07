@@ -59,14 +59,14 @@ export default function SignUpPage() {
             minLength={8}
             className="w-full"
           />
-          {error && <p className="text-red-600 text-sm">{error}</p>}
-          <Button type="submit" disabled={loading} className="w-full">
+          {error && <p className="text-negative text-sm">{error}</p>}
+          <Button type="submit" disabled={loading} className="w-full min-h-11">
             {loading ? "Creating account..." : "Sign up"}
           </Button>
         </form>
         <p className="text-center text-sm text-text-muted">
           Already have an account?{" "}
-          <Link href="/sign-in" className="underline">
+          <Link href="/sign-in" className="underline underline-offset-[3px]">
             Sign in
           </Link>
         </p>
