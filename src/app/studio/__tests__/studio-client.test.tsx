@@ -93,7 +93,7 @@ describe("StudioClient rendering", () => {
     // Shop link is their way onward.
     expect(
       screen.getByRole("link", { name: "Browse the Shop" }).getAttribute("href")
-    ).toBe("/prints");
+    ).toBe("/shop");
   });
 
   it("renders a lane's cells with the primary marked", () => {

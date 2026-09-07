@@ -52,7 +52,7 @@ export default async function Home() {
             <PublishedGrid images={discover} />
             <div className="text-center mt-8">
               <Link
-                href="/prints"
+                href="/shop"
                 className="text-sm text-text-muted underline hover:text-foreground transition-colors"
               >
                 See all →

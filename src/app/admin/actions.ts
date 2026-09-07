@@ -416,9 +416,9 @@ export async function setImageFeedRank(
   // feed to rank).
   await productMirrorStatement(db, imageId, { kind: "update", set: { feedRank } });
 
-  // The Shop feed renders on / and /prints; bust both plus the admin grid.
+  // The Shop feed renders on / and /shop; bust both plus the admin grid.
   revalidatePath("/");
-  revalidatePath("/prints");
+  revalidatePath("/shop");
   revalidatePath("/admin/published");
 }
 

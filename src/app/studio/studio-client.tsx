@@ -556,7 +556,7 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
             message="No open designs."
             action={
               <Link
-                href="/prints"
+                href="/shop"
                 className="inline-block text-sm text-text-muted underline hover:text-foreground transition-colors"
               >
                 Browse the Shop
