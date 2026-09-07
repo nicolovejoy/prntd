@@ -85,14 +85,15 @@ export function SiteCard() {
       >
         prntd.org
       </div>
-      {/* accent underline strip */}
+      {/* structural underline strip — ink, not rose: rose is scoped to the
+          wordmark and the solid Generate button only (design-system.md). */}
       <div
         style={{
           display: "flex",
           marginTop: 56,
           width: 280,
           height: 10,
-          background: ROSE,
+          background: INK,
           borderRadius: 5,
         }}
       />
