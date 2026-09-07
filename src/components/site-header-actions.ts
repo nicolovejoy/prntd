@@ -50,7 +50,14 @@ async function sweepUserJobsAfterResponse(userId: string): Promise<void> {
  * too high for exactly one header fetch. It self-corrects on the next one,
  * which the header already performs on every pathname change, not just on
  * mount (site-header.tsx) — plus the next /studio load, the next thread
- * open, and the daily cron. Do not "fix" this by awaiting the sweep again.
+ * open, and the daily cron. There is a second reader of the same
+ * not-yet-swept row: `prepareGeneration`'s advisory capacity check
+ * (`design/actions.ts`) calls `countRunningJobsForUser` with no sweep of
+ * its own, so it can also see a stale job as still running for that same
+ * short window — in practice the gap between this header POST's response
+ * and its `after()` continuation, and a wrongly-refused submit there
+ * refunds the quota unit it charged. Do not "fix" this by awaiting the
+ * sweep again.
  *
  * 0 for signed-out and anonymous guest-funnel visitors, without a job-table
  * query — a guest is looking at /design itself while their job runs, so the

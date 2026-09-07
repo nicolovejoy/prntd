@@ -154,6 +154,18 @@ describe("getHeaderState — runningJobs", () => {
 
     expect(state.runningJobs).toBe(3);
   });
+
+  it("schedules the sweep even when the count read throws", async () => {
+    getSession.mockResolvedValue({ user: { id: "real-user", isAnonymous: false } });
+    countActiveGenerationsForUser.mockRejectedValue(new Error("turso is having a day"));
+
+    await expect(getHeaderState(false)).rejects.toThrow("turso is having a day");
+
+    // The after() is registered before the read, so a thrown read still
+    // leaves the sweep scheduled — the invariant the comment above
+    // `after(...)` in site-header-actions.ts asserts.
+    expect(afterQueue.callbacks).toHaveLength(1);
+  });
 });
 
 /** A promise this test controls the resolution of, plus a resolve() to fire it. */
