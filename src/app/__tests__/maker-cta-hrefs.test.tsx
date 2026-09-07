@@ -1,21 +1,21 @@
 /**
  * Owner ruling W1 (docs/superpowers/plans/2026-09-07-paper-orders-cart-confirm.md):
  *
- * `/orders` and `/cart` "make something" CTAs point at `/design`, not
- * `/studio`, because `/studio` sits behind `requireRealUser` and bounces an
- * anonymous guest, while `/cart` is a guest-reachable surface
- * (`e2e/cart.spec.ts` buys as a guest). This overrides the design review's
- * general "CTAs retargeted to /studio" direction for these two specific
- * make-CTAs.
+ * `/cart` "make something" CTAs point at `/design`, not `/studio`, because
+ * `/studio` sits behind `requireRealUser` and bounces an anonymous guest,
+ * while `/cart` is a guest-reachable surface (`e2e/cart.spec.ts` buys as a
+ * guest). `/orders` is itself behind `requireRealUser`, so its CTAs point at
+ * `/studio` (the maker surface) — W1 does not apply there (reversal recorded
+ * in the slice ledger).
  *
- * This file exists so a future nav sweep that blanket-retargets make-CTAs to
- * `/studio` fails here loudly, instead of silently walling a guest out of the
- * purchase path. It pins all four maker CTAs this ruling covers:
+ * This file exists so a future nav sweep that blanket-retargets make-CTAs
+ * fails here loudly, instead of silently walling a guest out of the purchase
+ * path or sending a signed-in user off the Studio. It pins all four:
  *
- *   1. /orders header link "New Design"
- *   2. /orders empty-state action "Make your first design"
- *   3. /cart empty-state action "Start a design"
- *   4. /cart "Add another design" (a router.push, not a Link)
+ *   1. /orders header link "New Design"            → /studio
+ *   2. /orders empty-state action "Make your first design" → /studio
+ *   3. /cart empty-state action "Start a design"   → /design
+ *   4. /cart "Add another design" (a router.push)  → /design
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
@@ -69,24 +69,22 @@ function makeOrder(): UserOrder {
 
 const EMPTY_CART: CartView = { items: [], itemSubtotal: 0, shipping: 0, total: 0 };
 
-describe("maker-CTA hrefs (ruling W1: /design, not /studio)", () => {
-  it("/orders header link 'New Design' points at /design", () => {
-    // Moved off /studio in this slice (2026-09-07) per ruling W1.
+describe("maker-CTA hrefs (ruling W1: cart → /design; orders → /studio)", () => {
+  it("/orders header link 'New Design' points at /studio", () => {
     render(<OrdersList orders={[makeOrder()]} />);
 
     expect(screen.getByRole("link", { name: "New Design" })).toHaveAttribute(
       "href",
-      "/design"
+      "/studio"
     );
   });
 
-  it("/orders empty-state action 'Make your first design' points at /design", () => {
-    // Moved off /studio in this slice (2026-09-07) per ruling W1.
+  it("/orders empty-state action 'Make your first design' points at /studio", () => {
     render(<OrdersList orders={[]} />);
 
     expect(
       screen.getByRole("link", { name: "Make your first design" })
-    ).toHaveAttribute("href", "/design");
+    ).toHaveAttribute("href", "/studio");
   });
 
   it("/cart empty-state action 'Start a design' points at /design", async () => {

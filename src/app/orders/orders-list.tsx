@@ -54,7 +54,7 @@ export function OrdersList({ orders }: { orders: UserOrder[] }) {
       <main className="flex-1 px-4 sm:px-6 py-8 max-w-4xl mx-auto w-full">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-xl sm:text-2xl font-bold">My Orders</h1>
-          <Link href="/design">
+          <Link href="/studio">
             <Button variant="secondary" size="sm" className="min-h-11">
               New Design
             </Button>
@@ -90,7 +90,7 @@ export function OrdersList({ orders }: { orders: UserOrder[] }) {
           <EmptyState
             message="No orders yet."
             action={
-              <Link href="/design">
+              <Link href="/studio">
                 <Button size="lg">Make your first design</Button>
               </Link>
             }

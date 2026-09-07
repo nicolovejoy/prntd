@@ -264,3 +264,8 @@ Stated in the code comment and in the PR body so "why is there nothing in
 `min-h-11` changes the right column's height against the 64px thumbnail — the
 box model says the row still balances, but that is a 390px claim no unit test
 can settle. One eyeball item.
+
+**Ruling P1 REVERSED by the main session before merge.** The brief mis-stated
+W1: it covers the cart (a guest on the purchase path cannot reach `/studio`),
+not `/orders`, which sits behind `requireRealUser`. `/orders` CTAs are back on
+`/studio` and the Task 4 pin now asserts `/studio`; `/cart` keeps `/design`.
