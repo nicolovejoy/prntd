@@ -9,10 +9,11 @@ describe("isFunnelRoute", () => {
     expect(isFunnelRoute("/order/confirm")).toBe(true);
     expect(isFunnelRoute("/cart")).toBe(true);
     expect(isFunnelRoute("/studio")).toBe(true);
-    // /studio/library and /studio/archive have no docked composer of their
-    // own, but the whole /studio prefix sweeps them in regardless (see the
-    // docblock in funnel-routes.ts) — pin that explicitly rather than only
-    // covering the Bench tab.
+    // Bench has no fixed bottom chrome outside select mode now either (the
+    // composer moved to a top panel, #188 slice 3); library and archive
+    // never had any. The whole /studio prefix sweeps them all in regardless
+    // (see the docblock in funnel-routes.ts) — pin that explicitly rather
+    // than only covering the Bench tab.
     expect(isFunnelRoute("/studio/library")).toBe(true);
     // /d is the buy page; its sticky Add-to-cart bar is what the launcher
     // overlapped.

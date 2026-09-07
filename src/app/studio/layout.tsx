@@ -18,7 +18,7 @@ export default function StudioLayout({
 }) {
   return (
     <div className="min-h-screen flex flex-col">
-      <div className="px-4 sm:px-6 pt-8 max-w-4xl mx-auto w-full">
+      <div className="px-4 sm:px-6 pt-6 max-w-4xl mx-auto w-full">
         <h1 className="text-xl sm:text-2xl font-bold mb-4">Studio</h1>
         <StudioTabs />
       </div>

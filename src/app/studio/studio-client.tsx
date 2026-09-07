@@ -3,7 +3,8 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button, EmptyState, Input, useConfirm } from "@/components/ui";
+import type { RefObject } from "react";
+import { Button, EmptyState, useConfirm } from "@/components/ui";
 import {
   cancelGeneration,
   closeConversation,
@@ -37,14 +38,15 @@ import { deleteConversations, getStudioLanes } from "./actions";
 /**
  * /studio — the working surface (studio-plan slices 2+3): lanes render, a
  * running generation shows as a pending cell with elapsed time, and one
- * docked composer is the only submit control.
+ * composer at the top of the page is the only submit control.
  *
  * Selection is the interaction model: tapping a cell anchors it, the composer
  * carries a chip with a crop of the anchored image, and Generate then edits
  * exactly that image. Dismissing the chip clears the anchor and the same box
  * starts a NEW conversation. Three decisions are settled (plan, slice 3): the
- * composer stays docked, the anchor never advances to a result on its own,
- * and a lane opens scrolled to its newest image.
+ * composer sits at the top of the bench (Paper mock, #188 slice 3), the
+ * anchor never advances to a result on its own, and a lane opens scrolled to
+ * its newest image.
  *
  * Polling: while any lane has a pending cell, the whole read model is
  * re-fetched on the generation-poll schedule (fast, then slow). One request
@@ -68,14 +70,19 @@ import { deleteConversations, getStudioLanes } from "./actions";
  * must survive that landing mid-typing. It's cleared only when its image
  * genuinely leaves the surface (the conversation closed or was deleted).
  *
- * Select mode (#189): "Select" in the title row turns each lane header into a
- * checkbox row and swaps the composer for a bar with the count, Select all,
- * Delete and Done. While selecting, a tap anywhere on a lane — header or
- * cell — toggles that lane; anchoring is off, so one gesture means one thing.
- * A lane with a running generation can't be selected (its per-lane Close and
- * Delete are hidden for the same reason). Escape leaves select mode. The
- * selection is a Set of design ids kept beside the lanes, so a poll landing
- * mid-selection keeps it; ids whose lane left the surface are dropped.
+ * Select mode (#189): "Select" lives inside each lane's ⋯ overflow (Paper
+ * bench, #188 slice 3 — there is no page-level control) and turns every lane
+ * header into a checkbox row, swapping the composer for a bar with the
+ * count, Select all, Delete and Done. While selecting, a tap anywhere on a
+ * lane — header or cell — toggles that lane; anchoring is off, so one
+ * gesture means one thing. A lane with a running generation can't be
+ * selected (its ⋯ overflow, and so its Close/Delete/Select, is hidden for
+ * the same reason — closing or deleting mid-render would land the image in
+ * a thread that just vanished from the bench). Escape leaves select mode.
+ * The selection is a Set of design ids kept beside the lanes, so a poll
+ * landing mid-selection keeps it; ids whose lane left the surface are
+ * dropped. The bar is the one piece of fixed chrome left; `main` pays bottom
+ * padding for it only while selecting.
  */
 
 type Anchor = {
@@ -116,14 +123,30 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
   // The synthetic lane an unanchored submit just created. It goes to the top
-  // of the bench, which is off-screen if the user had scrolled down, so the
-  // lane scrolls itself into view when it mounts (phone-first: the whole
-  // point of #187 is seeing that the tap registered).
+  // of the bench (just below the composer), which is off-screen if the user
+  // had scrolled down, so the lane nudges itself into view when it mounts
+  // (phone-first: the whole point of #187 is seeing that the tap
+  // registered). The nudge is `block:"nearest"` (see the effect below) —
+  // with the composer now at the top of the page too, the common case is
+  // that the lane is already visible, and a no-op scroll must stay a no-op.
   const [revealDesignId, setRevealDesignId] = useState<string | null>(null);
   const { confirm, element: confirmSheet } = useConfirm();
 
   const polling = useRef(false);
   const pollStartedAt = useRef<number | null>(null);
+  // The composer panel is the only place `notice` renders, and it now sits
+  // at the top of the page — but the control that SETS a notice (Close,
+  // Delete, bulk delete, a refused submit) can be lanes below the fold. On a
+  // failure transition, bring the panel back on screen so the explanation is
+  // actually seen (Important 2, whole-branch review).
+  const composerPanelRef = useRef<HTMLDivElement>(null);
+  const prevNoticeRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (notice !== null && prevNoticeRef.current === null && !selectMode) {
+      composerPanelRef.current?.scrollIntoView({ block: "nearest" });
+    }
+    prevNoticeRef.current = notice;
+  }, [notice, selectMode]);
 
   // What the bench renders: server truth plus this tab's own overlay.
   const renderedLanes = applyOptimistic(lanes, optimistic);
@@ -386,8 +409,9 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
     // appears on the refetch below once the row exists.
     const targetDesignId = submitAnchor?.designId ?? crypto.randomUUID();
     // The cell goes up now (#187). An anchored submit appends to that lane; an
-    // unanchored one synthesizes a lane at the top of the bench, which on a
-    // phone is the first thing above the composer.
+    // unanchored one synthesizes a lane at the top of the bench — the first
+    // lane below the composer panel — which is off-screen on a phone if the
+    // user had scrolled down (see the `reveal` nudge-into-view below).
     const localId = crypto.randomUUID();
     if (!submitAnchor) setRevealDesignId(targetDesignId);
     setOptimistic((entries) => [
@@ -530,39 +554,29 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
   return (
     <>
       {confirmSheet}
-      <main className="flex-1 px-4 sm:px-6 py-8 pb-40 max-w-4xl mx-auto w-full">
-        <div className="flex items-baseline justify-end gap-3 mb-6">
-          {/* Only when there is something to select; in select mode the
-              bottom bar's Done is the way out, so the control hides. The
-              heading and the Archive door moved to the Studio layout's tab
-              strip (nav model A) — one door per destination. */}
-          {renderedLanes.length > 0 && !selectMode && (
-            <button
-              type="button"
-              onClick={enterSelectMode}
-              className="text-sm text-text-muted hover:text-foreground transition-colors"
-              data-testid="select-mode"
-            >
-              Select
-            </button>
-          )}
-        </div>
+      <main
+        className={`flex-1 px-4 sm:px-6 max-w-4xl mx-auto w-full ${
+          selectMode ? "pb-40" : "pb-8"
+        }`}
+      >
+        {selectMode ? null : (
+          <div className="py-6">
+            <Composer
+              panelRef={composerPanelRef}
+              text={text}
+              anchor={anchor}
+              atCap={atCap}
+              capNotice={AT_CAP_COPY}
+              notice={notice}
+              onChangeText={setText}
+              onSubmit={() => void submit()}
+              onClearAnchor={() => setAnchor(null)}
+            />
+          </div>
+        )}
 
         {renderedLanes.length === 0 ? (
-          // Also the first thing a buy-only account sees, since / redirects
-          // signed-in users here (nav re-map, 2026-09-01) — so the empty
-          // state offers the Shop, not just the composer.
-          <EmptyState
-            message="No open designs."
-            action={
-              <Link
-                href="/shop"
-                className="inline-block text-sm text-text-muted underline hover:text-foreground transition-colors"
-              >
-                Browse the Shop
-              </Link>
-            }
-          />
+          <EmptyState message="No open designs." />
         ) : (
           renderedLanes.map((lane) => (
             <Lane
@@ -577,6 +591,7 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
               onClose={closeLane}
               onDelete={deleteLane}
               onCancel={cancelJob}
+              onEnterSelectMode={enterSelectMode}
               unresolvedCellIds={unresolvedCellIds}
               reveal={lane.designId === revealDesignId}
             />
@@ -584,9 +599,9 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
         )}
       </main>
 
-      {selectMode ? (
+      {selectMode && (
         <div
-          className="fixed bottom-0 inset-x-0 border-t border-border bg-surface px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]"
+          className="fixed bottom-0 inset-x-0 border-t border-foreground bg-surface px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]"
           data-testid="select-bar"
         >
           <div className="max-w-4xl mx-auto space-y-2">
@@ -637,72 +652,178 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
             </div>
           </div>
         </div>
-      ) : (
-        <div className="fixed bottom-0 inset-x-0 border-t border-border bg-surface px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
-          <div className="max-w-4xl mx-auto space-y-2">
-            {anchor && (
-              <div
-                className="flex items-center gap-2 min-w-0"
-                data-testid="anchor-chip"
-              >
-                <div className="relative w-8 h-8 rounded overflow-hidden bg-checkerboard shrink-0 border border-border">
-                  <Image
-                    src={anchor.imageUrl}
-                    alt=""
-                    fill
-                    sizes="32px"
-                    className="object-cover"
-                  />
-                </div>
-                <span className="text-xs text-text-muted truncate">
-                  Editing · {anchor.title ?? "Untitled"}
-                </span>
-                <button
-                  type="button"
-                  aria-label="Clear anchor"
-                  onClick={() => setAnchor(null)}
-                  className="shrink-0 px-1 text-text-muted hover:text-foreground"
-                >
-                  ✕
-                </button>
-              </div>
-            )}
-            {atCap && (
-              <p className="text-xs text-text-muted" data-testid="cap-notice">
-                {AT_CAP_COPY}
-              </p>
-            )}
-            {notice && <p className="text-xs text-text-muted">{notice}</p>}
-            <form
-              className="flex gap-2"
-              onSubmit={(e) => {
-                e.preventDefault();
-                void submit();
-              }}
-            >
-              <Input
-                type="text"
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                placeholder={
-                  anchor ? "Describe the change" : "Describe a design"
-                }
-                className="flex-1"
-                data-testid="studio-composer"
-              />
-              <Button
-                type="submit"
-                variant="generate"
-                disabled={!text.trim() || atCap}
-                data-testid="studio-generate"
-              >
-                Generate
-              </Button>
-            </form>
-          </div>
-        </div>
       )}
     </>
+  );
+}
+
+/**
+ * The bench's one submit control, at the top of the page (Paper bench,
+ * #188 slice 3). It was a fixed bottom bar; the mock puts it under the tab
+ * strip as a bordered paper panel, so the page has no fixed chrome and
+ * `main` pays no standing bottom padding.
+ *
+ * The field is a bare underlined input rather than the `Input` primitive:
+ * the primitive draws a bordered box, and the panel already owns the box.
+ * It keeps `data-testid="studio-composer"` and stays inside a form so Enter
+ * submits and the existing submit tests keep working.
+ */
+function Composer({
+  panelRef,
+  text,
+  anchor,
+  atCap,
+  capNotice,
+  notice,
+  onChangeText,
+  onSubmit,
+  onClearAnchor,
+}: {
+  panelRef: RefObject<HTMLDivElement | null>;
+  text: string;
+  anchor: Anchor | null;
+  atCap: boolean;
+  capNotice: string;
+  notice: string | null;
+  onChangeText: (value: string) => void;
+  onSubmit: () => void;
+  onClearAnchor: () => void;
+}) {
+  return (
+    <div
+      ref={panelRef}
+      data-testid="studio-composer-panel"
+      className="w-full max-w-[640px] bg-surface border border-foreground p-5 flex flex-col gap-3.5"
+    >
+      <span className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted">
+        New design
+      </span>
+      <form
+        className="contents"
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSubmit();
+        }}
+      >
+        {/* text-[17px], not the house text-sm (14px): the mock's value, and
+            below 16px iOS Safari zooms the viewport on focus — don't
+            "correct" this back down in a copy/style sweep. */}
+        <input
+          type="text"
+          value={text}
+          onChange={(e) => onChangeText(e.target.value)}
+          placeholder={anchor ? "Describe the change" : "Describe a design"}
+          className="min-h-11 w-full py-2.5 bg-transparent border-0 border-b border-text-faint text-[17px] leading-6 text-foreground placeholder:text-text-faint focus:outline-none focus:border-foreground"
+          data-testid="studio-composer"
+        />
+        {anchor && (
+          <div
+            className="flex items-center gap-2 min-w-0"
+            data-testid="anchor-chip"
+          >
+            <div className="relative w-8 h-8 overflow-hidden bg-surface-well shrink-0 border border-border">
+              <Image
+                src={anchor.imageUrl}
+                alt=""
+                fill
+                sizes="32px"
+                className="object-cover"
+              />
+            </div>
+            <span className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted truncate">
+              Editing · {anchor.title ?? "Untitled"}
+            </span>
+            <button
+              type="button"
+              aria-label="Clear anchor"
+              onClick={onClearAnchor}
+              className="shrink-0 min-h-11 px-2 text-text-muted hover:text-foreground"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+        {atCap && (
+          <p className="text-xs text-text-muted" data-testid="cap-notice">
+            {capNotice}
+          </p>
+        )}
+        {notice && <p className="text-xs text-text-muted">{notice}</p>}
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-xs leading-4 text-text-muted">
+            Each line starts a design. Tap a result to change it.
+          </span>
+          <Button
+            type="submit"
+            variant="generate"
+            disabled={!text.trim() || atCap}
+            className="shrink-0 min-h-11 px-4 font-mono text-[11px] leading-4 tracking-[0.08em] uppercase"
+            data-testid="studio-generate"
+          >
+            Generate
+          </Button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+/**
+ * The per-lane overflow (Paper bench, #188 slice 3). The actions that used
+ * to sit as inline text links in the lane header — Close, Delete, and the
+ * page-level Select — live behind one 46px control so the row reads as a
+ * title, a state and a time, which is what makes activity-desc ordering
+ * legible (#187 point 3).
+ *
+ * Closes on outside click, on Escape, and on any click inside (every item
+ * is a terminal action, so there is nothing to keep it open for).
+ */
+function LaneMenu({ children }: { children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDown(e: MouseEvent) {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <button
+        type="button"
+        aria-label="More"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className="w-[46px] min-h-11 -mr-3 flex items-center justify-center text-foreground"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <circle cx="5" cy="12" r="1.8" />
+          <circle cx="12" cy="12" r="1.8" />
+          <circle cx="19" cy="12" r="1.8" />
+        </svg>
+      </button>
+      {open && (
+        <div
+          role="menu"
+          onClick={() => setOpen(false)}
+          className="absolute right-0 top-full z-10 min-w-[9rem] bg-surface border border-foreground flex flex-col"
+        >
+          {children}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -717,6 +838,7 @@ function Lane({
   onClose,
   onDelete,
   onCancel,
+  onEnterSelectMode,
   unresolvedCellIds,
   reveal,
 }: {
@@ -730,6 +852,10 @@ function Lane({
   onClose: (lane: StudioLane) => void;
   onDelete: (lane: StudioLane) => void;
   onCancel: (lane: StudioLane, jobId: string) => void;
+  /** Opens this row's own Select entry inside its ⋯ overflow (Paper bench,
+   * #188 slice 3) — the page-level "Select" control is gone, so this is now
+   * the only door into select mode. */
+  onEnterSelectMode: () => void;
   /** Overlay cells whose generateDesign call hasn't returned a jobId yet. */
   unresolvedCellIds: Set<string>;
   /** Newly synthesized by an unanchored submit — scroll it into view. */
@@ -752,19 +878,26 @@ function Lane({
 
   // A lane that appears at the top of the bench on submit is above the
   // viewport whenever the user had scrolled down; bring it to them.
+  // `block:"nearest"` rather than `"start"`: the composer panel now lives at
+  // the TOP of the page (Paper bench, #188 slice 3), so pinning this lane to
+  // the very top of the viewport would push the panel — draft field, cap
+  // notice, error line — off screen right after the user just used it.
+  // "nearest" is a no-op when the lane is already visible (the common case,
+  // since submitting requires the top-of-page composer to be on screen) and
+  // scrolls the minimum amount otherwise.
   useEffect(() => {
-    if (reveal) sectionRef.current?.scrollIntoView({ block: "start" });
+    if (reveal) sectionRef.current?.scrollIntoView({ block: "nearest" });
   }, [reveal]);
 
   return (
     <section
       ref={sectionRef}
-      className="mb-8"
+      className="border-t border-border pt-2 pb-4 flex flex-col gap-2"
       data-testid="studio-lane"
       data-selected={selectMode ? selected : undefined}
     >
       <div
-        className={`flex items-center justify-between gap-3 mb-2 ${
+        className={`flex items-center gap-3 min-h-11 ${
           selectable ? "cursor-pointer" : ""
         }`}
         onClick={selectable ? () => onToggleSelect(lane.designId) : undefined}
@@ -805,39 +938,62 @@ function Lane({
             </h2>
           </Link>
         )}
-        <span className="text-xs text-text-faint shrink-0">
-          {selectMode && generating
-            ? "Generating"
-            : timeAgo(lane.lastActiveAt, nowMs)}
+        {generating && (
+          <span
+            data-testid="lane-generating"
+            className="shrink-0 font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-foreground border border-foreground px-2 py-0.5"
+          >
+            Generating
+          </span>
+        )}
+        <span className="shrink-0 font-mono text-[11px] leading-4 text-text-faint">
+          {timeAgo(lane.lastActiveAt, nowMs)}
         </span>
-        {/* Both absent while generating: closing or deleting mid-render would
-            land the image in a thread that just vanished from the bench. And
-            absent in select mode: the bar's Delete is the one verb there. */}
+        {/* Close and Delete are absent while generating (closing or deleting
+            mid-render would land the image in a thread that just vanished
+            from the bench) and in select mode (the bar's Delete is the one
+            verb there). With every item gone there is nothing to open, so
+            the trigger goes too. */}
         {!generating && !selectMode && (
-          <>
+          <LaneMenu>
             <button
               type="button"
+              role="menuitem"
               onClick={() => onClose(lane)}
-              className="shrink-0 text-xs text-text-faint hover:text-foreground"
+              className="min-h-11 px-4 text-left text-sm text-text-muted hover:text-foreground hover:bg-surface-well"
               data-testid="studio-close-lane"
             >
               Close
             </button>
             <button
               type="button"
+              role="menuitem"
               onClick={() => onDelete(lane)}
-              className="shrink-0 text-xs text-text-faint hover:text-foreground"
+              className="min-h-11 px-4 text-left text-sm text-text-muted hover:text-foreground hover:bg-surface-well"
               data-testid="studio-delete-lane"
             >
               Delete
             </button>
-          </>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={onEnterSelectMode}
+              className="min-h-11 px-4 text-left text-sm text-text-muted hover:text-foreground hover:bg-surface-well"
+              data-testid="select-mode"
+            >
+              Select
+            </button>
+          </LaneMenu>
         )}
       </div>
 
       <div ref={scrollRef} className="flex gap-2 overflow-x-auto pb-1">
-        {lane.cells.map((cell) => {
+        {lane.cells.map((cell, index) => {
           const anchored = cell.imageId === anchoredImageId;
+          // Creation order, same convention as the /design strip (#151):
+          // #1 is the lane's first image, and a later generation never
+          // renumbers an earlier one.
+          const label = `#${index + 1}`;
           return (
             <button
               key={cell.imageId}
@@ -851,22 +1007,38 @@ function Lane({
                 // should survive that.
                 sectionRef.current?.scrollIntoView({ block: "nearest" });
               }}
-              className={`relative shrink-0 w-28 h-28 rounded-md overflow-hidden bg-checkerboard ${
-                anchored
-                  ? "ring-2 ring-accent ring-offset-2 ring-offset-background"
-                  : cell.isPrimary
-                    ? "border-2 border-accent"
-                    : "border border-border"
+              className={`relative shrink-0 w-28 h-28 sm:w-36 sm:h-36 overflow-hidden bg-surface ${
+                anchored ? "border-2 border-foreground" : "border border-foreground"
               }`}
             >
-              <Image
-                src={cell.imageUrl}
-                alt=""
-                fill
-                sizes="112px"
-                className="object-contain"
-              />
-              {cell.isPrimary && <span className="sr-only">Primary</span>}
+              <span className="absolute inset-1.5">
+                <Image
+                  src={cell.imageUrl}
+                  alt=""
+                  fill
+                  sizes="(min-width: 640px) 144px, 112px"
+                  className="object-contain"
+                />
+              </span>
+              <span className="absolute top-1 left-1.5 font-mono text-[10px] leading-[14px] text-text-muted">
+                {label}
+              </span>
+              {/* Anchored (2px ink border) and primary (this mono label) are
+                  orthogonal signals, not two weights of the same one — a
+                  non-primary cell being edited must not read as "the lead
+                  image", and the lead image must stay identifiable while
+                  something else is being edited. Same offsets as the #N
+                  label, mirrored to the bottom. */}
+              {cell.isPrimary && (
+                <span className="absolute bottom-1 left-1.5 font-mono text-[10px] leading-[14px] uppercase tracking-[0.08em] text-text-muted">
+                  Primary
+                </span>
+              )}
+              {/* No sr-only echo for "Primary": the visible label above IS
+                  real text in the accessibility tree, so a second sr-only
+                  span would announce it twice. "Editing" gets one because
+                  its only signal is the 2px border — a colour/width change
+                  with no text of its own, and otherwise unannounceable. */}
               {anchored && <span className="sr-only">Editing</span>}
             </button>
           );
@@ -880,17 +1052,22 @@ function Lane({
             <div
               key={job.jobId}
               data-testid="studio-pending-cell"
-              className="shrink-0 w-28 h-28 rounded-md border border-dashed border-border bg-surface flex flex-col items-center justify-center gap-1"
+              className="shrink-0 w-28 h-28 sm:w-36 sm:h-36 border border-dashed border-foreground bg-surface flex flex-col items-center justify-center gap-1.5"
             >
-              <span className="text-xs text-text-muted animate-pulse">
+              <span className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted animate-pulse">
                 Generating…
               </span>
-              <span className="text-xs text-text-faint tabular-nums">
+              <span className="font-mono text-xs leading-4 text-text-faint tabular-nums">
                 {formatElapsed(nowMs - job.startedAt.getTime())}
               </span>
               {/* The space is reserved from the start: the control renders
                   inert and invisible until the jobId lands, so the label and
-                  elapsed time don't shift under the user when it appears. */}
+                  elapsed time don't shift under the user when it appears.
+                  Cancel is min-h-7 (28px), under the house 44px rule — a
+                  deliberate exception (controller-ruled, task-4 brief): it
+                  sits inside a 112px cell under two lines of text, where a
+                  44px target does not fit, and the cell itself is not
+                  tappable, so nothing sits next to it to mis-hit. */}
               <button
                 type="button"
                 disabled={unresolved}
@@ -899,7 +1076,7 @@ function Lane({
                 onClick={
                   unresolved ? undefined : () => onCancel(lane, job.jobId)
                 }
-                className={`text-xs text-text-faint hover:text-foreground min-h-[44px] px-3 ${
+                className={`text-xs leading-4 text-foreground underline underline-offset-[3px] min-h-7 px-3 ${
                   unresolved ? "invisible" : ""
                 }`}
                 data-testid={

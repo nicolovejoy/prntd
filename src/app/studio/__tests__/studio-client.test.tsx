@@ -86,16 +86,6 @@ beforeEach(() => {
 });
 
 describe("StudioClient rendering", () => {
-  it("shows the empty state with a Shop path when there are no lanes", () => {
-    render(<StudioClient initialLanes={[]} />);
-    expect(screen.getByText("No open designs.")).toBeTruthy();
-    // A buy-only account lands here since / redirects signed-in users; the
-    // Shop link is their way onward.
-    expect(
-      screen.getByRole("link", { name: "Browse the Shop" }).getAttribute("href")
-    ).toBe("/shop");
-  });
-
   it("renders a lane's cells with the primary marked", () => {
     render(
       <StudioClient
@@ -108,8 +98,20 @@ describe("StudioClient rendering", () => {
     expect(screen.getByText("geometric wolf head")).toBeTruthy();
     const cells = screen.getAllByTestId("studio-cell");
     expect(cells).toHaveLength(2);
-    expect(cells[0].className).not.toContain("border-accent");
-    expect(cells[1].className).toContain("border-accent");
+    // Primary is a mono marker now, not a border weight — the 2px ink border
+    // is reserved for "anchored" alone (review fix, task 4). Neither cell is
+    // anchored here, so neither carries border-2; the primary cell alone
+    // shows the visible "Primary" label.
+    expect(cells[0].className).not.toContain("border-2");
+    expect(cells[1].className).not.toContain("border-2");
+    expect(within(cells[0]).queryAllByText("Primary")).toHaveLength(0);
+    // getByText throws on more than one match, so this alone would catch a
+    // reintroduced sr-only echo beside the visible label (the exact
+    // duplicate-announcement regression fixed above); the explicit
+    // not-sr-only check on top makes sure the one surviving match is the
+    // visible marker, not a lone sr-only span standing in for it.
+    const primaryLabel = within(cells[1]).getByText("Primary");
+    expect(primaryLabel.className).not.toContain("sr-only");
   });
 
   it("renders a running generation as a pending cell with elapsed time", () => {
@@ -123,6 +125,82 @@ describe("StudioClient rendering", () => {
   it("falls back to Untitled when a lane has no label", () => {
     render(<StudioClient initialLanes={[lane({ title: null })]} />);
     expect(screen.getByText("Untitled")).toBeTruthy();
+  });
+});
+
+describe("cells (Paper bench)", () => {
+  it("numbers cells in creation order", () => {
+    render(
+      <StudioClient
+        initialLanes={[
+          lane({ cells: [cell("a"), cell("b", { isPrimary: true })] }),
+        ]}
+      />
+    );
+    const cells = screen.getAllByTestId("studio-cell");
+    // Bind each label to its own cell, not just "somewhere on the page" —
+    // pins position-to-label rather than merely presence.
+    expect(within(cells[0]).getByText("#1")).toBeTruthy();
+    expect(within(cells[1]).getByText("#2")).toBeTruthy();
+  });
+
+  it("marks the anchored cell with an ink border, not a ring", () => {
+    render(
+      <StudioClient
+        initialLanes={[
+          lane({ cells: [cell("a"), cell("b", { isPrimary: true })] }),
+        ]}
+      />
+    );
+    const cell0 = screen.getAllByTestId("studio-cell")[0];
+    fireEvent.click(cell0);
+    expect(cell0.className).toContain("border-2");
+    expect(cell0.className).not.toContain("ring-2");
+  });
+
+  it("keeps anchored and primary as separate, composable signals", () => {
+    render(
+      <StudioClient
+        initialLanes={[
+          lane({ cells: [cell("a"), cell("b", { isPrimary: true })] }),
+        ]}
+      />
+    );
+    const cells = screen.getAllByTestId("studio-cell");
+    // Anchor the NON-primary cell — primary stays "b" (cells[1]).
+    fireEvent.click(cells[0]);
+
+    expect(cells[0].className).toContain("border-2");
+    expect(cells[0]).not.toBe(cells[1]);
+
+    // The primary marker is visible (not just sr-only) on the primary cell,
+    // and the anchored-but-not-primary cell shows no such marker at all.
+    // getByText (exactly one match) plus the not-sr-only check together
+    // catch a reintroduced sr-only echo beside the visible label.
+    const primaryLabel = within(cells[1]).getByText("Primary");
+    expect(primaryLabel.className).not.toContain("sr-only");
+    expect(within(cells[0]).queryAllByText("Primary")).toHaveLength(0);
+  });
+
+  it("draws the pending dash in ink and matches the result cells' square footprint (task 4)", () => {
+    // "Generating…"/Cancel and border-dashed itself predate this branch and
+    // are already pinned by the :117 rendering test above; what task 4 added
+    // is the ink-colored dash (vs. a duller pre-branch color) and sizing the
+    // cell to the same responsive square as a real result cell, so the row
+    // doesn't reflow when a pending cell resolves into one.
+    render(<StudioClient initialLanes={[lane({ pending: [pendingJob("job-1")] })]} />);
+    const pending = screen.getByTestId("studio-pending-cell");
+    expect(pending.className).toContain("border-foreground");
+    expect(pending.className).toContain("sm:w-36");
+  });
+});
+
+describe("the empty bench", () => {
+  it("offers the composer and one line, and no Shop path", () => {
+    render(<StudioClient initialLanes={[]} />);
+    expect(screen.getByTestId("studio-composer-panel")).toBeTruthy();
+    expect(screen.getByText("No open designs.")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Browse the Shop" })).toBeNull();
   });
 });
 
@@ -260,10 +338,133 @@ describe("the composer", () => {
   });
 });
 
+describe("the composer panel (Paper bench)", () => {
+  it("renders above the lanes, not docked to the bottom", () => {
+    render(<StudioClient initialLanes={[lane({ cells: [cell("a"), cell("b", { isPrimary: true })] })]} />);
+    const composer = screen.getByTestId("studio-composer");
+    const lanesEl = screen.getByTestId("studio-lane");
+    // Node.compareDocumentPosition: DOCUMENT_POSITION_FOLLOWING (4) means
+    // `lanesEl` comes after `composer` in document order.
+    expect(composer.compareDocumentPosition(lanesEl) & 4).toBe(4);
+    const panel = screen.getByTestId("studio-composer-panel");
+    expect(panel.className).not.toContain("fixed");
+  });
+
+  it("labels the panel and states what a line does", () => {
+    render(<StudioClient initialLanes={[]} />);
+    expect(screen.getByText("New design")).toBeTruthy();
+    expect(
+      screen.getByText("Each line starts a design. Tap a result to change it.")
+    ).toBeTruthy();
+  });
+
+  it("shows the anchored image as a row inside the panel", () => {
+    render(<StudioClient initialLanes={[lane({ cells: [cell("a")] })]} />);
+    fireEvent.click(screen.getByTestId("studio-cell"));
+    const chip = screen.getByTestId("anchor-chip");
+    expect(screen.getByTestId("studio-composer-panel").contains(chip)).toBe(true);
+  });
+
+  it("pays no bottom padding for a composer that is no longer docked", () => {
+    render(<StudioClient initialLanes={[lane({ cells: [cell("a"), cell("b", { isPrimary: true })] })]} />);
+    expect(screen.getByRole("main").className).not.toContain("pb-40");
+  });
+
+  it("shows a failed Close's explanation in the panel (Important 2, review)", async () => {
+    // `notice` only renders inside the composer panel, which now sits above
+    // the fold — the panel scrolls itself into view on this transition
+    // (jsdom stubs scrollIntoView above, so that part isn't directly
+    // asserted here; this pins that the notice text itself lands).
+    vi.mocked(closeConversation).mockRejectedValueOnce(new Error("boom"));
+    render(<StudioClient initialLanes={[lane()]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    fireEvent.click(screen.getByTestId("studio-close-lane"));
+
+    await waitFor(() =>
+      expect(
+        screen
+          .getByTestId("studio-composer-panel")
+          .textContent
+      ).toContain("Couldn't close that design. Try again.")
+    );
+  });
+
+  it("swaps main's bottom padding for the select bar, and back on Done", () => {
+    render(<StudioClient initialLanes={[lane({ cells: [cell("a")] })]} />);
+
+    // Not selecting: main pays the plain page padding, not the bar's.
+    expect(screen.getByRole("main").className).toContain("pb-8");
+    expect(screen.getByRole("main").className).not.toContain("pb-40");
+
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    fireEvent.click(screen.getByTestId("select-mode"));
+    expect(screen.getByRole("main").className).toContain("pb-40");
+    expect(screen.getByRole("main").className).not.toContain("pb-8");
+
+    fireEvent.click(screen.getByTestId("select-done"));
+    expect(screen.getByRole("main").className).toContain("pb-8");
+    expect(screen.getByRole("main").className).not.toContain("pb-40");
+  });
+});
+
+describe("the lane row (Paper bench)", () => {
+  it("shows a relative time and keeps the title a link to the thread", () => {
+    const l = lane({
+      cells: [cell("a")],
+      lastActiveAt: new Date(Date.now() - 14 * 60_000),
+    });
+    render(<StudioClient initialLanes={[l]} />);
+    expect(screen.getByText("14m ago")).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: l.title! }).getAttribute("href")
+    ).toBe(`/design?id=${l.designId}`);
+  });
+
+  it("marks a generating lane with a status pill", () => {
+    render(<StudioClient initialLanes={[lane({ pending: [pendingJob("job-1")] })]} />);
+    expect(screen.getByTestId("lane-generating")).toBeTruthy();
+  });
+
+  it("holds Close, Delete and Select behind the overflow control", () => {
+    render(
+      <StudioClient
+        initialLanes={[
+          lane({ cells: [cell("a"), cell("b", { isPrimary: true })] }),
+        ]}
+      />
+    );
+    expect(screen.queryByTestId("studio-close-lane")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    expect(screen.getByTestId("studio-close-lane")).toBeTruthy();
+    expect(screen.getByTestId("studio-delete-lane")).toBeTruthy();
+    expect(screen.getByTestId("select-mode")).toBeTruthy();
+  });
+
+  it("closes the overflow on Escape", () => {
+    render(
+      <StudioClient
+        initialLanes={[
+          lane({ cells: [cell("a"), cell("b", { isPrimary: true })] }),
+        ]}
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByTestId("studio-close-lane")).toBeNull();
+  });
+
+  it("offers no overflow at all while a generation is running", () => {
+    render(<StudioClient initialLanes={[lane({ pending: [pendingJob("job-1")] })]} />);
+    expect(screen.queryByRole("button", { name: "More" })).toBeNull();
+  });
+});
+
 describe("closing a lane", () => {
   it("Close removes the lane and closes the conversation", async () => {
     render(<StudioClient initialLanes={[lane()]} />);
 
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
     fireEvent.click(screen.getByTestId("studio-close-lane"));
 
     expect(screen.queryByTestId("studio-lane")).toBeNull();
@@ -339,6 +540,7 @@ describe("deleting a lane (slice 5 review, F1)", () => {
   it("Delete removes the lane and deletes the conversation", async () => {
     render(<StudioClient initialLanes={[lane()]} />);
 
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
     fireEvent.click(screen.getByTestId("studio-delete-lane"));
     await screen.findByTestId("confirm-sheet");
     fireEvent.click(screen.getByTestId("confirm-sheet-confirm"));
@@ -353,6 +555,7 @@ describe("deleting a lane (slice 5 review, F1)", () => {
     });
     render(<StudioClient initialLanes={[lane()]} />);
 
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
     fireEvent.click(screen.getByTestId("studio-delete-lane"));
     await screen.findByTestId("confirm-sheet");
     fireEvent.click(screen.getByTestId("confirm-sheet-confirm"));
@@ -364,6 +567,7 @@ describe("deleting a lane (slice 5 review, F1)", () => {
   it("does nothing when the confirm is dismissed", async () => {
     render(<StudioClient initialLanes={[lane()]} />);
 
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
     fireEvent.click(screen.getByTestId("studio-delete-lane"));
     const sheet = await screen.findByTestId("confirm-sheet");
     fireEvent.click(within(sheet).getByText("Cancel"));
@@ -388,15 +592,17 @@ describe("select mode (#189)", () => {
 
   it("is offered only when there are lanes", () => {
     const { unmount } = render(<StudioClient initialLanes={[]} />);
-    expect(screen.queryByTestId("select-mode")).toBeNull();
+    expect(screen.queryByRole("button", { name: "More" })).toBeNull();
     unmount();
     render(<StudioClient initialLanes={three()} />);
+    fireEvent.click(screen.getAllByRole("button", { name: "More" })[0]);
     expect(screen.getByTestId("select-mode")).toBeTruthy();
   });
 
   it("Select swaps the composer for the bar and shows a checkbox per lane", () => {
     render(<StudioClient initialLanes={three()} />);
 
+    fireEvent.click(screen.getAllByRole("button", { name: "More" })[0]);
     fireEvent.click(screen.getByTestId("select-mode"));
 
     expect(screen.queryByTestId("studio-composer")).toBeNull();
@@ -413,6 +619,7 @@ describe("select mode (#189)", () => {
 
   it("checkbox, header tap and cell tap all toggle the lane; the count follows", () => {
     render(<StudioClient initialLanes={three()} />);
+    fireEvent.click(screen.getAllByRole("button", { name: "More" })[0]);
     fireEvent.click(screen.getByTestId("select-mode"));
 
     fireEvent.click(screen.getAllByTestId("lane-checkbox")[0]);
@@ -436,6 +643,7 @@ describe("select mode (#189)", () => {
         ]}
       />
     );
+    fireEvent.click(screen.getAllByRole("button", { name: "More" })[0]);
     fireEvent.click(screen.getByTestId("select-mode"));
 
     const boxes = screen.getAllByTestId("lane-checkbox") as HTMLInputElement[];
@@ -449,11 +657,13 @@ describe("select mode (#189)", () => {
   it("Done and Escape leave select mode and clear the selection", () => {
     render(<StudioClient initialLanes={three()} />);
 
+    fireEvent.click(screen.getAllByRole("button", { name: "More" })[0]);
     fireEvent.click(screen.getByTestId("select-mode"));
     fireEvent.click(screen.getAllByTestId("lane-checkbox")[0]);
     fireEvent.click(screen.getByTestId("select-done"));
     expect(screen.getByTestId("studio-composer")).toBeTruthy();
 
+    fireEvent.click(screen.getAllByRole("button", { name: "More" })[0]);
     fireEvent.click(screen.getByTestId("select-mode"));
     expect(screen.getByTestId("selected-count").textContent).toBe("0 selected");
     fireEvent.keyDown(document, { key: "Escape" });
@@ -464,6 +674,7 @@ describe("select mode (#189)", () => {
     // The refetch after the delete returns server truth: the survivor.
     h.polledLanes = [three()[1]];
     render(<StudioClient initialLanes={three()} />);
+    fireEvent.click(screen.getAllByRole("button", { name: "More" })[0]);
     fireEvent.click(screen.getByTestId("select-mode"));
     fireEvent.click(screen.getAllByTestId("lane-checkbox")[0]);
     fireEvent.click(screen.getAllByTestId("lane-checkbox")[2]);
@@ -505,6 +716,7 @@ describe("select mode (#189)", () => {
     // d3 was deleted too in the mock's view; the server says d2 survives.
     h.polledLanes = [three()[1]];
     render(<StudioClient initialLanes={three()} />);
+    fireEvent.click(screen.getAllByRole("button", { name: "More" })[0]);
     fireEvent.click(screen.getByTestId("select-mode"));
     fireEvent.click(screen.getByTestId("select-all"));
 
@@ -531,6 +743,7 @@ describe("select mode (#189)", () => {
   it("restores everything when the action throws", async () => {
     vi.mocked(deleteConversations).mockRejectedValueOnce(new Error("boom"));
     render(<StudioClient initialLanes={three()} />);
+    fireEvent.click(screen.getAllByRole("button", { name: "More" })[0]);
     fireEvent.click(screen.getByTestId("select-mode"));
     fireEvent.click(screen.getByTestId("select-all"));
 
@@ -546,6 +759,7 @@ describe("select mode (#189)", () => {
 
   it("does nothing when the confirm is dismissed", async () => {
     render(<StudioClient initialLanes={three()} />);
+    fireEvent.click(screen.getAllByRole("button", { name: "More" })[0]);
     fireEvent.click(screen.getByTestId("select-mode"));
     fireEvent.click(screen.getByTestId("select-all"));
 
@@ -742,16 +956,35 @@ describe("the optimistic pending cell (#187)", () => {
 
   it("a lane with only an optimistic cell is not selectable", () => {
     deferGenerate();
-    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+    // A second, idle lane is needed to reach Select at all here (Paper bench,
+    // #188 slice 3): the moment the submit below lands its optimistic cell,
+    // the ONLY other lane's own ⋯ overflow disappears too (generating hides
+    // it), and there is no longer a page-level Select control to fall back
+    // on — this is a real consequence of the redesign, not a test artifact.
+    render(
+      <StudioClient
+        initialLanes={[
+          lane({ cells: [cell("img-1")] }),
+          lane({ designId: "design-2", title: "other", cells: [cell("img-2")] }),
+        ]}
+      />
+    );
 
-    fireEvent.click(screen.getByTestId("studio-cell"));
+    fireEvent.click(screen.getAllByTestId("studio-cell")[0]);
     submitText("make it blue");
+    // The generating lane's own trigger is gone; the idle second lane's is
+    // the only door left into select mode.
+    fireEvent.click(screen.getAllByRole("button", { name: "More" })[0]);
     fireEvent.click(screen.getByTestId("select-mode"));
 
-    const box = screen.getByTestId("lane-checkbox") as HTMLInputElement;
+    const box = screen.getAllByTestId("lane-checkbox")[0] as HTMLInputElement;
     expect(box.disabled).toBe(true);
     fireEvent.click(screen.getByTestId("select-all"));
-    expect(screen.getByTestId("selected-count").textContent).toBe("0 selected");
+    // Only the idle second lane is selectable; the generating lane's own
+    // checkbox stays unchecked either way — that's the invariant this test
+    // pins.
+    expect(screen.getByTestId("selected-count").textContent).toBe("1 selected");
+    expect(box.checked).toBe(false);
   });
 
   it("leaves the anchor where the user put it across the submit", () => {
@@ -847,6 +1080,7 @@ describe("the optimistic pending cell — review fixes (#187)", () => {
     deferGenerate();
     render(<StudioClient initialLanes={[lane()]} />);
 
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
     fireEvent.click(screen.getByTestId("studio-close-lane"));
     submitText("a red dragon");
     expect(screen.getByTestId("studio-pending-cell")).toBeTruthy();
