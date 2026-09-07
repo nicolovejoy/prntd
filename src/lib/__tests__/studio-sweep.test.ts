@@ -45,8 +45,13 @@ const daysAgo = (d: number) => new Date(NOW.getTime() - d * 24 * 60 * 60 * 1000)
 beforeEach(async () => {
   db = await createTestDb();
   await makeUser(db, "owner");
-  vi.mocked(sweepStaleJobs).mockClear();
-  vi.mocked(sweepIdleConversations).mockClear();
+  // mockReset, not mockClear: also drains any mockRejectedValueOnce queued
+  // by a prior test. It does NOT touch the `actual` implementation each
+  // mock was constructed with (vi.fn(actual) keeps that as tinyspy's
+  // "original", separate from mockReset's own implementation slot), so the
+  // real sweep still runs by default in every test that doesn't override it.
+  vi.mocked(sweepStaleJobs).mockReset();
+  vi.mocked(sweepIdleConversations).mockReset();
 });
 
 describe("sweepStudioForUser", () => {

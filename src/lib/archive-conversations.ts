@@ -9,9 +9,17 @@
  * /studio and appearing on /studio/archive.
  *
  * Deliberately NOT a cron: `vercel.json` is at Vercel Hobby's two-cron limit.
- * It runs lazily on a read that happens anyway — the Studio's own load — with
- * the existing sweep-generations cron as the backstop, exactly the shape
- * `sweepStaleJobs` established in generation-job.ts.
+ * The existing sweep-generations cron is the backstop. On the Studio itself
+ * (#204) this sweep is NOT run inline on the read — `sweepStudioForUser`
+ * (studio.ts) schedules it via `after()`, off the render path, alongside
+ * `sweepStaleJobs`, so the two write-shaped sweeps stop blocking the first
+ * byte; the read may show a lane one sweep behind, self-correcting on the
+ * next poll or a refused write. `sweepStaleJobs` itself is NOT changed by
+ * this and still runs inline, on the read, at its other call sites
+ * (`design/actions.ts`'s `getDesignJobs`, `site-header-actions.ts`,
+ * `user-designs.ts`, `design-thread.ts`) — this module's sweep has exactly
+ * one caller (the Studio), so there was nowhere else to preserve the old
+ * "lazily on a read that happens anyway" shape for.
  */
 import { and, asc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 import type { db as appDb } from "./db";
