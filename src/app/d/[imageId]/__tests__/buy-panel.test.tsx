@@ -340,3 +340,30 @@ describe("BuyPanel back pick reporting + handle (#167)", () => {
     ).toBeInTheDocument();
   });
 });
+
+describe("BuyPanel Paper pass (#188)", () => {
+  it("expanded: still renders the size picker, the total and Add to cart", () => {
+    render(<BuyPanel imageId="img-1" isLoggedIn cartEnabled />);
+    expand();
+    // The money surface survives the re-skin: a size gate, a computed total,
+    // and the cart path. The nightly Stripe e2e buys via the cart, not via
+    // this page, so this is the guard for the panel's own rendering.
+    const blank = getBlankOrThrow("bella-canvas-3001");
+    expect(screen.getByRole("button", { name: blank.sizes[0] })).toBeInTheDocument();
+    expect(screen.getByText("Total")).toBeInTheDocument();
+    // Rendered twice (desktop inline + mobile sticky bar), like every other
+    // add-to-cart assertion in this file — same reason buyButton() above
+    // takes index [0].
+    expect(screen.getAllByTestId("add-to-cart")[0]).toBeInTheDocument();
+    // Size gate still closed until a pick.
+    expect(screen.getAllByTestId("add-to-cart")[0]).toBeDisabled();
+  });
+
+  it("expanded: labels the sections it owns in mono caps", () => {
+    render(<BuyPanel imageId="img-1" isLoggedIn backEnabled />);
+    expand();
+    expect(screen.getByText("Product")).toBeInTheDocument();
+    expect(screen.getByText("Back design")).toBeInTheDocument();
+    expect(screen.getByText("Price")).toBeInTheDocument();
+  });
+});

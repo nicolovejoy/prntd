@@ -9,6 +9,14 @@ export const dynamic = "force-dynamic";
  * that the word "Shop" names exactly one thing. The organizer storefronts at
  * /shop/[slug] are retired (#191) and drop out entirely with #201; a dynamic
  * segment needs a non-empty path segment, so they never shadow this page.
+ *
+ * Paper slice 6 (#188): the masthead is a left-aligned mono label, not a
+ * centred display heading — matched by the homepage's Shop teaser in
+ * src/app/page.tsx. The old sub-line ("Designs published by other makers.")
+ * is dropped with no replacement: the Shop sells shirts, not art
+ * (docs/object-model-composition.md), so a line about designs/makers is off
+ * message and the card grid itself (backdrop, price, garment, maker) already
+ * says what's for sale.
  */
 export default async function ShopPage() {
   const images = await getDiscoverFeed(60);
@@ -16,12 +24,9 @@ export default async function ShopPage() {
   return (
     <main className="flex-1 px-4 py-10">
       <div className="max-w-6xl mx-auto">
-        <header className="mb-8 text-center">
-          <h1 className="text-3xl font-bold">Shop</h1>
-          <p className="text-text-muted mt-2">
-            Designs published by other makers.
-          </p>
-        </header>
+        <h1 className="mb-8 font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted">
+          Shop
+        </h1>
 
         {images.length > 0 ? (
           <PublishedGrid images={images} from="/shop" />

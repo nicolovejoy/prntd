@@ -36,16 +36,26 @@ export default async function Home() {
       {discover.length > 0 && (
         <section className="py-8 sm:py-16 px-4 border-t border-border">
           <div className="max-w-6xl mx-auto">
-            <h2 className="text-2xl font-bold text-center mb-4 sm:mb-8">Shop</h2>
-            <PublishedGrid images={discover} />
-            <div className="text-center mt-8">
+            <div className="mb-4 sm:mb-8 flex items-baseline justify-between gap-4">
+              <h2 className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted">
+                Shop
+              </h2>
               <Link
                 href="/shop"
-                className="text-sm text-text-muted underline hover:text-foreground transition-colors"
+                className="text-sm underline underline-offset-[3px] hover:text-text-muted transition-colors"
               >
-                See all →
+                See all
               </Link>
             </div>
+            {/*
+              from="/" records the true origin (previously omitted). It is
+              currently inert: src/lib/nav.ts's detailParent() has no case for
+              "/" and falls to its Shop default either way, matching what an
+              omitted `from` already does. Kept anyway so the link states its
+              real origin and a future detailParent case for "/" (routing an
+              image-page Escape back to the homepage) is a nav.ts-only change.
+            */}
+            <PublishedGrid images={discover} from="/" />
           </div>
         </section>
       )}

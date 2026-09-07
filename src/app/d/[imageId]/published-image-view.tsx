@@ -2,10 +2,9 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { updatePublishedNaming, unpublishImage } from "@/app/designs/actions";
+import { updatePublishedNaming } from "@/app/designs/actions";
 import { publishedBackdrop, DEFAULT_PUBLISH_BACKGROUND } from "@/lib/blanks";
 import { BackgroundPicker } from "@/components/background-picker";
-import { Button, useConfirm } from "@/components/ui";
 
 /**
  * The published design's image with its storefront backdrop. The owner gets
@@ -15,7 +14,9 @@ import { Button, useConfirm } from "@/components/ui";
  *
  * The picker lives here, not behind the title "Edit" link, because setting
  * the backdrop is a visual, direct-manipulation action — you want to see it
- * applied to the actual art as you choose.
+ * applied to the actual art as you choose. The owner's non-visual actions
+ * (Publish/Un-publish, Open conversation, Delete conversation) live in the
+ * OWNER row instead (`owner-actions.tsx`).
  */
 export function PublishedImageView({
   imageId,
@@ -38,7 +39,6 @@ export function PublishedImageView({
   );
   const [pending, startTransition] = useTransition();
   const backdrop = publishedBackdrop(bg);
-  const { confirm, element: confirmSheet } = useConfirm();
 
   function pick(color: string) {
     const prev = bg;
@@ -54,24 +54,11 @@ export function PublishedImageView({
     });
   }
 
-  async function unpublish() {
-    const ok = await confirm({
-      title: "Take this design down from the storefront?",
-      body: "You can re-publish it later.",
-      confirmLabel: "Un-publish",
-      danger: true,
-    });
-    if (!ok) return;
-    startTransition(async () => {
-      await unpublishImage(imageId);
-      // The page is no longer public — send the owner back to their library.
-      router.push("/studio/library");
-    });
-  }
-
   return (
     <div className="space-y-3">
-      {confirmSheet}
+      {/* 1px bordered card on paper; the fill inside is the listing's pinned
+          backdrop, which stays a real colour because it is the buyer's
+          garment-colour choice (design review, Paper note). */}
       <div
         className={`rounded-lg overflow-hidden border border-border ${backdrop.className}`}
         style={backdrop.style}
@@ -85,17 +72,7 @@ export function PublishedImageView({
       </div>
 
       {canEdit && (
-        <div className="space-y-3">
-          <BackgroundPicker value={bg} onChange={pick} disabled={pending} />
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={unpublish}
-            disabled={pending}
-          >
-            Un-publish
-          </Button>
-        </div>
+        <BackgroundPicker value={bg} onChange={pick} disabled={pending} />
       )}
     </div>
   );

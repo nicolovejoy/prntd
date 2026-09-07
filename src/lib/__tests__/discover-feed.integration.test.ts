@@ -8,6 +8,8 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { createTestDb } from "./test-db";
 import { makeUser, makeDesign, makeSourceImage } from "./factories";
 import { orderFeedByRank, compareFeedOrder } from "@/lib/discover-feed";
+import * as schema from "@/lib/db/schema";
+import { sql } from "drizzle-orm";
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
 let testDb: Db;
@@ -181,5 +183,34 @@ describe("getPublishedFeed (real DB)", () => {
     }
     const feed = await getPublishedFeed(3);
     expect(feed).toHaveLength(3);
+  });
+
+  it("carries the mirror product's blank id, null when the buyer picks", async () => {
+    // Every Shop mirror is written with blank_id NULL (model-b-writes.ts), so
+    // the null case is the production path; the fixed case is what composition
+    // slice 5+ will start writing.
+    await makeUser(testDb, "nico");
+    await publishImage("nico", { publishedMinutesAgo: 1 });
+
+    const feed = await getPublishedFeed();
+    expect(feed.length).toBeGreaterThan(0);
+    for (const row of feed) {
+      expect(row).toHaveProperty("blankId");
+    }
+    expect(feed.every((r) => r.blankId === null)).toBe(true);
+  });
+
+  it("carries a fixed blank id when the composition fixes one", async () => {
+    await makeUser(testDb, "nico");
+    const fixed = await publishImage("nico", { publishedMinutesAgo: 5 });
+
+    await testDb
+      .update(schema.product)
+      .set({ blankId: "cotton-heritage-mc1087" })
+      .where(sql`json_extract(placements, '$.front') = ${fixed.imageId}`);
+
+    const feed = await getPublishedFeed();
+    const row = feed.find((r) => r.imageId === fixed.imageId);
+    expect(row?.blankId).toBe("cotton-heritage-mc1087");
   });
 });

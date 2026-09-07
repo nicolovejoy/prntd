@@ -8,6 +8,7 @@ import { ImageLightbox, type LightboxImage } from "@/app/design/image-lightbox";
 import { Button, InlineNotice } from "@/components/ui";
 import { SET_PRIMARY_IMAGE_FAILED } from "@/lib/action-copy";
 import type { SiblingImage } from "../actions";
+import { MONO_LABEL } from "./mono-label";
 
 const STRIP_SIZES = "88px";
 
@@ -108,35 +109,37 @@ export function ConversationImages({
 
       {others.length > 0 && (
         <div>
-          <h2 className="text-xs font-medium text-text-muted mb-2">
-            Other images from this design
-          </h2>
+          <h2 className={`${MONO_LABEL} mb-2`}>Other images from this design</h2>
           <div className="flex gap-2 overflow-x-auto pb-1">
             {others.map(({ img, index }) => {
               const isCurrent = img.imageId === primaryImageId;
               return (
-                <button
-                  key={img.imageId}
-                  type="button"
-                  onClick={() => showInLightbox(index)}
-                  aria-label={`Image #${index + 1}`}
-                  aria-current={isCurrent ? "true" : undefined}
-                  title={isCurrent ? "Current image" : undefined}
-                  data-testid="conversation-image-thumb"
-                  className={`relative shrink-0 w-[88px] aspect-square rounded-lg overflow-hidden border-2 bg-checkerboard ${
-                    isCurrent ? "border-accent" : "border-border"
-                  }`}
-                >
-                  <Image
-                    src={img.imageUrl}
-                    alt="Other version of this design"
-                    fill
-                    sizes={STRIP_SIZES}
-                    loading="lazy"
-                    decoding="async"
-                    className="object-contain"
-                  />
-                </button>
+                <div key={img.imageId} className="shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => showInLightbox(index)}
+                    aria-label={`Image #${index + 1}`}
+                    aria-current={isCurrent ? "true" : undefined}
+                    title={isCurrent ? "Current image" : undefined}
+                    data-testid="conversation-image-thumb"
+                    className={`relative block w-[88px] aspect-square rounded-lg overflow-hidden border-2 bg-surface-well ${
+                      isCurrent ? "border-accent" : "border-border"
+                    }`}
+                  >
+                    <Image
+                      src={img.imageUrl}
+                      alt="Other version of this design"
+                      fill
+                      sizes={STRIP_SIZES}
+                      loading="lazy"
+                      decoding="async"
+                      className="object-contain"
+                    />
+                  </button>
+                  <p className={`${MONO_LABEL} mt-1`} aria-hidden>
+                    #{index + 1}
+                  </p>
+                </div>
               );
             })}
           </div>

@@ -8,16 +8,16 @@ import { getLastPurchaseDefaults } from "@/app/preview/actions";
 import { auth, isAnonymousUser } from "@/lib/auth";
 import { multiPlacementEnabled } from "@/lib/blanks";
 import { cartEnabled } from "@/lib/flags";
+import { minRetailPrice } from "@/lib/pricing";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
 import { Button } from "@/components/ui";
-import { EditableNaming } from "./editable-naming";
+import { IdentityBlock } from "./identity-block";
 import { PublishedImageView } from "./published-image-view";
-import { PublishCta } from "./publish-cta";
 import { BuyHero } from "./buy-hero";
 import { StartFromImage } from "./start-from-image";
 import { ConversationImages } from "./conversation-images";
-import { ConversationActions } from "./conversation-actions";
+import { OwnerActions } from "./owner-actions";
 
 type Params = Promise<{ imageId: string }>;
 type Search = Promise<{ from?: string }>;
@@ -83,54 +83,18 @@ export default async function PublishedImagePage({
   const trail = breadcrumbTrail(`/d/${imageId}`, { from });
   const up = trail.length > 0 ? trail[trail.length - 1] : null;
 
-  // Title/naming/attribution block — identical for both branches below, so
-  // it's computed once rather than duplicated. Renders between the hero and
-  // the buy/remix CTA in both.
-  const metaBlock = (
-    <div className="space-y-1">
-      <EditableNaming
-        imageId={img.imageId}
-        title={img.title}
-        canEdit={isOwner && isPublished}
-      />
-      <p className="text-sm text-text-muted">by {img.designerName}</p>
-      {isOwner && !isPublished && (
-        <div className="flex flex-wrap items-center gap-3 pt-1">
-          <span className="text-sm text-text-faint">Not published</span>
-          <PublishCta
-            imageId={img.imageId}
-            imageUrl={img.imageUrl}
-            canPublish={isLoggedIn}
-          />
-        </div>
-      )}
-      {/* The conversation may be gone even when the image names one — an
-          image pinned by an order or a seed survives its thread's delete —
-          so the row is gated on the design row actually resolving. */}
-      {isOwner && img.sourceDesignId && img.hasSourceConversation && (
-        <ConversationActions
-          designId={img.sourceDesignId}
-          archived={img.sourceConversationArchived}
-        />
-      )}
-      {img.forkChain.length > 0 && (
-        <p className="text-sm text-text-faint">
-          Forked from{" "}
-          {img.forkChain.map((link, i) => (
-            <span key={link.imageId}>
-              {i > 0 && " ← "}
-              <Link
-                href={`/d/${link.imageId}`}
-                className="underline hover:text-text-muted"
-              >
-                {link.title ?? "an earlier design"}
-              </Link>{" "}
-              by {link.designerName}
-            </span>
-          ))}
-        </p>
-      )}
-    </div>
+  // Title/attribution/price as one mono-labelled block, identical for both
+  // branches below (design review, "/d/[imageId] image page"). The owner's
+  // actions are NOT here — they collect under the OWNER row further down.
+  const identityBlock = (
+    <IdentityBlock
+      imageId={img.imageId}
+      title={img.title}
+      canEditTitle={isOwner && isPublished}
+      designerName={img.designerName}
+      priceFloor={minRetailPrice()}
+      forkChain={img.forkChain}
+    />
   );
 
   return (
@@ -163,7 +127,7 @@ export default async function PublishedImagePage({
                   <Link
                     href={up.href}
                     aria-label={`Back to ${up.label}`}
-                    className="sm:hidden absolute top-2 left-2 z-10 inline-flex items-center justify-center w-10 h-10 rounded-full bg-foreground/70 text-accent-fg backdrop-blur-sm"
+                    className="sm:hidden absolute top-2 left-2 z-10 inline-flex h-11 w-11 items-center justify-center rounded-full border border-foreground bg-background text-foreground"
                   >
                     <span aria-hidden>←</span>
                   </Link>
@@ -177,7 +141,7 @@ export default async function PublishedImagePage({
                 />
               </div>
 
-              {metaBlock}
+              {identityBlock}
 
               <div className="flex flex-wrap items-center gap-3">
                 {img.sourceDesignId && (
@@ -187,30 +151,68 @@ export default async function PublishedImagePage({
                 )}
                 <StartFromImage imageId={img.imageId} />
               </div>
+
+              {isOwner && (
+                <OwnerActions
+                  imageId={img.imageId}
+                  imageUrl={img.imageUrl}
+                  isPublished={isPublished}
+                  canPublish={isLoggedIn}
+                  // The conversation may be gone even when the image names one —
+                  // an image pinned by an order or a seed survives its thread's
+                  // delete — so the row is gated on the design row resolving.
+                  sourceDesignId={
+                    img.sourceDesignId && img.hasSourceConversation
+                      ? img.sourceDesignId
+                      : null
+                  }
+                  conversationArchived={img.sourceConversationArchived}
+                />
+              )}
             </>
           ) : (
-            <BuyHero
-              imageId={img.imageId}
-              imageUrl={img.imageUrl}
-              alt={img.title ?? "Design"}
-              initialBackgroundColor={img.backgroundColor}
-              canEdit={isOwner}
-              backHref={up?.href}
-              backLabel={up?.label}
-              isLoggedIn={isLoggedIn}
-              remembered={remembered}
-              // Back affordance is signed-in only (back selection would be
-              // lost through the sign-in redirect anyway) and flag-gated;
-              // the server action re-checks both.
-              backEnabled={isLoggedIn && multiPlacementEnabled()}
-              // Add to cart mirrors /preview's gating: flag + size picked,
-              // no auth gate (guests have carts; checkout gates sign-in,
-              // #146).
-              cartEnabled={cartEnabled()}
-              startAction={<StartFromImage imageId={img.imageId} />}
-            >
-              {metaBlock}
-            </BuyHero>
+            <>
+              <BuyHero
+                imageId={img.imageId}
+                imageUrl={img.imageUrl}
+                alt={img.title ?? "Design"}
+                initialBackgroundColor={img.backgroundColor}
+                canEdit={isOwner}
+                backHref={up?.href}
+                backLabel={up?.label}
+                isLoggedIn={isLoggedIn}
+                remembered={remembered}
+                // Back affordance is signed-in only (back selection would be
+                // lost through the sign-in redirect anyway) and flag-gated;
+                // the server action re-checks both.
+                backEnabled={isLoggedIn && multiPlacementEnabled()}
+                // Add to cart mirrors /preview's gating: flag + size picked,
+                // no auth gate (guests have carts; checkout gates sign-in,
+                // #146).
+                cartEnabled={cartEnabled()}
+                startAction={<StartFromImage imageId={img.imageId} />}
+              >
+                {identityBlock}
+              </BuyHero>
+
+              {isOwner && (
+                <OwnerActions
+                  imageId={img.imageId}
+                  imageUrl={img.imageUrl}
+                  isPublished={isPublished}
+                  canPublish={isLoggedIn}
+                  // The conversation may be gone even when the image names one —
+                  // an image pinned by an order or a seed survives its thread's
+                  // delete — so the row is gated on the design row resolving.
+                  sourceDesignId={
+                    img.sourceDesignId && img.hasSourceConversation
+                      ? img.sourceDesignId
+                      : null
+                  }
+                  conversationArchived={img.sourceConversationArchived}
+                />
+              )}
+            </>
           )}
 
           {siblings && img.sourceDesignId && (

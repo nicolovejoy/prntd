@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { Badge, Button, Card, EmptyState } from "@/components/ui";
+import { Badge, Button, EmptyState } from "@/components/ui";
 import { getColorHex } from "@/lib/blanks";
 import type { UserOrder } from "@/lib/user-orders";
 
@@ -18,6 +18,11 @@ const statusLabel: Record<string, string> = {
   canceled: "Canceled",
 };
 
+// The Badge primitive (src/components/ui/badge.tsx) IS the mono status label
+// under Paper — no pill, no color except shipped/delivered (positive) and
+// canceled (negative). Don't re-inline a status→color map here; Badge already
+// carries that mapping (and /admin's, so the two lists agree).
+
 function formatDate(date: Date | null) {
   if (!date) return "—";
   return new Date(date).toLocaleDateString("en-US", {
@@ -26,12 +31,6 @@ function formatDate(date: Date | null) {
     year: "numeric",
   });
 }
-
-const filterBtnBase = "text-xs px-2.5 py-1 rounded transition-colors";
-const filterBtnActive =
-  "bg-surface-raised text-foreground font-medium border border-border";
-const filterBtnInactive =
-  "text-text-muted hover:text-foreground border border-transparent";
 
 export function OrdersList({ orders }: { orders: UserOrder[] }) {
   const [filter, setFilter] = useState<StatusFilter>("active");
@@ -52,22 +51,30 @@ export function OrdersList({ orders }: { orders: UserOrder[] }) {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <main className="flex-1 px-6 py-8 max-w-4xl mx-auto w-full">
+      <main className="flex-1 px-4 sm:px-6 py-8 max-w-4xl mx-auto w-full">
         <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-bold">My Orders</h1>
+          <h1 className="text-xl sm:text-2xl font-bold">My Orders</h1>
           <Link href="/studio">
-            <Button size="sm">New Design</Button>
+            <Button variant="secondary" size="sm" className="min-h-11">
+              New Design
+            </Button>
           </Link>
         </div>
 
-        {/* Status filter */}
+        {/* Status filter — mirrors the Studio tab strip (studio-tabs.tsx). */}
         {orders.length > 0 && (
-          <div className="flex items-center gap-1 mb-4">
+          <div className="flex items-center gap-4 border-b border-border mb-4">
             {(["active", "canceled", "all"] as const).map((f) => (
               <button
                 key={f}
+                type="button"
                 onClick={() => setFilter(f)}
-                className={`${filterBtnBase} ${filter === f ? filterBtnActive : filterBtnInactive}`}
+                aria-pressed={filter === f}
+                className={`-mb-px min-h-11 flex items-center border-b-2 px-1 text-sm transition-colors ${
+                  filter === f
+                    ? "border-foreground text-foreground"
+                    : "border-transparent text-text-muted hover:text-foreground"
+                }`}
               >
                 {f === "active"
                   ? `Active (${activeCount})`
@@ -84,7 +91,7 @@ export function OrdersList({ orders }: { orders: UserOrder[] }) {
             message="No orders yet."
             action={
               <Link href="/studio">
-                <Button>Make your first design</Button>
+                <Button size="lg">Make your first design</Button>
               </Link>
             }
           />
@@ -93,31 +100,25 @@ export function OrdersList({ orders }: { orders: UserOrder[] }) {
             message={`No ${filter === "canceled" ? "canceled" : "active"} orders.`}
           />
         ) : (
-          <div className="space-y-3">
+          <ul className="border-t border-border">
             {filtered.map((order) => (
-              <Card key={order.id} className="p-4">
+              <li key={order.id} className="border-b border-border py-5">
                 {/* Order header: status + name/id (left), total (right) */}
                 <div className="flex items-center justify-between gap-2 mb-3">
                   <div className="flex items-center gap-2 min-w-0">
                     <Badge variant={order.status}>
                       {statusLabel[order.status] ?? order.status}
                     </Badge>
-                    {order.displayName ? (
+                    {order.displayName && (
                       <span className="text-sm font-medium truncate">
                         {order.displayName}
                       </span>
-                    ) : (
-                      <span className="text-xs text-text-faint font-mono">
-                        {order.id.slice(0, 8)}
-                      </span>
                     )}
-                    {order.displayName && (
-                      <span className="text-xs text-text-faint font-mono">
-                        {order.id.slice(0, 8)}
-                      </span>
-                    )}
+                    <span className="font-mono text-[11px] text-text-faint">
+                      {order.id.slice(0, 8)}
+                    </span>
                   </div>
-                  <span className="text-sm font-medium whitespace-nowrap">
+                  <span className="font-mono text-sm whitespace-nowrap">
                     ${order.totalPrice.toFixed(2)}
                   </span>
                 </div>
@@ -131,7 +132,7 @@ export function OrdersList({ orders }: { orders: UserOrder[] }) {
                       <div className="flex gap-1.5 flex-shrink-0">
                         <div className="flex flex-col items-center gap-0.5">
                           <div
-                            className="w-16 h-16 rounded p-1.5 overflow-hidden"
+                            className="w-16 h-16 border border-border p-1.5 overflow-hidden"
                             style={{
                               backgroundColor: line.imageUrl
                                 ? getColorHex(line.blankId, line.color)
@@ -148,7 +149,7 @@ export function OrdersList({ orders }: { orders: UserOrder[] }) {
                                 className="w-full h-full object-contain"
                               />
                             ) : (
-                              <div className="w-full h-full flex items-center justify-center text-text-faint text-xs bg-surface-raised rounded">
+                              <div className="w-full h-full flex items-center justify-center text-text-faint text-xs bg-surface-well">
                                 —
                               </div>
                             )}
@@ -162,7 +163,7 @@ export function OrdersList({ orders }: { orders: UserOrder[] }) {
                         {line.imageUrl && line.backImageUrl && (
                           <div className="flex flex-col items-center gap-0.5">
                             <div
-                              className="w-16 h-16 rounded p-1.5 overflow-hidden"
+                              className="w-16 h-16 border border-border p-1.5 overflow-hidden"
                               style={{
                                 backgroundColor: getColorHex(line.blankId, line.color),
                               }}
@@ -204,7 +205,7 @@ export function OrdersList({ orders }: { orders: UserOrder[] }) {
 
                 {/* Order footer: date + tracking */}
                 <div className="flex items-center justify-between mt-3">
-                  <span className="text-xs text-text-faint">
+                  <span className="font-mono text-[11px] text-text-faint">
                     {formatDate(order.createdAt)}
                   </span>
                   {order.trackingUrl && (
@@ -212,15 +213,15 @@ export function OrdersList({ orders }: { orders: UserOrder[] }) {
                       href={order.trackingUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-xs text-accent underline underline-offset-2"
+                      className="min-h-11 inline-flex items-center text-sm text-foreground underline underline-offset-[3px]"
                     >
                       Track shipment
                     </a>
                   )}
                 </div>
-              </Card>
+              </li>
             ))}
-          </div>
+          </ul>
         )}
       </main>
     </div>

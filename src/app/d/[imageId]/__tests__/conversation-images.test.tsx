@@ -260,3 +260,27 @@ describe("ConversationImages top-level Use this one", () => {
     expect(screen.queryByTestId("inline-notice")).toBeNull();
   });
 });
+
+describe("ConversationImages strip captions", () => {
+  it("captions each strip cell with its position in the conversation", () => {
+    render(
+      <ConversationImages
+        designId="design-1"
+        currentImageId="img-2"
+        // Preflight ruling P3: SiblingImage (src/app/d/actions.ts:248) is
+        // { imageId, imageUrl, isPrimary } — all three are required.
+        images={[
+          { imageId: "img-1", imageUrl: "https://img.example/1.png", isPrimary: true },
+          { imageId: "img-2", imageUrl: "https://img.example/2.png", isPrimary: false },
+          { imageId: "img-3", imageUrl: "https://img.example/3.png", isPrimary: false },
+        ]}
+        initialPrimaryImageId="img-1"
+      />
+    );
+    // #N is the position in the full seed-inclusive list — the same numbering
+    // the /design thread uses — so the current image's own number is skipped.
+    expect(screen.getByText("#1")).toBeInTheDocument();
+    expect(screen.getByText("#3")).toBeInTheDocument();
+    expect(screen.queryByText("#2")).not.toBeInTheDocument();
+  });
+});

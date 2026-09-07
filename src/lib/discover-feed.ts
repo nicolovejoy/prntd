@@ -30,6 +30,12 @@ export type FeedRow = {
   title: string | null;
   description: string | null;
   backgroundColor: string | null;
+  /**
+   * The garment this composition fixes, or null when the buyer picks one.
+   * Null on every Shop mirror today (model-b-writes.ts writes blankId: null);
+   * the field exists because the Shop card names the garment it prices.
+   */
+  blankId: string | null;
   publishedAt: Date;
   feedRank: number | null;
   designerName: string;
@@ -93,6 +99,7 @@ export async function getPublishedFeed(limit = 60): Promise<FeedRow[]> {
       title: productTable.title,
       description: productTable.description,
       backgroundColor: productTable.backdropColor,
+      blankId: productTable.blankId,
       listedAt: productTable.listedAt,
       productCreatedAt: productTable.createdAt,
       feedRank: productTable.feedRank,
