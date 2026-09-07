@@ -702,6 +702,7 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
               />
               <Button
                 type="submit"
+                variant="generate"
                 disabled={!text.trim() || atCap}
                 data-testid="studio-generate"
               >

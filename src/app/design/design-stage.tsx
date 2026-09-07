@@ -102,7 +102,7 @@ export function DesignStage({
                   alt={`Design #${img.number}`}
                   className="w-full h-full object-contain"
                 />
-                <span className="absolute top-0.5 left-0.5 bg-black/70 text-white text-[10px] font-mono px-1 rounded">
+                <span className="absolute top-0.5 left-0.5 bg-foreground text-background text-[10px] font-mono px-1 rounded">
                   #{img.number}
                 </span>
               </button>

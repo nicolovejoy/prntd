@@ -136,7 +136,7 @@ export function SideMockup({
         <div className="pointer-events-none absolute inset-x-0 bottom-2 z-10 flex justify-center">
           <span
             className={`inline-flex items-center gap-2 text-xs ${
-              isDarkShirt(colorHex) ? "text-white/80" : "text-black/60"
+              isDarkShirt(colorHex) ? "text-accent-fg/80" : "text-foreground/60"
             }`}
           >
             <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
@@ -176,7 +176,7 @@ export function SideMockup({
           actually has two sides — with one side on screen there is nothing
           for "Front" to distinguish it from. */}
       {showSideLabel && (
-        <span className="pointer-events-none absolute top-1.5 left-1.5 z-10 rounded-sm bg-black/45 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-white backdrop-blur-sm">
+        <span className="pointer-events-none absolute top-1.5 left-1.5 z-10 rounded-sm bg-foreground/70 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-accent-fg backdrop-blur-sm">
           {SIDE_LABEL[side]}
         </span>
       )}

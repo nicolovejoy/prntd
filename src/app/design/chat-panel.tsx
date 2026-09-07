@@ -294,12 +294,12 @@ export function ChatPanel({
               <div
                 className={`max-w-[80%] rounded-lg px-4 py-2 ${
                   msg.role === "user"
-                    ? "bg-surface-raised text-white"
+                    ? "bg-surface-raised text-foreground"
                     : "text-foreground"
                 }`}
               >
                 {msg.role === "assistant" ? (
-                  <div className="prose prose-invert prose-sm max-w-none prose-p:my-1 prose-ol:my-1 prose-ul:my-1 prose-li:my-0.5">
+                  <div className="prose prose-sm max-w-none prose-p:my-1 prose-ol:my-1 prose-ul:my-1 prose-li:my-0.5">
                     <Markdown>{msg.content}</Markdown>
                   </div>
                 ) : (
@@ -415,7 +415,7 @@ export function ChatPanel({
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={loading}
-            className="flex items-center justify-center min-h-[44px] min-w-[44px] border border-border rounded-md text-text-muted hover:text-white hover:border-border-hover transition-colors disabled:opacity-50"
+            className="flex items-center justify-center min-h-[44px] min-w-[44px] border border-border rounded-md text-text-muted hover:text-foreground hover:border-border-hover transition-colors disabled:opacity-50"
             title="Upload image"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

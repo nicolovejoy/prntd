@@ -123,7 +123,7 @@ export default function DashboardPage() {
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Shop name (e.g. Manine's Club)"
-          className="flex-1 min-w-[12rem] min-h-[44px] px-3 py-2 bg-surface border border-border rounded-md text-white placeholder:text-text-faint focus:border-border-hover focus:outline-none"
+          className="flex-1 min-w-[12rem] min-h-[44px] px-3 py-2 bg-surface border border-border rounded-md text-foreground placeholder:text-text-faint focus:border-border-hover focus:outline-none"
         />
         <Button
           type="submit"

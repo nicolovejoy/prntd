@@ -110,8 +110,8 @@ describe("SideMockup", () => {
     expect(img).toHaveClass("mix-blend-multiply");
     const layer = screen.getByTestId("side-mockup-exact");
     expect(layer).toHaveClass("opacity-0");
-    // Light shirt → near-white backdrop under the multiply blend.
-    expect(layer).toHaveStyle({ backgroundColor: "#f7f7f7" });
+    // Light shirt → the page-ground token under the multiply blend.
+    expect(layer).toHaveStyle({ backgroundColor: "var(--background)" });
 
     fireEvent.load(img);
     expect(onMockupLoad).toHaveBeenCalledWith("https://r2/mock.png");

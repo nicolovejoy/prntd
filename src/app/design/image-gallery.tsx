@@ -59,7 +59,7 @@ export function ImageGallery({
                   alt={`Design #${img.number}`}
                   className="w-full h-full object-contain bg-checkerboard"
                 />
-                <span className="absolute top-1 left-1 bg-black/70 text-white text-[10px] font-mono px-1.5 py-0.5 rounded">
+                <span className="absolute top-1 left-1 bg-foreground text-background text-[10px] font-mono px-1.5 py-0.5 rounded">
                   #{img.number}
                 </span>
               </button>
@@ -94,7 +94,7 @@ export function ImageGallery({
                       <button
                         key={v.id}
                         onClick={() => onSelectProductVersion(group.productId)}
-                        className="relative aspect-square rounded overflow-hidden border border-border hover:border-border-hover bg-gray-900"
+                        className="relative aspect-square rounded overflow-hidden border border-border hover:border-border-hover bg-surface-well"
                         title={`${group.productName} (${v.aspectRatio})`}
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element */}

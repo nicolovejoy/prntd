@@ -54,7 +54,7 @@ export function MakerHero() {
           />
           <Button
             type="submit"
-            variant="primary"
+            variant="generate"
             className="min-h-[44px]"
             disabled={!input.trim()}
           >

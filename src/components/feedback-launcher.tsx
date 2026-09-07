@@ -15,7 +15,7 @@ export function FeedbackPanel({
   onClose: () => void;
 }) {
   return (
-    <div className="rounded-lg border border-border bg-surface-raised p-4 shadow-lg">
+    <div className="rounded-lg border border-border bg-surface-raised p-4">
       <div className="mb-3 flex items-center justify-between">
         <span className="text-sm font-medium text-foreground">Feedback</span>
         <button
@@ -56,7 +56,7 @@ export function FeedbackLauncher({ projectId }: { projectId: string }) {
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="min-h-11 rounded-full border border-border bg-surface-raised px-4 py-2 text-sm text-text-muted shadow-lg transition-colors hover:border-border-hover hover:text-foreground"
+        className="min-h-11 rounded-full border border-border bg-surface-raised px-4 py-2 text-sm text-text-muted transition-colors hover:border-border-hover hover:text-foreground"
       >
         {open ? "Close" : "Feedback"}
       </button>

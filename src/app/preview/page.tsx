@@ -1012,7 +1012,7 @@ function PreviewPageInner() {
                 onSelect={heroMockupReady ? () => setLightboxOpen(true) : undefined}
                 selectLabel="View full size"
                 showSideLabel={twoSided}
-                className="w-64 h-80 max-h-[50vh] md:max-h-none md:w-80 md:h-96 shadow-lg"
+                className="w-64 h-80 max-h-[50vh] md:max-h-none md:w-80 md:h-96 border border-border"
                 testId="side-hero"
               />
               {/* Tile row: same width as the hero so it lines up and never
@@ -1224,7 +1224,7 @@ function PreviewPageInner() {
       {/* Fullscreen lightbox with zoom + pan */}
       {lightboxOpen && heroMockup && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/20"
           onClick={(e) => {
             if (e.target === e.currentTarget) {
               setLightboxOpen(false);
@@ -1283,7 +1283,7 @@ function PreviewPageInner() {
               setZoomed(false);
               setPanOrigin({ x: 50, y: 50 });
             }}
-            className="absolute top-4 right-4 text-white/70 hover:text-white text-3xl leading-none"
+            className="absolute top-4 right-4 text-foreground/70 hover:text-foreground text-3xl leading-none"
             aria-label="Close"
           >
             &times;

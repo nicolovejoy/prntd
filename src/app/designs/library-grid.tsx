@@ -249,7 +249,7 @@ function LibraryCell({
           <span
             aria-hidden
             data-testid="library-tile-checked"
-            className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-accent text-xs text-white"
+            className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-accent text-xs text-accent-fg"
           >
             ✓
           </span>

@@ -48,7 +48,7 @@ export function MobileGalleryStrip({
             type="button"
             onClick={() => onClickImage(index)}
             aria-label={`Preview #${img.number}`}
-            className={`shrink-0 w-14 h-14 rounded-md overflow-hidden border-2 bg-gray-900 transition-colors ${
+            className={`shrink-0 w-14 h-14 rounded-md overflow-hidden border-2 bg-surface-well transition-colors ${
               selectedImage === img.url ? "border-accent" : "border-border"
             }`}
           >
