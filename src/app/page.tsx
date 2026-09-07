@@ -5,7 +5,6 @@ import { MakerHero } from "@/components/maker-hero";
 import { PublishedGrid } from "@/components/published-grid";
 import { getDiscoverFeed } from "./d/actions";
 import { getActivePromo } from "@/lib/promotion";
-import { minRetailPrice } from "@/lib/pricing";
 import { auth, isAnonymousUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
@@ -62,19 +61,6 @@ export default async function Home() {
           </div>
         </section>
       )}
-
-      <section className="py-16 px-4 bg-surface">
-        <div className="max-w-2xl mx-auto text-center space-y-4">
-          <h2 className="text-2xl font-bold">Pricing</h2>
-          <p className="text-text-muted">
-            Designing is free. You pay when you order. Tees from{" "}
-            <span className="font-semibold text-foreground">
-              ${minRetailPrice().toFixed(2)}
-            </span>
-            .
-          </p>
-        </div>
-      </section>
 
       <footer className="py-8 px-4 border-t border-border text-center text-sm text-text-faint space-y-2">
         <p>PRNTD</p>

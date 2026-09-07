@@ -5,15 +5,16 @@
  * check answers with a clarifying question — CI never pays for a render there.
  *
  * Anchored on structure, not marketing copy. The hero renders, the composer
- * and chips are there. The pricing section carries the real minRetailPrice()
- * ("Tees from $19.43"). Chips are drawn randomly from a 300-prompt library
+ * and chips are there. No price is asserted: the homepage no longer states
+ * one anywhere, and the hero's old "from $X, shipped" line was removed for
+ * claiming a delivered price that excluded shipping. Chips are drawn
+ * randomly from a 300-prompt library
  * (`pickExamplePrompts`), so the exact text isn't predictable — assertions
  * check the hero renders exactly 3 chips and each is a real library member,
  * not a specific string.
  */
 import { test, expect, type Locator } from "@playwright/test";
 import { EXAMPLES } from "../src/lib/design-examples";
-import { minRetailPrice } from "../src/lib/pricing";
 
 const submitButton = (hero: Locator) =>
   hero.locator('form button[type="submit"]');
@@ -47,10 +48,6 @@ test("signed-out homepage shows the hero composer", async ({ page }) => {
   for (const text of chipTexts) {
     expect(EXAMPLES).toContain(text);
   }
-
-  // Price line in the pricing section — the amount, not the sentence around it.
-  const price = minRetailPrice().toFixed(2).replace(".", "\\.");
-  await expect(page.getByText(new RegExp(`\\$${price}`))).toBeVisible();
 });
 
 test("a thin prompt seeds /design and gets a clarifying reply", async ({
