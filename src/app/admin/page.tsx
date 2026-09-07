@@ -11,7 +11,7 @@ import {
   setOrderTags,
   setOrderClassification,
 } from "./actions";
-import { Badge, Button, Card, InlineNotice, useConfirm, type InlineNoticeTone } from "@/components/ui";
+import { Badge, Button, InlineNotice, useConfirm, type InlineNoticeTone } from "@/components/ui";
 import { getColorHex } from "@/lib/blanks";
 import {
   ORDER_CLASSIFICATIONS,
@@ -46,6 +46,11 @@ const SORT_COLUMNS: { field: SortField; label: string }[] = [
   { field: "status", label: "Status" },
   { field: "createdAt", label: "Date" },
 ];
+
+// Filters are underlined text, not chips: the selected one inks and
+// underlines, the rest sit muted. min-h-11 keeps the phone tap target.
+const filterOn = "text-xs px-2 min-h-11 text-foreground underline underline-offset-[3px]";
+const filterOff = "text-xs px-2 min-h-11 text-text-muted hover:text-foreground";
 
 // --- Component ---
 
@@ -162,6 +167,10 @@ export default function AdminPage() {
     if (!trimmed) return;
     const tags = currentTags ?? [];
     if (tags.includes(trimmed)) return;
+    // Clear the previous result line: this is a new interaction, and a stale
+    // Retry/Recover failure sitting next to a freshly added tag reads as a
+    // failure of the tag add.
+    setActionResult(null);
     const next = [...tags, trimmed];
     setOrderTags(orderId, next);
     updateOrder(orderId, { tags: next });
@@ -202,7 +211,7 @@ export default function AdminPage() {
   const archivedCount = data.orders.filter((o) => o.archivedAt).length;
   const allSelected = filterState.classifications.size === ORDER_CLASSIFICATIONS.length;
 
-  // Label for summary cards when filtered
+  // Label for the Revenue figure when a classification filter is active
   const activeLabels = allSelected
     ? []
     : ORDER_CLASSIFICATIONS.filter((c) => filterState.classifications.has(c)).map(
@@ -216,42 +225,42 @@ export default function AdminPage() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-xl font-bold">Admin</h1>
         <div className="flex items-center gap-4">
-          <Link href="/admin/errors" className="text-sm underline hover:no-underline">
+          <Link href="/admin/errors" className="text-sm underline underline-offset-[3px] hover:no-underline">
             Errors →
           </Link>
-          <Link href="/admin/published" className="text-sm underline hover:no-underline">
+          <Link href="/admin/published" className="text-sm underline underline-offset-[3px] hover:no-underline">
             Published images →
           </Link>
         </div>
       </div>
 
-      {/* Financial summary */}
-      <div className="grid grid-cols-5 gap-4 mb-6">
-        <Card className="p-4">
-          <p className="text-xs text-text-muted uppercase">Orders</p>
-          <p className="text-2xl font-bold mt-1">{summary.orderCount}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-xs text-text-muted uppercase">
-            {filterLabel ? `${filterLabel} Revenue` : "Revenue"}
-          </p>
-          <p className="text-2xl font-bold mt-1">${summary.revenue.toFixed(2)}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-xs text-text-muted uppercase">Stripe Fees</p>
-          <p className="text-2xl font-bold mt-1 text-negative">
-            ${Math.abs(summary.stripeFees).toFixed(2)}
-          </p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-xs text-text-muted uppercase">COGS (Printful)</p>
-          <p className="text-2xl font-bold mt-1">${summary.cogs.toFixed(2)}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-xs text-text-muted uppercase">Gross Profit</p>
-          <p className="text-2xl font-bold mt-1">${summary.grossProfit.toFixed(2)}</p>
-        </Card>
-      </div>
+      {/* Financial summary — a ruled block of figures, not five panels.
+          Colour only where a figure is already signed money-out (fees). */}
+      <dl className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 border-t border-border mb-8">
+        {[
+          { label: "Orders", value: String(summary.orderCount) },
+          {
+            label: filterLabel ? `${filterLabel} Revenue` : "Revenue",
+            value: `$${summary.revenue.toFixed(2)}`,
+          },
+          {
+            label: "Stripe Fees",
+            value: `$${Math.abs(summary.stripeFees).toFixed(2)}`,
+            tone: "text-negative",
+          },
+          { label: "COGS (Printful)", value: `$${summary.cogs.toFixed(2)}` },
+          { label: "Gross Profit", value: `$${summary.grossProfit.toFixed(2)}` },
+        ].map((f) => (
+          <div key={f.label} className="border-b border-border py-3 pr-4">
+            <dt className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted">
+              {f.label}
+            </dt>
+            <dd className={`mt-1 text-sm font-mono ${f.tone ?? "text-foreground"}`}>
+              {f.value}
+            </dd>
+          </div>
+        ))}
+      </dl>
 
       {/* Orders heading + filters */}
       <div className="flex items-center justify-between mb-4">
@@ -260,11 +269,7 @@ export default function AdminPage() {
           <div className="flex items-center gap-1">
             <button
               onClick={() => dispatch({ type: "SET_ALL_CLASSIFICATIONS" })}
-              className={`text-xs px-2.5 py-1 rounded transition-colors ${
-                allSelected
-                  ? "bg-surface-raised text-foreground font-medium border border-border"
-                  : "text-text-muted hover:text-foreground border border-transparent"
-              }`}
+              className={allSelected ? filterOn : filterOff}
             >
               All
             </button>
@@ -272,11 +277,7 @@ export default function AdminPage() {
               <button
                 key={c}
                 onClick={() => dispatch({ type: "TOGGLE_CLASSIFICATION", classification: c })}
-                className={`text-xs px-2.5 py-1 rounded transition-colors ${
-                  filterState.classifications.has(c)
-                    ? "bg-surface-raised text-foreground font-medium border border-border"
-                    : "text-text-muted hover:text-foreground border border-transparent"
-                }`}
+                className={filterState.classifications.has(c) ? filterOn : filterOff}
               >
                 {CLASSIFICATION_INFO[c].label}
               </button>
@@ -285,11 +286,7 @@ export default function AdminPage() {
           {archivedCount > 0 && (
             <button
               onClick={() => dispatch({ type: "TOGGLE_ARCHIVED" })}
-              className={`text-xs px-2.5 py-1 rounded transition-colors ${
-                filterState.showArchived
-                  ? "bg-surface-raised text-foreground font-medium border border-border"
-                  : "text-text-muted hover:text-foreground border border-transparent"
-              }`}
+              className={filterState.showArchived ? filterOn : filterOff}
             >
               Archived ({archivedCount})
             </button>
@@ -298,20 +295,20 @@ export default function AdminPage() {
       </div>
 
       {displayed.length === 0 ? (
-        <p className="text-text-faint">No orders.</p>
+        <p className="text-sm text-text-muted">No orders.</p>
       ) : (
         <div className="overflow-x-auto">
           {/* data-loop-redact: rows carry customer names/locations — keep out of feedback page captures */}
           <table className="w-full text-sm text-left" data-loop-redact="">
-            <thead className="border-b text-text-faint text-xs uppercase">
+            <thead className="border-b border-border text-text-muted">
               <tr>
-                <th className="py-3 pr-4">Order</th>
+                <th className="py-3 pr-4 font-mono text-[11px] leading-4 tracking-[0.08em] uppercase font-normal">Order</th>
                 {["Status", "Customer", "Design", "Details", "Shipping", "Revenue", "COGS", "Profit", "Printful", "Date", ""].map(
                   (label) => {
                     const sortable = SORT_COLUMNS.find((s) => s.label === label);
                     if (!sortable) {
                       return (
-                        <th key={label} className="py-3 pr-4">
+                        <th key={label} className="py-3 pr-4 font-mono text-[11px] leading-4 tracking-[0.08em] uppercase font-normal">
                           {label}
                         </th>
                       );
@@ -320,7 +317,7 @@ export default function AdminPage() {
                     return (
                       <th
                         key={label}
-                        className="py-3 pr-4 cursor-pointer select-none hover:text-foreground"
+                        className="py-3 pr-4 font-mono text-[11px] leading-4 tracking-[0.08em] uppercase font-normal cursor-pointer select-none hover:text-foreground"
                         onClick={() => dispatch({ type: "SET_SORT", field: sortable.field })}
                       >
                         {label}
@@ -335,7 +332,7 @@ export default function AdminPage() {
                 )}
               </tr>
             </thead>
-            <tbody className="divide-y">
+            <tbody className="divide-y divide-border">
               {displayed.map((order) => {
                 const profit =
                   order.printfulCost != null
@@ -350,22 +347,22 @@ export default function AdminPage() {
                     <td className="py-3 pr-4 text-xs">
                       <Link
                         href={`/admin/orders/${order.id}`}
-                        className="text-foreground underline hover:text-text-muted"
+                        className="text-foreground underline underline-offset-[3px] hover:text-text-muted"
                       >
                         {order.displayName ?? <span className="font-mono">{order.id.slice(0, 8)}</span>}
                       </Link>
                       {order.displayName && (
-                        <div className="font-mono text-text-faint text-[10px] mt-0.5">{order.id.slice(0, 8)}</div>
+                        <div className="font-mono text-text-muted text-[10px] mt-0.5">{order.id.slice(0, 8)}</div>
                       )}
                     </td>
                     <td className="py-3 pr-4">
                       <div className="flex flex-wrap items-center gap-1">
                         <Badge variant={order.status}>{order.status}</Badge>
                         {order.archivedAt && (
-                          <span className="text-xs text-text-faint">archived</span>
+                          <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-text-muted">archived</span>
                         )}
                         <select
-                          className="text-[10px] px-1.5 py-0.5 rounded bg-surface border border-border text-foreground cursor-pointer outline-none"
+                          className="font-mono text-[10px] uppercase tracking-[0.08em] px-1.5 py-0.5 rounded bg-surface border border-border hover:border-border-hover focus:border-border-hover text-foreground cursor-pointer outline-none"
                           value={order.classification ?? ""}
                           onChange={(e) => {
                             if (e.target.value) {
@@ -386,17 +383,17 @@ export default function AdminPage() {
                         {(order.tags ?? []).map((tag) => (
                           <span
                             key={tag}
-                            className="text-[10px] px-1.5 py-0.5 rounded bg-surface-raised text-text-muted cursor-pointer hover:line-through"
+                            className="font-mono text-[10px] uppercase tracking-[0.08em] text-text-muted cursor-pointer hover:line-through"
                             onClick={() => handleToggleTag(order.id, tag, order.tags)}
                             title={`Click to remove "${tag}" tag`}
                           >
-                            {tag}
+                            {tag} <span aria-hidden>×</span>
                           </span>
                         ))}
                         <input
                           type="text"
                           placeholder="+tag"
-                          className="text-[10px] w-12 bg-transparent text-text-faint border-none outline-none placeholder:text-text-faint"
+                          className="font-mono text-[10px] w-12 bg-transparent text-foreground border-b border-border focus:border-foreground outline-none placeholder:text-text-muted"
                           onKeyDown={(e) => {
                             if (e.key === "Enter") {
                               const input = e.currentTarget;
@@ -427,7 +424,7 @@ export default function AdminPage() {
                       )}
                       {order.lines.length > 1 && (
                         <span
-                          className="mt-1 inline-block text-[10px] px-1.5 py-0.5 rounded bg-surface-raised text-text-muted"
+                          className="mt-1 inline-block font-mono text-[10px] uppercase tracking-[0.08em] text-text-muted"
                           title={`${order.lines.length} items — open the order to see each design`}
                         >
                           ×{order.lines.length} items
@@ -456,15 +453,15 @@ export default function AdminPage() {
                         </>
                       )}
                     </td>
-                    <td className="py-3 pr-4 font-medium">
+                    <td className="py-3 pr-4 font-mono">
                       ${order.totalPrice.toFixed(2)}
                     </td>
-                    <td className="py-3 pr-4 text-xs text-text-muted">
+                    <td className="py-3 pr-4 font-mono text-xs text-text-muted">
                       {order.printfulCost != null
                         ? `$${order.printfulCost.toFixed(2)}`
                         : "—"}
                     </td>
-                    <td className="py-3 pr-4 text-xs font-medium">
+                    <td className="py-3 pr-4 text-xs font-mono">
                       {profit != null ? (
                         <span className={profit >= 0 ? "text-positive" : "text-negative"}>
                           ${profit.toFixed(2)}
@@ -476,7 +473,7 @@ export default function AdminPage() {
                     <td className="py-3 pr-4 font-mono text-xs text-text-muted">
                       {order.printfulOrderId ?? "—"}
                     </td>
-                    <td className="py-3 pr-4 text-xs text-text-muted whitespace-nowrap">
+                    <td className="py-3 pr-4 font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted whitespace-nowrap">
                       {order.createdAt
                         ? new Date(order.createdAt).toLocaleString(undefined, {
                             dateStyle: "short",
@@ -508,7 +505,7 @@ export default function AdminPage() {
                           href={order.trackingUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-foreground underline hover:text-text-muted"
+                          className="text-foreground underline underline-offset-[3px] hover:text-text-muted"
                         >
                           Track
                         </a>
@@ -552,7 +549,7 @@ export default function AdminPage() {
 
       {/* Classification reference */}
       <details className="mt-8">
-        <summary className="text-sm text-text-muted cursor-pointer hover:text-foreground">
+        <summary className="text-sm text-text-muted underline underline-offset-[3px] cursor-pointer hover:text-foreground">
           Classification Reference
         </summary>
         <div className="mt-3 space-y-4">
@@ -569,11 +566,11 @@ export default function AdminPage() {
             })}
           </div>
           <div>
-            <p className="text-xs text-text-faint mb-1">Planned (not yet in use):</p>
+            <p className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted mb-1">Planned (not yet in use):</p>
             {FUTURE_CLASSIFICATIONS.map((c) => (
               <span
                 key={c}
-                className="inline-block text-[10px] px-1.5 py-0.5 rounded bg-surface-raised text-text-faint mr-1 mb-1"
+                className="inline-block font-mono text-[10px] uppercase tracking-[0.08em] text-text-muted mr-1 mb-1"
               >
                 {c}
               </span>

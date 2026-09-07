@@ -180,6 +180,9 @@ export default function OrderDetailPage() {
     if (!trimmed || !order) return;
     const tags = order.tags ?? [];
     if (tags.includes(trimmed)) return;
+    // New interaction: drop the previous result line so a stale
+    // Retry/Recover/Refund failure isn't read as a failure of the tag add.
+    setActionResult(null);
     const next = [...tags, trimmed];
     setOrderTags(params.id, next);
     setOrder((prev) => (prev ? { ...prev, tags: next } : prev));
@@ -224,18 +227,18 @@ export default function OrderDetailPage() {
       <div className="flex items-center gap-3 mb-6 flex-wrap">
         <h1 className="text-xl font-bold">{order.displayName ?? order.id.slice(0, 8)}</h1>
         {order.displayName && (
-          <span className="text-sm font-mono text-text-muted">{order.id.slice(0, 8)}</span>
+          <span className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted">{order.id.slice(0, 8)}</span>
         )}
         <Badge variant={order.status}>{order.status}</Badge>
         {order.classification && (
-          <span className="text-xs px-2 py-0.5 rounded bg-surface-raised text-text-muted">
+          <span className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted">
             {CLASSIFICATION_INFO[order.classification as OrderClassification]?.label ?? order.classification}
           </span>
         )}
         {order.archivedAt && (
-          <span className="text-xs text-text-faint">archived</span>
+          <span className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted">archived</span>
         )}
-        <span className="text-xs text-text-muted ml-auto">
+        <span className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted ml-auto">
           {order.createdAt ? new Date(order.createdAt).toLocaleString() : "—"}
         </span>
       </div>
@@ -245,7 +248,7 @@ export default function OrderDetailPage() {
         <div className="space-y-4">
           {/* Customer — data-loop-redact keeps this PII out of feedback page captures */}
           <Card className="p-4" data-loop-redact="">
-            <h3 className="text-xs text-text-muted uppercase mb-2">Customer</h3>
+            <h3 className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted mb-2">Customer</h3>
             <p className="text-sm">{order.userEmail}</p>
             {order.shippingName && (
               <div className="mt-2 text-xs text-text-muted">
@@ -264,7 +267,7 @@ export default function OrderDetailPage() {
 
           {/* Product — every purchased line (cart orders have several) */}
           <Card className="p-4">
-            <h3 className="text-xs text-text-muted uppercase mb-2">
+            <h3 className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted mb-2">
               {order.lines.length > 1 ? `Products (${order.lines.length})` : "Product"}
             </h3>
             <div className="space-y-3">
@@ -312,7 +315,7 @@ export default function OrderDetailPage() {
                 );
               })}
               {order.printfulOrderId && (
-                <p className="text-xs text-text-faint">
+                <p className="font-mono text-xs text-text-muted">
                   Printful: {order.printfulOrderId}
                 </p>
               )}
@@ -321,22 +324,22 @@ export default function OrderDetailPage() {
 
           {/* Financials */}
           <Card className="p-4">
-            <h3 className="text-xs text-text-muted uppercase mb-2">Financials</h3>
+            <h3 className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted mb-2">Financials</h3>
             <div className="space-y-1 text-sm">
               <div className="flex justify-between">
                 <span className="text-text-muted">Revenue</span>
-                <span>${order.totalPrice.toFixed(2)}</span>
+                <span className="font-mono">${order.totalPrice.toFixed(2)}</span>
               </div>
               {order.printfulCost != null && (
                 <div className="flex justify-between">
                   <span className="text-text-muted">COGS</span>
-                  <span className="text-negative">-${order.printfulCost.toFixed(2)}</span>
+                  <span className="font-mono text-negative">-${order.printfulCost.toFixed(2)}</span>
                 </div>
               )}
               {profit != null && (
                 <div className="flex justify-between border-t border-border pt-1 mt-1">
                   <span className="text-text-muted">Profit</span>
-                  <span className={profit >= 0 ? "text-positive" : "text-negative"}>
+                  <span className={`font-mono ${profit >= 0 ? "text-positive" : "text-negative"}`}>
                     ${profit.toFixed(2)}
                   </span>
                 </div>
@@ -346,10 +349,10 @@ export default function OrderDetailPage() {
 
           {/* Classification + Tags */}
           <Card className="p-4">
-            <h3 className="text-xs text-text-muted uppercase mb-2">Classification & Tags</h3>
+            <h3 className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted mb-2">Classification & Tags</h3>
             <div className="space-y-2">
               <select
-                className="text-xs px-2 py-1 rounded bg-surface border border-border text-foreground cursor-pointer outline-none"
+                className="text-sm min-h-11 px-2 rounded bg-surface border border-foreground text-foreground cursor-pointer outline-none focus:ring-1 focus:ring-foreground"
                 value={order.classification ?? ""}
                 onChange={(e) => {
                   if (e.target.value) handleClassification(e.target.value as OrderClassification);
@@ -366,17 +369,17 @@ export default function OrderDetailPage() {
                 {(order.tags ?? []).map((tag) => (
                   <span
                     key={tag}
-                    className="text-[10px] px-1.5 py-0.5 rounded bg-surface-raised text-text-muted cursor-pointer hover:line-through"
+                    className="font-mono text-[10px] uppercase tracking-[0.08em] text-text-muted cursor-pointer hover:line-through"
                     onClick={() => handleToggleTag(tag)}
                     title={`Click to remove "${tag}"`}
                   >
-                    {tag}
+                    {tag} <span aria-hidden>×</span>
                   </span>
                 ))}
                 <input
                   type="text"
                   placeholder="+tag"
-                  className="text-[10px] w-16 bg-transparent text-text-faint border-none outline-none placeholder:text-text-faint"
+                  className="font-mono text-[10px] w-16 bg-transparent text-foreground border-b border-border focus:border-foreground outline-none placeholder:text-text-muted"
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       const input = e.currentTarget;
@@ -405,7 +408,7 @@ export default function OrderDetailPage() {
               order.totalPrice > 0 &&
               order.classification !== "test" &&
               (hasRefund ? (
-                <span className="text-xs text-text-muted self-center">
+                <span className="font-mono text-xs text-text-muted self-center">
                   Refunded ${order.totalPrice.toFixed(2)}
                 </span>
               ) : (
@@ -440,34 +443,35 @@ export default function OrderDetailPage() {
           )}
         </div>
 
-        {/* Right column — Ledger timeline */}
+        {/* Right column — Ledger rows */}
         <div>
           <Card className="p-4">
-            <h3 className="text-xs text-text-muted uppercase mb-3">Ledger</h3>
+            <h3 className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted mb-3">Ledger</h3>
             {order.ledger.length === 0 ? (
-              <p className="text-xs text-text-faint">No ledger entries (pre-April 2026 order)</p>
+              <p className="text-sm text-text-muted">No ledger entries (pre-April 2026 order)</p>
             ) : (
-              <div className="space-y-3">
+              <div className="divide-y divide-border border-t border-border">
                 {order.ledger.map((entry) => {
                   const typeInfo = LEDGER_TYPE_LABELS[entry.type] ?? {
                     label: entry.type,
                     color: "text-text-muted",
                   };
                   return (
-                    <div key={entry.id} className="flex items-start gap-3 text-xs">
-                      <div className="w-2 h-2 rounded-full bg-border-default mt-1 shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-foreground">{typeInfo.label}</span>
-                          <span className={`font-mono ${typeInfo.color}`}>
-                            {entry.amount >= 0 ? "+" : ""}${entry.amount.toFixed(2)}
-                          </span>
-                        </div>
-                        <p className="text-text-faint truncate">{entry.description}</p>
-                        <p className="text-text-faint">
-                          {entry.createdAt ? new Date(entry.createdAt).toLocaleString() : "—"}
-                        </p>
+                    <div key={entry.id} className="py-2.5">
+                      <div className="flex items-baseline justify-between gap-3">
+                        <span className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-foreground">
+                          {typeInfo.label}
+                        </span>
+                        <span className={`font-mono text-sm ${typeInfo.color}`}>
+                          {entry.amount >= 0 ? "+" : ""}${entry.amount.toFixed(2)}
+                        </span>
                       </div>
+                      <p className="mt-0.5 text-xs text-text-muted truncate">
+                        {entry.description}
+                      </p>
+                      <p className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted">
+                        {entry.createdAt ? new Date(entry.createdAt).toLocaleString() : "—"}
+                      </p>
                     </div>
                   );
                 })}
@@ -478,8 +482,8 @@ export default function OrderDetailPage() {
           {/* References */}
           {(order.stripeSessionId || order.stripePaymentIntentId) && (
             <Card className="p-4 mt-4">
-              <h3 className="text-xs text-text-muted uppercase mb-2">References</h3>
-              <div className="text-xs text-text-faint space-y-1 font-mono break-all">
+              <h3 className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted mb-2">References</h3>
+              <div className="text-xs text-text-muted space-y-1 font-mono break-all">
                 {order.stripeSessionId && <p>Stripe Session: {order.stripeSessionId}</p>}
                 {order.stripePaymentIntentId && <p>Payment Intent: {order.stripePaymentIntentId}</p>}
                 {order.printfulOrderId && <p>Printful: {order.printfulOrderId}</p>}

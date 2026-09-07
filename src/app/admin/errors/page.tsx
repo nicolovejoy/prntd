@@ -27,22 +27,30 @@ export default async function AdminErrorsPage() {
       <h1 className="text-xl font-bold mb-6">Runtime errors</h1>
 
       {errors.length === 0 ? (
-        <p className="text-text-muted">No errors recorded.</p>
+        <p className="text-sm text-text-muted">No errors recorded.</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-left">
-            <thead className="border-b text-text-faint text-xs uppercase">
+            <thead className="border-b border-border text-text-muted">
               <tr>
-                <th className="py-3 pr-4">Time</th>
-                <th className="py-3 pr-4">Digest</th>
-                <th className="py-3 pr-4">Message</th>
-                <th className="py-3 pr-4">Path</th>
+                <th className="py-3 pr-4 font-mono text-[11px] leading-4 tracking-[0.08em] uppercase font-normal">
+                  Time
+                </th>
+                <th className="py-3 pr-4 font-mono text-[11px] leading-4 tracking-[0.08em] uppercase font-normal">
+                  Digest
+                </th>
+                <th className="py-3 pr-4 font-mono text-[11px] leading-4 tracking-[0.08em] uppercase font-normal">
+                  Message
+                </th>
+                <th className="py-3 pr-4 font-mono text-[11px] leading-4 tracking-[0.08em] uppercase font-normal">
+                  Path
+                </th>
               </tr>
             </thead>
-            <tbody className="divide-y">
+            <tbody className="divide-y divide-border">
               {errors.map((e) => (
                 <tr key={e.id} className="align-top hover:bg-surface-raised">
-                  <td className="py-3 pr-4 text-xs text-text-muted whitespace-nowrap">
+                  <td className="py-3 pr-4 font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted whitespace-nowrap">
                     {new Date(e.createdAt).toLocaleString(undefined, {
                       dateStyle: "short",
                       timeStyle: "medium",
@@ -52,17 +60,17 @@ export default async function AdminErrorsPage() {
                   <td className="py-3 pr-4 text-xs">
                     {e.message}
                     {e.context?.routeType && (
-                      <span className="text-text-faint ml-2">
+                      <span className="text-text-muted ml-2">
                         {e.context.routeType}
                         {e.context.routePath ? ` · ${e.context.routePath}` : ""}
                       </span>
                     )}
                     {e.stack && (
                       <details className="mt-1">
-                        <summary className="text-text-faint cursor-pointer">
+                        <summary className="text-text-muted cursor-pointer underline underline-offset-[3px]">
                           Stack
                         </summary>
-                        <pre className="mt-1 p-2 bg-surface rounded text-[10px] whitespace-pre-wrap break-all">
+                        <pre className="mt-1 p-2 bg-surface-well border border-border rounded text-[10px] whitespace-pre-wrap break-all">
                           {e.stack}
                         </pre>
                       </details>

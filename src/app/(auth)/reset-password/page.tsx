@@ -23,7 +23,7 @@ function ResetPasswordForm() {
         <div className="w-full max-w-sm space-y-6 text-center">
           <h1 className="text-2xl font-bold">Invalid link</h1>
           <p className="text-text-muted text-sm">This reset link is missing a token.</p>
-          <Link href="/forgot-password" className="text-sm underline">
+          <Link href="/forgot-password" className="text-sm underline underline-offset-[3px]">
             Request a new one
           </Link>
         </div>
@@ -38,7 +38,7 @@ function ResetPasswordForm() {
           <h1 className="text-2xl font-bold">Password updated</h1>
           <p className="text-text-muted text-sm">You can now sign in with your new password.</p>
           <Link href="/sign-in">
-            <Button className="w-full">Sign in</Button>
+            <Button className="w-full min-h-11">Sign in</Button>
           </Link>
         </div>
       </div>
@@ -102,13 +102,13 @@ function ResetPasswordForm() {
             minLength={8}
             className="w-full"
           />
-          {error && <p className="text-red-600 text-sm">{error}</p>}
-          <Button type="submit" disabled={loading || !token} className="w-full">
+          {error && <p className="text-negative text-sm">{error}</p>}
+          <Button type="submit" disabled={loading || !token} className="w-full min-h-11">
             {loading ? "Updating..." : "Update password"}
           </Button>
         </form>
         <p className="text-center text-sm text-text-muted">
-          <Link href="/sign-in" className="underline">
+          <Link href="/sign-in" className="underline underline-offset-[3px]">
             Back to sign in
           </Link>
         </p>

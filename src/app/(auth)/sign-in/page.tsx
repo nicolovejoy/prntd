@@ -66,19 +66,22 @@ function SignInForm() {
             required
             className="w-full"
           />
-          {error && <p className="text-red-600 text-sm">{error}</p>}
+          {error && <p className="text-negative text-sm">{error}</p>}
           <div className="flex justify-end">
-            <Link href="/forgot-password" className="text-sm text-text-muted underline">
+            <Link
+              href="/forgot-password"
+              className="text-sm text-text-muted underline underline-offset-[3px] hover:text-foreground"
+            >
               Forgot password?
             </Link>
           </div>
-          <Button type="submit" disabled={loading} className="w-full">
+          <Button type="submit" disabled={loading} className="w-full min-h-11">
             {loading ? "Signing in..." : "Sign in"}
           </Button>
         </form>
         <p className="text-center text-sm text-text-muted">
           Don&apos;t have an account?{" "}
-          <Link href="/sign-up" className="underline">
+          <Link href="/sign-up" className="underline underline-offset-[3px]">
             Sign up
           </Link>
         </p>

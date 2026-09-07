@@ -41,7 +41,7 @@ export default function ForgotPasswordPage() {
           <p className="text-text-muted text-sm">
             If an account exists with that email, we sent a reset link. It expires in 1 hour.
           </p>
-          <Link href="/sign-in" className="text-sm underline">
+          <Link href="/sign-in" className="text-sm underline underline-offset-[3px]">
             Back to sign in
           </Link>
         </div>
@@ -64,13 +64,13 @@ export default function ForgotPasswordPage() {
             required
             className="w-full"
           />
-          {error && <p className="text-red-600 text-sm">{error}</p>}
-          <Button type="submit" disabled={loading} className="w-full">
+          {error && <p className="text-negative text-sm">{error}</p>}
+          <Button type="submit" disabled={loading} className="w-full min-h-11">
             {loading ? "Sending..." : "Send reset link"}
           </Button>
         </form>
         <p className="text-center text-sm text-text-muted">
-          <Link href="/sign-in" className="underline">
+          <Link href="/sign-in" className="underline underline-offset-[3px]">
             Back to sign in
           </Link>
         </p>
