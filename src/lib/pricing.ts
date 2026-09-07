@@ -1,4 +1,5 @@
 import {
+  getBlank,
   getBlankOrThrow,
   getBaseCost,
   getRetailPrice,
@@ -135,6 +136,33 @@ export function computePrice(
 }
 
 /**
+ * The cheapest thing in the catalog, and which blank it is. Both halves come
+ * from one scan so a caller can never quote a price from blank A next to the
+ * name of blank B — the failure mode a Shop card would show as
+ * "From $18.00 · Classic Tee" the day a cheaper blank is added.
+ *
+ * Ties break toward DEFAULT_BLANK_ID, then catalog order, so the default
+ * garment keeps its name when a new blank matches its price.
+ */
+export function cheapestActiveBlank(): { blankId: string; price: number } {
+  let bestId = DEFAULT_BLANK_ID;
+  let best = Infinity;
+  for (const blank of ACTIVE_BLANKS) {
+    for (const size of blank.sizes) {
+      const { total } = computePrice(0, blank.id, size);
+      const wins =
+        total < best ||
+        (total === best && blank.id === DEFAULT_BLANK_ID && bestId !== DEFAULT_BLANK_ID);
+      if (wins) {
+        best = total;
+        bestId = blank.id;
+      }
+    }
+  }
+  return { blankId: bestId, price: best };
+}
+
+/**
  * Cheapest customer-facing price across the active catalog (any blank, any
  * size, front only). Derived from the same computePrice the checkout charges,
  * so marketing copy like the landing's "Tees from $X" can never go stale.
@@ -142,14 +170,53 @@ export function computePrice(
  * and blanks.ts importing pricing.ts would be circular.)
  */
 export function minRetailPrice(): number {
-  let min = Infinity;
-  for (const blank of ACTIVE_BLANKS) {
-    for (const size of blank.sizes) {
-      const { total } = computePrice(0, blank.id, size);
-      if (total < min) min = total;
-    }
+  return cheapestActiveBlank().price;
+}
+
+export type ShopCardPrice = {
+  /** Dollars, cent precision. The floor across the garment's sizes. */
+  amount: number;
+  /** Display name of the garment the amount belongs to. */
+  garment: string;
+  /** The rendered line: `From $19.43 · Classic Tee`. */
+  text: string;
+};
+
+/**
+ * The one line a Shop card says about money (Paper slice 6).
+ *
+ * A composition either fixes a garment (`blankId`) or leaves the buyer to
+ * pick one; every PRNTD Shop mirror row is the latter today
+ * (model-b-writes.ts writes `blankId: null`), so the fallback is the normal
+ * path, not an edge case. Either way the amount is a *floor* — a card shows
+ * no size, and a blank's price varies by size — hence "From".
+ *
+ * Pure and catalog-driven: the amount comes from the same `computePrice` the
+ * checkout charges through, so the card and the till cannot disagree. An
+ * unknown blank id falls back rather than throwing; one stale id must not
+ * take down the whole feed.
+ */
+export function cardPriceLine(
+  blankId: string | null | undefined
+): ShopCardPrice {
+  const blank = blankId ? getBlank(blankId) : undefined;
+  if (!blank) {
+    const { blankId: cheapestId, price } = cheapestActiveBlank();
+    const cheapest = getBlankOrThrow(cheapestId);
+    return {
+      amount: price,
+      garment: cheapest.name,
+      text: `From $${price.toFixed(2)} · ${cheapest.name}`,
+    };
   }
-  return min;
+  const amount = Math.min(
+    ...blank.sizes.map((size) => computePrice(0, blank.id, size).total)
+  );
+  return {
+    amount,
+    garment: blank.name,
+    text: `From $${amount.toFixed(2)} · ${blank.name}`,
+  };
 }
 
 export type ProceedsBreakdown = {
