@@ -103,6 +103,11 @@ happen anyway (the Studio's own load is the natural one), with the existing
 `sweepStaleJobs` is the model to copy, including its `scope: "user" | "all"`
 shape.
 
+> **Superseded by #204:** on the Studio, both sweeps moved off the read
+> itself — `sweepStudioForUser` (`src/lib/studio.ts`) schedules them with
+> `after()` instead, because they were costing 55-70ms on every load for
+> work that usually finds nothing. See `sweepStudioForUser`'s docblock.
+
 Retrieval has two doors, both already built: the archive list, and any image
 in My Designs → image detail → open conversation. Reopening puts the lane
 back in the Studio.

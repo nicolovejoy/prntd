@@ -922,3 +922,68 @@ describe("the optimistic pending cell — review fixes (#187)", () => {
     expect(window.HTMLElement.prototype.scrollIntoView).toHaveBeenCalled();
   });
 });
+
+/**
+ * #204: the after() idle-archive sweep doesn't self-correct client-side the
+ * way a pending job does (the periodic loop only runs while something is
+ * pending/optimistic). A one-shot mount reconcile closes that gap for the
+ * "returned after days away" case without starting the polling loop.
+ */
+describe("mount-time reconcile (#204)", () => {
+  it("drops a lane the server closed while the tab was away, without starting the polling loop", async () => {
+    vi.useFakeTimers();
+    try {
+      const staying = lane({ designId: "design-1", title: "staying" });
+      const closing = lane({ designId: "design-2", title: "closing" });
+      // Server truth minus one lane — as if the after() sweep archived
+      // "closing" between this tab's last read and now.
+      h.polledLanes = [staying];
+
+      render(<StudioClient initialLanes={[staying, closing]} />);
+      expect(screen.getAllByTestId("studio-lane")).toHaveLength(2);
+      expect(getStudioLanes).not.toHaveBeenCalled();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1500);
+      });
+
+      expect(getStudioLanes).toHaveBeenCalledTimes(1);
+      expect(screen.getAllByTestId("studio-lane")).toHaveLength(1);
+      expect(screen.getByText("staying")).toBeTruthy();
+
+      // Nothing is pending, so the reconcile must not have armed the
+      // periodic loop — well past its fast cadence (2s), still one call.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+      expect(getStudioLanes).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("skips the reconcile call when the polling loop is already active", async () => {
+    vi.useFakeTimers();
+    try {
+      // A pending cell makes the periodic loop active immediately on mount,
+      // so the one-shot reconcile at 1500ms should see activeRef.current
+      // true and do nothing — the periodic loop's own tick covers it.
+      h.polledLanes = [lane({ pending: [pendingJob("job-1")] })];
+      render(
+        <StudioClient
+          initialLanes={[lane({ pending: [pendingJob("job-1")] })]}
+        />
+      );
+
+      // The periodic loop's first tick (fast cadence, 2s) is the only call
+      // inside this window — the 1500ms mount timer fires first but is a
+      // no-op while active.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(getStudioLanes).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

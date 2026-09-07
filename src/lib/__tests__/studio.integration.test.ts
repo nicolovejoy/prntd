@@ -2,11 +2,15 @@
  * Studio read model (studio-plan slice 2) against a real in-memory libSQL.
  * What needs a real DB here: the lane query joins three tables plus the
  * grouped first-chat-turn read (whose bare-column-with-min() shape is
- * SQLite-specific), and the lazy sweep actually transitions an overdue
- * `image_generation` row on read.
+ * SQLite-specific), and `sweepStudioForUser` actually transitions an
+ * overdue `image_generation` row / archives an idle design on read.
  *
- * The db is injected directly — getStudioLanesData takes it as an option —
- * so no module mocking is needed.
+ * The db is injected directly — getStudioLanesData and sweepStudioForUser
+ * both take it as an argument — so no module mocking is needed. Since #204,
+ * the sweeps no longer run inside getStudioLanesData (callers schedule them
+ * separately via `after()`); tests that depend on swept state call
+ * sweepStudioForUser explicitly first, the way a real request's second
+ * poll would see it.
  */
 import { describe, it, expect, beforeEach } from "vitest";
 import { eq } from "drizzle-orm";
@@ -17,6 +21,7 @@ import {
   getStudioArchiveData,
   getStudioLanesData,
   laneLastActiveAt,
+  sweepStudioForUser,
 } from "@/lib/studio";
 import { insertGenerationJob, cancelGenerationJob } from "@/lib/generation-job";
 import { dayKeyUTC } from "@/lib/generation-quota";
@@ -24,8 +29,8 @@ import { dayKeyUTC } from "@/lib/generation-quota";
 type Db = Awaited<ReturnType<typeof createTestDb>>;
 let db: Db;
 
-// sweepStaleJobs inside getStudioLanesData has no injectable `now` at this
-// call site — it defaults to the real clock — so times are wall-clock
+// sweepStudioForUser (via sweepStaleJobs) has no injectable `now` at these
+// call sites — it defaults to the real clock — so times are wall-clock
 // relative. Timestamp columns round-trip at seconds precision, so gaps are
 // minutes, not milliseconds.
 const NOW = new Date(Math.floor(Date.now() / 1000) * 1000);
@@ -179,6 +184,7 @@ describe("getStudioLanesData", () => {
       now: minutesAgo(10),
     });
 
+    await sweepStudioForUser("owner", db);
     const [lane] = await getStudioLanesData("owner", { db });
 
     expect(lane.pending).toEqual([]);
@@ -259,9 +265,9 @@ describe("laneLastActiveAt", () => {
   });
 });
 
-describe("auto-archive on the Studio's own load (slice 4)", () => {
-  // The sweep inside getStudioLanesData has no injectable `now` at this call
-  // site — same as the stale-job sweep above — so idleness is wall-clock.
+describe("auto-archive on sweepStudioForUser (slice 4)", () => {
+  // sweepStudioForUser has no injectable `now` at these call sites — same as
+  // the stale-job sweep above — so idleness is wall-clock.
   const daysAgo = (d: number) =>
     new Date(NOW.getTime() - d * 24 * 60 * 60 * 1000);
 
@@ -269,6 +275,7 @@ describe("auto-archive on the Studio's own load (slice 4)", () => {
     const idle = await makeOpenDesign("owner", { updatedAt: daysAgo(4) });
     const active = await makeOpenDesign("owner", { updatedAt: daysAgo(2) });
 
+    await sweepStudioForUser("owner", db);
     const lanes = await getStudioLanesData("owner", { db });
 
     expect(lanes.map((l) => l.designId)).toEqual([active.id]);
@@ -281,6 +288,7 @@ describe("auto-archive on the Studio's own load (slice 4)", () => {
     // Started just now, so the stale-job sweep leaves it running.
     await seedRunningJob(idle.id, "owner", { now: NOW });
 
+    await sweepStudioForUser("owner", db);
     const lanes = await getStudioLanesData("owner", { db });
 
     expect(lanes.map((l) => l.designId)).toEqual([idle.id]);

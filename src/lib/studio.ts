@@ -81,26 +81,80 @@ export function laneLastActiveAt(input: {
 }
 
 /**
+ * Runs the Studio's two lazy sweeps (stale-job timeout, idle-conversation
+ * archive) for one user, in that order — a job the first sweep just failed
+ * no longer blocks its lane from archiving in the second. Callers schedule
+ * this with `after()` (#204: profiled at 55-70ms, 20-64% of a Studio load,
+ * for sweeps that usually find nothing to do) rather than awaiting it
+ * inline, so `getStudioLanesData` no longer runs them itself.
+ *
+ * This is the odd one out among the codebase's other lazy-sweep call sites
+ * (`design/actions.ts`'s `getDesignJobs`, `site-header-actions.ts`,
+ * `user-designs.ts`, `design-thread.ts`) — they each run a single
+ * read-shaped sweep (`sweepStaleJobs` alone) still inline on the request,
+ * two of them (`design-thread.ts`, `user-designs.ts`) batched into the same
+ * `Promise.all` as their own query. The Studio has TWO sweeps, both
+ * WRITE-shaped (a timeout transition, an archive), and they were running
+ * serially before the lanes query even started — `after()`, not
+ * `Promise.all`, is what actually gets that off the response.
+ *
+ * The data `getStudioLanesData` returns may therefore be one sweep behind.
+ * That self-corrects differently for the two things this sweeps: a stale
+ * PENDING cell is caught by the polling loop the client already keeps
+ * running while anything is pending (`studio-client.tsx`'s periodic poll —
+ * see its docblock); an IDLE-ARCHIVED lane has no such loop backing it and
+ * is instead reconciled by the client's one-shot mount refetch, its
+ * wake-on-focus refetch, or — as a last resort — a refused write against
+ * the closed conversation triggering a reconcile (`submit()`'s catch in
+ * `studio-client.tsx`).
+ *
+ * Never rejects: each sweep is caught and logged independently so a DB
+ * hiccup in one doesn't stop the other from running, and neither can turn
+ * into an unhandled rejection on the shared Fluid instance (see the comment
+ * above `after(() => runGenerationJob(...))` in design/actions.ts).
+ */
+export async function sweepStudioForUser(
+  userId: string,
+  db?: AppDb
+): Promise<void> {
+  try {
+    await sweepStaleJobs({ scope: "user", userId, db });
+  } catch (err) {
+    console.error(
+      "[studio] sweepStudioForUser: sweepStaleJobs failed",
+      err instanceof Error ? err.message : String(err)
+    );
+  }
+  try {
+    await sweepIdleConversations({ scope: "user", userId, db });
+  } catch (err) {
+    console.error(
+      "[studio] sweepStudioForUser: sweepIdleConversations failed",
+      err instanceof Error ? err.message : String(err)
+    );
+  }
+}
+
+/**
  * The /studio lanes for one user. Query core shared by the server component
  * render and the polled server action — auth lives at the caller.
+ *
+ * Does NOT run the stale-job / idle-conversation sweeps (see
+ * `sweepStudioForUser`) — callers schedule those separately with `after()`
+ * so they run after the response, off the render path. This read may
+ * therefore show a job as pending past its timeout, or a lane that is
+ * idle-eligible but not yet archived. The two self-correct differently, not
+ * both "on the next poll": an overdue pending job is caught by the polling
+ * loop the client already keeps running while anything is pending; an
+ * idle-eligible lane has no such loop and is instead reconciled by the
+ * client's one-shot mount refetch, its wake-on-focus refetch, or a refused
+ * write against it (see `sweepStudioForUser`'s docblock).
  */
 export async function getStudioLanesData(
   userId: string,
   opts: { db?: AppDb } = {}
 ): Promise<StudioLane[]> {
   const db = opts.db ?? (await import("./db")).db;
-
-  // An overdue running job would otherwise render as a pending cell forever.
-  // Same lazy-sweep-on-read the thread and /designs loads do; narrowest scope
-  // for this call site — only the cron sweeps scope: "all".
-  await sweepStaleJobs({ scope: "user", userId, db });
-
-  // Auto-archive (slice 4), lazily on the read that happens anyway. Ordered
-  // AFTER the stale-job sweep on purpose: a job the sweep just failed no
-  // longer blocks its lane from archiving, so a conversation whose last act
-  // was a generation that died three days ago leaves the bench on this same
-  // load rather than the next one.
-  await sweepIdleConversations({ scope: "user", userId, db });
 
   // Open = closed_at null (the plan's definition). Archived-status designs are
   // additionally excluded: archive is "make this go away" (deleteDesign's
@@ -270,7 +324,8 @@ export const STUDIO_ARCHIVE_LIMIT = 100;
  *
  * Deliberately does NOT sweep: this page is where a conversation lands after
  * being archived, so archiving more of them on its load would be surprising.
- * Only the Studio's own read and the cron backstop write closed_at.
+ * Only the Studio request's `after()` sweep and the cron backstop write
+ * closed_at.
  */
 export async function getStudioArchiveData(
   userId: string,

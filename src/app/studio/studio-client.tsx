@@ -49,9 +49,11 @@ import { deleteConversations, getStudioLanes } from "./actions";
  * Polling: while any lane has a pending cell, the whole read model is
  * re-fetched on the generation-poll schedule (fast, then slow). One request
  * per tick covers every lane, catches generations started in another tab,
- * and lets the server's lazy sweep clear overdue rows — which is why the
- * poll target is the surface itself rather than per-design getDesignJobs
- * calls (a fan-out that couldn't discover new lanes at all).
+ * and lets the server's lazy sweep clear overdue rows (#204: the sweep now
+ * runs via `after()`, after the response, so it's the FOLLOWING poll that
+ * shows its effect, not the one that triggered it) — which is why the poll
+ * target is the surface itself rather than per-design getDesignJobs calls
+ * (a fan-out that couldn't discover new lanes at all).
  *
  * Optimistic cells (#187): a submit puts its pending cell (and, unanchored, a
  * lane at the top of the bench) on screen immediately, held in `optimistic`
@@ -86,6 +88,14 @@ type Anchor = {
 /** Clean Label: names the state, says what to do, stops. */
 const AT_CAP_COPY = `${GENERATION_CAP} generating — wait for one to finish.`;
 const GENERATE_FAILED_COPY = "Something went wrong. Try again.";
+
+/**
+ * Delay before the one-shot mount reconcile (#204) below. Long enough that
+ * it never competes with first paint, short enough that a lane the server's
+ * `after()` sweep is closing while this tab was away doesn't sit stale for
+ * long.
+ */
+const MOUNT_RECONCILE_DELAY_MS = 1500;
 
 export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
   const [lanes, setLanes] = useState<StudioLane[]>(initialLanes);
@@ -170,6 +180,14 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
   const active =
     (serverPendingCount > 0 || optimistic.length > 0) &&
     !isPollHalted(pollErrors);
+  // A ref mirror of `active`, read by the mount-reconcile timer below at the
+  // moment it FIRES rather than the moment it was scheduled — a plain
+  // closure over `active` from an empty-deps mount effect would be stale by
+  // then.
+  const activeRef = useRef(active);
+  useEffect(() => {
+    activeRef.current = active;
+  }, [active]);
   useEffect(() => {
     if (!active) {
       pollStartedAt.current = null;
@@ -180,6 +198,24 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
     const timer = setTimeout(() => void pollOnce(), delay);
     return () => clearTimeout(timer);
   }, [active, pollNonce, pollOnce]);
+
+  // One reconcile shortly after first paint (#204). The idle-archive half of
+  // the after() sweep (studio.ts sweepStudioForUser) doesn't self-correct
+  // the way a pending job does: the periodic loop above runs only while
+  // something is pending or optimistic, so a lane the server closed while
+  // this tab was away (or backgrounded) would otherwise sit on screen until
+  // the wake handler fires or a write against it is refused. Skipped when
+  // the loop is already active — it will see the same server state on its
+  // own very next tick, and firing both would double the request for
+  // nothing.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (!activeRef.current) void pollOnce();
+    }, MOUNT_RECONCILE_DELAY_MS);
+    return () => clearTimeout(timer);
+    // Mount-once: pollOnce is stable (useCallback, no deps), so listing it
+    // does not re-arm this after the first paint.
+  }, [pollOnce]);
 
   // Leave-and-return is the main phone journey, and a backgrounded tab's
   // timers are throttled or frozen — the wake itself fetches. Unconditional
@@ -396,6 +432,13 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
       setOptimistic((entries) => entries.filter((e) => e.localId !== localId));
       setNotice(GENERATE_FAILED_COPY);
       setText((t) => t || trimmed);
+      // A thrown assertConversationOpen is the shape this takes (#204): the
+      // lane closed — e.g. the after() idle-archive sweep — between this
+      // tab's last read and the tap. Reconcile now so the closed lane
+      // actually leaves (and, via the anchor effect above, clears an anchor
+      // that pointed into it) instead of sitting there as a dead end until
+      // something else pokes the surface.
+      void pollOnce();
     }
   }
 
