@@ -138,16 +138,19 @@ export default function AdminPage() {
       danger: true,
     });
     if (!ok) return;
+    setActionResult(null);
     await archiveOrder(orderId);
     updateOrder(orderId, { archivedAt: new Date() });
   }
 
   async function handleUnarchive(orderId: string) {
+    setActionResult(null);
     await unarchiveOrder(orderId);
     updateOrder(orderId, { archivedAt: null });
   }
 
   async function handleToggleTag(orderId: string, tag: string, currentTags: string[] | null) {
+    setActionResult(null);
     const tags = currentTags ?? [];
     const next = tags.includes(tag) ? tags.filter((t) => t !== tag) : [...tags, tag];
     await setOrderTags(orderId, next);
@@ -165,6 +168,7 @@ export default function AdminPage() {
   }
 
   async function handleClassificationChange(orderId: string, classification: OrderClassification) {
+    setActionResult(null);
     await setOrderClassification(orderId, classification);
     updateOrder(orderId, { classification });
   }

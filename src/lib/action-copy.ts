@@ -17,7 +17,7 @@
 
 export const DELETE_IMAGE_ERROR = {
   title: "Image not deleted",
-  body: "It may be on an order or used by another design. Refresh the page and try again.",
+  body: "It may be on an order or linked to another design, which keeps it from being deleted.",
 } as const;
 
 export const CLOSE_CONVERSATION_ERROR = {

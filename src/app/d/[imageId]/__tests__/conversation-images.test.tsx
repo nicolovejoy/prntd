@@ -244,4 +244,19 @@ describe("ConversationImages top-level Use this one", () => {
     expect(lightbox().getByText("#2 of 3")).toBeInTheDocument();
     expect(screen.queryByTestId("inline-notice")).toBeNull();
   });
+
+  it("clears a failure line when the lightbox is closed", async () => {
+    vi.mocked(setPrimaryImage).mockRejectedValueOnce(new Error("Unauthorized"));
+    renderStrip();
+    fireEvent.click(thumb(3));
+    await act(async () => {
+      fireEvent.click(lightbox().getByRole("button", { name: "Use this one" }));
+    });
+    expect(screen.getAllByTestId("inline-notice").length).toBeGreaterThan(0);
+    fireEvent.click(lightbox().getByRole("button", { name: "Close" }));
+    expect(screen.queryByTestId("image-lightbox")).toBeNull();
+    // A failure attempted on #3 must not linger and read as the page's
+    // own image's (#2, "img-b") error once the lightbox is gone.
+    expect(screen.queryByTestId("inline-notice")).toBeNull();
+  });
 });

@@ -147,7 +147,10 @@ export function ConversationImages({
         <ImageLightbox
           images={lightboxImages}
           currentIndex={lightboxIndex}
-          onClose={() => setLightboxIndex(null)}
+          onClose={() => {
+            setLightboxIndex(null);
+            setUseError(null);
+          }}
           onNavigate={showInLightbox}
           actions={
             <>

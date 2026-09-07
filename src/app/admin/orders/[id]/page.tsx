@@ -149,22 +149,26 @@ export default function OrderDetailPage() {
       danger: true,
     });
     if (!ok) return;
+    setActionResult(null);
     await archiveOrder(params.id);
     setOrder((prev) => (prev ? { ...prev, archivedAt: new Date() } : prev));
   }
 
   async function handleUnarchive() {
+    setActionResult(null);
     await unarchiveOrder(params.id);
     setOrder((prev) => (prev ? { ...prev, archivedAt: null } : prev));
   }
 
   async function handleClassification(classification: OrderClassification) {
+    setActionResult(null);
     await setOrderClassification(params.id, classification);
     setOrder((prev) => (prev ? { ...prev, classification } : prev));
   }
 
   async function handleToggleTag(tag: string) {
     if (!order) return;
+    setActionResult(null);
     const tags = order.tags ?? [];
     const next = tags.includes(tag) ? tags.filter((t) => t !== tag) : [...tags, tag];
     await setOrderTags(params.id, next);
