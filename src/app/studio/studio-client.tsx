@@ -69,16 +69,19 @@ import { deleteConversations, getStudioLanes } from "./actions";
  * must survive that landing mid-typing. It's cleared only when its image
  * genuinely leaves the surface (the conversation closed or was deleted).
  *
- * Select mode (#189): "Select" in the title row turns each lane header into a
- * checkbox row and swaps the composer for a bar with the count, Select all,
- * Delete and Done. While selecting, a tap anywhere on a lane — header or
- * cell — toggles that lane; anchoring is off, so one gesture means one thing.
- * A lane with a running generation can't be selected (its per-lane Close and
- * Delete are hidden for the same reason). Escape leaves select mode. The
- * selection is a Set of design ids kept beside the lanes, so a poll landing
- * mid-selection keeps it; ids whose lane left the surface are dropped. The
- * bar is the one piece of fixed chrome left; `main` pays bottom padding for
- * it only while selecting.
+ * Select mode (#189): "Select" lives inside each lane's ⋯ overflow (Paper
+ * bench, #188 slice 3 — there is no page-level control) and turns every lane
+ * header into a checkbox row, swapping the composer for a bar with the
+ * count, Select all, Delete and Done. While selecting, a tap anywhere on a
+ * lane — header or cell — toggles that lane; anchoring is off, so one
+ * gesture means one thing. A lane with a running generation can't be
+ * selected (its ⋯ overflow, and so its Close/Delete/Select, is hidden for
+ * the same reason — closing or deleting mid-render would land the image in
+ * a thread that just vanished from the bench). Escape leaves select mode.
+ * The selection is a Set of design ids kept beside the lanes, so a poll
+ * landing mid-selection keeps it; ids whose lane left the surface are
+ * dropped. The bar is the one piece of fixed chrome left; `main` pays bottom
+ * padding for it only while selecting.
  */
 
 type Anchor = {
@@ -554,24 +557,6 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
           )}
         </div>
 
-        {/* Only when there is something to select; in select mode the
-            bottom bar's Done is the way out, so the control hides. Task 3
-            moves this into each lane's ⋯ overflow menu (Lane already takes
-            onEnterSelectMode below, unused, for that wiring) — kept here
-            meanwhile so entering select mode still has a control. */}
-        {renderedLanes.length > 0 && !selectMode && (
-          <div className="flex items-baseline justify-end gap-3 mb-6">
-            <button
-              type="button"
-              onClick={enterSelectMode}
-              className="text-sm text-text-muted hover:text-foreground transition-colors"
-              data-testid="select-mode"
-            >
-              Select
-            </button>
-          </div>
-        )}
-
         {renderedLanes.length === 0 ? (
           <EmptyState message="No open designs." />
         ) : (
@@ -762,6 +747,65 @@ function Composer({
   );
 }
 
+/**
+ * The per-lane overflow (Paper bench, #188 slice 3). The actions that used
+ * to sit as inline text links in the lane header — Close, Delete, and the
+ * page-level Select — live behind one 46px control so the row reads as a
+ * title, a state and a time, which is what makes activity-desc ordering
+ * legible (#187 point 3).
+ *
+ * Closes on outside click, on Escape, and on any click inside (every item
+ * is a terminal action, so there is nothing to keep it open for).
+ */
+function LaneMenu({ children }: { children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDown(e: MouseEvent) {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <button
+        type="button"
+        aria-label="More"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className="w-[46px] min-h-11 -mr-3 flex items-center justify-center text-foreground"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <circle cx="5" cy="12" r="1.8" />
+          <circle cx="12" cy="12" r="1.8" />
+          <circle cx="19" cy="12" r="1.8" />
+        </svg>
+      </button>
+      {open && (
+        <div
+          role="menu"
+          onClick={() => setOpen(false)}
+          className="absolute right-0 top-full z-10 min-w-[9rem] bg-surface border border-foreground flex flex-col"
+        >
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Lane({
   lane,
   nowMs,
@@ -773,6 +817,7 @@ function Lane({
   onClose,
   onDelete,
   onCancel,
+  onEnterSelectMode,
   unresolvedCellIds,
   reveal,
 }: {
@@ -786,7 +831,9 @@ function Lane({
   onClose: (lane: StudioLane) => void;
   onDelete: (lane: StudioLane) => void;
   onCancel: (lane: StudioLane, jobId: string) => void;
-  /** Not yet rendered here — Task 3's ⋯ overflow menu wires this in. */
+  /** Opens this row's own Select entry inside its ⋯ overflow (Paper bench,
+   * #188 slice 3) — the page-level "Select" control is gone, so this is now
+   * the only door into select mode. */
   onEnterSelectMode: () => void;
   /** Overlay cells whose generateDesign call hasn't returned a jobId yet. */
   unresolvedCellIds: Set<string>;
@@ -817,12 +864,12 @@ function Lane({
   return (
     <section
       ref={sectionRef}
-      className="mb-8"
+      className="border-t border-border pt-2 pb-4 flex flex-col gap-2"
       data-testid="studio-lane"
       data-selected={selectMode ? selected : undefined}
     >
       <div
-        className={`flex items-center justify-between gap-3 mb-2 ${
+        className={`flex items-center gap-3 min-h-11 ${
           selectable ? "cursor-pointer" : ""
         }`}
         onClick={selectable ? () => onToggleSelect(lane.designId) : undefined}
@@ -863,33 +910,52 @@ function Lane({
             </h2>
           </Link>
         )}
-        <span className="text-xs text-text-faint shrink-0">
-          {selectMode && generating
-            ? "Generating"
-            : timeAgo(lane.lastActiveAt, nowMs)}
+        {generating && (
+          <span
+            data-testid="lane-generating"
+            className="shrink-0 font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-foreground border border-foreground px-2 py-0.5"
+          >
+            Generating
+          </span>
+        )}
+        <span className="shrink-0 font-mono text-[11px] leading-4 text-text-faint">
+          {timeAgo(lane.lastActiveAt, nowMs)}
         </span>
-        {/* Both absent while generating: closing or deleting mid-render would
-            land the image in a thread that just vanished from the bench. And
-            absent in select mode: the bar's Delete is the one verb there. */}
+        {/* Close and Delete are absent while generating (closing or deleting
+            mid-render would land the image in a thread that just vanished
+            from the bench) and in select mode (the bar's Delete is the one
+            verb there). With every item gone there is nothing to open, so
+            the trigger goes too. */}
         {!generating && !selectMode && (
-          <>
+          <LaneMenu>
             <button
               type="button"
+              role="menuitem"
               onClick={() => onClose(lane)}
-              className="shrink-0 text-xs text-text-faint hover:text-foreground"
+              className="min-h-11 px-4 text-left text-sm text-text-muted hover:text-foreground hover:bg-surface-well"
               data-testid="studio-close-lane"
             >
               Close
             </button>
             <button
               type="button"
+              role="menuitem"
               onClick={() => onDelete(lane)}
-              className="shrink-0 text-xs text-text-faint hover:text-foreground"
+              className="min-h-11 px-4 text-left text-sm text-text-muted hover:text-foreground hover:bg-surface-well"
               data-testid="studio-delete-lane"
             >
               Delete
             </button>
-          </>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={onEnterSelectMode}
+              className="min-h-11 px-4 text-left text-sm text-text-muted hover:text-foreground hover:bg-surface-well"
+              data-testid="select-mode"
+            >
+              Select
+            </button>
+          </LaneMenu>
         )}
       </div>
 
