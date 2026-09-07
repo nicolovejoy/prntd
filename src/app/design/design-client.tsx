@@ -137,7 +137,11 @@ function DesignPageInner({ initialThreadPromise }: Props) {
   // Closed conversation (slice 3): read-only thread. Loaded with the design
   // row; the server actions are the backstop, this drives the UI swap.
   const [closed, setClosed] = useState(initial?.closed ?? false);
-  // Close/Reopen only renders once the design row exists server-side.
+  // Close/Reopen only renders once the design row exists server-side. Since
+  // #197, a fresh thread's row is created only after a generate submit
+  // survives the quota and capacity checks, so `handleGenerate` sets this
+  // true on every outcome except `limit`/`at_capacity` — see the comment at
+  // its `setDesignExists` call.
   const [designExists, setDesignExists] = useState(initial !== undefined);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [publishImageId, setPublishImageId] = useState<string | null>(null);
@@ -504,7 +508,21 @@ function DesignPageInner({ initialThreadPromise }: Props) {
     try {
       await ensureGuestSession();
       const result = await generateDesign(designId.current, userMessage);
-      setDesignExists(true);
+      // #197: the design row is only created for a submit that survives the
+      // quota and capacity checks — a `limit`/`at_capacity` refusal on a
+      // never-seen-before id leaves no row, so Close/Reopen must not render
+      // (it would throw "Design not found" and keep re-throwing on every
+      // focus/visibilitychange wake poll). `queued` and `clarification` both
+      // imply a row: `queued` from the insert in this function, and
+      // `clarification` because the user's turn was persisted onto it before
+      // the brief ran. The rare authoritative `at_capacity` (raised by
+      // insertGenerationJob's own INSERT…WHERE, after the row already exists)
+      // is deliberately treated the same as the advisory one here — Close
+      // stays hidden until the next full thread read, which is an acceptable
+      // trade for not special-casing that path client-side.
+      if (result.kind !== "limit" && result.kind !== "at_capacity") {
+        setDesignExists(true);
+      }
 
       if (result.kind === "queued") {
         // The render finishes in the background; this action returned as soon

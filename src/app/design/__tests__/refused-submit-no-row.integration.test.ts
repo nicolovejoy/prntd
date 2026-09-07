@@ -11,10 +11,10 @@
  * the cases below reach far enough to call it, but `actions.ts` imports the
  * real modules at load time, and those construct live API clients).
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from "vitest";
 import { createTestDb } from "@/lib/__tests__/test-db";
 import * as schema from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { dayKeyUTC } from "@/lib/generation-quota";
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
@@ -82,8 +82,20 @@ vi.mock("@/lib/generators/registry", () => {
   };
 });
 
+// Partially mocked so the "concurrent double-submit" test can inject a rival
+// insert exactly between this call's advisory capacity check and its own
+// design-row insert — see that test for why (a genuine Promise.all race is
+// not reachable here once GUEST_FUNNEL_ENABLED is on).
+vi.mock("@/lib/generation-job", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/generation-job")>();
+  return { ...actual, countRunningJobsForUser: vi.fn(actual.countRunningJobsForUser) };
+});
+
 const { generateDesign } = await import("@/app/design/actions");
-const { GENERATION_CONCURRENCY_CAP } = await import("@/lib/generation-job");
+const { GENERATION_CONCURRENCY_CAP, countRunningJobsForUser } = await import(
+  "@/lib/generation-job"
+);
+const countRunningJobsForUserMock = countRunningJobsForUser as Mock;
 
 async function seedUser(id = "u1") {
   await testDb.insert(schema.user).values({ id, email: `${id}@b.c`, name: id });
@@ -199,25 +211,74 @@ describe("generateDesign: no design row on a refused submit (#197)", () => {
 });
 
 describe("concurrent double-submit on a fresh id (fix round 1)", () => {
-  it("both submits win: one row, two jobs, two user turns — no refund, no throw", async () => {
+  it("both submits win: one row, two jobs, two user turns, quota spent twice — no refund, no throw", async () => {
+    process.env.GUEST_FUNNEL_ENABLED = "true";
     await seedUser();
     const designId = crypto.randomUUID();
 
-    // True concurrency: both calls independently await findOwnedDesign,
-    // consumeGenerationQuota, and countRunningJobsForUser before either
-    // reaches the insert — real single-threaded-JS interleaving, not a
-    // simulated one. Confirmed by the assertions below: if the two calls ran
-    // serially instead, the second would just find the first's row (no
-    // unique-violation branch exercised) but the outcome — one row, two
-    // jobs, two turns, no refund — would look identical either way, which is
-    // exactly the point: both orderings must be safe.
-    const [a, b] = await Promise.all([
-      generateDesign(designId, "a red dragon"),
-      generateDesign(designId, "a blue dragon"),
-    ]);
+    // SIMULATED, not true Promise.all concurrency — true concurrency is not
+    // reachable in this harness once GUEST_FUNNEL_ENABLED is on. Root cause,
+    // confirmed with a minimal two-line repro (`Promise.all([import("@/lib/db"),
+    // import("@/lib/db")])` against this same "@/lib/db" mock, in isolation,
+    // no generateDesign involved): consumeGenerationQuota's own fallback
+    // `(await import("./db")).db` — needed because generateDesign calls it
+    // without an injected db — races when awaited twice concurrently, even
+    // once the module is already resolved and cached; one of the two in-
+    // flight dynamic imports loses vi.mock's interception and the REAL
+    // "@/lib/db" module executes, constructing a real libsql client with no
+    // DATABASE_URL and throwing. This is a Vitest/vite-node limitation with
+    // concurrent dynamic `import()` of a mocked module, unrelated to the
+    // #197 fix or to generateDesign's own logic — countRunningJobsForUser
+    // and the design-row insert are both called with an explicit `db` and
+    // never hit this path; only consumeGenerationQuota's fallback does.
+    //
+    // Simulated instead: countRunningJobsForUser (called with an explicit
+    // db, right after the quota check and right before the design-row
+    // insert) is mocked to inject, on its first call only, the FULL effect
+    // of a rival submit that already won the race for this designId — its
+    // own row, job, user turn, and quota spend — then returns the real
+    // running-job count so this call's own capacity check still behaves
+    // normally. The real call proceeds into its own insert next, which then
+    // hits the just-inserted row's primary-key uniqueness, exercising the
+    // exact catch-and-continue path fix round 1 added.
+    countRunningJobsForUserMock.mockImplementationOnce(async (userId: string) => {
+      await testDb.insert(schema.design).values({ id: designId, userId });
+      await testDb.insert(schema.chatMessage).values({
+        designId,
+        role: "user",
+        content: "a blue dragon",
+      });
+      await testDb.insert(schema.imageGeneration).values({
+        designId,
+        userId,
+        status: "running",
+        operation: "generate",
+        imageId: crypto.randomUUID(),
+        r2Key: "images/rival.png",
+        generationNumber: 1,
+        dayKey: dayKeyUTC(new Date()),
+        cost: 0.03,
+        startedAt: new Date(),
+      });
+      // The real consumeGenerationQuota already ran (and created this
+      // bucket/day row at count 1) before this mock fires, so the rival's
+      // own spend is an INCREMENT, not a fresh insert — a plain insert here
+      // would collide with that already-existing row.
+      await testDb
+        .update(schema.generationUsage)
+        .set({ count: sql`${schema.generationUsage.count} + 1` })
+        .where(
+          and(
+            eq(schema.generationUsage.bucket, `user:${userId}`),
+            eq(schema.generationUsage.day, dayKeyUTC(new Date()))
+          )
+        );
+      return 1; // one running job for u1 — comfortably under the cap
+    });
 
-    expect(a.kind).toBe("queued");
-    expect(b.kind).toBe("queued");
+    const result = await generateDesign(designId, "a red dragon");
+
+    expect(result.kind).toBe("queued");
 
     const rows = await testDb
       .select()
@@ -238,9 +299,29 @@ describe("concurrent double-submit on a fresh id (fix round 1)", () => {
       .where(eq(schema.chatMessage.designId, designId));
     expect(msgs.filter((m) => m.role === "user")).toHaveLength(2);
 
-    // Both submits legitimately spent a unit; neither the winner nor the
-    // loser gets refunded (only visible when the funnel flag counts quota —
-    // off by default here, so this just pins "no throw propagated").
-    expect(afterQueue.callbacks).toHaveLength(2);
+    // The rival's simulated spend (1) plus this call's real spend through
+    // consumeGenerationQuota (1) — neither refunded.
+    expect(await quotaCount("user:u1")).toBe(2);
+    expect(afterQueue.callbacks).toHaveLength(1);
+  });
+});
+
+describe("non-unique insert failure refunds and rethrows (fix round 1)", () => {
+  it("an FK violation on the design insert throws and gives the unit back", async () => {
+    process.env.GUEST_FUNNEL_ENABLED = "true";
+    // Deliberately no seedUser(): the auth mock always returns userId "u1",
+    // but with no `user` row for it the design insert's FK
+    // (design.user_id -> user.id) rejects — a real, non-unique failure,
+    // distinct from the unique-violation race handled above.
+    const designId = crypto.randomUUID();
+
+    await expect(generateDesign(designId, "a red dragon")).rejects.toThrow();
+
+    expect(await getDesignRow(designId)).toBeUndefined();
+    // Consumed once by consumeGenerationQuota, then refunded once by the
+    // outer catch: back to exactly 0, not left at 1 (unrefunded) and not
+    // null (never spent).
+    expect(await quotaCount("user:u1")).toBe(0);
+    expect(afterQueue.callbacks).toHaveLength(0);
   });
 });
