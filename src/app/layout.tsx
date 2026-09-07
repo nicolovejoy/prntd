@@ -19,7 +19,8 @@ const geistMono = Geist_Mono({
 
 const siteUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://prntd.org";
 const title = "PRNTD";
-const description = "Type it — See it — Wear it";
+const description =
+  "Type it — See it — Wear it. Custom t-shirts, designed by describing them.";
 
 export const metadata: Metadata = {
   // Makes opengraph-image / twitter-image resolve to absolute https URLs.

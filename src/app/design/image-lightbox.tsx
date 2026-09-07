@@ -209,7 +209,7 @@ export function ImageLightbox({
                   {publishing ? "Publishing…" : "Publish"}
                 </Button>
               ))}
-            {!onPublish && signInHref && !isSeed && (
+            {!onPublish && signInHref && !isSeed && !image.publishedAt && (
               <Link href={signInHref}>
                 <Button variant="secondary">Sign in to publish</Button>
               </Link>
