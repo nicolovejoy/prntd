@@ -1,12 +1,13 @@
 import { HTMLAttributes, forwardRef } from "react";
 
-// Collapsed palette (Clean Label): neutral + the one status pair. Status is
-// carried by text color on a neutral pill — terminal-good states read
-// positive, canceled reads negative, everything in between stays neutral.
-// Variant names stay 1:1 with status strings so call sites pass them through.
-const neutral = "bg-surface-raised text-text-muted border-border";
-const positive = "bg-surface-raised text-positive border-border";
-const negative = "bg-surface-raised text-negative border-border";
+// Collapsed palette (Clean Label): neutral + the one status pair. Paper drops
+// the pill entirely — a Badge is a mono uppercase label, not a colored chip.
+// Status is carried by text color alone: terminal-good states read positive,
+// canceled reads negative, everything in between stays neutral. Variant
+// names stay 1:1 with status strings so call sites pass them through.
+const neutral = "text-text-muted";
+const positive = "text-positive";
+const negative = "text-negative";
 
 const variants = {
   default: neutral,
@@ -18,7 +19,7 @@ const variants = {
   draft: neutral,
   approved: neutral,
   ordered: neutral,
-  archived: "bg-surface-raised text-text-faint border-border",
+  archived: "text-text-faint",
   canceled: negative,
 } as const;
 
@@ -31,7 +32,7 @@ export const Badge = forwardRef<HTMLSpanElement, BadgeProps>(
     return (
       <span
         ref={ref}
-        className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full border ${variants[variant]} ${className}`}
+        className={`font-mono uppercase tracking-wide text-[10px] ${variants[variant]} ${className}`}
         {...props}
       />
     );

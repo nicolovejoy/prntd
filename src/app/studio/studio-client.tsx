@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button, useConfirm } from "@/components/ui";
+import { Button, EmptyState, Input, useConfirm } from "@/components/ui";
 import {
   cancelGeneration,
   closeConversation,
@@ -562,15 +562,17 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
           // Also the first thing a buy-only account sees, since / redirects
           // signed-in users here (nav re-map, 2026-09-01) — so the empty
           // state offers the Shop, not just the composer.
-          <div className="text-center py-16 space-y-4">
-            <p className="text-text-faint text-lg">No open designs.</p>
-            <Link
-              href="/prints"
-              className="inline-block text-sm text-text-muted underline hover:text-foreground transition-colors"
-            >
-              Browse the Shop
-            </Link>
-          </div>
+          <EmptyState
+            message="No open designs."
+            action={
+              <Link
+                href="/prints"
+                className="inline-block text-sm text-text-muted underline hover:text-foreground transition-colors"
+              >
+                Browse the Shop
+              </Link>
+            }
+          />
         ) : (
           renderedLanes.map((lane) => (
             <Lane
@@ -688,14 +690,14 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
                 void submit();
               }}
             >
-              <input
+              <Input
                 type="text"
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 placeholder={
                   anchor ? "Describe the change" : "Describe a design"
                 }
-                className="flex-1 px-3 py-2 bg-surface border border-border rounded-md text-white placeholder:text-text-faint focus:border-border-hover focus:outline-none"
+                className="flex-1"
                 data-testid="studio-composer"
               />
               <Button

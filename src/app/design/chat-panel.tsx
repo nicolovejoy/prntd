@@ -5,7 +5,7 @@ import Markdown from "react-markdown";
 import type { ChatMessage } from "@/lib/db/schema";
 import type { ChatOption } from "@/lib/ai";
 import type { DesignImage } from "@/lib/design-images";
-import { Button, QuickReply } from "@/components/ui";
+import { Button, Input, QuickReply } from "@/components/ui";
 import { EXAMPLES } from "@/lib/design-examples";
 import { isGenerateIntent } from "@/lib/design-prompt";
 import { shouldClampMessage } from "@/lib/design-view";
@@ -202,12 +202,12 @@ export function ChatPanel({
           onSubmit={handleSubmit}
           className="mt-6 w-full max-w-xl flex gap-2"
         >
-          <input
+          <Input
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             aria-label="Describe a design"
-            className="flex-1 px-3 py-2 bg-surface border border-border rounded-md text-white placeholder:text-text-faint focus:border-border-hover focus:outline-none"
+            className="flex-1"
             disabled={loading}
           />
           <Button
@@ -424,12 +424,12 @@ export function ChatPanel({
               <polyline points="21 15 16 10 5 21" />
             </svg>
           </button>
-          <input
+          <Input
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Describe a design or drop an image"
-            className="flex-1 min-h-[44px] px-3 py-2 bg-surface border border-border rounded-md text-white placeholder:text-text-faint focus:border-border-hover focus:outline-none"
+            className="flex-1 min-h-[44px]"
             disabled={loading}
           />
         </div>

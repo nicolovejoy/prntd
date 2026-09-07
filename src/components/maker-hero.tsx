@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui";
+import { Button, Input } from "@/components/ui";
 import { EXAMPLES } from "@/lib/design-examples";
 import { minRetailPrice } from "@/lib/pricing";
 
@@ -46,11 +46,11 @@ export function MakerHero() {
           }}
           className="flex gap-2"
         >
-          <input
+          <Input
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Describe a design"
-            className="flex-1 min-h-[44px] px-3 py-2 bg-surface border border-border rounded-md text-white placeholder:text-text-faint focus:border-border-hover focus:outline-none"
+            className="flex-1 min-h-[44px]"
           />
           <Button
             type="submit"

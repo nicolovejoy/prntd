@@ -1,5 +1,6 @@
 import { getDiscoverFeed } from "../d/actions";
 import { PublishedGrid } from "@/components/published-grid";
+import { EmptyState } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -19,9 +20,7 @@ export default async function ShopPage() {
         {images.length > 0 ? (
           <PublishedGrid images={images} from="/prints" />
         ) : (
-          <p className="text-center text-text-muted py-16">
-            No published designs yet.
-          </p>
+          <EmptyState message="No published designs yet." />
         )}
       </div>
     </main>

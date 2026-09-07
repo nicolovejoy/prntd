@@ -43,4 +43,12 @@ describe("QuickReply", () => {
     fireEvent.click(chip);
     expect(onSelect).not.toHaveBeenCalled();
   });
+
+  it("is an outlined ink pill, not a hairline one (Paper)", () => {
+    render(<QuickReply options={options} onSelect={() => {}} />);
+    expect(screen.getByRole("button", { name: "Watercolor" })).toHaveClass(
+      "border-foreground",
+      "rounded-full"
+    );
+  });
 });

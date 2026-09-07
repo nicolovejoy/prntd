@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { publishedBackdrop } from "@/lib/blanks";
-import { Button, useConfirm } from "@/components/ui";
+import { Button, EmptyState, useConfirm } from "@/components/ui";
 import {
   bulkImageDeleteConsequence,
   bulkImageDeleteNotice,
@@ -181,7 +181,7 @@ export function LibraryGrid({ images }: { images: LibraryImage[] }) {
         // Only reachable by deleting the last image — the page renders its
         // own empty state on a cold load. Same line, so the screen doesn't
         // change its mind about what to call this.
-        <p className="py-16 text-center text-text-faint">No designs yet.</p>
+        <EmptyState message="No designs yet." />
       ) : (
         <div
           data-testid="library-grid"
