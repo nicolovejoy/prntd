@@ -26,7 +26,7 @@ export function ImageGallery({
     <div className={className ?? "w-80 border-l border-border hidden md:flex flex-col"}>
       {/* Header. The Dark/Light backdrop toggle was removed (#147): it was a
           debugging control sitting as a peer of the content. Transparent art
-          shows on the house checkerboard; judging it on a real shirt colour is
+          shows on the house paper well; judging it on a real shirt colour is
           /preview's job. */}
       <div className="p-4 border-b border-border">
         <h2 className="text-sm font-medium text-foreground">
@@ -57,9 +57,9 @@ export function ImageGallery({
                 <img
                   src={img.url}
                   alt={`Design #${img.number}`}
-                  className="w-full h-full object-contain bg-checkerboard"
+                  className="w-full h-full object-contain bg-checkerboard border border-border"
                 />
-                <span className="absolute top-1 left-1 bg-black/70 text-white text-[10px] font-mono px-1.5 py-0.5 rounded">
+                <span className="absolute top-1 left-1 bg-foreground text-background text-[10px] font-mono px-1.5 py-0.5 rounded">
                   #{img.number}
                 </span>
               </button>
@@ -94,7 +94,7 @@ export function ImageGallery({
                       <button
                         key={v.id}
                         onClick={() => onSelectProductVersion(group.productId)}
-                        className="relative aspect-square rounded overflow-hidden border border-border hover:border-border-hover bg-gray-900"
+                        className="relative aspect-square rounded overflow-hidden border border-border hover:border-border-hover bg-surface-well"
                         title={`${group.productName} (${v.aspectRatio})`}
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element */}

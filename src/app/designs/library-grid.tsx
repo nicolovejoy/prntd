@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { publishedBackdrop } from "@/lib/blanks";
-import { Button, useConfirm } from "@/components/ui";
+import { Button, EmptyState, useConfirm } from "@/components/ui";
 import {
   bulkImageDeleteConsequence,
   bulkImageDeleteNotice,
@@ -181,7 +181,7 @@ export function LibraryGrid({ images }: { images: LibraryImage[] }) {
         // Only reachable by deleting the last image — the page renders its
         // own empty state on a cold load. Same line, so the screen doesn't
         // change its mind about what to call this.
-        <p className="py-16 text-center text-text-faint">No designs yet.</p>
+        <EmptyState message="No designs yet." />
       ) : (
         <div
           data-testid="library-grid"
@@ -214,7 +214,7 @@ function LibraryCell({
   onToggle: (imageId: string) => void;
 }) {
   // Published images sit on their chosen storefront backdrop (null → White,
-  // #73); unpublished work keeps the checkerboard working view.
+  // #73); unpublished work keeps the paper well working view.
   const backdrop = img.isPublished
     ? publishedBackdrop(img.backgroundColor)
     : { className: "bg-checkerboard", style: undefined };
@@ -249,7 +249,7 @@ function LibraryCell({
           <span
             aria-hidden
             data-testid="library-tile-checked"
-            className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-accent text-xs text-white"
+            className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-accent text-xs text-accent-fg"
           >
             ✓
           </span>

@@ -158,11 +158,11 @@ describe("mockupBackdrop", () => {
     expect(mockupBackdrop("#212642")).toBe("#ececec");
   });
 
-  it("light shirts get near-white so multiply doesn't tint the garment", () => {
+  it("light shirts get the page-ground token so multiply doesn't tint the garment", () => {
     expect(isDarkShirt("#ffffff")).toBe(false);
-    expect(mockupBackdrop("#ffffff")).toBe("#f7f7f7");
+    expect(mockupBackdrop("#ffffff")).toBe("var(--background)");
     // Yellow
-    expect(mockupBackdrop("#ffd667")).toBe("#f7f7f7");
+    expect(mockupBackdrop("#ffd667")).toBe("var(--background)");
   });
 });
 

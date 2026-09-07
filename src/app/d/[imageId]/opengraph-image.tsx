@@ -17,10 +17,10 @@ export const revalidate = 3600;
  * is the same thing the detail page leads with.
  *
  * Designs are transparent PNGs, so handing chat clients the bare R2 object
- * would let a dark design vanish into a dark card — compositing onto the
- * pinned backdrop is the whole point. The title is deliberately NOT drawn
- * here: clients render og:title as a caption under the image, so baking it
- * in would show it twice.
+ * would let a light design vanish into the card's light paper ground —
+ * compositing onto the pinned backdrop is the whole point. The title is
+ * deliberately NOT drawn here: clients render og:title as a caption under
+ * the image, so baking it in would show it twice.
  *
  * Falls back to the site card whenever there is nothing shareable — an
  * unknown id, an owner-private image, an admin-hidden one. The og:image URL

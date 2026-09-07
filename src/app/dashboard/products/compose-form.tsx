@@ -268,7 +268,7 @@ export function ComposeForm({
             step="0.01"
             value={priceStr}
             onChange={(e) => setPriceInput(e.target.value)}
-            className="w-32 min-h-[44px] px-3 py-2 bg-surface border border-border rounded-md text-white focus:border-border-hover focus:outline-none"
+            className="w-32 min-h-[44px] px-3 py-2 bg-surface border border-border rounded-md text-foreground focus:border-border-hover focus:outline-none"
           />
           <button
             onClick={() => setPriceInput(null)}

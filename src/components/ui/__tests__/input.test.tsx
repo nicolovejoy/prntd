@@ -22,4 +22,9 @@ describe("Input", () => {
     render(<Input type="email" placeholder="Email" />);
     expect(screen.getByPlaceholderText("Email")).toHaveAttribute("type", "email");
   });
+
+  it("uses an ink (not hairline) border — the hairline token fails AA for a control outline", () => {
+    render(<Input placeholder="Bordered" />);
+    expect(screen.getByPlaceholderText("Bordered")).toHaveClass("border-foreground");
+  });
 });

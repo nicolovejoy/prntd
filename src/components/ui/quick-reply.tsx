@@ -24,7 +24,7 @@ export function QuickReply({
           type="button"
           disabled={disabled}
           onClick={() => onSelect(opt.value)}
-          className="min-h-[44px] px-4 py-2 rounded-full border border-border text-sm text-foreground hover:border-border-hover hover:bg-surface-raised transition-colors disabled:opacity-40"
+          className="min-h-[44px] px-4 py-2 rounded-full border border-foreground text-sm text-foreground hover:bg-surface-well transition-colors disabled:pointer-events-none disabled:cursor-not-allowed disabled:border-dotted disabled:border-border disabled:text-text-muted"
         >
           {opt.label}
         </button>

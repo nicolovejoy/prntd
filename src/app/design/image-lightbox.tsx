@@ -101,7 +101,7 @@ export function ImageLightbox({
             ref={closeButtonRef}
             onClick={onClose}
             aria-label="Close"
-            className="min-w-11 min-h-11 flex items-center justify-center text-text-muted hover:text-white text-2xl leading-none"
+            className="min-w-11 min-h-11 flex items-center justify-center text-text-muted hover:text-foreground text-2xl leading-none"
           >
             &times;
           </button>
@@ -114,7 +114,7 @@ export function ImageLightbox({
             onClick={() => currentIndex > 0 && onNavigate(currentIndex - 1)}
             disabled={currentIndex === 0}
             aria-label="Previous image"
-            className="min-w-11 min-h-11 flex items-center justify-center text-3xl text-text-muted hover:text-white disabled:opacity-20 shrink-0"
+            className="min-w-11 min-h-11 flex items-center justify-center text-3xl text-text-muted hover:text-foreground disabled:opacity-20 shrink-0"
           >
             &lsaquo;
           </button>
@@ -135,7 +135,7 @@ export function ImageLightbox({
             }
             disabled={currentIndex === images.length - 1}
             aria-label="Next image"
-            className="min-w-11 min-h-11 flex items-center justify-center text-3xl text-text-muted hover:text-white disabled:opacity-20 shrink-0"
+            className="min-w-11 min-h-11 flex items-center justify-center text-3xl text-text-muted hover:text-foreground disabled:opacity-20 shrink-0"
           >
             &rsaquo;
           </button>

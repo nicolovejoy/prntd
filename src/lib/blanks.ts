@@ -513,7 +513,7 @@ export const BACKGROUND_PALETTE: BlankColor[] =
 
 /**
  * Backdrop color published designs get when the owner didn't pick one.
- * Transparent art on a checkerboard reads badly in the Shop (#73), so
+ * Transparent art on the bare paper well reads badly in the Shop (#73), so
  * publish defaults to White and legacy null rows display as White too.
  */
 export const DEFAULT_PUBLISH_BACKGROUND = "White";
@@ -522,7 +522,7 @@ export const DEFAULT_PUBLISH_BACKGROUND = "White";
  * Resolves a published design's backdrop. Art is a transparent PNG layered
  * over a pinned shirt color (background_color, a name from
  * BACKGROUND_PALETTE). Legacy rows with null background_color display on
- * White — no transparent/checkerboard backdrop in the Shop (#73).
+ * White — no transparent/paper-well backdrop in the Shop (#73).
  */
 export function publishedBackdrop(colorName: string | null | undefined): {
   className: string;

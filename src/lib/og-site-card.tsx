@@ -32,7 +32,14 @@ export function designCardPalette(backgroundColor: string | null | undefined): {
   };
 }
 
-/** Mirrors the site palette (near-black bg, white accent) from globals.css. */
+// Paper token hex values, hardcoded — satori markup can't read CSS custom
+// properties. Keep in sync with globals.css / docs/design-system.md by hand.
+const GROUND = "#f8f5ef";
+const INK = "#141311";
+const FAINT = "#6f6d6a";
+const ROSE = "#a83250";
+
+/** Mirrors the site palette (paper ground, ink text, rose wordmark) from globals.css. */
 export function SiteCard() {
   return (
     <div
@@ -43,8 +50,8 @@ export function SiteCard() {
         flexDirection: "column",
         justifyContent: "center",
         padding: "96px",
-        background: "#0a0a0a",
-        color: "#ededed",
+        background: GROUND,
+        color: INK,
       }}
     >
       <div
@@ -53,7 +60,7 @@ export function SiteCard() {
           fontWeight: 800,
           letterSpacing: "-0.04em",
           lineHeight: 1,
-          color: "#ffffff",
+          color: ROSE,
         }}
       >
         PRNTD
@@ -63,7 +70,7 @@ export function SiteCard() {
           display: "flex",
           marginTop: 32,
           fontSize: 52,
-          color: "#999999",
+          color: INK,
         }}
       >
         Your idea, on a shirt.
@@ -73,19 +80,20 @@ export function SiteCard() {
           display: "flex",
           marginTop: 28,
           fontSize: 34,
-          color: "#666666",
+          color: FAINT,
         }}
       >
         prntd.org
       </div>
-      {/* accent underline strip */}
+      {/* structural underline strip — ink, not rose: rose is scoped to the
+          wordmark and the solid Generate button only (design-system.md). */}
       <div
         style={{
           display: "flex",
           marginTop: 56,
           width: 280,
           height: 10,
-          background: "#ffffff",
+          background: INK,
           borderRadius: 5,
         }}
       />

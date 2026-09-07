@@ -115,7 +115,7 @@ export function SiteHeader({
   return (
     <header className="px-4 sm:px-6 py-2 border-b text-sm relative">
       <div className="flex items-center justify-between">
-        <Link href="/" className="font-bold tracking-tight">
+        <Link href="/" className="font-bold tracking-tight text-accent-rose">
           PRNTD
         </Link>
 
@@ -197,7 +197,7 @@ export function SiteHeader({
       {menuOpen && (
         <div
           ref={menuRef}
-          className="sm:hidden absolute right-2 top-full z-50 mt-1 w-64 max-w-[calc(100vw-1rem)] flex flex-col rounded-md border border-border bg-surface-raised py-1 shadow-lg shadow-black/60"
+          className="sm:hidden absolute right-2 top-full z-50 mt-1 w-64 max-w-[calc(100vw-1rem)] flex flex-col rounded-md border border-border bg-surface-raised py-1"
         >
           {/* Which account is signed in (#126) — with two accounts the only
               other tell is whether Admin shows. */}

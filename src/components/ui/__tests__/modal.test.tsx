@@ -53,4 +53,14 @@ describe("Modal", () => {
     );
     expect(screen.getByText("Styled").parentElement).toHaveClass("max-w-lg");
   });
+
+  it("scrims with ink at ~20%, not an opaque black overlay (Paper)", () => {
+    render(
+      <Modal open={true} onClose={() => {}}>
+        <p>Content</p>
+      </Modal>
+    );
+    const backdrop = screen.getByText("Content").parentElement!.parentElement!;
+    expect(backdrop).toHaveClass("bg-foreground/20");
+  });
 });

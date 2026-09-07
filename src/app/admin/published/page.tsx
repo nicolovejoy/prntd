@@ -60,7 +60,7 @@ export default async function AdminPublishedPage() {
             >
               <Link
                 href={`/d/${img.imageId}`}
-                className="relative block aspect-square bg-checkerboard"
+                className="relative block aspect-square bg-checkerboard border border-border"
               >
                 <Image
                   src={img.imageUrl}

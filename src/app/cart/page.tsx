@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getCart, removeCartItem, checkoutCart, type CartView } from "./actions";
-import { Button } from "@/components/ui";
+import { Button, EmptyState } from "@/components/ui";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
 
@@ -101,24 +101,26 @@ export default function CartPage() {
         )}
 
         {loadFailed && (
-          <div
-            data-testid="cart-load-error"
-            className="text-center py-12 space-y-4"
-          >
-            <p className="text-text-muted">Couldn&apos;t load your cart.</p>
-            <Button size="lg" onClick={() => setAttempt((n) => n + 1)}>
-              Retry
-            </Button>
-          </div>
+          <EmptyState
+            testId="cart-load-error"
+            message="Couldn't load your cart."
+            action={
+              <Button size="lg" onClick={() => setAttempt((n) => n + 1)}>
+                Retry
+              </Button>
+            }
+          />
         )}
 
         {empty && (
-          <div className="text-center py-12 space-y-4">
-            <p className="text-text-muted">Your cart is empty.</p>
-            <Link href="/design">
-              <Button size="lg">Start a design</Button>
-            </Link>
-          </div>
+          <EmptyState
+            message="Your cart is empty."
+            action={
+              <Link href="/design">
+                <Button size="lg">Start a design</Button>
+              </Link>
+            }
+          />
         )}
 
         {cart && cart.items.length > 0 && (
@@ -130,7 +132,7 @@ export default function CartPage() {
                   data-testid="cart-line-item"
                   className="flex items-center gap-4 py-4"
                 >
-                  <div className="w-16 h-16 shrink-0 rounded-md bg-checkerboard overflow-hidden">
+                  <div className="w-16 h-16 shrink-0 rounded-md bg-checkerboard border border-border overflow-hidden">
                     {item.imageUrl && (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img

@@ -183,7 +183,7 @@ mockups do the persuading. Least voice, safest, most conventional.
   style), more whitespace, `/shop` grid gets stronger catalog emphasis
   (bigger cards, less metadata).
 - Badge palette collapses hardest here (neutral + one status color pair).
-- No decorative elements of any kind; checkerboard stays (it's functional).
+- No decorative elements of any kind; the paper well stays (it's functional).
 
 **Implications**
 
@@ -276,8 +276,8 @@ differ.
 - **Mockup** — a generation placed on a physical product (Printful render).
 - **Product version** — a generation re-rendered for a specific product's
   print area (placement render).
-- **Backdrop** — the shirt-palette color a Print is displayed on; checkerboard
-  when unset.
+- **Backdrop** — the shirt-palette color a Print is displayed on; the paper
+  well when unset.
 - **Swatch** — a selectable product color circle.
 
 **Places**
@@ -318,47 +318,90 @@ differ.
 Defined in `src/app/globals.css` (Tailwind v4 `@theme inline`). Semantic, not
 literal — components must use these, never raw `gray-*` / hex.
 
-Elevation (4 steps, all near-black):
+**Paper (variant PaperB, "quieter") — light only, shipped 2026-09.** There is
+no dark-mode mechanism: no `prefers-color-scheme` branch, only tokens. Every
+token below is warm off-white ground + near-black ink, mixed toward each
+other for the intermediate steps — never an inverted grey-on-black ramp.
+
+Ground + ink:
 
 ```
---background      #0a0a0a   page
---surface         #111111   inputs, wells
---surface-raised  #1a1a1a   cards
-(overlay)         black/90  modals, lightbox   [gap: not yet a token]
+--background   oklch(0.97 0.008 80) ≈ #f8f5ef   page ground (warm off-white)
+--foreground   #141311                          ink (primary text)
 ```
 
-Line + text:
+Surfaces (no elevation shadows anywhere — 1px borders are the only
+separator):
 
 ```
---border          #2e2e2e   resting
---border-hover    #444444   hover/focus
---foreground      #ededed   primary text
---text-muted      #999999   secondary text
---text-faint      #666666   tertiary/metadata
+--surface         #ffffff   inputs, plain paper wells
+--surface-raised  #ffffff   cards (same paper; a border does the work)
+--surface-well    #e6e3dd   media/transparency well — ink mixed 8% into the
+                             ground. Replaces the checkerboard: see
+                             `.bg-checkerboard` below.
+(overlay)         ink/20%   modals, lightbox scrim   [gap: not yet a token]
 ```
 
-Accent:
+Line + text — muted/faint are ink mixed 24% / 40% toward the ground. Both
+clear 4.5:1 on the ground: `text-faint` is used at `text-sm` across ~90
+call sites on substantive copy (not just fine print/decoration), so it has
+to pass AA for normal text the same as muted, not just the 3:1 large-text
+floor:
 
 ```
---accent          #ffffff   the one inversion color
---accent-fg       #000000   text on accent
+--border          #bfbdb8   resting (hairline) — ink at ~25% over the ground
+--border-hover    #141311   hover/focus/emphasis — solid ink, 1px
+--text-muted      #4b4946   secondary text — ink 24% toward ground
+--text-faint      #6f6d6a   tertiary/metadata — ink 40% toward ground
 ```
 
-Utility: `.bg-checkerboard` — transparency indicator for raw PNGs (thumbnails,
-unset backdrops).
-
-Proposed additions **[gap]**:
+Accent — the one inversion is now ink-on-ground (an outlined ink button),
+not a filled white-on-black chip; `accent`/`accent-fg` alias the ink/ground
+pair directly so any future filled-ink surface stays correct by construction:
 
 ```
---overlay         rgba(0,0,0,.9)   tokenize the modal scrim
---positive        green-400-ish    money-in, success (ledger, profit)
---negative        red-400-ish      money-out, destructive, errors
---attention       yellow-400-ish   pending states
+--accent      var(--foreground)   ink
+--accent-fg   var(--background)   ground (text on an ink fill)
 ```
 
-…and collapse the 11 badge hues (see Gaps) onto those three plus neutral.
-Option B would add one more: `--ink-accent` (riso blue/red). A and C add
-nothing.
+Rose — ONE accent hue in the whole system ("One Mark"): the wordmark and the
+solid Generate button (Studio composer submit, landing hero Generate).
+Nothing else is rose. A fuller rose palette may come later as a token-only
+swap — every rose reference in the app must go through this token.
+
+```
+--accent-rose   #a83250
+```
+
+Status pair (Clean Label): money-in/terminal-good vs money-out/destructive.
+Chrome stays monochrome otherwise — recoloured for the light ground (were
+dark-theme `#4ade80`/`#f87171`):
+
+```
+--positive   #166534
+--negative   #b91c1c
+```
+
+**Computed AA contrast ratios** (WCAG relative-luminance formula; ≥4.5:1 is
+AA for normal text, ≥3:1 for large text/UI components):
+
+```
+ink       (#141311) on ground (#f8f5ef)  → 17.06:1
+muted     (#4b4946) on ground            →  8.25:1   (passes AA normal text)
+faint     (#6f6d6a) on ground            →  4.74:1   (passes AA normal text)
+rose      (#a83250) on ground (#f8f5ef)  →  5.96:1   (passes AA normal text)
+rose      (#a83250) on white (#ffffff)   →  6.49:1   (passes AA normal text)
+ground    (#f8f5ef) on rose fill (#a83250) → 5.96:1  (solid Generate button — the button is bg-accent-rose text-background, not white text)
+positive  (#166534) on ground            →  6.55:1
+negative  (#b91c1c) on ground            →  5.95:1
+```
+
+Utility: `.bg-checkerboard` — was a literal checkerboard (transparency
+indicator for raw PNGs); on paper that read as noise, so it's now a plain
+well (`background-color: var(--surface-well)` only — call sites that want
+an edge add `border border-border` themselves; the class must never set
+`border`, see gap #4). The class name is kept so existing call sites keep
+compiling.
 
 ### Type
 
@@ -421,10 +464,13 @@ Remaining:
    canceled = negative, everything else neutral; no `--attention` — pending
    states are neutral under C). Raw `green-400`/`red-400` classes swept onto
    the tokens (admin money coloring, error lines, danger button hover).
-2. **Dark-only is implicit, not declared** — light-mode Tailwind classes
-   break on the dark background when they sneak in. Declare dark-only as a
-   principle (it's the brand under all three personas) or do real theming.
-   No halfway. Persona-independent; decide once.
+2. ~~**Dark-only is implicit, not declared**~~ — RESOLVED 2026-09-06 under
+   Paper: the app is light-only by tokens now (`docs/ux-design-review-2026-09.md`,
+   variant PaperB "quieter"), and there is no `prefers-color-scheme` branch
+   to declare or theme around — the halfway state this gap warned about is
+   gone because there's only one mode. The dark-literal sweep (`bg-gray-900`,
+   `bg-black/*`, `text-white`, `shadow-*`) that made the old dark-only brand
+   implicit is complete (#188 slice 1) — zero matches outside tests.
 3. **Two empty-state implementations** in the Studio (hero composer + an
    older in-thread variant in `chat-panel.tsx`) — the second is near-dead
    code. Persona-independent cleanup, but the surviving copy is persona-
@@ -432,7 +478,16 @@ Remaining:
 4. **"Selected image" is load-bearing but nearly invisible** — a 2px border
    decides what Make Products ships to /preview. Persona-independent problem;
    B's ink accent gives it a free fix, A/C need a heavier white treatment
-   (thicker ring + dimmed siblings).
+   (thicker ring + dimmed siblings). **Incident, 2026-09-06:** the Paper
+   slice-1 rollout's `.bg-checkerboard` alias briefly made this worse than
+   "nearly invisible" — it set an unlayered `border` that overrode the 2px
+   `border-accent` selection indicator outright on five thumbnails/swatches
+   (preview back-picker, /d back-picker, conversation-images aria-current,
+   design-stage strip, studio isPrimary), so the selected state rendered no
+   differently from an unselected one. Caught in the slice-1 whole-branch
+   review, fixed (the alias no longer sets a border), and guarded by a test
+   asserting the rule stays border-free. This gap itself — the 2px border
+   being weak even when it renders — is unchanged and still open.
 5. **Three composer actions at equal weight** — violates one-primary. The
    structural fix (what Send / Draw it / Compare collapse into) is persona-
    independent; the labels are persona-dependent (A keeps "Draw it", B

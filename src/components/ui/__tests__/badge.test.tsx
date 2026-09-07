@@ -31,4 +31,25 @@ describe("Badge", () => {
     render(<Badge className="ml-2">Custom</Badge>);
     expect(screen.getByText("Custom")).toHaveClass("ml-2");
   });
+
+  it("is a mono uppercase label, not a pill (Paper: no rounded-full/border/bg)", () => {
+    render(<Badge>plain</Badge>);
+    const badge = screen.getByText("plain");
+    expect(badge).toHaveClass("font-mono", "uppercase");
+    expect(badge.className).not.toMatch(/rounded-full|border|bg-/);
+  });
+
+  it("colors only shipped/delivered positive and canceled negative", () => {
+    const shipped = render(<Badge variant="shipped">shipped</Badge>);
+    expect(screen.getByText("shipped")).toHaveClass("text-positive");
+    shipped.unmount();
+
+    const canceled = render(<Badge variant="canceled">canceled</Badge>);
+    expect(screen.getByText("canceled")).toHaveClass("text-negative");
+    canceled.unmount();
+
+    const pending = render(<Badge variant="pending">pending</Badge>);
+    expect(screen.getByText("pending")).toHaveClass("text-text-muted");
+    pending.unmount();
+  });
 });

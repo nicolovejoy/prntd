@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { Button } from "@/components/ui";
+import { Button, EmptyState } from "@/components/ui";
 import { requireRealUser } from "@/lib/require-user";
 import { getStudioArchiveData } from "@/lib/studio";
 import { formatClosedDate } from "@/lib/studio-view";
@@ -32,7 +32,7 @@ export default async function StudioArchivePage() {
       </p>
 
       {conversations.length === 0 ? (
-        <p className="text-text-faint py-16 text-center">Nothing archived.</p>
+        <EmptyState message="Nothing archived." />
       ) : (
         <ul className="divide-y divide-border" data-testid="archive-list">
           {conversations.map((conversation) => (

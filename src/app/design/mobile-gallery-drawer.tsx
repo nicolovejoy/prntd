@@ -42,7 +42,7 @@ export function MobileGalleryDrawer({
     <>
       {/* Backdrop */}
       <div
-        className={`fixed inset-0 z-40 bg-black/60 transition-opacity md:hidden ${
+        className={`fixed inset-0 z-40 bg-foreground/20 transition-opacity md:hidden ${
           open ? "opacity-100" : "opacity-0 pointer-events-none"
         }`}
         onClick={onClose}

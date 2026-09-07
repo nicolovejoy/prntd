@@ -22,7 +22,11 @@ export function relativeLuminance(hex: string): number {
   return 0.2126 * channel(0) + 0.7152 * channel(2) + 0.0722 * channel(4);
 }
 
-/** A shirt color dark enough to vanish against the dark site chrome. */
+/**
+ * A shirt color dark enough to need light (not ink) text/labels laid over
+ * the mockup photo itself — this is about contrast against the garment in
+ * the photo, unrelated to the page's own (light, paper) background.
+ */
 export function isDarkShirt(colorHex: string): boolean {
   return relativeLuminance(colorHex) < 0.35;
 }
@@ -30,14 +34,15 @@ export function isDarkShirt(colorHex: string): boolean {
 /**
  * Backdrop behind the Printful mockup. The mockup ships with a white studio
  * background baked in; rendering the <img> with mix-blend-multiply over this
- * backdrop makes those white pixels take the backdrop color. Multiply against
- * a dark tone would darken the shirt itself (the site background is near
- * black), so both branches are light: dark shirts get a clearly light
- * neutral so they read, light shirts get near-white so the blend doesn't
- * tint the garment.
+ * backdrop makes those white pixels take the backdrop color, so it must stay
+ * light regardless of shirt color (multiplying against a dark tone would
+ * darken the shirt itself). Light shirts use the page ground directly — the
+ * garment is already close to that color, so the blend doesn't tint it.
+ * Dark shirts use a light neutral distinct from the warm ground so the
+ * mockup's studio-background margin doesn't pick up the page's warm cast.
  */
 export function mockupBackdrop(colorHex: string): string {
-  return isDarkShirt(colorHex) ? "#ececec" : "#f7f7f7";
+  return isDarkShirt(colorHex) ? "#ececec" : "var(--background)";
 }
 
 export type HeroDisplayInput = {

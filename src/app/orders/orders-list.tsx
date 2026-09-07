@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { Badge, Button, Card } from "@/components/ui";
+import { Badge, Button, Card, EmptyState } from "@/components/ui";
 import { getColorHex } from "@/lib/blanks";
 import type { UserOrder } from "@/lib/user-orders";
 
@@ -80,16 +80,18 @@ export function OrdersList({ orders }: { orders: UserOrder[] }) {
         )}
 
         {orders.length === 0 ? (
-          <div className="text-center py-16 space-y-4">
-            <p className="text-text-muted text-lg">No orders yet.</p>
-            <Link href="/design">
-              <Button>Make your first design</Button>
-            </Link>
-          </div>
+          <EmptyState
+            message="No orders yet."
+            action={
+              <Link href="/design">
+                <Button>Make your first design</Button>
+              </Link>
+            }
+          />
         ) : filtered.length === 0 ? (
-          <p className="text-text-muted text-center py-8">
-            No {filter === "canceled" ? "canceled" : "active"} orders.
-          </p>
+          <EmptyState
+            message={`No ${filter === "canceled" ? "canceled" : "active"} orders.`}
+          />
         ) : (
           <div className="space-y-3">
             {filtered.map((order) => (

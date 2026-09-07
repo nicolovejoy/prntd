@@ -48,7 +48,7 @@ export function Breadcrumbs({
       {/* Mobile: single back chip */}
       <Link
         href={up.href}
-        className="sm:hidden inline-flex items-center gap-1 min-h-[40px] text-sm text-text-muted hover:text-foreground transition-colors"
+        className="sm:hidden inline-flex items-center gap-1 min-h-[40px] text-sm text-text-muted underline underline-offset-2 hover:text-foreground transition-colors"
       >
         <span aria-hidden>←</span> {up.label}
       </Link>
@@ -57,10 +57,13 @@ export function Breadcrumbs({
       <ol className="hidden sm:flex items-center gap-2 text-sm text-text-muted">
         {trail.map((c) => (
           <li key={c.href} className="flex items-center gap-2">
-            <Link href={c.href} className="hover:text-foreground hover:underline transition-colors">
+            <Link
+              href={c.href}
+              className="underline underline-offset-2 hover:text-foreground transition-colors"
+            >
               {c.label}
             </Link>
-            <span aria-hidden className="text-text-faint">
+            <span aria-hidden className="font-mono text-text-faint">
               /
             </span>
           </li>

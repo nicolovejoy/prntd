@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireRealUser } from "@/lib/require-user";
 import { getUserImageLibrary } from "@/lib/user-designs";
-import { Button } from "@/components/ui";
+import { Button, EmptyState } from "@/components/ui";
 import { LibraryGrid } from "./library-grid";
 
 /**
@@ -21,12 +21,14 @@ export default async function DesignsPage() {
       <h1 className="text-xl sm:text-2xl font-bold mb-6">My Designs</h1>
 
       {images.length === 0 ? (
-        <div className="text-center py-16 space-y-4">
-          <p className="text-text-faint">No designs yet.</p>
-          <Link href="/studio">
-            <Button>Open the Studio</Button>
-          </Link>
-        </div>
+        <EmptyState
+          message="No designs yet."
+          action={
+            <Link href="/studio">
+              <Button>Open the Studio</Button>
+            </Link>
+          }
+        />
       ) : (
         <LibraryGrid images={images} />
       )}
