@@ -180,6 +180,9 @@ export default function OrderDetailPage() {
     if (!trimmed || !order) return;
     const tags = order.tags ?? [];
     if (tags.includes(trimmed)) return;
+    // New interaction: drop the previous result line so a stale
+    // Retry/Recover/Refund failure isn't read as a failure of the tag add.
+    setActionResult(null);
     const next = [...tags, trimmed];
     setOrderTags(params.id, next);
     setOrder((prev) => (prev ? { ...prev, tags: next } : prev));
