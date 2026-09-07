@@ -1,29 +1,17 @@
-import { headers } from "next/headers";
-import { redirect } from "next/navigation";
 import Link from "next/link";
 import { MakerHero } from "@/components/maker-hero";
 import { PublishedGrid } from "@/components/published-grid";
 import { getDiscoverFeed } from "./d/actions";
 import { getActivePromo } from "@/lib/promotion";
-import { auth, isAnonymousUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
-// One layout for all visitors (#75): composer-first hero (with the one-line
-// basics of the offer), Shop feed below. No signed-in divergence — the old
-// proof strip is gone too (it duplicated the feed two sections down).
-//
-// The session read below reverses that, on purpose (nav-remap, 2026-09-01):
-// #75 killed a divergence between two different *homepages*; this is a
-// redirect to a different surface entirely (the Studio, where a signed-in
-// user's work actually lives — studio-plan.md slice 5's landing
-// recommendation, pulled forward). Anonymous guest-funnel sessions are
-// excluded — requireRealUser would bounce them straight to /sign-in, which
-// is a worse landing than the composer they already have here.
+// One layout for all visitors (#75): composer-first hero, Shop feed below.
+// No signed-in divergence and no session read: a nav-remap on 2026-09-01
+// redirected signed-in users to /studio from here, and the owner reversed it
+// on 2026-09-07 — the Studio is one tap away in the header (nav model A),
+// and the homepage should be the same page for everyone.
 export default async function Home() {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (session && !isAnonymousUser(session.user)) redirect("/studio");
-
   const [discover, promo] = await Promise.all([
     getDiscoverFeed(12),
     getActivePromo(),
