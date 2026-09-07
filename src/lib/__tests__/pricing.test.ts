@@ -5,11 +5,13 @@ import {
   computeCartTotal,
   estimateShipping,
   minRetailPrice,
+  cheapestActiveBlank,
+  cardPriceLine,
   FLAT_SHIPPING_USD,
   MARGIN_MULTIPLIER,
   BACK_PLACEMENT_UPCHARGE,
 } from "../pricing";
-import { ACTIVE_BLANKS, BLANKS } from "../blanks";
+import { ACTIVE_BLANKS, BLANKS, getBlankOrThrow } from "../blanks";
 
 describe("computePrice", () => {
   it("prices the default Classic Tee at its fixed retail price, ignoring generation cost", () => {
@@ -192,5 +194,57 @@ describe("minRetailPrice", () => {
         expect(floor).toBeLessThanOrEqual(computePrice(0, blank.id, size).total);
       }
     }
+  });
+});
+
+describe("cheapestActiveBlank", () => {
+  it("agrees with minRetailPrice on the amount", () => {
+    expect(cheapestActiveBlank().price).toBe(minRetailPrice());
+  });
+
+  it("names a blank that is actually sold at that price", () => {
+    const { blankId, price } = cheapestActiveBlank();
+    const blank = getBlankOrThrow(blankId);
+    const prices = blank.sizes.map((s) => computePrice(0, blankId, s).total);
+    expect(Math.min(...prices)).toBe(price);
+  });
+
+  it("is the Classic Tee at $19.43 today", () => {
+    // Pins the copy the Shop card renders. If a cheaper blank is added this
+    // fails, which is the point: the card's garment name follows the price.
+    expect(cheapestActiveBlank()).toEqual({
+      blankId: "bella-canvas-3001",
+      price: 19.43,
+    });
+  });
+});
+
+describe("cardPriceLine", () => {
+  it("falls back to the cheapest active blank when no garment is fixed", () => {
+    expect(cardPriceLine(null).text).toBe("From $19.43 · Classic Tee");
+    expect(cardPriceLine(undefined)).toEqual(cardPriceLine(null));
+  });
+
+  it("uses a fixed blank's own floor price and name", () => {
+    const line = cardPriceLine("cotton-heritage-mc1087");
+    expect(line.garment).toBe("Box Tee");
+    expect(line.amount).toBe(26.18);
+    expect(line.text).toBe("From $26.18 · Box Tee");
+  });
+
+  it("always says From, because a card shows no size", () => {
+    // Classic Tee is $19.43 on S-XL and $21.43 on 2XL; a bare price would be
+    // false for one of them.
+    expect(cardPriceLine("bella-canvas-3001").text).toMatch(/^From \$/);
+  });
+
+  it("falls back rather than throwing on an unknown blank id", () => {
+    // A card must never take the whole feed down over a stale id.
+    expect(cardPriceLine("no-such-blank")).toEqual(cardPriceLine(null));
+  });
+
+  it("formats to exactly two decimals", () => {
+    expect(cardPriceLine(null).text).toContain("$19.43");
+    expect(cardPriceLine(null).text).not.toContain("19.430");
   });
 });

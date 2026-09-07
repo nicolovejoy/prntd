@@ -48,19 +48,19 @@ export default async function AdminPublishedPage() {
       <h1 className="text-xl font-bold mb-6">Published images</h1>
 
       {images.length === 0 ? (
-        <p className="text-text-muted">No published images yet.</p>
+        <p className="text-sm text-text-muted">No published images yet.</p>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
           {images.map((img) => (
             <div
               key={img.imageId}
               className={`border rounded-md overflow-hidden ${
-                img.isHidden ? "border-negative opacity-60" : "border-border"
+                img.isHidden ? "border-negative" : "border-border"
               }`}
             >
               <Link
                 href={`/d/${img.imageId}`}
-                className="relative block aspect-square bg-checkerboard border border-border"
+                className="relative block aspect-square bg-surface-well border border-border"
               >
                 <Image
                   src={img.imageUrl}
@@ -73,13 +73,18 @@ export default async function AdminPublishedPage() {
                 />
               </Link>
               <div className="p-3 space-y-2">
+                {img.isHidden && (
+                  <p className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-negative">
+                    Hidden
+                  </p>
+                )}
                 {img.title && (
                   <p className="text-sm font-medium truncate">{img.title}</p>
                 )}
                 <p className="text-xs text-text-muted truncate">
                   {img.designerName} · {img.designerEmail}
                 </p>
-                <p className="text-xs text-text-faint">
+                <p className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted">
                   {img.publishedAt.toLocaleDateString()}
                 </p>
                 {/* Shop feed position. Ranked images list first (lowest
@@ -95,7 +100,7 @@ export default async function AdminPublishedPage() {
                     defaultValue={img.feedRank ?? ""}
                     placeholder="Rank"
                     aria-label="Shop feed rank"
-                    className="w-full min-w-0 min-h-11 px-2 text-sm"
+                    className="w-full min-w-0 min-h-11 px-2 text-sm font-mono"
                   />
                   <Button
                     type="submit"
@@ -115,9 +120,9 @@ export default async function AdminPublishedPage() {
                   />
                   <Button
                     type="submit"
-                    variant={img.isHidden ? "secondary" : "danger"}
+                    variant="ghost"
                     size="sm"
-                    className="w-full"
+                    className="w-full min-h-11 underline underline-offset-[3px]"
                   >
                     {img.isHidden ? "Unhide" : "Hide"}
                   </Button>
