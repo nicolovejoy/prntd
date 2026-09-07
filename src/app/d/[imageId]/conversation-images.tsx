@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useState } from "react";
 import { setPrimaryImage } from "@/app/design/actions";
 import { ImageLightbox, type LightboxImage } from "@/app/design/image-lightbox";
-import { Button } from "@/components/ui";
+import { Button, InlineNotice } from "@/components/ui";
+import { SET_PRIMARY_IMAGE_FAILED } from "@/lib/action-copy";
 import type { SiblingImage } from "../actions";
 
 const STRIP_SIZES = "88px";
@@ -35,6 +36,7 @@ export function ConversationImages({
 }) {
   const [primaryImageId, setPrimary] = useState(initialPrimaryImageId);
   const [saving, setSaving] = useState(false);
+  const [useError, setUseError] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   // Owner backstop: getConversationImages returns an empty list for anyone
@@ -50,11 +52,12 @@ export function ConversationImages({
 
   async function handleUse(imageId: string) {
     setSaving(true);
+    setUseError(null);
     try {
       await setPrimaryImage(designId, imageId);
       setPrimary(imageId);
-    } catch (err) {
-      window.alert(err instanceof Error ? err.message : "Action failed");
+    } catch {
+      setUseError(SET_PRIMARY_IMAGE_FAILED);
     } finally {
       setSaving(false);
     }
@@ -75,6 +78,14 @@ export function ConversationImages({
   }));
   const shown = lightboxIndex === null ? null : images[lightboxIndex];
 
+  // Showing a different image in the lightbox clears any stale failure line
+  // from a previous "Use this one" attempt — it belongs to the image it was
+  // attempted on, not whatever is shown next.
+  function showInLightbox(index: number) {
+    setLightboxIndex(index);
+    setUseError(null);
+  }
+
   return (
     <div className="space-y-3 pt-2 border-t border-border">
       <div className="flex flex-wrap items-center gap-3">
@@ -92,6 +103,7 @@ export function ConversationImages({
             {saving ? "Saving…" : "Use this one"}
           </Button>
         )}
+        {useError && <InlineNotice message={useError} />}
       </div>
 
       {others.length > 0 && (
@@ -106,7 +118,7 @@ export function ConversationImages({
                 <button
                   key={img.imageId}
                   type="button"
-                  onClick={() => setLightboxIndex(index)}
+                  onClick={() => showInLightbox(index)}
                   aria-label={`Image #${index + 1}`}
                   aria-current={isCurrent ? "true" : undefined}
                   title={isCurrent ? "Current image" : undefined}
@@ -135,8 +147,11 @@ export function ConversationImages({
         <ImageLightbox
           images={lightboxImages}
           currentIndex={lightboxIndex}
-          onClose={() => setLightboxIndex(null)}
-          onNavigate={setLightboxIndex}
+          onClose={() => {
+            setLightboxIndex(null);
+            setUseError(null);
+          }}
+          onNavigate={showInLightbox}
           actions={
             <>
               {shown.imageId === primaryImageId ? (
@@ -161,6 +176,7 @@ export function ConversationImages({
                   Open
                 </Link>
               )}
+              {useError && <InlineNotice message={useError} className="self-center" />}
             </>
           }
         />

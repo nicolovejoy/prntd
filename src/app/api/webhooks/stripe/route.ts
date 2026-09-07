@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
       });
       console.log(`Stripe event ${event.id}: order ${orderId} → ${result.action}`);
 
-      // Send confirmation + owner alert (fire-and-forget; helper swallows errors)
+      // Send confirmation + owner notification (fire-and-forget; helper swallows errors)
       if (result.action === "submitted" || result.action === "paid" || result.action === "paid_printful_failed") {
         await sendPostOrderEmails(
           orderId,

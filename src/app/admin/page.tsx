@@ -11,7 +11,7 @@ import {
   setOrderTags,
   setOrderClassification,
 } from "./actions";
-import { Badge, Button, Card, useConfirm } from "@/components/ui";
+import { Badge, Button, Card, InlineNotice, useConfirm, type InlineNoticeTone } from "@/components/ui";
 import { getColorHex } from "@/lib/blanks";
 import {
   ORDER_CLASSIFICATIONS,
@@ -27,6 +27,13 @@ import {
   computeSummary,
   type SortField,
 } from "@/lib/admin-filters";
+import {
+  ADMIN_RECOVER_ARCHIVE_HINT,
+  ADMIN_RECOVER_FAILED,
+  ADMIN_RETRY_FAILED,
+  adminCannotRecover,
+  adminRecovered,
+} from "@/lib/action-copy";
 
 type AdminData = Awaited<ReturnType<typeof getAdminData>>;
 type Order = AdminData["orders"][number];
@@ -48,6 +55,14 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [retrying, setRetrying] = useState<string | null>(null);
   const [recovering, setRecovering] = useState<string | null>(null);
+  // One result line at a time, keyed to the row whose button was pressed —
+  // admin acts on one order and then reads what happened to it.
+  const [actionResult, setActionResult] = useState<{
+    orderId: string;
+    tone: InlineNoticeTone;
+    message: string;
+    hint?: string;
+  } | null>(null);
   const [filterState, dispatch] = useReducer(filterReducer, initialFilterState);
   const { confirm, element: confirmSheet } = useConfirm();
 
@@ -72,12 +87,13 @@ export default function AdminPage() {
     });
     if (!ok) return;
     setRetrying(orderId);
+    setActionResult(null);
     try {
       await retryPrintfulSubmission(orderId);
       await fetchData();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      alert(`Retry failed: ${message}`);
+      setActionResult({ orderId, tone: "negative", message: ADMIN_RETRY_FAILED, hint: message });
     } finally {
       setRetrying(null);
     }
@@ -92,19 +108,23 @@ export default function AdminPage() {
     });
     if (!ok) return;
     setRecovering(orderId);
+    setActionResult(null);
     try {
       const result = await recoverPendingOrder(orderId);
       if (result.ok) {
-        alert(`Recovered: ${result.action}`);
+        setActionResult({ orderId, tone: "neutral", message: adminRecovered(result.action) });
         await fetchData();
       } else {
-        alert(
-          `Cannot recover: ${result.reason}\n\nIf the Stripe session was never paid, click Archive instead.`
-        );
+        setActionResult({
+          orderId,
+          tone: "negative",
+          message: adminCannotRecover(result.reason),
+          hint: ADMIN_RECOVER_ARCHIVE_HINT,
+        });
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      alert(`Recover failed: ${message}`);
+      setActionResult({ orderId, tone: "negative", message: ADMIN_RECOVER_FAILED, hint: message });
     } finally {
       setRecovering(null);
     }
@@ -118,16 +138,19 @@ export default function AdminPage() {
       danger: true,
     });
     if (!ok) return;
+    setActionResult(null);
     await archiveOrder(orderId);
     updateOrder(orderId, { archivedAt: new Date() });
   }
 
   async function handleUnarchive(orderId: string) {
+    setActionResult(null);
     await unarchiveOrder(orderId);
     updateOrder(orderId, { archivedAt: null });
   }
 
   async function handleToggleTag(orderId: string, tag: string, currentTags: string[] | null) {
+    setActionResult(null);
     const tags = currentTags ?? [];
     const next = tags.includes(tag) ? tags.filter((t) => t !== tag) : [...tags, tag];
     await setOrderTags(orderId, next);
@@ -145,6 +168,7 @@ export default function AdminPage() {
   }
 
   async function handleClassificationChange(orderId: string, classification: OrderClassification) {
+    setActionResult(null);
     await setOrderClassification(orderId, classification);
     updateOrder(orderId, { classification });
   }
@@ -509,6 +533,14 @@ export default function AdminPage() {
                           Archive
                         </Button>
                       ) : null}
+                      {actionResult?.orderId === order.id && (
+                        <InlineNotice
+                          testId="admin-action-result"
+                          tone={actionResult.tone}
+                          message={actionResult.message}
+                          hint={actionResult.hint}
+                        />
+                      )}
                     </td>
                   </tr>
                 );

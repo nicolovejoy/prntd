@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, within, act } from "@testing-library/react";
 import { ConversationImages } from "../conversation-images";
 import type { SiblingImage } from "../../actions";
+import { SET_PRIMARY_IMAGE_FAILED } from "@/lib/action-copy";
 
 // The real module is "use server" and pulls the DB.
 vi.mock("@/app/design/actions", () => ({
@@ -215,16 +216,47 @@ describe("ConversationImages top-level Use this one", () => {
     expect(thumb(3)).not.toHaveAttribute("aria-current");
   });
 
-  it("a failed save alerts the message and re-enables the button", async () => {
+  it("a failed save shows an inline line, calls no alert, and re-enables the button", async () => {
     vi.mocked(setPrimaryImage).mockRejectedValueOnce(new Error("Unauthorized"));
     renderStrip();
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Use this one" }));
     });
-    expect(window.alert).toHaveBeenCalledWith("Unauthorized");
+    expect(screen.getByTestId("inline-notice")).toHaveTextContent(SET_PRIMARY_IMAGE_FAILED);
+    expect(window.alert).not.toHaveBeenCalled();
     const btn = screen.getByRole("button", { name: "Use this one" });
     expect(btn).toBeEnabled();
     expect(screen.queryByText(CURRENT_COPY)).toBeNull();
     expect(thumb(1)).toHaveAttribute("aria-current", "true");
+  });
+
+  it("clears a failure line when the lightbox navigates to another image", async () => {
+    vi.mocked(setPrimaryImage).mockRejectedValueOnce(new Error("Unauthorized"));
+    renderStrip();
+    fireEvent.click(thumb(3));
+    await act(async () => {
+      fireEvent.click(lightbox().getByRole("button", { name: "Use this one" }));
+    });
+    // The strip's own top-level block (img-b isn't primary either) renders
+    // the same shared state, so both slots show it — see conversation-images.tsx.
+    expect(screen.getAllByTestId("inline-notice").length).toBeGreaterThan(0);
+    fireEvent.click(prev());
+    expect(lightbox().getByText("#2 of 3")).toBeInTheDocument();
+    expect(screen.queryByTestId("inline-notice")).toBeNull();
+  });
+
+  it("clears a failure line when the lightbox is closed", async () => {
+    vi.mocked(setPrimaryImage).mockRejectedValueOnce(new Error("Unauthorized"));
+    renderStrip();
+    fireEvent.click(thumb(3));
+    await act(async () => {
+      fireEvent.click(lightbox().getByRole("button", { name: "Use this one" }));
+    });
+    expect(screen.getAllByTestId("inline-notice").length).toBeGreaterThan(0);
+    fireEvent.click(lightbox().getByRole("button", { name: "Close" }));
+    expect(screen.queryByTestId("image-lightbox")).toBeNull();
+    // A failure attempted on #3 must not linger and read as the page's
+    // own image's (#2, "img-b") error once the lightbox is gone.
+    expect(screen.queryByTestId("inline-notice")).toBeNull();
   });
 });

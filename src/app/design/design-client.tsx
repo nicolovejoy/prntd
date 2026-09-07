@@ -23,7 +23,7 @@ import {
   reopenConversation,
   startConversationFromImage,
 } from "./actions";
-import { Button } from "@/components/ui";
+import { Button, useNotice } from "@/components/ui";
 import { PublishModal } from "@/components/publish-modal";
 import type { ChatMessage } from "@/lib/db/schema";
 import type { ChatOption } from "@/lib/ai";
@@ -36,7 +36,8 @@ import { MobileGalleryDrawer } from "./mobile-gallery-drawer";
 import { MobileGalleryStrip } from "./mobile-gallery-strip";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
-import { isDesignEmpty, sourcesToGalleryImages } from "@/lib/design-view";
+import { isDesignEmpty, sourcesToGalleryImages, conversationToggleError } from "@/lib/design-view";
+import { DELETE_IMAGE_ERROR, START_FROM_IMAGE_ERROR } from "@/lib/action-copy";
 import { ensureGuestSession } from "@/lib/ensure-guest-session";
 import {
   readThreadSnapshot,
@@ -180,6 +181,11 @@ function DesignPageInner({ initialThreadPromise, canPublish }: Props) {
   const [pollErrors, setPollErrors] = useState(0);
   // Last failed generation, shown inline. Cleared when a new one starts.
   const [genError, setGenError] = useState<string | null>(null);
+
+  // Delete-image, Close/Reopen, and start-from-image all fire from a
+  // lightbox, drawer, or header with no stable inline slot, so each reports
+  // through this one-button sheet rather than an inline line.
+  const { notice, element: noticeSheet } = useNotice();
 
   const running = jobs.running;
   const generating = running.length > 0 || pending > 0;
@@ -607,9 +613,11 @@ function DesignPageInner({ initialThreadPromise, canPublish }: Props) {
     const deleted = images.find((img) => img.id === imageId);
     try {
       await deleteDesignImage(designId.current, imageId);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Delete failed";
-      window.alert(msg);
+    } catch {
+      // The server's refusal reason ("…referenced by an order") does not
+      // survive to the client in production — Next masks a thrown
+      // server-action error behind a digest — so say it in our own words.
+      notice(DELETE_IMAGE_ERROR);
       return;
     }
     await refreshGallery();
@@ -681,8 +689,8 @@ function DesignPageInner({ initialThreadPromise, canPublish }: Props) {
         await closeConversation(designId.current);
         setClosed(true);
       }
-    } catch (err) {
-      window.alert(err instanceof Error ? err.message : "Action failed");
+    } catch {
+      notice(conversationToggleError(closed));
     }
   }
 
@@ -693,8 +701,8 @@ function DesignPageInner({ initialThreadPromise, canPublish }: Props) {
     try {
       const { designId: newId } = await startConversationFromImage(imageId);
       window.location.assign(`/design?id=${newId}`);
-    } catch (err) {
-      window.alert(err instanceof Error ? err.message : "Action failed");
+    } catch {
+      notice(START_FROM_IMAGE_ERROR);
     }
   }
 
@@ -857,6 +865,8 @@ function DesignPageInner({ initialThreadPromise, canPublish }: Props) {
         open={publishImageId !== null}
         onClose={() => setPublishImageId(null)}
       />
+
+      {noticeSheet}
     </div>
   );
 }

@@ -7,7 +7,8 @@ import {
   DELETE_CONVERSATION_CONSEQUENCE,
   DELETE_CONVERSATION_TITLE,
 } from "@/lib/design-view";
-import { useConfirm } from "@/components/ui";
+import { useConfirm, InlineNotice } from "@/components/ui";
+import { DELETE_CONVERSATION_FAILED, OPEN_CONVERSATION_FAILED } from "@/lib/action-copy";
 
 /**
  * The owner's two conversation-level controls on the image detail page
@@ -28,15 +29,17 @@ export function ConversationActions({
   archived: boolean;
 }) {
   const [busy, setBusy] = useState<"open" | "delete" | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const { confirm, element: confirmSheet } = useConfirm();
 
   async function open() {
     setBusy("open");
+    setError(null);
     try {
       await openConversation(designId);
       window.location.assign(`/design?id=${designId}`);
-    } catch (err) {
-      window.alert(err instanceof Error ? err.message : "Action failed");
+    } catch {
+      setError(OPEN_CONVERSATION_FAILED);
       setBusy(null);
     }
   }
@@ -50,17 +53,20 @@ export function ConversationActions({
     });
     if (!ok) return;
     setBusy("delete");
+    setError(null);
     try {
       // Expected refusals come back as { error } — prod masks thrown
-      // server-action messages, so a throw here only shows the digest.
+      // server-action messages, so a throw here only shows the digest. The
+      // refusal is written for the reader, so it is shown verbatim; a throw
+      // gets our own line.
       const result = await deleteDesign(designId);
       if (result?.error) {
-        window.alert(result.error);
+        setError(result.error);
         setBusy(null);
         return;
       }
-    } catch (err) {
-      window.alert(err instanceof Error ? err.message : "Delete failed");
+    } catch {
+      setError(DELETE_CONVERSATION_FAILED);
       setBusy(null);
       return;
     }
@@ -71,31 +77,34 @@ export function ConversationActions({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-4 pt-1">
+    <div className="space-y-2 pt-1">
       {confirmSheet}
-      {/* Text buttons, min-h-11 for the 44px phone tap target. */}
-      <button
-        type="button"
-        onClick={open}
-        disabled={busy !== null}
-        data-testid="open-conversation"
-        className="inline-flex items-center min-h-11 text-sm text-text-muted underline hover:no-underline disabled:opacity-50"
-      >
-        {busy === "open" ? "Opening…" : "Open conversation"}
-      </button>
-      <button
-        type="button"
-        onClick={remove}
-        disabled={busy !== null}
-        className="inline-flex items-center min-h-11 text-sm text-text-faint underline hover:no-underline disabled:opacity-50"
-      >
-        {busy === "delete" ? "Deleting…" : "Delete conversation"}
-      </button>
-      {archived && (
-        <span className="text-sm text-text-faint">
-          Archived — opening brings it back to the Studio.
-        </span>
-      )}
+      <div className="flex flex-wrap items-center gap-4">
+        {/* Text buttons, min-h-11 for the 44px phone tap target. */}
+        <button
+          type="button"
+          onClick={open}
+          disabled={busy !== null}
+          data-testid="open-conversation"
+          className="inline-flex items-center min-h-11 text-sm text-text-muted underline hover:no-underline disabled:opacity-50"
+        >
+          {busy === "open" ? "Opening…" : "Open conversation"}
+        </button>
+        <button
+          type="button"
+          onClick={remove}
+          disabled={busy !== null}
+          className="inline-flex items-center min-h-11 text-sm text-text-faint underline hover:no-underline disabled:opacity-50"
+        >
+          {busy === "delete" ? "Deleting…" : "Delete conversation"}
+        </button>
+        {archived && (
+          <span className="text-sm text-text-faint">
+            Archived — opening brings it back to the Studio.
+          </span>
+        )}
+      </div>
+      {error && <InlineNotice message={error} />}
     </div>
   );
 }

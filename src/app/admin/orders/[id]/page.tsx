@@ -14,13 +14,24 @@ import {
   setOrderClassification,
   setOrderTags,
 } from "../../actions";
-import { Badge, Button, Card, useConfirm } from "@/components/ui";
+import { Badge, Button, Card, InlineNotice, useConfirm, type InlineNoticeTone } from "@/components/ui";
 import { getBlank, getColorHex } from "@/lib/blanks";
 import {
   ORDER_CLASSIFICATIONS,
   CLASSIFICATION_INFO,
   type OrderClassification,
 } from "@/lib/order-classification";
+import {
+  ADMIN_ALREADY_REFUNDED,
+  ADMIN_RECOVER_ARCHIVE_HINT,
+  ADMIN_RECOVER_FAILED,
+  ADMIN_REFUND_FAILED,
+  ADMIN_REFUND_ISSUED,
+  ADMIN_RETRY_FAILED,
+  adminCannotRecover,
+  adminCannotRefund,
+  adminRecovered,
+} from "@/lib/action-copy";
 
 type OrderDetail = Awaited<ReturnType<typeof getOrderDetail>>;
 
@@ -40,6 +51,11 @@ export default function OrderDetailPage() {
   const [retrying, setRetrying] = useState(false);
   const [recovering, setRecovering] = useState(false);
   const [refunding, setRefunding] = useState(false);
+  const [actionResult, setActionResult] = useState<{
+    tone: InlineNoticeTone;
+    message: string;
+    hint?: string;
+  } | null>(null);
   const { confirm, element: confirmSheet } = useConfirm();
 
   async function fetchOrder() {
@@ -55,12 +71,13 @@ export default function OrderDetailPage() {
     });
     if (!ok) return;
     setRetrying(true);
+    setActionResult(null);
     try {
       await retryPrintfulSubmission(params.id);
       await fetchOrder();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      alert(`Retry failed: ${message}`);
+      setActionResult({ tone: "negative", message: ADMIN_RETRY_FAILED, hint: message });
     } finally {
       setRetrying(false);
     }
@@ -75,19 +92,22 @@ export default function OrderDetailPage() {
     });
     if (!ok) return;
     setRecovering(true);
+    setActionResult(null);
     try {
       const result = await recoverPendingOrder(params.id);
       if (result.ok) {
-        alert(`Recovered: ${result.action}`);
+        setActionResult({ tone: "neutral", message: adminRecovered(result.action) });
         await fetchOrder();
       } else {
-        alert(
-          `Cannot recover: ${result.reason}\n\nIf the Stripe session was never paid, click Archive instead.`
-        );
+        setActionResult({
+          tone: "negative",
+          message: adminCannotRecover(result.reason),
+          hint: ADMIN_RECOVER_ARCHIVE_HINT,
+        });
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      alert(`Recover failed: ${message}`);
+      setActionResult({ tone: "negative", message: ADMIN_RECOVER_FAILED, hint: message });
     } finally {
       setRecovering(false);
     }
@@ -102,17 +122,21 @@ export default function OrderDetailPage() {
     });
     if (!ok) return;
     setRefunding(true);
+    setActionResult(null);
     try {
       const result = await refundOrder(params.id);
       if (result.ok) {
-        alert(result.refunded ? "Refund issued." : "Already refunded — no action taken.");
+        setActionResult({
+          tone: "neutral",
+          message: result.refunded ? ADMIN_REFUND_ISSUED : ADMIN_ALREADY_REFUNDED,
+        });
         await fetchOrder();
       } else {
-        alert(`Cannot refund: ${result.reason}`);
+        setActionResult({ tone: "negative", message: adminCannotRefund(result.reason) });
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      alert(`Refund failed: ${message}`);
+      setActionResult({ tone: "negative", message: ADMIN_REFUND_FAILED, hint: message });
     } finally {
       setRefunding(false);
     }
@@ -125,22 +149,26 @@ export default function OrderDetailPage() {
       danger: true,
     });
     if (!ok) return;
+    setActionResult(null);
     await archiveOrder(params.id);
     setOrder((prev) => (prev ? { ...prev, archivedAt: new Date() } : prev));
   }
 
   async function handleUnarchive() {
+    setActionResult(null);
     await unarchiveOrder(params.id);
     setOrder((prev) => (prev ? { ...prev, archivedAt: null } : prev));
   }
 
   async function handleClassification(classification: OrderClassification) {
+    setActionResult(null);
     await setOrderClassification(params.id, classification);
     setOrder((prev) => (prev ? { ...prev, classification } : prev));
   }
 
   async function handleToggleTag(tag: string) {
     if (!order) return;
+    setActionResult(null);
     const tags = order.tags ?? [];
     const next = tags.includes(tag) ? tags.filter((t) => t !== tag) : [...tags, tag];
     await setOrderTags(params.id, next);
@@ -402,6 +430,14 @@ export default function OrderDetailPage() {
               </Button>
             ) : null}
           </div>
+          {actionResult && (
+            <InlineNotice
+              testId="admin-action-result"
+              tone={actionResult.tone}
+              message={actionResult.message}
+              hint={actionResult.hint}
+            />
+          )}
         </div>
 
         {/* Right column — Ledger timeline */}

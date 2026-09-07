@@ -6,7 +6,9 @@ import {
   CONVERSATION_CLOSED_MESSAGE,
   shouldClampMessage,
   MESSAGE_CLAMP_CHARS,
+  conversationToggleError,
 } from "@/lib/design-view";
+import { CLOSE_CONVERSATION_ERROR, REOPEN_CONVERSATION_ERROR } from "@/lib/action-copy";
 
 describe("shouldClampMessage", () => {
   it("leaves a normal-length message alone", () => {
@@ -71,5 +73,15 @@ describe("dedupeById", () => {
 
   it("handles an empty list", () => {
     expect(dedupeById([])).toEqual([]);
+  });
+});
+
+describe("conversationToggleError", () => {
+  it("reports a failed reopen when the conversation was closed", () => {
+    expect(conversationToggleError(true)).toEqual(REOPEN_CONVERSATION_ERROR);
+  });
+
+  it("reports a failed close when the conversation was open", () => {
+    expect(conversationToggleError(false)).toEqual(CLOSE_CONVERSATION_ERROR);
   });
 });
