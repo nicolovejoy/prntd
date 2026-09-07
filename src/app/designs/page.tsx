@@ -1,37 +1,16 @@
-import Link from "next/link";
-import { requireRealUser } from "@/lib/require-user";
-import { getUserImageLibrary } from "@/lib/user-designs";
-import { Button, EmptyState } from "@/components/ui";
-import { LibraryGrid } from "./library-grid";
-
 /**
- * My Designs — the library of images the user has made (studio-plan slice 5).
- * The Studio holds the conversations you are working on; this holds what came
- * out of them.
+ * /designs is retired (nav model A, docs/ux-design-review-2026-09.md): My
+ * Designs is the Studio's Library view. The redirect keeps every bookmark,
+ * shared link and `?from=/designs` marker working.
  *
- * A plain server component: the grid is links, so there is no client state to
- * hydrate. Per-image actions live one tap deeper, on the image detail page.
+ * permanentRedirect (308) rather than redirect (307) because the move is
+ * permanent and we want crawlers and browsers to stop asking.
+ *
+ * Note src/app/designs/actions.ts stays where it is — a dozen modules import
+ * it, and a non-route file inside app/ is just a module.
  */
-export default async function DesignsPage() {
-  const session = await requireRealUser();
-  const images = await getUserImageLibrary(session.user.id);
+import { permanentRedirect } from "next/navigation";
 
-  return (
-    <main className="px-4 sm:px-6 py-8 max-w-5xl mx-auto w-full">
-      <h1 className="text-xl sm:text-2xl font-bold mb-6">My Designs</h1>
-
-      {images.length === 0 ? (
-        <EmptyState
-          message="No designs yet."
-          action={
-            <Link href="/studio">
-              <Button>Open the Studio</Button>
-            </Link>
-          }
-        />
-      ) : (
-        <LibraryGrid images={images} />
-      )}
-    </main>
-  );
+export default function DesignsPage(): never {
+  permanentRedirect("/studio/library");
 }

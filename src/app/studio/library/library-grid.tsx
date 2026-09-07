@@ -11,7 +11,7 @@ import {
   bulkImageDeleteTitle,
 } from "@/lib/library-view";
 import type { LibraryImage } from "@/lib/user-designs";
-import { deleteImages } from "./actions";
+import { deleteImages } from "@/app/designs/actions";
 
 // Matches the column count below (3 on a phone, 4/5 wider) so the browser
 // requests a thumbnail rather than the full-res R2 PNG (#127 slice 3).
@@ -280,7 +280,7 @@ function LibraryCell({
   }
 
   return (
-    <Link href={`/d/${img.imageId}?from=/designs`} className="group block">
+    <Link href={`/d/${img.imageId}?from=/studio/library`} className="group block">
       {tile}
     </Link>
   );

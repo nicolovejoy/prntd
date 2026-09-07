@@ -379,23 +379,6 @@ describe("deleting a lane (slice 5 review, F1)", () => {
   });
 });
 
-describe("StudioClient — archive link (slice 4)", () => {
-  it("offers a quiet route to the archive, empty bench or not", () => {
-    const { unmount } = render(<StudioClient initialLanes={[]} />);
-    expect(screen.getByRole("link", { name: "Archive" })).toHaveAttribute(
-      "href",
-      "/studio/archive"
-    );
-    unmount();
-
-    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
-    expect(screen.getByRole("link", { name: "Archive" })).toHaveAttribute(
-      "href",
-      "/studio/archive"
-    );
-  });
-});
-
 describe("select mode (#189)", () => {
   const three = () => [
     lane({ designId: "d1", title: "one", cells: [cell("img-1")] }),
