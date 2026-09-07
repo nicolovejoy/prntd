@@ -1,4 +1,5 @@
 import type { DesignImage, SourceImage } from "@/lib/design-images";
+import { CLOSE_CONVERSATION_ERROR, REOPEN_CONVERSATION_ERROR } from "./action-copy";
 
 /**
  * The /design page opens as a centered composer (empty state) and only
@@ -63,6 +64,15 @@ export function dedupeById<T extends { id: string }>(items: T[]): T[] {
     seen.add(item.id);
     return true;
   });
+}
+
+/**
+ * Which notice a failed Close/Reopen shows. `closed` is the state the
+ * conversation was in when the toggle was pressed, so a failure while closed
+ * means the reopen did not happen.
+ */
+export function conversationToggleError(closed: boolean): { title: string; body?: string } {
+  return closed ? REOPEN_CONVERSATION_ERROR : CLOSE_CONVERSATION_ERROR;
 }
 
 /**
