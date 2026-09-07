@@ -182,12 +182,16 @@ describe("cells (Paper bench)", () => {
     expect(within(cells[0]).queryAllByText("Primary")).toHaveLength(0);
   });
 
-  it("draws the pending cell as a dashed square with elapsed time and Cancel", () => {
+  it("draws the pending dash in ink and matches the result cells' square footprint (task 4)", () => {
+    // "Generating…"/Cancel and border-dashed itself predate this branch and
+    // are already pinned by the :117 rendering test above; what task 4 added
+    // is the ink-colored dash (vs. a duller pre-branch color) and sizing the
+    // cell to the same responsive square as a real result cell, so the row
+    // doesn't reflow when a pending cell resolves into one.
     render(<StudioClient initialLanes={[lane({ pending: [pendingJob("job-1")] })]} />);
     const pending = screen.getByTestId("studio-pending-cell");
-    expect(pending.className).toContain("border-dashed");
-    expect(pending.textContent).toContain("Generating…");
-    expect(screen.getByTestId("cancel-generation")).toBeTruthy();
+    expect(pending.className).toContain("border-foreground");
+    expect(pending.className).toContain("sm:w-36");
   });
 });
 
@@ -364,6 +368,26 @@ describe("the composer panel (Paper bench)", () => {
   it("pays no bottom padding for a composer that is no longer docked", () => {
     render(<StudioClient initialLanes={[lane({ cells: [cell("a"), cell("b", { isPrimary: true })] })]} />);
     expect(screen.getByRole("main").className).not.toContain("pb-40");
+  });
+
+  it("shows a failed Close's explanation in the panel (Important 2, review)", async () => {
+    // `notice` only renders inside the composer panel, which now sits above
+    // the fold — the panel scrolls itself into view on this transition
+    // (jsdom stubs scrollIntoView above, so that part isn't directly
+    // asserted here; this pins that the notice text itself lands).
+    vi.mocked(closeConversation).mockRejectedValueOnce(new Error("boom"));
+    render(<StudioClient initialLanes={[lane()]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    fireEvent.click(screen.getByTestId("studio-close-lane"));
+
+    await waitFor(() =>
+      expect(
+        screen
+          .getByTestId("studio-composer-panel")
+          .textContent
+      ).toContain("Couldn't close that design. Try again.")
+    );
   });
 
   it("swaps main's bottom padding for the select bar, and back on Done", () => {

@@ -153,7 +153,10 @@ Three decisions, settled 2026-08-30 from the mockups in
 `https://claude.ai/code/artifact/0b4b8e16-2966-4b81-b9f8-855ed1bf41f6`.
 
 **The composer stays docked, and the anchor chip carries a crop of the
-anchored image** — not just its name. The keyboard takes half a phone, so the
+anchored image** — not just its name. (Superseded by #188 slice 3, the Paper
+look: the composer moved from a fixed bottom bar to a bordered panel at the
+TOP of the bench. The chip-with-a-crop decision stands unchanged.) The
+keyboard takes half a phone, so the
 lane you are editing will often be off screen at exactly the moment you are
 typing about it; the thumbnail in the chip is what survives that. Anchoring
 also scrolls its lane into view.

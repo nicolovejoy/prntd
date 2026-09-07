@@ -192,7 +192,7 @@ function earliestPrompt(group: OptimisticEntry[]): string | null {
  * group's earliest prompt as a provisional title (#203); a lane that
  * already has a title keeps it. An entry with no matching lane (a fresh,
  * unanchored conversation the server hasn't created yet) gets a synthetic
- * lane at index 0, titled the same way, so it's the first thing above the
+ * lane at index 0, titled the same way, so it's the first thing below the
  * composer on a phone-width bench. Callers are expected to pass only
  * entries `settleOptimistic` has not dropped — this function does not
  * re-check jobId visibility itself.

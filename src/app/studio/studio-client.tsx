@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { RefObject } from "react";
 import { Button, EmptyState, useConfirm } from "@/components/ui";
 import {
   cancelGeneration,
@@ -122,14 +123,30 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
   // The synthetic lane an unanchored submit just created. It goes to the top
-  // of the bench, which is off-screen if the user had scrolled down, so the
-  // lane scrolls itself into view when it mounts (phone-first: the whole
-  // point of #187 is seeing that the tap registered).
+  // of the bench (just below the composer), which is off-screen if the user
+  // had scrolled down, so the lane nudges itself into view when it mounts
+  // (phone-first: the whole point of #187 is seeing that the tap
+  // registered). The nudge is `block:"nearest"` (see the effect below) —
+  // with the composer now at the top of the page too, the common case is
+  // that the lane is already visible, and a no-op scroll must stay a no-op.
   const [revealDesignId, setRevealDesignId] = useState<string | null>(null);
   const { confirm, element: confirmSheet } = useConfirm();
 
   const polling = useRef(false);
   const pollStartedAt = useRef<number | null>(null);
+  // The composer panel is the only place `notice` renders, and it now sits
+  // at the top of the page — but the control that SETS a notice (Close,
+  // Delete, bulk delete, a refused submit) can be lanes below the fold. On a
+  // failure transition, bring the panel back on screen so the explanation is
+  // actually seen (Important 2, whole-branch review).
+  const composerPanelRef = useRef<HTMLDivElement>(null);
+  const prevNoticeRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (notice !== null && prevNoticeRef.current === null && !selectMode) {
+      composerPanelRef.current?.scrollIntoView({ block: "nearest" });
+    }
+    prevNoticeRef.current = notice;
+  }, [notice, selectMode]);
 
   // What the bench renders: server truth plus this tab's own overlay.
   const renderedLanes = applyOptimistic(lanes, optimistic);
@@ -394,7 +411,7 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
     // The cell goes up now (#187). An anchored submit appends to that lane; an
     // unanchored one synthesizes a lane at the top of the bench — the first
     // lane below the composer panel — which is off-screen on a phone if the
-    // user had scrolled down (see the `reveal` scroll-into-view below).
+    // user had scrolled down (see the `reveal` nudge-into-view below).
     const localId = crypto.randomUUID();
     if (!submitAnchor) setRevealDesignId(targetDesignId);
     setOptimistic((entries) => [
@@ -542,9 +559,10 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
           selectMode ? "pb-40" : "pb-8"
         }`}
       >
-        <div className="py-6">
-          {selectMode ? null : (
+        {selectMode ? null : (
+          <div className="py-6">
             <Composer
+              panelRef={composerPanelRef}
               text={text}
               anchor={anchor}
               atCap={atCap}
@@ -554,8 +572,8 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
               onSubmit={() => void submit()}
               onClearAnchor={() => setAnchor(null)}
             />
-          )}
-        </div>
+          </div>
+        )}
 
         {renderedLanes.length === 0 ? (
           <EmptyState message="No open designs." />
@@ -651,6 +669,7 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
  * submits and the existing submit tests keep working.
  */
 function Composer({
+  panelRef,
   text,
   anchor,
   atCap,
@@ -660,6 +679,7 @@ function Composer({
   onSubmit,
   onClearAnchor,
 }: {
+  panelRef: RefObject<HTMLDivElement | null>;
   text: string;
   anchor: Anchor | null;
   atCap: boolean;
@@ -671,6 +691,7 @@ function Composer({
 }) {
   return (
     <div
+      ref={panelRef}
       data-testid="studio-composer-panel"
       className="w-full max-w-[640px] bg-surface border border-foreground p-5 flex flex-col gap-3.5"
     >
@@ -857,8 +878,15 @@ function Lane({
 
   // A lane that appears at the top of the bench on submit is above the
   // viewport whenever the user had scrolled down; bring it to them.
+  // `block:"nearest"` rather than `"start"`: the composer panel now lives at
+  // the TOP of the page (Paper bench, #188 slice 3), so pinning this lane to
+  // the very top of the viewport would push the panel — draft field, cap
+  // notice, error line — off screen right after the user just used it.
+  // "nearest" is a no-op when the lane is already visible (the common case,
+  // since submitting requires the top-of-page composer to be on screen) and
+  // scrolls the minimum amount otherwise.
   useEffect(() => {
-    if (reveal) sectionRef.current?.scrollIntoView({ block: "start" });
+    if (reveal) sectionRef.current?.scrollIntoView({ block: "nearest" });
   }, [reveal]);
 
   return (
