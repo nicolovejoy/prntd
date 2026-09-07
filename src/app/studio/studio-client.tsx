@@ -960,8 +960,12 @@ function Lane({
       </div>
 
       <div ref={scrollRef} className="flex gap-2 overflow-x-auto pb-1">
-        {lane.cells.map((cell) => {
+        {lane.cells.map((cell, index) => {
           const anchored = cell.imageId === anchoredImageId;
+          // Creation order, same convention as the /design strip (#151):
+          // #1 is the lane's first image, and a later generation never
+          // renumbers an earlier one.
+          const label = `#${index + 1}`;
           return (
             <button
               key={cell.imageId}
@@ -975,21 +979,24 @@ function Lane({
                 // should survive that.
                 sectionRef.current?.scrollIntoView({ block: "nearest" });
               }}
-              className={`relative shrink-0 w-28 h-28 rounded-md overflow-hidden bg-checkerboard ${
-                anchored
-                  ? "ring-2 ring-accent ring-offset-2 ring-offset-background"
-                  : cell.isPrimary
-                    ? "border-2 border-accent"
-                    : "border border-border"
+              className={`relative shrink-0 w-28 h-28 sm:w-36 sm:h-36 overflow-hidden bg-surface ${
+                anchored || cell.isPrimary
+                  ? "border-2 border-foreground"
+                  : "border border-foreground"
               }`}
             >
-              <Image
-                src={cell.imageUrl}
-                alt=""
-                fill
-                sizes="112px"
-                className="object-contain"
-              />
+              <span className="absolute inset-1.5">
+                <Image
+                  src={cell.imageUrl}
+                  alt=""
+                  fill
+                  sizes="(min-width: 640px) 144px, 112px"
+                  className="object-contain"
+                />
+              </span>
+              <span className="absolute top-1 left-1.5 font-mono text-[10px] leading-[14px] text-text-muted">
+                {label}
+              </span>
               {cell.isPrimary && <span className="sr-only">Primary</span>}
               {anchored && <span className="sr-only">Editing</span>}
             </button>
@@ -1004,17 +1011,22 @@ function Lane({
             <div
               key={job.jobId}
               data-testid="studio-pending-cell"
-              className="shrink-0 w-28 h-28 rounded-md border border-dashed border-border bg-surface flex flex-col items-center justify-center gap-1"
+              className="shrink-0 w-28 h-28 sm:w-36 sm:h-36 border border-dashed border-foreground bg-surface flex flex-col items-center justify-center gap-1.5"
             >
-              <span className="text-xs text-text-muted animate-pulse">
+              <span className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted animate-pulse">
                 Generating…
               </span>
-              <span className="text-xs text-text-faint tabular-nums">
+              <span className="font-mono text-xs leading-4 text-text-faint tabular-nums">
                 {formatElapsed(nowMs - job.startedAt.getTime())}
               </span>
               {/* The space is reserved from the start: the control renders
                   inert and invisible until the jobId lands, so the label and
-                  elapsed time don't shift under the user when it appears. */}
+                  elapsed time don't shift under the user when it appears.
+                  Cancel is min-h-7 (28px), under the house 44px rule — a
+                  deliberate exception (controller-ruled, task-4 brief): it
+                  sits inside a 112px cell under two lines of text, where a
+                  44px target does not fit, and the cell itself is not
+                  tappable, so nothing sits next to it to mis-hit. */}
               <button
                 type="button"
                 disabled={unresolved}
@@ -1023,7 +1035,7 @@ function Lane({
                 onClick={
                   unresolved ? undefined : () => onCancel(lane, job.jobId)
                 }
-                className={`text-xs text-text-faint hover:text-foreground min-h-[44px] px-3 ${
+                className={`text-xs leading-4 text-foreground underline underline-offset-[3px] min-h-7 px-3 ${
                   unresolved ? "invisible" : ""
                 }`}
                 data-testid={

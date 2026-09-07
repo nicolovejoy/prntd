@@ -86,16 +86,6 @@ beforeEach(() => {
 });
 
 describe("StudioClient rendering", () => {
-  it("shows the empty state with a Shop path when there are no lanes", () => {
-    render(<StudioClient initialLanes={[]} />);
-    expect(screen.getByText("No open designs.")).toBeTruthy();
-    // A buy-only account lands here since / redirects signed-in users; the
-    // Shop link is their way onward.
-    expect(
-      screen.getByRole("link", { name: "Browse the Shop" }).getAttribute("href")
-    ).toBe("/shop");
-  });
-
   it("renders a lane's cells with the primary marked", () => {
     render(
       <StudioClient
@@ -108,8 +98,12 @@ describe("StudioClient rendering", () => {
     expect(screen.getByText("geometric wolf head")).toBeTruthy();
     const cells = screen.getAllByTestId("studio-cell");
     expect(cells).toHaveLength(2);
-    expect(cells[0].className).not.toContain("border-accent");
-    expect(cells[1].className).toContain("border-accent");
+    // --accent is var(--foreground): border-accent and border-foreground are
+    // the same colour under different class names, so the strength check is
+    // the border WIDTH (border-2 on the primary cell, plain border on the
+    // other), not a specific class name.
+    expect(cells[0].className).not.toContain("border-2");
+    expect(cells[1].className).toContain("border-2");
   });
 
   it("renders a running generation as a pending cell with elapsed time", () => {
@@ -123,6 +117,51 @@ describe("StudioClient rendering", () => {
   it("falls back to Untitled when a lane has no label", () => {
     render(<StudioClient initialLanes={[lane({ title: null })]} />);
     expect(screen.getByText("Untitled")).toBeTruthy();
+  });
+});
+
+describe("cells (Paper bench)", () => {
+  it("numbers cells in creation order", () => {
+    render(
+      <StudioClient
+        initialLanes={[
+          lane({ cells: [cell("a"), cell("b", { isPrimary: true })] }),
+        ]}
+      />
+    );
+    expect(screen.getByText("#1")).toBeTruthy();
+    expect(screen.getByText("#2")).toBeTruthy();
+  });
+
+  it("marks the anchored cell with an ink border, not a ring", () => {
+    render(
+      <StudioClient
+        initialLanes={[
+          lane({ cells: [cell("a"), cell("b", { isPrimary: true })] }),
+        ]}
+      />
+    );
+    const cell0 = screen.getAllByTestId("studio-cell")[0];
+    fireEvent.click(cell0);
+    expect(cell0.className).toContain("border-2");
+    expect(cell0.className).not.toContain("ring-2");
+  });
+
+  it("draws the pending cell as a dashed square with elapsed time and Cancel", () => {
+    render(<StudioClient initialLanes={[lane({ pending: [pendingJob("job-1")] })]} />);
+    const pending = screen.getByTestId("studio-pending-cell");
+    expect(pending.className).toContain("border-dashed");
+    expect(pending.textContent).toContain("Generating…");
+    expect(screen.getByTestId("cancel-generation")).toBeTruthy();
+  });
+});
+
+describe("the empty bench", () => {
+  it("offers the composer and one line, and no Shop path", () => {
+    render(<StudioClient initialLanes={[]} />);
+    expect(screen.getByTestId("studio-composer-panel")).toBeTruthy();
+    expect(screen.getByText("No open designs.")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Browse the Shop" })).toBeNull();
   });
 });
 
