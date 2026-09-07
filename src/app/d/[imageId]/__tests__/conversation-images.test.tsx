@@ -229,4 +229,19 @@ describe("ConversationImages top-level Use this one", () => {
     expect(screen.queryByText(CURRENT_COPY)).toBeNull();
     expect(thumb(1)).toHaveAttribute("aria-current", "true");
   });
+
+  it("clears a failure line when the lightbox navigates to another image", async () => {
+    vi.mocked(setPrimaryImage).mockRejectedValueOnce(new Error("Unauthorized"));
+    renderStrip();
+    fireEvent.click(thumb(3));
+    await act(async () => {
+      fireEvent.click(lightbox().getByRole("button", { name: "Use this one" }));
+    });
+    // The strip's own top-level block (img-b isn't primary either) renders
+    // the same shared state, so both slots show it — see conversation-images.tsx.
+    expect(screen.getAllByTestId("inline-notice").length).toBeGreaterThan(0);
+    fireEvent.click(prev());
+    expect(lightbox().getByText("#2 of 3")).toBeInTheDocument();
+    expect(screen.queryByTestId("inline-notice")).toBeNull();
+  });
 });

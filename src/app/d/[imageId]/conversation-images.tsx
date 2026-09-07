@@ -78,6 +78,14 @@ export function ConversationImages({
   }));
   const shown = lightboxIndex === null ? null : images[lightboxIndex];
 
+  // Showing a different image in the lightbox clears any stale failure line
+  // from a previous "Use this one" attempt — it belongs to the image it was
+  // attempted on, not whatever is shown next.
+  function showInLightbox(index: number) {
+    setLightboxIndex(index);
+    setUseError(null);
+  }
+
   return (
     <div className="space-y-3 pt-2 border-t border-border">
       <div className="flex flex-wrap items-center gap-3">
@@ -110,7 +118,7 @@ export function ConversationImages({
                 <button
                   key={img.imageId}
                   type="button"
-                  onClick={() => setLightboxIndex(index)}
+                  onClick={() => showInLightbox(index)}
                   aria-label={`Image #${index + 1}`}
                   aria-current={isCurrent ? "true" : undefined}
                   title={isCurrent ? "Current image" : undefined}
@@ -140,7 +148,7 @@ export function ConversationImages({
           images={lightboxImages}
           currentIndex={lightboxIndex}
           onClose={() => setLightboxIndex(null)}
-          onNavigate={setLightboxIndex}
+          onNavigate={showInLightbox}
           actions={
             <>
               {shown.imageId === primaryImageId ? (
