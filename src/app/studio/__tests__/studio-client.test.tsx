@@ -260,6 +260,39 @@ describe("the composer", () => {
   });
 });
 
+describe("the composer panel (Paper bench)", () => {
+  it("renders above the lanes, not docked to the bottom", () => {
+    render(<StudioClient initialLanes={[lane({ cells: [cell("a"), cell("b", { isPrimary: true })] })]} />);
+    const composer = screen.getByTestId("studio-composer");
+    const lanesEl = screen.getByTestId("studio-lane");
+    // Node.compareDocumentPosition: DOCUMENT_POSITION_FOLLOWING (4) means
+    // `lanesEl` comes after `composer` in document order.
+    expect(composer.compareDocumentPosition(lanesEl) & 4).toBe(4);
+    const panel = screen.getByTestId("studio-composer-panel");
+    expect(panel.className).not.toContain("fixed");
+  });
+
+  it("labels the panel and states what a line does", () => {
+    render(<StudioClient initialLanes={[]} />);
+    expect(screen.getByText("New design")).toBeTruthy();
+    expect(
+      screen.getByText("Each line starts a design. Tap a result to change it.")
+    ).toBeTruthy();
+  });
+
+  it("shows the anchored image as a row inside the panel", () => {
+    render(<StudioClient initialLanes={[lane({ cells: [cell("a")] })]} />);
+    fireEvent.click(screen.getByTestId("studio-cell"));
+    const chip = screen.getByTestId("anchor-chip");
+    expect(screen.getByTestId("studio-composer-panel").contains(chip)).toBe(true);
+  });
+
+  it("pays no bottom padding for a composer that is no longer docked", () => {
+    render(<StudioClient initialLanes={[lane({ cells: [cell("a"), cell("b", { isPrimary: true })] })]} />);
+    expect(screen.getByRole("main").className).not.toContain("pb-40");
+  });
+});
+
 describe("closing a lane", () => {
   it("Close removes the lane and closes the conversation", async () => {
     render(<StudioClient initialLanes={[lane()]} />);

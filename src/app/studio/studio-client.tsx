@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button, EmptyState, Input, useConfirm } from "@/components/ui";
+import { Button, EmptyState, useConfirm } from "@/components/ui";
 import {
   cancelGeneration,
   closeConversation,
@@ -37,14 +37,15 @@ import { deleteConversations, getStudioLanes } from "./actions";
 /**
  * /studio — the working surface (studio-plan slices 2+3): lanes render, a
  * running generation shows as a pending cell with elapsed time, and one
- * docked composer is the only submit control.
+ * composer at the top of the page is the only submit control.
  *
  * Selection is the interaction model: tapping a cell anchors it, the composer
  * carries a chip with a crop of the anchored image, and Generate then edits
  * exactly that image. Dismissing the chip clears the anchor and the same box
  * starts a NEW conversation. Three decisions are settled (plan, slice 3): the
- * composer stays docked, the anchor never advances to a result on its own,
- * and a lane opens scrolled to its newest image.
+ * composer sits at the top of the bench (Paper mock, #188 slice 3), the
+ * anchor never advances to a result on its own, and a lane opens scrolled to
+ * its newest image.
  *
  * Polling: while any lane has a pending cell, the whole read model is
  * re-fetched on the generation-poll schedule (fast, then slow). One request
@@ -75,7 +76,9 @@ import { deleteConversations, getStudioLanes } from "./actions";
  * A lane with a running generation can't be selected (its per-lane Close and
  * Delete are hidden for the same reason). Escape leaves select mode. The
  * selection is a Set of design ids kept beside the lanes, so a poll landing
- * mid-selection keeps it; ids whose lane left the surface are dropped.
+ * mid-selection keeps it; ids whose lane left the surface are dropped. The
+ * bar is the one piece of fixed chrome left; `main` pays bottom padding for
+ * it only while selecting.
  */
 
 type Anchor = {
@@ -530,13 +533,33 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
   return (
     <>
       {confirmSheet}
-      <main className="flex-1 px-4 sm:px-6 py-8 pb-40 max-w-4xl mx-auto w-full">
-        <div className="flex items-baseline justify-end gap-3 mb-6">
-          {/* Only when there is something to select; in select mode the
-              bottom bar's Done is the way out, so the control hides. The
-              heading and the Archive door moved to the Studio layout's tab
-              strip (nav model A) — one door per destination. */}
-          {renderedLanes.length > 0 && !selectMode && (
+      <main
+        className={`flex-1 px-4 sm:px-6 pb-8 max-w-4xl mx-auto w-full ${
+          selectMode ? "pb-40" : ""
+        }`}
+      >
+        <div className="py-6">
+          {selectMode ? null : (
+            <Composer
+              text={text}
+              anchor={anchor}
+              atCap={atCap}
+              capNotice={AT_CAP_COPY}
+              notice={notice}
+              onChangeText={setText}
+              onSubmit={() => void submit()}
+              onClearAnchor={() => setAnchor(null)}
+            />
+          )}
+        </div>
+
+        {/* Only when there is something to select; in select mode the
+            bottom bar's Done is the way out, so the control hides. Task 3
+            moves this into each lane's ⋯ overflow menu (Lane already takes
+            onEnterSelectMode below, unused, for that wiring) — kept here
+            meanwhile so entering select mode still has a control. */}
+        {renderedLanes.length > 0 && !selectMode && (
+          <div className="flex items-baseline justify-end gap-3 mb-6">
             <button
               type="button"
               onClick={enterSelectMode}
@@ -545,24 +568,11 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
             >
               Select
             </button>
-          )}
-        </div>
+          </div>
+        )}
 
         {renderedLanes.length === 0 ? (
-          // Also the first thing a buy-only account sees, since / redirects
-          // signed-in users here (nav re-map, 2026-09-01) — so the empty
-          // state offers the Shop, not just the composer.
-          <EmptyState
-            message="No open designs."
-            action={
-              <Link
-                href="/shop"
-                className="inline-block text-sm text-text-muted underline hover:text-foreground transition-colors"
-              >
-                Browse the Shop
-              </Link>
-            }
-          />
+          <EmptyState message="No open designs." />
         ) : (
           renderedLanes.map((lane) => (
             <Lane
@@ -577,6 +587,7 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
               onClose={closeLane}
               onDelete={deleteLane}
               onCancel={cancelJob}
+              onEnterSelectMode={enterSelectMode}
               unresolvedCellIds={unresolvedCellIds}
               reveal={lane.designId === revealDesignId}
             />
@@ -584,9 +595,9 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
         )}
       </main>
 
-      {selectMode ? (
+      {selectMode && (
         <div
-          className="fixed bottom-0 inset-x-0 border-t border-border bg-surface px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]"
+          className="fixed bottom-0 inset-x-0 border-t border-foreground bg-surface px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]"
           data-testid="select-bar"
         >
           <div className="max-w-4xl mx-auto space-y-2">
@@ -637,72 +648,113 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
             </div>
           </div>
         </div>
-      ) : (
-        <div className="fixed bottom-0 inset-x-0 border-t border-border bg-surface px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
-          <div className="max-w-4xl mx-auto space-y-2">
-            {anchor && (
-              <div
-                className="flex items-center gap-2 min-w-0"
-                data-testid="anchor-chip"
-              >
-                <div className="relative w-8 h-8 rounded overflow-hidden bg-checkerboard shrink-0 border border-border">
-                  <Image
-                    src={anchor.imageUrl}
-                    alt=""
-                    fill
-                    sizes="32px"
-                    className="object-cover"
-                  />
-                </div>
-                <span className="text-xs text-text-muted truncate">
-                  Editing · {anchor.title ?? "Untitled"}
-                </span>
-                <button
-                  type="button"
-                  aria-label="Clear anchor"
-                  onClick={() => setAnchor(null)}
-                  className="shrink-0 px-1 text-text-muted hover:text-foreground"
-                >
-                  ✕
-                </button>
-              </div>
-            )}
-            {atCap && (
-              <p className="text-xs text-text-muted" data-testid="cap-notice">
-                {AT_CAP_COPY}
-              </p>
-            )}
-            {notice && <p className="text-xs text-text-muted">{notice}</p>}
-            <form
-              className="flex gap-2"
-              onSubmit={(e) => {
-                e.preventDefault();
-                void submit();
-              }}
-            >
-              <Input
-                type="text"
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                placeholder={
-                  anchor ? "Describe the change" : "Describe a design"
-                }
-                className="flex-1"
-                data-testid="studio-composer"
-              />
-              <Button
-                type="submit"
-                variant="generate"
-                disabled={!text.trim() || atCap}
-                data-testid="studio-generate"
-              >
-                Generate
-              </Button>
-            </form>
-          </div>
-        </div>
       )}
     </>
+  );
+}
+
+/**
+ * The bench's one submit control, at the top of the page (Paper bench,
+ * #188 slice 3). It was a fixed bottom bar; the mock puts it under the tab
+ * strip as a bordered paper panel, so the page has no fixed chrome and
+ * `main` pays no standing bottom padding.
+ *
+ * The field is a bare underlined input rather than the `Input` primitive:
+ * the primitive draws a bordered box, and the panel already owns the box.
+ * It keeps `data-testid="studio-composer"` and stays inside a form so Enter
+ * submits and the existing submit tests keep working.
+ */
+function Composer({
+  text,
+  anchor,
+  atCap,
+  capNotice,
+  notice,
+  onChangeText,
+  onSubmit,
+  onClearAnchor,
+}: {
+  text: string;
+  anchor: Anchor | null;
+  atCap: boolean;
+  capNotice: string;
+  notice: string | null;
+  onChangeText: (value: string) => void;
+  onSubmit: () => void;
+  onClearAnchor: () => void;
+}) {
+  return (
+    <div
+      data-testid="studio-composer-panel"
+      className="w-full max-w-[640px] bg-surface border border-foreground p-5 flex flex-col gap-3.5"
+    >
+      <span className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted">
+        New design
+      </span>
+      <form
+        className="contents"
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSubmit();
+        }}
+      >
+        <input
+          type="text"
+          value={text}
+          onChange={(e) => onChangeText(e.target.value)}
+          placeholder={anchor ? "Describe the change" : "Describe a design"}
+          className="min-h-11 w-full py-2.5 bg-transparent border-0 border-b border-text-faint text-[17px] leading-6 text-foreground placeholder:text-text-faint focus:outline-none focus:border-foreground"
+          data-testid="studio-composer"
+        />
+        {anchor && (
+          <div
+            className="flex items-center gap-2 min-w-0"
+            data-testid="anchor-chip"
+          >
+            <div className="relative w-8 h-8 overflow-hidden bg-surface-well shrink-0 border border-border">
+              <Image
+                src={anchor.imageUrl}
+                alt=""
+                fill
+                sizes="32px"
+                className="object-cover"
+              />
+            </div>
+            <span className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted truncate">
+              Editing · {anchor.title ?? "Untitled"}
+            </span>
+            <button
+              type="button"
+              aria-label="Clear anchor"
+              onClick={onClearAnchor}
+              className="shrink-0 min-h-11 px-2 text-text-muted hover:text-foreground"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+        {atCap && (
+          <p className="text-xs text-text-muted" data-testid="cap-notice">
+            {capNotice}
+          </p>
+        )}
+        {notice && <p className="text-xs text-text-muted">{notice}</p>}
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-xs leading-4 text-text-muted">
+            Each line starts a design. Tap a result to change it.
+          </span>
+          <Button
+            type="submit"
+            variant="generate"
+            disabled={!text.trim() || atCap}
+            className="shrink-0 min-h-11 px-4 font-mono text-[11px] leading-4 tracking-[0.08em] uppercase"
+            data-testid="studio-generate"
+          >
+            Generate
+          </Button>
+        </div>
+      </form>
+    </div>
   );
 }
 
@@ -730,6 +782,8 @@ function Lane({
   onClose: (lane: StudioLane) => void;
   onDelete: (lane: StudioLane) => void;
   onCancel: (lane: StudioLane, jobId: string) => void;
+  /** Not yet rendered here — Task 3's ⋯ overflow menu wires this in. */
+  onEnterSelectMode: () => void;
   /** Overlay cells whose generateDesign call hasn't returned a jobId yet. */
   unresolvedCellIds: Set<string>;
   /** Newly synthesized by an unanchored submit — scroll it into view. */
