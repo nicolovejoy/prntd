@@ -607,10 +607,12 @@ Job: confirm size/price and hand off to Stripe.
 
 Job: confirm the money was well spent; route onward.
 
-1. Confirmation card — checkmark, order ID (mono), size/color/total. Opening
-   line = Part 1 surface 7.
-2. **View My Orders** (primary) + Start another design (ghost).
-3. Loading / order-not-found states.
+1. Ruled receipt — mono opening line (= Part 1 surface 7), order ID (mono),
+   per-line thumbnails, size/color, total. Server-rendered, so the first paint
+   is the receipt; the decorative checkmark went with the Paper sweep.
+2. **View My Orders** (primary) + Start another design (underlined link).
+3. Three states: the receipt, order-not-found, and receipt-couldn't-be-loaded
+   (a caught loader failure, which must not read as a failed payment).
 
 ### `/cart` (`app/cart/page.tsx`) — flag `CART_ENABLED`
 
@@ -678,10 +680,11 @@ Job: re-enter past work.
 
 Job: check where my shirt is.
 
-1. **Order cards** — status Badge, per-line thumbnail on shirt color,
-   name/ID, price, size/color, front+back + ×qty markers, date, **Track
-   shipment** link, designer attribution when bought from someone else.
-2. **Filter chips** — Active (N) / Canceled (N) / All (N).
+1. **Order rows** (ruled, no Card) — status Badge (mono text under Paper, no
+   pill), per-line thumbnail on shirt color, name/ID, price, size/color,
+   front+back + ×qty markers, date, **Track shipment** link, designer
+   attribution when bought from someone else.
+2. **Filter tabs** — underlined text, Active (N) / Canceled (N) / All (N).
 3. New Design button; empty states.
 
 ### Auth (`app/(auth)/…`)

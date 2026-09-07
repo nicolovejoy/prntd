@@ -63,8 +63,11 @@ hosted UI:
   retrieved session (metadata orderId/designId, amounts, shipping,
   discount), then the paid-claim → Printful submission → ledger pipeline.
   Nothing in it knows or cares which UI rendered the payment form.
-- `/order/confirm` (`src/app/order/confirm/page.tsx:21`) is a client page
-  keyed on `?session_id=`, polling `getOrderBySession`.
+- `/order/confirm` (`src/app/order/confirm/page.tsx`) is an async **server**
+  component keyed on `?session_id=`: it awaits `searchParams` and calls
+  `getOrderBySession` once, in-process. (It was a client page that fetched
+  after hydration until the 2026-09-07 Paper sweep; it never polled. Slice 2
+  below adds an open-session branch to this file — write it server-side.)
 - No Stripe publishable key exists anywhere in the repo (`NEXT_PUBLIC_
   STRIPE_PUBLISHABLE_KEY` absent from env docs, `.env.tpl`, and code) and no
   `@stripe/stripe-js` client dep — the hosted flow never needed either.
