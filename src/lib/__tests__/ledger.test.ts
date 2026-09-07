@@ -5,6 +5,7 @@ import {
   recordCOGS,
   recordCancellation,
   summarizeLedger,
+  isUniqueViolation,
 } from "../ledger";
 
 describe("calculateStripeFee", () => {
@@ -122,5 +123,83 @@ describe("summarizeLedger", () => {
 
     expect(reversed.grossProfit).toBeCloseTo(noCogs.grossProfit, 5);
     expect(reversed.cogs).toBe(0); // net COGS is zero after the reversal
+  });
+});
+
+describe("isUniqueViolation", () => {
+  it("matches the SQLite text on the error's own message (db.batch shape)", () => {
+    // db.batch calls the libSQL client directly, so LibsqlBatchError carries
+    // the SQLite text on .message. This is the shape the webhook paid-claim
+    // relies on; it must keep matching.
+    const err = new Error(
+      "SQLITE_CONSTRAINT: SQLITE_CONSTRAINT: UNIQUE constraint failed: ledger_entry.order_id, ledger_entry.type"
+    );
+    expect(isUniqueViolation(err)).toBe(true);
+  });
+
+  it("matches when the text is only on .cause (bare-insert DrizzleQueryError shape)", () => {
+    // drizzle wraps every non-batch execution: its own message is
+    // "Failed query: ..." and never contains the SQLite text.
+    const err = new Error('Failed query: insert into "ledger_entry" ...', {
+      cause: new Error(
+        "SQLITE_CONSTRAINT: UNIQUE constraint failed: ledger_entry.order_id, ledger_entry.type"
+      ),
+    });
+    expect(isUniqueViolation(err)).toBe(true);
+  });
+
+  it("matches two levels down (DrizzleQueryError -> LibsqlError -> SQLite)", () => {
+    const err = new Error("Failed query: ...", {
+      cause: new Error("SQLITE_CONSTRAINT: outer", {
+        cause: new Error("UNIQUE constraint failed: ledger_entry.order_id"),
+      }),
+    });
+    expect(isUniqueViolation(err)).toBe(true);
+  });
+
+  it("tolerates a non-Error link in the chain", () => {
+    const err = new Error("Failed query: ...", {
+      cause: { message: "UNIQUE constraint failed: ledger_entry.order_id" },
+    });
+    expect(isUniqueViolation(err)).toBe(true);
+  });
+
+  it("is false for an unrelated error, including its causes", () => {
+    const err = new Error("Failed query: ...", {
+      cause: new Error("FOREIGN KEY constraint failed"),
+    });
+    expect(isUniqueViolation(err)).toBe(false);
+  });
+
+  it("is false for a plain object with no matching text", () => {
+    expect(isUniqueViolation({ nope: true })).toBe(false);
+  });
+
+  it("handles non-Error input", () => {
+    expect(isUniqueViolation("UNIQUE constraint failed: x.y")).toBe(true);
+    expect(isUniqueViolation("something else")).toBe(false);
+    expect(isUniqueViolation(null)).toBe(false);
+    expect(isUniqueViolation(undefined)).toBe(false);
+    expect(isUniqueViolation(42)).toBe(false);
+  });
+
+  it("does not hang on a cause cycle", () => {
+    // A pathological chain must terminate rather than spin. The test itself
+    // would time out if the walk looped.
+    const a = new Error("Failed query: a");
+    const b = new Error("Failed query: b");
+    (a as { cause?: unknown }).cause = b;
+    (b as { cause?: unknown }).cause = a;
+    expect(isUniqueViolation(a)).toBe(false);
+  });
+
+  it("stops at a bounded depth rather than walking an unbounded chain", () => {
+    // 50 links deep, with the match past the bound: a long chain must not be
+    // walked forever, and the answer for one is false.
+    let err = new Error("UNIQUE constraint failed: deep");
+    for (let i = 0; i < 50; i++) {
+      err = new Error(`Failed query: level ${i}`, { cause: err });
+    }
+    expect(isUniqueViolation(err)).toBe(false);
   });
 });
