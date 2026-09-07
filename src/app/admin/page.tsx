@@ -162,6 +162,10 @@ export default function AdminPage() {
     if (!trimmed) return;
     const tags = currentTags ?? [];
     if (tags.includes(trimmed)) return;
+    // Clear the previous result line: this is a new interaction, and a stale
+    // Retry/Recover failure sitting next to a freshly added tag reads as a
+    // failure of the tag add.
+    setActionResult(null);
     const next = [...tags, trimmed];
     setOrderTags(orderId, next);
     updateOrder(orderId, { tags: next });
