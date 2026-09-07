@@ -389,8 +389,9 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
     // appears on the refetch below once the row exists.
     const targetDesignId = submitAnchor?.designId ?? crypto.randomUUID();
     // The cell goes up now (#187). An anchored submit appends to that lane; an
-    // unanchored one synthesizes a lane at the top of the bench, which on a
-    // phone is the first thing above the composer.
+    // unanchored one synthesizes a lane at the top of the bench — the first
+    // lane below the composer panel — which is off-screen on a phone if the
+    // user had scrolled down (see the `reveal` scroll-into-view below).
     const localId = crypto.randomUUID();
     if (!submitAnchor) setRevealDesignId(targetDesignId);
     setOptimistic((entries) => [
@@ -534,8 +535,8 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
     <>
       {confirmSheet}
       <main
-        className={`flex-1 px-4 sm:px-6 pb-8 max-w-4xl mx-auto w-full ${
-          selectMode ? "pb-40" : ""
+        className={`flex-1 px-4 sm:px-6 max-w-4xl mx-auto w-full ${
+          selectMode ? "pb-40" : "pb-8"
         }`}
       >
         <div className="py-6">
@@ -698,6 +699,9 @@ function Composer({
           onSubmit();
         }}
       >
+        {/* text-[17px], not the house text-sm (14px): the mock's value, and
+            below 16px iOS Safari zooms the viewport on focus — don't
+            "correct" this back down in a copy/style sweep. */}
         <input
           type="text"
           value={text}

@@ -291,6 +291,22 @@ describe("the composer panel (Paper bench)", () => {
     render(<StudioClient initialLanes={[lane({ cells: [cell("a"), cell("b", { isPrimary: true })] })]} />);
     expect(screen.getByRole("main").className).not.toContain("pb-40");
   });
+
+  it("swaps main's bottom padding for the select bar, and back on Done", () => {
+    render(<StudioClient initialLanes={[lane({ cells: [cell("a")] })]} />);
+
+    // Not selecting: main pays the plain page padding, not the bar's.
+    expect(screen.getByRole("main").className).toContain("pb-8");
+    expect(screen.getByRole("main").className).not.toContain("pb-40");
+
+    fireEvent.click(screen.getByTestId("select-mode"));
+    expect(screen.getByRole("main").className).toContain("pb-40");
+    expect(screen.getByRole("main").className).not.toContain("pb-8");
+
+    fireEvent.click(screen.getByTestId("select-done"));
+    expect(screen.getByRole("main").className).toContain("pb-8");
+    expect(screen.getByRole("main").className).not.toContain("pb-40");
+  });
 });
 
 describe("closing a lane", () => {
