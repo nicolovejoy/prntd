@@ -105,10 +105,13 @@ describe("StudioClient rendering", () => {
     expect(cells[0].className).not.toContain("border-2");
     expect(cells[1].className).not.toContain("border-2");
     expect(within(cells[0]).queryAllByText("Primary")).toHaveLength(0);
-    const primaryLabels = within(cells[1]).getAllByText("Primary");
-    expect(
-      primaryLabels.some((el) => !el.className.includes("sr-only"))
-    ).toBe(true);
+    // getByText throws on more than one match, so this alone would catch a
+    // reintroduced sr-only echo beside the visible label (the exact
+    // duplicate-announcement regression fixed above); the explicit
+    // not-sr-only check on top makes sure the one surviving match is the
+    // visible marker, not a lone sr-only span standing in for it.
+    const primaryLabel = within(cells[1]).getByText("Primary");
+    expect(primaryLabel.className).not.toContain("sr-only");
   });
 
   it("renders a running generation as a pending cell with elapsed time", () => {
@@ -172,10 +175,10 @@ describe("cells (Paper bench)", () => {
 
     // The primary marker is visible (not just sr-only) on the primary cell,
     // and the anchored-but-not-primary cell shows no such marker at all.
-    const primaryLabels = within(cells[1]).getAllByText("Primary");
-    expect(
-      primaryLabels.some((el) => !el.className.includes("sr-only"))
-    ).toBe(true);
+    // getByText (exactly one match) plus the not-sr-only check together
+    // catch a reintroduced sr-only echo beside the visible label.
+    const primaryLabel = within(cells[1]).getByText("Primary");
+    expect(primaryLabel.className).not.toContain("sr-only");
     expect(within(cells[0]).queryAllByText("Primary")).toHaveLength(0);
   });
 
