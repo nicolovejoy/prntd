@@ -4,14 +4,13 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Input } from "@/components/ui";
 import { EXAMPLES } from "@/lib/design-examples";
-import { minRetailPrice } from "@/lib/pricing";
 
 /**
  * Landing hero for all visitors — the composer IS the landing. Typing an
  * idea (or tapping a chip) navigates to /design?prompt=…, which auto-fires a
  * generation. Unlike the in-chat chips (which prefill), landing chips
- * navigate immediately: here they demo the product. The sub-line is the
- * one-line basics of the offer (#75); price comes from minRetailPrice().
+ * navigate immediately: here they demo the product. The sub-line is a
+ * tagline, not the price line.
  *
  * data-testid="maker-hero" is the post-deploy prod smoke's "the app rendered"
  * marker (.github/workflows/prod-smoke.yml) — copy sweeps rewrite the
@@ -34,10 +33,10 @@ export function MakerHero() {
     >
       <div className="w-full max-w-2xl space-y-4 sm:space-y-6">
         <h1 className="text-2xl sm:text-5xl font-bold tracking-tight">
-          Your idea, on a shirt.
+          PRiNT your brAIn
         </h1>
         <p className="text-base sm:text-lg text-text-muted max-w-lg mx-auto">
-          From ${minRetailPrice().toFixed(2)}, shipped.
+          Type it — See it — Wear it
         </p>
         <form
           onSubmit={(e) => {

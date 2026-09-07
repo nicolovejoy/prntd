@@ -1,7 +1,7 @@
 import { ImageResponse } from "next/og";
 import { SiteCard, SITE_CARD_SIZE } from "@/lib/og-site-card";
 
-export const alt = "PRNTD — Your idea, on a shirt";
+export const alt = "PRNTD — PRiNT your brAIn";
 export const size = SITE_CARD_SIZE;
 export const contentType = "image/png";
 

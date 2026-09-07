@@ -4,11 +4,10 @@
  * The thin-prompt test uses a deliberately vague idea so the fast readiness
  * check answers with a clarifying question — CI never pays for a render there.
  *
- * Anchored on structure, not marketing copy. An earlier cut asserted the hero
- * headline verbatim and broke when a copy sweep rewrote it; what matters is
- * that the hero rendered, the composer and chips are there, and the price line
- * carries the real minRetailPrice(). Chip text is imported from the module the
- * page renders, so it tracks edits rather than drifting.
+ * Anchored on structure, not marketing copy. The hero renders, the composer
+ * and chips are there. The pricing section carries the real minRetailPrice()
+ * ("Tees from $19.43"). Chip text is imported from the module the page
+ * renders, so it tracks edits rather than drifting.
  */
 import { test, expect, type Locator } from "@playwright/test";
 import { EXAMPLES } from "../src/lib/design-examples";
@@ -45,9 +44,9 @@ test("signed-out homepage shows the hero composer", async ({ page }) => {
     await expect(hero.getByRole("button", { name: chip })).toBeVisible();
   }
 
-  // Price line — the amount, not the sentence around it.
+  // Price line in the pricing section — the amount, not the sentence around it.
   const price = minRetailPrice().toFixed(2).replace(".", "\\.");
-  await expect(hero.getByText(new RegExp(`\\$${price}`))).toBeVisible();
+  await expect(page.getByText(new RegExp(`\\$${price}`))).toBeVisible();
 });
 
 test("a thin prompt seeds /design and gets a clarifying reply", async ({

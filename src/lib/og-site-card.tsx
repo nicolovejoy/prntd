@@ -73,7 +73,7 @@ export function SiteCard() {
           color: INK,
         }}
       >
-        Your idea, on a shirt.
+        PRiNT your brAIn
       </div>
       <div
         style={{
