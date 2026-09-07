@@ -9,15 +9,6 @@ vi.mock("@/app/design/actions", () => ({
   setPrimaryImage: vi.fn(async () => {}),
 }));
 
-// identity-block.tsx (real module) re-exports MONO_LABEL alongside
-// IdentityBlock, which imports editable-naming.tsx -> "@/app/designs/actions"
-// (a real "use server" module) -> "@/lib/auth" -> better-auth's tracer,
-// which needs an unresolvable "@opentelemetry/api" under vitest (the same
-// trap owner-actions.test.tsx, identity-block.test.tsx and
-// buy-panel.test.tsx route around). ConversationImages only consumes the
-// string constant, so stub the module to just that.
-vi.mock("../identity-block", () => ({ MONO_LABEL: "mono-label" }));
-
 import { setPrimaryImage } from "@/app/design/actions";
 
 // A is primary, B is the page's own image, C is a later variant.

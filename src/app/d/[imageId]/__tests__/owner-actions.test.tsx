@@ -1,14 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 
-// identity-block.tsx (real module) re-exports MONO_LABEL alongside
-// IdentityBlock, which imports editable-naming.tsx -> "@/app/designs/actions"
-// (a real "use server" module) -> "@/lib/auth" -> better-auth's tracer,
-// which needs an unresolvable "@opentelemetry/api" under vitest (the same
-// trap publish-cta.test.tsx and identity-block.test.tsx route around).
-// OwnerActions only consumes the string constant, so stub the module to
-// just that.
-vi.mock("../identity-block", () => ({ MONO_LABEL: "mono-label" }));
 vi.mock("../unpublish-action", () => ({
   UnpublishAction: () => <button>Un-publish</button>,
 }));

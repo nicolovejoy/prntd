@@ -4,15 +4,6 @@ import { render, screen, fireEvent, act } from "@testing-library/react";
 import { getBlankOrThrow } from "@/lib/blanks";
 import { BuyPanel, type BuyPanelHandle } from "../buy-panel";
 
-// identity-block.tsx (real module) re-exports MONO_LABEL alongside
-// IdentityBlock, which imports editable-naming.tsx -> "@/app/designs/actions"
-// (a real "use server" module) -> "@/lib/auth" -> better-auth's tracer,
-// which needs an unresolvable "@opentelemetry/api" under vitest (the same
-// trap owner-actions.test.tsx and identity-block.test.tsx route around).
-// BuyPanel only consumes the string constant, so stub the module to just
-// that.
-vi.mock("../identity-block", () => ({ MONO_LABEL: "mono-label" }));
-
 vi.mock("../../actions", () => ({
   buyPublishedDesign: vi.fn().mockResolvedValue({ url: null, needsAuth: false }),
   getBuyPageBackSources: vi.fn().mockResolvedValue({

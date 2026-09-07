@@ -16,4 +16,11 @@ describe("EditableNaming", () => {
       screen.getByRole("heading", { name: "Untitled" })
     ).toBeInTheDocument();
   });
+
+  it("falls back to Untitled for an empty-string title, not a blank heading", () => {
+    render(<EditableNaming imageId="img-1" title="" canEdit={false} />);
+    expect(
+      screen.getByRole("heading", { name: "Untitled" })
+    ).toBeInTheDocument();
+  });
 });

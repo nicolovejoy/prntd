@@ -24,7 +24,7 @@ import type { BackSourceGroup } from "@/lib/back-sources";
 import { ensureGuestSession } from "@/lib/ensure-guest-session";
 import { addToCart } from "@/app/cart/actions";
 import { buyPublishedDesign, getBuyPageBackSources } from "../actions";
-import { MONO_LABEL } from "./identity-block";
+import { MONO_LABEL } from "./mono-label";
 
 /** A picked back design: the source image id and its artwork URL. */
 export type BackPick = { id: string; imageUrl: string };
@@ -350,7 +350,6 @@ export function BuyPanel({
                 className="w-11 h-11 rounded-md border border-border bg-surface-well object-contain"
               />
               <div className="flex-1 text-sm">
-                <p>Back design</p>
                 <button
                   onClick={openBackPicker}
                   className="text-text-muted underline"

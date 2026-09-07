@@ -8,7 +8,7 @@ import { ImageLightbox, type LightboxImage } from "@/app/design/image-lightbox";
 import { Button, InlineNotice } from "@/components/ui";
 import { SET_PRIMARY_IMAGE_FAILED } from "@/lib/action-copy";
 import type { SiblingImage } from "../actions";
-import { MONO_LABEL } from "./identity-block";
+import { MONO_LABEL } from "./mono-label";
 
 const STRIP_SIZES = "88px";
 
@@ -122,7 +122,7 @@ export function ConversationImages({
                     aria-current={isCurrent ? "true" : undefined}
                     title={isCurrent ? "Current image" : undefined}
                     data-testid="conversation-image-thumb"
-                    className={`relative block w-[88px] aspect-square rounded-md overflow-hidden border-2 bg-surface-well ${
+                    className={`relative block w-[88px] aspect-square rounded-lg overflow-hidden border-2 bg-surface-well ${
                       isCurrent ? "border-accent" : "border-border"
                     }`}
                   >

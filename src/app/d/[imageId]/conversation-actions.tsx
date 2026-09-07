@@ -19,6 +19,10 @@ import { DELETE_CONVERSATION_FAILED, OPEN_CONVERSATION_FAILED } from "@/lib/acti
  * "Open conversation" reopens the thread first when it has archived out of
  * the Studio, so the link always lands on a writable conversation rather than
  * a read-only record with no explanation.
+ *
+ * Root renders `display: contents` (see below) so its children join the
+ * OWNER row's own flex layout — this component must only ever be mounted
+ * inside a flex (or grid) parent, never a block one.
  */
 export function ConversationActions({
   designId,
@@ -105,7 +109,11 @@ export function ConversationActions({
           Archived — opening brings it back to the Studio.
         </span>
       )}
-      <div className="basis-full">{error && <InlineNotice message={error} />}</div>
+      {error && (
+        <div className="basis-full">
+          <InlineNotice message={error} />
+        </div>
+      )}
     </div>
   );
 }

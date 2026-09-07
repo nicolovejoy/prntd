@@ -130,9 +130,9 @@ describe("BuyHero (#167)", () => {
 
     await pickBack();
     const tile = await screen.findByTestId("side-tile");
-    // Scoped to the two side panels: the buy panel also has its own "Back"
-    // mono-label section heading once backEnabled (Paper pass, #188), so an
-    // unscoped query would match both.
+    // Scoped to the two side panels: each SideMockup renders its own side
+    // label inside its own subtree, so scoping targets the assertion at
+    // the panel it means.
     expect(
       within(screen.getByTestId("side-hero")).getByText("Front")
     ).toBeInTheDocument();

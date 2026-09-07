@@ -1,4 +1,4 @@
-import { MONO_LABEL } from "./identity-block";
+import { MONO_LABEL } from "./mono-label";
 import { PublishCta } from "./publish-cta";
 import { UnpublishAction } from "./unpublish-action";
 import { ConversationActions } from "./conversation-actions";

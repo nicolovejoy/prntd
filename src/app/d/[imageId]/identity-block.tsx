@@ -1,13 +1,11 @@
 import Link from "next/link";
 import { EditableNaming } from "./editable-naming";
+import { MONO_LABEL } from "./mono-label";
 
-/**
- * The mono label used across the image detail page for section and row
- * labels (Paper slice 5, #188). Defined once here so the page, the buy
- * panel, the owner row and the siblings strip cannot drift apart.
- */
-export const MONO_LABEL =
-  "font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted";
+// Re-exported so any existing `from "./identity-block"` import keeps
+// working; the client components on this page import it from
+// `./mono-label` directly (see that module's docblock for why).
+export { MONO_LABEL } from "./mono-label";
 
 type ForkLink = {
   imageId: string;
@@ -25,7 +23,7 @@ function Row({
   return (
     <div className="flex flex-col gap-0.5 border-b border-border py-2.5 sm:flex-row sm:gap-4 sm:py-2">
       <dt className={`${MONO_LABEL} sm:w-32 sm:shrink-0 sm:pt-0.5`}>{label}</dt>
-      <dd className="text-sm text-foreground">{children}</dd>
+      <dd className="text-sm text-foreground sm:flex-1 sm:min-w-0">{children}</dd>
     </div>
   );
 }

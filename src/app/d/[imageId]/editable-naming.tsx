@@ -27,7 +27,7 @@ export function EditableNaming({ imageId, title, canEdit }: Props) {
             unpublished, untitled image (canEdit false there) still gets a
             labelled TITLE row, falling back to "Untitled". */}
         <h1 className="text-sm font-medium text-foreground">
-          {title ?? "Untitled"}
+          {title?.trim() || "Untitled"}
         </h1>
         {canEdit && (
           <button
@@ -63,7 +63,7 @@ export function EditableNaming({ imageId, title, canEdit }: Props) {
         onChange={(e) => setTitleDraft(e.target.value)}
         placeholder="Title"
         maxLength={80}
-        className="w-full bg-surface border border-border rounded px-3 py-2 text-sm"
+        className="w-full bg-surface border border-border rounded px-3 py-2 text-base"
       />
       {error && <p className="text-sm text-negative">{error}</p>}
       <div className="flex gap-2">
