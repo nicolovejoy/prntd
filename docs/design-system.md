@@ -398,9 +398,10 @@ negative  (#b91c1c) on ground            →  5.95:1
 
 Utility: `.bg-checkerboard` — was a literal checkerboard (transparency
 indicator for raw PNGs); on paper that read as noise, so it's now a plain
-bordered well (`background-color: var(--surface-well)` + a 1px
-`var(--border)` hairline). The class name is kept so existing call sites
-keep compiling.
+well (`background-color: var(--surface-well)` only — call sites that want
+an edge add `border border-border` themselves; the class must never set
+`border`, see gap #4). The class name is kept so existing call sites keep
+compiling.
 
 ### Type
 
