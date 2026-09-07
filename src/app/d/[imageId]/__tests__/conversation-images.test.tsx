@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, within, act } from "@testing-library/react";
 import { ConversationImages } from "../conversation-images";
 import type { SiblingImage } from "../../actions";
+import { SET_PRIMARY_IMAGE_FAILED } from "@/lib/action-copy";
 
 // The real module is "use server" and pulls the DB.
 vi.mock("@/app/design/actions", () => ({
@@ -215,13 +216,14 @@ describe("ConversationImages top-level Use this one", () => {
     expect(thumb(3)).not.toHaveAttribute("aria-current");
   });
 
-  it("a failed save alerts the message and re-enables the button", async () => {
+  it("a failed save shows an inline line, calls no alert, and re-enables the button", async () => {
     vi.mocked(setPrimaryImage).mockRejectedValueOnce(new Error("Unauthorized"));
     renderStrip();
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Use this one" }));
     });
-    expect(window.alert).toHaveBeenCalledWith("Unauthorized");
+    expect(screen.getByTestId("inline-notice")).toHaveTextContent(SET_PRIMARY_IMAGE_FAILED);
+    expect(window.alert).not.toHaveBeenCalled();
     const btn = screen.getByRole("button", { name: "Use this one" });
     expect(btn).toBeEnabled();
     expect(screen.queryByText(CURRENT_COPY)).toBeNull();

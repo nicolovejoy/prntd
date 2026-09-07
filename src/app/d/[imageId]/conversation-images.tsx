@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useState } from "react";
 import { setPrimaryImage } from "@/app/design/actions";
 import { ImageLightbox, type LightboxImage } from "@/app/design/image-lightbox";
-import { Button } from "@/components/ui";
+import { Button, InlineNotice } from "@/components/ui";
+import { SET_PRIMARY_IMAGE_FAILED } from "@/lib/action-copy";
 import type { SiblingImage } from "../actions";
 
 const STRIP_SIZES = "88px";
@@ -35,6 +36,7 @@ export function ConversationImages({
 }) {
   const [primaryImageId, setPrimary] = useState(initialPrimaryImageId);
   const [saving, setSaving] = useState(false);
+  const [useError, setUseError] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   // Owner backstop: getConversationImages returns an empty list for anyone
@@ -50,11 +52,12 @@ export function ConversationImages({
 
   async function handleUse(imageId: string) {
     setSaving(true);
+    setUseError(null);
     try {
       await setPrimaryImage(designId, imageId);
       setPrimary(imageId);
-    } catch (err) {
-      window.alert(err instanceof Error ? err.message : "Action failed");
+    } catch {
+      setUseError(SET_PRIMARY_IMAGE_FAILED);
     } finally {
       setSaving(false);
     }
@@ -92,6 +95,7 @@ export function ConversationImages({
             {saving ? "Saving…" : "Use this one"}
           </Button>
         )}
+        {useError && <InlineNotice message={useError} />}
       </div>
 
       {others.length > 0 && (
@@ -161,6 +165,7 @@ export function ConversationImages({
                   Open
                 </Link>
               )}
+              {useError && <InlineNotice message={useError} className="self-center" />}
             </>
           }
         />
