@@ -71,29 +71,47 @@ import {
   type GenerationFailure,
 } from "@/lib/generation-poll";
 import { renderSpecSummary, fallbackSpec } from "@/lib/design-spec";
+import { isUniqueViolation } from "@/lib/ledger";
 import { latestUserText } from "@/lib/design-prompt";
 import type { ChatMessage } from "@/lib/db/schema";
 import type { DesignImage } from "@/lib/design-images";
 import type { ImageGenerator } from "@/lib/generators/types";
 
-async function getOrCreateDesign(designId: string, userId: string) {
-  let found = await db.query.design.findFirst({
+/**
+ * The design row if it exists and belongs to `userId`, else `null`. Throws
+ * `Unauthorized` if the row exists under another user — the ownership rule
+ * lives here so every caller (including `getOrCreateDesign`) shares it.
+ */
+async function findOwnedDesign(designId: string, userId: string) {
+  const found = await db.query.design.findFirst({
     where: eq(designTable.id, designId),
   });
-
-  if (!found) {
-    const [created] = await db
-      .insert(designTable)
-      .values({
-        id: designId,
-        userId,
-      })
-      .returning();
-    found = created;
-  }
-
+  if (!found) return null;
   if (found.userId !== userId) throw new Error("Unauthorized");
   return found;
+}
+
+/**
+ * Used by `sendChatMessage` and `uploadReferenceImage` — neither spends a
+ * quota unit, so unlike `generateDesign` this leaves the plain find-then-
+ * insert race unguarded: two concurrent calls on the same unseen id can both
+ * see `null` and both try to insert, and the loser's insert throws instead of
+ * recovering onto the winner's row. Acceptable here because nothing is at
+ * stake but a double-tapped Ask (or upload) surfacing an error to retry —
+ * no wasted spend, no row left behind either way.
+ */
+async function getOrCreateDesign(designId: string, userId: string) {
+  const found = await findOwnedDesign(designId, userId);
+  if (found) return found;
+
+  const [created] = await db
+    .insert(designTable)
+    .values({
+      id: designId,
+      userId,
+    })
+    .returning();
+  return created;
 }
 
 /** First IP from the forwarded-for chain (the client), or null. */
@@ -188,9 +206,14 @@ export async function generateDesign(
   const session = await auth.api.getSession({ headers: hdrs });
   if (!session) throw new Error("Unauthorized");
 
-  const found = await getOrCreateDesign(designId, session.user.id);
+  // Find only — NOT create. Creating the row is deferred past the quota and
+  // capacity checks below (#197): a refused submit on a never-seen designId
+  // must leave no row behind, or a refresh shows a dead "Untitled" design.
+  let found = await findOwnedDesign(designId, session.user.id);
   // Refuse before the quota spend — a closed thread must not burn a unit.
-  assertConversationOpen(found);
+  // Only meaningful for an EXISTING conversation; a brand-new designId can't
+  // be closed yet.
+  if (found) assertConversationOpen(found);
   const ip = clientIp(hdrs);
   const userId = session.user.id;
   const now = new Date();
@@ -226,28 +249,68 @@ export async function generateDesign(
     return { kind: "at_capacity", message: AT_CAPACITY_MESSAGE };
   }
 
-  // The user's turn lands NOW, not when the render completes. The action
-  // returns before the image exists, so their own words have to be in the
-  // thread immediately or the chat looks like it swallowed them. Every exit
-  // below leaves this exactly one row — persistClarification writes only the
-  // assistant side, and the completion batch only the assistant side.
-  if (userMessage) {
-    await insertChatMessage({ designId, role: "user", content: userMessage });
-    await db
-      .update(designTable)
-      .set({ updatedAt: new Date() })
-      .where(eq(designTable.id, designId));
-  }
-
-  // The direct-refund catch covers the pre-job span ONLY. A throw here has no
-  // job row to gate a refund on, so it refunds inline; the moment a row exists,
-  // failGenerationJob (transition + refund together) is the sole refunder, and
-  // a direct refund overlapping that span would let a sweeper refund the same
-  // unit a second time. `prepareGeneration` therefore RETURNS the inserted job
-  // rather than scheduling the continuation itself — everything past the insert
-  // happens below, outside the try.
+  // Both refusal paths above have returned by now — the row is created only
+  // for a submit that survived quota and capacity. Everything from here to
+  // the job-row insert (the design insert, persisting the user's turn, and
+  // `prepareGeneration` itself) refunds through this ONE outer catch if it
+  // throws: none of that span has a job row to gate a refund on yet
+  // (`failGenerationJob` is the sole refunder once one exists — a direct
+  // refund overlapping that span would let a sweeper refund the same unit a
+  // second time), so a throw anywhere here must be refunded inline, exactly
+  // once. `prepareGeneration` therefore RETURNS the inserted job rather than
+  // scheduling the continuation itself — everything past its insert happens
+  // below, outside this try.
   let prepared: PreparedGeneration;
   try {
+    // Two concurrent submits on the same never-seen-before designId
+    // (double-tap, client retry) can both reach here having both spent a
+    // unit; the loser's insert hits the id's primary-key uniqueness. That is
+    // not a failure of ITS turn — the winner's row IS this conversation now
+    // — so re-read and continue with it rather than throwing. Both submits
+    // legitimately spent a unit and both render into the now-shared
+    // conversation, exactly as two anchored submits into an existing design
+    // already do. No refund inside this block on the re-read-null branch: a
+    // rethrow here is caught by the outer catch below, which refunds once —
+    // refunding here too would double-credit.
+    //
+    // Wrapped in a one-statement `db.batch` (not a bare `.insert()`) so a
+    // unique-constraint violation surfaces in the shape `isUniqueViolation`
+    // recognizes: a lone `.insert().returning()` call gets wrapped in a
+    // DrizzleQueryError whose own `.message` never contains the SQLite error
+    // text (only `.cause.message` does), while `db.batch` surfaces it
+    // directly — the same reason the webhook's paid-claim batch (#37) can
+    // use this check as-is.
+    if (!found) {
+      try {
+        const [[created]] = await db.batch([
+          db.insert(designTable).values({ id: designId, userId }).returning(),
+        ]);
+        found = created;
+      } catch (err) {
+        if (!isUniqueViolation(err)) throw err;
+        // Race-loser continues on the winner's row without re-running
+        // assertConversationOpen: that row was created microseconds ago with
+        // closedAt null, and the idle sweep needs 3 days of inactivity to
+        // close anything, so it cannot have closed in this window.
+        found = await findOwnedDesign(designId, userId);
+        if (!found) throw err;
+      }
+    }
+
+    // The user's turn lands NOW, not when the render completes. The action
+    // returns before the image exists, so their own words have to be in the
+    // thread immediately or the chat looks like it swallowed them. Every
+    // exit below leaves this exactly one row — persistClarification writes
+    // only the assistant side, and the completion batch only the assistant
+    // side.
+    if (userMessage) {
+      await insertChatMessage({ designId, role: "user", content: userMessage });
+      await db
+        .update(designTable)
+        .set({ updatedAt: new Date() })
+        .where(eq(designTable.id, designId));
+    }
+
     prepared = await prepareGeneration({
       designId,
       found,

@@ -345,8 +345,9 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
     setText("");
     setNotice(null);
     // No anchor → a fresh conversation: generateDesign creates the design row
-    // for an unseen id, so the client mints one and the lane appears on the
-    // refetch below.
+    // for an unseen id only for a submit that passes the quota and capacity
+    // checks (#197), so the client mints the id up front and the lane
+    // appears on the refetch below once the row exists.
     const targetDesignId = submitAnchor?.designId ?? crypto.randomUUID();
     // The cell goes up now (#187). An anchored submit appends to that lane; an
     // unanchored one synthesizes a lane at the top of the bench, which on a
