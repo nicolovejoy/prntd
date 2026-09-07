@@ -12,9 +12,10 @@ import { cardPriceLine } from "@/lib/pricing";
 const GRID_SIZES = "(max-width: 639px) 50vw, (max-width: 1023px) 33vw, 25vw";
 
 /**
- * Shared grid of published (Shop, /shop) designs. Each card links to the
- * buy page at /d/[imageId]. The viewer's own designs are tagged "by you"
- * (set on PublishedImage.isOwn by the feed query).
+ * Shared grid of Shop cards, used by the homepage teaser and /shop. Each
+ * card links to the image detail page at /d/[imageId]. The viewer's own
+ * designs are tagged "by you" (set on PublishedImage.isOwn by the feed
+ * query).
  *
  * Card anatomy (Paper slice 6, #188): the card sells a shirt — art on its
  * pinned backdrop in a hairline frame, then title, then what it costs and
@@ -58,9 +59,12 @@ export function PublishedGrid({
           </div>
           <div className="mt-2 space-y-0.5">
             <p className="text-sm font-medium text-foreground truncate">
-              {img.title ?? "Untitled"}
+              {img.title || "Untitled"}
             </p>
-            <p className="font-mono text-[11px] leading-4 text-text-muted truncate">
+            {/* Catalog-generated text (garment names are short constants), never
+                adversarial user input — wrapping to a second line on the
+                narrowest phones is correct here, unlike clipping the price. */}
+            <p className="font-mono text-[11px] leading-4 text-text-muted">
               {cardPriceLine(img.blankId).text}
             </p>
             <p className="text-[11px] leading-4 text-text-faint truncate">

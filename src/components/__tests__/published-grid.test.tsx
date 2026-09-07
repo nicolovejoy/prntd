@@ -40,6 +40,11 @@ describe("PublishedGrid", () => {
     expect(screen.getByText("Untitled")).toBeTruthy();
   });
 
+  it("falls back to Untitled for an empty-string title too", () => {
+    render(<PublishedGrid images={[img({ title: "" })]} />);
+    expect(screen.getByText("Untitled")).toBeTruthy();
+  });
+
   it("attributes the maker, and says 'by you' for the viewer's own", () => {
     render(<PublishedGrid images={[img(), img({ imageId: "i2", isOwn: true })]} />);
     expect(screen.getByText("by Nico")).toBeTruthy();

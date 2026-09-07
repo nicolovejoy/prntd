@@ -191,9 +191,15 @@ export type ShopCardPrice = {
  * path, not an edge case. Either way the amount is a *floor* — a card shows
  * no size, and a blank's price varies by size — hence "From".
  *
- * Pure and catalog-driven: the amount comes from the same `computePrice` the
- * checkout charges through, so the card and the till cannot disagree. An
- * unknown blank id falls back rather than throwing; one stale id must not
+ * Pure and catalog-driven: the amount is the ITEM price, from the same
+ * `computePrice` the checkout charges through, so the card and the order's
+ * line item cannot disagree. It is NOT the delivered price —
+ * `FLAT_SHIPPING_USD` rides a separate Stripe line, so the buy page's total
+ * is higher (see computeOrderTotal). A card that ever wants to state a
+ * delivered price has to add shipping itself; saying "shipped" over an item
+ * price is what made the old homepage line false (#214).
+ *
+ * An unknown blank id falls back rather than throwing; one stale id must not
  * take down the whole feed.
  */
 export function cardPriceLine(
