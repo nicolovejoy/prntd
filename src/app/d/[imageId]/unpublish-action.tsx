@@ -6,7 +6,7 @@ import { unpublishImage } from "@/app/designs/actions";
 import { useConfirm } from "@/components/ui";
 
 /**
- * Take a published design back down (#? reversible un-publish). Lifted out of
+ * Take a published design back down. Lifted out of
  * published-image-view.tsx in Paper slice 5 (#188): that component only
  * renders while the hero is collapsed, so Un-publish used to vanish the
  * moment the buyer tapped Order. It belongs with the owner's other actions.

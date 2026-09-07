@@ -4,6 +4,15 @@ import { render, screen, fireEvent, act } from "@testing-library/react";
 import { getBlankOrThrow } from "@/lib/blanks";
 import { BuyPanel, type BuyPanelHandle } from "../buy-panel";
 
+// identity-block.tsx (real module) re-exports MONO_LABEL alongside
+// IdentityBlock, which imports editable-naming.tsx -> "@/app/designs/actions"
+// (a real "use server" module) -> "@/lib/auth" -> better-auth's tracer,
+// which needs an unresolvable "@opentelemetry/api" under vitest (the same
+// trap owner-actions.test.tsx and identity-block.test.tsx route around).
+// BuyPanel only consumes the string constant, so stub the module to just
+// that.
+vi.mock("../identity-block", () => ({ MONO_LABEL: "mono-label" }));
+
 vi.mock("../../actions", () => ({
   buyPublishedDesign: vi.fn().mockResolvedValue({ url: null, needsAuth: false }),
   getBuyPageBackSources: vi.fn().mockResolvedValue({
@@ -338,5 +347,32 @@ describe("BuyPanel back pick reporting + handle (#167)", () => {
     expect(
       screen.getByText("Pick an image to print on the back.")
     ).toBeInTheDocument();
+  });
+});
+
+describe("BuyPanel Paper pass (#188)", () => {
+  it("expanded: still renders the size picker, the total and Add to cart", () => {
+    render(<BuyPanel imageId="img-1" isLoggedIn cartEnabled />);
+    expand();
+    // The money surface survives the re-skin: a size gate, a computed total,
+    // and the cart path. The nightly Stripe e2e buys via the cart, not via
+    // this page, so this is the guard for the panel's own rendering.
+    const blank = getBlankOrThrow("bella-canvas-3001");
+    expect(screen.getByRole("button", { name: blank.sizes[0] })).toBeInTheDocument();
+    expect(screen.getByText("Total")).toBeInTheDocument();
+    // Rendered twice (desktop inline + mobile sticky bar), like every other
+    // add-to-cart assertion in this file — same reason buyButton() above
+    // takes index [0].
+    expect(screen.getAllByTestId("add-to-cart")[0]).toBeInTheDocument();
+    // Size gate still closed until a pick.
+    expect(screen.getAllByTestId("add-to-cart")[0]).toBeDisabled();
+  });
+
+  it("expanded: labels the sections it owns in mono caps", () => {
+    render(<BuyPanel imageId="img-1" isLoggedIn backEnabled />);
+    expand();
+    expect(screen.getByText("Product")).toBeInTheDocument();
+    expect(screen.getByText("Back")).toBeInTheDocument();
+    expect(screen.getByText("Price")).toBeInTheDocument();
   });
 });

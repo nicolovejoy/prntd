@@ -129,9 +129,14 @@ describe("BuyHero (#167)", () => {
     expect(screen.queryByText("Front")).not.toBeInTheDocument();
 
     await pickBack();
-    await screen.findByTestId("side-tile");
-    expect(screen.getByText("Front")).toBeInTheDocument();
-    expect(screen.getByText("Back")).toBeInTheDocument();
+    const tile = await screen.findByTestId("side-tile");
+    // Scoped to the two side panels: the buy panel also has its own "Back"
+    // mono-label section heading once backEnabled (Paper pass, #188), so an
+    // unscoped query would match both.
+    expect(
+      within(screen.getByTestId("side-hero")).getByText("Front")
+    ).toBeInTheDocument();
+    expect(within(tile).getByText("Back")).toBeInTheDocument();
   });
 
   it("with backEnabled and no back, the tile slot offers Add a back design and opens the panel picker", async () => {
