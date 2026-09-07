@@ -97,7 +97,11 @@ export default async function PublishedImagePage({
       {isOwner && !isPublished && (
         <div className="flex flex-wrap items-center gap-3 pt-1">
           <span className="text-sm text-text-faint">Not published</span>
-          <PublishCta imageId={img.imageId} imageUrl={img.imageUrl} />
+          <PublishCta
+            imageId={img.imageId}
+            imageUrl={img.imageUrl}
+            canPublish={isLoggedIn}
+          />
         </div>
       )}
       {/* The conversation may be gone even when the image names one — an

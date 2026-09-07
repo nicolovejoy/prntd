@@ -86,6 +86,14 @@ interface Props {
    * shell streams immediately; resolved here.
    */
   initialThreadPromise: Promise<DesignThreadData | null>;
+  /**
+   * From the page's own session read (a guest-funnel anonymous session is a
+   * real Better-Auth user row, so this is NOT the same as "is there a
+   * session" — see publishImage's isAnonymousUser check, which this mirrors
+   * so a guest never sees a Publish control that would just throw server
+   * side). False for both signed-out and anonymous-guest viewers.
+   */
+  canPublish: boolean;
 }
 
 export function DesignPageClient(props: Props) {
@@ -96,7 +104,7 @@ export function DesignPageClient(props: Props) {
   );
 }
 
-function DesignPageInner({ initialThreadPromise }: Props) {
+function DesignPageInner({ initialThreadPromise, canPublish }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   // Frozen at mount: this page never switches threads in place (fresh-start
@@ -824,7 +832,17 @@ function DesignPageInner({ initialThreadPromise }: Props) {
           onNavigate={setLightboxIndex}
           onDelete={handleDeleteImage}
           onMakeProducts={handleMakeProductsForImage}
-          onPublish={handlePublishImage}
+          onPublish={canPublish ? handlePublishImage : undefined}
+          // Anonymous guest: same "why" the /d/[imageId] Publish CTA gives.
+          // designId.current (not the URL) names the thread — Publish only
+          // ever shows once a real design row exists, whether or not the URL
+          // has caught up to it (a brand-new thread's id never lands in the
+          // address bar).
+          signInHref={
+            canPublish
+              ? undefined
+              : `/sign-in?next=${encodeURIComponent(`/design?id=${designId.current}`)}`
+          }
           onStartFrom={handleStartFromImage}
         />
       )}

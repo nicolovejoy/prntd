@@ -205,6 +205,14 @@ export async function publishImage(
 ) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) throw new Error("Unauthorized");
+  // The guest funnel mints a real Better-Auth user row for every signed-out
+  // visitor (session cookie + `isAnonymous: true`), so `!session` alone does
+  // NOT mean "not signed in" — a guest passes it. Publishing puts an image on
+  // the PUBLIC `/` feed and `/prints` attributed to that ghost account, so it
+  // needs a real one. Do not simplify this back to the bare session check.
+  if (isAnonymousUser(session.user)) {
+    throw new Error("Sign in to publish");
+  }
 
   // Model B: whether the image is published lives in `listing`. The image row
   // carries ownership (denormalized ownerId), so no design join is needed.

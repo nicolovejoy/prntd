@@ -1,10 +1,12 @@
 import { headers } from "next/headers";
-import { auth } from "@/lib/auth";
+import { auth, isAnonymousUser } from "@/lib/auth";
 import {
   getDesignThreadData,
   type DesignThreadData,
 } from "@/lib/design-thread";
 import { DesignPageClient } from "./design-client";
+
+type Session = Awaited<ReturnType<typeof auth.api.getSession>>;
 
 /**
  * Generation now finishes in an `after()` continuation started by the
@@ -29,17 +31,35 @@ export default async function DesignPage({
 }) {
   const sp = await searchParams;
   const id = typeof sp.id === "string" ? sp.id : undefined;
-  const initialThreadPromise = id ? loadThread(id) : Promise.resolve(null);
-  return <DesignPageClient initialThreadPromise={initialThreadPromise} />;
+  // One session read for the whole page (cookieCache makes this cheap, and
+  // the header already reads it on the same request): both the publish gate
+  // below and loadThread's ownership check share it. A guest-funnel
+  // anonymous session is a real Better-Auth user row, so publishing needs
+  // more than "is there a session" — see publishImage's isAnonymousUser
+  // check, which this mirrors for the UI so a guest never sees a Publish
+  // control that would just throw.
+  const session = await auth.api.getSession({ headers: await headers() });
+  const canPublish = Boolean(session) && !isAnonymousUser(session?.user);
+  const initialThreadPromise = id
+    ? loadThread(id, session)
+    : Promise.resolve(null);
+  return (
+    <DesignPageClient
+      initialThreadPromise={initialThreadPromise}
+      canPublish={canPublish}
+    />
+  );
 }
 
-async function loadThread(designId: string): Promise<DesignThreadData | null> {
+async function loadThread(
+  designId: string,
+  session: Session
+): Promise<DesignThreadData | null> {
   // Guests without a session, foreign threads, and missing designs all
   // resolve null — the client renders the empty-thread view, exactly as the
   // old mount-effect fetch did. A rejected promise would take down the
   // stream, so unexpected errors degrade to null too.
   try {
-    const session = await auth.api.getSession({ headers: await headers() });
     if (!session) return null;
     return await getDesignThreadData(designId, session.user.id);
   } catch (err) {
