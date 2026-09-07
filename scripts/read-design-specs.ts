@@ -41,7 +41,7 @@ async function main() {
     `);
     const said = msgs.rows.map((m) => String(m.content).slice(0, 120));
     console.log("─".repeat(72));
-    console.log(`image ${row.id}  ${new Date(Number(row.created_at)).toISOString()}  op=${row.operation}`);
+    console.log(`image ${row.id}  ${new Date(Number(row.created_at) * 1000).toISOString()}  op=${row.operation}`);
     console.log(`user turns: ${JSON.stringify(said)}`);
     console.log(`prompt    : ${String(row.prompt ?? "").slice(0, 200)}`);
     console.log(`spec      : ${row.design_spec_json ?? "(null)"}`);
