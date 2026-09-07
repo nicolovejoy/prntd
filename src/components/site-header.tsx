@@ -51,10 +51,12 @@ export function SiteHeader({
       });
   }, [pathname, session?.user?.id, showCart]);
 
-  // Outside-click + Escape dismissal for the mobile dropdown. pointerdown so
-  // the menu closes before the tap's click lands elsewhere; the hamburger is
-  // excluded or its toggle would re-open the menu it just closed. Escape
-  // preventDefaults so page-level Escape-to-go-up (Breadcrumbs) skips it.
+  // Outside-click + Escape dismissal for the account-menu dropdown, present
+  // at every breakpoint now (hamburger below sm:, "Account" text at sm: and
+  // up). pointerdown so the menu closes before the tap's click lands
+  // elsewhere; the trigger button is excluded or its toggle would re-open
+  // the menu it just closed. Escape preventDefaults so page-level
+  // Escape-to-go-up (Breadcrumbs) skips it.
   const menuRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -83,9 +85,12 @@ export function SiteHeader({
     };
   }, [menuOpen]);
 
-  // Guest-funnel (#26) anonymous sessions don't count as signed-in for the nav:
-  // a guest sees the signed-out nav ("Sign in"), not "Sign out" + the gated
-  // personal links (/designs, /orders still redirect anon to sign-in).
+  // Guest-funnel (#26) anonymous sessions don't count as signed-in for the
+  // nav: a guest sees "Sign in" rather than "Sign out", and the account
+  // menu's Orders/Admin links stay off. This does NOT gate Studio — under
+  // nav model A, Studio shows to signed-out visitors too and middleware
+  // bounces them to sign-in on click (see the comment on primaryLinks
+  // below); isAuthed only governs sign-in state and the account-only links.
   const isAuthed =
     Boolean(session) &&
     !(session?.user as { isAnonymous?: boolean } | undefined)?.isAnonymous;

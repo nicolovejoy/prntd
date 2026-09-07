@@ -17,6 +17,9 @@ export async function reopenFromArchive(designId: string) {
   await reopenConversation(designId);
   revalidatePath("/studio");
   revalidatePath("/studio/archive");
+  // The Library's Archived marker is now wrong too (same reopen, same
+  // staleness as src/app/d/conversation-actions.ts's openConversation).
+  revalidatePath("/studio/library");
   // Outside any try: redirect signals by throwing.
   redirect("/studio");
 }

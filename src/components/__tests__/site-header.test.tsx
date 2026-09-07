@@ -37,9 +37,14 @@ vi.mock("@/components/feedback-launcher", () => ({
 
 import { getHeaderState } from "@/components/site-header-actions";
 
-// Every nav word the header can render. Filtering by this set isolates nav
-// links from the wordmark and the running-jobs badge. Retired entries stay in
-// the set on purpose: a regression that re-adds "My Designs" or "Dashboard"
+// The header's fixed-string nav links (primaryLinks + accountLinks) — the
+// wordmark, the running-jobs badge, and Cart/Sign in/Sign out are excluded
+// on purpose: Cart's label carries a variable count suffix ("Cart (3)") so
+// there is no single fixed string to filter on, and Cart/Sign in/Sign out
+// each already have their own dedicated assertions below that check the
+// exact label per auth state, so folding them into this generic filter
+// would duplicate coverage rather than add any. Retired entries stay in the
+// set on purpose: a regression that re-adds "My Designs" or "Dashboard"
 // shows up as an extra link, not a silent pass.
 const NAV_LABELS = [
   "Studio",
@@ -209,5 +214,48 @@ describe("SiteHeader phone tap targets (44px rule)", () => {
     const trigger = screen.getByRole("button", { name: "Account menu" });
     expect(trigger.className).toContain("min-h-11");
     expect(trigger.className).toContain("min-w-11");
+  });
+});
+
+describe("SiteHeader responsive split (bar vs menu)", () => {
+  // Studio/Shop/Sign-in each render twice: a bar copy meant for sm: and up
+  // (hidden sm:inline) and a menu copy meant for phones only (sm:hidden).
+  // Swap those two classes on a future edit and a phone user sees a verb
+  // twice, or not at all — and every other test in this file still passes,
+  // because they check bar/menu *presence*, not which breakpoint a copy is
+  // visible at. jsdom resolves no CSS, so this only proves the right class
+  // token sits on the right copy, not that it renders the right layout at
+  // either width — same honesty as the 44px tap-target tests above.
+  //
+  // Token equality (not substring) on purpose: "sm:hidden" contains the
+  // substring "hidden", so a substring check on "hidden" would still pass
+  // even after a swap and silently fail to catch it.
+  function classTokens(el: Element) {
+    return el.className.split(/\s+/).filter(Boolean);
+  }
+
+  it("gives the bar's Studio/Shop/Sign-in copies hidden sm:inline, not sm:hidden", async () => {
+    render(<SiteHeader cartEnabled={false} />);
+    await settle();
+
+    for (const label of ["Studio", "Shop", "Sign in"]) {
+      const tokens = classTokens(within(bar()).getByRole("link", { name: label }));
+      expect(tokens).toContain("hidden");
+      expect(tokens).toContain("sm:inline");
+      expect(tokens).not.toContain("sm:hidden");
+    }
+  });
+
+  it("gives the menu's Studio/Shop/Sign-in copies sm:hidden, not hidden sm:inline", async () => {
+    render(<SiteHeader cartEnabled={false} />);
+    await settle();
+
+    const menu = await openMenu();
+    for (const label of ["Studio", "Shop", "Sign in"]) {
+      const tokens = classTokens(within(menu).getByRole("link", { name: label }));
+      expect(tokens).toContain("sm:hidden");
+      expect(tokens).not.toContain("hidden");
+      expect(tokens).not.toContain("sm:inline");
+    }
   });
 });

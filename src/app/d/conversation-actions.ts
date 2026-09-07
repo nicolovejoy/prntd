@@ -15,7 +15,7 @@ import { reopenConversation } from "@/app/design/actions";
  *
  * A module of its own rather than another export on `d/actions.ts`: that file
  * is the read layer for the public Shop surfaces too (`getDiscoverFeed` on `/`
- * and `/prints`), and importing `design/actions` into it drags the whole
+ * and `/shop`), and importing `design/actions` into it drags the whole
  * generation stack — the Anthropic client, R2, the generator registry —
  * into every one of those renders.
  */

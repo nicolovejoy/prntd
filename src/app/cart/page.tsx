@@ -116,7 +116,12 @@ export default function CartPage() {
           <EmptyState
             message="Your cart is empty."
             action={
-              <Link href="/studio">
+              // /cart is a public guest surface (e2e/cart.spec.ts's "guest
+              // cart: two items"), but /studio requires a real account
+              // twice over (middleware + requireRealUser) and bounces an
+              // anonymous guest-funnel session to /sign-in. Stay on
+              // /design so a guest can actually start one.
+              <Link href="/design">
                 <Button size="lg">Start a design</Button>
               </Link>
             }
@@ -194,7 +199,11 @@ export default function CartPage() {
                 variant="secondary"
                 size="lg"
                 className="w-full"
-                onClick={() => router.push("/studio")}
+                // Same reasoning as the empty-state CTA above: /cart is a
+                // guest-reachable surface and /studio is real-account-only,
+                // so this stays on /design rather than following the rest
+                // of the site's make-CTAs to /studio.
+                onClick={() => router.push("/design")}
               >
                 Add another design
               </Button>

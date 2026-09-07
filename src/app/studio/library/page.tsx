@@ -26,7 +26,7 @@ export default async function StudioLibraryPage() {
           message="No designs yet."
           action={
             <Link href="/studio">
-              <Button>Open the Studio</Button>
+              <Button>Go to Bench</Button>
             </Link>
           }
         />

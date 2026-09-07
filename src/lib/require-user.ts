@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { auth, isAnonymousUser } from "@/lib/auth";
 
 /**
- * Session gate for personal-record pages (/designs, /orders) rendered as
+ * Session gate for personal-record pages (/studio/library, /orders) rendered as
  * server components. Middleware already bounces cookie-less visitors; this
  * covers the remaining case — an anonymous guest session (#26) — with the
  * same redirect instead of the Unauthorized throw the old client-fetch

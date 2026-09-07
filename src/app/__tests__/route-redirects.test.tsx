@@ -5,9 +5,11 @@
  * The third test is the one worth having: `/shop` (static) now sits beside
  * the mothballed organizer `/shop/[slug]` (dynamic). A dynamic segment
  * requires a non-empty path segment, so `/shop` can only match the static
- * page — this asserts the two files both exist and that the static one is a
- * real page, which is what would break if someone "helpfully" folded the
- * feed into the slug route.
+ * page — this asserts the two files both exist, which is what would break
+ * if someone "helpfully" folded the feed into the slug route. It checks
+ * existence only (`existsSync`), not that `shop/page.tsx` exports a real
+ * page component — importing it pulls in `getDiscoverFeed` and its DB
+ * dependency, which this file deliberately doesn't mock.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { existsSync } from "node:fs";
