@@ -44,6 +44,18 @@ describe("timeAgo", () => {
       "2d ago"
     );
   });
+
+  it("renders the Paper bench mock's four labels verbatim", () => {
+    // The lane header in the BenchPaper{Laptop,Phone} artboards shows
+    // exactly these. Pinned so a change to the scale cannot silently
+    // change what a lane says it did last.
+    const at = (msAgo: number) => timeAgo(new Date(now - msAgo), now);
+    expect(at(0)).toBe("just now");
+    expect(at(59_000)).toBe("just now");
+    expect(at(14 * 60_000)).toBe("14m ago");
+    expect(at(2 * 60 * 60_000)).toBe("2h ago");
+    expect(at(24 * 60 * 60_000)).toBe("1d ago");
+  });
 });
 
 describe("formatClosedDate", () => {
