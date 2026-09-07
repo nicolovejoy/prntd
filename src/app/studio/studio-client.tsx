@@ -980,9 +980,7 @@ function Lane({
                 sectionRef.current?.scrollIntoView({ block: "nearest" });
               }}
               className={`relative shrink-0 w-28 h-28 sm:w-36 sm:h-36 overflow-hidden bg-surface ${
-                anchored || cell.isPrimary
-                  ? "border-2 border-foreground"
-                  : "border border-foreground"
+                anchored ? "border-2 border-foreground" : "border border-foreground"
               }`}
             >
               <span className="absolute inset-1.5">
@@ -997,6 +995,17 @@ function Lane({
               <span className="absolute top-1 left-1.5 font-mono text-[10px] leading-[14px] text-text-muted">
                 {label}
               </span>
+              {/* Anchored (2px ink border) and primary (this mono label) are
+                  orthogonal signals, not two weights of the same one — a
+                  non-primary cell being edited must not read as "the lead
+                  image", and the lead image must stay identifiable while
+                  something else is being edited. Same offsets as the #N
+                  label, mirrored to the bottom. */}
+              {cell.isPrimary && (
+                <span className="absolute bottom-1 left-1.5 font-mono text-[10px] leading-[14px] uppercase tracking-[0.08em] text-text-muted">
+                  Primary
+                </span>
+              )}
               {cell.isPrimary && <span className="sr-only">Primary</span>}
               {anchored && <span className="sr-only">Editing</span>}
             </button>

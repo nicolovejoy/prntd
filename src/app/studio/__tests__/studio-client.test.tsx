@@ -98,12 +98,17 @@ describe("StudioClient rendering", () => {
     expect(screen.getByText("geometric wolf head")).toBeTruthy();
     const cells = screen.getAllByTestId("studio-cell");
     expect(cells).toHaveLength(2);
-    // --accent is var(--foreground): border-accent and border-foreground are
-    // the same colour under different class names, so the strength check is
-    // the border WIDTH (border-2 on the primary cell, plain border on the
-    // other), not a specific class name.
+    // Primary is a mono marker now, not a border weight — the 2px ink border
+    // is reserved for "anchored" alone (review fix, task 4). Neither cell is
+    // anchored here, so neither carries border-2; the primary cell alone
+    // shows the visible "Primary" label.
     expect(cells[0].className).not.toContain("border-2");
-    expect(cells[1].className).toContain("border-2");
+    expect(cells[1].className).not.toContain("border-2");
+    expect(within(cells[0]).queryAllByText("Primary")).toHaveLength(0);
+    const primaryLabels = within(cells[1]).getAllByText("Primary");
+    expect(
+      primaryLabels.some((el) => !el.className.includes("sr-only"))
+    ).toBe(true);
   });
 
   it("renders a running generation as a pending cell with elapsed time", () => {
@@ -129,8 +134,11 @@ describe("cells (Paper bench)", () => {
         ]}
       />
     );
-    expect(screen.getByText("#1")).toBeTruthy();
-    expect(screen.getByText("#2")).toBeTruthy();
+    const cells = screen.getAllByTestId("studio-cell");
+    // Bind each label to its own cell, not just "somewhere on the page" —
+    // pins position-to-label rather than merely presence.
+    expect(within(cells[0]).getByText("#1")).toBeTruthy();
+    expect(within(cells[1]).getByText("#2")).toBeTruthy();
   });
 
   it("marks the anchored cell with an ink border, not a ring", () => {
@@ -145,6 +153,30 @@ describe("cells (Paper bench)", () => {
     fireEvent.click(cell0);
     expect(cell0.className).toContain("border-2");
     expect(cell0.className).not.toContain("ring-2");
+  });
+
+  it("keeps anchored and primary as separate, composable signals", () => {
+    render(
+      <StudioClient
+        initialLanes={[
+          lane({ cells: [cell("a"), cell("b", { isPrimary: true })] }),
+        ]}
+      />
+    );
+    const cells = screen.getAllByTestId("studio-cell");
+    // Anchor the NON-primary cell — primary stays "b" (cells[1]).
+    fireEvent.click(cells[0]);
+
+    expect(cells[0].className).toContain("border-2");
+    expect(cells[0]).not.toBe(cells[1]);
+
+    // The primary marker is visible (not just sr-only) on the primary cell,
+    // and the anchored-but-not-primary cell shows no such marker at all.
+    const primaryLabels = within(cells[1]).getAllByText("Primary");
+    expect(
+      primaryLabels.some((el) => !el.className.includes("sr-only"))
+    ).toBe(true);
+    expect(within(cells[0]).queryAllByText("Primary")).toHaveLength(0);
   });
 
   it("draws the pending cell as a dashed square with elapsed time and Cancel", () => {
