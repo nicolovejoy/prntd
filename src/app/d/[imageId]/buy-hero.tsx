@@ -247,7 +247,7 @@ export function BuyHero({
     <Link
       href={backHref}
       aria-label={`Back to ${backLabel}`}
-      className="sm:hidden absolute top-2 left-2 z-10 inline-flex items-center justify-center w-10 h-10 rounded-full bg-foreground/70 text-accent-fg backdrop-blur-sm"
+      className="sm:hidden absolute top-2 left-2 z-10 inline-flex h-11 w-11 items-center justify-center rounded-full border border-foreground bg-background text-foreground"
     >
       <span aria-hidden>←</span>
     </Link>

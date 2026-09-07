@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Button } from "@/components/ui";
 import { PublishModal } from "@/components/publish-modal";
 
 /**
@@ -32,7 +31,7 @@ export function PublishCta({
     return (
       <Link
         href={`/sign-in?next=${encodeURIComponent(`/d/${imageId}`)}`}
-        className="text-sm underline text-text-muted hover:text-foreground"
+        className="inline-flex min-h-11 items-center text-sm text-text-muted underline underline-offset-[3px] hover:no-underline sm:min-h-0"
       >
         Sign in to publish
       </Link>
@@ -41,9 +40,13 @@ export function PublishCta({
 
   return (
     <>
-      <Button variant="secondary" size="sm" onClick={() => setOpen(true)}>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="inline-flex min-h-11 items-center text-sm text-text-muted underline underline-offset-[3px] hover:no-underline sm:min-h-0"
+      >
         Publish
-      </Button>
+      </button>
       <PublishModal
         imageId={open ? imageId : null}
         imageUrl={imageUrl}

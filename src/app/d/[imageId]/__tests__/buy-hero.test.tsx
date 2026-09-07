@@ -129,9 +129,14 @@ describe("BuyHero (#167)", () => {
     expect(screen.queryByText("Front")).not.toBeInTheDocument();
 
     await pickBack();
-    await screen.findByTestId("side-tile");
-    expect(screen.getByText("Front")).toBeInTheDocument();
-    expect(screen.getByText("Back")).toBeInTheDocument();
+    const tile = await screen.findByTestId("side-tile");
+    // Scoped to the two side panels: each SideMockup renders its own side
+    // label inside its own subtree, so scoping targets the assertion at
+    // the panel it means.
+    expect(
+      within(screen.getByTestId("side-hero")).getByText("Front")
+    ).toBeInTheDocument();
+    expect(within(tile).getByText("Back")).toBeInTheDocument();
   });
 
   it("with backEnabled and no back, the tile slot offers Add a back design and opens the panel picker", async () => {

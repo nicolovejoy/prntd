@@ -20,21 +20,24 @@ export function EditableNaming({ imageId, title, canEdit }: Props) {
 
   if (!editing) {
     return (
-      <>
-        {(title || canEdit) && (
-          <div className="flex items-baseline gap-3">
-            <h1 className="text-xl sm:text-2xl font-bold">{title ?? "Untitled"}</h1>
-            {canEdit && (
-              <button
-                onClick={() => setEditing(true)}
-                className="text-xs text-text-muted underline hover:no-underline"
-              >
-                Edit
-              </button>
-            )}
-          </div>
+      <div className="flex items-baseline gap-3">
+        {/* 14px/500 ink: the title is a value inside the identity block
+            now, not a page-scale headline (Paper slice 5, #188). It stays
+            the page's h1. Rendered unconditionally — an owner viewing an
+            unpublished, untitled image (canEdit false there) still gets a
+            labelled TITLE row, falling back to "Untitled". */}
+        <h1 className="text-sm font-medium text-foreground">
+          {title?.trim() || "Untitled"}
+        </h1>
+        {canEdit && (
+          <button
+            onClick={() => setEditing(true)}
+            className="min-h-11 text-xs text-text-muted underline underline-offset-[3px] hover:no-underline sm:min-h-0"
+          >
+            Edit
+          </button>
         )}
-      </>
+      </div>
     );
   }
 
@@ -60,7 +63,7 @@ export function EditableNaming({ imageId, title, canEdit }: Props) {
         onChange={(e) => setTitleDraft(e.target.value)}
         placeholder="Title"
         maxLength={80}
-        className="w-full bg-surface border border-border rounded px-3 py-2 text-2xl font-bold"
+        className="w-full bg-surface border border-border rounded px-3 py-2 text-base"
       />
       {error && <p className="text-sm text-negative">{error}</p>}
       <div className="flex gap-2">

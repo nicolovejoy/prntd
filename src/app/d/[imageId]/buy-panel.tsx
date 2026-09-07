@@ -24,6 +24,7 @@ import type { BackSourceGroup } from "@/lib/back-sources";
 import { ensureGuestSession } from "@/lib/ensure-guest-session";
 import { addToCart } from "@/app/cart/actions";
 import { buyPublishedDesign, getBuyPageBackSources } from "../actions";
+import { MONO_LABEL } from "./mono-label";
 
 /** A picked back design: the source image id and its artwork URL. */
 export type BackPick = { id: string; imageUrl: string };
@@ -301,7 +302,7 @@ export function BuyPanel({
     <div className="space-y-4 sm:space-y-5 border-t border-border pt-4 sm:pt-5">
       {ACTIVE_BLANKS.length > 1 && (
         <div>
-          <label className="block text-sm font-medium mb-2">Product</label>
+          <label className={`block ${MONO_LABEL} mb-2`}>Product</label>
           <div className="flex flex-wrap gap-2">
             {ACTIVE_BLANKS.map((p) => (
               <button
@@ -339,16 +340,16 @@ export function BuyPanel({
 
       {backEnabled && (
         <div>
+          <p className={`${MONO_LABEL} mb-2`}>Back design</p>
           {back ? (
             <div className="flex items-center gap-3">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={back.imageUrl}
                 alt="Back design"
-                className="w-11 h-11 rounded-md border border-border bg-checkerboard object-contain"
+                className="w-11 h-11 rounded-md border border-border bg-surface-well object-contain"
               />
               <div className="flex-1 text-sm">
-                <p>Back design</p>
                 <button
                   onClick={openBackPicker}
                   className="text-text-muted underline"
@@ -398,9 +399,7 @@ export function BuyPanel({
               ) : (
                 backGroups.map((group) => (
                   <div key={group.id}>
-                    <h3 className="text-xs font-medium uppercase tracking-wide text-text-muted mb-1.5">
-                      {group.label}
-                    </h3>
+                    <h3 className={`${MONO_LABEL} mb-1.5`}>{group.label}</h3>
                     <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
                       {group.images.map((s) => (
                         <button
@@ -409,7 +408,7 @@ export function BuyPanel({
                             setBack({ id: s.id, imageUrl: s.imageUrl });
                             setBackPickerOpen(false);
                           }}
-                          className={`aspect-square min-h-11 rounded-md overflow-hidden border-2 bg-checkerboard ${
+                          className={`aspect-square min-h-11 rounded-md overflow-hidden border-2 bg-surface-well ${
                             s.id === back?.id
                               ? "border-accent"
                               : "border-border hover:border-accent"
@@ -432,24 +431,27 @@ export function BuyPanel({
         </div>
       )}
 
-      <div className="space-y-2 text-sm border-t border-border pt-4">
-        <div className="flex justify-between">
-          <span className="text-text-muted">Design</span>
-          <span>${frontPrice.toFixed(2)}</span>
-        </div>
-        {back && (
+      <div className="border-t border-border pt-4">
+        <p className={`${MONO_LABEL} mb-2`}>Price</p>
+        <div className="space-y-2 text-sm">
           <div className="flex justify-between">
-            <span className="text-text-muted">Back design</span>
-            <span>+${BACK_PLACEMENT_UPCHARGE.toFixed(2)}</span>
+            <span className="text-text-muted">Design</span>
+            <span>${frontPrice.toFixed(2)}</span>
           </div>
-        )}
-        <div className="flex justify-between">
-          <span className="text-text-muted">Shipping</span>
-          <span>${shipping.toFixed(2)}</span>
-        </div>
-        <div className="flex justify-between font-bold border-t border-border pt-2">
-          <span>Total</span>
-          <span>${total.toFixed(2)}</span>
+          {back && (
+            <div className="flex justify-between">
+              <span className="text-text-muted">Back design</span>
+              <span>+${BACK_PLACEMENT_UPCHARGE.toFixed(2)}</span>
+            </div>
+          )}
+          <div className="flex justify-between">
+            <span className="text-text-muted">Shipping</span>
+            <span>${shipping.toFixed(2)}</span>
+          </div>
+          <div className="flex justify-between font-medium border-t border-border pt-2">
+            <span>Total</span>
+            <span>${total.toFixed(2)}</span>
+          </div>
         </div>
       </div>
 

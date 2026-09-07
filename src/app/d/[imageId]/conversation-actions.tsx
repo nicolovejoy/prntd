@@ -19,6 +19,10 @@ import { DELETE_CONVERSATION_FAILED, OPEN_CONVERSATION_FAILED } from "@/lib/acti
  * "Open conversation" reopens the thread first when it has archived out of
  * the Studio, so the link always lands on a writable conversation rather than
  * a read-only record with no explanation.
+ *
+ * Root renders `display: contents` (see below) so its children join the
+ * OWNER row's own flex layout — this component must only ever be mounted
+ * inside a flex (or grid) parent, never a block one.
  */
 export function ConversationActions({
   designId,
@@ -77,34 +81,39 @@ export function ConversationActions({
   }
 
   return (
-    <div className="space-y-2 pt-1">
+    // `contents` so the two buttons become direct children of the OWNER row's
+    // flex container and align with its other actions instead of forming a
+    // nested block (Paper slice 5, #188).
+    <div className="contents">
       {confirmSheet}
-      <div className="flex flex-wrap items-center gap-4">
-        {/* Text buttons, min-h-11 for the 44px phone tap target. */}
-        <button
-          type="button"
-          onClick={open}
-          disabled={busy !== null}
-          data-testid="open-conversation"
-          className="inline-flex items-center min-h-11 text-sm text-text-muted underline hover:no-underline disabled:opacity-50"
-        >
-          {busy === "open" ? "Opening…" : "Open conversation"}
-        </button>
-        <button
-          type="button"
-          onClick={remove}
-          disabled={busy !== null}
-          className="inline-flex items-center min-h-11 text-sm text-text-faint underline hover:no-underline disabled:opacity-50"
-        >
-          {busy === "delete" ? "Deleting…" : "Delete conversation"}
-        </button>
-        {archived && (
-          <span className="text-sm text-text-faint">
-            Archived — opening brings it back to the Studio.
-          </span>
-        )}
-      </div>
-      {error && <InlineNotice message={error} />}
+      {/* Text buttons, min-h-11 for the 44px phone tap target. */}
+      <button
+        type="button"
+        onClick={open}
+        disabled={busy !== null}
+        data-testid="open-conversation"
+        className="inline-flex min-h-11 items-center text-sm text-text-muted underline underline-offset-[3px] hover:no-underline disabled:cursor-not-allowed disabled:text-text-faint disabled:no-underline sm:min-h-0"
+      >
+        {busy === "open" ? "Opening…" : "Open conversation"}
+      </button>
+      <button
+        type="button"
+        onClick={remove}
+        disabled={busy !== null}
+        className="inline-flex min-h-11 items-center text-sm text-text-muted underline underline-offset-[3px] hover:no-underline disabled:cursor-not-allowed disabled:text-text-faint disabled:no-underline sm:min-h-0"
+      >
+        {busy === "delete" ? "Deleting…" : "Delete conversation"}
+      </button>
+      {archived && (
+        <span className="text-sm text-text-faint">
+          Archived — opening brings it back to the Studio.
+        </span>
+      )}
+      {error && (
+        <div className="basis-full">
+          <InlineNotice message={error} />
+        </div>
+      )}
     </div>
   );
 }
