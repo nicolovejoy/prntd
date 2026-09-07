@@ -72,6 +72,9 @@ export function PublishedImageView({
   return (
     <div className="space-y-3">
       {confirmSheet}
+      {/* 1px bordered card on paper; the fill inside is the listing's pinned
+          backdrop, which stays a real colour because it is the buyer's
+          garment-colour choice (design review, Paper note). */}
       <div
         className={`rounded-lg overflow-hidden border border-border ${backdrop.className}`}
         style={backdrop.style}
