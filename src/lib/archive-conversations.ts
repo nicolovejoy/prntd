@@ -15,11 +15,12 @@
  * `sweepStaleJobs`, so the two write-shaped sweeps stop blocking the first
  * byte; the read may show a lane one sweep behind, self-correcting on the
  * next poll or a refused write. `sweepStaleJobs` itself is NOT changed by
- * this and still runs inline, on the read, at its other call sites
- * (`design/actions.ts`'s `getDesignJobs`, `site-header-actions.ts`,
- * `user-designs.ts`, `design-thread.ts`) — this module's sweep has exactly
- * one caller (the Studio), so there was nowhere else to preserve the old
- * "lazily on a read that happens anyway" shape for.
+ * this and still runs inline, on the read, at its remaining call sites
+ * (`design/actions.ts`'s `getDesignJobs`, `user-designs.ts`,
+ * `design-thread.ts`); `site-header-actions.ts` moved to `after()` in #210
+ * — this module's sweep has exactly one caller (the Studio), so there was
+ * nowhere else to preserve the old "lazily on a read that happens anyway"
+ * shape for.
  */
 import { and, asc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 import type { db as appDb } from "./db";

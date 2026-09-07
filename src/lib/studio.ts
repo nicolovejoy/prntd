@@ -88,13 +88,14 @@ export function laneLastActiveAt(input: {
  * for sweeps that usually find nothing to do) rather than awaiting it
  * inline, so `getStudioLanesData` no longer runs them itself.
  *
- * This is the odd one out among the codebase's other lazy-sweep call sites
- * (`design/actions.ts`'s `getDesignJobs`, `site-header-actions.ts`,
- * `user-designs.ts`, `design-thread.ts`) — they each run a single
- * read-shaped sweep (`sweepStaleJobs` alone) still inline on the request,
- * two of them (`design-thread.ts`, `user-designs.ts`) batched into the same
- * `Promise.all` as their own query. The Studio has TWO sweeps, both
- * WRITE-shaped (a timeout transition, an archive), and they were running
+ * One of two `after()`-scheduled sweep sites (the other is
+ * `site-header-actions.ts`, #210). The remaining lazy call sites
+ * (`design/actions.ts`'s `getDesignJobs`, `user-designs.ts`,
+ * `design-thread.ts`) still sweep inline on the request — `getDesignJobs`
+ * because it is the poll surface that must report the transition the sweep
+ * makes, and the other two because they are already batched into the same
+ * `Promise.all` as their own query, so they add no serial hop. The Studio
+ * has TWO sweeps (a timeout transition, an archive), and they were running
  * serially before the lanes query even started — `after()`, not
  * `Promise.all`, is what actually gets that off the response.
  *
