@@ -405,7 +405,48 @@ import { minRetailPrice } from "@/lib/pricing";
 import { IdentityBlock } from "./identity-block";
 ```
 
-and replace both `{metaBlock}` / `>{metaBlock}<` usages with `identityBlock`. Delete the now-unused `Link`-based fork markup, the `EditableNaming` import, the `PublishCta` import and the `ConversationActions` import **only if** nothing else in the file still uses them — Task 2 re-adds `PublishCta` and `ConversationActions` via the owner row, so leave those two imports in place for now and let lint/typecheck tell you. Run `npm run lint` at the end of this task and fix whatever it names.
+and replace both `{metaBlock}` / `>{metaBlock}<` usages with `identityBlock`.
+
+**Preflight ruling P1 — keep the owner links alive through this task.** The old
+`metaBlock` was the only thing rendering `PublishCta` and `ConversationActions`.
+Deleting it here would both leave two unused imports (lint errors in step 9) and
+ship one commit whose page has no Publish / Open conversation / Delete
+conversation for the owner. So add a temporary fragment immediately below the
+identity block in **both** branches, carrying that markup verbatim from the old
+`metaBlock`:
+
+```tsx
+  // TEMPORARY (Paper slice 5, Task 1 → Task 2): the owner's actions still
+  // render exactly as they did, so no commit on this branch drops them. Task 2
+  // replaces this whole fragment with <OwnerActions />.
+  const ownerLinks = isOwner && (
+    <div className="space-y-1">
+      {!isPublished && (
+        <div className="flex flex-wrap items-center gap-3 pt-1">
+          <span className="text-sm text-text-faint">Not published</span>
+          <PublishCta
+            imageId={img.imageId}
+            imageUrl={img.imageUrl}
+            canPublish={isLoggedIn}
+          />
+        </div>
+      )}
+      {img.sourceDesignId && img.hasSourceConversation && (
+        <ConversationActions
+          designId={img.sourceDesignId}
+          archived={img.sourceConversationArchived}
+        />
+      )}
+    </div>
+  );
+```
+
+Render `{ownerLinks}` directly after the hero/buy area in both branches (in the
+published branch that is after the closing `</BuyHero>`, in the unpublished
+branch after the Order/StartFromImage row). Delete the `EditableNaming` import
+from `page.tsx` — it moved into `identity-block.tsx` — and keep the `PublishCta`
+and `ConversationActions` imports, which `ownerLinks` still uses. `Link` stays:
+the back arrow and the `/preview?id=` Order link still need it.
 
 - [ ] **Step 7: Ink back arrow, both copies**
 
@@ -476,7 +517,7 @@ EOF
 - Modify: `src/app/d/[imageId]/start-from-image.tsx`
 - Modify: `src/app/d/[imageId]/publish-cta.tsx`
 - Modify: `src/app/d/[imageId]/conversation-actions.tsx`
-- Modify: `src/app/d/[imageId]/page.tsx`
+- Modify: `src/app/d/[imageId]/page.tsx` (delete the temporary `ownerLinks` fragment Task 1 left, render `<OwnerActions />` in its place)
 - Modify: `src/app/d/[imageId]/__tests__/start-from-image.test.tsx` (if its selectors break)
 
 **Interfaces:**
@@ -529,7 +570,9 @@ describe("UnpublishAction", () => {
     ).toBeInTheDocument();
     expect(unpublishImage).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Un-publish" })[1]);
+    // Preflight ruling P2: target the sheet's own testid, not an index into a
+    // role query — the trigger and the confirm share the label "Un-publish".
+    fireEvent.click(screen.getByTestId("confirm-sheet-confirm"));
     await waitFor(() => expect(unpublishImage).toHaveBeenCalledWith("img-1"));
     await waitFor(() => expect(push).toHaveBeenCalledWith("/studio/library"));
   });
@@ -830,7 +873,9 @@ Drop the `Button` import if nothing else in the file uses it. Update the docbloc
 
 - [ ] **Step 9: Render the owner row from `page.tsx`**
 
-In both branches, after the hero/buy area and before the siblings strip, render:
+Delete the temporary `ownerLinks` fragment Task 1 added (both its `const` and
+both `{ownerLinks}` render sites). In its place, in both branches, after the
+hero/buy area and before the siblings strip, render:
 
 ```tsx
           {isOwner && (
@@ -1063,10 +1108,12 @@ Append to `src/app/d/[imageId]/__tests__/conversation-images.test.tsx` (reuse wh
       <ConversationImages
         designId="design-1"
         currentImageId="img-2"
+        // Preflight ruling P3: SiblingImage (src/app/d/actions.ts:248) is
+        // { imageId, imageUrl, isPrimary } — all three are required.
         images={[
-          { imageId: "img-1", imageUrl: "https://img.example/1.png" },
-          { imageId: "img-2", imageUrl: "https://img.example/2.png" },
-          { imageId: "img-3", imageUrl: "https://img.example/3.png" },
+          { imageId: "img-1", imageUrl: "https://img.example/1.png", isPrimary: true },
+          { imageId: "img-2", imageUrl: "https://img.example/2.png", isPrimary: false },
+          { imageId: "img-3", imageUrl: "https://img.example/3.png", isPrimary: false },
         ]}
         initialPrimaryImageId="img-1"
       />
