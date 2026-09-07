@@ -8,6 +8,7 @@ import { eq } from "drizzle-orm";
 import { createTestDb } from "./test-db";
 import * as schema from "@/lib/db/schema";
 import { refundOrderCore, type RefundOrderDeps } from "@/lib/refund-order";
+import { refundLedgerRow } from "@/lib/ledger";
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
 
@@ -83,6 +84,34 @@ describe("refundOrderCore", () => {
       where: eq(schema.ledgerEntry.orderId, order.id),
     });
     expect(entries.filter((e) => e.type === "refund")).toHaveLength(1);
+  });
+
+  it("treats a row booked by a concurrent click during the Stripe call as a no-op success (#209)", async () => {
+    // The existing idempotency test returns early at the up-front ledger
+    // lookup. This one reaches the catch around the insert: the rival click
+    // books the refund row while we are awaiting Stripe — after our check
+    // passed, before our insert. Both clicks share the idempotency key
+    // `refund-${orderId}`, so Stripe issued exactly one refund; the loser
+    // must report the benign no-op, not throw.
+    const { order } = await seedCanceledOrder(db);
+    const deps = makeDeps(db, {
+      createRefund: vi.fn(async () => {
+        await db
+          .insert(schema.ledgerEntry)
+          .values(
+            refundLedgerRow(order.id, order.totalPrice, "booked by the rival click")
+          );
+      }),
+    });
+
+    const result = await refundOrderCore(order.id, deps);
+
+    expect(result).toEqual({ ok: true, refunded: false });
+    const entries = await db.query.ledgerEntry.findMany({
+      where: eq(schema.ledgerEntry.orderId, order.id),
+    });
+    expect(entries.filter((e) => e.type === "refund")).toHaveLength(1);
+    expect(entries[0].description).toBe("booked by the rival click");
   });
 
   it("books the ledger row when Stripe reports the charge is already refunded (crash-replay past the idempotency TTL)", async () => {

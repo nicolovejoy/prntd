@@ -142,12 +142,52 @@ export async function recordCancellation(
   await db.insert(ledgerEntry).values(refundLedgerRow(orderId, originalAmount, description));
 }
 
+const UNIQUE_VIOLATION_TEXT = /UNIQUE constraint failed/i;
+
+/** Deep enough for DrizzleQueryError -> LibsqlError -> SQLite, with slack. */
+const MAX_CAUSE_DEPTH = 8;
+
+/** Best-effort message for an arbitrary thrown value. */
+function errorMessageOf(value: unknown): string {
+  if (value instanceof Error) return value.message;
+  if (typeof value === "string") return value;
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { message?: unknown }).message === "string"
+  ) {
+    return (value as { message: string }).message;
+  }
+  return String(value);
+}
+
 /**
  * True when an error is SQLite/libSQL's unique-constraint rejection — the
- * signal that a concurrent or redelivered webhook already wrote this order's
- * ledger rows (the whole batch rolled back; nothing was applied).
+ * signal that a concurrent or redelivered write already booked this row.
+ *
+ * The text can arrive at two different depths. `db.batch(...)` calls the
+ * libSQL client directly, so `LibsqlBatchError.message` carries it. Every
+ * NON-batch execution (a bare `db.insert(...)`) is wrapped by drizzle in a
+ * `DrizzleQueryError` whose own message is only `Failed query: ...`; the
+ * SQLite text lives on `.cause` (`LibsqlError`), and one level below that
+ * again. So we walk the chain instead of reading one message (#209 — before
+ * this, the bare-insert catch in refund-order.ts could never match).
+ *
+ * The walk is bounded and cycle-safe because the chain is arbitrary
+ * third-party data: a driver that ever self-references would otherwise hang
+ * a money path.
  */
 export function isUniqueViolation(err: unknown): boolean {
-  const message = err instanceof Error ? err.message : String(err);
-  return /UNIQUE constraint failed/i.test(message);
+  const seen = new Set<object>();
+  let current: unknown = err;
+
+  for (let depth = 0; depth <= MAX_CAUSE_DEPTH; depth++) {
+    if (current === null || current === undefined) return false;
+    if (UNIQUE_VIOLATION_TEXT.test(errorMessageOf(current))) return true;
+    if (typeof current !== "object") return false;
+    if (seen.has(current)) return false;
+    seen.add(current);
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
 }

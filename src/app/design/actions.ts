@@ -272,19 +272,12 @@ export async function generateDesign(
     // already do. No refund inside this block on the re-read-null branch: a
     // rethrow here is caught by the outer catch below, which refunds once —
     // refunding here too would double-credit.
-    //
-    // Wrapped in a one-statement `db.batch` (not a bare `.insert()`) so a
-    // unique-constraint violation surfaces in the shape `isUniqueViolation`
-    // recognizes: a lone `.insert().returning()` call gets wrapped in a
-    // DrizzleQueryError whose own `.message` never contains the SQLite error
-    // text (only `.cause.message` does), while `db.batch` surfaces it
-    // directly — the same reason the webhook's paid-claim batch (#37) can
-    // use this check as-is.
     if (!found) {
       try {
-        const [[created]] = await db.batch([
-          db.insert(designTable).values({ id: designId, userId }).returning(),
-        ]);
+        const [created] = await db
+          .insert(designTable)
+          .values({ id: designId, userId })
+          .returning();
         found = created;
       } catch (err) {
         if (!isUniqueViolation(err)) throw err;
