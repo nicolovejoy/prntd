@@ -18,9 +18,8 @@ const geistMono = Geist_Mono({
 });
 
 const siteUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://prntd.org";
-const title = "PRNTD — AI-Powered Custom Design";
-const description =
-  "Design custom apparel and accessories with AI. Describe your idea, generate a unique design, and order it on shirts, phone cases, and more.";
+const title = "PRNTD";
+const description = "Design a shirt by describing it.";
 
 export const metadata: Metadata = {
   // Makes opengraph-image / twitter-image resolve to absolute https URLs.

@@ -9,15 +9,23 @@ const REPLY_TO = "hello@prntd.org";
 // ---------------------------------------------------------------------------
 // Shared layout
 //
-// One branded wrapper for every email: dark wordmark header, optional hero
-// image(s), a white card body, and a footer. Email clients only reliably
-// support tables + inline styles, so everything is built that way.
+// One branded wrapper for every email: a paper wordmark header, optional
+// hero image(s), a white card body, and a footer. Email clients only
+// reliably support tables + inline styles, so everything is built that way.
+//
+// Colours are the Paper token values from globals.css, hardcoded as hex —
+// email HTML can't read CSS custom properties. Keep these in sync with
+// `docs/design-system.md`'s Tokens section by hand.
 // ---------------------------------------------------------------------------
 
-const INK = "#18181b"; // zinc-900 — brand ink
-const MUTED = "#71717a"; // zinc-500
-const BORDER = "#e4e4e7"; // zinc-200
-const PAGE_BG = "#fafafa"; // zinc-50
+const INK = "#141311";
+const MUTED = "#4b4946"; // body copy — one step lighter than ink
+const FAINT = "#6f6d6a"; // footer + labels — a second step toward the ground
+const BORDER = "#bfbdb8"; // hairline
+const GROUND = "#f8f5ef"; // page background
+const SURFACE = "#ffffff"; // card body
+const WELL = "#e6e3dd"; // hero-image / thumbnail backing
+const ROSE = "#a83250"; // wordmark only — matches site-header.tsx's scoped use
 
 function renderHero(images: EmailImage[] | undefined): string {
   if (!images || images.length === 0) return "";
@@ -27,12 +35,12 @@ function renderHero(images: EmailImage[] | undefined): string {
     .map(
       (img) => `
         <td align="center" valign="top" style="padding: 0 8px;">
-          <div style="background: ${img.backdrop ?? "#f4f4f5"}; border-radius: 12px; padding: 14px; line-height: 0;">
+          <div style="background: ${img.backdrop ?? WELL}; border: 1px solid ${BORDER}; border-radius: 12px; padding: 14px; line-height: 0;">
             <img src="${img.url}" width="${imgWidth}" alt="${img.label} design" style="display: block; width: ${imgWidth}px; max-width: 100%; height: auto; border-radius: 6px;" />
           </div>
           ${
             showLabels
-              ? `<div style="color: ${MUTED}; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; margin-top: 8px;">${img.label}</div>`
+              ? `<div style="color: ${FAINT}; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; margin-top: 8px;">${img.label}</div>`
               : ""
           }
         </td>`
@@ -56,22 +64,25 @@ export function emailLayout(o: {
   const preheader = o.preheader
     ? `<span style="display:none!important;opacity:0;color:transparent;height:0;width:0;overflow:hidden;">${o.preheader}</span>`
     : "";
-  const intro = o.intro ? `<p style="color: #52525b; font-size: 15px; line-height: 1.5; margin: 0 0 24px;">${o.intro}</p>` : "";
+  const intro = o.intro ? `<p style="color: ${MUTED}; font-size: 15px; line-height: 1.5; margin: 0 0 24px;">${o.intro}</p>` : "";
+  // Outlined ink, not filled: solid rose is reserved for the Generate button
+  // on the site (globals.css Tokens), so the email CTA stays ink like every
+  // other button on Paper.
   const cta =
     o.ctaLabel && o.ctaUrl
-      ? `<p style="margin: 4px 0 0;"><a href="${o.ctaUrl}" style="display: inline-block; padding: 11px 22px; background: ${INK}; color: #fff; text-decoration: none; border-radius: 8px; font-size: 14px; font-weight: 600;">${o.ctaLabel}</a></p>`
+      ? `<p style="margin: 4px 0 0;"><a href="${o.ctaUrl}" style="display: inline-block; padding: 10px 21px; background: ${SURFACE}; color: ${INK}; text-decoration: none; border: 1px solid ${INK}; border-radius: 8px; font-size: 14px; font-weight: 600;">${o.ctaLabel}</a></p>`
       : "";
 
   return `
-    <body style="margin: 0; padding: 0; background: ${PAGE_BG};">
+    <body style="margin: 0; padding: 0; background: ${GROUND};">
       ${preheader}
-      <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background: ${PAGE_BG}; padding: 32px 16px;">
+      <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background: ${GROUND}; padding: 32px 16px;">
         <tr>
           <td align="center">
-            <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px; width: 100%; background: #ffffff; border: 1px solid ${BORDER}; border-radius: 16px; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+            <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px; width: 100%; background: ${SURFACE}; border: 1px solid ${BORDER}; border-radius: 16px; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
               <tr>
-                <td style="background: ${INK}; padding: 18px 28px;">
-                  <span style="color: #ffffff; font-size: 18px; font-weight: 700; letter-spacing: 0.18em;">PRNTD</span>
+                <td style="background: ${GROUND}; border-bottom: 1px solid ${BORDER}; padding: 18px 28px;">
+                  <span style="color: ${ROSE}; font-size: 18px; font-weight: 700; letter-spacing: 0.18em;">PRNTD</span>
                 </td>
               </tr>
               <tr>
@@ -85,7 +96,7 @@ export function emailLayout(o: {
               </tr>
               <tr>
                 <td style="border-top: 1px solid ${BORDER}; padding: 20px 28px; text-align: center;">
-                  <p style="color: ${MUTED}; font-size: 12px; margin: 0;">PRNTD · <a href="https://prntd.org" style="color: ${MUTED}; text-decoration: none;">prntd.org</a> · <a href="mailto:hello@prntd.org" style="color: ${MUTED}; text-decoration: none;">hello@prntd.org</a></p>
+                  <p style="color: ${FAINT}; font-size: 12px; margin: 0;">PRNTD · <a href="https://prntd.org" style="color: ${FAINT}; text-decoration: none;">prntd.org</a> · <a href="mailto:hello@prntd.org" style="color: ${FAINT}; text-decoration: none;">hello@prntd.org</a></p>
                 </td>
               </tr>
             </table>
@@ -100,7 +111,7 @@ function detailRow(label: string, value: string, opts: { mono?: boolean; total?:
   const weight = opts.total ? "font-weight: 600;" : "";
   const valStyle = opts.mono ? "font-family: ui-monospace, SFMono-Regular, Menlo, monospace;" : "";
   return `<tr>
-    <td style="padding: 9px 0; color: ${MUTED}; font-size: 14px; ${top}">${label}</td>
+    <td style="padding: 9px 0; color: ${FAINT}; font-size: 14px; ${top}">${label}</td>
     <td style="padding: 9px 0; text-align: right; font-size: 14px; color: ${INK}; ${weight} ${valStyle} ${top}">${value}</td>
   </tr>`;
 }
@@ -186,13 +197,13 @@ function lineRow(line: EmailOrderLine): string {
   const thumb = `
     <table role="presentation" cellpadding="0" cellspacing="0"><tr>
       <td width="48" valign="middle" style="padding-right: 10px;">
-        <div style="width: 48px; height: 48px; background: ${escapeHtml(line.backdrop ?? "#f4f4f5")}; border-radius: 8px; line-height: 0; text-align: center;">
+        <div style="width: 48px; height: 48px; background: ${escapeHtml(line.backdrop ?? WELL)}; border: 1px solid ${BORDER}; border-radius: 8px; line-height: 0; text-align: center;">
           <img src="${escapeHtml(line.imageUrl)}" width="40" height="40" alt="" style="display: inline-block; width: 40px; height: 40px; margin: 4px 0; object-fit: contain;" />
         </div>
       </td>
       <td valign="middle" style="color: ${INK}; font-size: 14px;">
         ${line.designName ? `<div style="font-weight: 600;">${escapeHtml(line.designName)}</div>` : ""}
-        <div style="color: ${MUTED}; font-size: 13px;">${lineLabel(line)}</div>
+        <div style="color: ${FAINT}; font-size: 13px;">${lineLabel(line)}</div>
       </td>
     </tr></table>`;
 
@@ -296,7 +307,7 @@ export async function sendShippingNotification(params: {
   const trackingBody = params.trackingNumber
     ? detailTable(detailRow("Tracking #", params.trackingNumber, { mono: true }))
     : !params.trackingUrl
-      ? `<p style="color: #52525b; font-size: 14px; text-align: center; margin: 0 0 24px;">Tracking info will be available soon.</p>`
+      ? `<p style="color: ${MUTED}; font-size: 14px; text-align: center; margin: 0 0 24px;">Tracking info will be available soon.</p>`
       : "";
 
   await resend.emails.send({
