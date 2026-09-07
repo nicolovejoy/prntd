@@ -373,7 +373,7 @@ export default function OrderDetailPage() {
                     onClick={() => handleToggleTag(tag)}
                     title={`Click to remove "${tag}"`}
                   >
-                    {tag}
+                    {tag} <span aria-hidden>×</span>
                   </span>
                 ))}
                 <input
@@ -443,7 +443,7 @@ export default function OrderDetailPage() {
           )}
         </div>
 
-        {/* Right column — Ledger timeline */}
+        {/* Right column — Ledger rows */}
         <div>
           <Card className="p-4">
             <h3 className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted mb-3">Ledger</h3>
@@ -469,7 +469,7 @@ export default function OrderDetailPage() {
                       <p className="mt-0.5 text-xs text-text-muted truncate">
                         {entry.description}
                       </p>
-                      <p className="font-mono text-[11px] leading-4 text-text-muted">
+                      <p className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted">
                         {entry.createdAt ? new Date(entry.createdAt).toLocaleString() : "—"}
                       </p>
                     </div>

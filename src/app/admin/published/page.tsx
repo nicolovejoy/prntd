@@ -84,7 +84,7 @@ export default async function AdminPublishedPage() {
                 <p className="text-xs text-text-muted truncate">
                   {img.designerName} · {img.designerEmail}
                 </p>
-                <p className="font-mono text-[11px] leading-4 tracking-[0.08em] text-text-muted">
+                <p className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted">
                   {img.publishedAt.toLocaleDateString()}
                 </p>
                 {/* Shop feed position. Ranked images list first (lowest

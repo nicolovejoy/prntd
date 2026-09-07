@@ -93,6 +93,12 @@ describe("order detail add-tag clears the previous result line", () => {
       expect(screen.queryByTestId("admin-action-result")).toBeNull()
     );
     expect(setOrderTags).toHaveBeenCalledWith(ORDER.id, ["rush"]);
+
+    // The chip's own delete affordance (a literal × next to the tag) is the
+    // only thing that distinguishes it from inert markers rendered with the
+    // same classes — pin it so a future sweep can't silently strip it again.
+    const chip = screen.getByTitle('Click to remove "rush"');
+    expect(chip.textContent).toContain("×");
   });
 
   it("leaves the line alone when the tag is already present", async () => {

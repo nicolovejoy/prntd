@@ -50,7 +50,7 @@ export default async function AdminErrorsPage() {
             <tbody className="divide-y divide-border">
               {errors.map((e) => (
                 <tr key={e.id} className="align-top hover:bg-surface-raised">
-                  <td className="py-3 pr-4 font-mono text-xs text-text-muted whitespace-nowrap">
+                  <td className="py-3 pr-4 font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted whitespace-nowrap">
                     {new Date(e.createdAt).toLocaleString(undefined, {
                       dateStyle: "short",
                       timeStyle: "medium",

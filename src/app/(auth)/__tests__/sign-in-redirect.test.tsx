@@ -1,7 +1,7 @@
 /**
- * Nav model A (#219) made /studio the post-sign-in home. Nothing pinned it,
- * so a future sweep could quietly retarget it. This also pins the
- * same-origin restriction on ?next= (open-redirect guard).
+ * Nav model A (#219) made /studio the post-sign-in home. This pins that
+ * default on the sign-in page only (sign-up hard-codes the same target,
+ * unpinned) plus the same-origin restriction on ?next= (open-redirect guard).
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";

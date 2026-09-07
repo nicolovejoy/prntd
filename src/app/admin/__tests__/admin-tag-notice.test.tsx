@@ -68,6 +68,13 @@ describe("/admin add-tag clears the previous result line", () => {
       expect(screen.queryByTestId("admin-action-result")).toBeNull()
     );
     expect(setOrderTags).toHaveBeenCalledWith(PAID_ORDER.id, ["vip"]);
+
+    // The chip's own delete affordance (a literal × next to the tag) is the
+    // only thing that distinguishes it from the inert "archived"/"×N items"
+    // markers rendered with the same classes — pin it so a future sweep
+    // can't silently strip it again.
+    const chip = screen.getByTitle('Click to remove "vip" tag');
+    expect(chip.textContent).toContain("×");
   });
 
   it("leaves the line alone when the typed tag is empty", async () => {

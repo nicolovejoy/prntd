@@ -211,7 +211,7 @@ export default function AdminPage() {
   const archivedCount = data.orders.filter((o) => o.archivedAt).length;
   const allSelected = filterState.classifications.size === ORDER_CLASSIFICATIONS.length;
 
-  // Label for summary cards when filtered
+  // Label for the Revenue figure when a classification filter is active
   const activeLabels = allSelected
     ? []
     : ORDER_CLASSIFICATIONS.filter((c) => filterState.classifications.has(c)).map(
@@ -387,7 +387,7 @@ export default function AdminPage() {
                             onClick={() => handleToggleTag(order.id, tag, order.tags)}
                             title={`Click to remove "${tag}" tag`}
                           >
-                            {tag}
+                            {tag} <span aria-hidden>×</span>
                           </span>
                         ))}
                         <input
@@ -473,7 +473,7 @@ export default function AdminPage() {
                     <td className="py-3 pr-4 font-mono text-xs text-text-muted">
                       {order.printfulOrderId ?? "—"}
                     </td>
-                    <td className="py-3 pr-4 font-mono text-xs text-text-muted whitespace-nowrap">
+                    <td className="py-3 pr-4 font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted whitespace-nowrap">
                       {order.createdAt
                         ? new Date(order.createdAt).toLocaleString(undefined, {
                             dateStyle: "short",
