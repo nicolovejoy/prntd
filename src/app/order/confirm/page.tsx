@@ -4,6 +4,7 @@ import { Button } from "@/components/ui";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
 import { getColorHex } from "@/lib/blanks";
+import { appErrorLogLine, shapeAppError } from "@/lib/app-error";
 
 type Search = Promise<Record<string, string | string[] | undefined>>;
 
@@ -25,10 +26,13 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Sear
       order = await getOrderBySession(sessionId);
     } catch (err) {
       loadFailed = true;
-      console.error(
-        "getOrderBySession failed:",
-        err instanceof Error ? err.message : String(err)
-      );
+      // Structured line so `vercel logs | grep app_error` finds this the same
+      // way it finds instrumentation.ts's onRequestError captures — but we do
+      // NOT write an app_error DB row here (shapeAppError only). The likeliest
+      // cause of this catch firing is the database being unreachable, which
+      // is exactly what a row write would need; a page render must not spend
+      // a DB timeout trying to log to the DB that just failed.
+      console.error(appErrorLogLine(shapeAppError(err, { path: "/order/confirm", method: "GET" })));
     }
   }
 
@@ -49,7 +53,7 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Sear
               The receipt couldn&apos;t be loaded. Your order is listed in My Orders.
             </p>
             <Link href="/orders">
-              <Button className="w-full">View My Orders</Button>
+              <Button size="lg" className="w-full">View My Orders</Button>
             </Link>
           </div>
         </div>
@@ -149,17 +153,19 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Sear
                 </span>
               </div>
             ))}
-            <div className="flex justify-between items-center border-b border-border py-3">
+            <div className="flex justify-between items-center py-3">
               <span className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted">
                 Total paid
               </span>
-              <span className="font-mono font-medium">${order.totalPrice.toFixed(2)}</span>
+              <span className="font-mono text-base font-medium">
+                ${order.totalPrice.toFixed(2)}
+              </span>
             </div>
           </div>
 
           <div className="flex flex-col gap-3">
             <Link href="/orders">
-              <Button className="w-full">View My Orders</Button>
+              <Button size="lg" className="w-full">View My Orders</Button>
             </Link>
             <Link
               href="/design"

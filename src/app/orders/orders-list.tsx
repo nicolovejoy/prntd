@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { Button, EmptyState } from "@/components/ui";
+import { Badge, Button, EmptyState } from "@/components/ui";
 import { getColorHex } from "@/lib/blanks";
 import type { UserOrder } from "@/lib/user-orders";
 
@@ -18,13 +18,10 @@ const statusLabel: Record<string, string> = {
   canceled: "Canceled",
 };
 
-// Only shipped/delivered/canceled carry color (--positive / --negative);
-// everything else stays neutral ink. See CLAUDE.md's design-system gap #1.
-const statusTone: Record<string, string> = {
-  shipped: "text-positive",
-  delivered: "text-positive",
-  canceled: "text-negative",
-};
+// The Badge primitive (src/components/ui/badge.tsx) IS the mono status label
+// under Paper — no pill, no color except shipped/delivered (positive) and
+// canceled (negative). Don't re-inline a status→color map here; Badge already
+// carries that mapping (and /admin's, so the two lists agree).
 
 function formatDate(date: Date | null) {
   if (!date) return "—";
@@ -58,7 +55,7 @@ export function OrdersList({ orders }: { orders: UserOrder[] }) {
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-xl sm:text-2xl font-bold">My Orders</h1>
           <Link href="/design">
-            <Button variant="secondary" size="sm">
+            <Button variant="secondary" size="sm" className="min-h-11">
               New Design
             </Button>
           </Link>
@@ -94,7 +91,7 @@ export function OrdersList({ orders }: { orders: UserOrder[] }) {
             message="No orders yet."
             action={
               <Link href="/design">
-                <Button>Make your first design</Button>
+                <Button size="lg">Make your first design</Button>
               </Link>
             }
           />
@@ -109,13 +106,9 @@ export function OrdersList({ orders }: { orders: UserOrder[] }) {
                 {/* Order header: status + name/id (left), total (right) */}
                 <div className="flex items-center justify-between gap-2 mb-3">
                   <div className="flex items-center gap-2 min-w-0">
-                    <span
-                      className={`font-mono text-[11px] leading-4 tracking-[0.08em] uppercase ${
-                        statusTone[order.status] ?? "text-text-muted"
-                      }`}
-                    >
+                    <Badge variant={order.status}>
                       {statusLabel[order.status] ?? order.status}
-                    </span>
+                    </Badge>
                     {order.displayName && (
                       <span className="text-sm font-medium truncate">
                         {order.displayName}
