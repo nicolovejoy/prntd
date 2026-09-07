@@ -4,7 +4,7 @@
  * lie to the customer and invisible to the e2e suite.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, within, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import type { CartView } from "../actions";
 import CartPage from "../page";
 
@@ -105,8 +105,12 @@ describe("CartPage row shape (Paper)", () => {
     getCart.mockResolvedValue(ONE_ITEM_WITH_IMAGE);
     render(<CartPage />);
 
+    // A DOM query rather than getAllByRole("img"): the thumbnail is
+    // decorative-when-labeled (alt=""), which HTML-AAM maps to
+    // role="presentation" — a role query would miss it. e2e/cart.spec.ts
+    // counts the same way (.locator("img"), alt-agnostic).
     const item = await screen.findByTestId("cart-line-item");
-    expect(within(item).getAllByRole("img")).toHaveLength(1);
+    expect(item.querySelectorAll("img")).toHaveLength(1);
   });
 
   it("renders no img inside the cart line when the item has no image", async () => {
@@ -114,7 +118,7 @@ describe("CartPage row shape (Paper)", () => {
     render(<CartPage />);
 
     const item = await screen.findByTestId("cart-line-item");
-    expect(within(item).queryAllByRole("img")).toHaveLength(0);
+    expect(item.querySelectorAll("img")).toHaveLength(0);
   });
 
   it("the checkout button's accessible name starts with Checkout", async () => {

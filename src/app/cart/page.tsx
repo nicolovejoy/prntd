@@ -141,10 +141,13 @@ export default function CartPage() {
                 >
                   <div className="w-16 h-16 shrink-0 bg-surface-well border border-border overflow-hidden">
                     {item.imageUrl && (
+                      // alt="" is deliberate: the visible product name beside
+                      // this thumbnail is the row's label, so a non-empty alt
+                      // would have a screen reader announce it twice per line.
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={item.imageUrl}
-                        alt={item.productName}
+                        alt=""
                         className="w-full h-full object-contain"
                       />
                     )}

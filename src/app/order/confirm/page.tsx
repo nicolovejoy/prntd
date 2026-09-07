@@ -17,7 +17,45 @@ type Search = Promise<Record<string, string | string[] | undefined>>;
 export default async function ConfirmPage({ searchParams }: { searchParams: Search }) {
   const raw = (await searchParams).session_id;
   const sessionId = typeof raw === "string" && raw ? raw : null;
-  const order = sessionId ? await getOrderBySession(sessionId) : null;
+
+  let order = null;
+  let loadFailed = false;
+  if (sessionId) {
+    try {
+      order = await getOrderBySession(sessionId);
+    } catch (err) {
+      loadFailed = true;
+      console.error(
+        "getOrderBySession failed:",
+        err instanceof Error ? err.message : String(err)
+      );
+    }
+  }
+
+  if (loadFailed) {
+    return (
+      <div className="min-h-screen flex flex-col px-4">
+        <Breadcrumbs
+          trail={breadcrumbTrail("/order/confirm")}
+          current="Confirmed"
+          className="py-4"
+        />
+        <div className="flex-1 flex flex-col items-center justify-center">
+          <div className="max-w-md w-full space-y-6 text-center">
+            <h1 className="font-mono text-[13px] leading-5 tracking-[0.08em] uppercase">
+              Order confirmed.
+            </h1>
+            <p className="text-text-muted">
+              The receipt couldn&apos;t be loaded. Your order is listed in My Orders.
+            </p>
+            <Link href="/orders">
+              <Button className="w-full">View My Orders</Button>
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!order) {
     return (
@@ -26,7 +64,7 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Sear
           <p className="text-text-muted">Order not found.</p>
           <Link
             href="/design"
-            className="mt-4 inline-block text-sm underline underline-offset-[3px]"
+            className="mt-4 min-h-11 inline-flex items-center justify-center text-sm underline underline-offset-[3px]"
           >
             Start a new design
           </Link>

@@ -131,4 +131,29 @@ describe("ConfirmPage", () => {
     const link = screen.getByRole("link", { name: "Start a new design" });
     expect(link).toHaveAttribute("href", "/design");
   });
+
+  it("does not call getOrderBySession and shows Order not found. when session_id is an array", async () => {
+    await renderConfirm({ session_id: ["a", "b"] });
+
+    expect(getOrderBySession).not.toHaveBeenCalled();
+    expect(screen.getByText("Order not found.")).toBeInTheDocument();
+  });
+
+  it("shows a receipt-unavailable state, not Order not found., when the loader rejects", async () => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    getOrderBySession.mockRejectedValue(new Error("turso blip"));
+
+    await renderConfirm({ session_id: "cs_1" });
+
+    expect(screen.getByText("Order confirmed.")).toBeInTheDocument();
+    expect(
+      screen.getByText("The receipt couldn't be loaded. Your order is listed in My Orders.")
+    ).toBeInTheDocument();
+    const link = screen.getByRole("link", { name: "View My Orders" });
+    expect(link).toHaveAttribute("href", "/orders");
+    expect(screen.queryByText("Order not found.")).not.toBeInTheDocument();
+    expect(consoleErrorSpy).toHaveBeenCalled();
+
+    consoleErrorSpy.mockRestore();
+  });
 });
