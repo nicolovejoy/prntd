@@ -340,7 +340,7 @@ export function BuyPanel({
 
       {backEnabled && (
         <div>
-          <p className={`${MONO_LABEL} mb-2`}>Back</p>
+          <p className={`${MONO_LABEL} mb-2`}>Back design</p>
           {back ? (
             <div className="flex items-center gap-3">
               {/* eslint-disable-next-line @next/next/no-img-element */}

@@ -9,6 +9,15 @@ vi.mock("@/app/design/actions", () => ({
   setPrimaryImage: vi.fn(async () => {}),
 }));
 
+// identity-block.tsx (real module) re-exports MONO_LABEL alongside
+// IdentityBlock, which imports editable-naming.tsx -> "@/app/designs/actions"
+// (a real "use server" module) -> "@/lib/auth" -> better-auth's tracer,
+// which needs an unresolvable "@opentelemetry/api" under vitest (the same
+// trap owner-actions.test.tsx, identity-block.test.tsx and
+// buy-panel.test.tsx route around). ConversationImages only consumes the
+// string constant, so stub the module to just that.
+vi.mock("../identity-block", () => ({ MONO_LABEL: "mono-label" }));
+
 import { setPrimaryImage } from "@/app/design/actions";
 
 // A is primary, B is the page's own image, C is a later variant.
@@ -258,5 +267,29 @@ describe("ConversationImages top-level Use this one", () => {
     // A failure attempted on #3 must not linger and read as the page's
     // own image's (#2, "img-b") error once the lightbox is gone.
     expect(screen.queryByTestId("inline-notice")).toBeNull();
+  });
+});
+
+describe("ConversationImages strip captions", () => {
+  it("captions each strip cell with its position in the conversation", () => {
+    render(
+      <ConversationImages
+        designId="design-1"
+        currentImageId="img-2"
+        // Preflight ruling P3: SiblingImage (src/app/d/actions.ts:248) is
+        // { imageId, imageUrl, isPrimary } — all three are required.
+        images={[
+          { imageId: "img-1", imageUrl: "https://img.example/1.png", isPrimary: true },
+          { imageId: "img-2", imageUrl: "https://img.example/2.png", isPrimary: false },
+          { imageId: "img-3", imageUrl: "https://img.example/3.png", isPrimary: false },
+        ]}
+        initialPrimaryImageId="img-1"
+      />
+    );
+    // #N is the position in the full seed-inclusive list — the same numbering
+    // the /design thread uses — so the current image's own number is skipped.
+    expect(screen.getByText("#1")).toBeInTheDocument();
+    expect(screen.getByText("#3")).toBeInTheDocument();
+    expect(screen.queryByText("#2")).not.toBeInTheDocument();
   });
 });

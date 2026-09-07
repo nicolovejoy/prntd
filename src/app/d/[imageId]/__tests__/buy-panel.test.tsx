@@ -372,7 +372,7 @@ describe("BuyPanel Paper pass (#188)", () => {
     render(<BuyPanel imageId="img-1" isLoggedIn backEnabled />);
     expand();
     expect(screen.getByText("Product")).toBeInTheDocument();
-    expect(screen.getByText("Back")).toBeInTheDocument();
+    expect(screen.getByText("Back design")).toBeInTheDocument();
     expect(screen.getByText("Price")).toBeInTheDocument();
   });
 });
