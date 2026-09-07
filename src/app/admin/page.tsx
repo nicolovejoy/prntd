@@ -326,7 +326,7 @@ export default function AdminPage() {
                     <td className="py-3 pr-4 text-xs">
                       <Link
                         href={`/admin/orders/${order.id}`}
-                        className="text-blue-400 hover:underline"
+                        className="text-foreground underline hover:text-text-muted"
                       >
                         {order.displayName ?? <span className="font-mono">{order.id.slice(0, 8)}</span>}
                       </Link>
@@ -484,7 +484,7 @@ export default function AdminPage() {
                           href={order.trackingUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-blue-400 underline"
+                          className="text-foreground underline hover:text-text-muted"
                         >
                           Track
                         </a>

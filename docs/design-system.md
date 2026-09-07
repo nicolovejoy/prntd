@@ -183,7 +183,7 @@ mockups do the persuading. Least voice, safest, most conventional.
   style), more whitespace, `/shop` grid gets stronger catalog emphasis
   (bigger cards, less metadata).
 - Badge palette collapses hardest here (neutral + one status color pair).
-- No decorative elements of any kind; checkerboard stays (it's functional).
+- No decorative elements of any kind; the paper well stays (it's functional).
 
 **Implications**
 
@@ -276,8 +276,8 @@ differ.
 - **Mockup** — a generation placed on a physical product (Printful render).
 - **Product version** — a generation re-rendered for a specific product's
   print area (placement render).
-- **Backdrop** — the shirt-palette color a Print is displayed on; checkerboard
-  when unset.
+- **Backdrop** — the shirt-palette color a Print is displayed on; the paper
+  well when unset.
 - **Swatch** — a selectable product color circle.
 
 **Places**
@@ -391,7 +391,7 @@ muted     (#4b4946) on ground            →  8.25:1   (passes AA normal text)
 faint     (#6f6d6a) on ground            →  4.74:1   (passes AA normal text)
 rose      (#a83250) on ground (#f8f5ef)  →  5.96:1   (passes AA normal text)
 rose      (#a83250) on white (#ffffff)   →  6.49:1   (passes AA normal text)
-white     (#ffffff) on rose fill         →  6.49:1   (solid Generate button)
+ground    (#f8f5ef) on rose fill (#a83250) → 5.96:1  (solid Generate button — the button is bg-accent-rose text-background, not white text)
 positive  (#166534) on ground            →  6.55:1
 negative  (#b91c1c) on ground            →  5.95:1
 ```
@@ -463,10 +463,13 @@ Remaining:
    canceled = negative, everything else neutral; no `--attention` — pending
    states are neutral under C). Raw `green-400`/`red-400` classes swept onto
    the tokens (admin money coloring, error lines, danger button hover).
-2. **Dark-only is implicit, not declared** — light-mode Tailwind classes
-   break on the dark background when they sneak in. Declare dark-only as a
-   principle (it's the brand under all three personas) or do real theming.
-   No halfway. Persona-independent; decide once.
+2. ~~**Dark-only is implicit, not declared**~~ — RESOLVED 2026-09-06 under
+   Paper: the app is light-only by tokens now (`docs/ux-design-review-2026-09.md`,
+   variant PaperB "quieter"), and there is no `prefers-color-scheme` branch
+   to declare or theme around — the halfway state this gap warned about is
+   gone because there's only one mode. The dark-literal sweep (`bg-gray-900`,
+   `bg-black/*`, `text-white`, `shadow-*`) that made the old dark-only brand
+   implicit is complete (#188 slice 1) — zero matches outside tests.
 3. **Two empty-state implementations** in the Studio (hero composer + an
    older in-thread variant in `chat-panel.tsx`) — the second is near-dead
    code. Persona-independent cleanup, but the surviving copy is persona-
@@ -474,7 +477,16 @@ Remaining:
 4. **"Selected image" is load-bearing but nearly invisible** — a 2px border
    decides what Make Products ships to /preview. Persona-independent problem;
    B's ink accent gives it a free fix, A/C need a heavier white treatment
-   (thicker ring + dimmed siblings).
+   (thicker ring + dimmed siblings). **Incident, 2026-09-06:** the Paper
+   slice-1 rollout's `.bg-checkerboard` alias briefly made this worse than
+   "nearly invisible" — it set an unlayered `border` that overrode the 2px
+   `border-accent` selection indicator outright on five thumbnails/swatches
+   (preview back-picker, /d back-picker, conversation-images aria-current,
+   design-stage strip, studio isPrimary), so the selected state rendered no
+   differently from an unselected one. Caught in the slice-1 whole-branch
+   review, fixed (the alias no longer sets a border), and guarded by a test
+   asserting the rule stays border-free. This gap itself — the 2px border
+   being weak even when it renders — is unchanged and still open.
 5. **Three composer actions at equal weight** — violates one-primary. The
    structural fix (what Send / Draw it / Compare collapse into) is persona-
    independent; the labels are persona-dependent (A keeps "Draw it", B

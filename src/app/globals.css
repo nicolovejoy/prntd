@@ -66,9 +66,18 @@ body {
 }
 
 /* Transparency/media well. Was a checkerboard; on paper that's noise, so
-   this is now a plain bordered well — the class name stays so existing call
-   sites keep compiling (component-level cleanup is a later task). */
+   this is now a plain paper well — the class name stays so existing call
+   sites keep compiling (component-level cleanup is a later task).
+   Deliberately NO border here: globals.css is authored after
+   `@import "tailwindcss"`, so this rule lives in an unlayered position and
+   per the CSS cascade-layers spec beats any `@layer utilities` declaration
+   regardless of specificity — a `border: 1px solid …` here silently ate
+   every `border-2 border-accent` selection indicator applied alongside this
+   class (five call sites: preview back-picker, /d back-picker,
+   conversation-images aria-current, design-stage strip, studio isPrimary).
+   Call sites that want an edge on a plain well (no selection state) add
+   `border border-border` themselves. See the guard test in
+   src/app/__tests__/globals-css.test.ts — do not re-add a border here. */
 .bg-checkerboard {
   background-color: var(--surface-well);
-  border: 1px solid var(--border);
 }

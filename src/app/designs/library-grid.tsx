@@ -214,7 +214,7 @@ function LibraryCell({
   onToggle: (imageId: string) => void;
 }) {
   // Published images sit on their chosen storefront backdrop (null → White,
-  // #73); unpublished work keeps the checkerboard working view.
+  // #73); unpublished work keeps the paper well working view.
   const backdrop = img.isPublished
     ? publishedBackdrop(img.backgroundColor)
     : { className: "bg-checkerboard", style: undefined };

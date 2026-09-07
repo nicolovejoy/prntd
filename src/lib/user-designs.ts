@@ -105,7 +105,7 @@ export async function getUserImageLibrary(
  * surface, and the column goes with the composition plan's slice 4).
  *
  * Best-effort: if this query fails the grid renders the artwork on the
- * checkerboard rather than not rendering at all.
+ * paper well rather than not rendering at all.
  */
 async function loadBackdrops(
   imageIds: string[]

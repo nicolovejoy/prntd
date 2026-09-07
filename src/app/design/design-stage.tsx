@@ -71,7 +71,7 @@ export function DesignStage({
               src={hero.url}
               alt={`Design #${hero.number}`}
               decoding="async"
-              className="max-h-full max-w-full object-contain rounded-lg bg-checkerboard"
+              className="max-h-full max-w-full object-contain rounded-lg bg-checkerboard border border-border"
             />
           </button>
         ) : (

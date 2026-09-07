@@ -132,7 +132,7 @@ export default function CartPage() {
                   data-testid="cart-line-item"
                   className="flex items-center gap-4 py-4"
                 >
-                  <div className="w-16 h-16 shrink-0 rounded-md bg-checkerboard overflow-hidden">
+                  <div className="w-16 h-16 shrink-0 rounded-md bg-checkerboard border border-border overflow-hidden">
                     {item.imageUrl && (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
