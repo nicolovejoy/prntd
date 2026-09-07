@@ -46,6 +46,14 @@ export type PublishedImage = {
   description: string | null;
   /** Pinned storefront backdrop (a BACKGROUND_PALETTE color name); legacy null displays as White (#73). */
   backgroundColor: string | null;
+  /**
+   * The garment a composition fixes; absent or null means the buyer picks one
+   * (every Shop mirror row today). Optional because ImagePage derives from
+   * this type and the image detail page has a real per-size buy panel — it has
+   * no card price line to render, so getImagePage does not supply it. To
+   * cardPriceLine, undefined and null mean the same thing.
+   */
+  blankId?: string | null;
   designerName: string;
   designerId: string;
   /** True when the feed viewer is this design's owner — render "by you". */
@@ -108,6 +116,7 @@ export async function getDiscoverFeed(limit = 60): Promise<PublishedImage[]> {
     title: r.title,
     description: r.description,
     backgroundColor: r.backgroundColor,
+    blankId: r.blankId,
     designerName: r.designerName,
     designerId: r.designerId,
     isOwn: viewerId !== null && r.designerId === viewerId,
