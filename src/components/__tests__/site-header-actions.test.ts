@@ -32,6 +32,28 @@ vi.mock("@/lib/generation-job", () => ({
     countActiveGenerationsForUser(...args),
 }));
 
+/**
+ * `after()` is scheduled, not awaited (#210): the sweep must not be on the
+ * response path. Same mocking shape as the Studio's after()-sweep tests
+ * (src/app/studio/__tests__/studio-archive.integration.test.ts) — queue the
+ * callbacks so a test can assert both that nothing ran during the request
+ * and what happens when the runtime later drains them.
+ */
+const afterQueue = vi.hoisted(() => ({ callbacks: [] as (() => unknown)[] }));
+
+vi.mock("next/server", () => ({
+  after: (cb: () => unknown) => {
+    afterQueue.callbacks.push(cb);
+  },
+}));
+
+/** Run every queued `after()` continuation, in registration order. */
+async function drainAfter() {
+  while (afterQueue.callbacks.length) {
+    await afterQueue.callbacks.shift()!();
+  }
+}
+
 const { getHeaderState } = await import("@/components/site-header-actions");
 
 beforeEach(() => {
@@ -40,6 +62,7 @@ beforeEach(() => {
   getCartCount.mockReset().mockResolvedValue(0);
   sweepStaleJobs.mockReset().mockResolvedValue({ swept: 0 });
   countActiveGenerationsForUser.mockReset().mockResolvedValue(0);
+  afterQueue.callbacks.length = 0;
 });
 
 describe("getHeaderState — runningJobs", () => {
@@ -51,6 +74,7 @@ describe("getHeaderState — runningJobs", () => {
     expect(state.runningJobs).toBe(0);
     expect(sweepStaleJobs).not.toHaveBeenCalled();
     expect(countActiveGenerationsForUser).not.toHaveBeenCalled();
+    expect(afterQueue.callbacks).toHaveLength(0);
   });
 
   it("is 0 for an anonymous guest-funnel user, without querying the job table", async () => {
@@ -61,27 +85,74 @@ describe("getHeaderState — runningJobs", () => {
     expect(state.runningJobs).toBe(0);
     expect(sweepStaleJobs).not.toHaveBeenCalled();
     expect(countActiveGenerationsForUser).not.toHaveBeenCalled();
+    expect(afterQueue.callbacks).toHaveLength(0);
   });
 
-  it("sweeps this user's stale jobs, scoped to the user, then counts", async () => {
+  it("counts without waiting on the sweep, and schedules the sweep with after()", async () => {
     getSession.mockResolvedValue({ user: { id: "real-user", isAnonymous: false } });
     countActiveGenerationsForUser.mockResolvedValue(2);
 
     const state = await getHeaderState(false);
 
+    // The badge read is inline and unchanged.
     expect(state.runningJobs).toBe(2);
-    expect(sweepStaleJobs).toHaveBeenCalledWith({ scope: "user", userId: "real-user" });
     expect(countActiveGenerationsForUser).toHaveBeenCalledWith("real-user");
+    // #210: the write-shaped sweep is off the response path entirely — it has
+    // not run by the time the header state is back.
+    expect(sweepStaleJobs).not.toHaveBeenCalled();
+    expect(afterQueue.callbacks).toHaveLength(1);
+
+    await drainAfter();
+
+    expect(sweepStaleJobs).toHaveBeenCalledWith({ scope: "user", userId: "real-user" });
   });
 
   it("never uses scope 'all' — that is the cron's alone", async () => {
     getSession.mockResolvedValue({ user: { id: "real-user", isAnonymous: false } });
 
     await getHeaderState(false);
+    await drainAfter();
 
+    expect(sweepStaleJobs).toHaveBeenCalled();
     for (const call of sweepStaleJobs.mock.calls) {
       expect(call[0].scope).not.toBe("all");
     }
+  });
+
+  it("a rejecting sweep cannot fail getHeaderState, and cannot reject on drain", async () => {
+    getSession.mockResolvedValue({ user: { id: "real-user", isAnonymous: false } });
+    countActiveGenerationsForUser.mockResolvedValue(1);
+    sweepStaleJobs.mockRejectedValue(new Error("turso is having a day"));
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    // The request itself is untouched by a sweep that will fail later.
+    await expect(getHeaderState(false)).resolves.toEqual({
+      isAdmin: false,
+      cartCount: 0,
+      runningJobs: 1,
+    });
+
+    // And when the runtime drains it, nothing escapes: an unhandled rejection
+    // here would run on the shared Fluid instance, not in this request.
+    await expect(drainAfter()).resolves.toBeUndefined();
+    expect(logged).toHaveBeenCalledWith(
+      expect.stringContaining("sweepStaleJobs"),
+      "turso is having a day"
+    );
+
+    logged.mockRestore();
+  });
+
+  it("a sweep that never settles cannot hold up the header state", async () => {
+    getSession.mockResolvedValue({ user: { id: "real-user", isAnonymous: false } });
+    countActiveGenerationsForUser.mockResolvedValue(3);
+    // A promise nothing ever resolves. If the sweep were still awaited on the
+    // response path, this test would hang instead of failing.
+    sweepStaleJobs.mockImplementation(() => new Promise(() => {}));
+
+    const state = await getHeaderState(false);
+
+    expect(state.runningJobs).toBe(3);
   });
 });
 
@@ -95,7 +166,7 @@ function deferred<T>() {
 }
 
 describe("getHeaderState — one round trip", () => {
-  it("invokes admin/cart/jobs before awaiting any of them (Promise.all, not sequential awaits)", async () => {
+  it("invokes admin/cart/count before awaiting any of them (Promise.all, not sequential awaits)", async () => {
     // A timing threshold (elapsed < Nms) is a proxy for concurrency, not an
     // assertion of it — it can pass by luck on a fast CI box even against a
     // sequential implementation with small enough delays, and it can flake
@@ -110,7 +181,6 @@ describe("getHeaderState — one round trip", () => {
     const events: string[] = [];
     const admin = deferred<boolean>();
     const cart = deferred<number>();
-    const sweep = deferred<{ swept: number }>();
     const count = deferred<number>();
 
     getSession.mockResolvedValue({ user: { id: "real-user", isAnonymous: false } });
@@ -128,13 +198,6 @@ describe("getHeaderState — one round trip", () => {
         return v;
       });
     });
-    sweepStaleJobs.mockImplementation(() => {
-      events.push("sweep:start");
-      return sweep.promise.then((v) => {
-        events.push("sweep:end");
-        return v;
-      });
-    });
     countActiveGenerationsForUser.mockImplementation(() => {
       events.push("count:start");
       return count.promise.then((v) => {
@@ -143,6 +206,9 @@ describe("getHeaderState — one round trip", () => {
       });
     });
 
+    // #210: the sweep is scheduled via after(), so it is deliberately absent
+    // from this choreography — the only three things on the response path are
+    // isAdminUser, getCartCount, and the running-jobs count.
     const statePromise = getHeaderState(true);
 
     // Let pending microtasks drain (the running-jobs branch does a real
@@ -153,16 +219,12 @@ describe("getHeaderState — one round trip", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(events).toEqual(
-      expect.arrayContaining(["admin:start", "cart:start", "sweep:start"])
-    );
+    expect(events).toEqual(expect.arrayContaining(["admin:start", "cart:start"]));
     expect(events).not.toContain("admin:end");
     expect(events).not.toContain("cart:end");
-    expect(events).not.toContain("sweep:end");
 
     admin.resolve(true);
     cart.resolve(3);
-    sweep.resolve({ swept: 0 });
     await Promise.resolve();
     await Promise.resolve();
     count.resolve(1);
