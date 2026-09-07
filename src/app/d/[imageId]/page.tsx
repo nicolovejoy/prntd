@@ -14,11 +14,10 @@ import { breadcrumbTrail } from "@/lib/nav";
 import { Button } from "@/components/ui";
 import { IdentityBlock } from "./identity-block";
 import { PublishedImageView } from "./published-image-view";
-import { PublishCta } from "./publish-cta";
 import { BuyHero } from "./buy-hero";
 import { StartFromImage } from "./start-from-image";
 import { ConversationImages } from "./conversation-images";
-import { ConversationActions } from "./conversation-actions";
+import { OwnerActions } from "./owner-actions";
 
 type Params = Promise<{ imageId: string }>;
 type Search = Promise<{ from?: string }>;
@@ -98,30 +97,6 @@ export default async function PublishedImagePage({
     />
   );
 
-  // TEMPORARY (Paper slice 5, Task 1 → Task 2): the owner's actions still
-  // render exactly as they did, so no commit on this branch drops them. Task 2
-  // replaces this whole fragment with <OwnerActions />.
-  const ownerLinks = isOwner && (
-    <div className="space-y-1">
-      {!isPublished && (
-        <div className="flex flex-wrap items-center gap-3 pt-1">
-          <span className="text-sm text-text-faint">Not published</span>
-          <PublishCta
-            imageId={img.imageId}
-            imageUrl={img.imageUrl}
-            canPublish={isLoggedIn}
-          />
-        </div>
-      )}
-      {img.sourceDesignId && img.hasSourceConversation && (
-        <ConversationActions
-          designId={img.sourceDesignId}
-          archived={img.sourceConversationArchived}
-        />
-      )}
-    </div>
-  );
-
   return (
     <div className="min-h-screen flex flex-col">
       <main className="flex-1 px-4 py-6 pb-28 md:py-8 md:pb-8">
@@ -177,7 +152,23 @@ export default async function PublishedImagePage({
                 <StartFromImage imageId={img.imageId} />
               </div>
 
-              {ownerLinks}
+              {isOwner && (
+                <OwnerActions
+                  imageId={img.imageId}
+                  imageUrl={img.imageUrl}
+                  isPublished={isPublished}
+                  canPublish={isLoggedIn}
+                  // The conversation may be gone even when the image names one —
+                  // an image pinned by an order or a seed survives its thread's
+                  // delete — so the row is gated on the design row resolving.
+                  sourceDesignId={
+                    img.sourceDesignId && img.hasSourceConversation
+                      ? img.sourceDesignId
+                      : null
+                  }
+                  conversationArchived={img.sourceConversationArchived}
+                />
+              )}
             </>
           ) : (
             <>
@@ -204,7 +195,23 @@ export default async function PublishedImagePage({
                 {identityBlock}
               </BuyHero>
 
-              {ownerLinks}
+              {isOwner && (
+                <OwnerActions
+                  imageId={img.imageId}
+                  imageUrl={img.imageUrl}
+                  isPublished={isPublished}
+                  canPublish={isLoggedIn}
+                  // The conversation may be gone even when the image names one —
+                  // an image pinned by an order or a seed survives its thread's
+                  // delete — so the row is gated on the design row resolving.
+                  sourceDesignId={
+                    img.sourceDesignId && img.hasSourceConversation
+                      ? img.sourceDesignId
+                      : null
+                  }
+                  conversationArchived={img.sourceConversationArchived}
+                />
+              )}
             </>
           )}
 

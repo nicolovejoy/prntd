@@ -20,26 +20,24 @@ export function EditableNaming({ imageId, title, canEdit }: Props) {
 
   if (!editing) {
     return (
-      <>
-        {(title || canEdit) && (
-          <div className="flex items-baseline gap-3">
-            {/* 14px/500 ink: the title is a value inside the identity block
-                now, not a page-scale headline (Paper slice 5, #188). It stays
-                the page's h1. */}
-            <h1 className="text-sm font-medium text-foreground">
-              {title ?? "Untitled"}
-            </h1>
-            {canEdit && (
-              <button
-                onClick={() => setEditing(true)}
-                className="min-h-11 text-xs text-text-muted underline underline-offset-[3px] hover:no-underline sm:min-h-0"
-              >
-                Edit
-              </button>
-            )}
-          </div>
+      <div className="flex items-baseline gap-3">
+        {/* 14px/500 ink: the title is a value inside the identity block
+            now, not a page-scale headline (Paper slice 5, #188). It stays
+            the page's h1. Rendered unconditionally — an owner viewing an
+            unpublished, untitled image (canEdit false there) still gets a
+            labelled TITLE row, falling back to "Untitled". */}
+        <h1 className="text-sm font-medium text-foreground">
+          {title ?? "Untitled"}
+        </h1>
+        {canEdit && (
+          <button
+            onClick={() => setEditing(true)}
+            className="min-h-11 text-xs text-text-muted underline underline-offset-[3px] hover:no-underline sm:min-h-0"
+          >
+            Edit
+          </button>
         )}
-      </>
+      </div>
     );
   }
 
