@@ -299,6 +299,32 @@ describe("ImageLightbox actions row", () => {
     );
   });
 
+  it("signInHref without onPublish: a Sign in to publish link, no Publish button", () => {
+    renderLightbox({ onDelete: vi.fn(), signInHref: "/sign-in?next=/design%3Fid%3Dabc" });
+    expect(screen.queryByRole("button", { name: "Publish" })).toBeNull();
+    const link = screen.getByRole("link", { name: "Sign in to publish" });
+    expect(link).toHaveAttribute("href", "/sign-in?next=/design%3Fid%3Dabc");
+  });
+
+  it("onPublish takes precedence over signInHref when both are given", () => {
+    renderLightbox({ ...fullCallbacks(), signInHref: "/sign-in?next=/design" });
+    expect(screen.getByRole("button", { name: "Publish" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Sign in to publish" })).toBeNull();
+  });
+
+  it("a seed image with signInHref: no Sign in to publish link either", () => {
+    const seed: LightboxImage[] = [{ ...images[1], role: "seed" }];
+    renderLightbox({
+      onDelete: vi.fn(),
+      images: seed,
+      currentIndex: 0,
+      signInHref: "/sign-in?next=/design",
+    });
+    expect(
+      screen.queryByRole("link", { name: "Sign in to publish" })
+    ).toBeNull();
+  });
+
   it("a seed image: labelled Remove, stays enabled, no Publish", () => {
     const seed: LightboxImage[] = [
       { ...images[1], role: "seed", publishedAt: new Date() },

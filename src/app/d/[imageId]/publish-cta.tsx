@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui";
 import { PublishModal } from "@/components/publish-modal";
 
@@ -9,15 +10,35 @@ import { PublishModal } from "@/components/publish-modal";
  * (#136 slice 1). The page now serves private work, so publish state has to
  * be stated and actionable here — the modal is the same one My Designs and
  * the design thread open.
+ *
+ * `canPublish` comes from the server page's own session read (a guest-funnel
+ * anonymous session is a real Better-Auth user row and would otherwise pass
+ * an owner check here — publishImage rejects it server-side too, but the
+ * button shouldn't invite the click). When false, the modal never opens;
+ * a sign-in link explains why instead.
  */
 export function PublishCta({
   imageId,
   imageUrl,
+  canPublish,
 }: {
   imageId: string;
   imageUrl: string;
+  canPublish: boolean;
 }) {
   const [open, setOpen] = useState(false);
+
+  if (!canPublish) {
+    return (
+      <Link
+        href={`/sign-in?next=${encodeURIComponent(`/d/${imageId}`)}`}
+        className="text-sm underline text-text-muted hover:text-foreground"
+      >
+        Sign in to publish
+      </Link>
+    );
+  }
+
   return (
     <>
       <Button variant="secondary" size="sm" onClick={() => setOpen(true)}>

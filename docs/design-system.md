@@ -166,16 +166,21 @@ mockups do the persuading. Least voice, safest, most conventional.
 
 **Copy samples**
 
-1. Hero: **"Design a shirt by describing it."** / "Free to design. Printed
-   and shipped from $19.43."
+1. Hero: **"PRiNT your brAIn"** / "Type it — See it — Wear it"
 2. Placeholder: "Describe a design"
-3. Chips: "Minimalist mountain landscape" · "Retro sunset, palm silhouettes"
-   · "Geometric wolf head"
+3. Chips: drawn at random from the 300-prompt library in
+   `src/lib/design-examples.ts`, not a fixed set of strings.
 4. Generating: "Generating…"
 5. Empty `/designs`: "No designs yet." + [New design]
 6. Order CTA: "Order — $19.43"
 7. Confirmation opening: "Order confirmed."
 8. Error: "Generation failed. You were not charged."
+
+**Note on the hero copy:** "PRiNT your brAIn" / "Type it — See it — Wear it"
+breaks voice principles 1 and 4 above — it is playful, and it is not
+sentence case. That is a deliberate owner override of persona C for this one
+surface (the hero), not a drift the sweep missed. A future copy sweep back to
+persona C should leave the hero headline and subline as they are.
 
 **Visual deltas from ink/paper base**
 
