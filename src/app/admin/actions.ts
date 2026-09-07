@@ -442,9 +442,10 @@ export async function setImageHidden(imageId: string, hidden: boolean) {
     }),
   ]);
 
-  // Discover feed on / and the public /d/[imageId] page both filter
+  // Discover feed on /, /shop, and the public /d/[imageId] page all filter
   // by isHidden — bust their caches so the change is visible.
   revalidatePath("/");
+  revalidatePath("/shop");
   revalidatePath(`/d/${imageId}`);
   revalidatePath("/admin/published");
 }

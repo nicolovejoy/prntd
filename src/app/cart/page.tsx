@@ -116,7 +116,7 @@ export default function CartPage() {
           <EmptyState
             message="Your cart is empty."
             action={
-              <Link href="/design">
+              <Link href="/studio">
                 <Button size="lg">Start a design</Button>
               </Link>
             }
@@ -194,7 +194,7 @@ export default function CartPage() {
                 variant="secondary"
                 size="lg"
                 className="w-full"
-                onClick={() => router.push("/design")}
+                onClick={() => router.push("/studio")}
               >
                 Add another design
               </Button>

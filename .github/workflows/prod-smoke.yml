@@ -70,7 +70,7 @@ jobs:
 
       # Markers are structural, not marketing copy (copy sweeps rewrite copy):
       #   /            maker-hero testid — the app rendered at all
-      #   /prints      published-grid testid — only present when the
+      #   /shop        published-grid testid — only present when the
       #                server-side feed query returned rows, so it fails on
       #                broken DATABASE_URL/DATABASE_AUTH_TOKEN (and on an
       #                unexpectedly empty Shop, which is also worth knowing)
@@ -96,7 +96,7 @@ jobs:
           }
 
           probe "/" 'data-testid="maker-hero"'
-          probe "/prints" 'data-testid="published-grid"'
+          probe "/shop" 'data-testid="published-grid"'
           probe "/robots.txt" "GPTBot"
           probe "/api/auth/get-session"
 

@@ -173,7 +173,7 @@ export async function deleteImages(
     }
   }
 
-  revalidatePath("/designs");
+  revalidatePath("/studio/library");
   if (publishedRemoved) {
     revalidatePath("/");
     revalidatePath("/shop");

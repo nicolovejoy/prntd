@@ -29,7 +29,7 @@ export default function SignUpPage() {
       return;
     }
 
-    router.push("/designs");
+    router.push("/studio");
   }
 
   return (

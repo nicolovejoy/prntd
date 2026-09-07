@@ -56,8 +56,8 @@ export async function openConversation(designId: string): Promise<void> {
   }
 
   // A reopened lane belongs back on the bench, off the archive list, and the
-  // library's Archived marker is now wrong.
+  // Library's Archived marker is now wrong.
   revalidatePath("/studio");
   revalidatePath("/studio/archive");
-  revalidatePath("/designs");
+  revalidatePath("/studio/library");
 }

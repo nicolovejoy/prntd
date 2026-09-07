@@ -23,7 +23,7 @@ test("a guest on /design gets an anonymous session", async ({ page }) => {
 test("personal routes still redirect signed-out visitors to sign-in", async ({
   page,
 }) => {
-  await page.goto("/designs");
+  await page.goto("/studio/library");
   await expect(page).toHaveURL(/sign-in/);
   await page.goto("/orders");
   await expect(page).toHaveURL(/sign-in/);
