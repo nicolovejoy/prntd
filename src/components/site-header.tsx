@@ -158,11 +158,14 @@ export function SiteHeader({
           ))}
 
           {/* Cart never moves into the menu: it is the funnel, and a count
-              behind a tap is a count nobody sees. */}
+              behind a tap is a count nobody sees. min-h-11 gives it a real
+              44px tap target on phones, where the bar is now the only place
+              Cart appears at all — relaxed back to an inline row at sm:,
+              where the target-size rule doesn't bind the same way. */}
           {showCart && (
             <Link
               href="/cart"
-              className="text-sm text-text-muted hover:text-foreground transition-colors"
+              className="flex items-center min-h-11 sm:min-h-0 text-sm text-text-muted hover:text-foreground transition-colors"
             >
               {cartLabel}
             </Link>
@@ -177,12 +180,16 @@ export function SiteHeader({
             </Link>
           )}
 
+          {/* min-h-11/min-w-11 give the hamburger a real 44px tap target on
+              phones, where this button is now the only way to reach Orders,
+              Feedback and Sign out — relaxed at sm:, where the box shrinks
+              to fit the "Account" text instead. */}
           <button
             ref={menuButtonRef}
             onClick={() => setMenuOpen((o) => !o)}
             aria-label="Account menu"
             aria-expanded={menuOpen}
-            className="flex items-center p-2 -mr-2 sm:mr-0 sm:p-0"
+            className="flex items-center justify-center min-h-11 min-w-11 -mr-2 sm:mr-0 sm:min-h-0 sm:min-w-0"
           >
             <span className="hidden sm:inline text-sm text-text-muted hover:text-foreground transition-colors">
               Account
@@ -254,6 +261,8 @@ export function SiteHeader({
               Sign out
             </button>
           ) : (
+            // sm:hidden: the bar already carries its own "Sign in" link from
+            // sm: up, so a query for that label must scope to one container.
             <Link
               href="/sign-in"
               onClick={() => setMenuOpen(false)}

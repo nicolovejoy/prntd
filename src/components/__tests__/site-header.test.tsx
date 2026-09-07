@@ -183,3 +183,31 @@ describe("running-jobs badge", () => {
     expect(badge.getAttribute("href")).toBe("/studio");
   });
 });
+
+describe("SiteHeader phone tap targets (44px rule)", () => {
+  // jsdom does not run a layout engine or resolve Tailwind's CSS, so this
+  // cannot verify the actual rendered pixel size of either control — only
+  // that the utility classes that produce a 44px box (min-h-11 / min-w-11)
+  // are present on the elements the project's 44px rule binds on phones.
+  // That is a real, meaningfully-failable regression guard (it fails if a
+  // future edit drops the classes), but it is not proof of the rendered
+  // size; there is no stronger assertion available under this harness.
+  it("gives the bar's Cart link a 44px-tall class on phones", async () => {
+    h.session = { user: { id: "u1" } };
+    h.headerState = { isAdmin: false, cartCount: 1, runningJobs: 0 };
+    render(<SiteHeader cartEnabled />);
+    await settle();
+
+    const cart = within(bar()).getByRole("link", { name: "Cart (1)" });
+    expect(cart.className).toContain("min-h-11");
+  });
+
+  it("gives the account-menu trigger a 44px-square class on phones", async () => {
+    render(<SiteHeader cartEnabled={false} />);
+    await settle();
+
+    const trigger = screen.getByRole("button", { name: "Account menu" });
+    expect(trigger.className).toContain("min-h-11");
+    expect(trigger.className).toContain("min-w-11");
+  });
+});
