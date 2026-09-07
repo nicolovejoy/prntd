@@ -6,7 +6,7 @@ import type { ChatMessage } from "@/lib/db/schema";
 import type { ChatOption } from "@/lib/ai";
 import type { DesignImage } from "@/lib/design-images";
 import { Button, Input, QuickReply } from "@/components/ui";
-import { EXAMPLES } from "@/lib/design-examples";
+import { useExamplePrompts } from "@/components/use-example-prompts";
 import { isGenerateIntent } from "@/lib/design-prompt";
 import { shouldClampMessage } from "@/lib/design-view";
 
@@ -100,6 +100,7 @@ export function ChatPanel({
   );
   const [input, setInput] = useState("");
   const [dragging, setDragging] = useState(false);
+  const examples = useExamplePrompts(3);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -221,7 +222,7 @@ export function ChatPanel({
         </form>
         {/* Chips always visible, catalog-style (no reveal delay). */}
         <div className="mt-6 flex flex-wrap justify-center gap-2">
-          {EXAMPLES.slice(0, 3).map((example) => (
+          {examples.map((example) => (
             <button
               key={example}
               type="button"
@@ -271,7 +272,7 @@ export function ChatPanel({
           <div className="text-center text-text-muted mt-20 space-y-4">
             <p className="text-lg">Describe a design</p>
             <div className="flex flex-wrap justify-center gap-2 mt-4">
-              {EXAMPLES.map((example) => (
+              {examples.map((example) => (
                 <button
                   key={example}
                   onClick={() => setInput(example)}

@@ -6,14 +6,14 @@
  *
  * Anchored on structure, not marketing copy. The hero renders, the composer
  * and chips are there. The pricing section carries the real minRetailPrice()
- * ("Tees from $19.43"). Chip text is imported from the module the page
- * renders, so it tracks edits rather than drifting.
+ * ("Tees from $19.43"). Chips are drawn randomly from a 300-prompt library
+ * (`pickExamplePrompts`), so the exact text isn't predictable — assertions
+ * check the hero renders exactly 3 chips and each is a real library member,
+ * not a specific string.
  */
 import { test, expect, type Locator } from "@playwright/test";
 import { EXAMPLES } from "../src/lib/design-examples";
 import { minRetailPrice } from "../src/lib/pricing";
-
-const CHIPS = EXAMPLES.slice(0, 3);
 
 const submitButton = (hero: Locator) =>
   hero.locator('form button[type="submit"]');
@@ -39,9 +39,13 @@ test("signed-out homepage shows the hero composer", async ({ page }) => {
   await expect(hero.getByRole("textbox")).toBeVisible();
   await expect(submitButton(hero)).toBeVisible();
 
-  // Example chips.
-  for (const chip of CHIPS) {
-    await expect(hero.getByRole("button", { name: chip })).toBeVisible();
+  // Example chips: exactly 3, each a real member of the prompt library
+  // (chips are drawn randomly, so the text itself isn't predictable).
+  const chips = hero.getByTestId("example-chip");
+  await expect(chips).toHaveCount(3);
+  const chipTexts = await chips.allTextContents();
+  for (const text of chipTexts) {
+    expect(EXAMPLES).toContain(text);
   }
 
   // Price line in the pricing section — the amount, not the sentence around it.
@@ -79,9 +83,13 @@ test("tapping an example chip lands on /design with the chip as the first turn",
   const hero = page.getByTestId("maker-hero");
   await waitForHeroHydration(hero);
 
-  const chip = CHIPS[0];
-  await hero.getByRole("button", { name: chip }).click();
+  const firstChip = hero.getByTestId("example-chip").first();
+  const chipText = await firstChip.textContent();
+  expect(chipText).not.toBeNull();
+  await firstChip.click();
 
   await expect(page).toHaveURL(/\/design/);
-  await expect(page.getByTestId("chat-message-user").first()).toHaveText(chip);
+  await expect(page.getByTestId("chat-message-user").first()).toHaveText(
+    chipText ?? ""
+  );
 });
