@@ -46,7 +46,7 @@ Studio · My Designs · Shop · Orders · [Dashboard] · [Admin] · Cart · Feed
 Sign out · build date. Signed out: Shop · Cart · Feedback · Sign in. Desktop
 links are `text-xs text-text-muted` (`:168-176`), so the whole nav reads as
 footer text. Mobile is a hamburger with a right-aligned `text-lg` list
-(`:202-262`). `/` redirects signed-in users to `/studio`
+(`:202-262`). `/` redirected signed-in users to `/studio` (reversed 2026-09-07: one homepage for everyone, Studio via the nav)
 (`src/app/page.tsx:25-26`).
 
 **Why it confuses.** "My work" is reachable on five surfaces, each with a
