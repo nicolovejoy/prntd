@@ -10,7 +10,7 @@
  * wrong word.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, within, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, within, fireEvent, act } from "@testing-library/react";
 import { SiteHeader } from "../site-header";
 
 const h = vi.hoisted(() => ({
@@ -67,7 +67,20 @@ async function openMenu() {
 }
 
 async function settle() {
+  // getHeaderState having been *called* proves nothing about whether its
+  // resolved isAdmin/cartCount/runningJobs have been committed to a
+  // re-render yet — the component's own `.then(setState...)` on that same
+  // promise can still be pending. Re-await the exact promise the component
+  // is chained off of, inside act(), so React flushes the resulting state
+  // update (registered on the promise before ours, so it runs first) before
+  // this returns. Only after that is the DOM the fetched header state.
   await waitFor(() => expect(getHeaderState).toHaveBeenCalled());
+  const lastCall = vi.mocked(getHeaderState).mock.results.at(-1);
+  if (lastCall) {
+    await act(async () => {
+      await lastCall.value;
+    });
+  }
 }
 
 beforeEach(() => {
