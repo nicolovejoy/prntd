@@ -40,16 +40,21 @@ function query(
  * A design detail (/d/[id]) is reachable from several hubs. We record the
  * origin in ?from so "up" returns there; shared links with no origin fall
  * back to the Shop, the public storefront.
+ *
+ * The retired markers /designs and /prints still resolve — links carrying
+ * them were shared before nav model A and outlive the route move.
  */
 function detailParent(from: string | undefined): Crumb {
   switch (from) {
+    case "/studio/library":
     case "/designs":
-      return { label: "My Designs", href: "/designs" };
+      return { label: "My Designs", href: "/studio/library" };
     case "/orders":
       return { label: "Orders", href: "/orders" };
+    case "/shop":
     case "/prints":
     default:
-      return { label: "Shop", href: "/prints" };
+      return { label: "Shop", href: "/shop" };
   }
 }
 
@@ -64,7 +69,7 @@ export function breadcrumbTrail(
   pathname: string,
   params: Record<string, string | undefined> = {}
 ): Crumb[] {
-  const myDesigns: Crumb = { label: "My Designs", href: "/designs" };
+  const studio: Crumb = { label: "Studio", href: "/studio" };
   const designStep: Crumb = {
     label: "Design",
     href: `/design${query(params, ["id"])}`,
@@ -73,8 +78,9 @@ export function breadcrumbTrail(
   if (pathname === "/") return [];
 
   if (
-    pathname === "/prints" ||
-    pathname === "/designs" ||
+    pathname === "/shop" ||
+    pathname === "/studio" ||
+    pathname === "/studio/library" ||
     pathname === "/orders" ||
     pathname === "/admin"
   ) {
@@ -82,8 +88,10 @@ export function breadcrumbTrail(
   }
 
   if (pathname === "/cart") return [HOME];
-  if (pathname === "/design") return [HOME, myDesigns];
-  if (pathname === "/preview") return [HOME, myDesigns, designStep];
+  // The thread and the preview hang off the Studio bench, not the library:
+  // the bench is where a conversation you are still working on lives.
+  if (pathname === "/design") return [HOME, studio];
+  if (pathname === "/preview") return [HOME, studio, designStep];
   // Terminal success page: its only useful "up" is order history — the
   // funnel /preview needs an id we no longer carry post-checkout.
   if (pathname === "/order/confirm")

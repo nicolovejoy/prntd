@@ -25,7 +25,7 @@ function renderStrip(overrides: Partial<Parameters<typeof ConversationImages>[0]
       currentImageId="img-b"
       images={images}
       initialPrimaryImageId="img-a"
-      from="/designs"
+      from="/studio/library"
       {...overrides}
     />
   );
@@ -184,7 +184,7 @@ describe("ConversationImages lightbox actions", () => {
     fireEvent.click(thumb(3));
     expect(lightbox().getByRole("link", { name: "Open" })).toHaveAttribute(
       "href",
-      "/d/img-c?from=%2Fdesigns"
+      "/d/img-c?from=%2Fstudio%2Flibrary"
     );
     fireEvent.click(prev());
     expect(lightbox().getByText("#2 of 3")).toBeInTheDocument();

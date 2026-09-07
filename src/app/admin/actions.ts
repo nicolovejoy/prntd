@@ -416,9 +416,9 @@ export async function setImageFeedRank(
   // feed to rank).
   await productMirrorStatement(db, imageId, { kind: "update", set: { feedRank } });
 
-  // The Shop feed renders on / and /prints; bust both plus the admin grid.
+  // The Shop feed renders on / and /shop; bust both plus the admin grid.
   revalidatePath("/");
-  revalidatePath("/prints");
+  revalidatePath("/shop");
   revalidatePath("/admin/published");
 }
 
@@ -442,9 +442,10 @@ export async function setImageHidden(imageId: string, hidden: boolean) {
     }),
   ]);
 
-  // Discover feed on / and the public /d/[imageId] page both filter
+  // Discover feed on /, /shop, and the public /d/[imageId] page all filter
   // by isHidden — bust their caches so the change is visible.
   revalidatePath("/");
+  revalidatePath("/shop");
   revalidatePath(`/d/${imageId}`);
   revalidatePath("/admin/published");
 }

@@ -173,10 +173,10 @@ export async function deleteImages(
     }
   }
 
-  revalidatePath("/designs");
+  revalidatePath("/studio/library");
   if (publishedRemoved) {
     revalidatePath("/");
-    revalidatePath("/prints");
+    revalidatePath("/shop");
   }
   return result;
 }
@@ -208,7 +208,7 @@ export async function publishImage(
   // The guest funnel mints a real Better-Auth user row for every signed-out
   // visitor (session cookie + `isAnonymous: true`), so `!session` alone does
   // NOT mean "not signed in" — a guest passes it. Publishing puts an image on
-  // the PUBLIC `/` feed and `/prints` attributed to that ghost account, so it
+  // the PUBLIC `/` feed and `/shop` attributed to that ghost account, so it
   // needs a real one. Do not simplify this back to the bare session check.
   if (isAnonymousUser(session.user)) {
     throw new Error("Sign in to publish");
@@ -278,7 +278,7 @@ export async function publishImage(
   ]);
 
   revalidatePath("/");
-  revalidatePath("/prints");
+  revalidatePath("/shop");
 }
 
 /**
@@ -337,14 +337,14 @@ export async function updatePublishedNaming(
   await productMirrorStatement(db, imageId, { kind: "update", set });
 
   revalidatePath("/");
-  revalidatePath("/prints");
+  revalidatePath("/shop");
   revalidatePath(`/d/${imageId}`);
 }
 
 /**
  * Owner takes a published image back down — the reverse of publishImage.
  * Deletes the listing row and drafts the mirror product, so the image leaves
- * the discover feed (`/`, `/prints`), stops being buyable
+ * the discover feed (`/`, `/shop`), stops being buyable
  * (canBuyPublishedImage), and /d/[imageId] 404s for everyone but the owner,
  * who still reaches it as their own private image (#136 slice 1).
  * Re-publishing is a fresh listing: new listed_at (sorts as newly published),
@@ -380,6 +380,6 @@ export async function unpublishImage(imageId: string) {
   ]);
 
   revalidatePath("/");
-  revalidatePath("/prints");
+  revalidatePath("/shop");
   revalidatePath(`/d/${imageId}`);
 }

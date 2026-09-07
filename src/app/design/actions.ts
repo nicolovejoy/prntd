@@ -996,7 +996,7 @@ export async function setPrimaryImage(designId: string, imageId: string) {
     .set({ primaryImageId: imageId, updatedAt: new Date() })
     .where(eq(designTable.id, designId));
 
-  revalidatePath("/designs");
+  revalidatePath("/studio/library");
   revalidatePath(`/d/${imageId}`);
 }
 

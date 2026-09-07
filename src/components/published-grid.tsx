@@ -9,7 +9,7 @@ import { publishedBackdrop } from "@/lib/blanks";
 const GRID_SIZES = "(max-width: 639px) 50vw, (max-width: 767px) 33vw, 25vw";
 
 /**
- * Shared grid of published (Shop, /prints) designs. Each card links to the
+ * Shared grid of published (Shop, /shop) designs. Each card links to the
  * buy page at /d/[imageId]. The viewer's own designs are tagged "by you"
  * (set on PublishedImage.isOwn by the feed query).
  *

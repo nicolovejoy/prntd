@@ -93,7 +93,7 @@ describe("StudioClient rendering", () => {
     // Shop link is their way onward.
     expect(
       screen.getByRole("link", { name: "Browse the Shop" }).getAttribute("href")
-    ).toBe("/prints");
+    ).toBe("/shop");
   });
 
   it("renders a lane's cells with the primary marked", () => {
@@ -376,23 +376,6 @@ describe("deleting a lane (slice 5 review, F1)", () => {
   it("offers no Delete while a generation is running", () => {
     render(<StudioClient initialLanes={[lane({ pending: [pendingJob("j1")] })]} />);
     expect(screen.queryByTestId("studio-delete-lane")).toBeNull();
-  });
-});
-
-describe("StudioClient — archive link (slice 4)", () => {
-  it("offers a quiet route to the archive, empty bench or not", () => {
-    const { unmount } = render(<StudioClient initialLanes={[]} />);
-    expect(screen.getByRole("link", { name: "Archive" })).toHaveAttribute(
-      "href",
-      "/studio/archive"
-    );
-    unmount();
-
-    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
-    expect(screen.getByRole("link", { name: "Archive" })).toHaveAttribute(
-      "href",
-      "/studio/archive"
-    );
   });
 });
 

@@ -15,7 +15,7 @@ import { reopenConversation } from "@/app/design/actions";
  *
  * A module of its own rather than another export on `d/actions.ts`: that file
  * is the read layer for the public Shop surfaces too (`getDiscoverFeed` on `/`
- * and `/prints`), and importing `design/actions` into it drags the whole
+ * and `/shop`), and importing `design/actions` into it drags the whole
  * generation stack — the Anthropic client, R2, the generator registry —
  * into every one of those renders.
  */
@@ -56,8 +56,8 @@ export async function openConversation(designId: string): Promise<void> {
   }
 
   // A reopened lane belongs back on the bench, off the archive list, and the
-  // library's Archived marker is now wrong.
+  // Library's Archived marker is now wrong.
   revalidatePath("/studio");
   revalidatePath("/studio/archive");
-  revalidatePath("/designs");
+  revalidatePath("/studio/library");
 }

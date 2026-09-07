@@ -810,7 +810,7 @@ function PreviewPageInner() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-4">
         <p>Couldn&apos;t load this design.</p>
-        <Link href="/designs" className="underline">My Designs</Link>
+        <Link href="/studio/library" className="underline">My Designs</Link>
       </div>
     );
   }

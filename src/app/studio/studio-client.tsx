@@ -528,34 +528,24 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
   }
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <>
       {confirmSheet}
       <main className="flex-1 px-4 sm:px-6 py-8 pb-40 max-w-4xl mx-auto w-full">
-        <div className="flex items-baseline justify-between gap-3 mb-6">
-          <h1 className="text-xl sm:text-2xl font-bold">Studio</h1>
-          <div className="flex items-baseline gap-4">
-            {/* Only when there is something to select; in select mode the
-                bottom bar's Done is the way out, so the control hides. */}
-            {renderedLanes.length > 0 && !selectMode && (
-              <button
-                type="button"
-                onClick={enterSelectMode}
-                className="text-sm text-text-muted hover:text-foreground transition-colors"
-                data-testid="select-mode"
-              >
-                Select
-              </button>
-            )}
-            {/* Quiet by design: the archive is a retrieval door, not a
-                destination. Lanes leave on their own after three days
-                (studio-plan slice 4) and this is where they land. */}
-            <Link
-              href="/studio/archive"
+        <div className="flex items-baseline justify-end gap-3 mb-6">
+          {/* Only when there is something to select; in select mode the
+              bottom bar's Done is the way out, so the control hides. The
+              heading and the Archive door moved to the Studio layout's tab
+              strip (nav model A) — one door per destination. */}
+          {renderedLanes.length > 0 && !selectMode && (
+            <button
+              type="button"
+              onClick={enterSelectMode}
               className="text-sm text-text-muted hover:text-foreground transition-colors"
+              data-testid="select-mode"
             >
-              Archive
-            </Link>
-          </div>
+              Select
+            </button>
+          )}
         </div>
 
         {renderedLanes.length === 0 ? (
@@ -566,7 +556,7 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
             message="No open designs."
             action={
               <Link
-                href="/prints"
+                href="/shop"
                 className="inline-block text-sm text-text-muted underline hover:text-foreground transition-colors"
               >
                 Browse the Shop
@@ -712,7 +702,7 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
 

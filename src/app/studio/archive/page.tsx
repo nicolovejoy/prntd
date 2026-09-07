@@ -20,13 +20,6 @@ export default async function StudioArchivePage() {
 
   return (
     <main className="px-4 sm:px-6 py-8 max-w-4xl mx-auto w-full">
-      <Link
-        href="/studio"
-        className="text-sm text-text-muted hover:text-foreground transition-colors"
-      >
-        ← Studio
-      </Link>
-      <h1 className="text-xl sm:text-2xl font-bold mt-4 mb-1">Archive</h1>
       <p className="text-sm text-text-faint mb-6">
         Designs with no activity for three days leave the Studio.
       </p>

@@ -126,13 +126,14 @@ test("organizer compose: create shop, add + edit product, edit shop, list + publ
     await published;
 
     // Public storefront: sign out, then browse the live shop as a visitor.
-    // On mobile the nav (incl. Sign out) lives behind the hamburger — open it
-    // first; on desktop the "Menu" button is hidden so this is a no-op. Sign-out
-    // redirects to "/"; wait for that to land before navigating, otherwise goto
-    // races the in-flight redirect (→ ERR_ABORTED).
+    // The account-menu trigger is present at every breakpoint (hamburger
+    // below sm:, "Account" text at sm: and up) and Sign out lives only
+    // inside that dropdown now, so opening it first is load-bearing at
+    // every viewport, not a mobile-only step. Sign-out redirects to "/";
+    // wait for that to land before navigating, otherwise goto races the
+    // in-flight redirect (→ ERR_ABORTED).
     const shopPath = `/shop/${slug.replace(/^\//, "")}`;
-    const menu = page.getByRole("button", { name: "Menu" });
-    if (await menu.isVisible()) await menu.click();
+    await page.getByRole("button", { name: "Account menu" }).click();
     await page.getByRole("button", { name: "Sign out" }).click();
     await page.waitForURL((url) => url.pathname === "/", { timeout: 15_000 });
     await page.goto(shopPath);

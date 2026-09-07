@@ -17,16 +17,16 @@ import {
 } from "@testing-library/react";
 import { LibraryGrid } from "../library-grid";
 import type { LibraryImage } from "@/lib/user-designs";
-import type { BulkImageDeleteResult } from "../actions";
+import type { BulkImageDeleteResult } from "@/app/designs/actions";
 
-vi.mock("../actions", () => ({
+vi.mock("@/app/designs/actions", () => ({
   deleteImages: vi.fn(async (ids: string[]) => ({
     deleted: ids,
     skipped: [],
   })),
 }));
 
-import { deleteImages } from "../actions";
+import { deleteImages } from "@/app/designs/actions";
 
 function img(overrides: Partial<LibraryImage> = {}): LibraryImage {
   return {
@@ -69,7 +69,7 @@ describe("My Designs select mode", () => {
     // Out of select mode a tile is a link to the image detail page.
     expect(
       tiles()[0].closest("a")?.getAttribute("href")
-    ).toBe("/d/i1?from=/designs");
+    ).toBe("/d/i1?from=/studio/library");
 
     fireEvent.click(screen.getByTestId("library-select"));
 

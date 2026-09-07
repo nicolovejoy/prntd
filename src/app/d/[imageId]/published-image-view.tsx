@@ -64,8 +64,8 @@ export function PublishedImageView({
     if (!ok) return;
     startTransition(async () => {
       await unpublishImage(imageId);
-      // The page is no longer public — send the owner back to their designs.
-      router.push("/designs");
+      // The page is no longer public — send the owner back to their library.
+      router.push("/studio/library");
     });
   }
 

@@ -38,11 +38,12 @@ function SignInForm() {
     }
 
     // Honor ?next= for post-sign-in redirects. Restricted to same-origin
-    // paths to prevent open-redirect.
+    // paths to prevent open-redirect. The default is the Studio — under nav
+    // model A that is where a signed-in user's work lives.
     const next = searchParams.get("next");
     const safeNext = next && next.startsWith("/") && !next.startsWith("//")
       ? next
-      : "/designs";
+      : "/studio";
     router.push(safeNext);
   }
 

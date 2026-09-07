@@ -2,7 +2,7 @@
  * publishImage's anonymous-session gate (security fix, see AGENTS.md /
  * task-2-brief.md). The guest funnel mints a real Better-Auth user row for
  * every signed-out visitor, so `if (!session)` alone lets a guest publish to
- * the PUBLIC `/` feed and `/prints`. Runs against a real in-memory libSQL
+ * the PUBLIC `/` feed and `/shop`. Runs against a real in-memory libSQL
  * (#28), driving the server action with db/auth mocked so the guard actually
  * executes against a row.
  */

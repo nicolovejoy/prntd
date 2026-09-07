@@ -288,11 +288,11 @@ differ.
 **Places**
 
 - **Studio** — `/design`. Where designs are made.
-- **Shop** — `/prints`, the community storefront (renamed from "Fresh
+- **Shop** — `/shop`, the community storefront (renamed from "Fresh
   Prints" 2026-07-19). Organizer stores are also shops: `/shop/[slug]`, each
   a self-contained storefront.
 - **Funnel** — Studio → Preview → Order → Confirm. Linear, breadcrumbed.
-- **Shelf** — the personal archive: `/designs`, `/orders`.
+- **Shelf** — the personal archive: `/studio/library`, `/orders`.
 - **Counter** — `/admin`. Back of shop.
 - **Dashboard** — `/dashboard`. Where organizers run their shops.
 
@@ -622,7 +622,7 @@ Job: review the bundle and check out once.
 3. **Pricing summary** — items subtotal, bundled shipping, total.
 4. Add another design (secondary); empty state → Start a design.
 
-### `/prints` Shop (`app/prints/page.tsx`)
+### `/shop` Shop (`app/shop/page.tsx`)
 
 Job: browse Prints, pick one to buy.
 

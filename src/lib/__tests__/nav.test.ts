@@ -7,7 +7,7 @@ describe("breadcrumbTrail", () => {
   });
 
   it("places top-level hubs directly under Home", () => {
-    for (const hub of ["/prints", "/designs", "/orders", "/admin"]) {
+    for (const hub of ["/shop", "/studio", "/studio/library", "/orders", "/admin"]) {
       expect(breadcrumbTrail(hub)).toEqual([HOME]);
     }
   });
@@ -17,7 +17,7 @@ describe("breadcrumbTrail", () => {
 
     expect(breadcrumbTrail("/design", params).map((c) => c.label)).toEqual([
       "Home",
-      "My Designs",
+      "Studio",
     ]);
 
     expect(breadcrumbTrail("/preview", params).at(-1)).toEqual({
@@ -44,26 +44,48 @@ describe("breadcrumbTrail", () => {
     });
   });
 
-  it("derives a design detail's parent from ?from", () => {
-    expect(breadcrumbTrail("/d/img1", { from: "/designs" }).at(-1)).toEqual({
+  it("uses the recorded origin as the detail page's parent", () => {
+    expect(breadcrumbTrail("/d/img1", { from: "/studio/library" }).at(-1)).toEqual({
       label: "My Designs",
-      href: "/designs",
+      href: "/studio/library",
     });
     expect(breadcrumbTrail("/d/img1", { from: "/orders" }).at(-1)).toEqual({
       label: "Orders",
       href: "/orders",
     });
-    expect(breadcrumbTrail("/d/img1", { from: "/prints" }).at(-1)).toEqual({
+    expect(breadcrumbTrail("/d/img1", { from: "/shop" }).at(-1)).toEqual({
       label: "Shop",
-      href: "/prints",
+      href: "/shop",
     });
   });
 
-  it("falls back to the Shop for a design detail with no origin", () => {
+  it("still resolves the retired origins /designs and /prints", () => {
+    // Links shared before nav model A carry the old markers; they must not
+    // fall through to the Shop default.
+    expect(breadcrumbTrail("/d/img1", { from: "/designs" }).at(-1)).toEqual({
+      label: "My Designs",
+      href: "/studio/library",
+    });
+    expect(breadcrumbTrail("/d/img1", { from: "/prints" }).at(-1)).toEqual({
+      label: "Shop",
+      href: "/shop",
+    });
+  });
+
+  it("falls back to the Shop when there is no recorded origin", () => {
     expect(breadcrumbTrail("/d/img1").at(-1)).toEqual({
       label: "Shop",
-      href: "/prints",
+      href: "/shop",
     });
+  });
+
+  it("puts the thread and the preview under the Studio", () => {
+    expect(upTarget("/design")).toEqual({ label: "Studio", href: "/studio" });
+    expect(breadcrumbTrail("/preview", { id: "d1" })).toEqual([
+      HOME,
+      { label: "Studio", href: "/studio" },
+      { label: "Design", href: "/design?id=d1" },
+    ]);
   });
 
   it("nests admin detail pages under Admin", () => {
@@ -95,6 +117,6 @@ describe("upTarget", () => {
   });
 
   it("is Home at a top-level hub", () => {
-    expect(upTarget("/prints")).toEqual(HOME);
+    expect(upTarget("/shop")).toEqual(HOME);
   });
 });

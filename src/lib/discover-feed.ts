@@ -1,7 +1,7 @@
 /**
  * Shop feed query + ordering.
  *
- * The feed (homepage grid + /prints) lists published, non-hidden images,
+ * The feed (homepage grid + /shop) lists published, non-hidden images,
  * one card per design. Position is admin-controlled via `product.feed_rank`
  * (/admin/published): ranked images list first, lowest rank first; unranked
  * images follow, newest published first — exactly the pre-rank behavior.
