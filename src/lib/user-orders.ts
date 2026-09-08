@@ -3,7 +3,7 @@ import {
   order as orderTable,
   orderItem as orderItemTable,
 } from "@/lib/db/schema";
-import { eq, asc, desc, inArray } from "drizzle-orm";
+import { and, eq, ne, asc, desc, inArray } from "drizzle-orm";
 import { resolveOrderLines } from "@/lib/order-lines";
 import { contributorAttribution } from "@/lib/order-attribution";
 import { resolveOrderLineIdentities } from "@/lib/order-line-identity";
@@ -28,7 +28,15 @@ export async function getUserOrdersData(buyerId: string) {
       displayName: orderTable.displayName,
     })
     .from(orderTable)
-    .where(eq(orderTable.userId, buyerId))
+    // pending covers two populations, both hidden here: abandoned checkouts
+    // (the common case — only checkout.session.completed is handled, no
+    // checkout.session.expired handler exists to mark them terminal, so they
+    // stay pending forever) and webhook-stranded paid orders (charged on
+    // Stripe but the webhook never landed; admin recovers these via the
+    // Recover control, recoverPendingOrderCore). This filter stands in for
+    // the missing expired-session handler — it is not a claim every pending
+    // row is un-placed.
+    .where(and(eq(orderTable.userId, buyerId), ne(orderTable.status, "pending")))
     .orderBy(desc(orderTable.createdAt));
 
   // Each order's purchased items — one order_item row per shirt (authoritative

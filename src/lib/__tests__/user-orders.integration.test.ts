@@ -209,7 +209,7 @@ describe("getUserOrdersData", () => {
       userId: "buyer",
       designId: a.designId,
       totalPrice: 19.43,
-      status: "pending",
+      status: "paid",
       createdAt: new Date("2026-09-06T12:00:00Z"),
     });
 
@@ -264,6 +264,72 @@ describe("getUserOrdersData", () => {
       "https://r2/two.png",
       "https://r2/three.png",
     ]);
+  });
+
+  it("hides pending orders (checkout started, never paid)", async () => {
+    const db = h.db as Db;
+    const a = await seedDesignWithImage(db, "buyer", "https://r2/pending.png");
+    const [pending] = await db
+      .insert(schema.order)
+      .values({
+        userId: "buyer",
+        designId: a.designId,
+        totalPrice: 19.43,
+        status: "pending",
+        stripeSessionId: "cs_test_abandoned",
+      })
+      .returning();
+    await db.insert(schema.orderItem).values({
+      orderId: pending.id,
+      designId: a.designId,
+      productId: "bella-canvas-3001",
+      size: "M",
+      color: "White",
+      quantity: 1,
+      placements: { front: a.imageId },
+      itemPrice: 19.43,
+    });
+
+    const [paid] = await db
+      .insert(schema.order)
+      .values({
+        userId: "buyer",
+        designId: a.designId,
+        totalPrice: 19.43,
+        status: "paid",
+      })
+      .returning();
+
+    const orders = await getUserOrdersData("buyer");
+    expect(orders.map((o) => o.id)).toEqual([paid.id]);
+  });
+
+  it("still returns every non-pending status", async () => {
+    const db = h.db as Db;
+    const a = await seedDesignWithImage(db, "buyer", "https://r2/status.png");
+    const statuses = [
+      "paid",
+      "submitted",
+      "shipped",
+      "delivered",
+      "canceled",
+    ] as const;
+    const ids: string[] = [];
+    for (const status of statuses) {
+      const [row] = await db
+        .insert(schema.order)
+        .values({
+          userId: "buyer",
+          designId: a.designId,
+          totalPrice: 19.43,
+          status,
+        })
+        .returning();
+      ids.push(row.id);
+    }
+
+    const orders = await getUserOrdersData("buyer");
+    expect(new Set(orders.map((o) => o.id))).toEqual(new Set(ids));
   });
 
   it("only returns the buyer's own orders", async () => {

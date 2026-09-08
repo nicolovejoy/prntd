@@ -10,7 +10,7 @@ import type { UserOrder } from "@/lib/user-orders";
 type StatusFilter = "active" | "canceled" | "all";
 
 const statusLabel: Record<string, string> = {
-  pending: "Processing",
+  pending: "Processing", // unreachable from /orders — see user-orders.ts
   paid: "Paid",
   submitted: "In production",
   shipped: "Shipped",
@@ -52,18 +52,13 @@ export function OrdersList({ orders }: { orders: UserOrder[] }) {
   return (
     <div className="min-h-screen flex flex-col">
       <main className="flex-1 px-4 sm:px-6 py-8 max-w-4xl mx-auto w-full">
-        <div className="flex items-center justify-between mb-6">
+        <div className="mb-6">
           {/* Mono masthead, same class string as /shop's (src/app/shop/page.tsx):
               a section label, not a display heading. `uppercase` does the
               casing, so the text stays sentence case in code. */}
           <h1 className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted">
             Orders
           </h1>
-          <Link href="/studio">
-            <Button variant="secondary" size="sm" className="min-h-11">
-              New Design
-            </Button>
-          </Link>
         </div>
 
         {/* Status filter — mirrors the Studio tab strip (studio-tabs.tsx). */}

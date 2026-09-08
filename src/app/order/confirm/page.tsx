@@ -14,6 +14,8 @@ type Search = Promise<Record<string, string | string[] | undefined>>;
  * already exists — there is no race with the webhook to guard against, and
  * this page never renders a field the webhook writes (ruling P3). That is
  * what lets this be a plain awaited server read with no retry/poll island.
+ * `/orders` hides `pending` rows (src/lib/user-orders.ts), so the "View
+ * orders" link below can briefly not show an order that was just paid here.
  */
 export default async function ConfirmPage({ searchParams }: { searchParams: Search }) {
   const raw = (await searchParams).session_id;
@@ -50,7 +52,8 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Sear
               Order confirmed.
             </h1>
             <p className="text-text-muted">
-              The receipt couldn&apos;t be loaded. Your order is listed in My Orders.
+              The receipt couldn&apos;t be loaded. Your payment went through. The order
+              appears under Orders once it&apos;s confirmed.
             </p>
             <Link href="/orders">
               <Button size="lg" className="w-full">View orders</Button>
