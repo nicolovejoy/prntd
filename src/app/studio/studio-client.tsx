@@ -777,6 +777,11 @@ function Composer({
   );
 }
 
+/** Items are found in the DOM rather than passed as data, so `Lane` keeps
+ * owning their labels, handlers and test ids. An item added without this
+ * role is invisible to the arrow keys — that is the contract. */
+const MENUITEM_SELECTOR = '[role="menuitem"]';
+
 /**
  * The per-lane overflow (Paper bench, #188 slice 3). The actions that used
  * to sit as inline text links in the lane header — Close, Delete, and the
@@ -784,24 +789,17 @@ function Composer({
  * title, a state and a time, which is what makes activity-desc ordering
  * legible (#187 point 3).
  *
- * Closes on outside click, on Escape, and on any click inside (every item
- * is a terminal action, so there is nothing to keep it open for).
- */
-/** Items are found in the DOM rather than passed as data, so `Lane` keeps
- * owning their labels, handlers and test ids. An item added without this
- * role is invisible to the arrow keys — that is the contract. */
-const MENUITEM_SELECTOR = '[role="menuitem"]';
-
-/**
- * The lane's ⋯ overflow: a WAI-ARIA menu button, not a disclosure. The
- * markup already declared `aria-haspopup="menu"` / `role="menu"` /
- * `role="menuitem"`, which promises arrow-key navigation and roving
- * tabindex; this implements that promise rather than retracting it.
+ * It is a WAI-ARIA menu button, not a disclosure — the markup already
+ * declared `aria-haspopup="menu"` / `role="menu"` / `role="menuitem"`, which
+ * promises arrow-key navigation and roving tabindex; this implements that
+ * promise rather than retracting it.
  *
- * Focus returns to the trigger on Escape ONLY. An outside click has already
- * put the user's attention somewhere deliberate, Tab is a deliberate move
- * onward, and on activation the trigger usually does not survive — Close and
- * Delete remove the lane, and Select hides every ⋯ on the page — so a
+ * Closes on outside click, on Escape, and on any click inside (every item
+ * is a terminal action, so there is nothing to keep it open for). Focus
+ * returns to the trigger on Escape ONLY. An outside click has already put
+ * the user's attention somewhere deliberate, Tab is a deliberate move
+ * onward, and on activation the trigger usually does not survive — Close
+ * and Delete remove the lane, and Select hides every ⋯ on the page — so a
  * generic on-close restore would focus a detached node.
  */
 function LaneMenu({ children }: { children: React.ReactNode }) {
@@ -895,11 +893,8 @@ function LaneMenu({ children }: { children: React.ReactNode }) {
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => {
-          setOpen((o) => {
-            const next = !o;
-            if (next) setActiveIndex(0);
-            return next;
-          });
+          if (!open) setActiveIndex(0);
+          setOpen(!open);
         }}
         className="w-[46px] min-h-11 -mr-3 flex items-center justify-center text-foreground"
       >
