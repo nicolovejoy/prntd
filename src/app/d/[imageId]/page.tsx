@@ -25,6 +25,10 @@ type Search = Promise<{ from?: string }>;
  * Caption for the link preview whose picture `opengraph-image.tsx` draws.
  * Same published-only rule, and for the same reason: an owner-private image
  * has no listing, so there is no title to leak and the site defaults stand.
+ *
+ * `??` would let an empty-string title through — a nameless share card, and
+ * empty text on the alt props and the breadcrumb below. Rows saved blank
+ * before updatePublishedNaming started refusing them still exist.
  */
 export async function generateMetadata({
   params,
@@ -35,7 +39,7 @@ export async function generateMetadata({
   const card = await getImageShareCard(imageId);
   if (!card) return {};
 
-  const title = card.title ?? "A design on PRNTD";
+  const title = card.title?.trim() || "A design on PRNTD";
   const description = `Designed by ${card.designerName}. Put it on a shirt.`;
   // og:image is left to the file convention — naming it here would override
   // the generated card with a raw transparent PNG.
@@ -104,7 +108,7 @@ export default async function PublishedImagePage({
               image (below) takes its place. */}
           <Breadcrumbs
             trail={trail}
-            current={img.title ?? "Design"}
+            current={img.title?.trim() || "Design"}
             className="hidden sm:block"
           />
 
@@ -133,7 +137,7 @@ export default async function PublishedImagePage({
                 <PublishedImageView
                   imageId={img.imageId}
                   imageUrl={img.imageUrl}
-                  alt={img.title ?? "Design"}
+                  alt={img.title?.trim() || "Design"}
                   initialBackgroundColor={img.backgroundColor}
                   canEdit={false}
                 />
@@ -173,7 +177,7 @@ export default async function PublishedImagePage({
               <BuyHero
                 imageId={img.imageId}
                 imageUrl={img.imageUrl}
-                alt={img.title ?? "Design"}
+                alt={img.title?.trim() || "Design"}
                 initialBackgroundColor={img.backgroundColor}
                 canEdit={isOwner}
                 backHref={up?.href}
