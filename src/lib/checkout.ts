@@ -1,6 +1,15 @@
 import type Stripe from "stripe";
 
 /**
+ * Stripe Checkout Sessions expire on their own (Stripe's minimum is 30
+ * minutes after creation) — after that, `checkout.session.expired` fires and
+ * the webhook marks the order abandoned if it's still `pending`. Kept as a
+ * named constant so the builders and the "why 30 minutes" story live
+ * together.
+ */
+export const CHECKOUT_SESSION_TTL_SECONDS = 30 * 60;
+
+/**
  * Build the Stripe Checkout Session params for a single-item PRNTD order.
  * Pure — no db, no network — so the wiring is unit-tested independently
  * of the server actions that create the order row and call Stripe.
@@ -24,10 +33,15 @@ export function buildCheckoutSessionParams(params: {
   imageUrl: string | null;
   cancelUrl: string;
   appUrl: string;
+  /** Injected clock (ms) for `expires_at` — defaults to `Date.now()`. */
+  now?: number;
 }): Stripe.Checkout.SessionCreateParams {
   return {
     mode: "payment",
     allow_promotion_codes: true,
+    expires_at:
+      Math.floor((params.now ?? Date.now()) / 1000) +
+      CHECKOUT_SESSION_TTL_SECONDS,
     shipping_address_collection: {
       allowed_countries: ["US"],
     },
@@ -95,10 +109,15 @@ export function buildCartCheckoutSessionParams(params: {
   shippingPrice: number;
   cancelUrl: string;
   appUrl: string;
+  /** Injected clock (ms) for `expires_at` — defaults to `Date.now()`. */
+  now?: number;
 }): Stripe.Checkout.SessionCreateParams {
   return {
     mode: "payment",
     allow_promotion_codes: true,
+    expires_at:
+      Math.floor((params.now ?? Date.now()) / 1000) +
+      CHECKOUT_SESSION_TTL_SECONDS,
     shipping_address_collection: { allowed_countries: ["US"] },
     line_items: params.lineItems.map((li) => ({
       price_data: {

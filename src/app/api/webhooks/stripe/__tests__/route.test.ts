@@ -37,6 +37,7 @@ vi.mock("@/lib/order-emails", () => ({
 }));
 vi.mock("@/lib/webhook-handlers", () => ({
   handleStripeCheckoutCompleted: vi.fn(),
+  handleStripeCheckoutExpired: vi.fn(),
 }));
 // Real Stripe SDK instance (dummy key): webhooks.constructEvent and
 // generateTestHeaderString are pure crypto, no network. checkout.sessions is
@@ -48,13 +49,17 @@ vi.mock("@/lib/stripe", async () => {
 
 import { POST } from "../route";
 import { stripe } from "@/lib/stripe";
-import { handleStripeCheckoutCompleted } from "@/lib/webhook-handlers";
+import {
+  handleStripeCheckoutCompleted,
+  handleStripeCheckoutExpired,
+} from "@/lib/webhook-handlers";
 import { sendPostOrderEmails } from "@/lib/order-emails";
 
 const WEBHOOK_SECRET = "whsec_test_wp5";
 process.env.STRIPE_WEBHOOK_SECRET = WEBHOOK_SECRET;
 
 const handlerMock = vi.mocked(handleStripeCheckoutCompleted);
+const expiredHandlerMock = vi.mocked(handleStripeCheckoutExpired);
 const emailsMock = vi.mocked(sendPostOrderEmails);
 
 function eventBody(type: string, object: Record<string, unknown> = { id: "cs_123" }) {
@@ -192,6 +197,38 @@ describe("Stripe webhook route — event routing", () => {
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: "Missing metadata" });
     expect(handlerMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("Stripe webhook route — checkout.session.expired (#231)", () => {
+  it("calls the handler with metadata.orderId and returns 200", async () => {
+    expiredHandlerMock.mockResolvedValue({ action: "abandoned" });
+    const res = await POST(
+      signedRequest(
+        eventBody("checkout.session.expired", {
+          id: "cs_123",
+          metadata: { orderId: "order-1" },
+        })
+      )
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ received: true });
+    expect(expiredHandlerMock).toHaveBeenCalledTimes(1);
+    expect(expiredHandlerMock).toHaveBeenCalledWith(
+      "order-1",
+      expect.anything()
+    );
+  });
+
+  it("200s without calling the handler when metadata.orderId is missing", async () => {
+    const res = await POST(
+      signedRequest(
+        eventBody("checkout.session.expired", { id: "cs_123", metadata: {} })
+      )
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ received: true, ignored: "no orderId" });
+    expect(expiredHandlerMock).not.toHaveBeenCalled();
   });
 });
 

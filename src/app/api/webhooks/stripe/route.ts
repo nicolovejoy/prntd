@@ -5,6 +5,7 @@ import { createOrder, getOrderByExternalId } from "@/lib/printful";
 import { generateOrderName } from "@/lib/ai";
 import {
   handleStripeCheckoutCompleted,
+  handleStripeCheckoutExpired,
   type StripeSessionData,
 } from "@/lib/webhook-handlers";
 import { toStripeSessionData } from "@/lib/stripe-session";
@@ -75,6 +76,19 @@ export async function POST(request: NextRequest) {
       console.error(`Stripe event ${event.id}: handler error:`, err);
       return NextResponse.json({ error: "Processing failed" }, { status: 400 });
     }
+  } else if (event.type === "checkout.session.expired") {
+    // No `stripe.checkout.sessions.retrieve` needed — metadata is on the
+    // event object itself. Always 200: an unknown/non-pending order or a
+    // missing orderId are all "nothing to do", and repeated 4xx responses
+    // can get a Stripe webhook endpoint disabled.
+    const orderId = event.data.object.metadata?.orderId;
+    if (!orderId) {
+      console.log(`Stripe event ${event.id}: checkout.session.expired with no orderId`);
+      return NextResponse.json({ received: true, ignored: "no orderId" });
+    }
+
+    const { action } = await handleStripeCheckoutExpired(orderId, { db });
+    console.log(`Stripe event ${event.id}: order ${orderId} → ${action}`);
   }
 
   return NextResponse.json({ received: true });
