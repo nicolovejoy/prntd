@@ -28,7 +28,8 @@ import {
 import { generatePublishedNaming } from "@/lib/ai";
 import { getImageNamingContext } from "@/lib/design-images";
 import { DEFAULT_PUBLISH_BACKGROUND } from "@/lib/blanks";
-import { EMPTY_TITLE_REJECTED } from "@/lib/action-copy";
+import { EMPTY_TITLE_REJECTED, TITLE_TOO_LONG } from "@/lib/action-copy";
+import { MAX_IMAGE_TITLE_LENGTH } from "@/lib/design-publish";
 
 /**
  * Remove a design from the user's view. Hard-deletes when nothing else
@@ -333,6 +334,9 @@ export async function updatePublishedNaming(
   // PR #130).
   if (title !== undefined && title.trim() === "") {
     return { error: EMPTY_TITLE_REJECTED };
+  }
+  if (title !== undefined && title.trim().length > MAX_IMAGE_TITLE_LENGTH) {
+    return { error: TITLE_TOO_LONG };
   }
 
   // Partial update: only touch fields the caller actually sent. The

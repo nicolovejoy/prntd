@@ -53,7 +53,7 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Sear
               The receipt couldn&apos;t be loaded. Your order is listed in My Orders.
             </p>
             <Link href="/orders">
-              <Button size="lg" className="w-full">View My Orders</Button>
+              <Button size="lg" className="w-full">View orders</Button>
             </Link>
           </div>
         </div>
@@ -165,7 +165,7 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Sear
 
           <div className="flex flex-col gap-3">
             <Link href="/orders">
-              <Button size="lg" className="w-full">View My Orders</Button>
+              <Button size="lg" className="w-full">View orders</Button>
             </Link>
             <Link
               href="/design"

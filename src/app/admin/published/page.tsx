@@ -68,7 +68,7 @@ export default async function AdminPublishedPage() {
               >
                 <Image
                   src={img.imageUrl}
-                  alt={img.title ?? "Design"}
+                  alt={img.title || "Design"}
                   fill
                   sizes="(max-width: 639px) 50vw, (max-width: 767px) 33vw, 25vw"
                   loading="lazy"

@@ -106,12 +106,12 @@ describe("ConfirmPage", () => {
     expect(amount.className).toContain("font-mono");
   });
 
-  it("links View My Orders to /orders", async () => {
+  it("links View orders to /orders", async () => {
     getOrderBySession.mockResolvedValue(FRONT_ONLY_ORDER);
 
     await renderConfirm({ session_id: "cs_1" });
 
-    const link = screen.getByRole("link", { name: "View My Orders" });
+    const link = screen.getByRole("link", { name: "View orders" });
     expect(link).toHaveAttribute("href", "/orders");
   });
 
@@ -149,7 +149,7 @@ describe("ConfirmPage", () => {
     expect(
       screen.getByText("The receipt couldn't be loaded. Your order is listed in My Orders.")
     ).toBeInTheDocument();
-    const link = screen.getByRole("link", { name: "View My Orders" });
+    const link = screen.getByRole("link", { name: "View orders" });
     expect(link).toHaveAttribute("href", "/orders");
     expect(screen.queryByText("Order not found.")).not.toBeInTheDocument();
     expect(consoleErrorSpy).toHaveBeenCalled();

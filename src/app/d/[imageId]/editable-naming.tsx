@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { updatePublishedNaming } from "@/app/designs/actions";
 import { Button, InlineNotice } from "@/components/ui";
 import { SAVE_TITLE_FAILED } from "@/lib/action-copy";
+import { MAX_IMAGE_TITLE_LENGTH } from "@/lib/design-publish";
 
 type Props = {
   imageId: string;
@@ -84,7 +85,7 @@ export function EditableNaming({ imageId, title, canEdit }: Props) {
         value={titleDraft}
         onChange={(e) => setTitleDraft(e.target.value)}
         placeholder="Title"
-        maxLength={80}
+        maxLength={MAX_IMAGE_TITLE_LENGTH}
         className="w-full bg-surface border border-border rounded px-3 py-2 text-base"
       />
       {error && <InlineNotice message={error} />}

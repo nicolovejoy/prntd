@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import "./globals.css";
+import { ERROR_BOUNDARY_TITLE, ERROR_BOUNDARY_RETRY } from "@/lib/action-copy";
 
 /**
  * Root-layout error boundary. Replaces the root layout when active, so it
@@ -45,14 +46,14 @@ export default function GlobalError({
         <main className="mx-auto w-full max-w-2xl px-4 py-16">
           <div role="alert" className="space-y-6 border border-border p-6">
             <h1 className="text-sm font-medium text-foreground">
-              Something went wrong loading this page.
+              {ERROR_BOUNDARY_TITLE}
             </h1>
             <button
               type="button"
               onClick={() => (unstable_retry ?? reset)?.()}
               className="min-h-11 rounded-md border border-foreground bg-transparent px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-surface-well"
             >
-              Try again
+              {ERROR_BOUNDARY_RETRY}
             </button>
             {error.digest && (
               <p

@@ -3,6 +3,11 @@
 import { useEffect } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui";
+import {
+  ERROR_BOUNDARY_TITLE,
+  ERROR_BOUNDARY_RETRY,
+  ERROR_BOUNDARY_HOME,
+} from "@/lib/action-copy";
 
 /**
  * Route-segment error boundary for everything under src/app. Before this
@@ -41,20 +46,20 @@ export default function Error({
         {/* The thrown message is a digest in production, so the reader gets
             our sentence, not the server's. */}
         <h1 className="text-sm font-medium text-foreground">
-          Something went wrong loading this page.
+          {ERROR_BOUNDARY_TITLE}
         </h1>
         <div className="flex flex-wrap items-center gap-4">
           <Button
             onClick={() => (unstable_retry ?? reset)?.()}
             className="min-h-11"
           >
-            Try again
+            {ERROR_BOUNDARY_RETRY}
           </Button>
           <Link
             href="/"
             className="inline-flex min-h-11 items-center text-sm text-text-muted underline underline-offset-[3px] hover:no-underline"
           >
-            Go to the home page
+            {ERROR_BOUNDARY_HOME}
           </Link>
         </div>
         {error.digest && (

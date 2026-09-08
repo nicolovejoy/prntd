@@ -287,7 +287,7 @@ export default function OrderDetailPage() {
                       >
                         <img
                           src={thumb}
-                          alt={line.title ?? "Design"}
+                          alt={line.title || "Design"}
                           className="w-full h-full object-contain"
                         />
                       </div>

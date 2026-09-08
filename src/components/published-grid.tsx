@@ -49,7 +49,7 @@ export function PublishedGrid({
           >
             <Image
               src={img.imageUrl}
-              alt={img.title ?? "Design"}
+              alt={img.title || "Design"}
               fill
               sizes={GRID_SIZES}
               loading="lazy"
