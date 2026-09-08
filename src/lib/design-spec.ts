@@ -27,6 +27,9 @@ const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 /** Cap on a fallback subject: a pasted essay is not a subject line. */
 const MAX_FALLBACK_SUBJECT = 400;
 
+/** A prompt at or under this many words is treated as lettering, not a scene to draw (#206). */
+const MAX_SLOGAN_WORDS = 8;
+
 function cleanString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
@@ -94,17 +97,39 @@ export function parseDesignSpec(input: unknown): DesignSpec | null {
 
 /**
  * The last-resort spec, built from the user's own words. Generate always
- * generates (studio slice 1): when the brief declines to produce a spec, the
- * literal request is still something concrete to draw, and rendering it —
- * alongside whatever question the brief wanted to ask — beats answering a
- * generate request with prose and no image.
+ * generates (studio slice 1): the fallback fires only when the brief
+ * declined to produce a spec — it found nothing drawable — and the literal
+ * request is still something concrete to render, alongside whatever
+ * question the brief wanted to ask.
+ *
+ * For a short prompt (at most MAX_SLOGAN_WORDS words, one line) the words
+ * ARE the design — a slogan, a quip — so they render as bold lettering
+ * rather than as an object description of a sentence (#206). A prompt that
+ * had to be truncated to MAX_FALLBACK_SUBJECT is never treated as a slogan:
+ * quoting a cut-off fragment as the literal design text would be worse than
+ * describing it as an object.
  *
  * Returns null only when there are no words at all to render.
  */
 export function fallbackSpec(text: string | null | undefined): DesignSpec | null {
-  const subject =
-    typeof text === "string" ? text.trim().slice(0, MAX_FALLBACK_SUBJECT) : "";
-  if (!subject) return null;
+  const trimmed = typeof text === "string" ? text.trim() : "";
+  if (!trimmed) return null;
+  const subject = trimmed.slice(0, MAX_FALLBACK_SUBJECT);
+  const wasTruncated = subject.length < trimmed.length;
+  const wordCount = subject.split(/\s+/).filter(Boolean).length;
+  if (!wasTruncated && wordCount <= MAX_SLOGAN_WORDS && !subject.includes("\n")) {
+    const words = subject;
+    return {
+      subject: `Bold lettering reading "${words}"`,
+      elements: [
+        {
+          type: "text",
+          text: words,
+          desc: "bold lettering, the user's words exactly, centered",
+        },
+      ],
+    };
+  }
   return { subject, elements: [{ type: "obj", desc: subject }] };
 }
 

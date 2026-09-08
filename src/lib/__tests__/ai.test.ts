@@ -662,3 +662,17 @@ describe("generatePublishedNaming (#169)", () => {
     expect(content.find((c) => c.type === "text")?.text).toBe("Write the title.");
   });
 });
+
+describe("DESIGN_BRIEF_SYSTEM_PROMPT", () => {
+  it("treats a short subjectless phrase as lettering, not a clarify", async () => {
+    const { DESIGN_BRIEF_SYSTEM_PROMPT } = await import("../ai");
+    expect(DESIGN_BRIEF_SYSTEM_PROMPT).toContain("it is lettering");
+  });
+
+  it("instructs the model not to paraphrase literal text", async () => {
+    const { DESIGN_BRIEF_SYSTEM_PROMPT } = await import("../ai");
+    expect(DESIGN_BRIEF_SYSTEM_PROMPT).toContain(
+      "Do not paraphrase, shorten, or replace"
+    );
+  });
+});
