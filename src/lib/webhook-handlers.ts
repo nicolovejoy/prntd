@@ -181,8 +181,8 @@ export async function handleStripeCheckoutCompleted(
 
 /**
  * `checkout.session.expired` (#231): Stripe fires this when a Checkout
- * Session's `expires_at` (30 min after creation — see
- * `CHECKOUT_SESSION_TTL_SECONDS`) passes with no completed payment. It never
+ * Session's `expires_at` (see `CHECKOUT_SESSION_TTL_SECONDS` in checkout.ts)
+ * passes with no completed payment. It never
  * fires for a session that did complete, but the order row could already be
  * anything by the time this arrives (paid via a race, already abandoned by
  * a prior delivery, or gone) — so the marking is a conditional UPDATE, same
@@ -196,7 +196,7 @@ export async function handleStripeCheckoutExpired(
 ): Promise<{ action: "abandoned" | "ignored" }> {
   const result = await deps.db
     .update(orderTable)
-    .set({ abandonedAt: new Date() })
+    .set({ abandonedAt: new Date(), updatedAt: new Date() })
     .where(
       and(
         eq(orderTable.id, orderId),

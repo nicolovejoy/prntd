@@ -230,6 +230,26 @@ describe("Stripe webhook route — checkout.session.expired (#231)", () => {
     expect(await res.json()).toEqual({ received: true, ignored: "no orderId" });
     expect(expiredHandlerMock).not.toHaveBeenCalled();
   });
+
+  it("propagates a handler failure uncaught, so Stripe sees a >=500 and retries the event", async () => {
+    // No try/catch wraps this branch on purpose (see the route's comment): a
+    // DB failure here must not resolve to a 200, or the abandoned mark is
+    // lost for good on redelivery-skips-non-pending grounds. Calling POST
+    // directly (not through Next's request pipeline) surfaces that as a
+    // rejected promise rather than a Response — in production Next's route
+    // error boundary turns the same uncaught throw into a 500.
+    expiredHandlerMock.mockRejectedValue(new Error("db exploded"));
+    await expect(
+      POST(
+        signedRequest(
+          eventBody("checkout.session.expired", {
+            id: "cs_123",
+            metadata: { orderId: "order-1" },
+          })
+        )
+      )
+    ).rejects.toThrow("db exploded");
+  });
 });
 
 describe("Stripe webhook route — error mapping (WP1 contract)", () => {

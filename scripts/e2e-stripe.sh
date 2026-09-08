@@ -48,7 +48,7 @@ STRIPE_WEBHOOK_SECRET="$(stripe listen --api-key "$STRIPE_SECRET_KEY" --print-se
 export STRIPE_WEBHOOK_SECRET
 
 stripe listen --api-key "$STRIPE_SECRET_KEY" \
-  --events checkout.session.completed \
+  --events checkout.session.completed,checkout.session.expired \
   --forward-to localhost:3100/api/webhooks/stripe &
 LISTENER_PID=$!
 trap 'kill "$LISTENER_PID" 2>/dev/null || true' EXIT

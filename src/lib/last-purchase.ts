@@ -24,8 +24,8 @@ export async function resolveLastPurchaseDefaults(
 ): Promise<PurchaseDefaults | null> {
   if (!user || user.isAnonymous) return null;
 
-  // Most recent order that actually paid: pending never did, canceled
-  // shouldn't re-seed.
+  // Most recent order that actually paid: pending is not yet known to have
+  // paid (it may still complete), canceled shouldn't re-seed.
   const [last] = await db
     .select()
     .from(orderTable)

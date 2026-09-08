@@ -78,9 +78,11 @@ export async function POST(request: NextRequest) {
     }
   } else if (event.type === "checkout.session.expired") {
     // No `stripe.checkout.sessions.retrieve` needed — metadata is on the
-    // event object itself. Always 200: an unknown/non-pending order or a
-    // missing orderId are all "nothing to do", and repeated 4xx responses
-    // can get a Stripe webhook endpoint disabled.
+    // event object itself. Never a 4xx: an unknown/non-pending order or a
+    // missing orderId are all "nothing to do" and get a clean 200 (repeated
+    // 4xx responses can get a Stripe webhook endpoint disabled) — but a DB
+    // failure below is deliberately allowed to 500 so Stripe retries the
+    // event rather than losing the abandoned mark permanently.
     const orderId = event.data.object.metadata?.orderId;
     if (!orderId) {
       console.log(`Stripe event ${event.id}: checkout.session.expired with no orderId`);

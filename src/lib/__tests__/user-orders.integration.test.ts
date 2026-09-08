@@ -319,12 +319,33 @@ describe("getUserOrdersData", () => {
         totalPrice: 19.43,
         status: "pending",
         stripeSessionId: "cs_test_stranded",
-        createdAt: new Date(now - 2 * 60 * 60 * 1000),
+        // Comfortably beyond STALE_PENDING_MS (2h15m) — 3h old.
+        createdAt: new Date(now - 3 * 60 * 60 * 1000),
       })
       .returning();
 
     const orders = await getUserOrdersData("buyer", now);
     expect(orders.map((o) => o.id)).toEqual([pending.id]);
+  });
+
+  it("hides an old, un-abandoned, session-less pending order — it could never have been paid (#231)", async () => {
+    const db = h.db as Db;
+    const a = await seedDesignWithImage(db, "buyer", "https://r2/no-session.png");
+    const now = Date.now();
+    // Legacy pre-#231 row, or a checkout whose Stripe session-create call
+    // failed: stripeSessionId never got backfilled, so this row could never
+    // have been paid regardless of age or abandonedAt.
+    await db.insert(schema.order).values({
+      userId: "buyer",
+      designId: a.designId,
+      totalPrice: 19.43,
+      status: "pending",
+      stripeSessionId: null,
+      createdAt: new Date(now - 3 * 60 * 60 * 1000),
+    });
+
+    const orders = await getUserOrdersData("buyer", now);
+    expect(orders).toEqual([]);
   });
 
   it("hides an old pending order once Stripe confirmed the session expired (#231)", async () => {
@@ -337,7 +358,8 @@ describe("getUserOrdersData", () => {
       totalPrice: 19.43,
       status: "pending",
       stripeSessionId: "cs_test_expired",
-      createdAt: new Date(now - 2 * 60 * 60 * 1000),
+      // Comfortably beyond STALE_PENDING_MS (2h15m) — 3h old.
+      createdAt: new Date(now - 3 * 60 * 60 * 1000),
       abandonedAt: new Date(now - 60 * 60 * 1000),
     });
 

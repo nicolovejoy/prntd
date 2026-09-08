@@ -10,6 +10,8 @@ Stripe fires `checkout.session.expired` when a session expires (default 24 h aft
 
 ## Design
 
+**Amendment 2026-09-08 (fix wave, whole-branch review):** the numbers below were widened twice more after this plan was written. Final values: `CHECKOUT_SESSION_TTL_SECONDS = 2 * 60 * 60` (2h, `src/lib/checkout.ts`) and `STALE_PENDING_MS = 135 * 60 * 1000` (2h15m, `src/lib/user-orders.ts`) — the TTL is owner-facing (covers an interrupted buyer without leaving the order ambiguous for Stripe's 24h default expiry), the staleness window stays 15 minutes above it for webhook-delivery margin. The shown-pending branch also now requires a non-null `stripeSessionId` (a session-less row could never have been paid) and legacy pre-#231 pending rows are marked abandoned by a one-shot `scripts/mark-legacy-pending-abandoned.ts`, not by aging out on their own. Read the constants' own comments, not the numbers below, as the source of truth.
+
 1. Additive column `order.abandoned_at` (nullable timestamp). No status change; `order-state.ts` transitions untouched.
 2. Sessions expire 30 minutes after creation (`expires_at` on both session builders).
 3. Webhook handles `checkout.session.expired`: conditional `UPDATE "order" SET abandoned_at = now WHERE id = ? AND status = 'pending' AND abandoned_at IS NULL`. One row updated → `abandoned`; zero → `ignored` (already paid, already marked, or unknown). Always 200.

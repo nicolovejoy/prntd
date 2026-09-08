@@ -482,14 +482,21 @@ export default function AdminPage() {
                         : "—"}
                     </td>
                     <td className="py-3 text-xs space-x-2">
-                      {order.status === "pending" && order.stripeSessionId && (
-                        <Button
-                          size="sm"
-                          onClick={() => handleRecover(order.id)}
-                          disabled={recovering === order.id}
-                        >
-                          {recovering === order.id ? "Recovering..." : "Recover"}
-                        </Button>
+                      {order.status === "pending" && order.abandonedAt ? (
+                        <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-text-muted">
+                          Abandoned
+                        </span>
+                      ) : (
+                        order.status === "pending" &&
+                        order.stripeSessionId && (
+                          <Button
+                            size="sm"
+                            onClick={() => handleRecover(order.id)}
+                            disabled={recovering === order.id}
+                          >
+                            {recovering === order.id ? "Recovering..." : "Recover"}
+                          </Button>
+                        )
                       )}
                       {order.status === "paid" && (
                         <Button

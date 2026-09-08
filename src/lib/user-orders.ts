@@ -3,20 +3,20 @@ import {
   order as orderTable,
   orderItem as orderItemTable,
 } from "@/lib/db/schema";
-import { and, eq, ne, or, isNull, lt, asc, desc, inArray } from "drizzle-orm";
+import { and, eq, ne, or, isNull, isNotNull, lt, asc, desc, inArray } from "drizzle-orm";
 import { resolveOrderLines } from "@/lib/order-lines";
 import { contributorAttribution } from "@/lib/order-attribution";
 import { resolveOrderLineIdentities } from "@/lib/order-line-identity";
 
 export type UserOrder = Awaited<ReturnType<typeof getUserOrdersData>>[number];
 
-// Stripe Checkout Sessions expire CHECKOUT_SESSION_TTL_SECONDS (35 min,
+// Stripe Checkout Sessions expire CHECKOUT_SESSION_TTL_SECONDS (2h,
 // src/lib/checkout.ts) after creation, at which point the
-// checkout.session.expired webhook sets order.abandonedAt. This window has
-// to clear that TTL with margin for webhook-delivery lag, or a pending row
-// that is merely mid-flight (session not yet expired, webhook not yet fired)
-// would get misread as webhook-stranded below.
-export const STALE_PENDING_MS = 45 * 60 * 1000;
+// checkout.session.expired webhook sets order.abandonedAt. This window sits
+// 15 minutes above that TTL — margin for webhook-delivery lag, so a pending
+// row that is merely mid-flight (session not yet expired, webhook not yet
+// fired) doesn't get misread as webhook-stranded below.
+export const STALE_PENDING_MS = 135 * 60 * 1000;
 
 /**
  * The /orders history for one buyer. Query core shared by the server
@@ -37,20 +37,26 @@ export async function getUserOrdersData(buyerId: string, now = Date.now()) {
       displayName: orderTable.displayName,
     })
     .from(orderTable)
-    // pending covers three populations: young (in-flight or not-yet-expired
+    // pending covers four populations: young (in-flight or not-yet-expired
     // checkout — hidden, it may still complete), abandoned (Stripe's
     // checkout.session.expired webhook confirmed the session died — hidden),
-    // and old-and-not-abandoned (the checkout session expired or is long
-    // past its TTL but no completed/expired webhook ever landed — a paid
-    // order the webhook never recorded, or an expiry Stripe never told us
-    // about; shown as "Processing" so the buyer has a record, and admin's
-    // Recover control fixes it).
+    // old-and-not-abandoned-with-a-session (the checkout session expired or
+    // is long past its TTL but no completed/expired webhook ever landed — a
+    // paid order the webhook never recorded, or an expiry Stripe never told
+    // us about; shown as "Processing" so the buyer has a record, and admin's
+    // Recover control fixes it), and session-less (stripeSessionId never got
+    // backfilled — checkout.ts inserts the order row before creating the
+    // Stripe session, so a session-create failure, or any pre-#231 legacy
+    // row scripts/mark-legacy-pending-abandoned.ts hasn't reached, leaves
+    // this null forever; a row that never had a session could never have
+    // been paid, so it's hidden regardless of age or abandonedAt).
     .where(
       and(
         eq(orderTable.userId, buyerId),
         or(
           ne(orderTable.status, "pending"),
           and(
+            isNotNull(orderTable.stripeSessionId),
             isNull(orderTable.abandonedAt),
             lt(orderTable.createdAt, new Date(now - STALE_PENDING_MS))
           )
