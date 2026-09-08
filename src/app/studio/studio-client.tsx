@@ -805,6 +805,7 @@ const MENUITEM_SELECTOR = '[role="menuitem"]';
 function LaneMenu({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [dropUp, setDropUp] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -837,6 +838,23 @@ function LaneMenu({ children }: { children: React.ReactNode }) {
     if (!open) return;
     menuItems()[0]?.focus();
   }, [open, menuItems]);
+
+  // The last lane sits at the bottom of a scrolling page, where a panel
+  // anchored to `top-full` opens below the fold. Measured from real rects
+  // after the panel renders — no estimated height, because the panel is
+  // three rows today and may not be tomorrow. Re-run on every open so a
+  // menu that flipped once does not stay flipped after a scroll.
+  useLayoutEffect(() => {
+    if (!open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- measure-then-position needs a post-render DOM read; this is a layout effect, so the reset commits before paint.
+      setDropUp(false);
+      return;
+    }
+    const trigger = triggerRef.current?.getBoundingClientRect();
+    const panel = panelRef.current?.getBoundingClientRect();
+    if (!trigger || !panel) return;
+    setDropUp(trigger.bottom + panel.height > window.innerHeight);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -910,7 +928,9 @@ function LaneMenu({ children }: { children: React.ReactNode }) {
           role="menu"
           onClick={() => setOpen(false)}
           onKeyDown={onPanelKeyDown}
-          className="absolute right-0 top-full z-10 min-w-[9rem] bg-surface border border-foreground flex flex-col"
+          className={`absolute right-0 ${
+            dropUp ? "bottom-full" : "top-full"
+          } z-10 min-w-[9rem] bg-surface border border-foreground flex flex-col`}
         >
           {items}
         </div>

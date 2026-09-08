@@ -9,7 +9,7 @@
  * refresh landing mid-typing. Server actions are mocked; polling arithmetic
  * lives in generation-poll's own unit tests.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 import { StudioClient } from "../studio-client";
 import type { StudioLane } from "@/lib/studio";
@@ -1289,5 +1289,89 @@ describe("lane overflow menu keyboard + focus (WAI-ARIA menu button)", () => {
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("menu")).toBeNull();
     expect(document.activeElement).toBe(triggers[1]);
+  });
+});
+
+describe("lane overflow menu placement (flip-up near the fold)", () => {
+  const realInnerHeight = window.innerHeight;
+  const realRect = window.HTMLElement.prototype.getBoundingClientRect;
+
+  function stubGeometry({ triggerBottom }: { triggerBottom: number }) {
+    window.HTMLElement.prototype.getBoundingClientRect = function (
+      this: HTMLElement
+    ) {
+      const menu = this.getAttribute("role") === "menu";
+      const height = menu ? 132 : 44;
+      const bottom = menu ? triggerBottom + height : triggerBottom;
+      return {
+        x: 0,
+        y: bottom - height,
+        top: bottom - height,
+        left: 0,
+        right: 144,
+        bottom,
+        width: 144,
+        height,
+        toJSON: () => ({}),
+      } as DOMRect;
+    };
+  }
+
+  afterEach(() => {
+    window.HTMLElement.prototype.getBoundingClientRect = realRect;
+    Object.defineProperty(window, "innerHeight", {
+      value: realInnerHeight,
+      configurable: true,
+      writable: true,
+    });
+  });
+
+  function renderAndOpen() {
+    render(<StudioClient initialLanes={[lane({ cells: [cell("a")] })]} />);
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    return screen.getByRole("menu");
+  }
+
+  it("opens below the trigger when there is room", () => {
+    Object.defineProperty(window, "innerHeight", {
+      value: 800,
+      configurable: true,
+      writable: true,
+    });
+    stubGeometry({ triggerBottom: 200 });
+    const panel = renderAndOpen();
+    expect(panel.className).toContain("top-full");
+    expect(panel.className).not.toContain("bottom-full");
+  });
+
+  it("flips above the trigger when the panel would fall below the fold", () => {
+    Object.defineProperty(window, "innerHeight", {
+      value: 800,
+      configurable: true,
+      writable: true,
+    });
+    stubGeometry({ triggerBottom: 760 });
+    const panel = renderAndOpen();
+    expect(panel.className).toContain("bottom-full");
+    expect(panel.className).not.toContain("top-full");
+  });
+
+  it("re-measures on each open rather than staying flipped", () => {
+    Object.defineProperty(window, "innerHeight", {
+      value: 800,
+      configurable: true,
+      writable: true,
+    });
+    stubGeometry({ triggerBottom: 760 });
+    const trigger = (() => {
+      render(<StudioClient initialLanes={[lane({ cells: [cell("a")] })]} />);
+      return screen.getByRole("button", { name: "More" });
+    })();
+    fireEvent.click(trigger);
+    expect(screen.getByRole("menu").className).toContain("bottom-full");
+    fireEvent.click(trigger);
+    stubGeometry({ triggerBottom: 100 });
+    fireEvent.click(trigger);
+    expect(screen.getByRole("menu").className).toContain("top-full");
   });
 });
