@@ -341,7 +341,8 @@ differ.
   the only surface carrying this pattern, since the Rail it used to pair
   with is gone.
 - **Lightbox** — full-screen image overlay with per-image actions.
-- **Sticky bar** — the fixed bottom CTA bar on phone funnel pages (/order).
+- **Sticky bar** — the fixed bottom CTA bar on phone funnel pages
+  (/preview).
 - **Chip** — a small pill-shaped tappable suggestion (example prompts, filter
   tabs).
 
@@ -628,14 +629,18 @@ and covered by Part 1's samples.
    into the account menu (hamburger on phone; "Account" text at `sm:` and
    up). Organizer storefronts are retired (#191), so there is no Dashboard
    entry. Anon guests read as signed-out.
-2. **Breadcrumbs** (`components/breadcrumbs.tsx`) — desktop: full trail;
+2. **Running-jobs badge** — "N generating" pill in the bar itself, not the
+   account menu, so a phone user who left the Studio mid-generation sees it
+   without opening a menu; links to `/studio`, where the job renders as a
+   pending cell.
+3. **Breadcrumbs** (`components/breadcrumbs.tsx`) — desktop: full trail;
    phone: single `← Parent` chip. Escape navigates up.
-3. **FeedbackLauncher** (`components/feedback-launcher.tsx`) — fixed
+4. **FeedbackLauncher** (`components/feedback-launcher.tsx`) — fixed
    bottom-right FAB, opens the feedback panel; hidden on funnel routes
    (`/design`, `/preview`, `/order`, `/cart`, `/studio`, `/d` —
    `src/lib/funnel-routes.ts`), where the header's own "Feedback" menu item
    opens the same panel instead.
-4. Build-date stamp — lives inside the account menu, not separate header
+5. Build-date stamp — lives inside the account menu, not separate header
    chrome; visible at any breakpoint once the menu is open, not desktop-only.
 
 ### `/` Home (`app/page.tsx`)
@@ -845,7 +850,8 @@ Job: check where my shirt is.
    pill), per-line thumbnail on shirt color, name/ID, price, size/color,
    front+back + ×qty markers, date, **Track shipment** link, designer
    attribution when bought from someone else.
-3. **Filter tabs** — underlined text, Active (N) / Canceled (N) / All (N).
+3. **Filter tabs** — bottom-border indicator, mirrors the Studio tab strip
+   (`studio-tabs.tsx`), Active (N) / Canceled (N) / All (N).
 4. New Design button (→ `/studio` — `/orders` sits behind `requireRealUser`,
    so unlike the guest-reachable `/cart`, this CTA is not the W1 exception);
    empty states.
