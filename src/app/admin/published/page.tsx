@@ -54,13 +54,17 @@ export default async function AdminPublishedPage() {
           {images.map((img) => (
             <div
               key={img.imageId}
-              className={`border rounded-md overflow-hidden ${
+              className={`border overflow-hidden ${
                 img.isHidden ? "border-negative" : "border-border"
               }`}
             >
+              {/* Paper: containers on /admin carry a hairline and no radius
+                  (see the summary rows and orders table on /admin). The image
+                  well only needs its bottom edge — a full border here doubled
+                  the card's own hairline on three sides. */}
               <Link
                 href={`/d/${img.imageId}`}
-                className="relative block aspect-square bg-surface-well border border-border"
+                className="relative block aspect-square bg-surface-well border-b border-border"
               >
                 <Image
                   src={img.imageUrl}
