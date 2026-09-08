@@ -1,13 +1,18 @@
 import type Stripe from "stripe";
 
 /**
- * Stripe Checkout Sessions expire on their own (Stripe's minimum is 30
- * minutes after creation) — after that, `checkout.session.expired` fires and
- * the webhook marks the order abandoned if it's still `pending`. Kept as a
- * named constant so the builders and the "why 30 minutes" story live
- * together.
+ * Stripe Checkout Sessions expire on their own — after that,
+ * `checkout.session.expired` fires and the webhook marks the order abandoned
+ * if it's still `pending`. Stripe's floor is 30 minutes, but it validates
+ * `expires_at` against ITS OWN clock at request-receipt time, not ours: our
+ * `floor(now/1000) + TTL` is computed client-side, so sitting exactly on the
+ * 30-minute floor risks Stripe rejecting the session under sub-second
+ * flooring, request latency, or clock skew. 35 minutes gives 5 minutes of
+ * margin over that floor. The `/orders` staleness window (45 min, #231 task
+ * 3) must stay above this value so a session that's still technically live
+ * doesn't get flagged stale first.
  */
-export const CHECKOUT_SESSION_TTL_SECONDS = 30 * 60;
+export const CHECKOUT_SESSION_TTL_SECONDS = 35 * 60;
 
 /**
  * Build the Stripe Checkout Session params for a single-item PRNTD order.

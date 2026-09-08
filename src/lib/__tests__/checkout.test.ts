@@ -89,11 +89,19 @@ describe("buildCheckoutSessionParams", () => {
     expect(p.shipping_address_collection!.allowed_countries).toEqual(["US"]);
   });
 
-  it("sets expires_at 30 minutes after the injected clock", () => {
+  it("sets expires_at TTL seconds after the injected clock", () => {
     const now = 1_700_000_000_000;
     const p = buildCheckoutSessionParams({ ...base, now });
-    expect(p.expires_at).toBe(Math.floor(now / 1000) + 1800);
-    expect(CHECKOUT_SESSION_TTL_SECONDS).toBe(1800);
+    expect(p.expires_at).toBe(
+      Math.floor(now / 1000) + CHECKOUT_SESSION_TTL_SECONDS
+    );
+  });
+
+  it("keeps a margin above Stripe's 30-minute floor so clock skew/latency can't land under it", () => {
+    // Stripe validates expires_at against its own clock at request-receipt
+    // time; a future edit that drops back to exactly 1800s would risk
+    // rejected sessions.
+    expect(CHECKOUT_SESSION_TTL_SECONDS).toBeGreaterThanOrEqual(1800 + 60);
   });
 });
 
@@ -173,9 +181,11 @@ describe("buildCartCheckoutSessionParams", () => {
     expect(p.cancel_url).toBe("https://prntd.org/cart");
   });
 
-  it("sets expires_at 30 minutes after the injected clock", () => {
+  it("sets expires_at TTL seconds after the injected clock", () => {
     const now = 1_700_000_000_000;
     const p = buildCartCheckoutSessionParams({ ...cartBase, now });
-    expect(p.expires_at).toBe(Math.floor(now / 1000) + 1800);
+    expect(p.expires_at).toBe(
+      Math.floor(now / 1000) + CHECKOUT_SESSION_TTL_SECONDS
+    );
   });
 });

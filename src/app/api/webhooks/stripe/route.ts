@@ -87,6 +87,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ received: true, ignored: "no orderId" });
     }
 
+    // No try/catch on purpose: a DB failure here should 500 so Stripe
+    // retries the event, rather than swallowing it into a 200 and losing the
+    // abandoned mark permanently. A non-pending or unknown order is already
+    // a clean 200 via the handler's own "ignored" result, not an exception.
     const { action } = await handleStripeCheckoutExpired(orderId, { db });
     console.log(`Stripe event ${event.id}: order ${orderId} → ${action}`);
   }
