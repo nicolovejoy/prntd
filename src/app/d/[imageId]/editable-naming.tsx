@@ -48,6 +48,14 @@ export function EditableNaming({ imageId, title, canEdit }: Props) {
   }
 
   async function handleSave() {
+    // Defence-in-depth backstop for a stale bundle where `disabled` and
+    // `blank` have drifted apart (e.g. an old client talking to a new
+    // server, or a future caller of handleSave that doesn't route through
+    // the disabled Button). Not exercised by any test: `disabled={saving ||
+    // blank}` means blank can't be true while this control is reachable by
+    // a click, and a disabled <button> doesn't dispatch click activation
+    // under jsdom either, so there is no DOM path that reaches this branch
+    // with blank === true.
     if (blank) return;
     setSaving(true);
     setError(null);

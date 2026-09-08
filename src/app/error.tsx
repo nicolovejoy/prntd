@@ -37,12 +37,12 @@ export default function Error({
 
   return (
     <main className="mx-auto w-full max-w-2xl px-4 py-16">
-      <div className="space-y-6 border border-border p-6">
+      <div role="alert" className="space-y-6 border border-border p-6">
         {/* The thrown message is a digest in production, so the reader gets
             our sentence, not the server's. */}
-        <p className="text-sm text-foreground">
+        <h1 className="text-sm font-medium text-foreground">
           Something went wrong loading this page.
-        </p>
+        </h1>
         <div className="flex flex-wrap items-center gap-4">
           <Button
             onClick={() => (unstable_retry ?? reset)?.()}

@@ -68,13 +68,21 @@ async function publishedImage() {
  * row by image. The brief's draft used a nonexistent `product.imageId`
  * column; corrected here.
  */
-async function mirrorTitle(imageId: string) {
+async function mirrorRow(imageId: string) {
   const rows = await testDb
-    .select({ id: schema.product.id, title: schema.product.title, placements: schema.product.placements })
+    .select({
+      id: schema.product.id,
+      title: schema.product.title,
+      description: schema.product.description,
+      placements: schema.product.placements,
+    })
     .from(schema.product)
     .where(and(isNull(schema.product.storeId), isNull(schema.product.designId)));
-  const row = rows.find((r) => (r.placements ?? {}).front === imageId);
-  return row?.title ?? null;
+  return rows.find((r) => (r.placements ?? {}).front === imageId) ?? null;
+}
+
+async function mirrorTitle(imageId: string) {
+  return (await mirrorRow(imageId))?.title ?? null;
 }
 
 describe("updatePublishedNaming — blank titles", () => {
@@ -110,7 +118,13 @@ describe("updatePublishedNaming — blank titles", () => {
 
   it("still allows clearing the description, which is not a title", async () => {
     const imageId = await publishedImage();
+    // Give the mirror row a real description first, so clearing it is a
+    // meaningful check rather than a no-op that would pass either way.
+    await updatePublishedNaming(imageId, { description: "A real description." });
+    expect((await mirrorRow(imageId))?.description).toBe("A real description.");
+
     const result = await updatePublishedNaming(imageId, { description: "" });
     expect(result).toEqual({});
+    expect((await mirrorRow(imageId))?.description).toBe("");
   });
 });

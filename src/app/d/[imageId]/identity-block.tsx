@@ -67,7 +67,7 @@ export function IdentityBlock({
                   href={`/d/${link.imageId}`}
                   className="underline underline-offset-[3px] text-foreground hover:text-text-muted"
                 >
-                  {link.title ?? "an earlier design"}
+                  {link.title?.trim() || "an earlier design"}
                 </Link>{" "}
                 by {link.designerName}
               </span>

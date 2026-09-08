@@ -287,6 +287,12 @@ export async function publishImage(
  * Refuses if the image hasn't been published yet — the mirror product is a
  * draft then, and its update statement would no-op anyway. published_at (the
  * listing row) is never touched.
+ *
+ * Returns `Promise<{ error?: string }>`, not void: auth/not-found/unpublished
+ * still throw (the caller cannot act on those), but a blank title is
+ * refused as data — `{ error: EMPTY_TITLE_REJECTED }` — because a thrown
+ * server-action error is masked behind a digest in production and the
+ * caller could not show the reason. Every other path returns `{}`.
  */
 export async function updatePublishedNaming(
   imageId: string,

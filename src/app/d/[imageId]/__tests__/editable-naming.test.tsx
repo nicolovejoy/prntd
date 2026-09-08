@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import { EditableNaming } from "../editable-naming";
-import { EMPTY_TITLE_REJECTED } from "@/lib/action-copy";
+import { EMPTY_TITLE_REJECTED, SAVE_TITLE_FAILED } from "@/lib/action-copy";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
@@ -47,7 +47,16 @@ describe("EditableNaming — blank titles", () => {
     expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
   });
 
-  it("never calls the action with a blank title", async () => {
+  // A disabled <button> does not dispatch a click's activation behaviour
+  // under jsdom — verified empirically: fireEvent.click on a disabled
+  // button never reaches its onClick handler here, with 0 calls recorded
+  // regardless of what handleSave's body does. So this test (like its
+  // "disables Save" sibling above) can only ever pin the disabled
+  // attribute, never the `if (blank) return;` guard inside handleSave —
+  // and structurally it never could: `disabled={saving || blank}` means
+  // blank can't be true while the button is enabled. See the comment at
+  // the guard in editable-naming.tsx for the coverage this leaves.
+  it("keeps Save disabled so the action is never reached with a blank title", async () => {
     render(<EditableNaming imageId="img-1" title="Real Title" canEdit />);
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     fireEvent.change(screen.getByPlaceholderText("Title"), {
@@ -72,6 +81,23 @@ describe("EditableNaming — blank titles", () => {
     );
     // Still editing — the draft is not silently discarded.
     expect(screen.getByPlaceholderText("Title")).toBeInTheDocument();
+  });
+
+  it("shows the generic failure line, not the thrown message, when the action rejects", async () => {
+    updatePublishedNaming.mockRejectedValue(new Error("ECONNRESET"));
+    render(<EditableNaming imageId="img-1" title="Real Title" canEdit />);
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.change(screen.getByPlaceholderText("Title"), {
+      target: { value: "Real Title!" },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    });
+    const notice = await screen.findByTestId("inline-notice");
+    expect(notice).toHaveTextContent(SAVE_TITLE_FAILED);
+    // A thrown error is a digest in production, not this string — it must
+    // never reach the reader.
+    expect(notice).not.toHaveTextContent("ECONNRESET");
   });
 
   it("closes the editor on a successful save", async () => {

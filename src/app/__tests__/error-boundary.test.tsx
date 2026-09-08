@@ -29,7 +29,9 @@ describe("app error boundary", () => {
       />
     );
     expect(
-      screen.getByText("Something went wrong loading this page.")
+      screen.getByRole("heading", {
+        name: "Something went wrong loading this page.",
+      })
     ).toBeInTheDocument();
   });
 
@@ -39,6 +41,7 @@ describe("app error boundary", () => {
       <ErrorBoundary error={error} unstable_retry={vi.fn()} reset={vi.fn()} />
     );
     expect(consoleError).toHaveBeenCalledWith(error);
+    expect(consoleError).toHaveBeenCalledTimes(1);
     // The thrown message is a Next digest in production, so it is never the
     // sentence the reader gets.
     expect(screen.queryByText(/boom/)).not.toBeInTheDocument();
@@ -108,7 +111,9 @@ describe("global error boundary", () => {
       />
     );
     expect(
-      screen.getByText("Something went wrong loading this page.")
+      screen.getByRole("heading", {
+        name: "Something went wrong loading this page.",
+      })
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(retry).toHaveBeenCalledTimes(1);

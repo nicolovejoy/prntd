@@ -62,4 +62,18 @@ describe("IdentityBlock", () => {
     expect(link).toHaveAttribute("href", "/d/img-1");
     expect(screen.getByText(/by Nico/)).toBeInTheDocument();
   });
+
+  it("falls back to 'an earlier design' for an empty-string fork-chain title, not a blank link", () => {
+    render(
+      <IdentityBlock
+        imageId="img-2"
+        title="Remix"
+        canEditTitle={false}
+        designerName="Ada"
+        forkChain={[{ imageId: "img-1", title: "", designerName: "Nico" }]}
+      />
+    );
+    const link = screen.getByRole("link", { name: "an earlier design" });
+    expect(link).toHaveAttribute("href", "/d/img-1");
+  });
 });
