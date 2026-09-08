@@ -155,7 +155,7 @@ describe("OrdersList filters and maker-CTA hrefs (Paper)", () => {
   it("renders the ORDERS masthead in the Paper mono label type", () => {
     render(<OrdersList orders={[]} />);
     const heading = screen.getByRole("heading", { level: 1 });
-    expect(heading).toHaveTextContent("Orders");
+    expect(heading.textContent).toBe("Orders");
     expect(heading.className).toContain("font-mono");
     expect(heading.className).toContain("text-[11px]");
     expect(heading.className).toContain("tracking-[0.08em]");

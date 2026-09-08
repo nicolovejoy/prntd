@@ -247,8 +247,9 @@ PRNTD is a print shop. The interface is the counter: warm paper, quiet,
 monochrome. The customer's artwork is the only colour on the screen — every
 hue the chrome claims for itself competes with the design being made, so the
 chrome claims almost none. A primary action is an outlined ink button on the
-ground, not a filled one; the single filled accent is rose, and it means "the
-render happens now" (wordmark and Generate only).
+ground, not a filled one; the single filled accent is rose, on the Generate
+button, and it means "the render happens now". The wordmark carries the
+same rose as a text color, not a fill.
 
 This direction's structure — one shared monochrome visual base under Option A
 or C, with Option B amending it (one ink accent, mono promotion — see above)
@@ -462,17 +463,29 @@ Scale in use (Tailwind steps), roles:
 - `text-2xl sm:text-5xl bold` — page hero (`MakerHero` h1 on `/`; `/prints`
   is now a bare 308 redirect to `/shop`, not a hero page — see Vocabulary,
   Shop)
-- `text-lg/xl semibold` — screen title
-- `text-sm font-medium` — card titles
+- `text-xl` / `text-2xl` `font-bold` — screen title (14 live headings:
+  `/studio`, `/cart`, `/preview`, `/admin` ×3, and the four auth pages).
+  `text-lg font-semibold` survives only on the retired `/dashboard` and
+  `/shop/[slug]/[productId]` routes.
+- `text-sm font-medium` — card titles. Also still used for 7 section
+  labels not yet converted to the mono label below: 3 live (`/preview`'s
+  Product label, the publish modal's Name label, `background-picker.tsx`)
+  and 4 on the retired `/dashboard` compose form.
 - `text-sm` — body, chat
 - `text-xs text-text-muted` — metadata
-- `text-xs text-text-faint` / `text-[10px]` — fine print
+- `text-xs text-text-faint` / `text-[10px]` — fine print; `Badge` and
+  `EmptyState`'s `label` prop render at this size too, in a second mono
+  variant (`font-mono uppercase tracking-wide text-[10px]`).
 - `font-mono text-[11px] leading-4 tracking-[0.08em] uppercase` — mono
-  label. Not in the original draft; now the most-used label type in the app
-  (12+ call sites incl. the Shop/`/orders` mastheads, `Badge`, `EmptyState`'s
-  `label` prop, `SizePicker`/`ColorPicker` section labels — shared as
-  `MONO_LABEL` in `src/app/d/[imageId]/mono-label.ts`). Fills the role
-  "section labels" used to name above.
+  label. Not in the original draft; now the most-used label type in the
+  app (the Shop/`/orders` mastheads, `SizePicker`/`ColorPicker` section
+  labels, the image detail page's rows). Defined once as `MONO_LABEL`
+  (`src/app/d/[imageId]/mono-label.ts`), imported by 4 files under that
+  route (`identity-block.tsx`, `buy-panel.tsx`, `owner-actions.tsx`,
+  `conversation-images.tsx`); inlined as the literal class string in 11
+  other files, including both mastheads and
+  `src/components/product-options.tsx`. Is taking over the "section
+  labels" role named above — see there for what has not converted yet.
 - `font-mono` — IDs, codes, money references (Option B widens this role to
   generation numbers, prices, and labels)
 
@@ -549,11 +562,12 @@ first draft were fixed on main 2026-06-14 (`cbedcbe`): Geist restored, 40 raw
 Remaining:
 
 1. ~~**Badge palette is the only chrome color**~~ — RESOLVED 2026-07-19 under
-   C: `--positive`/`--negative` tokens added; badges collapse to a neutral
-   pill with status carried by text color (shipped/delivered = positive,
-   canceled = negative, everything else neutral; no `--attention` — pending
-   states are neutral under C). Raw `green-400`/`red-400` classes swept onto
-   the tokens (admin money coloring, error lines, danger button hover).
+   C: `--positive`/`--negative` tokens added; badges collapse to a mono text
+   label, no pill or background, with status carried by text color
+   (shipped/delivered = positive, canceled = negative, everything else
+   neutral; no `--attention` — pending states are neutral under C). Raw
+   `green-400`/`red-400` classes swept onto the tokens (admin money
+   coloring, error lines, danger button hover).
 2. ~~**Dark-only is implicit, not declared**~~ — RESOLVED 2026-09-06 under
    Paper: the app is light-only by tokens now (`docs/ux-design-review-2026-09.md`,
    variant PaperB "quieter"), and there is no `prefers-color-scheme` branch
@@ -845,7 +859,7 @@ from this" now all live (#184, #200).
 Job: check where my shirt is.
 
 1. Mono `Orders` masthead (uppercase in CSS, sentence case in code — same
-   label style as `/shop`'s, this slice's Task 2).
+   label style as `/shop`'s, #188).
 2. **Order rows** (ruled, no Card) — status Badge (mono text under Paper, no
    pill), per-line thumbnail on shirt color, name/ID, price, size/color,
    front+back + ×qty markers, date, **Track shipment** link, designer
@@ -904,8 +918,8 @@ Job: audit and fix one order.
 
 Job: moderate the storefront.
 
-1. **Moderation grid** — square hairline cards, no radius (this slice's
-   Task 2 — the image well carries only a bottom border); Hide/Unhide;
+1. **Moderation grid** — square hairline cards, no radius (#188 — the
+   image well carries only a bottom border); Hide/Unhide;
    hidden = `border-negative` + a mono `Hidden` label (not "dimmed" — that
    was never implemented).
 2. Card metadata (title, designer name + email, mono publish date, Shop
