@@ -577,9 +577,23 @@ describe("generateDesign — job insert + continuation", () => {
     const imgs = await sourceImages(designId);
     expect(imgs).toHaveLength(1);
     expect(imgs[0].id).toBe(res.imageId);
-    // Rendered from the user's own words, as a generate (not an edit).
+    // Rendered from the user's own words, as a generate (not an edit) — a
+    // short fallback prompt renders as lettering, not an object description
+    // of the sentence (#206).
     expect(ideogramGen).toHaveBeenCalledWith(
-      { kind: "generate", spec: expect.objectContaining({ subject: "dog doing calisthenics" }) },
+      {
+        kind: "generate",
+        spec: expect.objectContaining({
+          subject: 'Bold lettering reading "dog doing calisthenics"',
+          elements: [
+            {
+              type: "text",
+              text: "dog doing calisthenics",
+              desc: "bold lettering, the user's words exactly, centered",
+            },
+          ],
+        }),
+      },
       expect.anything()
     );
     const [job] = await jobs(designId);
@@ -603,10 +617,22 @@ describe("generateDesign — job insert + continuation", () => {
     expectQueued(await generateDesign(designId));
     await drainAfter();
 
+    // The empty-composer fallback re-renders the last user turn verbatim —
+    // short, so it takes the lettering shape (#206), not an object
+    // description of the sentence.
     expect(ideogramGen).toHaveBeenCalledWith(
       {
         kind: "generate",
-        spec: expect.objectContaining({ subject: "a dog on a skateboard" }),
+        spec: expect.objectContaining({
+          subject: 'Bold lettering reading "a dog on a skateboard"',
+          elements: [
+            {
+              type: "text",
+              text: "a dog on a skateboard",
+              desc: "bold lettering, the user's words exactly, centered",
+            },
+          ],
+        }),
       },
       expect.anything()
     );
@@ -643,10 +669,22 @@ describe("generateDesign — job insert + continuation", () => {
     expectQueued(await generateDesign(designId, "make it bolder"));
     await drainAfter();
 
+    // The anchorless edit instruction is rendered from scratch as a
+    // fallback generate; short, so it takes the lettering shape (#206), not
+    // an object description of the instruction text.
     expect(ideogramGen).toHaveBeenCalledWith(
       {
         kind: "generate",
-        spec: expect.objectContaining({ subject: "a bold mountain range" }),
+        spec: expect.objectContaining({
+          subject: 'Bold lettering reading "a bold mountain range"',
+          elements: [
+            {
+              type: "text",
+              text: "a bold mountain range",
+              desc: "bold lettering, the user's words exactly, centered",
+            },
+          ],
+        }),
       },
       expect.anything()
     );
