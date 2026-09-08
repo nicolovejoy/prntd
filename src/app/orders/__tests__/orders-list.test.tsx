@@ -134,14 +134,11 @@ describe("OrdersList filters and maker-CTA hrefs (Paper)", () => {
     expect(activeBtn).toHaveAttribute("aria-pressed", "false");
   });
 
-  it("points the header New Design link at /studio", () => {
+  it("renders no header New Design link", () => {
     const order = makeOrder([LINE]);
     render(<OrdersList orders={[order]} />);
 
-    expect(screen.getByRole("link", { name: "New Design" })).toHaveAttribute(
-      "href",
-      "/studio"
-    );
+    expect(screen.queryByRole("link", { name: "New Design" })).toBeNull();
   });
 
   it("points the empty-state action at /studio", () => {

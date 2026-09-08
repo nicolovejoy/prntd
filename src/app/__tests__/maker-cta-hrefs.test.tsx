@@ -10,12 +10,11 @@
  *
  * This file exists so a future nav sweep that blanket-retargets make-CTAs
  * fails here loudly, instead of silently walling a guest out of the purchase
- * path or sending a signed-in user off the Studio. It pins all four:
+ * path or sending a signed-in user off the Studio. It pins all three:
  *
- *   1. /orders header link "New Design"            → /studio
- *   2. /orders empty-state action "Make your first design" → /studio
- *   3. /cart empty-state action "Start a design"   → /design
- *   4. /cart "Add another design" (a router.push)  → /design
+ *   1. /orders empty-state action "Make your first design" → /studio
+ *   2. /cart empty-state action "Start a design"   → /design
+ *   3. /cart "Add another design" (a router.push)  → /design
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
@@ -70,15 +69,6 @@ function makeOrder(): UserOrder {
 const EMPTY_CART: CartView = { items: [], itemSubtotal: 0, shipping: 0, total: 0 };
 
 describe("maker-CTA hrefs (ruling W1: cart → /design; orders → /studio)", () => {
-  it("/orders header link 'New Design' points at /studio", () => {
-    render(<OrdersList orders={[makeOrder()]} />);
-
-    expect(screen.getByRole("link", { name: "New Design" })).toHaveAttribute(
-      "href",
-      "/studio"
-    );
-  });
-
   it("/orders empty-state action 'Make your first design' points at /studio", () => {
     render(<OrdersList orders={[]} />);
 
