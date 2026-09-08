@@ -17,8 +17,9 @@ const GRID_SIZES = "(max-width: 639px) 50vw, (max-width: 1023px) 33vw, 25vw";
  * query).
  *
  * Card anatomy (Paper slice 6, #188): the card sells a shirt — art on its
- * pinned backdrop in a hairline frame, then title, then what it costs and
- * on what garment, then the maker.
+ * pinned backdrop in a hairline frame, then title, then the maker. No price:
+ * nothing shows a price before garment and size are picked (#226; guarded by
+ * src/lib/__tests__/no-preselection-price.test.ts).
  *
  * data-testid="published-grid" is the post-deploy prod smoke's DB canary
  * (.github/workflows/prod-smoke.yml): it only reaches the HTML when the
