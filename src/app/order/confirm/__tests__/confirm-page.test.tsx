@@ -147,7 +147,9 @@ describe("ConfirmPage", () => {
 
     expect(screen.getByText("Order confirmed.")).toBeInTheDocument();
     expect(
-      screen.getByText("The receipt couldn't be loaded. Your order is listed in My Orders.")
+      screen.getByText(
+        "The receipt couldn't be loaded. Your payment went through. The order appears under Orders once it's confirmed."
+      )
     ).toBeInTheDocument();
     const link = screen.getByRole("link", { name: "View orders" });
     expect(link).toHaveAttribute("href", "/orders");

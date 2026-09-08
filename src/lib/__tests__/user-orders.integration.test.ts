@@ -209,7 +209,7 @@ describe("getUserOrdersData", () => {
       userId: "buyer",
       designId: a.designId,
       totalPrice: 19.43,
-      status: "canceled",
+      status: "paid",
       createdAt: new Date("2026-09-06T12:00:00Z"),
     });
 

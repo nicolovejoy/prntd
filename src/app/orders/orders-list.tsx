@@ -10,7 +10,7 @@ import type { UserOrder } from "@/lib/user-orders";
 type StatusFilter = "active" | "canceled" | "all";
 
 const statusLabel: Record<string, string> = {
-  pending: "Processing",
+  pending: "Processing", // unreachable from /orders — see user-orders.ts
   paid: "Paid",
   submitted: "In production",
   shipped: "Shipped",

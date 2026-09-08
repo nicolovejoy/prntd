@@ -28,9 +28,14 @@ export async function getUserOrdersData(buyerId: string) {
       displayName: orderTable.displayName,
     })
     .from(orderTable)
-    // pending = checkout started but not paid (the row is inserted before the
-    // Stripe session exists and only the webhook promotes it), so it is not
-    // an order the buyer placed; admin still sees pending rows for recovery.
+    // pending covers two populations, both hidden here: abandoned checkouts
+    // (the common case — only checkout.session.completed is handled, no
+    // checkout.session.expired handler exists to mark them terminal, so they
+    // stay pending forever) and webhook-stranded paid orders (charged on
+    // Stripe but the webhook never landed; admin recovers these via the
+    // Recover control, recoverPendingOrderCore). This filter stands in for
+    // the missing expired-session handler — it is not a claim every pending
+    // row is un-placed.
     .where(and(eq(orderTable.userId, buyerId), ne(orderTable.status, "pending")))
     .orderBy(desc(orderTable.createdAt));
 
