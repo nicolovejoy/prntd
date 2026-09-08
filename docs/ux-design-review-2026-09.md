@@ -110,8 +110,11 @@ Format: purpose · what is generic or wrong · verdict · Paper notes.
 hero + Shop teaser + Pricing + footer. Generic: centred `text-5xl` headline
 over an input is the AI-tool template; the Pricing section (`page.tsx:60-70`)
 is a second hero-sized block for one sentence; the Shop `h2` is centred bold.
-Keep, restructure: hero left-aligned in a text column, price as a mono
-sub-line, Shop as the first real content, Pricing folded into the footer.
+Keep, restructure: hero left-aligned in a text column, ~~price as a mono
+sub-line~~, Shop as the first real content, ~~Pricing folded into the footer~~.
+**OWNER RULING 2026-09-08: no price before garment + size are picked — no
+price line anywhere on the landing, ever (see `docs/design-system.md` Part 2,
+Pricing rule).**
 Paper: input on paper with an ink border, outlined Generate, chips as
 underlined text or bordered pills, no `bg-surface` band.
 
@@ -153,7 +156,8 @@ directly under a `text-lg` title; the owner branch stacks seven small links
 conversation, Forked from…) at `text-sm` with no grouping; the expanded buy
 panel is a 1,200px column and the floating Feedback pill sits over "Add to
 cart" (`d-published-order-expanded-390`) because `isFunnelRoute` does not
-include `/d`. Keep, re-lay: title/designer/price as one mono-labelled block,
+include `/d`. Keep, re-lay: title/designer~~/price~~ as one mono-labelled block
+(**no PRICE row — owner ruling 2026-09-08**),
 Order primary, everything else in a small-text action row. Paper: the
 storefront backdrop stays a real fill (it is the buyer's colour choice);
 the back-arrow button (`page.tsx:162`, `bg-black/45`) becomes an ink circle.
@@ -186,8 +190,10 @@ the composition decision wants ("Designs published by other makers" — the
 Shop sells shirts, `docs/object-model-composition.md`); cards are
 `rounded-md` tiles with `group-hover:border-accent`; no price on a shop card.
 Keep, rename the route to `/shop` eventually (the organizer namespace is
-`/shop/[slug]`, so this needs the slug-collision rule settled), add price and
-garment name, make it the fourth mock.
+`/shop/[slug]`, so this needs the slug-collision rule settled), ~~add price and
+garment name~~, make it the fourth mock. **OWNER RULING 2026-09-08: no price
+on a card (shipped in #222 as "From $19.43 · Classic Tee", removed the next
+morning — a card shows no garment or size, so any number is one nobody pays).**
 
 **`/shop/[slug]` + `/shop/[slug]/[productId]`** organizer storefront. Wrong:
 it renders inside PRNTD's header and dark chrome, with an accent-colour dot
@@ -338,7 +344,8 @@ Each slice is one PR. Migration-free unless noted.
    (825 lines) and the thread route; keep `/design?id=` as a redirect.
 5. **Image detail page** (mock 3). Risk: buy flow; needs the Stripe e2e run.
 6. **Shop feed** (mock 4). Risk: route rename collides with `/shop/[slug]`;
-   price-on-card depends on the composition model's fixed-vs-open blank.
+   ~~price-on-card depends on the composition model's fixed-vs-open blank~~
+   (no price on cards — owner ruling 2026-09-08).
 7. **Mechanical sweep** of orders, cart, confirm, dashboard, admin, auth,
    storefront, empty states. Risk: none beyond volume.
 8. **Emails, OG cards, favicon, metadata.** Risk: OG raster cannot be

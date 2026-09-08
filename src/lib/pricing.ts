@@ -1,9 +1,7 @@
 import {
-  getBlank,
   getBlankOrThrow,
   getBaseCost,
   getRetailPrice,
-  ACTIVE_BLANKS,
   DEFAULT_BLANK_ID,
 } from "./blanks";
 
@@ -135,95 +133,23 @@ export function computePrice(
   return { baseCost, generationCost, total };
 }
 
-/**
- * The cheapest thing in the catalog, and which blank it is. Both halves come
- * from one scan so a caller can never quote a price from blank A next to the
- * name of blank B — the failure mode a Shop card would show as
- * "From $18.00 · Classic Tee" the day a cheaper blank is added.
+/*
+ * There is deliberately NO "cheapest price" / "from $X" helper here.
  *
- * Ties break toward DEFAULT_BLANK_ID, then catalog order, so the default
- * garment keeps its name when a new blank matches its price.
+ * A catalog-floor helper lived in this file from 2026-07-05 to 2026-09-08. It
+ * returned the item floor ($19.43) — a number no customer ever pays, because
+ * FLAT_SHIPPING_USD rides a separate Stripe line — and its docblock offered it
+ * to "marketing copy". Every surface that reached for it was later deleted as
+ * false or as fake precision (landing hero #214, Pricing section #215, Order
+ * button #131, Shop card + image-detail PRICE row 2026-09-08), and it kept
+ * coming back because the helper and the design docs kept prescribing it.
+ *
+ * Owner rule (Nico, 2026-09-08): no price is shown before the buyer has
+ * picked a garment and size. The price surfaces are the expanded buy panel
+ * total (computeOrderTotal), the cart (computeCartTotal), Stripe, and the
+ * receipts/emails. `src/lib/__tests__/no-preselection-price.test.ts` fails
+ * CI if a from-dollar string or such a helper reappears in product code.
  */
-export function cheapestActiveBlank(): { blankId: string; price: number } {
-  let bestId = DEFAULT_BLANK_ID;
-  let best = Infinity;
-  for (const blank of ACTIVE_BLANKS) {
-    for (const size of blank.sizes) {
-      const { total } = computePrice(0, blank.id, size);
-      const wins =
-        total < best ||
-        (total === best && blank.id === DEFAULT_BLANK_ID && bestId !== DEFAULT_BLANK_ID);
-      if (wins) {
-        best = total;
-        bestId = blank.id;
-      }
-    }
-  }
-  return { blankId: bestId, price: best };
-}
-
-/**
- * Cheapest customer-facing price across the active catalog (any blank, any
- * size, front only). Derived from the same computePrice the checkout charges,
- * so marketing copy like the landing's "Tees from $X" can never go stale.
- * (Lives here rather than blanks.ts because it needs the margin computation,
- * and blanks.ts importing pricing.ts would be circular.)
- */
-export function minRetailPrice(): number {
-  return cheapestActiveBlank().price;
-}
-
-export type ShopCardPrice = {
-  /** Dollars, cent precision. The floor across the garment's sizes. */
-  amount: number;
-  /** Display name of the garment the amount belongs to. */
-  garment: string;
-  /** The rendered line: `From $19.43 · Classic Tee`. */
-  text: string;
-};
-
-/**
- * The one line a Shop card says about money (Paper slice 6).
- *
- * A composition either fixes a garment (`blankId`) or leaves the buyer to
- * pick one; every PRNTD Shop mirror row is the latter today
- * (model-b-writes.ts writes `blankId: null`), so the fallback is the normal
- * path, not an edge case. Either way the amount is a *floor* — a card shows
- * no size, and a blank's price varies by size — hence "From".
- *
- * Pure and catalog-driven: the amount is the ITEM price, from the same
- * `computePrice` the checkout charges through, so the card and the order's
- * line item cannot disagree. It is NOT the delivered price —
- * `FLAT_SHIPPING_USD` rides a separate Stripe line, so the buy page's total
- * is higher (see computeOrderTotal). A card that ever wants to state a
- * delivered price has to add shipping itself; saying "shipped" over an item
- * price is what made the old homepage line false (#214).
- *
- * An unknown blank id falls back rather than throwing; one stale id must not
- * take down the whole feed.
- */
-export function cardPriceLine(
-  blankId: string | null | undefined
-): ShopCardPrice {
-  const blank = blankId ? getBlank(blankId) : undefined;
-  if (!blank) {
-    const { blankId: cheapestId, price } = cheapestActiveBlank();
-    const cheapest = getBlankOrThrow(cheapestId);
-    return {
-      amount: price,
-      garment: cheapest.name,
-      text: `From $${price.toFixed(2)} · ${cheapest.name}`,
-    };
-  }
-  const amount = Math.min(
-    ...blank.sizes.map((size) => computePrice(0, blank.id, size).total)
-  );
-  return {
-    amount,
-    garment: blank.name,
-    text: `From $${amount.toFixed(2)} · ${blank.name}`,
-  };
-}
 
 export type ProceedsBreakdown = {
   /** The organizer's item price (what they set). */

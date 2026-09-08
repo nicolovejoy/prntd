@@ -1,7 +1,8 @@
 /**
  * Shop card anatomy (Paper slice 6, #188). The card sells a shirt: art on its
- * pinned backdrop in a hairline frame, then title, then what it costs and on
- * what garment, then the maker.
+ * pinned backdrop in a hairline frame, then title, then the maker. No price:
+ * a card shows no garment or size, so any number is one nobody pays
+ * (Nico, 2026-09-08).
  */
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
@@ -25,14 +26,12 @@ function img(over: Partial<PublishedImage> = {}): PublishedImage {
 }
 
 describe("PublishedGrid", () => {
-  it("prices the card by its garment", () => {
-    render(<PublishedGrid images={[img()]} />);
-    expect(screen.getByText("From $19.43 · Classic Tee")).toBeTruthy();
-  });
-
-  it("prices a composition that fixes a garment off that garment", () => {
-    render(<PublishedGrid images={[img({ blankId: "cotton-heritage-mc1087" })]} />);
-    expect(screen.getByText("From $26.18 · Box Tee")).toBeTruthy();
+  it("shows no price, even for a composition that fixes a garment", () => {
+    render(
+      <PublishedGrid images={[img(), img({ imageId: "i2", blankId: "cotton-heritage-mc1087" })]} />
+    );
+    expect(screen.queryByText(/\$\d/)).toBeNull();
+    expect(screen.queryByText(/^From /)).toBeNull();
   });
 
   it("falls back to Untitled rather than dropping the title line", () => {

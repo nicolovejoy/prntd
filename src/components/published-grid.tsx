@@ -2,7 +2,6 @@ import Image from "next/image";
 import Link from "next/link";
 import type { PublishedImage } from "@/app/d/actions";
 import { publishedBackdrop } from "@/lib/blanks";
-import { cardPriceLine } from "@/lib/pricing";
 
 // Matches the grid's responsive column count (grid-cols-2 / sm:3 / lg:4) so
 // the browser requests an appropriately-sized image instead of the full-res
@@ -61,12 +60,9 @@ export function PublishedGrid({
             <p className="text-sm font-medium text-foreground truncate">
               {img.title || "Untitled"}
             </p>
-            {/* Catalog-generated text (garment names are short constants), never
-                adversarial user input — wrapping to a second line on the
-                narrowest phones is correct here, unlike clipping the price. */}
-            <p className="font-mono text-[11px] leading-4 text-text-muted">
-              {cardPriceLine(img.blankId).text}
-            </p>
+            {/* No price line: a card shows no garment or size, so any number
+                here is one nobody pays (Nico, 2026-09-08). The total appears
+                in the buy panel once both are picked. */}
             <p className="text-[11px] leading-4 text-text-faint truncate">
               {img.isOwn ? "by you" : `by ${img.designerName}`}
             </p>

@@ -52,6 +52,7 @@ describe("/shop", () => {
     ]);
     render(await ShopPage());
     expect(screen.getByTestId("published-grid")).toBeTruthy();
-    expect(screen.getByText("From $19.43 · Classic Tee")).toBeTruthy();
+    expect(screen.getByText("Whale")).toBeTruthy();
+    expect(screen.queryByText(/\$\d/)).toBeNull();
   });
 });
