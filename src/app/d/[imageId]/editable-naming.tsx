@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { updatePublishedNaming } from "@/app/designs/actions";
-import { Button } from "@/components/ui";
+import { Button, InlineNotice } from "@/components/ui";
+import { SAVE_TITLE_FAILED } from "@/lib/action-copy";
 
 type Props = {
   imageId: string;
@@ -17,6 +18,11 @@ export function EditableNaming({ imageId, title, canEdit }: Props) {
   const [titleDraft, setTitleDraft] = useState(title ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // A blank title is unsaveable (the server refuses it), so the control says
+  // so rather than letting the tap fail. The dotted-border disabled look
+  // comes from the Button primitive.
+  const blank = titleDraft.trim() === "";
 
   if (!editing) {
     return (
@@ -42,14 +48,22 @@ export function EditableNaming({ imageId, title, canEdit }: Props) {
   }
 
   async function handleSave() {
+    if (blank) return;
     setSaving(true);
     setError(null);
     try {
-      await updatePublishedNaming(imageId, { title: titleDraft });
+      const result = await updatePublishedNaming(imageId, { title: titleDraft });
+      // A structured refusal crosses the wire as data and is already written
+      // for the reader, so it is shown verbatim — unlike a thrown error,
+      // which production masks behind a digest.
+      if (result?.error) {
+        setError(result.error);
+        return;
+      }
       setEditing(false);
       router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+    } catch {
+      setError(SAVE_TITLE_FAILED);
     } finally {
       setSaving(false);
     }
@@ -65,9 +79,9 @@ export function EditableNaming({ imageId, title, canEdit }: Props) {
         maxLength={80}
         className="w-full bg-surface border border-border rounded px-3 py-2 text-base"
       />
-      {error && <p className="text-sm text-negative">{error}</p>}
+      {error && <InlineNotice message={error} />}
       <div className="flex gap-2">
-        <Button onClick={handleSave} disabled={saving} size="sm">
+        <Button onClick={handleSave} disabled={saving || blank} size="sm">
           {saving ? "Saving…" : "Save"}
         </Button>
         <Button
