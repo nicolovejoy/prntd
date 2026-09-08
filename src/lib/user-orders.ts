@@ -3,7 +3,7 @@ import {
   order as orderTable,
   orderItem as orderItemTable,
 } from "@/lib/db/schema";
-import { eq, asc, desc, inArray } from "drizzle-orm";
+import { and, eq, ne, asc, desc, inArray } from "drizzle-orm";
 import { resolveOrderLines } from "@/lib/order-lines";
 import { contributorAttribution } from "@/lib/order-attribution";
 import { resolveOrderLineIdentities } from "@/lib/order-line-identity";
@@ -28,7 +28,10 @@ export async function getUserOrdersData(buyerId: string) {
       displayName: orderTable.displayName,
     })
     .from(orderTable)
-    .where(eq(orderTable.userId, buyerId))
+    // pending = checkout started but not paid (the row is inserted before the
+    // Stripe session exists and only the webhook promotes it), so it is not
+    // an order the buyer placed; admin still sees pending rows for recovery.
+    .where(and(eq(orderTable.userId, buyerId), ne(orderTable.status, "pending")))
     .orderBy(desc(orderTable.createdAt));
 
   // Each order's purchased items — one order_item row per shirt (authoritative
