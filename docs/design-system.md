@@ -243,27 +243,38 @@ against those principles from now on.
 
 ### Direction
 
-PRNTD is a print shop. The interface is the shop counter: matte black, quiet,
-monochrome. The customer's artwork is the only color on the screen — every
+PRNTD is a print shop. The interface is the counter: warm paper, quiet,
+monochrome. The customer's artwork is the only colour on the screen — every
 hue the chrome claims for itself competes with the design being made, so the
-chrome claims none. White is the accent; a primary action is an inversion
-(paper-on-ink), not a colored button.
+chrome claims almost none. A primary action is an outlined ink button on the
+ground, not a filled one; the single filled accent is rose, and it means "the
+render happens now" (wordmark and Generate only).
 
-This direction is Option A's visual half and survives unchanged under A or C.
-Option B amends it (one ink accent, mono promotion — see above).
+This direction's structure — one shared monochrome visual base under Option A
+or C, with Option B amending it (one ink accent, mono promotion — see above)
+— still holds. Its specific palette does not: the base was re-specified in
+2026-09 as Paper (variant PaperB "quieter", `docs/ux-design-review-2026-09.md`)
+— warm off-white ground, outlined ink as the primary control, light only, no
+dark-mode mechanism. See Tokens below for the current values.
 
 Three principles:
 
 1. **Ink and paper.** Chrome is monochrome. Color belongs to generations,
-   mockups, and product swatches only. (Current exception: status badge hues —
-   see Gaps.)
-2. **One primary per screen.** Each screen has exactly one inverted (white)
-   button: the next step in the funnel. Everything else is outline or ghost.
-   (Current violation: /design's composer offers Send / Draw it / Compare at
-   equal-ish weight.)
+   mockups, and product swatches only. (Current exceptions: the status pair
+   on badges — positive/negative text color, see Gaps, item 1, RESOLVED —
+   and `--accent-rose` on the wordmark and the Generate button, see Tokens.)
+2. **One primary per screen.** Each screen has exactly one emphasized action:
+   the next step in the funnel, styled as the outlined-ink `primary` button
+   variant — or, on the Studio composer submit and the landing hero, the
+   solid rose `generate` variant. Everything else is `secondary` (outline),
+   `ghost`, or a plain link. (The old equal-weight Send / Draw it / Compare
+   composer is resolved — #174 collapsed the composer to one submit control
+   that generates, with chat kept to a separate, visibly lower-weight "Ask"
+   tap. See Gaps, item 5, RESOLVED.)
 3. **Phone-first, one column.** The phone layout is the design; desktop gets
    extra space, not extra features. Anything desktop-only (e.g. the
-   Generations rail) must have a phone equivalent (the Sheet), not be dropped.
+   generations strip beneath the Stage — `DesignStage`, #151) must have a
+   phone equivalent (the mobile gallery drawer/strip), not be dropped.
 
 ### Vocabulary
 
@@ -274,10 +285,16 @@ differ.
 
 - **Design** — a thread: the conversation plus all its generations. One row in
   `design`, one `/design?id=` URL.
-- **Generation** — one numbered render inside a design (`design_image` row).
-  Append-only; never replaced.
+- **Generation** — one numbered render inside a design (an `image` row,
+  linked to its conversation via `conversation_image`; `design_image` was
+  dropped in Model B slice 5, migration `0009`). Append-only; never replaced.
 - **Print** — a published generation. Lives in the Shop, has a title,
-  description, and backdrop. (`published_at` on `design_image`.)
+  description, and backdrop. Publishing writes a `listing` row (keyed on the
+  image id) that grants visibility (`published_at`, `is_hidden`); the
+  sellable fields — title, description, backdrop, feed rank — are read from
+  the image's mirror `product` row (composition slices 2–4, `storeId` and
+  `designId` both null), not from `listing` (whose same-named columns are now
+  a frozen, unread mirror pending composition slice 5).
 - **Mockup** — a generation placed on a physical product (Printful render).
 - **Product version** — a generation re-rendered for a specific product's
   print area (placement render).
@@ -287,14 +304,27 @@ differ.
 
 **Places**
 
-- **Studio** — `/design`. Where designs are made.
+- **Studio** — `/studio` (Bench · Library · Archive, nav model A,
+  `docs/ux-design-review-2026-09.md`). Where designs are made (Bench) and
+  organized (Library, Archive). One conversation thread lives one level in,
+  at `/design`.
 - **Shop** — `/shop`, the community storefront (renamed from "Fresh
-  Prints" 2026-07-19). Organizer stores are also shops: `/shop/[slug]`, each
-  a self-contained storefront.
+  Prints" 2026-07-19). Organizer stores were also shops (`/shop/[slug]`,
+  each a self-contained storefront) — retired 2026-09-05 (#191):
+  `STORES_ENABLED` is off in Production and Preview and there is no live
+  entry point; `/shop/[slug]` and `/dashboard` remain as files until
+  composition slice 5 (held, PR #201) drops the underlying tables. No
+  replacement — organizer storefronts are retired outright, not replaced.
 - **Funnel** — Studio → Preview → Order → Confirm. Linear, breadcrumbed.
-- **Shelf** — the personal archive: `/studio/library`, `/orders`.
+- **Shelf** — the personal library of owned work: `/studio/library` (every
+  owned image) and `/orders`. Distinct from `/studio/archive`, Studio's own
+  view of idle conversations (Model B `closed`/#181-swept threads) —
+  "archive" now names two different things, so Shelf is glossed as library,
+  not archive.
 - **Counter** — `/admin`. Back of shop.
-- **Dashboard** — `/dashboard`. Where organizers run their shops.
+- **Dashboard** — `/dashboard`. Where organizers ran their shops. Retired
+  2026-09-05 (#191): the file still exists but has no live entry point (see
+  Shop, above); no replacement.
 
 **Surfaces & regions**
 
@@ -302,8 +332,14 @@ differ.
   image on /d/[id]). One Stage per screen, as large as the viewport allows.
 - **Composer** — the chat input row in the Studio (input + actions). Also the
   signed-out landing hero (`MakerHero`) — the landing is the composer.
-- **Rail** — the desktop Generations sidebar (320px, right).
-- **Sheet** — a bottom drawer on phones (mobile gallery). The phone's Rail.
+- **Rail** — retired by #151 (2026-08-02). The desktop layout is now
+  `DesignStage`: the current image at full size, a generations strip
+  beneath it, chat a fixed-width column beside. There is no separate
+  right-side sidebar.
+- **Sheet** — a bottom drawer on phones (`MobileGalleryDrawer`, opened from
+  the thumbnail strip docked above the composer, `MobileGalleryStrip`). Now
+  the only surface carrying this pattern, since the Rail it used to pair
+  with is gone.
 - **Lightbox** — full-screen image overlay with per-image actions.
 - **Sticky bar** — the fixed bottom CTA bar on phone funnel pages (/order).
 - **Chip** — a small pill-shaped tappable suggestion (example prompts, filter
@@ -312,11 +348,17 @@ differ.
 **States**
 
 - **Thinking** — waiting on a chat reply (~3–6s).
-- **Drawing** — waiting on a generation (~6–15s). Copy is persona-dependent:
-  A "Drawing your design…" (current), B "Pulling your print…",
-  C "Generating…".
-- **Ready nudge** — the soft readiness signal: Draw it pops secondary→primary
-  when the idea has subject + style. Never blocks.
+- **Drawing** — waiting on a generation (~6–15s). Copy: "Generating…"
+  (persona C, shipped 2026-07-19, PR #79, `chat-panel.tsx` `DrawingStatus`).
+  A's "Drawing your design…" and B's "Pulling your print…" were never
+  shipped and are historical — see Part 1.
+- **Ready nudge** — `assessReadiness` and `READINESS_SYSTEM_PROMPT` were
+  deleted in #174 (2026-08-30/31); there is no scoring step left to pop a
+  button between weights. What remains: readiness colours a hint line under
+  the composer ("Add more detail, or tap Generate.") when the idea looks
+  thin, never the button itself — Generate is always primary (or the rose
+  `generate` variant on the Studio composer) and always generates
+  (`chat-panel.tsx` `showStyleHint`).
 
 ### Tokens
 
@@ -416,36 +458,78 @@ Geist now.
 
 Scale in use (Tailwind steps), roles:
 
-- `text-3xl/5xl bold` — page hero (h1 on home, /prints)
+- `text-2xl sm:text-5xl bold` — page hero (`MakerHero` h1 on `/`; `/prints`
+  is now a bare 308 redirect to `/shop`, not a hero page — see Vocabulary,
+  Shop)
 - `text-lg/xl semibold` — screen title
-- `text-sm font-medium` — section labels, card titles
+- `text-sm font-medium` — card titles
 - `text-sm` — body, chat
 - `text-xs text-text-muted` — metadata
-- `text-xs text-text-faint` / `text-[10px]` — fine print, badges
+- `text-xs text-text-faint` / `text-[10px]` — fine print
+- `font-mono text-[11px] leading-4 tracking-[0.08em] uppercase` — mono
+  label. Not in the original draft; now the most-used label type in the app
+  (12+ call sites incl. the Shop/`/orders` mastheads, `Badge`, `EmptyState`'s
+  `label` prop, `SizePicker`/`ColorPicker` section labels — shared as
+  `MONO_LABEL` in `src/app/d/[imageId]/mono-label.ts`). Fills the role
+  "section labels" used to name above.
 - `font-mono` — IDs, codes, money references (Option B widens this role to
   generation numbers, prices, and labels)
 
 ### Component grammar
 
-Five base components in `src/components/ui/` — the only sanctioned primitives:
+Ten primitives in `src/components/ui/` — the only sanctioned building
+blocks. Five in the original draft (Button, Badge, Card, Input, Modal);
+`ConfirmSheet`, `NoticeSheet`, `InlineNotice`, `EmptyState`, and `QuickReply`
+were added since, mostly by the #218 alert sweep:
 
-- **Button** (`button.tsx`) — variants `primary` (inverted), `secondary`
-  (outline), `danger` (outline, reddens on hover), `ghost`; sizes sm/md/lg.
-  Rule: one `primary` per screen.
-- **Badge** (`badge.tsx`) — pill, 11 status variants (see Gaps).
-- **Card** (`card.tsx`) — `surface-raised` + border + rounded-lg.
-- **Input** (`input.tsx`) — `surface` well, border-hover focus ring.
-- **Modal** (`modal.tsx`) — black/90 scrim, Escape-closes (wins over
-  Escape-to-go-up).
+- **Button** (`button.tsx`) — variants `primary` (outlined ink, not
+  inverted), `secondary` (outline, muted), `danger` (outline, reddens on
+  hover), `ghost`, and `generate` (solid rose fill — reserved for the Studio
+  composer submit and the landing hero Generate button); sizes sm/md/lg.
+  Rule: one emphasized action (`primary` or `generate`) per screen.
+- **Badge** (`badge.tsx`) — a mono uppercase text label, no pill/background/
+  radius. 11 status variant names, palette collapsed to neutral +
+  positive/negative (see Gaps, item 1, RESOLVED).
+- **Card** (`card.tsx`) — `surface-raised` + border + `rounded-lg`.
+- **Input** (`input.tsx`) — `surface` background, a 1px ink
+  (`border-foreground`) border at rest, an ink focus ring layered on top
+  (not a border-color swap); `surface-well` only when disabled.
+- **Modal** (`modal.tsx`) — `bg-foreground/20` scrim (ink at 20%, not
+  black), centered dialog, Escape-closes (wins over Escape-to-go-up). Base
+  for `ConfirmSheet` and `NoticeSheet` below.
+- **ConfirmSheet** (`confirm-sheet.tsx`) — a `Modal`-based confirm dialog
+  (title/body + Confirm/Cancel, optional `danger` styling) behind the
+  `useConfirm` hook; replaced every `window.confirm` call (#200).
+- **NoticeSheet** (`notice-sheet.tsx`) — `ConfirmSheet`'s one-button
+  sibling: acknowledge-only, for a failure with no stable inline slot (a
+  lightbox, a drawer, a thread header). Behind `useNotice`.
+- **InlineNotice** (`inline-notice.tsx`) — one line of result copy next to
+  the control that produced it, for a failing control that stays on screen;
+  `negative`/`neutral` tone, an optional admin-only diagnostic `hint`. Copy
+  constants live in `src/lib/action-copy.ts` (#218).
+- **EmptyState** (`empty-state.tsx`) — the one shared "nothing here yet"
+  block (optional mono label, one line of muted copy, one action), used on
+  the Studio bench, Library, Archive, Shop, Cart, and Orders. `/design`'s own
+  empty-conversation views do not use it — see Gaps, item 3.
+- **QuickReply** (`quick-reply.tsx`) — tappable chat-option chips rendered
+  under an assistant message; a tap submits `value` as the next turn.
 
 Composites built from these: `SizePicker`/`ColorPicker`
 (`product-options.tsx`), `PublishModal`, `PublishedGrid`, `Breadcrumbs`,
-`BuyPanel`, `MakerHero`, `ComposeForm` (organizer product compose).
+`BuyPanel`, `MakerHero`. `ComposeForm` (organizer product compose) is under
+the retired `/dashboard` (#191, see Vocabulary) — the file exists, but has
+no live entry point.
 
 Interaction grammar:
 
 - Radius: `rounded-md` controls, `rounded-lg` cards/images, `rounded-full`
-  chips/badges/FAB.
+  chips (example prompts, filter tabs) and circular icon buttons (e.g. the
+  image detail page's back arrow). Badges carry no radius at all now (a mono
+  label, not a pill — see Component grammar); the numbered gallery FAB was
+  removed in #89 and no longer exists. A pattern not in the original rule: a
+  container on a ruled surface (the admin/published grid card, an `/orders`
+  thumbnail well) carries a hairline `border` and NO radius — square, not
+  rounded.
 - Spacing: 4px base; `p-4` standard padding; `gap-2` within a control group,
   `gap-4` between groups.
 - Touch targets ≥ 44px on phone (established rule).
@@ -476,10 +560,18 @@ Remaining:
    gone because there's only one mode. The dark-literal sweep (`bg-gray-900`,
    `bg-black/*`, `text-white`, `shadow-*`) that made the old dark-only brand
    implicit is complete (#188 slice 1) — zero matches outside tests.
-3. **Two empty-state implementations** in the Studio (hero composer + an
-   older in-thread variant in `chat-panel.tsx`) — the second is near-dead
-   code. Persona-independent cleanup, but the surviving copy is persona-
-   dependent (see Part 1 samples).
+3. **Two empty-state implementations remain in a design's conversation
+   thread** (`/design`, `chat-panel.tsx`) — the page-level empty state (no
+   messages and no images at all) and a second, in-thread variant shown once
+   images exist but no message has been sent yet. Neither uses the shared
+   `EmptyState` primitive (`src/components/ui/empty-state.tsx`, added since
+   the original draft); that primitive unified the OTHER hand-rolled empty
+   states across the app (Studio bench, Library, Archive, Shop, Cart,
+   Orders), but `/design`'s two were never among them and both still render
+   on a live path — this is not near-dead code. (Vocabulary correction: this
+   gap's original wording said "in the Studio" — "Studio" now names
+   `/studio`, not `/design`; fixed here.) Persona-independent cleanup, but
+   the surviving copy is persona-dependent (see Part 1 samples).
 4. **"Selected image" is load-bearing but nearly invisible** — a 2px border
    decides what Make Products ships to /preview. Persona-independent problem;
    B's ink accent gives it a free fix, A/C need a heavier white treatment
@@ -493,17 +585,27 @@ Remaining:
    review, fixed (the alias no longer sets a border), and guarded by a test
    asserting the rule stays border-free. This gap itself — the 2px border
    being weak even when it renders — is unchanged and still open.
-5. **Three composer actions at equal weight** — violates one-primary. The
-   structural fix (what Send / Draw it / Compare collapse into) is persona-
-   independent; the labels are persona-dependent (A keeps "Draw it", B
-   "Print it"-adjacent, C "Generate").
-6. **Accent = white means no brand color exists.** Under A and C this is a
-   stated decision — ink/paper is the brand, nobody "adds some color" ad
-   hoc. Option B is the one persona that amends it (single ink accent, scoped
-   to chips/numbers/marks, never the primary button).
-7. **Internals leak into customer copy** (new) — the Compare tooltip names
-   generators; a few statuses render raw enum-ish strings. Fails all three
-   personas; audit rides along with the persona copy pass.
+5. ~~**Three composer actions at equal weight**~~ — RESOLVED 2026-08-30/31
+   under #174 (studio slice 1): the composer has exactly one submit control,
+   labelled "Generate" (persona C), and it always generates. Chat is still
+   reachable but only via a separate, visibly lower-weight "Ask" tap
+   (`variant="ghost"` vs. the submit's `variant="primary"`/`"generate"`).
+   `chat-panel.tsx` `handleSubmit`/`handleAsk`.
+6. ~~**Accent = white means no brand color exists.**~~ — RESOLVED 2026-09-06
+   under Paper (#213): false twice over now — `--accent` resolves to ink
+   (`var(--foreground)`), not white, and one brand hue does exist:
+   `--accent-rose`, the "One Mark" rule (the wordmark and the `generate`
+   Button variant, nothing else). Option B's old "single ink accent" idea is
+   superseded by this narrower, already-shipped rose accent.
+7. ~~**Internals leak into customer copy**~~ — RESOLVED: Compare, and its
+   generator-naming tooltip, was removed entirely in #56 (2026-07-19). A
+   repo-wide grep for "Compare" and for generator/`Ideogram` naming in
+   `src/app`/`src/components` (excluding tests) found no remaining
+   customer-facing hits. Order status text on the customer-facing `/orders`
+   page is fully relabeled (`statusLabel` in `orders-list.tsx` covers all six
+   statuses) — no raw enum value reaches a customer there. `/admin`'s order
+   list still renders `{order.status}` raw, but that is an ops surface, not
+   customer copy, and was never in this gap's scope.
 
 ---
 
