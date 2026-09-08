@@ -332,6 +332,31 @@ describe("getUserOrdersData", () => {
     expect(new Set(orders.map((o) => o.id))).toEqual(new Set(ids));
   });
 
+  it("round-trips abandonedAt on the order row (#231)", async () => {
+    const db = h.db as Db;
+    const a = await seedDesignWithImage(db, "buyer", "https://r2/abandoned.png");
+    const abandonedAt = new Date("2026-09-08T12:00:00Z");
+    const [order] = await db
+      .insert(schema.order)
+      .values({
+        userId: "buyer",
+        designId: a.designId,
+        totalPrice: 19.43,
+        status: "pending",
+        stripeSessionId: "cs_test_abandoned_at",
+        abandonedAt,
+      })
+      .returning();
+
+    expect(order.abandonedAt).toEqual(abandonedAt);
+
+    const [reread] = await db
+      .select()
+      .from(schema.order)
+      .where(eq(schema.order.id, order.id));
+    expect(reread.abandonedAt).toEqual(abandonedAt);
+  });
+
   it("only returns the buyer's own orders", async () => {
     const db = h.db as Db;
     await db
