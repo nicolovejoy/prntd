@@ -14,8 +14,9 @@ type Search = Promise<Record<string, string | string[] | undefined>>;
  * already exists — there is no race with the webhook to guard against, and
  * this page never renders a field the webhook writes (ruling P3). That is
  * what lets this be a plain awaited server read with no retry/poll island.
- * `/orders` hides `pending` rows (src/lib/user-orders.ts), so the "View
- * orders" link below can briefly not show an order that was just paid here.
+ * `/orders` hides young pending rows (src/lib/user-orders.ts,
+ * `STALE_PENDING_MS`), so the "View orders" link below can briefly not show
+ * an order that was just paid here.
  */
 export default async function ConfirmPage({ searchParams }: { searchParams: Search }) {
   const raw = (await searchParams).session_id;
