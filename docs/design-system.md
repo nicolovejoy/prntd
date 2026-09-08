@@ -66,7 +66,7 @@ ink/paper direction already lean this way — this is the continuity pick.
 4. Generating: "Drawing your design…"
 5. Empty `/designs`: "Nothing here yet. Describe an idea and we'll draw it."
    + [New design]
-6. Order CTA: "Buy now — $19.43"
+6. Order CTA: "Buy now" (no price before size + garment are picked — see Part 2, Pricing rule)
 7. Confirmation opening: "Order placed. We're printing your shirt."
 8. Error: "The drawing failed. Nothing was charged — try again."
 
@@ -117,7 +117,7 @@ little playful; the studio has opinions. More character, more risk.
 4. Generating: "Pulling your print…"
 5. Empty `/designs`: "The flat file is empty. Print something."
    + [New design]
-6. Order CTA: "Print it — $19.43"
+6. Order CTA: "Print it" (no price before size + garment are picked — see Part 2, Pricing rule)
 7. Confirmation opening: "It's on the press. One shirt, run of one."
 8. Error: "The press jammed. Nothing was charged — try again."
 
@@ -172,7 +172,7 @@ mockups do the persuading. Least voice, safest, most conventional.
    `src/lib/design-examples.ts`, not a fixed set of strings.
 4. Generating: "Generating…"
 5. Empty `/designs`: "No designs yet." + [New design]
-6. Order CTA: "Order — $19.43"
+6. Order CTA: "Order" (no price before size + garment are picked — see Part 2, Pricing rule)
 7. Confirmation opening: "Order confirmed."
 8. Error: "Generation failed. You were not charged."
 
@@ -542,7 +542,15 @@ Signed-in, route back to work.
    their backdrops. Header line persona-dependent.
 4. **Shop teaser** — `PublishedGrid` 12-card feed + "See all" → /prints.
 5. **Promo banner** — conditional, config-driven (`lib/promotion.ts`).
-6. **Pricing line** — driven by `minRetailPrice()`, never hardcoded.
+6. **Pricing line** — REMOVED (2026-09-08). **Pricing rule (owner, Nico):
+   no price is shown anywhere before the buyer has picked garment and size.**
+   The item floor ($19.43) excludes the $4.69 shipping line, so it is a number
+   nobody pays; it shipped as "false" or "fake precision" four times (hero
+   #214, Pricing section #215, Order button #131, Shop card + image-detail
+   PRICE row 2026-09-08). Price surfaces are the expanded buy panel total, the
+   cart, Stripe, and receipts. `src/lib/__tests__/no-preselection-price.test.ts`
+   enforces it — do not add a price line, a "From $" string, or a catalog-floor
+   helper.
 7. **Footer** — contact email + "Open a shop →" (`/dashboard`).
 
 ### `/design` Studio (`app/design/page.tsx`)

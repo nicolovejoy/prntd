@@ -8,7 +8,6 @@ import { getLastPurchaseDefaults } from "@/app/preview/actions";
 import { auth, isAnonymousUser } from "@/lib/auth";
 import { multiPlacementEnabled } from "@/lib/blanks";
 import { cartEnabled } from "@/lib/flags";
-import { minRetailPrice } from "@/lib/pricing";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
 import { Button } from "@/components/ui";
@@ -83,7 +82,7 @@ export default async function PublishedImagePage({
   const trail = breadcrumbTrail(`/d/${imageId}`, { from });
   const up = trail.length > 0 ? trail[trail.length - 1] : null;
 
-  // Title/attribution/price as one mono-labelled block, identical for both
+  // Title/attribution as one mono-labelled block, identical for both
   // branches below (design review, "/d/[imageId] image page"). The owner's
   // actions are NOT here — they collect under the OWNER row further down.
   const identityBlock = (
@@ -92,7 +91,6 @@ export default async function PublishedImagePage({
       title={img.title}
       canEditTitle={isOwner && isPublished}
       designerName={img.designerName}
-      priceFloor={minRetailPrice()}
       forkChain={img.forkChain}
     />
   );

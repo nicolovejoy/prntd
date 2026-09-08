@@ -11,27 +11,25 @@ vi.mock("../editable-naming", () => ({
 }));
 
 describe("IdentityBlock", () => {
-  it("labels title, designer and price", () => {
+  it("labels title and designer, and shows no price", () => {
     render(
       <IdentityBlock
         imageId="img-1"
         title="Dapper Whale"
         canEditTitle={false}
         designerName="Nico"
-        priceFloor={19.43}
         forkChain={[]}
       />
     );
     expect(screen.getByText("Title")).toBeInTheDocument();
     expect(screen.getByText("Designed by")).toBeInTheDocument();
-    expect(screen.getByText("Price")).toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: "Dapper Whale" })
     ).toBeInTheDocument();
     expect(screen.getByText("Nico")).toBeInTheDocument();
-    // Item price floor only — never "shipped" (ruling R1).
-    expect(screen.getByText("From $19.43")).toBeInTheDocument();
-    expect(screen.queryByText(/shipped/i)).not.toBeInTheDocument();
+    // No price before garment + size are picked (Nico, 2026-09-08).
+    expect(screen.queryByText("Price")).not.toBeInTheDocument();
+    expect(screen.queryByText(/\$\d/)).not.toBeInTheDocument();
   });
 
   it("omits the fork row when there is no fork chain", () => {
@@ -41,7 +39,6 @@ describe("IdentityBlock", () => {
         title="Dapper Whale"
         canEditTitle={false}
         designerName="Nico"
-        priceFloor={19.43}
         forkChain={[]}
       />
     );
@@ -55,7 +52,6 @@ describe("IdentityBlock", () => {
         title="Remix"
         canEditTitle={false}
         designerName="Ada"
-        priceFloor={19.43}
         forkChain={[
           { imageId: "img-1", title: "Original", designerName: "Nico" },
         ]}

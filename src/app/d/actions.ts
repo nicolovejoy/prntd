@@ -49,9 +49,9 @@ export type PublishedImage = {
   /**
    * The garment a composition fixes; absent or null means the buyer picks one
    * (every Shop mirror row today). Optional because ImagePage derives from
-   * this type and the image detail page has a real per-size buy panel — it has
-   * no card price line to render, so getImagePage does not supply it. To
-   * cardPriceLine, undefined and null mean the same thing.
+   * this type and getImagePage does not supply it. Nothing renders it yet —
+   * it is NOT a price input (no price is shown before size + garment are
+   * picked; see src/lib/pricing.ts).
    */
   blankId?: string | null;
   designerName: string;

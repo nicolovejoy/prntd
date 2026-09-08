@@ -29,30 +29,26 @@ function Row({
 }
 
 /**
- * Title, designer and price as one labelled block (design review,
- * "/d/[imageId] image page": "title/designer/price as one mono-labelled
- * block"). Server component — the only client island inside it is the
+ * Title and designer as one labelled block (design review, "/d/[imageId]
+ * image page"). Server component — the only client island inside it is the
  * owner's title editor.
  *
- * `priceFloor` is the ITEM price floor (minRetailPrice), so the value reads
- * "From $19.43" and says nothing about delivery: flat shipping is a separate
- * Stripe line and is broken out in the expanded buy panel. PR #214 deleted
- * the landing's "From $19.43, shipped." for claiming otherwise — do not add
- * "shipped", "delivered" or a shipping tail here.
+ * No PRICE row, on purpose. The review asked for "title/designer/price";
+ * the item floor ($19.43 before shipping) is a number nobody pays (shipping is a
+ * separate line) and Nico removed it on 2026-09-08. The price appears once
+ * the buyer has picked garment and size — in the expanded buy panel's total.
  */
 export function IdentityBlock({
   imageId,
   title,
   canEditTitle,
   designerName,
-  priceFloor,
   forkChain,
 }: {
   imageId: string;
   title: string | null;
   canEditTitle: boolean;
   designerName: string;
-  priceFloor: number;
   forkChain: ForkLink[];
 }) {
   return (
@@ -61,7 +57,6 @@ export function IdentityBlock({
         <EditableNaming imageId={imageId} title={title} canEdit={canEditTitle} />
       </Row>
       <Row label="Designed by">{designerName}</Row>
-      <Row label="Price">From ${priceFloor.toFixed(2)}</Row>
       {forkChain.length > 0 && (
         <Row label="Forked from">
           <span className="text-text-muted">
