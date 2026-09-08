@@ -36,6 +36,25 @@ describe("SizePicker", () => {
     fireEvent.click(screen.getByRole("button", { name: "M" }));
     expect(onChange).toHaveBeenCalledWith("M");
   });
+
+  it("sets the section label in the Paper mono label type", () => {
+    render(<SizePicker sizes={["S", "M"]} value={null} onChange={() => {}} />);
+    const label = screen.getByText("Size");
+    expect(label.className).toContain("font-mono");
+    expect(label.className).toContain("text-[11px]");
+    expect(label.className).toContain("tracking-[0.08em]");
+    expect(label.className).toContain("uppercase");
+    expect(label.className).toContain("text-text-muted");
+    expect(label.className).not.toContain("text-sm");
+    expect(label.className).not.toContain("font-medium");
+  });
+
+  it("keeps a caller-supplied label as given, letting CSS do the casing", () => {
+    render(
+      <SizePicker sizes={["S"]} value={null} onChange={() => {}} label="Size (US)" />
+    );
+    expect(screen.getByText("Size (US)").className).toContain("uppercase");
+  });
 });
 
 describe("ColorPicker", () => {
@@ -56,5 +75,16 @@ describe("ColorPicker", () => {
   it("renders no note by default", () => {
     render(<ColorPicker colors={COLORS} value="White" onChange={() => {}} />);
     expect(screen.queryByText(/designer's pick/)).not.toBeInTheDocument();
+  });
+
+  it("sets the section label in the Paper mono label type and keeps the value suffix", () => {
+    render(<ColorPicker colors={COLORS} value="White" onChange={() => {}} />);
+    const label = screen.getByText("Color — White");
+    expect(label.className).toContain("font-mono");
+    expect(label.className).toContain("text-[11px]");
+    expect(label.className).toContain("tracking-[0.08em]");
+    expect(label.className).toContain("uppercase");
+    expect(label.className).toContain("text-text-muted");
+    expect(label.className).not.toContain("font-medium");
   });
 });

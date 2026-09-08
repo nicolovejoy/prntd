@@ -8,6 +8,10 @@ import type { BlankColor } from "@/lib/blanks";
  * the selected state and any price/mockup side effects. Phone-first: 44px+
  * touch targets per the mobile-UX guidance.
  *
+ * Section labels use the Paper mono label type (11px mono, tracked, caps) so
+ * they read as peers of the mono labels their host panels set; the `uppercase`
+ * is CSS, so `label` props and colour names stay sentence case in code.
+ *
  * `value: null` means no size chosen yet (#60) — parents start unselected
  * and gate their CTA on a pick.
  */
@@ -24,7 +28,9 @@ export function SizePicker({
 }) {
   return (
     <div>
-      <label className="block text-sm font-medium mb-2">{label}</label>
+      <label className="block mb-2 font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted">
+        {label}
+      </label>
       <div className="flex flex-wrap gap-2">
         {sizes.map((s) => (
           <button
@@ -65,7 +71,9 @@ export function ColorPicker({
   if (colors.length <= 1) return null;
   return (
     <div>
-      <label className="block text-sm font-medium mb-2">Color — {value}</label>
+      <label className="block mb-2 font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted">
+        Color — {value}
+      </label>
       <div className="flex flex-wrap gap-2.5 md:gap-2">
         {colors.map((c) => (
           <button
