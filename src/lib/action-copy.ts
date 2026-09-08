@@ -41,6 +41,8 @@ export const OPEN_CONVERSATION_FAILED = "Couldn't open this conversation. Try ag
 export const DELETE_CONVERSATION_FAILED = "Couldn't delete this conversation. Try again.";
 export const START_FROM_IMAGE_FAILED = "Couldn't start a new design from this image. Try again.";
 export const SET_PRIMARY_IMAGE_FAILED = "Couldn't make this the design's image. Try again.";
+export const EMPTY_TITLE_REJECTED = "A title can't be blank. Type a title or cancel.";
+export const SAVE_TITLE_FAILED = "Couldn't save this title. Try again.";
 
 // --- admin (InlineNotice: one line, plus the raw error as a hint) ---
 

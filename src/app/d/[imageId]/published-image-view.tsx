@@ -45,6 +45,11 @@ export function PublishedImageView({
     setBg(color); // optimistic
     startTransition(async () => {
       try {
+        // R6: the return is `{ error?: string }` now, discarded here on
+        // purpose — a backdrop-only edit sends no `title`, so the blank-title
+        // guard can never fire on this call site today. But it IS a call
+        // site that would silently swallow a future structured refusal on
+        // this field; if one is ever added, this needs to read the result.
         await updatePublishedNaming(imageId, { backgroundColor: color });
         // Refresh so the storefront grid / other surfaces pick up the change.
         router.refresh();
