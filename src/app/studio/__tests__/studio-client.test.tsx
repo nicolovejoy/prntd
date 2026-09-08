@@ -9,7 +9,7 @@
  * refresh landing mid-typing. Server actions are mocked; polling arithmetic
  * lives in generation-poll's own unit tests.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 import { StudioClient } from "../studio-client";
 import type { StudioLane } from "@/lib/studio";
@@ -1202,5 +1202,176 @@ describe("mount-time reconcile (#204)", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("lane overflow menu keyboard + focus (WAI-ARIA menu button)", () => {
+  function openMenu() {
+    render(
+      <StudioClient
+        initialLanes={[lane({ cells: [cell("a"), cell("b")] })]}
+      />
+    );
+    const trigger = screen.getByRole("button", { name: "More" });
+    fireEvent.click(trigger);
+    return { trigger, panel: screen.getByRole("menu") };
+  }
+
+  it("moves focus to the first item when the menu opens", () => {
+    openMenu();
+    expect(document.activeElement).toBe(screen.getByTestId("studio-close-lane"));
+  });
+
+  it("gives the focused item the only tabIndex of 0", () => {
+    openMenu();
+    expect(screen.getByTestId("studio-close-lane").getAttribute("tabindex")).toBe("0");
+    expect(screen.getByTestId("studio-delete-lane").getAttribute("tabindex")).toBe("-1");
+    expect(screen.getByTestId("select-mode").getAttribute("tabindex")).toBe("-1");
+  });
+
+  it("ArrowDown walks the items and wraps to the first", () => {
+    const { panel } = openMenu();
+    fireEvent.keyDown(panel, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(screen.getByTestId("studio-delete-lane"));
+    fireEvent.keyDown(panel, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(screen.getByTestId("select-mode"));
+    fireEvent.keyDown(panel, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(screen.getByTestId("studio-close-lane"));
+  });
+
+  it("ArrowUp from the first item wraps to the last", () => {
+    const { panel } = openMenu();
+    fireEvent.keyDown(panel, { key: "ArrowUp" });
+    expect(document.activeElement).toBe(screen.getByTestId("select-mode"));
+  });
+
+  it("Home and End jump to the first and last item", () => {
+    const { panel } = openMenu();
+    fireEvent.keyDown(panel, { key: "End" });
+    expect(document.activeElement).toBe(screen.getByTestId("select-mode"));
+    fireEvent.keyDown(panel, { key: "Home" });
+    expect(document.activeElement).toBe(screen.getByTestId("studio-close-lane"));
+  });
+
+  it("Escape closes the menu and returns focus to the trigger", () => {
+    const { trigger } = openMenu();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("Tab closes the menu without stealing focus back to the trigger", () => {
+    const { panel, trigger } = openMenu();
+    fireEvent.keyDown(panel, { key: "Tab" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement).not.toBe(trigger);
+  });
+
+  it("an outside click closes the menu without pulling focus back to the trigger", () => {
+    const { trigger } = openMenu();
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement).not.toBe(trigger);
+  });
+
+  it("still closes on Escape when a second lane's menu is the open one", () => {
+    render(
+      <StudioClient
+        initialLanes={[
+          lane({ designId: "design-1", cells: [cell("a")] }),
+          lane({ designId: "design-2", title: "second", cells: [cell("c")] }),
+        ]}
+      />
+    );
+    const triggers = screen.getAllByRole("button", { name: "More" });
+    fireEvent.click(triggers[1]);
+    expect(document.activeElement).toBe(screen.getByTestId("studio-close-lane"));
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement).toBe(triggers[1]);
+  });
+});
+
+describe("lane overflow menu placement (flip-up near the fold)", () => {
+  const realInnerHeight = window.innerHeight;
+  const realRect = window.HTMLElement.prototype.getBoundingClientRect;
+
+  function stubGeometry({ triggerBottom }: { triggerBottom: number }) {
+    window.HTMLElement.prototype.getBoundingClientRect = function (
+      this: HTMLElement
+    ) {
+      const menu = this.getAttribute("role") === "menu";
+      const height = menu ? 132 : 44;
+      const bottom = menu ? triggerBottom + height : triggerBottom;
+      return {
+        x: 0,
+        y: bottom - height,
+        top: bottom - height,
+        left: 0,
+        right: 144,
+        bottom,
+        width: 144,
+        height,
+        toJSON: () => ({}),
+      } as DOMRect;
+    };
+  }
+
+  afterEach(() => {
+    window.HTMLElement.prototype.getBoundingClientRect = realRect;
+    Object.defineProperty(window, "innerHeight", {
+      value: realInnerHeight,
+      configurable: true,
+      writable: true,
+    });
+  });
+
+  function renderAndOpen() {
+    render(<StudioClient initialLanes={[lane({ cells: [cell("a")] })]} />);
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    return screen.getByRole("menu");
+  }
+
+  it("opens below the trigger when there is room", () => {
+    Object.defineProperty(window, "innerHeight", {
+      value: 800,
+      configurable: true,
+      writable: true,
+    });
+    stubGeometry({ triggerBottom: 200 });
+    const panel = renderAndOpen();
+    expect(panel.className).toContain("top-full");
+    expect(panel.className).not.toContain("bottom-full");
+  });
+
+  it("flips above the trigger when the panel would fall below the fold", () => {
+    Object.defineProperty(window, "innerHeight", {
+      value: 800,
+      configurable: true,
+      writable: true,
+    });
+    stubGeometry({ triggerBottom: 760 });
+    const panel = renderAndOpen();
+    expect(panel.className).toContain("bottom-full");
+    expect(panel.className).not.toContain("top-full");
+  });
+
+  it("re-measures on each open rather than staying flipped", () => {
+    Object.defineProperty(window, "innerHeight", {
+      value: 800,
+      configurable: true,
+      writable: true,
+    });
+    stubGeometry({ triggerBottom: 760 });
+    const trigger = (() => {
+      render(<StudioClient initialLanes={[lane({ cells: [cell("a")] })]} />);
+      return screen.getByRole("button", { name: "More" });
+    })();
+    fireEvent.click(trigger);
+    expect(screen.getByRole("menu").className).toContain("bottom-full");
+    fireEvent.click(trigger);
+    stubGeometry({ triggerBottom: 100 });
+    fireEvent.click(trigger);
+    expect(screen.getByRole("menu").className).toContain("top-full");
   });
 });

@@ -2,7 +2,16 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Children,
+  cloneElement,
+  isValidElement,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import type { RefObject } from "react";
 import { Button, EmptyState, useConfirm } from "@/components/ui";
 import {
@@ -768,6 +777,16 @@ function Composer({
   );
 }
 
+/** Items are found in the DOM rather than passed as data, so `Lane` keeps
+ * owning their labels, handlers and test ids. An item added without this
+ * role is invisible to the arrow keys — that is the contract. `children`
+ * is also expected to be a flat list of menuitem elements (no wrapping
+ * fragments/conditionals-that-render-false in the middle): the roving
+ * tabIndex below counts valid elements to stay in step with this
+ * selector's DOM-order count, and a nested or skipped position would
+ * desync the two. */
+const MENUITEM_SELECTOR = '[role="menuitem"]';
+
 /**
  * The per-lane overflow (Paper bench, #188 slice 3). The actions that used
  * to sit as inline text links in the lane header — Close, Delete, and the
@@ -775,12 +794,74 @@ function Composer({
  * title, a state and a time, which is what makes activity-desc ordering
  * legible (#187 point 3).
  *
+ * It is a WAI-ARIA menu button, not a disclosure — the markup already
+ * declared `aria-haspopup="menu"` / `role="menu"` / `role="menuitem"`, which
+ * promises arrow-key navigation and roving tabindex; this implements that
+ * promise rather than retracting it.
+ *
  * Closes on outside click, on Escape, and on any click inside (every item
- * is a terminal action, so there is nothing to keep it open for).
+ * is a terminal action, so there is nothing to keep it open for). Focus
+ * returns to the trigger on Escape ONLY. An outside click has already put
+ * the user's attention somewhere deliberate, Tab is a deliberate move
+ * onward, and on activation the trigger usually does not survive — Close
+ * and Delete remove the lane, and Select hides every ⋯ on the page — so a
+ * generic on-close restore would focus a detached node.
  */
 function LaneMenu({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [dropUp, setDropUp] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  const menuItems = useCallback(
+    () =>
+      Array.from(
+        panelRef.current?.querySelectorAll<HTMLElement>(MENUITEM_SELECTOR) ?? []
+      ),
+    []
+  );
+
+  const focusItem = useCallback(
+    (index: number) => {
+      const items = menuItems();
+      if (items.length === 0) return;
+      const next = ((index % items.length) + items.length) % items.length;
+      setActiveIndex(next);
+      items[next]?.focus();
+    },
+    [menuItems]
+  );
+
+  // Focus enters the panel on open. Layout effect, so it lands before paint
+  // and a screen reader announces the item rather than the button again.
+  // activeIndex itself is reset to 0 in the trigger's onClick (below), not
+  // here — react-hooks/set-state-in-effect forbids a setState call in an
+  // effect body; this effect only synchronizes focus with the DOM.
+  useLayoutEffect(() => {
+    if (!open) return;
+    // preventScroll: this effect and the flip-placement effect below both
+    // key off `open` and run in declaration order, so focus can land before
+    // the panel's dropUp position is measured. A focus() without this flag
+    // scrolls the (still top-full, possibly below-the-fold) panel into
+    // view first — the trigger the user just tapped is on-screen by
+    // construction, so that scroll is never wanted. Do not remove it.
+    menuItems()[0]?.focus({ preventScroll: true });
+  }, [open, menuItems]);
+
+  // The last lane sits at the bottom of a scrolling page, where a panel
+  // anchored to `top-full` opens below the fold. Measured from real rects
+  // after the panel renders — no estimated height, because the panel is
+  // three rows today and may not be tomorrow. Re-run on every open so a
+  // menu that flipped once does not stay flipped after a scroll.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const trigger = triggerRef.current?.getBoundingClientRect();
+    const panel = panelRef.current?.getBoundingClientRect();
+    if (!trigger || !panel) return;
+    setDropUp(trigger.bottom + panel.height > window.innerHeight);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -788,7 +869,10 @@ function LaneMenu({ children }: { children: React.ReactNode }) {
       if (!ref.current?.contains(e.target as Node)) setOpen(false);
     }
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key !== "Escape") return;
+      setOpen(false);
+      // isConnected: Escape can race a poll that removed this lane.
+      if (triggerRef.current?.isConnected) triggerRef.current.focus();
     }
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
@@ -798,14 +882,51 @@ function LaneMenu({ children }: { children: React.ReactNode }) {
     };
   }, [open]);
 
+  function onPanelKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      focusItem(activeIndex + 1);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      focusItem(activeIndex - 1);
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      focusItem(0);
+    } else if (e.key === "End") {
+      e.preventDefault();
+      focusItem(menuItems().length - 1);
+    } else if (e.key === "Tab") {
+      // No preventDefault (ruling R4): the browser moves focus onward and
+      // the panel unmounts in the same tick.
+      setOpen(false);
+    }
+  }
+
+  // Roving tabindex: exactly one item is in the Tab order at a time.
+  // Indexed by valid-element position, not Children.map's position — a
+  // conditional item (`{cond && <button role="menuitem">…</button>}`)
+  // still consumes a Children index when it renders `false`, which would
+  // desync this from menuItems()'s DOM-order count and could leave no
+  // item focusable.
+  let itemIndex = -1;
+  const items = Children.map(children, (child) =>
+    isValidElement<{ tabIndex?: number }>(child)
+      ? cloneElement(child, { tabIndex: ++itemIndex === activeIndex ? 0 : -1 })
+      : child
+  );
+
   return (
     <div ref={ref} className="relative shrink-0">
       <button
+        ref={triggerRef}
         type="button"
         aria-label="More"
         aria-haspopup="menu"
         aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => {
+          if (!open) setActiveIndex(0);
+          setOpen(!open);
+        }}
         className="w-[46px] min-h-11 -mr-3 flex items-center justify-center text-foreground"
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -816,11 +937,15 @@ function LaneMenu({ children }: { children: React.ReactNode }) {
       </button>
       {open && (
         <div
+          ref={panelRef}
           role="menu"
           onClick={() => setOpen(false)}
-          className="absolute right-0 top-full z-10 min-w-[9rem] bg-surface border border-foreground flex flex-col"
+          onKeyDown={onPanelKeyDown}
+          className={`absolute right-0 ${
+            dropUp ? "bottom-full" : "top-full"
+          } z-10 min-w-[9rem] bg-surface border border-foreground flex flex-col`}
         >
-          {children}
+          {items}
         </div>
       )}
     </div>
