@@ -28,6 +28,7 @@ import {
 import { generatePublishedNaming } from "@/lib/ai";
 import { getImageNamingContext } from "@/lib/design-images";
 import { DEFAULT_PUBLISH_BACKGROUND } from "@/lib/blanks";
+import { EMPTY_TITLE_REJECTED } from "@/lib/action-copy";
 
 /**
  * Remove a design from the user's view. Hard-deletes when nothing else
@@ -298,7 +299,7 @@ export async function updatePublishedNaming(
     description?: string;
     backgroundColor?: string | null;
   }
-) {
+): Promise<{ error?: string }> {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) throw new Error("Unauthorized");
 
@@ -315,6 +316,18 @@ export async function updatePublishedNaming(
   if (!image) throw new Error("Image not found");
   if (image.ownerId !== session.user.id) throw new Error("Unauthorized");
   if (!image.publishedAt) throw new Error("Image is not published");
+
+  // A blank title is not a state the reader can see: every display site
+  // falls back to "Untitled", so saving "" only makes the row look broken
+  // (an empty <h1>, an empty og:title). Refused as data rather than thrown,
+  // the way deleteDesign refuses a shop-referenced design — a thrown
+  // server-action error is masked behind a digest in production, so the
+  // caller could not show the reason. Description is deliberately NOT
+  // guarded: clearing one is legitimate (descriptions left the product in
+  // PR #130).
+  if (title !== undefined && title.trim() === "") {
+    return { error: EMPTY_TITLE_REJECTED };
+  }
 
   // Partial update: only touch fields the caller actually sent. The
   // background control persists backgroundColor alone; the naming editor
@@ -339,6 +352,7 @@ export async function updatePublishedNaming(
   revalidatePath("/");
   revalidatePath("/shop");
   revalidatePath(`/d/${imageId}`);
+  return {};
 }
 
 /**
