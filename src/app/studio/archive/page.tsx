@@ -19,10 +19,14 @@ export default async function StudioArchivePage() {
   const conversations = await getStudioArchiveData(session.user.id);
 
   return (
-    <main className="px-4 sm:px-6 py-8 max-w-4xl mx-auto w-full">
-      <p className="text-sm text-text-faint mb-6">
-        Designs with no activity for three days leave the Studio.
-      </p>
+    <>
+      {/* 24px under the tab strip, the same gap the bench's composer sits
+          behind. The layout contributes nothing below the strip, so each
+          view owns this number; they used to disagree (24 / 32 / 32). */}
+      <main className="px-4 sm:px-6 pt-6 pb-8 max-w-4xl mx-auto w-full">
+        <p className="text-sm text-text-faint mb-6">
+          Designs with no activity for three days leave the Studio.
+        </p>
 
       {conversations.length === 0 ? (
         <EmptyState message="Nothing archived." />
@@ -80,6 +84,7 @@ export default async function StudioArchivePage() {
           ))}
         </ul>
       )}
-    </main>
+      </main>
+    </>
   );
 }
