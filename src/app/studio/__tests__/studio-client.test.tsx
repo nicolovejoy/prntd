@@ -1204,3 +1204,90 @@ describe("mount-time reconcile (#204)", () => {
     }
   });
 });
+
+describe("lane overflow menu keyboard + focus (WAI-ARIA menu button)", () => {
+  function openMenu() {
+    render(
+      <StudioClient
+        initialLanes={[lane({ cells: [cell("a"), cell("b")] })]}
+      />
+    );
+    const trigger = screen.getByRole("button", { name: "More" });
+    fireEvent.click(trigger);
+    return { trigger, panel: screen.getByRole("menu") };
+  }
+
+  it("moves focus to the first item when the menu opens", () => {
+    openMenu();
+    expect(document.activeElement).toBe(screen.getByTestId("studio-close-lane"));
+  });
+
+  it("gives the focused item the only tabIndex of 0", () => {
+    openMenu();
+    expect(screen.getByTestId("studio-close-lane").getAttribute("tabindex")).toBe("0");
+    expect(screen.getByTestId("studio-delete-lane").getAttribute("tabindex")).toBe("-1");
+    expect(screen.getByTestId("select-mode").getAttribute("tabindex")).toBe("-1");
+  });
+
+  it("ArrowDown walks the items and wraps to the first", () => {
+    const { panel } = openMenu();
+    fireEvent.keyDown(panel, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(screen.getByTestId("studio-delete-lane"));
+    fireEvent.keyDown(panel, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(screen.getByTestId("select-mode"));
+    fireEvent.keyDown(panel, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(screen.getByTestId("studio-close-lane"));
+  });
+
+  it("ArrowUp from the first item wraps to the last", () => {
+    const { panel } = openMenu();
+    fireEvent.keyDown(panel, { key: "ArrowUp" });
+    expect(document.activeElement).toBe(screen.getByTestId("select-mode"));
+  });
+
+  it("Home and End jump to the first and last item", () => {
+    const { panel } = openMenu();
+    fireEvent.keyDown(panel, { key: "End" });
+    expect(document.activeElement).toBe(screen.getByTestId("select-mode"));
+    fireEvent.keyDown(panel, { key: "Home" });
+    expect(document.activeElement).toBe(screen.getByTestId("studio-close-lane"));
+  });
+
+  it("Escape closes the menu and returns focus to the trigger", () => {
+    const { trigger } = openMenu();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("Tab closes the menu without stealing focus back to the trigger", () => {
+    const { panel, trigger } = openMenu();
+    fireEvent.keyDown(panel, { key: "Tab" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement).not.toBe(trigger);
+  });
+
+  it("an outside click closes the menu without pulling focus back to the trigger", () => {
+    const { trigger } = openMenu();
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement).not.toBe(trigger);
+  });
+
+  it("still closes on Escape when a second lane's menu is the open one", () => {
+    render(
+      <StudioClient
+        initialLanes={[
+          lane({ designId: "design-1", cells: [cell("a")] }),
+          lane({ designId: "design-2", title: "second", cells: [cell("c")] }),
+        ]}
+      />
+    );
+    const triggers = screen.getAllByRole("button", { name: "More" });
+    fireEvent.click(triggers[1]);
+    expect(document.activeElement).toBe(screen.getByTestId("studio-close-lane"));
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement).toBe(triggers[1]);
+  });
+});

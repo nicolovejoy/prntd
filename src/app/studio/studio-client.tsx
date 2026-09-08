@@ -2,7 +2,16 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Children,
+  cloneElement,
+  isValidElement,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import type { RefObject } from "react";
 import { Button, EmptyState, useConfirm } from "@/components/ui";
 import {
@@ -778,9 +787,58 @@ function Composer({
  * Closes on outside click, on Escape, and on any click inside (every item
  * is a terminal action, so there is nothing to keep it open for).
  */
+/** Items are found in the DOM rather than passed as data, so `Lane` keeps
+ * owning their labels, handlers and test ids. An item added without this
+ * role is invisible to the arrow keys — that is the contract. */
+const MENUITEM_SELECTOR = '[role="menuitem"]';
+
+/**
+ * The lane's ⋯ overflow: a WAI-ARIA menu button, not a disclosure. The
+ * markup already declared `aria-haspopup="menu"` / `role="menu"` /
+ * `role="menuitem"`, which promises arrow-key navigation and roving
+ * tabindex; this implements that promise rather than retracting it.
+ *
+ * Focus returns to the trigger on Escape ONLY. An outside click has already
+ * put the user's attention somewhere deliberate, Tab is a deliberate move
+ * onward, and on activation the trigger usually does not survive — Close and
+ * Delete remove the lane, and Select hides every ⋯ on the page — so a
+ * generic on-close restore would focus a detached node.
+ */
 function LaneMenu({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  const menuItems = useCallback(
+    () =>
+      Array.from(
+        panelRef.current?.querySelectorAll<HTMLElement>(MENUITEM_SELECTOR) ?? []
+      ),
+    []
+  );
+
+  const focusItem = useCallback(
+    (index: number) => {
+      const items = menuItems();
+      if (items.length === 0) return;
+      const next = ((index % items.length) + items.length) % items.length;
+      setActiveIndex(next);
+      items[next]?.focus();
+    },
+    [menuItems]
+  );
+
+  // Focus enters the panel on open. Layout effect, so it lands before paint
+  // and a screen reader announces the item rather than the button again.
+  // activeIndex itself is reset to 0 in the trigger's onClick (below), not
+  // here — react-hooks/set-state-in-effect forbids a setState call in an
+  // effect body; this effect only synchronizes focus with the DOM.
+  useLayoutEffect(() => {
+    if (!open) return;
+    menuItems()[0]?.focus();
+  }, [open, menuItems]);
 
   useEffect(() => {
     if (!open) return;
@@ -788,7 +846,10 @@ function LaneMenu({ children }: { children: React.ReactNode }) {
       if (!ref.current?.contains(e.target as Node)) setOpen(false);
     }
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key !== "Escape") return;
+      setOpen(false);
+      // isConnected: Escape can race a poll that removed this lane.
+      if (triggerRef.current?.isConnected) triggerRef.current.focus();
     }
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
@@ -798,14 +859,48 @@ function LaneMenu({ children }: { children: React.ReactNode }) {
     };
   }, [open]);
 
+  function onPanelKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      focusItem(activeIndex + 1);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      focusItem(activeIndex - 1);
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      focusItem(0);
+    } else if (e.key === "End") {
+      e.preventDefault();
+      focusItem(menuItems().length - 1);
+    } else if (e.key === "Tab") {
+      // No preventDefault (ruling R4): the browser moves focus onward and
+      // the panel unmounts in the same tick.
+      setOpen(false);
+    }
+  }
+
+  // Roving tabindex: exactly one item is in the Tab order at a time.
+  const items = Children.map(children, (child, index) =>
+    isValidElement<{ tabIndex?: number }>(child)
+      ? cloneElement(child, { tabIndex: index === activeIndex ? 0 : -1 })
+      : child
+  );
+
   return (
     <div ref={ref} className="relative shrink-0">
       <button
+        ref={triggerRef}
         type="button"
         aria-label="More"
         aria-haspopup="menu"
         aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => {
+          setOpen((o) => {
+            const next = !o;
+            if (next) setActiveIndex(0);
+            return next;
+          });
+        }}
         className="w-[46px] min-h-11 -mr-3 flex items-center justify-center text-foreground"
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -816,11 +911,13 @@ function LaneMenu({ children }: { children: React.ReactNode }) {
       </button>
       {open && (
         <div
+          ref={panelRef}
           role="menu"
           onClick={() => setOpen(false)}
+          onKeyDown={onPanelKeyDown}
           className="absolute right-0 top-full z-10 min-w-[9rem] bg-surface border border-foreground flex flex-col"
         >
-          {children}
+          {items}
         </div>
       )}
     </div>
