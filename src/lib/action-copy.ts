@@ -42,6 +42,7 @@ export const DELETE_CONVERSATION_FAILED = "Couldn't delete this conversation. Tr
 export const START_FROM_IMAGE_FAILED = "Couldn't start a new design from this image. Try again.";
 export const SET_PRIMARY_IMAGE_FAILED = "Couldn't make this the design's image. Try again.";
 export const EMPTY_TITLE_REJECTED = "A title can't be blank. Type a title or cancel.";
+export const TITLE_TOO_LONG = "A title can't be longer than 80 characters.";
 export const SAVE_TITLE_FAILED = "Couldn't save this title. Try again.";
 
 // --- admin (InlineNotice: one line, plus the raw error as a hint) ---
@@ -57,3 +58,9 @@ export const ADMIN_RECOVER_ARCHIVE_HINT =
 export const adminRecovered = (action: string) => `Recovered: ${action}`;
 export const adminCannotRecover = (reason: string) => `Cannot recover: ${reason}`;
 export const adminCannotRefund = (reason: string) => `Cannot refund: ${reason}`;
+
+// --- Error boundaries (src/app/error.tsx, global-error.tsx) ---
+
+export const ERROR_BOUNDARY_TITLE = "Something went wrong loading this page.";
+export const ERROR_BOUNDARY_RETRY = "Try again";
+export const ERROR_BOUNDARY_HOME = "Go to the home page";

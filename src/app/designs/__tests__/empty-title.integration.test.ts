@@ -9,7 +9,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { and, isNull } from "drizzle-orm";
 import { createTestDb } from "@/lib/__tests__/test-db";
 import { makeUser, makeDesign, makeSourceImage } from "@/lib/__tests__/factories";
-import { EMPTY_TITLE_REJECTED } from "@/lib/action-copy";
+import { EMPTY_TITLE_REJECTED, TITLE_TOO_LONG } from "@/lib/action-copy";
 import * as schema from "@/lib/db/schema";
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
@@ -98,6 +98,22 @@ describe("updatePublishedNaming — blank titles", () => {
     const result = await updatePublishedNaming(imageId, { title: "   " });
     expect(result).toEqual({ error: EMPTY_TITLE_REJECTED });
     expect(await mirrorTitle(imageId)).toBe("Real Title");
+  });
+
+  it("refuses a title longer than 80 characters and leaves the stored title untouched", async () => {
+    const imageId = await publishedImage();
+    const tooLong = "a".repeat(81);
+    const result = await updatePublishedNaming(imageId, { title: tooLong });
+    expect(result).toEqual({ error: TITLE_TOO_LONG });
+    expect(await mirrorTitle(imageId)).toBe("Real Title");
+  });
+
+  it("saves a title that is exactly 80 characters", async () => {
+    const imageId = await publishedImage();
+    const exactly80 = "b".repeat(80);
+    const result = await updatePublishedNaming(imageId, { title: exactly80 });
+    expect(result).toEqual({});
+    expect(await mirrorTitle(imageId)).toBe(exactly80);
   });
 
   it("still saves a real title, trimmed", async () => {

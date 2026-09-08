@@ -18,6 +18,14 @@ export type OrderPlacementRef = {
 };
 
 /**
+ * The title input's `maxLength` (src/app/d/[imageId]/editable-naming.tsx)
+ * shares this constant. The browser attribute stops typing past the limit,
+ * but a direct server-action call bypasses it, so updatePublishedNaming
+ * (src/app/designs/actions.ts) enforces the same limit itself.
+ */
+export const MAX_IMAGE_TITLE_LENGTH = 80;
+
+/**
  * Whether deleting `imageId` would orphan an order that depends on it.
  * Replaces the old "published images are immortal" lock: publishing is
  * now reversible, so deletion keys off real order references instead.
