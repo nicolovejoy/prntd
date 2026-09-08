@@ -5,6 +5,7 @@ import { createOrder, getOrderByExternalId } from "@/lib/printful";
 import { generateOrderName } from "@/lib/ai";
 import {
   handleStripeCheckoutCompleted,
+  handleStripeCheckoutExpired,
   type StripeSessionData,
 } from "@/lib/webhook-handlers";
 import { toStripeSessionData } from "@/lib/stripe-session";
@@ -75,6 +76,25 @@ export async function POST(request: NextRequest) {
       console.error(`Stripe event ${event.id}: handler error:`, err);
       return NextResponse.json({ error: "Processing failed" }, { status: 400 });
     }
+  } else if (event.type === "checkout.session.expired") {
+    // No `stripe.checkout.sessions.retrieve` needed — metadata is on the
+    // event object itself. Never a 4xx: an unknown/non-pending order or a
+    // missing orderId are all "nothing to do" and get a clean 200 (repeated
+    // 4xx responses can get a Stripe webhook endpoint disabled) — but a DB
+    // failure below is deliberately allowed to 500 so Stripe retries the
+    // event rather than losing the abandoned mark permanently.
+    const orderId = event.data.object.metadata?.orderId;
+    if (!orderId) {
+      console.log(`Stripe event ${event.id}: checkout.session.expired with no orderId`);
+      return NextResponse.json({ received: true, ignored: "no orderId" });
+    }
+
+    // No try/catch on purpose: a DB failure here should 500 so Stripe
+    // retries the event, rather than swallowing it into a 200 and losing the
+    // abandoned mark permanently. A non-pending or unknown order is already
+    // a clean 200 via the handler's own "ignored" result, not an exception.
+    const { action } = await handleStripeCheckoutExpired(orderId, { db });
+    console.log(`Stripe event ${event.id}: order ${orderId} → ${action}`);
   }
 
   return NextResponse.json({ received: true });

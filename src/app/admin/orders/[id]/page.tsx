@@ -394,10 +394,17 @@ export default function OrderDetailPage() {
 
           {/* Actions */}
           <div className="flex gap-2">
-            {order.status === "pending" && order.stripeSessionId && (
-              <Button size="sm" onClick={handleRecover} disabled={recovering}>
-                {recovering ? "Recovering..." : "Recover (replay webhook)"}
-              </Button>
+            {order.status === "pending" && order.abandonedAt ? (
+              <span className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted">
+                Abandoned
+              </span>
+            ) : (
+              order.status === "pending" &&
+              order.stripeSessionId && (
+                <Button size="sm" onClick={handleRecover} disabled={recovering}>
+                  {recovering ? "Recovering..." : "Recover (replay webhook)"}
+                </Button>
+              )
             )}
             {order.status === "paid" && (
               <Button size="sm" onClick={handleRetry} disabled={retrying}>

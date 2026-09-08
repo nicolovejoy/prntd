@@ -3,18 +3,27 @@ import {
   order as orderTable,
   orderItem as orderItemTable,
 } from "@/lib/db/schema";
-import { and, eq, ne, asc, desc, inArray } from "drizzle-orm";
+import { and, eq, ne, or, isNull, isNotNull, lt, asc, desc, inArray } from "drizzle-orm";
 import { resolveOrderLines } from "@/lib/order-lines";
 import { contributorAttribution } from "@/lib/order-attribution";
 import { resolveOrderLineIdentities } from "@/lib/order-line-identity";
 
 export type UserOrder = Awaited<ReturnType<typeof getUserOrdersData>>[number];
 
+// Stripe Checkout Sessions expire CHECKOUT_SESSION_TTL_SECONDS (2h,
+// src/lib/checkout.ts) after creation, at which point the
+// checkout.session.expired webhook sets order.abandonedAt. This window sits
+// 15 minutes above that TTL — margin for webhook-delivery lag, so a pending
+// row that is merely mid-flight (session not yet expired, webhook not yet
+// fired) doesn't get misread as webhook-stranded below.
+export const STALE_PENDING_MS = 135 * 60 * 1000;
+
 /**
  * The /orders history for one buyer. Query core shared by the server
- * component render (initial data) — auth lives at the caller.
+ * component render (initial data) — auth lives at the caller. `now` is
+ * injected so tests can pin the pending-order age window deterministically.
  */
-export async function getUserOrdersData(buyerId: string) {
+export async function getUserOrdersData(buyerId: string, now = Date.now()) {
   const orders = await db
     .select({
       id: orderTable.id,
@@ -28,15 +37,32 @@ export async function getUserOrdersData(buyerId: string) {
       displayName: orderTable.displayName,
     })
     .from(orderTable)
-    // pending covers two populations, both hidden here: abandoned checkouts
-    // (the common case — only checkout.session.completed is handled, no
-    // checkout.session.expired handler exists to mark them terminal, so they
-    // stay pending forever) and webhook-stranded paid orders (charged on
-    // Stripe but the webhook never landed; admin recovers these via the
-    // Recover control, recoverPendingOrderCore). This filter stands in for
-    // the missing expired-session handler — it is not a claim every pending
-    // row is un-placed.
-    .where(and(eq(orderTable.userId, buyerId), ne(orderTable.status, "pending")))
+    // pending covers four populations: young (in-flight or not-yet-expired
+    // checkout — hidden, it may still complete), abandoned (Stripe's
+    // checkout.session.expired webhook confirmed the session died — hidden),
+    // old-and-not-abandoned-with-a-session (the checkout session expired or
+    // is long past its TTL but no completed/expired webhook ever landed — a
+    // paid order the webhook never recorded, or an expiry Stripe never told
+    // us about; shown as "Processing" so the buyer has a record, and admin's
+    // Recover control fixes it), and session-less (stripeSessionId never got
+    // backfilled — checkout.ts inserts the order row before creating the
+    // Stripe session, so a session-create failure, or any pre-#231 legacy
+    // row scripts/mark-legacy-pending-abandoned.ts hasn't reached, leaves
+    // this null forever; a row that never had a session could never have
+    // been paid, so it's hidden regardless of age or abandonedAt).
+    .where(
+      and(
+        eq(orderTable.userId, buyerId),
+        or(
+          ne(orderTable.status, "pending"),
+          and(
+            isNotNull(orderTable.stripeSessionId),
+            isNull(orderTable.abandonedAt),
+            lt(orderTable.createdAt, new Date(now - STALE_PENDING_MS))
+          )
+        )
+      )
+    )
     .orderBy(desc(orderTable.createdAt));
 
   // Each order's purchased items — one order_item row per shirt (authoritative

@@ -148,6 +148,14 @@ export const order = sqliteTable("order", {
   discountCode: text("discount_code"),
   discountAmount: real("discount_amount"),
   archivedAt: integer("archived_at", { mode: "timestamp" }),
+  // Set by the Stripe `checkout.session.expired` webhook on a still-pending
+  // order. Nullable, no backfill at migration time: legacy pending rows stay
+  // null until scripts/mark-legacy-pending-abandoned.ts marks them abandoned
+  // at deploy time (they do NOT age out on their own). A pending row that is
+  // old and NOT abandoned is a webhook-stranded payment — but only if it has
+  // a `stripeSessionId`; a null one could never have been paid and is hidden
+  // regardless (see `user-orders.ts` and #231).
+  abandonedAt: integer("abandoned_at", { mode: "timestamp" }),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
   updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
 });

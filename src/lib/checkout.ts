@@ -1,6 +1,20 @@
 import type Stripe from "stripe";
 
 /**
+ * Stripe Checkout Sessions expire on their own — after that,
+ * `checkout.session.expired` fires and the webhook marks the order abandoned
+ * if it's still `pending`. Stripe's floor is 30 minutes, but this TTL is an
+ * owner-facing behaviour, not just a margin-over-Stripe's-floor number: 2
+ * hours covers a buyer who gets interrupted mid-checkout (a phone call, a
+ * distracted tab) without leaving their pending order ambiguous for the 24h
+ * Stripe would otherwise sit on it before its own default expiry. The
+ * `/orders` staleness window (`STALE_PENDING_MS`, src/lib/user-orders.ts)
+ * sits 15 minutes above this value so a session that's still technically
+ * live never gets flagged stale first.
+ */
+export const CHECKOUT_SESSION_TTL_SECONDS = 2 * 60 * 60;
+
+/**
  * Build the Stripe Checkout Session params for a single-item PRNTD order.
  * Pure — no db, no network — so the wiring is unit-tested independently
  * of the server actions that create the order row and call Stripe.
@@ -24,10 +38,15 @@ export function buildCheckoutSessionParams(params: {
   imageUrl: string | null;
   cancelUrl: string;
   appUrl: string;
+  /** Injected clock (ms) for `expires_at` — defaults to `Date.now()`. */
+  now?: number;
 }): Stripe.Checkout.SessionCreateParams {
   return {
     mode: "payment",
     allow_promotion_codes: true,
+    expires_at:
+      Math.floor((params.now ?? Date.now()) / 1000) +
+      CHECKOUT_SESSION_TTL_SECONDS,
     shipping_address_collection: {
       allowed_countries: ["US"],
     },
@@ -95,10 +114,15 @@ export function buildCartCheckoutSessionParams(params: {
   shippingPrice: number;
   cancelUrl: string;
   appUrl: string;
+  /** Injected clock (ms) for `expires_at` — defaults to `Date.now()`. */
+  now?: number;
 }): Stripe.Checkout.SessionCreateParams {
   return {
     mode: "payment",
     allow_promotion_codes: true,
+    expires_at:
+      Math.floor((params.now ?? Date.now()) / 1000) +
+      CHECKOUT_SESSION_TTL_SECONDS,
     shipping_address_collection: { allowed_countries: ["US"] },
     line_items: params.lineItems.map((li) => ({
       price_data: {

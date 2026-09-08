@@ -22,7 +22,8 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 
-import { getUserOrdersData } from "@/lib/user-orders";
+import { getUserOrdersData, STALE_PENDING_MS } from "@/lib/user-orders";
+import { CHECKOUT_SESSION_TTL_SECONDS } from "@/lib/checkout";
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
 
@@ -266,9 +267,10 @@ describe("getUserOrdersData", () => {
     ]);
   });
 
-  it("hides pending orders (checkout started, never paid)", async () => {
+  it("hides a young pending order (checkout just started, not yet expired)", async () => {
     const db = h.db as Db;
     const a = await seedDesignWithImage(db, "buyer", "https://r2/pending.png");
+    const now = Date.now();
     const [pending] = await db
       .insert(schema.order)
       .values({
@@ -277,6 +279,7 @@ describe("getUserOrdersData", () => {
         totalPrice: 19.43,
         status: "pending",
         stripeSessionId: "cs_test_abandoned",
+        createdAt: new Date(now - 60 * 1000),
       })
       .returning();
     await db.insert(schema.orderItem).values({
@@ -300,8 +303,91 @@ describe("getUserOrdersData", () => {
       })
       .returning();
 
-    const orders = await getUserOrdersData("buyer");
+    const orders = await getUserOrdersData("buyer", now);
     expect(orders.map((o) => o.id)).toEqual([paid.id]);
+  });
+
+  it("shows an old, un-abandoned pending order as a webhook-stranded payment (#231)", async () => {
+    const db = h.db as Db;
+    const a = await seedDesignWithImage(db, "buyer", "https://r2/stranded.png");
+    const now = Date.now();
+    const [pending] = await db
+      .insert(schema.order)
+      .values({
+        userId: "buyer",
+        designId: a.designId,
+        totalPrice: 19.43,
+        status: "pending",
+        stripeSessionId: "cs_test_stranded",
+        // Comfortably beyond STALE_PENDING_MS (2h15m) — 3h old.
+        createdAt: new Date(now - 3 * 60 * 60 * 1000),
+      })
+      .returning();
+
+    const orders = await getUserOrdersData("buyer", now);
+    expect(orders.map((o) => o.id)).toEqual([pending.id]);
+  });
+
+  it("hides an old, un-abandoned, session-less pending order — it could never have been paid (#231)", async () => {
+    const db = h.db as Db;
+    const a = await seedDesignWithImage(db, "buyer", "https://r2/no-session.png");
+    const now = Date.now();
+    // Legacy pre-#231 row, or a checkout whose Stripe session-create call
+    // failed: stripeSessionId never got backfilled, so this row could never
+    // have been paid regardless of age or abandonedAt.
+    await db.insert(schema.order).values({
+      userId: "buyer",
+      designId: a.designId,
+      totalPrice: 19.43,
+      status: "pending",
+      stripeSessionId: null,
+      createdAt: new Date(now - 3 * 60 * 60 * 1000),
+    });
+
+    const orders = await getUserOrdersData("buyer", now);
+    expect(orders).toEqual([]);
+  });
+
+  it("hides an old pending order once Stripe confirmed the session expired (#231)", async () => {
+    const db = h.db as Db;
+    const a = await seedDesignWithImage(db, "buyer", "https://r2/expired.png");
+    const now = Date.now();
+    await db.insert(schema.order).values({
+      userId: "buyer",
+      designId: a.designId,
+      totalPrice: 19.43,
+      status: "pending",
+      stripeSessionId: "cs_test_expired",
+      // Comfortably beyond STALE_PENDING_MS (2h15m) — 3h old.
+      createdAt: new Date(now - 3 * 60 * 60 * 1000),
+      abandonedAt: new Date(now - 60 * 60 * 1000),
+    });
+
+    const orders = await getUserOrdersData("buyer", now);
+    expect(orders).toEqual([]);
+  });
+
+  it("shows a paid order regardless of age (#231)", async () => {
+    const db = h.db as Db;
+    const a = await seedDesignWithImage(db, "buyer", "https://r2/old-paid.png");
+    const now = Date.now();
+    const [paid] = await db
+      .insert(schema.order)
+      .values({
+        userId: "buyer",
+        designId: a.designId,
+        totalPrice: 19.43,
+        status: "paid",
+        createdAt: new Date(now - 10 * 24 * 60 * 60 * 1000),
+      })
+      .returning();
+
+    const orders = await getUserOrdersData("buyer", now);
+    expect(orders.map((o) => o.id)).toEqual([paid.id]);
+  });
+
+  it("STALE_PENDING_MS clears the checkout session TTL with margin", () => {
+    expect(STALE_PENDING_MS).toBeGreaterThan(CHECKOUT_SESSION_TTL_SECONDS * 1000);
   });
 
   it("still returns every non-pending status", async () => {
@@ -330,6 +416,31 @@ describe("getUserOrdersData", () => {
 
     const orders = await getUserOrdersData("buyer");
     expect(new Set(orders.map((o) => o.id))).toEqual(new Set(ids));
+  });
+
+  it("round-trips abandonedAt on the order row (#231)", async () => {
+    const db = h.db as Db;
+    const a = await seedDesignWithImage(db, "buyer", "https://r2/abandoned.png");
+    const abandonedAt = new Date("2026-09-08T12:00:00Z");
+    const [order] = await db
+      .insert(schema.order)
+      .values({
+        userId: "buyer",
+        designId: a.designId,
+        totalPrice: 19.43,
+        status: "pending",
+        stripeSessionId: "cs_test_abandoned_at",
+        abandonedAt,
+      })
+      .returning();
+
+    expect(order.abandonedAt).toEqual(abandonedAt);
+
+    const [reread] = await db
+      .select()
+      .from(schema.order)
+      .where(eq(schema.order.id, order.id));
+    expect(reread.abandonedAt).toEqual(abandonedAt);
   });
 
   it("only returns the buyer's own orders", async () => {

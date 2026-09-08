@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { buildCheckoutSessionParams, buildCartCheckoutSessionParams } from "../checkout";
+import {
+  buildCheckoutSessionParams,
+  buildCartCheckoutSessionParams,
+  CHECKOUT_SESSION_TTL_SECONDS,
+} from "../checkout";
 
 const base = {
   orderId: "order-1",
@@ -84,6 +88,21 @@ describe("buildCheckoutSessionParams", () => {
     expect(p.allow_promotion_codes).toBe(true);
     expect(p.shipping_address_collection!.allowed_countries).toEqual(["US"]);
   });
+
+  it("sets expires_at TTL seconds after the injected clock", () => {
+    const now = 1_700_000_000_000;
+    const p = buildCheckoutSessionParams({ ...base, now });
+    expect(p.expires_at).toBe(
+      Math.floor(now / 1000) + CHECKOUT_SESSION_TTL_SECONDS
+    );
+  });
+
+  it("keeps a margin above Stripe's 30-minute floor so clock skew/latency can't land under it", () => {
+    // Stripe validates expires_at against its own clock at request-receipt
+    // time; a future edit that drops back to exactly 1800s would risk
+    // rejected sessions.
+    expect(CHECKOUT_SESSION_TTL_SECONDS).toBeGreaterThanOrEqual(1800 + 60);
+  });
 });
 
 const cartBase = {
@@ -160,5 +179,13 @@ describe("buildCartCheckoutSessionParams", () => {
       "https://prntd.org/order/confirm?session_id={CHECKOUT_SESSION_ID}"
     );
     expect(p.cancel_url).toBe("https://prntd.org/cart");
+  });
+
+  it("sets expires_at TTL seconds after the injected clock", () => {
+    const now = 1_700_000_000_000;
+    const p = buildCartCheckoutSessionParams({ ...cartBase, now });
+    expect(p.expires_at).toBe(
+      Math.floor(now / 1000) + CHECKOUT_SESSION_TTL_SECONDS
+    );
   });
 });
