@@ -79,18 +79,57 @@ describe("renderSpecSummary", () => {
 });
 
 describe("fallbackSpec", () => {
-  it("renders the user's own words as a valid spec", () => {
+  it("renders a short prompt as lettering, the words verbatim", () => {
     const spec = fallbackSpec("dog doing calisthenics");
     expect(spec).toEqual({
-      subject: "dog doing calisthenics",
-      elements: [{ type: "obj", desc: "dog doing calisthenics" }],
+      subject: 'Bold lettering reading "dog doing calisthenics"',
+      elements: [
+        {
+          type: "text",
+          text: "dog doing calisthenics",
+          desc: "bold lettering, the user's words exactly, centered",
+        },
+      ],
     });
     // Round-trips through the validator — the generator sees a real spec.
     expect(parseDesignSpec(spec)).toEqual(spec);
   });
 
+  it("renders the #206 repro slogans as lettering", () => {
+    for (const text of [
+      "statements are pointless",
+      "Partisanship averse",
+      "big dogs don't jiggle",
+    ]) {
+      const spec = fallbackSpec(text);
+      expect(spec?.elements).toHaveLength(1);
+      const [element] = spec!.elements;
+      expect(element.type).toBe("text");
+      expect((element as { text: string }).text).toBe(text);
+      expect(parseDesignSpec(spec)).not.toBeNull();
+    }
+  });
+
+  it("renders a long prompt as an object description, not lettering", () => {
+    const longSentence =
+      "A weathered lighthouse keeper stands alone watching storm clouds gather over the churning sea";
+    expect(fallbackSpec(longSentence)?.elements).toEqual([
+      { type: "obj", desc: longSentence },
+    ]);
+
+    const twoLine = "first line here\nsecond line here";
+    expect(fallbackSpec(twoLine)?.elements).toEqual([{ type: "obj", desc: twoLine }]);
+  });
+
   it("trims surrounding whitespace", () => {
-    expect(fallbackSpec("  a fox  ")?.subject).toBe("a fox");
+    const spec = fallbackSpec("  a fox  ");
+    expect(spec?.elements).toEqual([
+      {
+        type: "text",
+        text: "a fox",
+        desc: "bold lettering, the user's words exactly, centered",
+      },
+    ]);
   });
 
   it("caps a pasted essay so the subject stays a subject", () => {
