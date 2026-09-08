@@ -21,9 +21,9 @@ export default async function StudioLibraryPage() {
 
   return (
     <>
-      {/* 24px under the tab strip, the same gap the bench's composer sits
-          behind. The layout contributes nothing below the strip, so each
-          view owns this number; they used to disagree (24 / 32 / 32). */}
+      {/* 24px under the tab strip, the bench's default 24px. The layout
+          contributes nothing below the strip, so each view owns this
+          number; they used to disagree (24 / 32 / 32). */}
       <main className="px-4 sm:px-6 pt-6 pb-8 max-w-4xl mx-auto w-full">
         {images.length === 0 ? (
           <EmptyState

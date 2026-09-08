@@ -779,7 +779,12 @@ function Composer({
 
 /** Items are found in the DOM rather than passed as data, so `Lane` keeps
  * owning their labels, handlers and test ids. An item added without this
- * role is invisible to the arrow keys — that is the contract. */
+ * role is invisible to the arrow keys — that is the contract. `children`
+ * is also expected to be a flat list of menuitem elements (no wrapping
+ * fragments/conditionals-that-render-false in the middle): the roving
+ * tabIndex below counts valid elements to stay in step with this
+ * selector's DOM-order count, and a nested or skipped position would
+ * desync the two. */
 const MENUITEM_SELECTOR = '[role="menuitem"]';
 
 /**
@@ -836,7 +841,13 @@ function LaneMenu({ children }: { children: React.ReactNode }) {
   // effect body; this effect only synchronizes focus with the DOM.
   useLayoutEffect(() => {
     if (!open) return;
-    menuItems()[0]?.focus();
+    // preventScroll: this effect and the flip-placement effect below both
+    // key off `open` and run in declaration order, so focus can land before
+    // the panel's dropUp position is measured. A focus() without this flag
+    // scrolls the (still top-full, possibly below-the-fold) panel into
+    // view first — the trigger the user just tapped is on-screen by
+    // construction, so that scroll is never wanted. Do not remove it.
+    menuItems()[0]?.focus({ preventScroll: true });
   }, [open, menuItems]);
 
   // The last lane sits at the bottom of a scrolling page, where a panel
@@ -845,11 +856,7 @@ function LaneMenu({ children }: { children: React.ReactNode }) {
   // three rows today and may not be tomorrow. Re-run on every open so a
   // menu that flipped once does not stay flipped after a scroll.
   useLayoutEffect(() => {
-    if (!open) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- measure-then-position needs a post-render DOM read; this is a layout effect, so the reset commits before paint.
-      setDropUp(false);
-      return;
-    }
+    if (!open) return;
     const trigger = triggerRef.current?.getBoundingClientRect();
     const panel = panelRef.current?.getBoundingClientRect();
     if (!trigger || !panel) return;
@@ -896,9 +903,15 @@ function LaneMenu({ children }: { children: React.ReactNode }) {
   }
 
   // Roving tabindex: exactly one item is in the Tab order at a time.
-  const items = Children.map(children, (child, index) =>
+  // Indexed by valid-element position, not Children.map's position — a
+  // conditional item (`{cond && <button role="menuitem">…</button>}`)
+  // still consumes a Children index when it renders `false`, which would
+  // desync this from menuItems()'s DOM-order count and could leave no
+  // item focusable.
+  let itemIndex = -1;
+  const items = Children.map(children, (child) =>
     isValidElement<{ tabIndex?: number }>(child)
-      ? cloneElement(child, { tabIndex: index === activeIndex ? 0 : -1 })
+      ? cloneElement(child, { tabIndex: ++itemIndex === activeIndex ? 0 : -1 })
       : child
   );
 

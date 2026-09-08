@@ -20,70 +20,70 @@ export default async function StudioArchivePage() {
 
   return (
     <>
-      {/* 24px under the tab strip, the same gap the bench's composer sits
-          behind. The layout contributes nothing below the strip, so each
-          view owns this number; they used to disagree (24 / 32 / 32). */}
+      {/* 24px under the tab strip, the bench's default 24px. The layout
+          contributes nothing below the strip, so each view owns this
+          number; they used to disagree (24 / 32 / 32). */}
       <main className="px-4 sm:px-6 pt-6 pb-8 max-w-4xl mx-auto w-full">
         <p className="text-sm text-text-faint mb-6">
           Designs with no activity for three days leave the Studio.
         </p>
 
-      {conversations.length === 0 ? (
-        <EmptyState message="Nothing archived." />
-      ) : (
-        <ul className="divide-y divide-border" data-testid="archive-list">
-          {conversations.map((conversation) => (
-            <li
-              key={conversation.designId}
-              className="flex items-center gap-3 py-3"
-              data-testid="archive-row"
-            >
-              <Link
-                href={`/design?id=${conversation.designId}`}
-                className="flex items-center gap-3 min-w-0 flex-1"
+        {conversations.length === 0 ? (
+          <EmptyState message="Nothing archived." />
+        ) : (
+          <ul className="divide-y divide-border" data-testid="archive-list">
+            {conversations.map((conversation) => (
+              <li
+                key={conversation.designId}
+                className="flex items-center gap-3 py-3"
+                data-testid="archive-row"
               >
-                <div className="relative w-14 h-14 shrink-0 rounded-md overflow-hidden bg-checkerboard border border-border">
-                  {conversation.heroImageUrl && (
-                    <Image
-                      src={conversation.heroImageUrl}
-                      alt=""
-                      fill
-                      sizes="56px"
-                      className="object-contain"
-                    />
-                  )}
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm truncate">
-                    {conversation.title ?? "Untitled"}
-                  </p>
-                  <p className="text-xs text-text-faint">
-                    {formatClosedDate(conversation.closedAt)}
-                  </p>
-                </div>
-              </Link>
-              {/* One control per row, so the action is unambiguous on a
-                  390px phone: the row opens the record, the button brings
-                  it back to the bench. */}
-              <form
-                action={reopenFromArchive.bind(null, conversation.designId)}
-                className="shrink-0"
-              >
-                {/* min-h-11 = 44px: the phone tap target, which `size="sm"`
-                    (~26px) does not reach on its own. */}
-                <Button
-                  type="submit"
-                  variant="secondary"
-                  size="sm"
-                  className="min-h-11 px-4"
+                <Link
+                  href={`/design?id=${conversation.designId}`}
+                  className="flex items-center gap-3 min-w-0 flex-1"
                 >
-                  Reopen
-                </Button>
-              </form>
-            </li>
-          ))}
-        </ul>
-      )}
+                  <div className="relative w-14 h-14 shrink-0 rounded-md overflow-hidden bg-checkerboard border border-border">
+                    {conversation.heroImageUrl && (
+                      <Image
+                        src={conversation.heroImageUrl}
+                        alt=""
+                        fill
+                        sizes="56px"
+                        className="object-contain"
+                      />
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm truncate">
+                      {conversation.title ?? "Untitled"}
+                    </p>
+                    <p className="text-xs text-text-faint">
+                      {formatClosedDate(conversation.closedAt)}
+                    </p>
+                  </div>
+                </Link>
+                {/* One control per row, so the action is unambiguous on a
+                    390px phone: the row opens the record, the button brings
+                    it back to the bench. */}
+                <form
+                  action={reopenFromArchive.bind(null, conversation.designId)}
+                  className="shrink-0"
+                >
+                  {/* min-h-11 = 44px: the phone tap target, which `size="sm"`
+                      (~26px) does not reach on its own. */}
+                  <Button
+                    type="submit"
+                    variant="secondary"
+                    size="sm"
+                    className="min-h-11 px-4"
+                  >
+                    Reopen
+                  </Button>
+                </form>
+              </li>
+            ))}
+          </ul>
+        )}
       </main>
     </>
   );
