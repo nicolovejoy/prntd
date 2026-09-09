@@ -305,10 +305,12 @@ differ.
 
 **Places**
 
-- **Studio** — `/studio` (Bench · Library · Archive, nav model A,
+- **Studio** — `/studio` (Bench · Library, nav model A,
   `docs/ux-design-review-2026-09.md`). Where designs are made (Bench) and
-  organized (Library, Archive). One conversation thread lives one level in,
-  at `/design`.
+  organized (Library). One conversation thread lives one level in, at
+  `/design`. A third view, Archive, existed until 2026-09-09 — dropped as
+  redundant once Library's Active/All filter (#238) already surfaced every
+  archived image; `/studio/archive` now 308s to `/studio/library`.
 - **Shop** — `/shop`, the community storefront (renamed from "Fresh
   Prints" 2026-07-19). Organizer stores were also shops (`/shop/[slug]`,
   each a self-contained storefront) — retired 2026-09-05 (#191):
@@ -318,10 +320,10 @@ differ.
   replacement — organizer storefronts are retired outright, not replaced.
 - **Funnel** — Studio → Preview → Order → Confirm. Linear, breadcrumbed.
 - **Shelf** — the personal library of owned work: `/studio/library` (every
-  owned image) and `/orders`. Distinct from `/studio/archive`, Studio's own
-  view of idle conversations (Model B `closed`/#181-swept threads) —
-  "archive" now names two different things, so Shelf is glossed as library,
-  not archive.
+  owned image) and `/orders`. Library's Active/All filter (#238) is what
+  surfaces idle conversations (Model B `closed`/#181-swept threads) now that
+  the dedicated `/studio/archive` view is gone (2026-09-09, 308 to
+  `/studio/library`) — so Shelf is glossed as library, not archive.
 - **Counter** — `/admin`. Back of shop.
 - **Dashboard** — `/dashboard`. Where organizers ran their shops. Retired
   2026-09-05 (#191): the file still exists but has no live entry point (see
@@ -523,7 +525,7 @@ were added since, mostly by the #218 alert sweep:
   constants live in `src/lib/action-copy.ts` (#218).
 - **EmptyState** (`empty-state.tsx`) — the one shared "nothing here yet"
   block (optional mono label, one line of muted copy, one action), used on
-  the Studio bench, Library, Archive, Shop, Cart, and Orders. `/design`'s own
+  the Studio bench, Library, Shop, Cart, and Orders. `/design`'s own
   empty-conversation views do not use it — see Gaps, item 3.
 - **QuickReply** (`quick-reply.tsx`) — tappable chat-option chips rendered
   under an assistant message; a tap submits `value` as the next turn.
@@ -581,8 +583,8 @@ Remaining:
    images exist but no message has been sent yet. Neither uses the shared
    `EmptyState` primitive (`src/components/ui/empty-state.tsx`, added since
    the original draft); that primitive unified the OTHER hand-rolled empty
-   states across the app (Studio bench, Library, Archive, Shop, Cart,
-   Orders), but `/design`'s two were never among them and both still render
+   states across the app (Studio bench, Library, Shop, Cart, Orders), but
+   `/design`'s two were never among them and both still render
    on a live path — this is not near-dead code. (Vocabulary correction: this
    gap's original wording said "in the Studio" — "Studio" now names
    `/studio`, not `/design`; fixed here.) Persona-independent cleanup, but

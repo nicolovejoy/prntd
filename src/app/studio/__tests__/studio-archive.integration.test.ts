@@ -1,13 +1,16 @@
 /**
  * The archive round trip (studio-plan slice 4) end to end against a real
- * in-memory libSQL: an idle conversation leaves the Studio, shows up in the
- * archive list, and Reopen puts the lane back.
+ * in-memory libSQL: an idle conversation leaves the Studio and Reopen
+ * (`reopenConversation`) puts the lane back.
  *
- * The reopen half goes through the real `reopenConversation` — the point of
- * the slice is that archiving is a new writer of an EXISTING state, so a test
- * that nulled `closed_at` itself would prove nothing. Auth and the vendor
- * modules `design/actions` pulls in at import time are mocked; the database
- * is real.
+ * The dedicated `/studio/archive` list view was dropped 2026-09-09 (Library's
+ * Active/All filter, #238, already showed every archived image, and the
+ * image detail page's "Open conversation" already reopened a closed thread)
+ * — its wrapper `reopenFromArchive` is gone with it. What this test still
+ * proves is real: archiving is a new writer of an EXISTING state, and
+ * `reopenConversation` is the one real undo of it, so a test that nulled
+ * `closed_at` itself would prove nothing. Auth and the vendor modules
+ * `design/actions` pulls in at import time are mocked; the database is real.
  *
  * Since #204 the idle sweep runs via `after()`, off the render path, so
  * `getStudioLanes()` no longer archives inline — the COLLECTOR pattern
@@ -43,7 +46,6 @@ vi.mock("@/lib/db", () => ({
 }));
 vi.mock("next/headers", () => ({ headers: async () => new Headers() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
-vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
 vi.mock("next/server", () => ({
   after: (cb: () => unknown) => {
     afterQueue.callbacks.push(cb);
@@ -75,8 +77,7 @@ vi.mock("@/lib/generators/registry", () => ({
 
 const { getStudioLanes } = await import("@/app/studio/actions");
 const { getStudioArchiveData } = await import("@/lib/studio");
-const { reopenFromArchive } = await import("@/app/studio/archive/actions");
-const { redirect } = await import("next/navigation");
+const { reopenConversation } = await import("@/app/design/actions");
 
 const FOUR_DAYS_AGO = new Date(Date.now() - 4 * 24 * 60 * 60 * 1000);
 
@@ -84,12 +85,11 @@ beforeEach(async () => {
   testDb = await createTestDb();
   h.userId = "owner";
   afterQueue.callbacks.length = 0;
-  vi.mocked(redirect).mockClear();
   await makeUser(testDb, "owner");
 });
 
 describe("archive round trip", () => {
-  it("idle lane leaves the Studio, lands in the archive, and Reopen brings it back", async () => {
+  it("idle lane leaves the Studio, is archived, and Reopen brings it back", async () => {
     const [design] = await testDb
       .insert(schema.design)
       .values({ userId: "owner", updatedAt: FOUR_DAYS_AGO })
@@ -109,8 +109,7 @@ describe("archive round trip", () => {
     // The next poll (after the sweep) shows the swept state.
     expect(await getStudioLanes()).toEqual([]);
 
-    await reopenFromArchive(design.id);
-    expect(vi.mocked(redirect)).toHaveBeenCalledWith("/studio");
+    await reopenConversation(design.id);
 
     // Back on the bench, and out of the archive. Reopen bumps updatedAt, so
     // the lane is not immediately re-archived by the next sweep.
@@ -127,7 +126,6 @@ describe("archive round trip", () => {
       .values({ userId: "stranger", closedAt: new Date() })
       .returning();
 
-    await expect(reopenFromArchive(theirs.id)).rejects.toThrow();
-    expect(vi.mocked(redirect)).not.toHaveBeenCalled();
+    await expect(reopenConversation(theirs.id)).rejects.toThrow();
   });
 });

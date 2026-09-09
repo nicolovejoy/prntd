@@ -54,7 +54,8 @@ different unit and a different verb set:
 
 - `/studio` — open _conversations_ as lanes; tap cell = anchor; Close/Delete
   per lane (`studio-client.tsx:380-403`).
-- `/studio/archive` — closed conversations; Reopen (`studio/archive/page.tsx`).
+- `/studio/archive` — closed conversations; Reopen (`studio/archive/page.tsx`)
+  (dropped 2026-09-09, route 308s to /studio/library).
 - `/designs` "My Designs" — every owned _image_, flat grid, Archived/Published
   markers (`designs/library-grid.tsx:24-56`).
 - `/design?id=` — the thread: chat + stage, Close, Make Products, and its own
@@ -82,6 +83,11 @@ Studio with a consistent back target. Orders, Dashboard, Admin, Sign out and
 the email live under an account menu (initial or "Account"). Organizer
 storefronts keep `/shop/[slug]` but are never in the nav — they are someone
 else's site. Tradeoffs: two-tap reach for Orders; `/designs` becomes a redirect;
+**2026-09-09: the Archive tab was dropped — `/studio/archive` now 308s to
+`/studio/library`. Library's Active/All filter (#238) already surfaces every
+archived image, and the image detail page's "Open conversation" already
+reopens a closed thread, so the dedicated list view was redundant. Studio is
+two views (bench, library), not three.**
 the Studio needs a sub-nav it does not have. Cost is mostly the sub-nav and
 retargeting ~12 links.
 

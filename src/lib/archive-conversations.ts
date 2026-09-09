@@ -6,7 +6,9 @@
  * already means "read-only record" (#125), `assertConversationOpen` already
  * refuses chat/generate/upload on it, and `reopenConversation` already brings
  * it back. Nothing here is user-visible beyond the lane disappearing from
- * /studio and appearing on /studio/archive.
+ * /studio — it remains visible in /studio/library under the All filter
+ * (#238), and is reopenable from there or from the image detail page's
+ * "Open conversation".
  *
  * Deliberately NOT a cron: `vercel.json` is at Vercel Hobby's two-cron limit.
  * The existing sweep-generations cron is the backstop. On the Studio itself

@@ -29,27 +29,6 @@ export function timeAgo(date: Date, nowMs: number = Date.now()): string {
   return date.toLocaleDateString();
 }
 
-/**
- * The date an archived conversation left the Studio, e.g. "Sep 4" — or
- * "Sep 4, 2025" once it is not this year.
- *
- * Formatted in America/Los_Angeles rather than the server's zone: timestamps
- * are stored UTC, and a calendar day shown to a person is Nico's day. A bare
- * toLocaleDateString() on a Vercel function renders the UTC day, which is
- * tomorrow for anything after 5pm Pacific.
- */
-export function formatClosedDate(date: Date, now: Date = new Date()): string {
-  const zone = "America/Los_Angeles";
-  const yearOf = (d: Date) =>
-    new Intl.DateTimeFormat("en-US", { timeZone: zone, year: "numeric" }).format(d);
-  return new Intl.DateTimeFormat("en-US", {
-    timeZone: zone,
-    month: "short",
-    day: "numeric",
-    ...(yearOf(date) === yearOf(now) ? {} : { year: "numeric" }),
-  }).format(date);
-}
-
 /** Why deleteConversations left a conversation alone (studio/actions.ts). */
 export type BulkDeleteSkipReason =
   | "ordered"

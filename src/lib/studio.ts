@@ -299,7 +299,11 @@ export async function getStudioLanesData(
   return lanes;
 }
 
-/** One closed conversation on /studio/archive. */
+/**
+ * One closed conversation. There is no dedicated archive page any more
+ * (dropped 2026-09-09 — see `getStudioArchiveData` below); this type now
+ * exists for that function's integration-test oracle.
+ */
 export type ArchivedConversation = {
   designId: string;
   /** Same rule as a lane title: first user chat turn, else a prompt. */
@@ -317,16 +321,19 @@ export type ArchivedConversation = {
 export const STUDIO_ARCHIVE_LIMIT = 100;
 
 /**
- * The /studio/archive list for one user: closed conversations, newest-closed
- * first. Auth lives at the caller, as with getStudioLanesData.
+ * Closed conversations for one user, newest-closed first. Backed the
+ * dedicated /studio/archive list page until it was dropped 2026-09-09
+ * (Library's Active/All filter, #238, and the image detail page's "Open
+ * conversation" cover the same ground); its only reader now is
+ * `studio-archive.integration.test.ts`'s oracle for the archive round trip.
+ * Auth lives at the caller, as with getStudioLanesData.
  *
  * Same flat shape as the lanes query — one design select, then two batched
  * reads — because the same N+1 is available here and just as wrong.
  *
- * Deliberately does NOT sweep: this page is where a conversation lands after
- * being archived, so archiving more of them on its load would be surprising.
- * Only the Studio request's `after()` sweep and the cron backstop write
- * closed_at.
+ * Deliberately does NOT sweep: archiving more conversations as a side
+ * effect of reading this list would be surprising. Only the Studio
+ * request's `after()` sweep and the cron backstop write closed_at.
  */
 export async function getStudioArchiveData(
   userId: string,

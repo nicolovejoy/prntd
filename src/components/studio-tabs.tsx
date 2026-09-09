@@ -4,10 +4,15 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 /**
- * The Studio's three views (nav model A, docs/ux-design-review-2026-09.md):
- * the bench you are working on, the library of everything you have made, and
- * the archive of conversations that have left the bench. They were three
- * top-level destinations; this is the one strip that makes them one place.
+ * The Studio's two views (nav model A, docs/ux-design-review-2026-09.md):
+ * the bench you are working on and the library of everything you have made.
+ * They were separate top-level destinations; this is the one strip that
+ * makes them one place.
+ *
+ * A third tab, Archive, existed here until 2026-09-09 — dropped as
+ * redundant once Library's Active/All filter (#238) already showed every
+ * archived image and the image detail page's "Open conversation" already
+ * reopened a closed thread. /studio/archive now 308s to /studio/library.
  *
  * Exact-match active state: /studio must not light up while you are on
  * /studio/library, so `startsWith` is wrong here.
@@ -15,7 +20,6 @@ import { usePathname } from "next/navigation";
 const TABS = [
   { href: "/studio", label: "Bench" },
   { href: "/studio/library", label: "Library" },
-  { href: "/studio/archive", label: "Archive" },
 ] as const;
 
 export function StudioTabs() {
