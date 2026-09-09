@@ -268,4 +268,28 @@ describe("All/Active filter", () => {
     expect(screen.queryByText("Archived")).toBeNull();
     expect(screen.queryByText(/Archived/)).toBeNull();
   });
+
+  it("reconciles selection when the filter hides a selected image", () => {
+    render(
+      <LibraryGrid
+        images={[
+          img({ imageId: "i1", isArchived: false }),
+          img({ imageId: "i2", isArchived: true }),
+        ]}
+      />
+    );
+    fireEvent.click(screen.getByTestId("library-select"));
+
+    // Select one active and one archived image (count should show "2 selected").
+    fireEvent.click(tiles()[0]);
+    fireEvent.click(tiles()[1]);
+    expect(screen.getByTestId("library-selected-count").textContent).toBe("2 selected");
+
+    // Switch to Active filter — the archived image disappears from the grid.
+    fireEvent.click(screen.getByTestId("library-filter-active"));
+
+    // Selection should be reconciled; count should drop to "1 selected".
+    expect(screen.getByTestId("library-selected-count").textContent).toBe("1 selected");
+    expect(tiles()).toHaveLength(1);
+  });
 });
