@@ -228,3 +228,44 @@ describe("My Designs select mode", () => {
     expect(screen.queryByTestId("library-tile")).toBeNull();
   });
 });
+
+describe("All/Active filter", () => {
+  it("defaults to All — an archived image is visible on first render", () => {
+    render(
+      <LibraryGrid
+        images={[img({ imageId: "img-1", isArchived: true })]}
+      />
+    );
+    expect(screen.getByTestId("library-tile")).toBeTruthy();
+  });
+
+  it("Active hides archived images; All brings them back", () => {
+    render(
+      <LibraryGrid
+        images={[
+          img({ imageId: "img-1", isArchived: false }),
+          img({ imageId: "img-2", isArchived: true }),
+        ]}
+      />
+    );
+    expect(screen.getAllByTestId("library-tile")).toHaveLength(2);
+
+    fireEvent.click(screen.getByTestId("library-filter-active"));
+    expect(screen.getAllByTestId("library-tile")).toHaveLength(1);
+
+    fireEvent.click(screen.getByTestId("library-filter-all"));
+    expect(screen.getAllByTestId("library-tile")).toHaveLength(2);
+  });
+
+  it("Active with nothing active shows a lighter empty state than the true-empty one", () => {
+    render(<LibraryGrid images={[img({ imageId: "img-1", isArchived: true })]} />);
+    fireEvent.click(screen.getByTestId("library-filter-active"));
+    expect(screen.getByText("Nothing active — switch to All to see everything.")).toBeTruthy();
+  });
+
+  it("no longer prints an Archived marker on the tile", () => {
+    render(<LibraryGrid images={[img({ imageId: "img-1", isArchived: true })]} />);
+    expect(screen.queryByText("Archived")).toBeNull();
+    expect(screen.queryByText(/Archived/)).toBeNull();
+  });
+});

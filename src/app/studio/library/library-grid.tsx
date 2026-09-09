@@ -9,6 +9,8 @@ import {
   bulkImageDeleteConsequence,
   bulkImageDeleteNotice,
   bulkImageDeleteTitle,
+  filterLibraryImages,
+  type LibraryFilter,
 } from "@/lib/library-view";
 import type { LibraryImage } from "@/lib/user-designs";
 import { deleteImages } from "@/app/designs/actions";
@@ -37,6 +39,7 @@ export function LibraryGrid({ images }: { images: LibraryImage[] }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [notice, setNotice] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [filter, setFilter] = useState<LibraryFilter>("all");
   const { confirm, element: confirmSheet } = useConfirm();
 
   // The page re-renders with a fresh list after a revalidate; adopt it rather
@@ -107,9 +110,40 @@ export function LibraryGrid({ images }: { images: LibraryImage[] }) {
     }
   }
 
+  const visible = filterLibraryImages(shown, filter);
+
   return (
     <div>
       {confirmSheet}
+
+      {shown.length > 0 && (
+        <div className="mb-2 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setFilter("all")}
+            data-testid="library-filter-all"
+            className={`text-xs px-2 min-h-11 ${
+              filter === "all"
+                ? "text-foreground underline underline-offset-[3px]"
+                : "text-text-muted hover:text-foreground"
+            }`}
+          >
+            All
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilter("active")}
+            data-testid="library-filter-active"
+            className={`text-xs px-2 min-h-11 ${
+              filter === "active"
+                ? "text-foreground underline underline-offset-[3px]"
+                : "text-text-muted hover:text-foreground"
+            }`}
+          >
+            Active
+          </button>
+        </div>
+      )}
 
       {/* Controls above the grid: one quiet Select, which becomes the count +
           the three verbs. Buttons keep the 44px floor and wrap rather than
@@ -129,8 +163,8 @@ export function LibraryGrid({ images }: { images: LibraryImage[] }) {
                 variant="ghost"
                 size="sm"
                 className="min-h-11"
-                onClick={() => setSelected(new Set(shown.map((i) => i.imageId)))}
-                disabled={shown.length === 0 || selected.size === shown.length}
+                onClick={() => setSelected(new Set(visible.map((i) => i.imageId)))}
+                disabled={visible.length === 0 || selected.size === visible.length}
                 data-testid="library-select-all"
               >
                 Select all
@@ -182,12 +216,17 @@ export function LibraryGrid({ images }: { images: LibraryImage[] }) {
         // own empty state on a cold load. Same line, so the screen doesn't
         // change its mind about what to call this.
         <EmptyState message="No designs yet." />
+      ) : visible.length === 0 ? (
+        // Everything exists, the Active filter just hid all of it — a
+        // different message than "No designs yet.", which would read as if
+        // the account had nothing at all.
+        <EmptyState message="Nothing active — switch to All to see everything." />
       ) : (
         <div
           data-testid="library-grid"
           className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2 sm:gap-3"
         >
-          {shown.map((img) => (
+          {visible.map((img) => (
             <LibraryCell
               key={img.imageId}
               image={img}
@@ -218,12 +257,7 @@ function LibraryCell({
   const backdrop = img.isPublished
     ? publishedBackdrop(img.backgroundColor)
     : { className: "bg-checkerboard", style: undefined };
-  const marker = [
-    img.isPublished ? "Published" : null,
-    img.isArchived ? "Archived" : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const marker = img.isPublished ? "Published" : null;
 
   const tile = (
     <>
