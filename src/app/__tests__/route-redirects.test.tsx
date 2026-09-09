@@ -3,8 +3,8 @@
  * drop retires a third. All three keep serving as permanent redirects so
  * bookmarks, shared links and stale `?from=` markers survive.
  *
- * The third test is the one worth having: `/shop` (static) now sits beside
- * the mothballed organizer `/shop/[slug]` (dynamic). A dynamic segment
+ * The existsSync check below is the one worth having: `/shop` (static) now
+ * sits beside the mothballed organizer `/shop/[slug]` (dynamic). A dynamic segment
  * requires a non-empty path segment, so `/shop` can only match the static
  * page — this asserts the two files both exist, which is what would break
  * if someone "helpfully" folded the feed into the slug route. It checks

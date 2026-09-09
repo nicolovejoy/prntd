@@ -4,7 +4,6 @@ import {
   bulkDeleteConsequence,
   bulkDeleteSkipNotice,
   bulkDeleteTitle,
-  formatClosedDate,
   formatElapsed,
   settleOptimistic,
   timeAgo,
@@ -55,31 +54,6 @@ describe("timeAgo", () => {
     expect(at(14 * 60_000)).toBe("14m ago");
     expect(at(2 * 60 * 60_000)).toBe("2h ago");
     expect(at(24 * 60 * 60_000)).toBe("1d ago");
-  });
-});
-
-describe("formatClosedDate", () => {
-  const now = new Date("2026-09-04T12:00:00Z");
-
-  it("renders month and day, no year, within the current year", () => {
-    expect(formatClosedDate(new Date("2026-09-04T12:00:00Z"), now)).toBe("Sep 4");
-  });
-
-  it("adds the year once the date is not this year", () => {
-    expect(formatClosedDate(new Date("2025-12-31T12:00:00Z"), now)).toBe(
-      "Dec 31, 2025"
-    );
-  });
-
-  it("buckets by the Pacific day, not the UTC one", () => {
-    // 2026-09-05T02:00Z is still Sep 4 in Los Angeles; a UTC format would
-    // print Sep 5 — the phantom-tomorrow bug this helper exists to avoid.
-    expect(formatClosedDate(new Date("2026-09-05T02:00:00Z"), now)).toBe("Sep 4");
-  });
-
-  it("uses the Pacific year for the same-year test", () => {
-    // 2027-01-01T02:00Z is Dec 31 2026 in Los Angeles — same year as `now`.
-    expect(formatClosedDate(new Date("2027-01-01T02:00:00Z"), now)).toBe("Dec 31");
   });
 });
 

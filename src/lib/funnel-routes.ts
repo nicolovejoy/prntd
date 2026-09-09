@@ -8,8 +8,8 @@
 // no longer has standing bottom chrome of its own — but its select-mode bar
 // (Select all/Delete/Done) is still fixed to the bottom edge and stretches
 // under the launcher's corner, so the prefix stays swept in. /studio/library
-// and /studio/archive have no fixed bottom chrome either way; nothing so far
-// has needed the launcher to distinguish the three tabs. /d joined for the
+// has no fixed bottom chrome either way; nothing so far has needed the
+// launcher to distinguish the two tabs. /d joined for the
 // same shape of reason (nav-model-a, 2026-09-07): it's the buy page, and the
 // launcher overlapped its sticky Add-to-cart bar.
 const FUNNEL_PREFIXES = ["/design", "/preview", "/order", "/cart", "/studio", "/d"];

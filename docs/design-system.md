@@ -525,7 +525,7 @@ were added since, mostly by the #218 alert sweep:
   constants live in `src/lib/action-copy.ts` (#218).
 - **EmptyState** (`empty-state.tsx`) — the one shared "nothing here yet"
   block (optional mono label, one line of muted copy, one action), used on
-  the Studio bench, Library, Archive, Shop, Cart, and Orders. `/design`'s own
+  the Studio bench, Library, Shop, Cart, and Orders. `/design`'s own
   empty-conversation views do not use it — see Gaps, item 3.
 - **QuickReply** (`quick-reply.tsx`) — tappable chat-option chips rendered
   under an assistant message; a tap submits `value` as the next turn.
@@ -583,8 +583,8 @@ Remaining:
    images exist but no message has been sent yet. Neither uses the shared
    `EmptyState` primitive (`src/components/ui/empty-state.tsx`, added since
    the original draft); that primitive unified the OTHER hand-rolled empty
-   states across the app (Studio bench, Library, Archive, Shop, Cart,
-   Orders), but `/design`'s two were never among them and both still render
+   states across the app (Studio bench, Library, Shop, Cart, Orders), but
+   `/design`'s two were never among them and both still render
    on a live path — this is not near-dead code. (Vocabulary correction: this
    gap's original wording said "in the Studio" — "Studio" now names
    `/studio`, not `/design`; fixed here.) Persona-independent cleanup, but

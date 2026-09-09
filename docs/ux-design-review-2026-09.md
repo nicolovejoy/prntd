@@ -54,7 +54,8 @@ different unit and a different verb set:
 
 - `/studio` — open _conversations_ as lanes; tap cell = anchor; Close/Delete
   per lane (`studio-client.tsx:380-403`).
-- `/studio/archive` — closed conversations; Reopen (`studio/archive/page.tsx`).
+- `/studio/archive` — closed conversations; Reopen (`studio/archive/page.tsx`)
+  (dropped 2026-09-09, route 308s to /studio/library).
 - `/designs` "My Designs" — every owned _image_, flat grid, Archived/Published
   markers (`designs/library-grid.tsx:24-56`).
 - `/design?id=` — the thread: chat + stage, Close, Make Products, and its own
