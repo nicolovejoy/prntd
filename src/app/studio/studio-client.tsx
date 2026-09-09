@@ -14,6 +14,7 @@ import {
 } from "react";
 import type { RefObject } from "react";
 import { Button, EmptyState, useConfirm } from "@/components/ui";
+import { ImageLightbox, type LightboxImage } from "@/app/design/image-lightbox";
 import {
   cancelGeneration,
   closeConversation,
@@ -988,6 +989,7 @@ function Lane({
 }) {
   const sectionRef = useRef<HTMLElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const cellCount = lane.cells.length + lane.pending.length;
   const generating = lane.pending.length > 0;
   // Selectable = nothing running. Deleting under a render would land the
@@ -1120,52 +1122,83 @@ function Lane({
           // renumbers an earlier one.
           const label = `#${index + 1}`;
           return (
-            <button
+            <div
               key={cell.imageId}
-              type="button"
-              data-testid="studio-cell"
-              aria-pressed={anchored}
-              onClick={() => {
-                onTapCell(lane, cell);
-                // Anchoring scrolls its lane into view (plan, slice 3): the
-                // keyboard takes half the phone, and the lane being edited
-                // should survive that.
-                sectionRef.current?.scrollIntoView({ block: "nearest" });
-              }}
-              className={`relative shrink-0 w-28 h-28 sm:w-36 sm:h-36 overflow-hidden bg-surface ${
-                anchored ? "border-2 border-foreground" : "border border-foreground"
-              }`}
+              className="relative shrink-0 w-28 h-28 sm:w-36 sm:h-36"
             >
-              <span className="absolute inset-1.5">
-                <Image
-                  src={cell.imageUrl}
-                  alt=""
-                  fill
-                  sizes="(min-width: 640px) 144px, 112px"
-                  className="object-contain"
-                />
-              </span>
-              <span className="absolute top-1 left-1.5 font-mono text-[10px] leading-[14px] text-text-muted">
-                {label}
-              </span>
-              {/* Anchored (2px ink border) and primary (this mono label) are
-                  orthogonal signals, not two weights of the same one — a
-                  non-primary cell being edited must not read as "the lead
-                  image", and the lead image must stay identifiable while
-                  something else is being edited. Same offsets as the #N
-                  label, mirrored to the bottom. */}
-              {cell.isPrimary && (
-                <span className="absolute bottom-1 left-1.5 font-mono text-[10px] leading-[14px] uppercase tracking-[0.08em] text-text-muted">
-                  Primary
+              <button
+                type="button"
+                data-testid="studio-cell"
+                aria-pressed={anchored}
+                onClick={() => {
+                  onTapCell(lane, cell);
+                  // Anchoring scrolls its lane into view (plan, slice 3): the
+                  // keyboard takes half the phone, and the lane being edited
+                  // should survive that.
+                  sectionRef.current?.scrollIntoView({ block: "nearest" });
+                }}
+                className={`absolute inset-0 overflow-hidden bg-surface ${
+                  anchored ? "border-2 border-foreground" : "border border-foreground"
+                }`}
+              >
+                <span className="absolute inset-1.5">
+                  <Image
+                    src={cell.imageUrl}
+                    alt=""
+                    fill
+                    sizes="(min-width: 640px) 144px, 112px"
+                    className="object-contain"
+                  />
                 </span>
+                <span className="absolute top-1 left-1.5 font-mono text-[11px] leading-4 text-text-muted">
+                  {label}
+                </span>
+                {/* Anchored (2px ink border) and primary (this mono label) are
+                    orthogonal signals, not two weights of the same one — a
+                    non-primary cell being edited must not read as "the lead
+                    image", and the lead image must stay identifiable while
+                    something else is being edited. Same offsets as the #N
+                    label, mirrored to the bottom. */}
+                {cell.isPrimary && (
+                  <span className="absolute bottom-1 left-1.5 font-mono text-[11px] leading-4 uppercase tracking-[0.08em] text-text-muted">
+                    Primary
+                  </span>
+                )}
+                {/* No sr-only echo for "Primary": the visible label above IS
+                    real text in the accessibility tree, so a second sr-only
+                    span would announce it twice. "Editing" gets one because
+                    its only signal is the 2px border — a colour/width change
+                    with no text of its own, and otherwise unannounceable. */}
+                {anchored && <span className="sr-only">Editing</span>}
+              </button>
+              {/* Sibling of the anchor button, not nested inside it — a <button>
+                  cannot contain another <button>. Absolutely positioned on top
+                  so it captures its own corner without stopping propagation
+                  (sibling clicks never bubble to each other); it is later in
+                  DOM order than the cell's own button inside the same
+                  `relative` wrapper, so it already paints above the cell art
+                  with no z-index needed. Opens the shared lightbox scoped to
+                  this lane; anchoring stays a plain tap on the rest of the
+                  cell (#236). Hidden during select mode: the module's one
+                  gesture, one meaning rule (see docblock above) means a
+                  second tap target on the cell would offer a conflicting
+                  action while selecting. Not gated on `generating` —
+                  viewing an image mid-render is harmless, unlike the
+                  destructive LaneMenu actions. */}
+              {!selectMode && (
+                <button
+                  type="button"
+                  aria-label={`View image #${index + 1}`}
+                  data-testid="studio-cell-expand"
+                  onClick={() => setLightboxIndex(index)}
+                  className="absolute top-1 right-1 w-6 h-6 flex items-center justify-center bg-surface/80 text-foreground border border-foreground"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                    <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5" />
+                  </svg>
+                </button>
               )}
-              {/* No sr-only echo for "Primary": the visible label above IS
-                  real text in the accessibility tree, so a second sr-only
-                  span would announce it twice. "Editing" gets one because
-                  its only signal is the 2px border — a colour/width change
-                  with no text of its own, and otherwise unannounceable. */}
-              {anchored && <span className="sr-only">Editing</span>}
-            </button>
+            </div>
           );
         })}
 
@@ -1216,6 +1249,24 @@ function Lane({
           );
         })}
       </div>
+      {lightboxIndex !== null && lane.cells[lightboxIndex] && (
+        <ImageLightbox
+          images={lane.cells.map(
+            (c, i): LightboxImage => ({ id: c.imageId, number: i + 1, url: c.imageUrl })
+          )}
+          currentIndex={lightboxIndex}
+          onClose={() => setLightboxIndex(null)}
+          onNavigate={setLightboxIndex}
+          actions={
+            <Link
+              href={`/d/${lane.cells[lightboxIndex].imageId}`}
+              className="self-center text-sm underline text-text-muted hover:text-foreground"
+            >
+              Open
+            </Link>
+          }
+        />
+      )}
     </section>
   );
 }
