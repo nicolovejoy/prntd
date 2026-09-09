@@ -1,6 +1,7 @@
 /**
- * Nav model A retires two top-level routes. Both keep serving as permanent
- * redirects so bookmarks, shared links and stale `?from=` markers survive.
+ * Nav model A retires two top-level routes, and the 2026-09-09 archive-tab
+ * drop retires a third. All three keep serving as permanent redirects so
+ * bookmarks, shared links and stale `?from=` markers survive.
  *
  * The third test is the one worth having: `/shop` (static) now sits beside
  * the mothballed organizer `/shop/[slug]` (dynamic). A dynamic segment
@@ -43,6 +44,16 @@ describe("retired routes", () => {
     const { default: PrintsPage } = await import("../prints/page");
     expect(() => PrintsPage()).toThrow("NEXT_PERMANENT_REDIRECT:/shop");
     expect(h.permanentRedirect).toHaveBeenCalledWith("/shop");
+  });
+
+  it("/studio/archive permanently redirects to /studio/library", async () => {
+    const { default: StudioArchivePage } = await import(
+      "../studio/archive/page"
+    );
+    expect(() => StudioArchivePage()).toThrow(
+      "NEXT_PERMANENT_REDIRECT:/studio/library"
+    );
+    expect(h.permanentRedirect).toHaveBeenCalledWith("/studio/library");
   });
 });
 

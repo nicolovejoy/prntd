@@ -1,8 +1,8 @@
 /**
- * Studio sub-nav (nav model A): one strip across the bench, the library and
- * the archive. Asserts label AND destination — a tab pointing at the wrong
- * route must fail, not just a wrong word — plus which tab is marked current
- * for each of the three pathnames.
+ * Studio sub-nav (nav model A): one strip across the bench and the library.
+ * Asserts label AND destination — a tab pointing at the wrong route must
+ * fail, not just a wrong word — plus which tab is marked current for each
+ * pathname.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
@@ -22,19 +22,17 @@ beforeEach(() => {
 });
 
 describe("StudioTabs", () => {
-  it("is exactly Bench, Library, Archive in order", () => {
+  it("is exactly Bench, Library in order", () => {
     render(<StudioTabs />);
     expect(tabs()).toEqual([
       ["Bench", "/studio"],
       ["Library", "/studio/library"],
-      ["Archive", "/studio/archive"],
     ]);
   });
 
   it.each([
     ["/studio", "Bench"],
     ["/studio/library", "Library"],
-    ["/studio/archive", "Archive"],
   ])("marks the %s tab current on %s", (pathname, label) => {
     h.pathname = pathname;
     render(<StudioTabs />);

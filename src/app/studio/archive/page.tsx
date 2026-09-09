@@ -1,90 +1,16 @@
-import Image from "next/image";
-import Link from "next/link";
-import { Button, EmptyState } from "@/components/ui";
-import { requireRealUser } from "@/lib/require-user";
-import { getStudioArchiveData } from "@/lib/studio";
-import { formatClosedDate } from "@/lib/studio-view";
-import { reopenFromArchive } from "./actions";
+import { permanentRedirect } from "next/navigation";
 
 /**
- * /studio/archive — the conversations that have left the Studio, newest
- * closed first (studio-plan slice 4). Both the 3-day sweep and the lane's own
- * Close land things here, and Reopen puts one back on the bench.
+ * /studio/archive was its own list of closed conversations (studio-plan
+ * slice 4). Dropped 2026-09-09 as redundant: Library's Active/All filter
+ * (#238) already shows every archived image, and the image detail page's
+ * "Open conversation" already reopens a closed thread. Archiving itself is
+ * unchanged — see src/lib/archive-conversations.ts and
+ * src/app/design/actions.ts's reopenConversation.
  *
- * A server component with a form per row: reopening is one write and one
- * navigation, so there is no client state worth hydrating for.
+ * A permanent (308) redirect: this route is gone for good, not moved
+ * temporarily, so anything that bookmarked or linked here should update.
  */
-export default async function StudioArchivePage() {
-  const session = await requireRealUser();
-  const conversations = await getStudioArchiveData(session.user.id);
-
-  return (
-    <>
-      {/* 24px under the tab strip, the bench's default 24px. The layout
-          contributes nothing below the strip, so each view owns this
-          number; they used to disagree (24 / 32 / 32). */}
-      <main className="px-4 sm:px-6 pt-6 pb-8 max-w-4xl mx-auto w-full">
-        <p className="text-sm text-text-faint mb-6">
-          Designs with no activity for three days leave the Studio.
-        </p>
-
-        {conversations.length === 0 ? (
-          <EmptyState message="Nothing archived." />
-        ) : (
-          <ul className="divide-y divide-border" data-testid="archive-list">
-            {conversations.map((conversation) => (
-              <li
-                key={conversation.designId}
-                className="flex items-center gap-3 py-3"
-                data-testid="archive-row"
-              >
-                <Link
-                  href={`/design?id=${conversation.designId}`}
-                  className="flex items-center gap-3 min-w-0 flex-1"
-                >
-                  <div className="relative w-14 h-14 shrink-0 rounded-md overflow-hidden bg-checkerboard border border-border">
-                    {conversation.heroImageUrl && (
-                      <Image
-                        src={conversation.heroImageUrl}
-                        alt=""
-                        fill
-                        sizes="56px"
-                        className="object-contain"
-                      />
-                    )}
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-sm truncate">
-                      {conversation.title ?? "Untitled"}
-                    </p>
-                    <p className="text-xs text-text-faint">
-                      {formatClosedDate(conversation.closedAt)}
-                    </p>
-                  </div>
-                </Link>
-                {/* One control per row, so the action is unambiguous on a
-                    390px phone: the row opens the record, the button brings
-                    it back to the bench. */}
-                <form
-                  action={reopenFromArchive.bind(null, conversation.designId)}
-                  className="shrink-0"
-                >
-                  {/* min-h-11 = 44px: the phone tap target, which `size="sm"`
-                      (~26px) does not reach on its own. */}
-                  <Button
-                    type="submit"
-                    variant="secondary"
-                    size="sm"
-                    className="min-h-11 px-4"
-                  >
-                    Reopen
-                  </Button>
-                </form>
-              </li>
-            ))}
-          </ul>
-        )}
-      </main>
-    </>
-  );
+export default function StudioArchivePage(): never {
+  permanentRedirect("/studio/library");
 }

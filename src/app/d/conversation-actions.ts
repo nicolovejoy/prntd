@@ -55,9 +55,8 @@ export async function openConversation(designId: string): Promise<void> {
       .where(eq(designTable.id, designId));
   }
 
-  // A reopened lane belongs back on the bench, off the archive list, and its
-  // images may now belong in the Active filter on My Designs.
+  // A reopened lane belongs back on the bench, and its images may now belong
+  // in the Active filter on My Designs.
   revalidatePath("/studio");
-  revalidatePath("/studio/archive");
   revalidatePath("/studio/library");
 }

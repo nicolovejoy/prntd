@@ -3,7 +3,9 @@ import { NextRequest, NextResponse } from "next/server";
 // Personal-records routes — always behind sign-in. Note startsWith matching:
 // "/designs" stays protected even when "/design" is opened (the funnel route),
 // because "/design/x".startsWith("/designs") is false. Same for /orders vs
-// /order. "/studio" covers /studio/library and /studio/archive.
+// /order. "/studio" covers /studio/library (and /studio/archive, which just
+// 308s to /studio/library since the dedicated archive tab was dropped
+// 2026-09-09).
 //
 // "/designs" is now only a 308 to /studio/library (nav model A), but it stays
 // on this list so a signed-out visitor lands on /sign-in in one hop instead of

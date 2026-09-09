@@ -305,10 +305,12 @@ differ.
 
 **Places**
 
-- **Studio** — `/studio` (Bench · Library · Archive, nav model A,
+- **Studio** — `/studio` (Bench · Library, nav model A,
   `docs/ux-design-review-2026-09.md`). Where designs are made (Bench) and
-  organized (Library, Archive). One conversation thread lives one level in,
-  at `/design`.
+  organized (Library). One conversation thread lives one level in, at
+  `/design`. A third view, Archive, existed until 2026-09-09 — dropped as
+  redundant once Library's Active/All filter (#238) already surfaced every
+  archived image; `/studio/archive` now 308s to `/studio/library`.
 - **Shop** — `/shop`, the community storefront (renamed from "Fresh
   Prints" 2026-07-19). Organizer stores were also shops (`/shop/[slug]`,
   each a self-contained storefront) — retired 2026-09-05 (#191):
@@ -318,10 +320,10 @@ differ.
   replacement — organizer storefronts are retired outright, not replaced.
 - **Funnel** — Studio → Preview → Order → Confirm. Linear, breadcrumbed.
 - **Shelf** — the personal library of owned work: `/studio/library` (every
-  owned image) and `/orders`. Distinct from `/studio/archive`, Studio's own
-  view of idle conversations (Model B `closed`/#181-swept threads) —
-  "archive" now names two different things, so Shelf is glossed as library,
-  not archive.
+  owned image) and `/orders`. Library's Active/All filter (#238) is what
+  surfaces idle conversations (Model B `closed`/#181-swept threads) now that
+  the dedicated `/studio/archive` view is gone (2026-09-09, 308 to
+  `/studio/library`) — so Shelf is glossed as library, not archive.
 - **Counter** — `/admin`. Back of shop.
 - **Dashboard** — `/dashboard`. Where organizers ran their shops. Retired
   2026-09-05 (#191): the file still exists but has no live entry point (see
