@@ -193,6 +193,56 @@ describe("cells (Paper bench)", () => {
     expect(pending.className).toContain("border-foreground");
     expect(pending.className).toContain("sm:w-36");
   });
+
+  it("opens the lightbox from a cell's expand icon, with an Open link to the detail page", () => {
+    render(
+      <StudioClient
+        initialLanes={[
+          lane({
+            designId: "design-1",
+            cells: [cell("img-1"), cell("img-2")],
+          }),
+        ]}
+      />
+    );
+
+    const expandButtons = screen.getAllByTestId("studio-cell-expand");
+    fireEvent.click(expandButtons[1]); // open on the second cell
+
+    const lightbox = screen.getByTestId("image-lightbox");
+    expect(lightbox).toBeTruthy();
+
+    const openLink = within(lightbox).getByRole("link", { name: "Open" });
+    expect(openLink.getAttribute("href")).toBe("/d/img-2");
+  });
+
+  it("tapping a cell still anchors it — the expand icon doesn't change that", () => {
+    render(
+      <StudioClient
+        initialLanes={[lane({ designId: "design-1", cells: [cell("img-1")] })]}
+      />
+    );
+
+    fireEvent.click(screen.getByTestId("studio-cell"));
+    expect(screen.getByTestId("studio-cell").getAttribute("aria-pressed")).toBe(
+      "true"
+    );
+    // The expand icon must not have triggered anchoring on its own click.
+    expect(screen.queryByTestId("image-lightbox")).toBeNull();
+  });
+
+  it("tapping the expand icon does not anchor the cell", () => {
+    render(
+      <StudioClient
+        initialLanes={[lane({ designId: "design-1", cells: [cell("img-1")] })]}
+      />
+    );
+
+    fireEvent.click(screen.getByTestId("studio-cell-expand"));
+    expect(screen.getByTestId("studio-cell").getAttribute("aria-pressed")).toBe(
+      "false"
+    );
+  });
 });
 
 describe("the empty bench", () => {
