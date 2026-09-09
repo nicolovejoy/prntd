@@ -2,12 +2,10 @@
 
 import { authClient } from "@/lib/auth-client";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button, Input } from "@/components/ui";
 
 export default function SignUpPage() {
-  const router = useRouter();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -29,7 +27,11 @@ export default function SignUpPage() {
       return;
     }
 
-    router.push("/studio");
+    // Hard navigation, not router.push — see the matching comment in
+    // sign-in/page.tsx: the header's session-keyed getHeaderState() effect
+    // races the App Router's transition on the same session-identity change,
+    // and router.push() can get stuck behind it indefinitely.
+    window.location.href = "/studio";
   }
 
   return (

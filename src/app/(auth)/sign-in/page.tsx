@@ -2,7 +2,7 @@
 
 import { authClient } from "@/lib/auth-client";
 import { Suspense, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button, Input } from "@/components/ui";
 
@@ -15,7 +15,6 @@ export default function SignInPage() {
 }
 
 function SignInForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -44,7 +43,15 @@ function SignInForm() {
     const safeNext = next && next.startsWith("/") && !next.startsWith("//")
       ? next
       : "/studio";
-    router.push(safeNext);
+    // Hard navigation, not router.push: the header's session-keyed
+    // getHeaderState() effect (site-header.tsx) fires a server action the
+    // instant this sign-in flips session?.user?.id, and that can race the
+    // App Router's client-side transition badly enough that router.push()
+    // never lands — button stuck on "Signing in...", URL never changes, no
+    // pending network request, only a reload recovers. window.location.href
+    // can't get stuck behind another pending action. Same reasoning as
+    // signOut() in site-header.tsx.
+    window.location.href = safeNext;
   }
 
   return (
