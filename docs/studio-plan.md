@@ -68,6 +68,9 @@ hitting Generate produces an anchored edit of that image. Dismissing the chip
 clears the anchor, and the same box then starts a new conversation. There is
 exactly one submit control and its meaning is always stated on screen.
 
+(2026-09-09: cell tap now opens the lightbox; anchoring is the lightbox's
+"Edit this one")
+
 This is the load-bearing claim of the whole design: if "what am I about to
 change" is ever ambiguous, the paradigm fails. Every review of this work
 should attack that first.
@@ -320,6 +323,9 @@ skipped by an agent at least once here: `npm run lint`, `npm run typecheck`,
 >
 > The anchor must survive a poll refresh landing mid-typing. That is the
 > failure mode most worth a test.
+>
+> (2026-09-09: cell tap now opens the lightbox; anchoring is the lightbox's
+> "Edit this one")
 >
 > No schema change is needed. Run lint, typecheck, test and build before
 > opening the PR.

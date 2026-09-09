@@ -158,6 +158,36 @@ describe("ImageLightbox closing", () => {
     renderLightbox();
     expect(screen.getByRole("button", { name: "Close" })).toHaveFocus();
   });
+
+  it("restores focus to whatever opened it on unmount (Studio's cell tap is now the primary gesture, #236 follow-up)", () => {
+    const opener = document.createElement("button");
+    opener.textContent = "Opener cell";
+    document.body.appendChild(opener);
+    opener.focus();
+    expect(document.activeElement).toBe(opener);
+
+    const { unmount } = renderLightbox();
+    expect(screen.getByRole("button", { name: "Close" })).toHaveFocus();
+
+    // Restoring focus is a passive-effect cleanup, which React 18 flushes
+    // asynchronously unless the unmount itself is wrapped in act().
+    act(() => {
+      unmount();
+    });
+    expect(document.activeElement).toBe(opener);
+
+    opener.remove();
+  });
+
+  it("does not throw if the opener is gone from the document by the time it closes", () => {
+    const opener = document.createElement("button");
+    document.body.appendChild(opener);
+    opener.focus();
+
+    const { unmount } = renderLightbox();
+    opener.remove(); // e.g. the lane it belonged to was deleted while open
+    expect(() => unmount()).not.toThrow();
+  });
 });
 
 describe("ImageLightbox single view", () => {

@@ -1,9 +1,10 @@
 /**
  * Render + interaction coverage for the Studio screen (slices 2+3): the empty
  * state, a lane's cells with the primary marked, a pending cell with elapsed
- * time — and the anchor model: tap to anchor, chip with dismiss, anchored
- * submit = edit of that image, unanchored submit = fresh conversation, cap
- * visible, Close clears a lane.
+ * time — and the anchor model: chip with dismiss, anchored submit = edit of
+ * that image, unanchored submit = fresh conversation, cap visible, Close
+ * clears a lane. (2026-09-09: a cell tap now opens the lightbox; anchoring
+ * is the lightbox's "Edit this one" — see the `anchorCell` helper below.)
  *
  * The one test that matters most (plan, slice 3): the anchor survives a poll
  * refresh landing mid-typing. Server actions are mocked; polling arithmetic
@@ -80,6 +81,17 @@ function pendingJob(id: string, ageMs = 42_000) {
   };
 }
 
+/**
+ * Anchors a cell for edit. Since #236's follow-up, a plain cell tap opens
+ * the lightbox rather than anchoring — anchoring now happens via the
+ * lightbox's own "Edit this one" action — so every test that needs an
+ * anchored image goes through both steps.
+ */
+function anchorCell(index = 0) {
+  fireEvent.click(screen.getAllByTestId("studio-cell")[index]);
+  fireEvent.click(screen.getByTestId("lightbox-edit"));
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   h.polledLanes = [];
@@ -153,7 +165,7 @@ describe("cells (Paper bench)", () => {
       />
     );
     const cell0 = screen.getAllByTestId("studio-cell")[0];
-    fireEvent.click(cell0);
+    anchorCell(0);
     expect(cell0.className).toContain("border-2");
     expect(cell0.className).not.toContain("ring-2");
   });
@@ -168,7 +180,7 @@ describe("cells (Paper bench)", () => {
     );
     const cells = screen.getAllByTestId("studio-cell");
     // Anchor the NON-primary cell — primary stays "b" (cells[1]).
-    fireEvent.click(cells[0]);
+    anchorCell(0);
 
     expect(cells[0].className).toContain("border-2");
     expect(cells[0]).not.toBe(cells[1]);
@@ -194,7 +206,7 @@ describe("cells (Paper bench)", () => {
     expect(pending.className).toContain("sm:w-36");
   });
 
-  it("opens the lightbox from a cell's expand icon, with an Open link to the detail page", () => {
+  it("a cell tap opens the lightbox, with an Open link to the detail page", () => {
     render(
       <StudioClient
         initialLanes={[
@@ -206,8 +218,8 @@ describe("cells (Paper bench)", () => {
       />
     );
 
-    const expandButtons = screen.getAllByTestId("studio-cell-expand");
-    fireEvent.click(expandButtons[1]); // open on the second cell
+    const cells = screen.getAllByTestId("studio-cell");
+    fireEvent.click(cells[1]); // open on the second cell
 
     const lightbox = screen.getByTestId("image-lightbox");
     expect(lightbox).toBeTruthy();
@@ -216,7 +228,7 @@ describe("cells (Paper bench)", () => {
     expect(openLink.getAttribute("href")).toBe("/d/img-2");
   });
 
-  it("tapping a cell still anchors it — the expand icon doesn't change that", () => {
+  it("a cell tap alone does not anchor — anchoring is the lightbox's own action", () => {
     render(
       <StudioClient
         initialLanes={[lane({ designId: "design-1", cells: [cell("img-1")] })]}
@@ -224,24 +236,21 @@ describe("cells (Paper bench)", () => {
     );
 
     fireEvent.click(screen.getByTestId("studio-cell"));
-    expect(screen.getByTestId("studio-cell").getAttribute("aria-pressed")).toBe(
-      "true"
-    );
-    // The expand icon must not have triggered anchoring on its own click.
-    expect(screen.queryByTestId("image-lightbox")).toBeNull();
+    expect(screen.getByTestId("image-lightbox")).toBeTruthy();
+    expect(screen.queryByTestId("anchor-chip")).toBeNull();
   });
 
-  it("tapping the expand icon does not anchor the cell", () => {
+  it("Edit this one in the lightbox anchors the shown image and closes the lightbox", () => {
     render(
       <StudioClient
         initialLanes={[lane({ designId: "design-1", cells: [cell("img-1")] })]}
       />
     );
 
-    fireEvent.click(screen.getByTestId("studio-cell-expand"));
-    expect(screen.getByTestId("studio-cell").getAttribute("aria-pressed")).toBe(
-      "false"
-    );
+    anchorCell(0);
+    expect(screen.queryByTestId("image-lightbox")).toBeNull();
+    const chip = screen.getByTestId("anchor-chip");
+    expect(chip.textContent).toContain("Editing · geometric wolf head");
   });
 });
 
@@ -255,10 +264,10 @@ describe("the empty bench", () => {
 });
 
 describe("anchoring", () => {
-  it("tap anchors a cell and shows the chip; dismiss clears it", () => {
+  it("Edit this one anchors a cell and shows the chip; dismiss clears it", () => {
     render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
 
-    fireEvent.click(screen.getByTestId("studio-cell"));
+    anchorCell(0);
     const chip = screen.getByTestId("anchor-chip");
     expect(chip.textContent).toContain("Editing · geometric wolf head");
 
@@ -266,13 +275,16 @@ describe("anchoring", () => {
     expect(screen.queryByTestId("anchor-chip")).toBeNull();
   });
 
-  it("tapping the anchored cell again clears the anchor", () => {
+  it("re-opening the lightbox and choosing Edit this one on the already-anchored image keeps it anchored", () => {
+    // "Edit this one" always SETS the anchor — it must never read as a
+    // silent toggle-off, since un-anchoring belongs to the chip's own
+    // "Clear anchor" control (#236 follow-up).
     render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
 
-    fireEvent.click(screen.getByTestId("studio-cell"));
+    anchorCell(0);
     expect(screen.getByTestId("anchor-chip")).toBeTruthy();
-    fireEvent.click(screen.getByTestId("studio-cell"));
-    expect(screen.queryByTestId("anchor-chip")).toBeNull();
+    anchorCell(0);
+    expect(screen.getByTestId("anchor-chip")).toBeTruthy();
   });
 
   it("the anchor survives a poll refresh landing mid-typing", async () => {
@@ -280,7 +292,7 @@ describe("anchoring", () => {
     h.polledLanes = [l];
     render(<StudioClient initialLanes={[l]} />);
 
-    fireEvent.click(screen.getByTestId("studio-cell"));
+    anchorCell(0);
     fireEvent.change(screen.getByTestId("studio-composer"), {
       target: { value: "make it bl" },
     });
@@ -300,7 +312,7 @@ describe("anchoring", () => {
     h.polledLanes = []; // the conversation closed elsewhere
     render(<StudioClient initialLanes={[l]} />);
 
-    fireEvent.click(screen.getByTestId("studio-cell"));
+    anchorCell(0);
     expect(screen.getByTestId("anchor-chip")).toBeTruthy();
 
     fireEvent(window, new Event("focus"));
@@ -314,7 +326,7 @@ describe("the composer", () => {
   it("anchored Generate edits exactly the tapped image", async () => {
     render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
 
-    fireEvent.click(screen.getByTestId("studio-cell"));
+    anchorCell(0);
     fireEvent.change(screen.getByTestId("studio-composer"), {
       target: { value: "make it blue" },
     });
@@ -410,7 +422,7 @@ describe("the composer panel (Paper bench)", () => {
 
   it("shows the anchored image as a row inside the panel", () => {
     render(<StudioClient initialLanes={[lane({ cells: [cell("a")] })]} />);
-    fireEvent.click(screen.getByTestId("studio-cell"));
+    anchorCell(0);
     const chip = screen.getByTestId("anchor-chip");
     expect(screen.getByTestId("studio-composer-panel").contains(chip)).toBe(true);
   });
@@ -649,6 +661,18 @@ describe("select mode (#189)", () => {
     expect(screen.getByTestId("select-mode")).toBeTruthy();
   });
 
+  it("entering select mode while the lightbox is open closes it (no focus trap, reachable by keyboard)", () => {
+    render(<StudioClient initialLanes={three()} />);
+
+    fireEvent.click(screen.getAllByTestId("studio-cell")[0]);
+    expect(screen.getByTestId("image-lightbox")).toBeTruthy();
+
+    fireEvent.click(screen.getAllByRole("button", { name: "More" })[0]);
+    fireEvent.click(screen.getByTestId("select-mode"));
+
+    expect(screen.queryByTestId("image-lightbox")).toBeNull();
+  });
+
   it("Select swaps the composer for the bar and shows a checkbox per lane", () => {
     render(<StudioClient initialLanes={three()} />);
 
@@ -682,6 +706,7 @@ describe("select mode (#189)", () => {
     fireEvent.click(screen.getAllByTestId("studio-cell")[0]);
     expect(screen.getByTestId("selected-count").textContent).toBe("1 selected");
     expect(screen.queryByTestId("anchor-chip")).toBeNull();
+    expect(screen.queryByTestId("image-lightbox")).toBeNull();
   });
 
   it("Select all picks every selectable lane; a generating lane is left out", () => {
@@ -852,7 +877,7 @@ describe("the optimistic pending cell (#187)", () => {
     deferGenerate();
     render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
 
-    fireEvent.click(screen.getByTestId("studio-cell"));
+    anchorCell(0);
     submitText("make it blue");
 
     const pending = screen.getByTestId("studio-pending-cell");
@@ -891,7 +916,7 @@ describe("the optimistic pending cell (#187)", () => {
     h.polledLanes = [lane({ cells: [cell("img-1")] })];
     render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
 
-    fireEvent.click(screen.getByTestId("studio-cell"));
+    anchorCell(0);
     submitText("make it blue");
 
     fireEvent(window, new Event("focus"));
@@ -906,7 +931,7 @@ describe("the optimistic pending cell (#187)", () => {
     ];
     render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
 
-    fireEvent.click(screen.getByTestId("studio-cell"));
+    anchorCell(0);
     submitText("make it blue");
 
     await waitFor(() => expect(getStudioLanes).toHaveBeenCalled());
@@ -965,7 +990,7 @@ describe("the optimistic pending cell (#187)", () => {
       />
     );
 
-    fireEvent.click(screen.getByTestId("studio-cell"));
+    anchorCell(0);
     submitText("make it blue");
 
     await waitFor(() => expect(getStudioLanes).toHaveBeenCalled());
@@ -995,7 +1020,7 @@ describe("the optimistic pending cell (#187)", () => {
       />
     );
 
-    fireEvent.click(screen.getByTestId("studio-cell"));
+    anchorCell(0);
     submitText("make it blue");
 
     expect(screen.getByTestId("cap-notice").textContent).toContain("3 generating");
@@ -1020,7 +1045,7 @@ describe("the optimistic pending cell (#187)", () => {
       />
     );
 
-    fireEvent.click(screen.getAllByTestId("studio-cell")[0]);
+    anchorCell(0);
     submitText("make it blue");
     // The generating lane's own trigger is gone; the idle second lane's is
     // the only door left into select mode.
@@ -1041,7 +1066,7 @@ describe("the optimistic pending cell (#187)", () => {
     deferGenerate();
     render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
 
-    fireEvent.click(screen.getByTestId("studio-cell"));
+    anchorCell(0);
     submitText("make it blue");
 
     expect(screen.getByTestId("anchor-chip")).toBeTruthy();
@@ -1078,7 +1103,7 @@ describe("the optimistic pending cell — review fixes (#187)", () => {
       );
 
       render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
-      fireEvent.click(screen.getByTestId("studio-cell"));
+      anchorCell(0);
       submitText("make it blue");
 
       // The timer poll goes out while generateDesign is still in flight.
@@ -1148,7 +1173,7 @@ describe("the optimistic pending cell — review fixes (#187)", () => {
     deferGenerate();
     render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
 
-    fireEvent.click(screen.getByTestId("studio-cell"));
+    anchorCell(0);
     submitText("make it blue");
 
     expect(screen.queryByTestId("cancel-generation")).toBeNull();

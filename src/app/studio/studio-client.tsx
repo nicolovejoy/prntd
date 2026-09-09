@@ -50,13 +50,17 @@ import { deleteConversations, getStudioLanes } from "./actions";
  * running generation shows as a pending cell with elapsed time, and one
  * composer at the top of the page is the only submit control.
  *
- * Selection is the interaction model: tapping a cell anchors it, the composer
- * carries a chip with a crop of the anchored image, and Generate then edits
- * exactly that image. Dismissing the chip clears the anchor and the same box
- * starts a NEW conversation. Three decisions are settled (plan, slice 3): the
- * composer sits at the top of the bench (Paper mock, #188 slice 3), the
- * anchor never advances to a result on its own, and a lane opens scrolled to
- * its newest image.
+ * Selection is the interaction model, but viewing and editing are two
+ * separate gestures (#236 follow-up): tapping a cell opens the shared
+ * lightbox for that image, and anchoring for edit is a deliberate "Edit this
+ * one" action inside it, not a side effect of looking. Once anchored, the
+ * composer carries a chip with a crop of the anchored image, and Generate
+ * then edits exactly that image. Dismissing the chip clears the anchor and
+ * the same box starts a NEW conversation. Four decisions are settled (plan,
+ * slice 3 + the #236 follow-up): the composer sits at the top of the bench
+ * (Paper mock, #188 slice 3), the anchor never advances to a result on its
+ * own, a lane opens scrolled to its newest image, and opening the lightbox
+ * never anchors on its own either.
  *
  * Polling: while any lane has a pending cell, the whole read model is
  * re-fetched on the generation-poll schedule (fast, then slow). One request
@@ -84,8 +88,9 @@ import { deleteConversations, getStudioLanes } from "./actions";
  * bench, #188 slice 3 — there is no page-level control) and turns every lane
  * header into a checkbox row, swapping the composer for a bar with the
  * count, Select all, Delete and Done. While selecting, a tap anywhere on a
- * lane — header or cell — toggles that lane; anchoring is off, so one
- * gesture means one thing. A lane with a running generation can't be
+ * lane — header or cell — toggles that lane; the lightbox does not open in
+ * select mode, so one gesture still means one thing. A lane with a running
+ * generation can't be
  * selected (its ⋯ overflow, and so its Close/Delete/Select, is hidden for
  * the same reason — closing or deleting mid-render would land the image in
  * a thread that just vanished from the bench). Escape leaves select mode.
@@ -387,21 +392,33 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
     }
   }
 
-  function toggleAnchor(lane: StudioLane, cell: StudioLane["cells"][number]) {
-    if (selectMode) {
-      if (lane.pending.length === 0) toggleSelected(lane.designId);
-      return;
-    }
-    setAnchor((a) =>
-      a?.imageId === cell.imageId
-        ? null
-        : {
-            designId: lane.designId,
-            imageId: cell.imageId,
-            imageUrl: cell.imageUrl,
-            title: lane.title,
-          }
-    );
+  // Cell tap in select mode: the only caller left of this since #236 moved
+  // viewing (and thus anchoring) off the plain tap and into the lightbox's
+  // "Edit this one" action below. Lane only calls this once it has already
+  // branched on selectMode itself, so there is no mode check here.
+  function selectLaneFromCell(lane: StudioLane) {
+    if (lane.pending.length === 0) toggleSelected(lane.designId);
+  }
+
+  // Always SETS the anchor — never toggles it off — because this is what
+  // the lightbox's "Edit this one" button does, and that button must not
+  // silently un-anchor when it happens to be shown for the already-anchored
+  // image (its own name would then be a lie). Un-anchoring stays the
+  // composer chip's "Clear anchor" control.
+  function editFromLightbox(
+    lane: StudioLane,
+    cell: StudioLane["cells"][number]
+  ) {
+    setAnchor({
+      designId: lane.designId,
+      imageId: cell.imageId,
+      imageUrl: cell.imageUrl,
+      title: lane.title,
+    });
+    // The composer panel sits at the TOP of the bench (#188 slice 3, not a
+    // fixed bottom bar), so bring IT into view rather than the lane — the
+    // anchor chip that just appeared lives there.
+    composerPanelRef.current?.scrollIntoView({ block: "nearest" });
   }
 
   async function submit() {
@@ -596,7 +613,8 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
               anchoredImageId={anchor?.imageId ?? null}
               selectMode={selectMode}
               selected={selected.has(lane.designId)}
-              onTapCell={toggleAnchor}
+              onTapCell={selectLaneFromCell}
+              onEditImage={editFromLightbox}
               onToggleSelect={toggleSelected}
               onClose={closeLane}
               onDelete={deleteLane}
@@ -960,6 +978,7 @@ function Lane({
   selectMode,
   selected,
   onTapCell,
+  onEditImage,
   onToggleSelect,
   onClose,
   onDelete,
@@ -973,7 +992,13 @@ function Lane({
   anchoredImageId: string | null;
   selectMode: boolean;
   selected: boolean;
-  onTapCell: (lane: StudioLane, cell: StudioLane["cells"][number]) => void;
+  /** Select-mode cell tap only — a plain tap outside select mode opens the
+   * lightbox instead (Lane's own onClick branches on selectMode before
+   * calling this), so there is no cell to pass. */
+  onTapCell: (lane: StudioLane) => void;
+  /** "Edit this one" inside the lightbox (#236 follow-up): always sets the
+   * anchor to the shown image, never toggles it off. */
+  onEditImage: (lane: StudioLane, cell: StudioLane["cells"][number]) => void;
   onToggleSelect: (designId: string) => void;
   onClose: (lane: StudioLane) => void;
   onDelete: (lane: StudioLane) => void;
@@ -1104,7 +1129,16 @@ function Lane({
             <button
               type="button"
               role="menuitem"
-              onClick={onEnterSelectMode}
+              onClick={() => {
+                // The lightbox has no focus trap, so this item is reachable
+                // by keyboard while it's still open — close it here rather
+                // than leave a stray overlay whose "Edit this one" would
+                // anchor an image while the page is trying to select
+                // conversations instead (also hidden below as a second
+                // guard against the same overlap).
+                setLightboxIndex(null);
+                onEnterSelectMode();
+              }}
               className="min-h-11 px-4 text-left text-sm text-text-muted hover:text-foreground hover:bg-surface-well"
               data-testid="select-mode"
             >
@@ -1129,13 +1163,23 @@ function Lane({
               <button
                 type="button"
                 data-testid="studio-cell"
-                aria-pressed={anchored}
+                aria-label={`View image #${index + 1}${
+                  cell.isPrimary ? ", primary" : ""
+                }${anchored ? ", editing" : ""}`}
                 onClick={() => {
-                  onTapCell(lane, cell);
-                  // Anchoring scrolls its lane into view (plan, slice 3): the
-                  // keyboard takes half the phone, and the lane being edited
-                  // should survive that.
-                  sectionRef.current?.scrollIntoView({ block: "nearest" });
+                  // One gesture, one meaning (docblock above, #236 follow-up):
+                  // outside select mode the cell body opens the lightbox — it
+                  // no longer anchors on tap, that moved to the lightbox's
+                  // own "Edit this one" action. In select mode the tap keeps
+                  // its old job (toggle this lane's selection), and the
+                  // section-scroll that used to compensate for the keyboard
+                  // popping up over an anchor only makes sense there.
+                  if (selectMode) {
+                    onTapCell(lane);
+                    sectionRef.current?.scrollIntoView({ block: "nearest" });
+                    return;
+                  }
+                  setLightboxIndex(index);
                 }}
                 className={`absolute inset-0 overflow-hidden bg-surface ${
                   anchored ? "border-2 border-foreground" : "border border-foreground"
@@ -1164,40 +1208,17 @@ function Lane({
                     Primary
                   </span>
                 )}
-                {/* No sr-only echo for "Primary": the visible label above IS
-                    real text in the accessibility tree, so a second sr-only
-                    span would announce it twice. "Editing" gets one because
-                    its only signal is the 2px border — a colour/width change
-                    with no text of its own, and otherwise unannounceable. */}
-                {anchored && <span className="sr-only">Editing</span>}
+                {/* The button carries an explicit aria-label (above) built
+                    from the same isPrimary/anchored state, rather than
+                    relying on its visible contents: an aria-label REPLACES
+                    the whole subtree in the accessibility tree, so a screen
+                    reader never sees the "#N"/"Primary" text spans at all —
+                    they're sighted-only decoration once a label is present.
+                    `aria-pressed` was dropped (#236 follow-up) for the same
+                    reason it would otherwise have covered: this button opens
+                    a lightbox rather than toggling its own state, so a
+                    pressed/unpressed semantic would be wrong. */}
               </button>
-              {/* Sibling of the anchor button, not nested inside it — a <button>
-                  cannot contain another <button>. Absolutely positioned on top
-                  so it captures its own corner without stopping propagation
-                  (sibling clicks never bubble to each other); it is later in
-                  DOM order than the cell's own button inside the same
-                  `relative` wrapper, so it already paints above the cell art
-                  with no z-index needed. Opens the shared lightbox scoped to
-                  this lane; anchoring stays a plain tap on the rest of the
-                  cell (#236). Hidden during select mode: the module's one
-                  gesture, one meaning rule (see docblock above) means a
-                  second tap target on the cell would offer a conflicting
-                  action while selecting. Not gated on `generating` —
-                  viewing an image mid-render is harmless, unlike the
-                  destructive LaneMenu actions. */}
-              {!selectMode && (
-                <button
-                  type="button"
-                  aria-label={`View image #${index + 1}`}
-                  data-testid="studio-cell-expand"
-                  onClick={() => setLightboxIndex(index)}
-                  className="absolute top-1 right-1 w-6 h-6 flex items-center justify-center bg-surface/80 text-foreground border border-foreground"
-                >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                    <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5" />
-                  </svg>
-                </button>
-              )}
             </div>
           );
         })}
@@ -1258,12 +1279,36 @@ function Lane({
           onClose={() => setLightboxIndex(null)}
           onNavigate={setLightboxIndex}
           actions={
-            <Link
-              href={`/d/${lane.cells[lightboxIndex].imageId}`}
-              className="self-center text-sm underline text-text-muted hover:text-foreground"
-            >
-              Open
-            </Link>
+            <>
+              {/* Anchoring for edit lives here now (#236 follow-up), not on
+                  the cell tap that opened this lightbox. Always SETS the
+                  anchor — see editFromLightbox's comment — so this button's
+                  own name stays true even when the shown image is already
+                  anchored. Hidden in select mode as a second guard beside
+                  the effect above that closes the lightbox on entry — there
+                  is no focus trap on the lightbox, so select mode can be
+                  entered by keyboard while it's still open. */}
+              {!selectMode && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  data-testid="lightbox-edit"
+                  onClick={() => {
+                    const shown = lane.cells[lightboxIndex];
+                    if (shown) onEditImage(lane, shown);
+                    setLightboxIndex(null);
+                  }}
+                >
+                  Edit this one
+                </Button>
+              )}
+              <Link
+                href={`/d/${lane.cells[lightboxIndex].imageId}`}
+                className="self-center text-sm underline text-text-muted hover:text-foreground"
+              >
+                Open
+              </Link>
+            </>
           }
         />
       )}
