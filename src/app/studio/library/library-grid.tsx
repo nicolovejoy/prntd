@@ -115,9 +115,10 @@ export function LibraryGrid({ images }: { images: LibraryImage[] }) {
   // Reconcile the selection when the filter hides selected images.
   // This prevents bulk-delete from acting on images not visible to the user.
   useEffect(() => {
-    const visibleIds = new Set(visible.map((i) => i.imageId));
+    const currentlyVisible = filterLibraryImages(shown, filter);
+    const visibleIds = new Set(currentlyVisible.map((i) => i.imageId));
     setSelected((prev) => new Set([...prev].filter((id) => visibleIds.has(id))));
-  }, [visible]);
+  }, [filter, shown]);
 
   return (
     <div>
