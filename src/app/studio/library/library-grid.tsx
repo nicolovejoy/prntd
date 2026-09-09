@@ -115,10 +115,20 @@ export function LibraryGrid({ images }: { images: LibraryImage[] }) {
   // Reconcile the selection when the filter hides selected images.
   // This prevents bulk-delete from acting on images not visible to the user.
   useEffect(() => {
+    // Skip while a delete is in flight: the optimistic removal transiently
+    // hides the very images being deleted, and clearing the selection there
+    // would strand the failure path's "Try again." with nothing selected.
+    if (deleting) return;
+    // Recomputed here rather than closing over `visible` above: that array is
+    // a new reference every render, and depending on it would re-fire this
+    // effect on every render — this is the earlier infinite-loop bug.
     const currentlyVisible = filterLibraryImages(shown, filter);
     const visibleIds = new Set(currentlyVisible.map((i) => i.imageId));
-    setSelected((prev) => new Set([...prev].filter((id) => visibleIds.has(id))));
-  }, [filter, shown]);
+    setSelected((prev) => {
+      const next = [...prev].filter((id) => visibleIds.has(id));
+      return next.length === prev.size ? prev : new Set(next);
+    });
+  }, [filter, shown, deleting]);
 
   return (
     <div>
@@ -130,6 +140,7 @@ export function LibraryGrid({ images }: { images: LibraryImage[] }) {
             type="button"
             onClick={() => setFilter("all")}
             data-testid="library-filter-all"
+            aria-pressed={filter === "all"}
             className={`text-xs px-2 min-h-11 ${
               filter === "all"
                 ? "text-foreground underline underline-offset-[3px]"
@@ -142,6 +153,7 @@ export function LibraryGrid({ images }: { images: LibraryImage[] }) {
             type="button"
             onClick={() => setFilter("active")}
             data-testid="library-filter-active"
+            aria-pressed={filter === "active"}
             className={`text-xs px-2 min-h-11 ${
               filter === "active"
                 ? "text-foreground underline underline-offset-[3px]"

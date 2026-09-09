@@ -199,6 +199,28 @@ describe("My Designs select mode", () => {
     );
   });
 
+  it("keeps the selection intact after a failed delete, so Try again works", async () => {
+    // Regression for the reconciliation effect wiping `selected` during the
+    // optimistic remove-then-restore cycle of a failed bulk delete — the
+    // failure notice used to point at an empty selection, forcing the user
+    // to re-select everything by hand.
+    vi.mocked(deleteImages).mockRejectedValueOnce(new Error("boom"));
+    render(<LibraryGrid images={three()} />);
+    fireEvent.click(screen.getByTestId("library-select"));
+    fireEvent.click(screen.getByTestId("library-select-all"));
+    expect(screen.getByTestId("library-selected-count").textContent).toBe("3 selected");
+
+    fireEvent.click(screen.getByTestId("library-delete"));
+    await screen.findByTestId("confirm-sheet");
+    fireEvent.click(screen.getByTestId("confirm-sheet-confirm"));
+
+    await waitFor(() => expect(tiles()).toHaveLength(3));
+    expect(screen.getByTestId("library-notice").textContent).toBe(
+      "Couldn't delete those images. Try again."
+    );
+    expect(screen.getByTestId("library-selected-count").textContent).toBe("3 selected");
+  });
+
   it("does nothing when the confirm is dismissed", async () => {
     render(<LibraryGrid images={three()} />);
     fireEvent.click(screen.getByTestId("library-select"));
