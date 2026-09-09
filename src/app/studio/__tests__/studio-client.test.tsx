@@ -1,9 +1,10 @@
 /**
  * Render + interaction coverage for the Studio screen (slices 2+3): the empty
  * state, a lane's cells with the primary marked, a pending cell with elapsed
- * time — and the anchor model: tap to anchor, chip with dismiss, anchored
- * submit = edit of that image, unanchored submit = fresh conversation, cap
- * visible, Close clears a lane.
+ * time — and the anchor model: chip with dismiss, anchored submit = edit of
+ * that image, unanchored submit = fresh conversation, cap visible, Close
+ * clears a lane. (2026-09-09: a cell tap now opens the lightbox; anchoring
+ * is the lightbox's "Edit this one" — see the `anchorCell` helper below.)
  *
  * The one test that matters most (plan, slice 3): the anchor survives a poll
  * refresh landing mid-typing. Server actions are mocked; polling arithmetic
@@ -660,6 +661,18 @@ describe("select mode (#189)", () => {
     expect(screen.getByTestId("select-mode")).toBeTruthy();
   });
 
+  it("entering select mode while the lightbox is open closes it (no focus trap, reachable by keyboard)", () => {
+    render(<StudioClient initialLanes={three()} />);
+
+    fireEvent.click(screen.getAllByTestId("studio-cell")[0]);
+    expect(screen.getByTestId("image-lightbox")).toBeTruthy();
+
+    fireEvent.click(screen.getAllByRole("button", { name: "More" })[0]);
+    fireEvent.click(screen.getByTestId("select-mode"));
+
+    expect(screen.queryByTestId("image-lightbox")).toBeNull();
+  });
+
   it("Select swaps the composer for the bar and shows a checkbox per lane", () => {
     render(<StudioClient initialLanes={three()} />);
 
@@ -693,6 +706,7 @@ describe("select mode (#189)", () => {
     fireEvent.click(screen.getAllByTestId("studio-cell")[0]);
     expect(screen.getByTestId("selected-count").textContent).toBe("1 selected");
     expect(screen.queryByTestId("anchor-chip")).toBeNull();
+    expect(screen.queryByTestId("image-lightbox")).toBeNull();
   });
 
   it("Select all picks every selectable lane; a generating lane is left out", () => {

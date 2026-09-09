@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useCallback, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui";
 
@@ -80,6 +87,28 @@ export function ImageLightbox({
   // dialog immediately. No focus trap — out of scope for this pass.
   useEffect(() => {
     closeButtonRef.current?.focus();
+  }, []);
+
+  // Restore focus to whatever opened this on unmount. Captured on mount, not
+  // read fresh in the cleanup (by then `document.activeElement` is whatever
+  // the dialog itself last focused, e.g. Close) — and captured in a LAYOUT
+  // effect specifically so it runs before the passive "focus Close on mount"
+  // effect above: passive effects run in declaration order, so a useEffect
+  // here would capture Close itself, not the real opener. The Studio bench
+  // cell tap is now the primary way to reach this (#236 follow-up), so
+  // losing focus back to the top of the page on close would be a real
+  // regression, not just a nicety. Guarded on the node still being in the
+  // document — the cell can legitimately be gone by the time this closes
+  // (e.g. its lane got deleted while the lightbox was open).
+  const previouslyFocused = useRef<Element | null>(null);
+  useLayoutEffect(() => {
+    previouslyFocused.current = document.activeElement;
+    return () => {
+      const el = previouslyFocused.current;
+      if (el instanceof HTMLElement && document.contains(el)) {
+        el.focus();
+      }
+    };
   }, []);
 
   if (!image) return null;
