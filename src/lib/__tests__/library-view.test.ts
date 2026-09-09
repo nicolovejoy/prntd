@@ -5,7 +5,9 @@ import {
   bulkImageDeleteTitle,
   imageDeleteSkipCopy,
   type ImageDeleteSkipReason,
+  filterLibraryImages,
 } from "@/lib/library-view";
+import type { LibraryImage } from "@/lib/user-designs";
 
 describe("imageDeleteSkipCopy", () => {
   it("names the order case explicitly", () => {
@@ -95,5 +97,34 @@ describe("bulkImageDeleteNotice", () => {
         { imageId: "b", reason: "order" },
       ])
     ).toBe("2 images weren't deleted — Used in an order (1), Couldn't delete (1).");
+  });
+});
+
+describe("filterLibraryImages", () => {
+  function img(overrides: Partial<LibraryImage> = {}): LibraryImage {
+    return {
+      imageId: "img-1",
+      imageUrl: "https://example.com/img-1.png",
+      createdAt: new Date("2026-09-01T00:00:00Z"),
+      isPublished: false,
+      backgroundColor: null,
+      sourceDesignId: "design-1",
+      isArchived: false,
+      ...overrides,
+    };
+  }
+
+  it("'all' returns every image unchanged, archived included", () => {
+    const images = [img({ imageId: "a" }), img({ imageId: "b", isArchived: true })];
+    expect(filterLibraryImages(images, "all")).toEqual(images);
+  });
+
+  it("'active' excludes archived images", () => {
+    const images = [
+      img({ imageId: "a", isArchived: false }),
+      img({ imageId: "b", isArchived: true }),
+    ];
+    const result = filterLibraryImages(images, "active");
+    expect(result.map((i) => i.imageId)).toEqual(["a"]);
   });
 });

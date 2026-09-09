@@ -4,6 +4,8 @@
  * without re-deriving why.
  */
 
+import type { LibraryImage } from "./user-designs";
+
 /**
  * Why a bulk image delete kept an image. Narrower than the conversation-level
  * BulkDeleteSkipReason (studio-view.ts) because the rules differ one object
@@ -96,4 +98,22 @@ export function bulkImageDeleteNotice(
       ? "1 image wasn't deleted"
       : `${skipped.length} images weren't deleted`;
   return `${lead} — ${parts.join(", ")}.`;
+}
+
+/**
+ * Two views over the same list, never a server re-query: "all" is the
+ * library's real default (every image, archived included — see the
+ * doc comment on this module's Global Constraints in the implementation
+ * plan for why an archived-conversation image must never be hidden by
+ * default), "active" is an opt-in declutter for a user who wants to see
+ * only what's still live on the Studio bench.
+ */
+export type LibraryFilter = "all" | "active";
+
+export function filterLibraryImages(
+  images: LibraryImage[],
+  filter: LibraryFilter
+): LibraryImage[] {
+  if (filter === "all") return images;
+  return images.filter((img) => !img.isArchived);
 }

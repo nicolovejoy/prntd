@@ -199,6 +199,28 @@ describe("My Designs select mode", () => {
     );
   });
 
+  it("keeps the selection intact after a failed delete, so Try again works", async () => {
+    // Regression for the reconciliation effect wiping `selected` during the
+    // optimistic remove-then-restore cycle of a failed bulk delete — the
+    // failure notice used to point at an empty selection, forcing the user
+    // to re-select everything by hand.
+    vi.mocked(deleteImages).mockRejectedValueOnce(new Error("boom"));
+    render(<LibraryGrid images={three()} />);
+    fireEvent.click(screen.getByTestId("library-select"));
+    fireEvent.click(screen.getByTestId("library-select-all"));
+    expect(screen.getByTestId("library-selected-count").textContent).toBe("3 selected");
+
+    fireEvent.click(screen.getByTestId("library-delete"));
+    await screen.findByTestId("confirm-sheet");
+    fireEvent.click(screen.getByTestId("confirm-sheet-confirm"));
+
+    await waitFor(() => expect(tiles()).toHaveLength(3));
+    expect(screen.getByTestId("library-notice").textContent).toBe(
+      "Couldn't delete those images. Try again."
+    );
+    expect(screen.getByTestId("library-selected-count").textContent).toBe("3 selected");
+  });
+
   it("does nothing when the confirm is dismissed", async () => {
     render(<LibraryGrid images={three()} />);
     fireEvent.click(screen.getByTestId("library-select"));
@@ -226,5 +248,70 @@ describe("My Designs select mode", () => {
 
     await waitFor(() => expect(screen.getByText("No designs yet.")).toBeTruthy());
     expect(screen.queryByTestId("library-tile")).toBeNull();
+  });
+});
+
+describe("All/Active filter", () => {
+  it("defaults to All — an archived image is visible on first render", () => {
+    render(
+      <LibraryGrid
+        images={[img({ imageId: "img-1", isArchived: true })]}
+      />
+    );
+    expect(screen.getByTestId("library-tile")).toBeTruthy();
+  });
+
+  it("Active hides archived images; All brings them back", () => {
+    render(
+      <LibraryGrid
+        images={[
+          img({ imageId: "img-1", isArchived: false }),
+          img({ imageId: "img-2", isArchived: true }),
+        ]}
+      />
+    );
+    expect(screen.getAllByTestId("library-tile")).toHaveLength(2);
+
+    fireEvent.click(screen.getByTestId("library-filter-active"));
+    expect(screen.getAllByTestId("library-tile")).toHaveLength(1);
+
+    fireEvent.click(screen.getByTestId("library-filter-all"));
+    expect(screen.getAllByTestId("library-tile")).toHaveLength(2);
+  });
+
+  it("Active with nothing active shows a lighter empty state than the true-empty one", () => {
+    render(<LibraryGrid images={[img({ imageId: "img-1", isArchived: true })]} />);
+    fireEvent.click(screen.getByTestId("library-filter-active"));
+    expect(screen.getByText("Nothing active — switch to All to see everything.")).toBeTruthy();
+  });
+
+  it("no longer prints an Archived marker on the tile", () => {
+    render(<LibraryGrid images={[img({ imageId: "img-1", isArchived: true })]} />);
+    expect(screen.queryByText("Archived")).toBeNull();
+    expect(screen.queryByText(/Archived/)).toBeNull();
+  });
+
+  it("reconciles selection when the filter hides a selected image", () => {
+    render(
+      <LibraryGrid
+        images={[
+          img({ imageId: "i1", isArchived: false }),
+          img({ imageId: "i2", isArchived: true }),
+        ]}
+      />
+    );
+    fireEvent.click(screen.getByTestId("library-select"));
+
+    // Select one active and one archived image (count should show "2 selected").
+    fireEvent.click(tiles()[0]);
+    fireEvent.click(tiles()[1]);
+    expect(screen.getByTestId("library-selected-count").textContent).toBe("2 selected");
+
+    // Switch to Active filter — the archived image disappears from the grid.
+    fireEvent.click(screen.getByTestId("library-filter-active"));
+
+    // Selection should be reconciled; count should drop to "1 selected".
+    expect(screen.getByTestId("library-selected-count").textContent).toBe("1 selected");
+    expect(tiles()).toHaveLength(1);
   });
 });
