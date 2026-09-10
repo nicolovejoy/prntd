@@ -118,6 +118,12 @@ export interface BulkImageDeleteResult {
  * delete is logged and never fails the action, because the row is already
  * gone and no sweep can find the object again — an orphaned object costs
  * storage, a thrown action costs the user a tile that is in fact deleted.
+ *
+ * When a deleted image was its home design's last one, `executeImageDeletion`
+ * removes that conversation too (owner ruling, 2026-09-09) — see
+ * `removeDesignIfNowEmpty` in delete-image.ts. `/studio` is revalidated
+ * whenever that happened, on top of the library revalidation this action
+ * always does.
  */
 export async function deleteImages(
   imageIds: string[]
@@ -131,6 +137,7 @@ export async function deleteImages(
   if (ids.length === 0) return result;
 
   let publishedRemoved = false;
+  let designRemoved = false;
 
   for (const imageId of ids) {
     const plan = await planImageDeletion(db, imageId, {
@@ -149,10 +156,14 @@ export async function deleteImages(
       continue;
     }
 
+    let outcome: Awaited<ReturnType<typeof executeImageDeletion>>;
     try {
       // One batch, including the primary_image_id move — nothing to follow up,
       // so a partial write can't leave the thread pointing at a deleted image.
-      await executeImageDeletion(db, plan);
+      // Also checks (and, if empty, removes) the image's home design — every
+      // image here is a full delete, so its home thread can genuinely lose
+      // its last image (owner ruling, 2026-09-09).
+      outcome = await executeImageDeletion(db, plan);
     } catch (err) {
       console.error(
         `[designs] deleteImages: ${imageId} failed: ${err instanceof Error ? err.message : String(err)}`
@@ -162,6 +173,9 @@ export async function deleteImages(
     }
     result.deleted.push(imageId);
     if (plan.mirrorProductId) publishedRemoved = true;
+    if (outcome.designRemoved === "deleted" || outcome.designRemoved === "archived") {
+      designRemoved = true;
+    }
 
     const key = r2KeyForImagePlan(plan, imageKeyFromUrl);
     if (key) {
@@ -176,6 +190,9 @@ export async function deleteImages(
   }
 
   revalidatePath("/studio/library");
+  if (designRemoved) {
+    revalidatePath("/studio");
+  }
   if (publishedRemoved) {
     revalidatePath("/");
     revalidatePath("/shop");

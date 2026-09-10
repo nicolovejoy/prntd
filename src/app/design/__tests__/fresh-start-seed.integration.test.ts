@@ -28,6 +28,7 @@ vi.mock("@/lib/db", () => ({
 }));
 
 vi.mock("next/headers", () => ({ headers: vi.fn(async () => new Headers()) }));
+vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 
 // generateDesign hands the render to `after()`; collect the continuations so
 // each test decides when the background half runs. A no-op mock would make
@@ -307,14 +308,14 @@ describe("editing on a seed-only thread", () => {
 });
 
 describe("removing a seed from the thread", () => {
-  it("detaches the link only — the image row and its home thread survive", async () => {
+  it("detaches the link only — the image row and its origin thread survive; the now-image-less fresh-start thread itself is removed (2026-09-09 owner ruling)", async () => {
     const { imageId } = await seedOrigin({ publishedAt: new Date() });
     const { designId } = await startConversationFromImage(imageId);
 
     await deleteDesignImage(designId, imageId);
 
-    expect(await seedLinks(designId)).toHaveLength(0);
-    // Image row intact, origin's output link intact.
+    // Detach only: the image row and the ORIGIN thread's own output link
+    // survive — the seed was never the origin's to lose.
     expect(
       await testDb.select().from(schema.image).where(eq(schema.image.id, imageId))
     ).toHaveLength(1);
@@ -324,11 +325,15 @@ describe("removing a seed from the thread", () => {
         .from(schema.conversationImage)
         .where(eq(schema.conversationImage.imageId, imageId))
     ).toHaveLength(1);
-    // The seed was the thread's primary; with no outputs left it clears.
+    // The seed was this fresh-start thread's ONLY image, so removing the
+    // link leaves it with zero — the conversation is dead weight and is
+    // removed outright (delete-image-empty-conversation.integration.test.ts
+    // covers the rule directly; this pins the fresh-start-from-seed shape).
+    expect(await seedLinks(designId)).toHaveLength(0);
     const [design] = await testDb
       .select()
       .from(schema.design)
       .where(eq(schema.design.id, designId));
-    expect(design.primaryImageId).toBeNull();
+    expect(design).toBeUndefined();
   });
 });

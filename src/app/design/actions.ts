@@ -901,6 +901,13 @@ export async function selectImage(designId: string, imageUrl: string) {
  * go. An id this thread can't reach is "Image not found" — owning the design
  * doesn't authorise deleting an image it never had. primary_image_id moves
  * inside the same batch when the deleted image was the primary.
+ *
+ * Every outcome above removes THIS design's own link to the image — even a
+ * detach only keeps the image row alive elsewhere, it still drops this
+ * thread's copy — so `executeImageDeletion` also checks whether the design
+ * is now image-less and, if so, removes the conversation itself (owner
+ * ruling, 2026-09-09): `/studio` is revalidated for that case, on top of the
+ * library revalidation every image delete already needs.
  */
 export async function deleteDesignImage(designId: string, imageId: string) {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -934,7 +941,11 @@ export async function deleteDesignImage(designId: string, imageId: string) {
 
   // One batch, including the primary_image_id move when this image was the
   // thread's primary — no follow-up write to fail after the rows are gone.
-  await executeImageDeletion(db, plan);
+  const { designRemoved } = await executeImageDeletion(db, plan);
+  if (designRemoved === "deleted" || designRemoved === "archived") {
+    revalidatePath("/studio");
+    revalidatePath("/studio/library");
+  }
 }
 
 /**
