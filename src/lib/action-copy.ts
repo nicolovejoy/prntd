@@ -35,6 +35,30 @@ export const START_FROM_IMAGE_ERROR = {
   body: "The image is still here. Try again.",
 } as const;
 
+// --- /design thread (ConfirmSheet: title + body) ---
+
+export const DELETE_IMAGE_TITLE = "Delete this image?";
+
+/**
+ * The image-lightbox confirm's consequence line (#242 review finding 4).
+ * `deleteDesignImage` isn't always a delete of just the image: the rules in
+ * delete-image.ts can downgrade it to a link-detach (an order, another
+ * design, a shop product, or a cart line still needs it), and either way —
+ * delete or detach — removing THIS conversation's link can leave the
+ * conversation with zero images left, in which case `removeDesignIfNowEmpty`
+ * removes the conversation too, chat included (owner ruling, 2026-09-09).
+ * The caller passes `isLastImage` (the thread had exactly one image before
+ * this delete) so the sheet says so up front rather than surprising the user
+ * after the fact — true of a "Delete" as much as a seed's "Remove", since a
+ * fresh-start thread whose only image is its seed empties exactly the same
+ * way once that link is detached.
+ */
+export function deleteImageConsequence(isLastImage: boolean): string {
+  const kept = "Used in an order, another design, or a cart, it's kept instead.";
+  if (!isLastImage) return kept;
+  return `This is the conversation's last image, so the conversation and its chat go too. ${kept}`;
+}
+
 // --- image detail page (InlineNotice: one line) ---
 
 export const OPEN_CONVERSATION_FAILED = "Couldn't open this conversation. Try again.";

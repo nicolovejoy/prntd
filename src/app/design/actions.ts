@@ -905,9 +905,12 @@ export async function selectImage(designId: string, imageUrl: string) {
  * Every outcome above removes THIS design's own link to the image — even a
  * detach only keeps the image row alive elsewhere, it still drops this
  * thread's copy — so `executeImageDeletion` also checks whether the design
- * is now image-less and, if so, removes the conversation itself (owner
- * ruling, 2026-09-09): `/studio` is revalidated for that case, on top of the
- * library revalidation every image delete already needs.
+ * is now image-less and, if nothing else still points at it, removes the
+ * conversation itself (owner ruling, 2026-09-09) — a running job, a cart
+ * line or a shop product each keep it, and an order archives it instead;
+ * `removeDesignIfNowEmpty` holds the full rule. `/studio` is revalidated
+ * when the conversation went, on top of the library revalidation every image
+ * delete needs.
  */
 export async function deleteDesignImage(designId: string, imageId: string) {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -942,10 +945,11 @@ export async function deleteDesignImage(designId: string, imageId: string) {
   // One batch, including the primary_image_id move when this image was the
   // thread's primary — no follow-up write to fail after the rows are gone.
   const { designRemoved } = await executeImageDeletion(db, plan);
+  revalidatePath("/studio/library");
   if (designRemoved === "deleted" || designRemoved === "archived") {
     revalidatePath("/studio");
-    revalidatePath("/studio/library");
   }
+  return { designRemoved };
 }
 
 /**

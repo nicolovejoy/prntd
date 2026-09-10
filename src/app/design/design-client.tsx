@@ -23,7 +23,7 @@ import {
   reopenConversation,
   startConversationFromImage,
 } from "./actions";
-import { Button, useNotice } from "@/components/ui";
+import { Button, useNotice, useConfirm } from "@/components/ui";
 import { PublishModal } from "@/components/publish-modal";
 import type { ChatMessage } from "@/lib/db/schema";
 import type { ChatOption } from "@/lib/ai";
@@ -37,7 +37,12 @@ import { MobileGalleryStrip } from "./mobile-gallery-strip";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
 import { isDesignEmpty, sourcesToGalleryImages, conversationToggleError } from "@/lib/design-view";
-import { DELETE_IMAGE_ERROR, START_FROM_IMAGE_ERROR } from "@/lib/action-copy";
+import {
+  DELETE_IMAGE_ERROR,
+  DELETE_IMAGE_TITLE,
+  deleteImageConsequence,
+  START_FROM_IMAGE_ERROR,
+} from "@/lib/action-copy";
 import { ensureGuestSession } from "@/lib/ensure-guest-session";
 import {
   readThreadSnapshot,
@@ -186,6 +191,10 @@ function DesignPageInner({ initialThreadPromise, canPublish }: Props) {
   // lightbox, drawer, or header with no stable inline slot, so each reports
   // through this one-button sheet rather than an inline line.
   const { notice, element: noticeSheet } = useNotice();
+  // Delete-image's own confirm (#242 review finding 4) — the lightbox's
+  // Delete/Remove used to fire straight through with no confirm at all,
+  // unlike Library's bulk delete (#200).
+  const { confirm, element: confirmSheet } = useConfirm();
 
   const running = jobs.running;
   const generating = running.length > 0 || pending > 0;
@@ -611,8 +620,17 @@ function DesignPageInner({ initialThreadPromise, canPublish }: Props) {
 
   async function handleDeleteImage(imageId: string) {
     const deleted = images.find((img) => img.id === imageId);
+    const ok = await confirm({
+      title: DELETE_IMAGE_TITLE,
+      body: deleteImageConsequence(images.length === 1),
+      confirmLabel: "Delete",
+      danger: true,
+    });
+    if (!ok) return;
+
+    let designRemoved: Awaited<ReturnType<typeof deleteDesignImage>>["designRemoved"];
     try {
-      await deleteDesignImage(designId.current, imageId);
+      ({ designRemoved } = await deleteDesignImage(designId.current, imageId));
     } catch {
       // The server's refusal reason ("…referenced by an order") does not
       // survive to the client in production — Next masks a thrown
@@ -620,6 +638,18 @@ function DesignPageInner({ initialThreadPromise, canPublish }: Props) {
       notice(DELETE_IMAGE_ERROR);
       return;
     }
+
+    // The conversation itself is gone — deleted outright, or archived
+    // because an order still references it (removeDesignIfNowEmpty,
+    // delete-image.ts). There is nothing left here to refresh into:
+    // designExists would go stale and the next poll or a Close tap would
+    // throw "Design not found" (#242 review finding 4 — this is exactly the
+    // gap that used to leave the thread open with no redirect). Leave now.
+    if (designRemoved !== "kept") {
+      router.push("/studio");
+      return;
+    }
+
     await refreshGallery();
     // If lightbox was open on this image, clamp or close
     setImages((current) => {
@@ -867,6 +897,7 @@ function DesignPageInner({ initialThreadPromise, canPublish }: Props) {
       />
 
       {noticeSheet}
+      {confirmSheet}
     </div>
   );
 }

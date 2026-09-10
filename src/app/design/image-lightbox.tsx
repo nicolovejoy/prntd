@@ -250,7 +250,7 @@ export function ImageLightbox({
                 disabled={!image.id || (!isSeed && Boolean(image.publishedAt))}
                 title={
                   isSeed
-                    ? "Removes the starting image from this design only."
+                    ? "Removes the starting image from this design; if it's the design's last image, the conversation goes with it."
                     : image.publishedAt
                       ? "Published images cannot be deleted."
                       : undefined

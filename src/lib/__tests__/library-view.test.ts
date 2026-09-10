@@ -52,9 +52,9 @@ describe("bulkImageDeleteTitle", () => {
 });
 
 describe("bulkImageDeleteConsequence", () => {
-  it("is one line, the same either way", () => {
+  it("names every keeper, the conversation clause included, the same either way", () => {
     expect(bulkImageDeleteConsequence(1)).toBe(
-      "Images used in an order, another design, or a cart are kept."
+      "Images used in an order, another design, or a cart are kept. A conversation left with no images goes too. Conversations with an order are kept instead."
     );
     expect(bulkImageDeleteConsequence(4)).toBe(bulkImageDeleteConsequence(1));
   });
