@@ -497,7 +497,11 @@ describe("executeImageDeletion — the primary move rides in the batch", () => {
     const plan = await planImageDeletion(testDb, primary, { userId: "u1" });
     const result = await executeImageDeletion(testDb, plan);
 
-    expect(result).toEqual({ primaryImageId: older, primaryChanged: true });
+    expect(result).toEqual({
+      primaryImageId: older,
+      primaryChanged: true,
+      designRemoved: "kept",
+    });
     const row = await testDb.query.design.findFirst({
       where: eq(schema.design.id, d.id),
     });
@@ -505,7 +509,7 @@ describe("executeImageDeletion — the primary move rides in the batch", () => {
     expect(await imageRows(primary)).toHaveLength(0);
   });
 
-  it("clears the primary when nothing is left in the thread", async () => {
+  it("clears the primary when nothing is left in the thread — and, since the thread is now image-less, removes the conversation entirely (2026-09-09 owner ruling; see delete-image-empty-conversation.integration.test.ts)", async () => {
     const d = await makeDesign(testDb, "u1");
     const only = await makeSourceImage(testDb, {
       designId: d.id,
@@ -518,11 +522,14 @@ describe("executeImageDeletion — the primary move rides in the batch", () => {
       .where(eq(schema.design.id, d.id));
 
     const plan = await planImageDeletion(testDb, only, { userId: "u1" });
-    await executeImageDeletion(testDb, plan);
+    const result = await executeImageDeletion(testDb, plan);
 
+    expect(result.primaryChanged).toBe(true);
+    expect(result.primaryImageId).toBeNull();
+    expect(result.designRemoved).toBe("deleted");
     const row = await testDb.query.design.findFirst({
       where: eq(schema.design.id, d.id),
     });
-    expect(row?.primaryImageId).toBeNull();
+    expect(row).toBeUndefined();
   });
 });

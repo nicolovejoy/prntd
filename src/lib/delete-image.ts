@@ -16,6 +16,12 @@
  *    its mirror product survive.
  *  - Otherwise the image row, its listing, its mirror `product` row, its
  *    placement_render row (id reuse) and its conversation links go.
+ *  - Whichever of the above happens, if it leaves the image's home design
+ *    with zero remaining `conversation_image` links (every role) and no
+ *    `image_generation` row still running, the conversation itself is
+ *    removed (owner ruling, 2026-09-09) — see `removeDesignIfNowEmpty`. An
+ *    image-less conversation is dead weight: unreachable from Library or the
+ *    image detail page, and an empty lane on the Studio bench.
  *
  * Two scopes, one plan:
  *  - design-scoped (`designId`): "remove this image from this thread". A
@@ -39,10 +45,16 @@ import {
   conversationImage as conversationImageTable,
   placementRender as placementRenderTable,
   listing as listingTable,
+  imageGeneration as imageGenerationTable,
 } from "@/lib/db/schema";
 import { imageReferences, imageReferencedByOrders } from "@/lib/design-publish";
 import { findMirrorProduct } from "@/lib/model-b-writes";
-import type { ImageDeletionOutcome } from "@/lib/delete-design";
+import {
+  planDesignDeletion,
+  executeDesignDeletion,
+  isDeletionBlocked,
+  type ImageDeletionOutcome,
+} from "@/lib/delete-design";
 
 type Db = typeof appDb;
 
@@ -275,10 +287,94 @@ export async function planImageDeletion(
  * touched here; the plan carries `r2Key`/`imageUrl` for a caller that cleans
  * up. The return value reports the new primary; the caller writes nothing.
  */
+/** What happened to a design after its link count was checked post-delete. */
+export type EmptyDesignOutcome =
+  | "deleted"
+  | "archived"
+  | "kept"
+  | "not-applicable";
+
+/**
+ * After removing a design's link to one image (whether that image was
+ * deleted outright or merely detached — either way THIS design no longer
+ * has it), check whether the design now has zero images at all, and if so
+ * remove the conversation (owner ruling, 2026-09-09): it is otherwise
+ * unreachable from Library or the image detail page, and an empty lane on
+ * the Studio bench.
+ *
+ * Applies delete-design.ts's own rules rather than reimplementing them: an
+ * order-referenced conversation archives (financial records never cascade),
+ * everything else hard-deletes. `closed_at` is deliberately NOT used here —
+ * an image-less closed conversation would be unreachable forever, since
+ * nothing ever reopens a conversation with no image to show for it.
+ *
+ * A running `image_generation` row is treated as "not actually empty yet":
+ * it is about to append an image, so the conversation isn't dead weight,
+ * it's between frames.
+ *
+ * Called once, from the end of `executeImageDeletion`, so every caller
+ * (single delete, bulk library delete) gets this for free without deciding
+ * for itself when a conversation goes empty.
+ *
+ * Concurrency: libSQL over HTTP has no interactive transaction, so the reads
+ * here and the delete-design write that follows are separate round trips —
+ * a job that starts running in that gap (or a completion whose image insert
+ * lands in that gap) races this. The fallout is the same one
+ * delete-design.ts already documents for an explicit whole-conversation
+ * delete racing a running job: the completion's insert dies on the
+ * design_id FK, the continuation cleans up its own R2 object, and the quota
+ * unit is silently lost. That failure mode already exists on any manual
+ * conversation delete; this doesn't widen it, and the window here is a
+ * couple of read statements, not a user-visible wait.
+ */
+export async function removeDesignIfNowEmpty(
+  db: Db,
+  designId: string
+): Promise<EmptyDesignOutcome> {
+  const [design, remainingLinks, runningJobs] = await Promise.all([
+    db.query.design.findFirst({ where: eq(designTable.id, designId) }),
+    db
+      .select({ id: conversationImageTable.id })
+      .from(conversationImageTable)
+      .where(eq(conversationImageTable.designId, designId))
+      .limit(1),
+    db
+      .select({ id: imageGenerationTable.id })
+      .from(imageGenerationTable)
+      .where(
+        and(
+          eq(imageGenerationTable.designId, designId),
+          eq(imageGenerationTable.status, "running")
+        )
+      )
+      .limit(1),
+  ]);
+
+  // Already gone (a legacy image with no home design, or a design deleted by
+  // some other path in the same request) — nothing to do.
+  if (!design) return "not-applicable";
+  if (remainingLinks.length > 0 || runningJobs.length > 0) return "kept";
+
+  const plan = await planDesignDeletion(db, designId);
+  if (isDeletionBlocked(plan)) {
+    await db
+      .update(designTable)
+      .set({ status: "archived", updatedAt: new Date() })
+      .where(eq(designTable.id, designId));
+    return "archived";
+  }
+  await executeDesignDeletion(db, plan);
+  return "deleted";
+}
+
 export async function executeImageDeletion(
   db: Db,
   plan: ImageDeletionPlan
-): Promise<{ primaryImageId: string | null; primaryChanged: boolean }> {
+): Promise<{
+  primaryImageId: string | null;
+  primaryChanged: boolean;
+  designRemoved: EmptyDesignOutcome;
+}> {
   if (
     plan.outcome === "blocked-by-order" ||
     plan.outcome === "not-owned" ||
@@ -357,7 +453,18 @@ export async function executeImageDeletion(
       : []),
   ]);
 
-  return { primaryImageId: newPrimaryId, primaryChanged: movePrimary };
+  // Every outcome here (delete, or any of the detach-* downgrades) removes
+  // THIS design's own link to the image — see the docblock above. So the
+  // design may now be image-less regardless of which outcome fired.
+  const designRemoved = designId
+    ? await removeDesignIfNowEmpty(db, designId)
+    : "not-applicable";
+
+  return {
+    primaryImageId: newPrimaryId,
+    primaryChanged: movePrimary,
+    designRemoved,
+  };
 }
 
 /** The R2 object key for a planned image, best-effort: the stored key, else
