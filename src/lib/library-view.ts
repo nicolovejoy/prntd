@@ -53,13 +53,21 @@ export function bulkImageDeleteTitle(count: number): string {
  * studio-view.ts) — an earlier draft mentioned only orders, which understated
  * three of the four in-use rules.
  *
+ * A fifth consequence shipped with #242 without this line being touched:
+ * an image can be its home conversation's last one, in which case deleting
+ * it (or detaching it, for a seed) also removes the conversation —
+ * chat included, or archived instead when an order references it
+ * (removeDesignIfNowEmpty, delete-image.ts). Said here in the same words as
+ * studio-view.ts's bulkDeleteConsequence uses for its own archive case, so
+ * a reader who has seen the conversation-level sheet recognises the phrase.
+ *
  * Takes the count (mirroring bulkDeleteConsequence) though the line reads the
  * same for one image or twenty — the caller shouldn't have to know which
  * helpers happen to vary.
  */
 export function bulkImageDeleteConsequence(count: number): string {
   void count;
-  return "Images used in an order, another design, or a cart are kept.";
+  return "Images used in an order, another design, or a cart are kept. A conversation left with no images goes too. Conversations with an order are kept instead.";
 }
 
 /**

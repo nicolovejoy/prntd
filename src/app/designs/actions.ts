@@ -120,10 +120,11 @@ export interface BulkImageDeleteResult {
  * storage, a thrown action costs the user a tile that is in fact deleted.
  *
  * When a deleted image was its home design's last one, `executeImageDeletion`
- * removes that conversation too (owner ruling, 2026-09-09) — see
- * `removeDesignIfNowEmpty` in delete-image.ts. `/studio` is revalidated
- * whenever that happened, on top of the library revalidation this action
- * always does.
+ * removes that conversation too — unless a running job, a cart line or a shop
+ * product still points at it, and archiving instead when an order does (owner
+ * ruling, 2026-09-09; the full rule is on `removeDesignIfNowEmpty` in
+ * delete-image.ts). `/studio` is revalidated whenever a conversation went, on
+ * top of the library revalidation this action always does.
  */
 export async function deleteImages(
   imageIds: string[]

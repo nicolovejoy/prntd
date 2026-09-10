@@ -365,7 +365,7 @@ describe("ImageLightbox actions row", () => {
     expect(remove).toBeEnabled();
     expect(remove).toHaveAttribute(
       "title",
-      "Removes the starting image from this design only."
+      "Removes the starting image from this design; if it's the design's last image, the conversation goes with it."
     );
     expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Publish" })).toBeNull();

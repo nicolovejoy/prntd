@@ -209,4 +209,86 @@ describe("deleting a conversation's last image removes the conversation", () => 
         .where(eq(schema.image.id, keptImageSurviving))
     ).toHaveLength(1);
   });
+
+  it("(f) a cart line pinning the design's own last image survives the delete, along with the conversation and the cart line (#242 review finding 1, \"the cart contradiction\")", async () => {
+    // Exercised through deleteDesignImage (the /design lightbox path), not
+    // the library's bulk deleteImages: planImageDeletion's cart probe
+    // (delete-image.ts) doesn't exclude the scope design's own cart line, so
+    // this image resolves to a detach — its row is kept because the cart
+    // line still needs it — rather than a delete. Only a design-scoped call
+    // reaches executeImageDeletion at all for a detach outcome; deleteImages
+    // is image-scoped and skips any non-"delete" outcome without touching
+    // the DB (the library-view.ts docblock: "a detach here would be a
+    // silent no-op"), so it can't exercise this path.
+    const d = await makeDesign(testDb, "u1");
+    const imageId = await makeSourceImage(testDb, {
+      designId: d.id,
+      ownerId: "u1",
+      imageUrl: "https://img/cart-pinned.png",
+    });
+    await testDb.insert(schema.cartItem).values({
+      userId: "u1",
+      designId: d.id,
+      productId: "bella-canvas-3001",
+      size: "M",
+      color: "White",
+      placements: { front: imageId },
+    });
+
+    await deleteDesignImage(d.id, imageId);
+
+    // The image detaches — a cart line still needs it — so the row survives.
+    expect(
+      await testDb.select().from(schema.image).where(eq(schema.image.id, imageId))
+    ).toHaveLength(1);
+    // Before the fix, the now-empty conversation fell straight through to
+    // executeDesignDeletion, which unconditionally drops every cart_item row
+    // FK-ing the design — including the very line the image detach was
+    // protecting.
+    expect(await designRow(d.id)).toBeDefined();
+    expect(await testDb.select().from(schema.cartItem)).toHaveLength(1);
+  });
+
+  it("(g) an organizer product on the design keeps the conversation — not archived — after its last image is deleted", async () => {
+    const d = await makeDesign(testDb, "u1");
+    const imageId = await makeSourceImage(testDb, {
+      designId: d.id,
+      ownerId: "u1",
+      imageUrl: "https://img/only.png",
+    });
+    // The design's own organizer sellable (product.designId = d.id) — not a
+    // pin on the image itself, so the image's own plan is a plain "delete".
+    await testDb.insert(schema.product).values({
+      ownerId: "u1",
+      designId: d.id,
+      blankId: "bella-canvas-3001",
+    });
+
+    await deleteDesignImage(d.id, imageId);
+
+    // Nothing keeps the image itself alive, so it's a real delete...
+    expect(
+      await testDb.select().from(schema.image).where(eq(schema.image.id, imageId))
+    ).toHaveLength(0);
+    // ...but the conversation is left exactly as it was: archiving it would
+    // falsify openConversation's documented invariant that "archived" only
+    // ever means "was ordered" (#242 review finding 2), and the product
+    // still needs a live design row to compose from.
+    const row = await designRow(d.id);
+    expect(row).toBeDefined();
+    expect(row?.status).toBe("draft");
+  });
+
+  it("(h) deleteDesignImage reports designRemoved for a last-image delete", async () => {
+    const d = await makeDesign(testDb, "u1");
+    const imageId = await makeSourceImage(testDb, {
+      designId: d.id,
+      ownerId: "u1",
+      imageUrl: "https://img/only.png",
+    });
+
+    const result = await deleteDesignImage(d.id, imageId);
+
+    expect(result).toEqual({ designRemoved: "deleted" });
+  });
 });

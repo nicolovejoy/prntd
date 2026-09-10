@@ -146,7 +146,13 @@ export default async function PublishedImagePage({
               {identityBlock}
 
               <div className="flex flex-wrap items-center gap-3">
-                {img.sourceDesignId && (
+                {/* Same gate as OwnerActions below: img.sourceDesignId can
+                    name a conversation that's already gone (an order/seed
+                    reference kept the image alive after its thread was
+                    deleted — routine since #242's
+                    remove-now-empty-conversation rule), and /preview needs a
+                    live design row to render. */}
+                {img.sourceDesignId && img.hasSourceConversation && (
                   <Link href={`/preview?id=${img.sourceDesignId}`}>
                     <Button>Order</Button>
                   </Link>

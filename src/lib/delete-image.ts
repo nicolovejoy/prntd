@@ -17,11 +17,14 @@
  *  - Otherwise the image row, its listing, its mirror `product` row, its
  *    placement_render row (id reuse) and its conversation links go.
  *  - Whichever of the above happens, if it leaves the image's home design
- *    with zero remaining `conversation_image` links (every role) and no
- *    `image_generation` row still running, the conversation itself is
- *    removed (owner ruling, 2026-09-09) — see `removeDesignIfNowEmpty`. An
- *    image-less conversation is dead weight: unreachable from Library or the
- *    image detail page, and an empty lane on the Studio bench.
+ *    with zero remaining `conversation_image` links (every role) AND nothing
+ *    else still pointing at the design — no running `image_generation` row,
+ *    no cart line, no shop product — the conversation itself is removed
+ *    (owner ruling, 2026-09-09), or archived when an order references it.
+ *    An image-less conversation is dead weight: unreachable from Library or
+ *    the image detail page, and an empty lane on the Studio bench. The full
+ *    seven-step rule, and why each keeper is a keeper, is on
+ *    `removeDesignIfNowEmpty`.
  *
  * Two scopes, one plan:
  *  - design-scoped (`designId`): "remove this image from this thread". A
@@ -52,7 +55,6 @@ import { findMirrorProduct } from "@/lib/model-b-writes";
 import {
   planDesignDeletion,
   executeDesignDeletion,
-  isDeletionBlocked,
   type ImageDeletionOutcome,
 } from "@/lib/delete-design";
 
@@ -274,19 +276,6 @@ export async function planImageDeletion(
   return { ...plan, outcome, mirrorProductId };
 }
 
-/**
- * Apply a plan. Refuses every outcome the rules didn't allow — blocked,
- * unowned, or unreachable/missing — so nothing an unauthorised caller asked
- * for reaches a write in either mode, and the caller decides what to say
- * about it.
- *
- * One db.batch (not db.transaction: libSQL's interactive transactions aren't
- * supported over the serverless HTTP connection) carries the deletes AND, when
- * the deleted image was the design's primary, the primary_image_id update —
- * so the row and the pointer at it can never disagree. R2 objects are NOT
- * touched here; the plan carries `r2Key`/`imageUrl` for a caller that cleans
- * up. The return value reports the new primary; the caller writes nothing.
- */
 /** What happened to a design after its link count was checked post-delete. */
 export type EmptyDesignOutcome =
   | "deleted"
@@ -302,15 +291,66 @@ export type EmptyDesignOutcome =
  * unreachable from Library or the image detail page, and an empty lane on
  * the Studio bench.
  *
- * Applies delete-design.ts's own rules rather than reimplementing them: an
- * order-referenced conversation archives (financial records never cascade),
- * everything else hard-deletes. `closed_at` is deliberately NOT used here —
- * an image-less closed conversation would be unreachable forever, since
- * nothing ever reopens a conversation with no image to show for it.
+ * Deliberately does NOT reuse `isDeletionBlocked` (planDesignDeletion's
+ * `orderReferenced || productCount > 0`) the way an earlier version did.
+ * That two-in-one meaning is right for a whole-conversation delete request,
+ * where a product-blocked design surfaces as an explicit error the caller
+ * can act on — but here there is no caller to hand a refusal to, and
+ * treating the product case the same as the order case would silently
+ * archive a design a shop product still depends on, falsifying
+ * `openConversation`'s documented invariant (d/conversation-actions.ts:
+ * "Archived only ever means 'was ordered', so that is the status it goes
+ * back to") — reopening one would wrongly flip it to `status: "ordered"`.
+ * So the two are checked separately below, in the order an owner ruling
+ * (2026-09-09) fixed:
  *
- * A running `image_generation` row is treated as "not actually empty yet":
- * it is about to append an image, so the conversation isn't dead weight,
- * it's between frames.
+ *  1. No design row (a legacy image with no home design, or a design
+ *     deleted by some other path in the same request) — nothing to do.
+ *  2. Any remaining `conversation_image` link — the design still has an
+ *     image, so it isn't empty.
+ *  3. A running `image_generation` row — it is about to append an image,
+ *     so the conversation isn't dead weight, it's between frames.
+ *  4. A `cart_item` row whose `design_id` names this design — its own cart
+ *     line (a shop pick FKs `design_id` directly, unlike an order's
+ *     placements-JSON pin) needs the design row to resolve. This is the
+ *     fix for the bug that shipped with the first version of this rule
+ *     (#242 review finding 1, "the cart contradiction"): the image-level
+ *     probe in `planImageDeletion` counts a design's OWN cart line as a
+ *     reason to detach rather than delete the image (so the line keeps
+ *     resolving), but that left the design with zero image links, which
+ *     used to fall straight through to delete-design.ts's rules —
+ *     `executeDesignDeletion` unconditionally drops every `cart_item` row
+ *     FK-ing the design, including the very line the image detach was
+ *     protecting. Checking it here, before the design can be archived or
+ *     deleted, keeps the two modules' opposite conventions about a
+ *     design's own cart line (delete-design.ts excludes it deliberately;
+ *     the image-level probe counts it as a keeper) from fighting.
+ *  5. `plan.productCount > 0` — an organizer sellable FKs this design;
+ *     archiving it anyway would misreport `status`, as above.
+ *  6. `plan.orderReferenced` — archive (financial records never cascade).
+ *  7. Otherwise — hard-delete via `executeDesignDeletion`.
+ *
+ * Steps 4 and 5 are "keep" for the same reason as 3: the conversation is
+ * not dead weight, something still points at it. An empty lane on the
+ * Studio bench is the acceptable cost in these rare cases; destroying a
+ * cart line or a shop product is not. `closed_at` is deliberately NOT used
+ * for any of these — an image-less closed conversation would be
+ * unreachable forever, since nothing ever reopens a conversation with no
+ * image to show for it.
+ *
+ * Never throws (#242 review finding 3). `deleteImages` (designs/actions.ts)
+ * documents an invariant above its own try that held only because
+ * `executeImageDeletion` used to be exactly one atomic `db.batch`: a
+ * failure mid-way left the row in place, so the grid could honestly report
+ * the image as still there. This function runs AFTER that batch commits —
+ * the image is already gone by the time it does its own reads and writes —
+ * so a transient error here must not propagate: it would make the caller
+ * report a deleted image as `"failed"`, which skips both the R2 object
+ * cleanup and the deleted-id bookkeeping for an image that is, in fact,
+ * gone. Instead this catches its own errors, logs them, and returns
+ * `"kept"` — a degrade to the pre-#242 behaviour (an empty lane sits on the
+ * Studio bench until the next delete happens to clear it), which is
+ * recoverable, rather than a misreport.
  *
  * Called once, from the end of `executeImageDeletion`, so every caller
  * (single delete, bulk library delete) gets this for free without deciding
@@ -331,42 +371,69 @@ export async function removeDesignIfNowEmpty(
   db: Db,
   designId: string
 ): Promise<EmptyDesignOutcome> {
-  const [design, remainingLinks, runningJobs] = await Promise.all([
-    db.query.design.findFirst({ where: eq(designTable.id, designId) }),
-    db
-      .select({ id: conversationImageTable.id })
-      .from(conversationImageTable)
-      .where(eq(conversationImageTable.designId, designId))
-      .limit(1),
-    db
-      .select({ id: imageGenerationTable.id })
-      .from(imageGenerationTable)
-      .where(
-        and(
-          eq(imageGenerationTable.designId, designId),
-          eq(imageGenerationTable.status, "running")
+  try {
+    const [design, remainingLinks, runningJobs, ownCartLines] = await Promise.all([
+      db.query.design.findFirst({ where: eq(designTable.id, designId) }),
+      db
+        .select({ id: conversationImageTable.id })
+        .from(conversationImageTable)
+        .where(eq(conversationImageTable.designId, designId))
+        .limit(1),
+      db
+        .select({ id: imageGenerationTable.id })
+        .from(imageGenerationTable)
+        .where(
+          and(
+            eq(imageGenerationTable.designId, designId),
+            eq(imageGenerationTable.status, "running")
+          )
         )
-      )
-      .limit(1),
-  ]);
+        .limit(1),
+      db
+        .select({ id: cartItemTable.id })
+        .from(cartItemTable)
+        .where(eq(cartItemTable.designId, designId))
+        .limit(1),
+    ]);
 
-  // Already gone (a legacy image with no home design, or a design deleted by
-  // some other path in the same request) — nothing to do.
-  if (!design) return "not-applicable";
-  if (remainingLinks.length > 0 || runningJobs.length > 0) return "kept";
+    // Already gone (a legacy image with no home design, or a design deleted
+    // by some other path in the same request) — nothing to do.
+    if (!design) return "not-applicable";
+    if (remainingLinks.length > 0 || runningJobs.length > 0) return "kept";
+    if (ownCartLines.length > 0) return "kept";
 
-  const plan = await planDesignDeletion(db, designId);
-  if (isDeletionBlocked(plan)) {
-    await db
-      .update(designTable)
-      .set({ status: "archived", updatedAt: new Date() })
-      .where(eq(designTable.id, designId));
-    return "archived";
+    const plan = await planDesignDeletion(db, designId);
+    if (plan.productCount > 0) return "kept";
+    if (plan.orderReferenced) {
+      await db
+        .update(designTable)
+        .set({ status: "archived", updatedAt: new Date() })
+        .where(eq(designTable.id, designId));
+      return "archived";
+    }
+    await executeDesignDeletion(db, plan);
+    return "deleted";
+  } catch (err) {
+    console.error(
+      `[delete-image] removeDesignIfNowEmpty(${designId}) failed: ${err instanceof Error ? err.message : String(err)}`
+    );
+    return "kept";
   }
-  await executeDesignDeletion(db, plan);
-  return "deleted";
 }
 
+/**
+ * Apply a plan. Refuses every outcome the rules didn't allow — blocked,
+ * unowned, or unreachable/missing — so nothing an unauthorised caller asked
+ * for reaches a write in either mode, and the caller decides what to say
+ * about it.
+ *
+ * One db.batch (not db.transaction: libSQL's interactive transactions aren't
+ * supported over the serverless HTTP connection) carries the deletes AND, when
+ * the deleted image was the design's primary, the primary_image_id update —
+ * so the row and the pointer at it can never disagree. R2 objects are NOT
+ * touched here; the plan carries `r2Key`/`imageUrl` for a caller that cleans
+ * up. The return value reports the new primary; the caller writes nothing.
+ */
 export async function executeImageDeletion(
   db: Db,
   plan: ImageDeletionPlan
