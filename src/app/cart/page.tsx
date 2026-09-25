@@ -118,11 +118,13 @@ export default function CartPage() {
           <EmptyState
             message="Your cart is empty."
             action={
-              // /cart is a public guest surface (e2e/cart.spec.ts's "guest
-              // cart: two items"), but /studio requires a real account
-              // twice over (middleware + requireRealUser) and bounces an
-              // anonymous guest-funnel session to /sign-in. Stay on
-              // /design so a guest can actually start one.
+              // /design, not /studio — the one make-CTA that keeps ruling W1
+              // after #241. An empty cart is exactly what a first-time
+              // visitor with no session sees (Cart is in the header bar, and
+              // /, /shop and /cart mint no session), and middleware sends a
+              // sessionless /studio request to /sign-in. /design is open to
+              // them and mints the guest session. "Add another design" below
+              // goes to /studio: a cart with lines implies a session.
               <Link href="/design">
                 <Button size="lg">Start a design</Button>
               </Link>
@@ -210,11 +212,11 @@ export default function CartPage() {
                 variant="secondary"
                 size="lg"
                 className="w-full"
-                // Same reasoning as the empty-state CTA above: /cart is a
-                // guest-reachable surface and /studio is real-account-only,
-                // so this stays on /design rather than following the rest
-                // of the site's make-CTAs to /studio.
-                onClick={() => router.push("/design")}
+                // /studio (#241 reversed ruling W1 here). A cart with lines
+                // implies a session — guest or real — so with the guest
+                // funnel on this always reaches the bench. The empty-state
+                // CTA above stays on /design; see its comment.
+                onClick={() => router.push("/studio")}
               >
                 Add another design
               </Button>

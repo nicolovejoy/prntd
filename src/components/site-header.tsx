@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState, useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
+import { useHydrated } from "@/components/use-hydrated";
 import { getHeaderState } from "@/components/site-header-actions";
 import { FeedbackPanel } from "@/components/feedback-launcher";
 import { FEEDBACK_PROJECT_ID } from "@/lib/feedback/project-id";
@@ -16,7 +17,17 @@ export function SiteHeader({
   /** Resolved server-side (plain env reads, no round trip — #127). */
   cartEnabled: boolean;
 }) {
-  const { data: session } = authClient.useSession();
+  // The session is used only once hydrated (React #418, 2026-09-25). The
+  // server has no session here, so it always renders the header signed out.
+  // better-auth's store starts its /get-session fetch from inside the first
+  // hydration render, and a hydration pass that restarts after that fetch
+  // lands would read a signed-in session — dropping the "Sign in" link the
+  // server sent and failing hydration. Gated, the hydration render always
+  // matches the server; the signed-in shape appears right after hydration
+  // commits, or when the fetch lands, whichever is later.
+  const { data: liveSession } = authClient.useSession();
+  const hydrated = useHydrated();
+  const session = hydrated ? liveSession : null;
   const buildDate = process.env.NEXT_PUBLIC_BUILD_DATE ?? "dev";
   const [menuOpen, setMenuOpen] = useState(false);
   // Feedback panel opened from the nav — the entry point on funnel pages,
@@ -88,8 +99,7 @@ export function SiteHeader({
   // Guest-funnel (#26) anonymous sessions don't count as signed-in for the
   // nav: a guest sees "Sign in" rather than "Sign out", and the account
   // menu's Orders/Admin links stay off. This does NOT gate Studio — under
-  // nav model A, Studio shows to signed-out visitors too and middleware
-  // bounces them to sign-in on click (see the comment on primaryLinks
+  // nav model A, Studio shows to everyone (see the comment on primaryLinks
   // below); isAuthed only governs sign-in state and the account-only links.
   const isAuthed =
     Boolean(session) &&
@@ -105,10 +115,11 @@ export function SiteHeader({
   // (src/components/studio-tabs.tsx). Organizer storefronts are retired
   // (#191), so there is no Dashboard entry.
   //
-  // Studio shows signed-out too. It bounces an unauthenticated visitor to
-  // /sign-in via middleware, which is the honest answer to "where do I make
-  // one" — the alternative is hiding the product's main verb from everyone
-  // who has not signed up.
+  // Studio shows to everyone. A guest-funnel session gets its own Studio
+  // (#241, while GUEST_FUNNEL_ENABLED is on) with a line offering sign-up and
+  // sign-in; a visitor with no session at all is sent to /sign-in by middleware,
+  // which is the honest answer to "where do I make one" — the alternative is
+  // hiding the product's main verb from everyone who has not signed up.
   const primaryLinks: NavLink[] = [
     { href: "/studio", label: "Studio" },
     { href: "/shop", label: "Shop" },

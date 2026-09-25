@@ -7,6 +7,7 @@
  */
 import type { StudioLane, StudioPendingCell } from "./studio";
 import { STALE_OPTIMISTIC_MS } from "./generation-poll";
+import { DISPLAY_TIME_ZONE } from "./display-time-zone";
 
 /** Elapsed time on a pending cell: "0:07", "1:23". Clock skew clamps to 0. */
 export function formatElapsed(ms: number): string {
@@ -16,7 +17,12 @@ export function formatElapsed(ms: number): string {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
-/** Lane-header recency, same scale /designs cards use. */
+/**
+ * Lane-header recency: "just now", "14m ago", "2h ago", "1d ago", then a
+ * Pacific calendar date after 30 days. The date pins its locale and zone so
+ * the server render and the browser's hydration print the same string
+ * (display-time-zone.ts).
+ */
 export function timeAgo(date: Date, nowMs: number = Date.now()): string {
   const seconds = Math.floor((nowMs - date.getTime()) / 1000);
   if (seconds < 60) return "just now";
@@ -26,7 +32,7 @@ export function timeAgo(date: Date, nowMs: number = Date.now()): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   if (days < 30) return `${days}d ago`;
-  return date.toLocaleDateString();
+  return date.toLocaleDateString("en-US", { timeZone: DISPLAY_TIME_ZONE });
 }
 
 /** Why deleteConversations left a conversation alone (studio/actions.ts). */

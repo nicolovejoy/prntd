@@ -1,5 +1,5 @@
 import { after } from "next/server";
-import { requireRealUser } from "@/lib/require-user";
+import { requireStudioUser } from "@/lib/require-user";
 import { getStudioLanesData, sweepStudioForUser } from "@/lib/studio";
 import { StudioClient } from "./studio-client";
 
@@ -9,9 +9,27 @@ import { StudioClient } from "./studio-client";
 // The sweeps run via `after()` (#204), scheduled BEFORE the read so a
 // thrown read still lets them run. The response can therefore be one sweep
 // behind — see sweepStudioForUser's docblock.
+//
+// Guests (#241): requireStudioUser admits an anonymous guest-funnel session
+// while GUEST_FUNNEL_ENABLED is on. Their lanes are the anonymous user's.
+// The client renders the sign-up/sign-in line under the composer once there
+// is a lane to keep — including one the guest just started here — so it gets
+// `isGuest` rather than the page deciding from the initial lanes alone.
 export default async function StudioPage() {
-  const session = await requireRealUser();
+  const { session, isGuest } = await requireStudioUser();
   after(() => sweepStudioForUser(session.user.id));
   const lanes = await getStudioLanesData(session.user.id);
-  return <StudioClient initialLanes={lanes} />;
+  // One clock reading for the server render and the client's hydration
+  // render, so the time labels match (React #418; see StudioClient). The
+  // purity rule guards against a value that changes between re-renders; an
+  // async server component renders once per request and never re-renders.
+  // eslint-disable-next-line react-hooks/purity
+  const renderedAtMs = Date.now();
+  return (
+    <StudioClient
+      initialLanes={lanes}
+      initialNowMs={renderedAtMs}
+      isGuest={isGuest}
+    />
+  );
 }

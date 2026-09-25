@@ -44,6 +44,7 @@ import {
 import type { OptimisticEntry } from "@/lib/studio-view";
 import type { StudioLane } from "@/lib/studio";
 import { deleteConversations, getStudioLanes } from "./actions";
+import { GuestKeepLine } from "./guest-keep-line";
 
 /**
  * /studio — the working surface (studio-plan slices 2+3): lanes render, a
@@ -119,7 +120,24 @@ const GENERATE_FAILED_COPY = "Something went wrong. Try again.";
  */
 const MOUNT_RECONCILE_DELAY_MS = 1500;
 
-export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
+export function StudioClient({
+  initialLanes,
+  initialNowMs,
+  isGuest = false,
+}: {
+  initialLanes: StudioLane[];
+  /**
+   * The server's clock reading when it rendered the page. The first render
+   * derives the lane-age and elapsed labels from it, on the server and again
+   * at hydration, so the two produce identical text (React #418,
+   * 2026-09-25). The page must pass it; the Date.now() fallback is for
+   * callers that never server-render (tests).
+   */
+  initialNowMs?: number;
+  /** An anonymous guest-funnel session (#241): shows the sign-up/sign-in
+   * line under the composer while there is at least one lane to keep. */
+  isGuest?: boolean;
+}) {
   const [lanes, setLanes] = useState<StudioLane[]>(initialLanes);
   const [anchor, setAnchor] = useState<Anchor | null>(null);
   const [text, setText] = useState("");
@@ -133,7 +151,8 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
   // Bumped after every completed poll so the timer effect re-arms.
   const [pollNonce, setPollNonce] = useState(0);
   // Ticks once a second while something is pending, for the elapsed labels.
-  const [nowMs, setNowMs] = useState(() => Date.now());
+  // Starts at the server's reading, not the browser's: see initialNowMs.
+  const [nowMs, setNowMs] = useState(() => initialNowMs ?? Date.now());
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
@@ -272,6 +291,19 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
       window.removeEventListener("focus", onWake);
     };
   }, [pollOnce]);
+
+  // Once mounted, switch from the server's clock reading to the browser's.
+  // Right after hydration the two differ by the page's load time; after a
+  // remount from the router cache, the cached initialNowMs can be minutes
+  // old. Without pending work nothing else ticks, so this is the only
+  // refresh the lane-age labels get. A layout effect, not a passive one: a
+  // state update in a layout effect re-renders before the browser paints,
+  // so a back/forward remount never shows a frame of stale labels. It runs
+  // after the hydration commit, so the hydration render itself still uses
+  // initialNowMs and matches the server.
+  useLayoutEffect(() => {
+    setNowMs(Date.now());
+  }, []);
 
   // Elapsed labels tick locally between polls.
   useEffect(() => {
@@ -587,19 +619,33 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
         }`}
       >
         {selectMode ? null : (
-          <div className="py-6">
-            <Composer
-              panelRef={composerPanelRef}
-              text={text}
-              anchor={anchor}
-              atCap={atCap}
-              capNotice={AT_CAP_COPY}
-              notice={notice}
-              onChangeText={setText}
-              onSubmit={() => void submit()}
-              onClearAnchor={() => setAnchor(null)}
-            />
-          </div>
+          <>
+            <div className="py-6">
+              <Composer
+                panelRef={composerPanelRef}
+                text={text}
+                anchor={anchor}
+                atCap={atCap}
+                capNotice={AT_CAP_COPY}
+                notice={notice}
+                onChangeText={setText}
+                onSubmit={() => void submit()}
+                onClearAnchor={() => setAnchor(null)}
+              />
+            </div>
+            {/* The guest line (#241) goes BELOW the composer, never above:
+                it wraps to two 44px rows on a phone and comes and goes
+                mid-session (a guest's first lane appears, their last lane
+                is deleted), so above the composer it would shove the
+                composer down under the thumb that just pressed Generate.
+                Keyed off renderedLanes, optimistic lanes included, so it
+                shows as soon as a first lane does; hidden on an empty bench,
+                where there is nothing to keep. It sits with the composer as
+                the bench's top chrome, so select mode hides both. */}
+            {isGuest && renderedLanes.length > 0 && (
+              <GuestKeepLine className="-mt-3 pb-3" />
+            )}
+          </>
         )}
 
         {renderedLanes.length === 0 ? (

@@ -60,11 +60,13 @@ async function sweepUserJobsAfterResponse(userId: string): Promise<void> {
  * sweep again.
  *
  * 0 for signed-out and anonymous guest-funnel visitors, without a job-table
- * query — a guest is looking at /design itself while their job runs, so the
- * header badge adds nothing there, and every anonymous page view would
- * otherwise cost a query for a number that's always going to be 0 anyway
- * (their jobs, if any, are scoped to their anon user id and this branch never
- * looks them up).
+ * query: signed-out visitors have no jobs, and skipping guests saves a query
+ * on every guest page view. The cost is that a guest who starts a generation
+ * and then leaves /design or /studio sees no badge; their jobs are scoped to
+ * their anon user id and this branch never looks them up. Before #241 that
+ * was moot, because the badge links to /studio and /studio bounced guests to
+ * sign-in. Since #241 a guest can reach /studio, so counting guests here is
+ * now a real option — deliberately left out of #241's scope.
  */
 async function runningJobsForCurrentUser(): Promise<number> {
   const session = await auth.api.getSession({ headers: await headers() });

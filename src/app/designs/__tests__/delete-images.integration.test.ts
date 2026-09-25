@@ -8,8 +8,11 @@
  * delete); an order reference refuses; a reference from another conversation,
  * a shop product or a cart keeps the image (the studio's bulk copy already
  * promises exactly that at the conversation level).
+ *
+ * The gate is the Studio's (#241): a guest is refused while the guest funnel
+ * is off, and with it on can delete their own images and nobody else's.
  */
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { createTestDb } from "@/lib/__tests__/test-db";
 import { makeUser, makeDesign, makeSourceImage } from "@/lib/__tests__/factories";
@@ -17,7 +20,8 @@ import * as schema from "@/lib/db/schema";
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
 let testDb: Db;
-let currentUserId: string;
+let currentUserId: string | null;
+let currentIsAnonymous: boolean;
 const deleteObjectByKey = vi.fn(async (_key: string) => {});
 
 vi.mock("@/lib/db", () => ({
@@ -30,10 +34,14 @@ vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 vi.mock("@/lib/auth", () => ({
   auth: {
     api: {
-      getSession: async () => ({ user: { id: currentUserId } }),
+      getSession: async () =>
+        currentUserId
+          ? { user: { id: currentUserId, isAnonymous: currentIsAnonymous } }
+          : null,
     },
   },
-  isAnonymousUser: () => false,
+  isAnonymousUser: (user: { isAnonymous?: boolean }) =>
+    user.isAnonymous === true,
 }));
 vi.mock("@/lib/ai", () => ({
   generatePublishedNaming: async () => ({ title: "T", description: "D" }),
@@ -67,13 +75,23 @@ const { planImageDeletion, executeImageDeletion } = await import(
   "@/lib/delete-image"
 );
 
+let savedFlag: string | undefined;
+
 beforeEach(async () => {
   testDb = await createTestDb();
   currentUserId = "u1";
+  currentIsAnonymous = false;
+  savedFlag = process.env.GUEST_FUNNEL_ENABLED;
+  delete process.env.GUEST_FUNNEL_ENABLED;
   deleteObjectByKey.mockClear();
   failNextWrite = false;
   await makeUser(testDb, "u1");
   await makeUser(testDb, "u2");
+});
+
+afterEach(() => {
+  if (savedFlag === undefined) delete process.env.GUEST_FUNNEL_ENABLED;
+  else process.env.GUEST_FUNNEL_ENABLED = savedFlag;
 });
 
 async function imageRows(id: string) {
@@ -107,6 +125,49 @@ async function makeOrderWithLine(params: {
   });
   return o;
 }
+
+describe("deleteImages — Studio gate (#241)", () => {
+  it("refuses a signed-out caller", async () => {
+    currentUserId = null;
+    await expect(deleteImages(["x"])).rejects.toThrow(/Unauthorized/);
+  });
+
+  it("refuses an anonymous guest while the guest funnel is off", async () => {
+    currentIsAnonymous = true;
+    await expect(deleteImages(["x"])).rejects.toThrow(/Unauthorized/);
+  });
+
+  it("lets an anonymous guest delete their own images, and only those, while the guest funnel is on", async () => {
+    process.env.GUEST_FUNNEL_ENABLED = "true";
+    await makeUser(testDb, "guest");
+    const guestDesign = await makeDesign(testDb, "guest");
+    const theirs = await makeSourceImage(testDb, {
+      designId: guestDesign.id,
+      ownerId: "guest",
+      imageUrl: "https://r2/images/guest.png",
+    });
+    const ownerDesign = await makeDesign(testDb, "u1");
+    const owners = await makeSourceImage(testDb, {
+      designId: ownerDesign.id,
+      ownerId: "u1",
+      imageUrl: "https://r2/images/owner.png",
+    });
+    currentUserId = "guest";
+    currentIsAnonymous = true;
+
+    const result = await deleteImages([theirs, owners]);
+
+    expect(result).toEqual({
+      deleted: [theirs],
+      skipped: [{ imageId: owners, reason: "not-owned" }],
+    });
+    expect(await imageRows(theirs)).toHaveLength(0);
+    expect(await imageRows(owners)).toHaveLength(1);
+    expect(deleteObjectByKey.mock.calls.map((c) => c[0])).toEqual([
+      "images/guest.png",
+    ]);
+  });
+});
 
 describe("deleteImages — ownership", () => {
   it("deletes an owned image with its link, listing and mirror product", async () => {
