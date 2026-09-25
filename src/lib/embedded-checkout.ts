@@ -120,11 +120,17 @@ export function embeddedCheckoutPath(sessionId: string, backPath: string): strin
  * origin (no path, no trailing slash). Next.js already rejects a server
  * action POST whose `Origin` doesn't match `Host`/its own trusted-origins
  * config, so this check is defence in depth, not the only guard.
+ *
+ * Never throws, including when `appUrl` is missing or malformed (e.g.
+ * `NEXT_PUBLIC_APP_URL` unset) — an empty fallback then degrades the same
+ * way an unset `NEXT_PUBLIC_APP_URL` already does on the hosted checkout
+ * path.
  */
 export function resolveReturnOrigin(
   originHeader: string | null,
-  appUrl: string
+  appUrl: string | undefined
 ): string {
+  if (typeof appUrl !== "string") return "";
   let fallback: string;
   try {
     fallback = new URL(appUrl).origin;

@@ -232,4 +232,11 @@ describe("resolveReturnOrigin", () => {
       "not-a-url"
     );
   });
+
+  it("does not throw when appUrl is undefined (e.g. NEXT_PUBLIC_APP_URL unset)", () => {
+    expect(() => resolveReturnOrigin(null, undefined)).not.toThrow();
+    expect(resolveReturnOrigin(null, undefined)).toBe("");
+    expect(() => resolveReturnOrigin("https://prntd.org", undefined)).not.toThrow();
+    expect(resolveReturnOrigin("https://prntd.org", undefined)).toBe("");
+  });
 });
