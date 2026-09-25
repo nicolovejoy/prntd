@@ -212,7 +212,8 @@ export default function CartPage() {
                 className="w-full"
                 // /studio, like the empty-state CTA above (#241 reversed
                 // ruling W1). A cart with lines implies a session — guest or
-                // real — so this always reaches the bench.
+                // real — so with the guest funnel on this always reaches the
+                // bench.
                 onClick={() => router.push("/studio")}
               >
                 Add another design
