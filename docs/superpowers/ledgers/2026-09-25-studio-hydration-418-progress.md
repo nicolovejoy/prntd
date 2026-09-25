@@ -62,12 +62,72 @@ treat this branch as unreviewed by a second model before merge.
    It is also the only choice that is identical on the server and the
    browser without deferring the label to after mount.
 4. **`initialNowMs` is optional on `StudioClient`.** 73 test renders omit
-   it, and slice A (#241) edits the same test file; a required prop would
-   force a 73-line churn and conflict. The page-wiring test guards the one
-   production caller instead.
+   it, and slice A (#241) will likely edit the same test file; a required
+   prop would force a 73-line churn and a conflict. The page-wiring test
+   guards the one production caller instead.
 5. **New test files rather than appending to `site-header.test.tsx` /
    `studio-client.test.tsx`**, to avoid end-of-file conflicts with slice A.
+6. **`Date.now()` in the Studio page body carries a targeted
+   `eslint-disable-next-line react-hooks/purity`** with the reason above it,
+   rather than a helper that would hide the call from the rule. The page is
+   an async server component: it renders once per request and never
+   re-renders, which is the case the rule guards against.
+7. **The header shape after hydration is unchanged.** Before and after the
+   fix, the server HTML shows "Sign in" to a signed-in user until the
+   session arrives. That flash predates this slice; removing it needs a
+   server session read in the root layout, which ruling 1 excludes.
 
 ## Task log
 
-(filled in per task)
+- **Task 1** (`65568c3`): `useHydrated` + header gate. Test written first;
+  against the old code it failed with the exact prod diff (server `<a
+  href="/sign-in">`, client `<button aria-label="Account menu">`). Self-review
+  tightened the header comment ("appears right after hydration commits, or
+  when the fetch lands, whichever is later"). Existing `site-header.test.tsx`
+  (11 tests) passes unchanged.
+- **Task 2** (`90d9b23`): `initialNowMs` + mount refresh + page wiring. Test
+  written first; old code failed with a text mismatch and the wiring test
+  failed on the missing prop. Lint caught `react-hooks/purity` on the page's
+  `Date.now()` → ruling 6. All 80 `studio-client.test.tsx` tests pass
+  unchanged.
+- **Task 3** (`ad037e7`): `DISPLAY_TIME_ZONE`, `timeAgo` fallback,
+  `orders-list` `formatDate`. All three new tests failed on the pre-fix code
+  (`8/11/2026` vs `8/10/2026`, `Aug 11` vs `Aug 10`). Self-review: the old
+  `timeAgo` docblock claimed "/designs cards use" the same scale; those cards
+  were deleted in #184, so the docblock was rewritten.
+
+## Whole-branch review (controller, not independent — see deviation above)
+
+Scope: `git diff origin/main...HEAD`, plus every `"use client"` module and
+every lib module a client component imports that reads the clock, a zone,
+randomness or storage, plus every comment in `src/` mentioning `nowMs`,
+`useSession` or hydration.
+
+- Finding (fixed, `9b3c379`): `useHydrated`'s docblock said a restarted
+  hydration "re-reads every store". Imprecise; reworded to what actually
+  happens (the restarted pass runs each component from scratch, so a hook
+  that snapshots a store during render reads its current value).
+- Checked, no change: `SiteHeader`'s `getHeaderState` effect fires the same
+  number of times as before (mount with no session, then once the session id
+  appears). `useExamplePrompts` already defers its random pick to mount.
+  `user-orders` is a type-only import on the client. The admin pages load
+  and format dates only after a client-side fetch. No stale comment refers
+  to the old `nowMs` initialiser or to the header reading the session during
+  hydration.
+
+## Live verification (local, fixed branch)
+
+Same Playwright harness, page chunk delayed 2 s, a running generation seeded
+and a 45-day lane reopened, `/studio` then `/orders`, four runs: no
+hydration error in any. Then the four source files swapped back to
+`origin/main` under the dev server, identical conditions: both the date
+text mismatch (`8/11/2026` → `8/10/2026`) and the header HTML mismatch
+reappeared. Files restored; worktree clean.
+
+## Gate
+
+- `npm run lint`: 0 errors (22 pre-existing warnings, none in branch files)
+- `npm run typecheck`: pass
+- `npx vitest run`: 176 files, 1824 tests, all pass (main: 1812)
+- `npm run build` with the CI dummy env: pass; `/studio` still dynamic
+- `npm run db:generate`: "No schema changes, nothing to migrate"
