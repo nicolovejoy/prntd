@@ -1,9 +1,7 @@
 "use server";
 
 import { and, eq, inArray } from "drizzle-orm";
-import { headers } from "next/headers";
 import { after } from "next/server";
-import { auth, isAnonymousUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { design as designTable } from "@/lib/db/schema";
 import {
@@ -13,6 +11,7 @@ import {
 } from "@/lib/delete-design";
 import { r2KeysForPlan } from "@/lib/delete-designs-since";
 import { deleteObjectByKey, imageKeyFromUrl } from "@/lib/r2";
+import { requireStudioActionSession } from "@/lib/require-user";
 import {
   getStudioLanesData,
   sweepStudioForUser,
@@ -23,9 +22,10 @@ import type { BulkDeleteResult } from "@/lib/studio-view";
 /**
  * The poll target for /studio: re-reads the whole surface (lanes, cells,
  * pending cells) so a settle, a new generation from another tab, and a
- * lazily-swept stale job all land in one response. Same gate as the page —
- * the Studio is a personal-record surface, so anonymous guests are refused
- * like signed-out callers.
+ * lazily-swept stale job all land in one response. Same gate as the page
+ * (canUseStudio, src/lib/require-user.ts): a signed-out caller is refused; an
+ * anonymous guest is admitted while the guest funnel is on (#241) and gets
+ * exactly their own lanes, since the read is scoped to the session's user id.
  *
  * The sweeps run via `after()` (#204), scheduled BEFORE the read so a
  * thrown read still lets them run — same shape as the page. This poll's own
@@ -33,17 +33,16 @@ import type { BulkDeleteResult } from "@/lib/studio-view";
  * the NEXT poll, which is guaranteed to happen while any job is pending.
  */
 export async function getStudioLanes(): Promise<StudioLane[]> {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session || isAnonymousUser(session.user)) {
-    throw new Error("Unauthorized");
-  }
+  const session = await requireStudioActionSession();
   after(() => sweepStudioForUser(session.user.id));
   return getStudioLanesData(session.user.id);
 }
 
 /**
  * Bulk delete from the Studio's select mode (#189). Same rules as the single
- * Delete (src/lib/delete-design.ts), applied per conversation:
+ * Delete (src/lib/delete-design.ts), applied per conversation. Same gate as
+ * the page, so a guest (guest funnel on, #241) can bulk-delete too — only
+ * their own conversations, by the ownership check below:
  *
  *  - ids that don't exist or belong to someone else are reported `not_found`
  *    (one answer for both, so the action can't be used to probe ownership);
@@ -67,10 +66,7 @@ export async function getStudioLanes(): Promise<StudioLane[]> {
 export async function deleteConversations(
   designIds: string[]
 ): Promise<BulkDeleteResult> {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session || isAnonymousUser(session.user)) {
-    throw new Error("Unauthorized");
-  }
+  const session = await requireStudioActionSession();
   const ids = [...new Set(designIds)];
   const result: BulkDeleteResult = { deleted: [], skipped: [] };
   if (ids.length === 0) return result;

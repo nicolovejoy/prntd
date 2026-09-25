@@ -17,6 +17,7 @@ import {
   r2KeyForImagePlan,
 } from "@/lib/delete-image";
 import { deleteObjectByKey, imageKeyFromUrl } from "@/lib/r2";
+import { requireStudioActionSession } from "@/lib/require-user";
 import type { ImageDeleteSkipReason } from "@/lib/library-view";
 import {
   publicationSyncStatement,
@@ -89,6 +90,10 @@ export interface BulkImageDeleteResult {
  * src/lib/delete-image.ts — this wrapper adds the session gate, maps each
  * plan's outcome to something the grid can say, and cleans up R2.
  *
+ * The gate is the Studio's (canUseStudio, src/lib/require-user.ts), because
+ * the library is a Studio view: a guest is admitted while the guest funnel is
+ * on (#241). Ownership is still per image, via planImageDeletion's userId.
+ *
  *  - an id that is gone, or was never the caller's, is reported
  *    `not-found` / `not-owned` and never touched;
  *  - an image an order line pins — its own thread's line, or another order's
@@ -120,10 +125,7 @@ export interface BulkImageDeleteResult {
 export async function deleteImages(
   imageIds: string[]
 ): Promise<BulkImageDeleteResult> {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session || isAnonymousUser(session.user)) {
-    throw new Error("Unauthorized");
-  }
+  const session = await requireStudioActionSession();
   const ids = [...new Set(imageIds)];
   const result: BulkImageDeleteResult = { deleted: [], skipped: [] };
   if (ids.length === 0) return result;

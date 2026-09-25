@@ -4,13 +4,15 @@
  * per-conversation plan/execute rules and the FK-driven failure paths are the
  * ones prod runs.
  *
- * What this pins: owned unreferenced conversations go (rows and R2 objects);
+ * What this pins: the Studio gate (a guest is refused with the guest funnel
+ * off, and with it on deletes their own conversations and nobody else's,
+ * #241); owned unreferenced conversations go (rows and R2 objects);
  * an ordered one is skipped WHOLE and reported — not archived, nothing of it
  * touched; ids that aren't the caller's read as not_found; a failure on one
  * conversation leaves the earlier ones deleted and reports that one; a failed
  * R2 delete never fails the action.
  */
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { createTestDb } from "@/lib/__tests__/test-db";
 import { makeUser, makeDesign, makeSourceImage } from "@/lib/__tests__/factories";
@@ -60,10 +62,19 @@ import { executeDesignDeletion } from "@/lib/delete-design";
 
 const { deleteConversations } = await import("@/app/studio/actions");
 
+let savedFlag: string | undefined;
+
+afterEach(() => {
+  if (savedFlag === undefined) delete process.env.GUEST_FUNNEL_ENABLED;
+  else process.env.GUEST_FUNNEL_ENABLED = savedFlag;
+});
+
 beforeEach(async () => {
   testDb = await createTestDb();
   h.userId = "owner";
   h.anonymous = false;
+  savedFlag = process.env.GUEST_FUNNEL_ENABLED;
+  delete process.env.GUEST_FUNNEL_ENABLED;
   vi.mocked(deleteObjectByKey).mockClear();
   vi.mocked(deleteObjectByKey).mockImplementation(async () => {});
   vi.mocked(executeDesignDeletion).mockClear();
@@ -110,9 +121,32 @@ describe("deleteConversations — auth", () => {
     await expect(deleteConversations(["x"])).rejects.toThrow(/Unauthorized/);
   });
 
-  it("refuses an anonymous guest", async () => {
+  it("refuses an anonymous guest while the guest funnel is off", async () => {
     h.anonymous = true;
     await expect(deleteConversations(["x"])).rejects.toThrow(/Unauthorized/);
+  });
+
+  it("lets an anonymous guest delete their own conversations, and only those, while the guest funnel is on", async () => {
+    process.env.GUEST_FUNNEL_ENABLED = "true";
+    await makeUser(testDb, "guest");
+    const theirs = await conversationWithImage("guest", "images/guest.png");
+    const owners = await conversationWithImage("owner", "images/owner.png");
+    h.userId = "guest";
+    h.anonymous = true;
+
+    const result = await deleteConversations([theirs.designId, owners.designId]);
+
+    expect(result).toEqual({
+      deleted: [theirs.designId],
+      skipped: [{ id: owners.designId, reason: "not_found" }],
+    });
+    expect(await designRow(theirs.designId)).toBeUndefined();
+    expect(await imageRow(theirs.imageId)).toBeUndefined();
+    expect(await designRow(owners.designId)).toBeDefined();
+    expect(await imageRow(owners.imageId)).toBeDefined();
+    expect(vi.mocked(deleteObjectByKey).mock.calls.map((c) => c[0])).toEqual([
+      "images/guest.png",
+    ]);
   });
 
   it("an empty list is a no-op", async () => {

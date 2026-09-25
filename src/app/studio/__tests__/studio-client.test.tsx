@@ -1453,3 +1453,69 @@ describe("lane overflow menu placement (flip-up near the fold)", () => {
     expect(screen.getByRole("menu").className).toContain("top-full");
   });
 });
+
+describe("StudioClient — guest line (#241)", () => {
+  it("shows the sign-up/sign-in line to a guest with a lane", () => {
+    render(<StudioClient initialLanes={[lane()]} isGuest />);
+    expect(screen.getByTestId("guest-keep-line").textContent).toBe(
+      "Sign up to keep these designs. Have an account? Sign in."
+    );
+  });
+
+  it("hides it on a guest's empty bench, where there is nothing to keep", () => {
+    render(<StudioClient initialLanes={[]} isGuest />);
+    expect(screen.getByText("No open designs.")).toBeTruthy();
+    expect(screen.queryByTestId("guest-keep-line")).toBeNull();
+  });
+
+  it("shows it as soon as a guest's first lane appears on an empty bench", async () => {
+    render(<StudioClient initialLanes={[]} isGuest />);
+
+    fireEvent.change(screen.getByTestId("studio-composer"), {
+      target: { value: "a red dragon" },
+    });
+    fireEvent.submit(screen.getByTestId("studio-composer").closest("form")!);
+
+    // The optimistic lane is on screen before the server has answered.
+    const line = await screen.findByTestId("guest-keep-line");
+    // And it appeared BELOW the composer, so the composer did not move.
+    expect(
+      screen.getByTestId("studio-composer-panel").compareDocumentPosition(line) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it("sits between the composer and the lanes, so coming and going never moves the composer", () => {
+    render(<StudioClient initialLanes={[lane()]} isGuest />);
+    const panel = screen.getByTestId("studio-composer-panel");
+    const line = screen.getByTestId("guest-keep-line");
+    const firstLane = screen.getAllByTestId("studio-lane")[0];
+
+    expect(
+      panel.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      line.compareDocumentPosition(firstLane) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    // Not inside the composer panel either — it is not part of the control.
+    expect(panel.contains(line)).toBe(false);
+  });
+
+  it("hides with the composer in select mode and returns on Done", () => {
+    render(<StudioClient initialLanes={[lane({ cells: [cell("a")] })]} isGuest />);
+    expect(screen.getByTestId("guest-keep-line")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    fireEvent.click(screen.getByTestId("select-mode"));
+    expect(screen.queryByTestId("studio-composer-panel")).toBeNull();
+    expect(screen.queryByTestId("guest-keep-line")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("select-done"));
+    expect(screen.getByTestId("guest-keep-line")).toBeTruthy();
+  });
+
+  it("never shows it to a real account", () => {
+    render(<StudioClient initialLanes={[lane()]} />);
+    expect(screen.queryByTestId("guest-keep-line")).toBeNull();
+  });
+});

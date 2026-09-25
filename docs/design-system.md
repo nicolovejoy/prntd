@@ -311,6 +311,15 @@ differ.
   `/design`. A third view, Archive, existed until 2026-09-09 — dropped as
   redundant once Library's Active/All filter (#238) already surfaced every
   archived image; `/studio/archive` now 308s to `/studio/library`.
+  Guests use it too (#241): while `GUEST_FUNNEL_ENABLED` is on, an
+  anonymous guest-funnel session sees its own Bench and Library plus one
+  line, "Sign up to keep these designs. Have an account? Sign in." (two
+  links, `/sign-up` and `/sign-in`; either one from the same window moves
+  the guest's work to the account). On the Bench it sits under the
+  composer, never above it (it wraps to two rows on a phone and comes and
+  goes mid-session, so above would move the composer); in the Library it
+  sits under the tab strip. Hidden on an empty Bench or Library. A visitor
+  with no session at all is sent to sign-in.
 - **Shop** — `/shop`, the community storefront (renamed from "Fresh
   Prints" 2026-07-19). Organizer stores were also shops (`/shop/[slug]`,
   each a self-contained storefront) — retired 2026-09-05 (#191), and the
@@ -785,7 +794,12 @@ Job: review the bundle and check out once.
 2. **Item list** — thumbnail, product, color/size, front+back marker, qty,
    unit×qty price, Remove.
 3. **Pricing summary** — items subtotal, bundled shipping, total.
-4. Add another design (secondary); empty state → Start a design.
+4. Add another design (secondary) → `/studio`; empty state → Start a design
+   → `/design`. #241 reversed ruling W1 for the first (a cart with lines
+   implies a session, and the Studio admits guest sessions now) and kept it
+   for the empty state, which a first-time visitor with no session sees:
+   middleware sends a sessionless `/studio` request to sign-in, while
+   `/design` is open and mints the guest session.
 
 ### `/shop` Shop (`app/shop/page.tsx`)
 
@@ -864,9 +878,9 @@ Job: check where my shirt is.
    attribution when bought from someone else.
 3. **Filter tabs** — bottom-border indicator, mirrors the Studio tab strip
    (`studio-tabs.tsx`), Active (N) / Canceled (N) / All (N).
-4. New Design button (→ `/studio` — `/orders` sits behind `requireRealUser`,
-   so unlike the guest-reachable `/cart`, this CTA is not the W1 exception);
-   empty states.
+4. Empty states; the no-orders one offers "Make your first design" →
+   `/studio`. (The header's New Design button was removed in #232.)
+   `/orders` stays behind `requireRealUser` — a guest session has no orders.
 
 ### Auth (`app/(auth)/…`)
 

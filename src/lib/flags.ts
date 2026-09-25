@@ -25,3 +25,17 @@ export function guestFunnelEnabled(): boolean {
 export function cartEnabled(): boolean {
   return process.env.CART_ENABLED === "true";
 }
+
+/**
+ * Embedded checkout (#135 slice 2): the raw on/off switch, nothing else. When
+ * on, purchases started on the image detail page open Stripe Embedded
+ * Checkout on our own /checkout page instead of the hosted Stripe page. This
+ * is only "the flag is on" — it says nothing about whether a usable
+ * publishable/secret key pair is configured. Callers that actually create or
+ * mount an embedded session must use `embeddedCheckoutConfig()`
+ * (src/lib/embedded-checkout.ts), which also validates the keys and fails
+ * closed to hosted checkout when they're missing or mismatched. Default off.
+ */
+export function embeddedCheckoutFlag(): boolean {
+  return process.env.EMBEDDED_CHECKOUT_ENABLED === "true";
+}
