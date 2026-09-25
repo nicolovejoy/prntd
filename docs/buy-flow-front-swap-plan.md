@@ -398,7 +398,9 @@ Each has a recommendation; "go with recommendations" is a sufficient reply.
   cancel URL stays on the page (it keeps no placement state). The hero's
   front mockup (`getListingMockup({ frontImageId })`) is held to the back
   tile's bar. BuyPanel: section "Front & back", Front row + Back row + "⇅
-  Swap front and back"; Change and × hidden while swapped. Plan + rulings:
+  Swap front and back" (aria-pressed); Change hidden while swapped, × moves
+  with the pick. Order emails lead with `placements.front` too, and a back
+  on a blank with no back print area is refused. Plan + rulings:
   `docs/superpowers/plans/2026-09-25-138-d-front-swap.md`,
   `docs/superpowers/ledgers/2026-09-25-138-d-front-swap-progress.md`.
   Tests: `src/app/d/__tests__/buy-published-design-swap.integration.test.ts`,

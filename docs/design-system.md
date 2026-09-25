@@ -834,9 +834,10 @@ and manage the conversation it came from (#136 slice 1).
    depends on options not yet picked), beside the remix action. Expanded:
    product / SizePicker / ColorPicker / a mono `Front & back` section (the
    "Add a back design (+$8.00)" link; once a back is picked, Front and Back
-   rows with 44px thumbnails, Change and × on the back pick, and "⇅ Swap
+   rows with 44px thumbnails, Change and × on the pick, and "⇅ Swap
    front and back" — no front picker on this page, only the swap, #138
-   slice 3; Change and × hide while swapped), Add to cart
+   slice 3; while swapped Change hides and × moves to the Front row with
+   the pick), Add to cart
    (flag `CART_ENABLED`), and the total once size is picked (**Order —
    $X.XX**); signed-out sees "Sign in to buy" with `?next=` instead. An
    unpublished (owner-private) image has no BuyPanel — Order links out to
