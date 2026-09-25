@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import Stripe from "stripe";
 
 const retrieve = vi.fn();
 
@@ -6,11 +7,19 @@ vi.mock("@/lib/stripe", () => ({
   stripe: { checkout: { sessions: { retrieve: (...args: unknown[]) => retrieve(...args) } } },
 }));
 
-import { getCheckoutSessionState, resolveConfirmView } from "../checkout-session-status";
+import {
+  getCheckoutSessionState,
+  resolveConfirmView,
+  STRIPE_SESSION_READ_TIMEOUT_MS,
+} from "../checkout-session-status";
 
 describe("getCheckoutSessionState", () => {
   beforeEach(() => {
     retrieve.mockReset();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("returns status/uiMode/url from the retrieved session", async () => {
@@ -28,6 +37,42 @@ describe("getCheckoutSessionState", () => {
     const result = await getCheckoutSessionState("cs_1");
 
     expect(result).toBeNull();
+  });
+
+  it("returns null after the timeout when the retrieve call never settles", async () => {
+    vi.useFakeTimers();
+    retrieve.mockReturnValue(new Promise(() => {}));
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const resultPromise = getCheckoutSessionState("cs_1");
+    await vi.advanceTimersByTimeAsync(STRIPE_SESSION_READ_TIMEOUT_MS);
+    const result = await resultPromise;
+
+    expect(result).toBeNull();
+    expect(errSpy).toHaveBeenCalledTimes(1);
+    expect(errSpy.mock.calls[0][0]).toContain("getCheckoutSessionState");
+  });
+
+  it("logs a Stripe error's type/code/statusCode, never its raw payload", async () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const stripeErr = new Stripe.errors.StripeAuthenticationError({
+      type: "StripeAuthenticationError",
+      code: "api_key_expired",
+      statusCode: 401,
+      message: "expired",
+      client_secret: "cs_secret_PLANTED",
+    } as any);
+    retrieve.mockRejectedValue(stripeErr);
+
+    const result = await getCheckoutSessionState("cs_1");
+
+    expect(result).toBeNull();
+    expect(errSpy).toHaveBeenCalledTimes(1);
+    const logged = errSpy.mock.calls[0][0] as string;
+    expect(logged).toContain("StripeAuthenticationError");
+    expect(logged).toContain("api_key_expired");
+    expect(logged).toContain("401");
+    expect(logged).not.toContain("PLANTED");
   });
 });
 

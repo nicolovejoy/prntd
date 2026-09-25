@@ -20,10 +20,15 @@ import {
 } from "@/lib/db/schema";
 import { stripe } from "@/lib/stripe";
 import { embeddedCheckoutConfig } from "@/lib/embedded-checkout";
+import {
+  STRIPE_SESSION_READ_TIMEOUT_MS,
+  describeStripeError,
+} from "@/lib/checkout-session-status";
 import { resolveOrderLines } from "@/lib/order-lines";
 import { resolveOrderLineIdentities } from "@/lib/order-line-identity";
 import { getBlank, getColorHex } from "@/lib/blanks";
 import { mockupCacheKey } from "@/lib/mockup-cache";
+import { withTimeout } from "@/lib/timeout";
 
 export type CheckoutLineSummary = {
   productName: string | null;
@@ -144,8 +149,13 @@ export async function loadEmbeddedCheckout(params: {
 
   let session;
   try {
-    session = await stripe.checkout.sessions.retrieve(params.sessionId);
-  } catch {
+    session = await withTimeout(
+      "loadEmbeddedCheckout",
+      STRIPE_SESSION_READ_TIMEOUT_MS,
+      () => stripe.checkout.sessions.retrieve(params.sessionId)
+    );
+  } catch (err) {
+    console.error(`loadEmbeddedCheckout failed: ${describeStripeError(err)}`);
     return { kind: "unavailable" };
   }
 

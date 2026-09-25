@@ -19,6 +19,9 @@ describe("isFunnelRoute", () => {
     // overlapped.
     expect(isFunnelRoute("/d")).toBe(true);
     expect(isFunnelRoute("/d/abc123")).toBe(true);
+    // /checkout is the embedded Stripe form page (#135 slice 2); its Pay
+    // button is what the launcher overlapped.
+    expect(isFunnelRoute("/checkout")).toBe(true);
   });
 
   it("does not match sibling routes sharing a prefix", () => {
@@ -28,6 +31,9 @@ describe("isFunnelRoute", () => {
     // never the "/d" or "/d/…" boundary the matcher requires — the same
     // trap /designs pins for /design.
     expect(isFunnelRoute("/dashboard")).toBe(false);
+    // Same trap, one prefix over: shares "/checkout" as a substring but not
+    // the "/checkout" or "/checkout/…" boundary.
+    expect(isFunnelRoute("/checkouts")).toBe(false);
   });
 
   it("does not match non-funnel pages", () => {

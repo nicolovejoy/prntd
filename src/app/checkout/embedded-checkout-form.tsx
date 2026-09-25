@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { loadStripe, type Stripe } from "@stripe/stripe-js";
 import {
   EmbeddedCheckoutProvider,
@@ -10,6 +11,10 @@ import {
 export type EmbeddedCheckoutFormProps = {
   publishableKey: string;
   clientSecret: string;
+  /** Where the page's own "← Back" link points — an embedded session has no
+   * hosted Stripe URL to fall back to, so both failure notices offer this as
+   * a way out alongside Reload. */
+  backHref: string;
 };
 
 /**
@@ -51,11 +56,14 @@ function getStripePromise(key: string): Promise<Stripe | null> {
  * from a different Stripe account than the secret key — the mismatch
  * `EmbeddedCheckoutProvider` doesn't surface as a rejection) shows a stall
  * notice under the still-mounted form, since a slow network may yet
- * deliver the iframe.
+ * deliver the iframe. Both failure notices also offer `backHref` alongside
+ * Reload — an embedded session has no hosted Stripe URL to bounce a stuck
+ * buyer to, so leaving the page is otherwise a dead end.
  */
 export function EmbeddedCheckoutForm({
   publishableKey,
   clientSecret,
+  backHref,
 }: EmbeddedCheckoutFormProps) {
   const [stripePromise] = useState<Promise<Stripe | null> | null>(() =>
     typeof window === "undefined" ? null : getStripePromise(publishableKey)
@@ -117,13 +125,21 @@ export function EmbeddedCheckoutForm({
         <p className="text-sm text-text-muted">
           The payment form didn&apos;t load.
         </p>
-        <button
-          type="button"
-          onClick={() => window.location.reload()}
-          className="min-h-11 px-4 border border-foreground text-sm text-foreground"
-        >
-          Try again
-        </button>
+        <div className="flex flex-col items-center gap-3">
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="min-h-11 px-4 border border-foreground text-sm text-foreground"
+          >
+            Try again
+          </button>
+          <Link
+            href={backHref}
+            className="inline-flex min-h-11 items-center text-sm underline underline-offset-[3px]"
+          >
+            ← Back
+          </Link>
+        </div>
       </div>
     );
   }
@@ -143,13 +159,21 @@ export function EmbeddedCheckoutForm({
           <p className="text-sm text-text-muted">
             The payment form is taking a while.
           </p>
-          <button
-            type="button"
-            onClick={() => window.location.reload()}
-            className="min-h-11 px-4 border border-foreground text-sm text-foreground"
-          >
-            Reload
-          </button>
+          <div className="flex flex-col items-center gap-3">
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="min-h-11 px-4 border border-foreground text-sm text-foreground"
+            >
+              Reload
+            </button>
+            <Link
+              href={backHref}
+              className="inline-flex min-h-11 items-center text-sm underline underline-offset-[3px]"
+            >
+              ← Back
+            </Link>
+          </div>
         </div>
       )}
     </div>

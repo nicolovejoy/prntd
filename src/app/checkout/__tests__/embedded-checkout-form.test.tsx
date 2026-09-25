@@ -52,6 +52,7 @@ describe("EmbeddedCheckoutForm", () => {
       <EmbeddedCheckoutForm
         publishableKey="pk_test_success_1"
         clientSecret="cs_secret_1"
+        backHref="/d/abc123"
       />
     );
 
@@ -67,6 +68,7 @@ describe("EmbeddedCheckoutForm", () => {
       <EmbeddedCheckoutForm
         publishableKey="pk_test_reject_1"
         clientSecret="cs_secret_2"
+        backHref="/d/abc123"
       />
     );
 
@@ -77,6 +79,8 @@ describe("EmbeddedCheckoutForm", () => {
       screen.getByRole("button", { name: "Try again" })
     ).toBeInTheDocument();
     expect(screen.queryByTestId("provider-mock")).not.toBeInTheDocument();
+    const backLink = screen.getByRole("link", { name: "← Back" });
+    expect(backLink).toHaveAttribute("href", "/d/abc123");
   });
 
   it("shows a retry when the Stripe.js loader resolves null", async () => {
@@ -86,6 +90,7 @@ describe("EmbeddedCheckoutForm", () => {
       <EmbeddedCheckoutForm
         publishableKey="pk_test_null_1"
         clientSecret="cs_secret_3"
+        backHref="/d/abc123"
       />
     );
 
@@ -106,6 +111,7 @@ describe("EmbeddedCheckoutForm", () => {
       <EmbeddedCheckoutForm
         publishableKey="pk_test_reload_1"
         clientSecret="cs_secret_4"
+        backHref="/d/abc123"
       />
     );
 
@@ -123,6 +129,7 @@ describe("EmbeddedCheckoutForm", () => {
       <EmbeddedCheckoutForm
         publishableKey="pk_test_stall_1"
         clientSecret="cs_secret_stall_1"
+        backHref="/d/abc123"
       />
     );
 
@@ -138,6 +145,8 @@ describe("EmbeddedCheckoutForm", () => {
       screen.getByText("The payment form is taking a while.")
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reload" })).toBeInTheDocument();
+    const backLink = screen.getByRole("link", { name: "← Back" });
+    expect(backLink).toHaveAttribute("href", "/d/abc123");
     // The provider stays mounted — a slow network may still deliver the iframe.
     expect(screen.getByTestId("provider-mock")).toBeInTheDocument();
   });
@@ -150,6 +159,7 @@ describe("EmbeddedCheckoutForm", () => {
       <EmbeddedCheckoutForm
         publishableKey="pk_test_stall_2"
         clientSecret="cs_secret_stall_2"
+        backHref="/d/abc123"
       />
     );
 
@@ -179,6 +189,7 @@ describe("EmbeddedCheckoutForm", () => {
       <EmbeddedCheckoutForm
         publishableKey="pk_test_stall_4"
         clientSecret="cs_secret_stall_4"
+        backHref="/d/abc123"
       />
     );
 
@@ -218,6 +229,7 @@ describe("EmbeddedCheckoutForm", () => {
       <EmbeddedCheckoutForm
         publishableKey="pk_test_stall_3"
         clientSecret="cs_secret_stall_3"
+        backHref="/d/abc123"
       />
     );
 

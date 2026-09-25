@@ -281,7 +281,7 @@ describe("buyPublishedDesign embedded-checkout gating (#135)", () => {
     vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", "true");
     vi.stubEnv("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", "pk_test_abc123");
     vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_abc123");
-    h.originHeader = "https://prntd-git-x.vercel.app";
+    h.originHeader = "https://prntd-git-feature-x-nico-lovejoys-projects.vercel.app";
     const db = h.db as Db;
     const ids = await seed(db);
 
@@ -289,7 +289,7 @@ describe("buyPublishedDesign embedded-checkout gating (#135)", () => {
 
     const [params] = h.sessionParams;
     expect(params.return_url).toBe(
-      "https://prntd-git-x.vercel.app/order/confirm?session_id={CHECKOUT_SESSION_ID}"
+      "https://prntd-git-feature-x-nico-lovejoys-projects.vercel.app/order/confirm?session_id={CHECKOUT_SESSION_ID}"
     );
   });
 

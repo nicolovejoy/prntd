@@ -11,8 +11,11 @@
 // has no fixed bottom chrome either way; nothing so far has needed the
 // launcher to distinguish the two tabs. /d joined for the
 // same shape of reason (nav-model-a, 2026-09-07): it's the buy page, and the
-// launcher overlapped its sticky Add-to-cart bar.
-const FUNNEL_PREFIXES = ["/design", "/preview", "/order", "/cart", "/studio", "/d"];
+// launcher overlapped its sticky Add-to-cart bar. /checkout joined for the
+// same reason again (#135 slice 2): the embedded Stripe form is mounted
+// full-width on phones, and the fixed-position launcher can sit right over
+// its Pay button.
+const FUNNEL_PREFIXES = ["/design", "/preview", "/order", "/cart", "/studio", "/d", "/checkout"];
 
 export function isFunnelRoute(pathname: string): boolean {
   return FUNNEL_PREFIXES.some(

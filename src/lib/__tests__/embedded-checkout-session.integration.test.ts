@@ -9,9 +9,11 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { eq } from "drizzle-orm";
+import Stripe from "stripe";
 import { createTestDb } from "./test-db";
 import * as schema from "@/lib/db/schema";
 import { makeUser, makeDesign, makeSourceImage } from "./factories";
+import { STRIPE_SESSION_READ_TIMEOUT_MS } from "@/lib/checkout-session-status";
 
 const h = vi.hoisted(() => ({
   db: null as unknown,
@@ -89,6 +91,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.useRealTimers();
 });
 
 describe("loadEmbeddedCheckout (#135 slice 2)", () => {
@@ -177,6 +180,51 @@ describe("loadEmbeddedCheckout (#135 slice 2)", () => {
     });
 
     expect(result).toEqual({ kind: "unavailable" });
+  });
+
+  it("Stripe retrieve never settles: unavailable after the timeout, logged", async () => {
+    vi.useFakeTimers();
+    const db = h.db as Db;
+    await seedOrder(db, { userId: "buyer", stripeSessionId: "cs_test_5b" });
+    h.retrieve.mockReturnValue(new Promise(() => {}));
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const resultPromise = loadEmbeddedCheckout({
+      sessionId: "cs_test_5b",
+      viewerId: "buyer",
+    });
+    await vi.advanceTimersByTimeAsync(STRIPE_SESSION_READ_TIMEOUT_MS);
+    const result = await resultPromise;
+
+    expect(result).toEqual({ kind: "unavailable" });
+    expect(errSpy).toHaveBeenCalledTimes(1);
+    expect(errSpy.mock.calls[0][0]).toContain("loadEmbeddedCheckout");
+  });
+
+  it("Stripe retrieve throws a Stripe error: unavailable, logged without its raw payload", async () => {
+    const db = h.db as Db;
+    await seedOrder(db, { userId: "buyer", stripeSessionId: "cs_test_5c" });
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const stripeErr = new Stripe.errors.StripeAuthenticationError({
+      type: "StripeAuthenticationError",
+      code: "api_key_expired",
+      statusCode: 401,
+      message: "expired",
+      client_secret: "cs_secret_PLANTED",
+    } as any);
+    h.retrieve.mockRejectedValue(stripeErr);
+
+    const result = await loadEmbeddedCheckout({
+      sessionId: "cs_test_5c",
+      viewerId: "buyer",
+    });
+
+    expect(result).toEqual({ kind: "unavailable" });
+    expect(errSpy).toHaveBeenCalledTimes(1);
+    const logged = errSpy.mock.calls[0][0] as string;
+    expect(logged).toContain("StripeAuthenticationError");
+    expect(logged).toContain("api_key_expired");
+    expect(logged).not.toContain("PLANTED");
   });
 
   it("open + embedded + secret: ready, with the cached mockup URL in the summary", async () => {

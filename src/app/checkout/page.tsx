@@ -112,6 +112,7 @@ export default async function CheckoutPage({
           <EmbeddedCheckoutForm
             publishableKey={result.publishableKey}
             clientSecret={result.clientSecret}
+            backHref={backHref}
           />
         </div>
       </div>

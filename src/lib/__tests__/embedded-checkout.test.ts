@@ -166,15 +166,42 @@ describe("resolveReturnOrigin", () => {
     );
   });
 
-  it("trusts a prntd-* preview host over https", () => {
+  it("trusts a branch preview host (prntd-git-<branch>-nico-lovejoys-projects.vercel.app) over https", () => {
     expect(
-      resolveReturnOrigin("https://prntd-git-foo.vercel.app", APP_URL)
-    ).toBe("https://prntd-git-foo.vercel.app");
+      resolveReturnOrigin(
+        "https://prntd-git-feature-x-nico-lovejoys-projects.vercel.app",
+        APP_URL
+      )
+    ).toBe("https://prntd-git-feature-x-nico-lovejoys-projects.vercel.app");
+  });
+
+  it("trusts a hash preview host (prntd-<hash>-nico-lovejoys-projects.vercel.app) over https", () => {
+    expect(
+      resolveReturnOrigin(
+        "https://prntd-abc123def-nico-lovejoys-projects.vercel.app",
+        APP_URL
+      )
+    ).toBe("https://prntd-abc123def-nico-lovejoys-projects.vercel.app");
   });
 
   it("does not trust an unrelated *.vercel.app host", () => {
     expect(
       resolveReturnOrigin("https://someone-else.vercel.app", APP_URL)
+    ).toBe("https://prntd.org");
+  });
+
+  it("does not trust a prntd-* host missing the team suffix", () => {
+    expect(resolveReturnOrigin("https://prntd-git-x.vercel.app", APP_URL)).toBe(
+      "https://prntd.org"
+    );
+  });
+
+  it("does not trust a prntd-* host claiming to be someone else's project", () => {
+    expect(
+      resolveReturnOrigin(
+        "https://prntd-evil-someone-else.vercel.app",
+        APP_URL
+      )
     ).toBe("https://prntd.org");
   });
 
@@ -203,9 +230,12 @@ describe("resolveReturnOrigin", () => {
   });
 
   it("does not trust vercel.app over plain http", () => {
-    expect(resolveReturnOrigin("http://prntd-git-x.vercel.app", APP_URL)).toBe(
-      "https://prntd.org"
-    );
+    expect(
+      resolveReturnOrigin(
+        "http://prntd-git-feature-x-nico-lovejoys-projects.vercel.app",
+        APP_URL
+      )
+    ).toBe("https://prntd.org");
   });
 
   it("falls back to appUrl's origin for an untrusted host", () => {
@@ -222,8 +252,11 @@ describe("resolveReturnOrigin", () => {
 
   it("returns a bare origin with no path even when the header carries one", () => {
     expect(
-      resolveReturnOrigin("https://prntd-git-x.vercel.app/some/path", APP_URL)
-    ).toBe("https://prntd-git-x.vercel.app");
+      resolveReturnOrigin(
+        "https://prntd-git-feature-x-nico-lovejoys-projects.vercel.app/some/path",
+        APP_URL
+      )
+    ).toBe("https://prntd-git-feature-x-nico-lovejoys-projects.vercel.app");
   });
 
   it("returns a malformed appUrl unchanged rather than throwing", () => {

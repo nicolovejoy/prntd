@@ -97,6 +97,20 @@ export function embeddedCheckoutPath(sessionId: string, backPath: string): strin
   return `/checkout?session=${encodeURIComponent(sessionId)}&from=${encodeURIComponent(safeBack)}`;
 }
 
+// This project's Vercel preview host shapes only — a branch preview
+// (`prntd-git-<branch>-nico-lovejoys-projects.vercel.app`) or a per-deploy
+// hash preview (`prntd-<hash>-nico-lovejoys-projects.vercel.app`), both under
+// the `nico-lovejoys-projects` team. Deliberately narrower than
+// `src/lib/auth.ts`'s `trustedOrigins`, which trusts any `prntd-*.vercel.app`
+// host — a host shape any Vercel account can create, not just this project's
+// team, since `*.vercel.app` subdomains aren't scoped per-account. auth.ts's
+// wider match is a lower-stakes trade (it only affects CORS/CSRF origin
+// checks on top of Next's own Origin/Host enforcement); this one decides
+// where a live payment session's `return_url` points, so it stays scoped to
+// hosts this project can actually deploy to.
+const PREVIEW_HOST_RE =
+  /^prntd-[a-z0-9-]+-nico-lovejoys-projects\.vercel\.app$/;
+
 /**
  * The origin an embedded checkout session's `return_url` should point at.
  * Hosted checkout always uses `NEXT_PUBLIC_APP_URL` (prod's URL in every
@@ -107,19 +121,20 @@ export function embeddedCheckoutPath(sessionId: string, backPath: string): strin
  * test-key phone check on a preview pays there and then gets sent to prod's
  * `/order/confirm`, where the preview's order doesn't exist.
  *
- * Trusts exactly the production hosts `src/lib/auth.ts`'s `trustedOrigins`
- * does: `https://prntd-*.vercel.app` (this project's preview deploys — not
- * every `*.vercel.app` host on the platform) and `https://prntd.org` /
- * `https://*.prntd.org`. Local dev and the e2e harness (where
- * `NEXT_PUBLIC_APP_URL` itself is a localhost URL) are covered by the
- * same-origin-as-`appUrl` check below, not a separate localhost branch — that
- * matches auth.ts, which only widens its trusted set for localhost when
- * `NODE_ENV=development` or `E2E_TRUST_LOCALHOST=true`, never in production.
- * Anything else — missing, malformed, a different host, a non-http(s) scheme
- * like `javascript:` — falls back to `appUrl`'s origin. Always returns a bare
- * origin (no path, no trailing slash). Next.js already rejects a server
- * action POST whose `Origin` doesn't match `Host`/its own trusted-origins
- * config, so this check is defence in depth, not the only guard.
+ * Trusts `https://prntd.org` / `https://*.prntd.org`, and this project's own
+ * preview host shapes over https (see `PREVIEW_HOST_RE` above) — not every
+ * `prntd-*.vercel.app` host the way `src/lib/auth.ts`'s `trustedOrigins`
+ * does. Local dev and the e2e harness (where `NEXT_PUBLIC_APP_URL` itself is
+ * a localhost URL) are covered by the same-origin-as-`appUrl` check below,
+ * not a separate localhost branch — that matches auth.ts, which only widens
+ * its trusted set for localhost when `NODE_ENV=development` or
+ * `E2E_TRUST_LOCALHOST=true`, never in production. Anything else — missing,
+ * malformed, a different host, a non-http(s) scheme like `javascript:`, or a
+ * `*.vercel.app` host that doesn't match this project's shape — falls back to
+ * `appUrl`'s origin. Always returns a bare origin (no path, no trailing
+ * slash). Next.js already rejects a server action POST whose `Origin`
+ * doesn't match `Host`/its own trusted-origins config, so this check is
+ * defence in depth, not the only guard.
  *
  * Never throws, including when `appUrl` is missing or malformed (e.g.
  * `NEXT_PUBLIC_APP_URL` unset) — an empty fallback then degrades the same
@@ -150,9 +165,7 @@ export function resolveReturnOrigin(
 
   const host = origin.hostname;
   if (origin.protocol === "https:") {
-    if (host.startsWith("prntd-") && host.endsWith(".vercel.app")) {
-      return origin.origin;
-    }
+    if (PREVIEW_HOST_RE.test(host)) return origin.origin;
     if (host === "prntd.org" || host.endsWith(".prntd.org")) return origin.origin;
   }
 

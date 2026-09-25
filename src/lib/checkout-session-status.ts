@@ -13,8 +13,36 @@
  * server-side lib, not a `"use server"` action, so it's never reachable as
  * an action endpoint. `resolveConfirmView` is pure so the branching is
  * unit-testable without touching Stripe.
+ *
+ * With the embedded flag on, most `/order/confirm` visits land here before
+ * the webhook has marked the order paid (buyers usually beat it), so this
+ * read sits on the critical path of the receipt page. Bounded to
+ * `STRIPE_SESSION_READ_TIMEOUT_MS` (well under the SDK's own 80s/2-retry
+ * default) so a slow Stripe can't hang the page, and every failure is logged
+ * server-side — the fail-safe return is silent to the buyer by design (see
+ * below), so without a log a systematic failure (e.g. a restricted key with
+ * no session-read permission) would dead-end every purchase with no trace.
  */
+import Stripe from "stripe";
 import { stripe } from "@/lib/stripe";
+import { withTimeout } from "@/lib/timeout";
+
+/** Shared by `loadEmbeddedCheckout` too — both reads sit on the same
+ * post-payment critical path and get the same bound. */
+export const STRIPE_SESSION_READ_TIMEOUT_MS = 3000;
+
+/**
+ * One line describing a failed Stripe read, safe to log: for a Stripe SDK
+ * error, its `type`/`code`/`statusCode` (never `.raw`, headers, or any
+ * secret); otherwise the error's message, which is how a `withTimeout`
+ * rejection surfaces here.
+ */
+export function describeStripeError(err: unknown): string {
+  if (err instanceof Stripe.errors.StripeError) {
+    return `type=${err.type} code=${err.code ?? "none"} statusCode=${err.statusCode ?? "none"}`;
+  }
+  return err instanceof Error ? err.message : String(err);
+}
 
 export type CheckoutSessionState = {
   status: "open" | "complete" | "expired" | null;
@@ -22,19 +50,24 @@ export type CheckoutSessionState = {
   url: string | null;
 };
 
-/** `null` means the Stripe call threw — callers treat that like today's
- * behaviour (render the order as confirmed) rather than guessing. */
+/** `null` means the Stripe call threw or timed out — callers treat that like
+ * today's behaviour (render the order as confirmed) rather than guessing. */
 export async function getCheckoutSessionState(
   sessionId: string
 ): Promise<CheckoutSessionState | null> {
   try {
-    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    const session = await withTimeout(
+      "getCheckoutSessionState",
+      STRIPE_SESSION_READ_TIMEOUT_MS,
+      () => stripe.checkout.sessions.retrieve(sessionId)
+    );
     return {
       status: session.status,
       uiMode: session.ui_mode,
       url: session.url,
     };
-  } catch {
+  } catch (err) {
+    console.error(`getCheckoutSessionState failed: ${describeStripeError(err)}`);
     return null;
   }
 }
