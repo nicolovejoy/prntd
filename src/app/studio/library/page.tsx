@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireRealUser } from "@/lib/require-user";
+import { requireStudioUser } from "@/lib/require-user";
 import { getUserImageLibrary } from "@/lib/user-designs";
 import { Button, EmptyState } from "@/components/ui";
 import { LibraryGrid } from "./library-grid";
@@ -16,7 +16,7 @@ import { LibraryGrid } from "./library-grid";
  * hydrate. Per-image actions live one tap deeper, on the image detail page.
  */
 export default async function StudioLibraryPage() {
-  const session = await requireRealUser();
+  const { session } = await requireStudioUser();
   const images = await getUserImageLibrary(session.user.id);
 
   return (

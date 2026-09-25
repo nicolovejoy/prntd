@@ -1,5 +1,5 @@
 import { after } from "next/server";
-import { requireRealUser } from "@/lib/require-user";
+import { requireStudioUser } from "@/lib/require-user";
 import { getStudioLanesData, sweepStudioForUser } from "@/lib/studio";
 import { StudioClient } from "./studio-client";
 
@@ -10,7 +10,7 @@ import { StudioClient } from "./studio-client";
 // thrown read still lets them run. The response can therefore be one sweep
 // behind — see sweepStudioForUser's docblock.
 export default async function StudioPage() {
-  const session = await requireRealUser();
+  const { session } = await requireStudioUser();
   after(() => sweepStudioForUser(session.user.id));
   const lanes = await getStudioLanesData(session.user.id);
   return <StudioClient initialLanes={lanes} />;
