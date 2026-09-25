@@ -334,17 +334,25 @@ export async function getBuyPageBackSources(
  * NOT ownership-gated, unlike `generateMockup` (`/preview`), because any
  * visitor who can see the buy page must be able to see the mockup.
  *
- * `sourceImageId` is always `imageId` itself: the order pins
+ * `sourceImageId` is `imageId` itself: the order pins
  * `placements.front = imageId` (see `buyPublishedDesign` below), which may
  * not be the design's primary image, so the mockup has to render the LISTED
  * image, not whatever the design currently displays. Scale is fixed at 1.0 —
  * there's no scale control on this page. Cache reuse (and the render body
  * itself) is shared with `generateMockup` via `renderAndCacheMockup`.
+ *
+ * After a swap (#138 slice 3) the front is the buyer's back pick, passed as
+ * `frontImageId`. That source is held to exactly what `getListingBackMockup`
+ * holds a back pick to — MULTI_PLACEMENT_ENABLED (a swap needs a back) and
+ * `assertUsablePlacementImage` — so the front grants no reach the back tile
+ * didn't already have. Absent, or equal to `imageId`, the call is unchanged.
  */
 export async function getListingMockup(params: {
   imageId: string;
   productId: string;
   colorName: string;
+  /** The swapped-in front (#138 slice 3); defaults to `imageId`. */
+  frontImageId?: string;
 }): Promise<{ mockupUrl: string }> {
   const session = await auth.api.getSession({ headers: await headers() });
   const viewerId = session?.user.id ?? null;
@@ -362,13 +370,30 @@ export async function getListingMockup(params: {
     throw new Error("Unauthorized");
   }
 
+  const sourceImageId = params.frontImageId ?? params.imageId;
+  if (sourceImageId !== params.imageId) {
+    if (!multiPlacementEnabled()) {
+      throw new Error("Back designs are not enabled");
+    }
+    // Same bar as the back pick in getListingBackMockup: the viewer's own
+    // image or a published, not-hidden one. The order's design is the
+    // SELLER's, which the guard gives no weight; an empty userId is a
+    // signed-out viewer and matches no owner.
+    await assertUsablePlacementImage(
+      sourceImageId,
+      image.designId,
+      viewerId ?? "",
+      "front"
+    );
+  }
+
   return renderAndCacheMockup({
     designId: image.designId,
     productId: params.productId,
     colorName: params.colorName,
     scale: 1.0,
     placementId: "front",
-    sourceImageId: params.imageId,
+    sourceImageId,
     userId: viewerId,
   });
 }
