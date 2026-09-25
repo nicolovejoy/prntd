@@ -214,6 +214,9 @@ describe("CheckoutPage", () => {
     const back = screen.getByRole("link", { name: "← Back" });
     expect(back).toHaveAttribute("href", "/d/img-1");
     expect(container.textContent).not.toContain("$");
+    expect(screen.getByTestId("checkout-preview").className).toContain(
+      "md:aspect-square"
+    );
   });
 
   it("renders a back-design row only when the line has one", async () => {

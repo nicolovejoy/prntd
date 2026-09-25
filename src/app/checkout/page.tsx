@@ -165,9 +165,10 @@ function ReviewBlock({ summary }: { summary: CheckoutLineSummary[] }) {
     <div className="space-y-4">
       {summary.map((line, i) => (
         <div key={i} className="border-t border-border pt-4 space-y-2">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 md:flex-col md:items-stretch md:gap-2">
             <div
-              className="relative w-16 h-16 border border-border overflow-hidden flex-shrink-0"
+              data-testid="checkout-preview"
+              className="relative w-24 h-24 md:w-full md:h-auto md:aspect-square border border-border overflow-hidden flex-shrink-0"
               style={{ backgroundColor: line.colorHex }}
             >
               {line.mockupUrl ? (

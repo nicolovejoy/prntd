@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { loadStripe, type Stripe } from "@stripe/stripe-js";
 import {
   EmbeddedCheckoutProvider,
@@ -11,6 +11,15 @@ export type EmbeddedCheckoutFormProps = {
   publishableKey: string;
   clientSecret: string;
 };
+
+/**
+ * How long to wait, after mount, for Stripe's iframe to appear inside the
+ * container before showing the stall notice. `EmbeddedCheckoutProvider`
+ * doesn't surface a rejection from `initEmbeddedCheckout` (e.g. a
+ * publishable key from a different Stripe account than the secret key), so
+ * this is the only signal that the form never mounted.
+ */
+export const FORM_MOUNT_TIMEOUT_MS = 15000;
 
 /**
  * One `loadStripe()` promise per publishable key, cached at module level —
@@ -35,9 +44,14 @@ function getStripePromise(key: string): Promise<Stripe | null> {
  * Mounts Stripe's embedded payment form for an already-open checkout
  * session (#135 slice 2). A broken checkout SESSION (expired, wrong state)
  * is the `/checkout` page's job, resolved before this component ever
- * mounts — this only handles the loader script itself failing (network
- * blocked, a bad publishable key), which shows a plain retry instead of a
- * blank panel.
+ * mounts. This component handles two separate failure shapes on top of
+ * that: the loader script itself failing (network blocked, a bad
+ * publishable key) shows a plain retry in place of the whole form; and the
+ * loader succeeding but the iframe never appearing (e.g. a publishable key
+ * from a different Stripe account than the secret key — the mismatch
+ * `EmbeddedCheckoutProvider` doesn't surface as a rejection) shows a stall
+ * notice under the still-mounted form, since a slow network may yet
+ * deliver the iframe.
  */
 export function EmbeddedCheckoutForm({
   publishableKey,
@@ -47,6 +61,8 @@ export function EmbeddedCheckoutForm({
     typeof window === "undefined" ? null : getStripePromise(publishableKey)
   );
   const [loadFailed, setLoadFailed] = useState(false);
+  const [mountStalled, setMountStalled] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!stripePromise) return;
@@ -62,6 +78,15 @@ export function EmbeddedCheckoutForm({
     return () => {
       cancelled = true;
     };
+  }, [stripePromise]);
+
+  useEffect(() => {
+    if (!stripePromise) return;
+    const timer = setTimeout(() => {
+      const hasIframe = containerRef.current?.querySelector("iframe");
+      if (!hasIframe) setMountStalled(true);
+    }, FORM_MOUNT_TIMEOUT_MS);
+    return () => clearTimeout(timer);
   }, [stripePromise]);
 
   if (loadFailed) {
@@ -85,13 +110,29 @@ export function EmbeddedCheckoutForm({
   }
 
   return (
-    <div data-testid="embedded-checkout">
-      <EmbeddedCheckoutProvider
-        stripe={stripePromise}
-        options={{ clientSecret }}
-      >
-        <EmbeddedCheckout />
-      </EmbeddedCheckoutProvider>
+    <div>
+      <div data-testid="embedded-checkout" ref={containerRef}>
+        <EmbeddedCheckoutProvider
+          stripe={stripePromise}
+          options={{ clientSecret }}
+        >
+          <EmbeddedCheckout />
+        </EmbeddedCheckoutProvider>
+      </div>
+      {mountStalled && (
+        <div className="mt-3 text-center space-y-2">
+          <p className="text-sm text-text-muted">
+            The payment form is taking a while.
+          </p>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="min-h-11 px-4 border border-foreground text-sm text-foreground"
+          >
+            Reload
+          </button>
+        </div>
+      )}
     </div>
   );
 }
