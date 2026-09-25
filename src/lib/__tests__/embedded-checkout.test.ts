@@ -166,10 +166,16 @@ describe("resolveReturnOrigin", () => {
     );
   });
 
-  it("trusts any *.vercel.app host over https", () => {
+  it("trusts a prntd-* preview host over https", () => {
     expect(
-      resolveReturnOrigin("https://prntd-git-x.vercel.app", APP_URL)
-    ).toBe("https://prntd-git-x.vercel.app");
+      resolveReturnOrigin("https://prntd-git-foo.vercel.app", APP_URL)
+    ).toBe("https://prntd-git-foo.vercel.app");
+  });
+
+  it("does not trust an unrelated *.vercel.app host", () => {
+    expect(
+      resolveReturnOrigin("https://someone-else.vercel.app", APP_URL)
+    ).toBe("https://prntd.org");
   });
 
   it("trusts the bare prntd.org host over https", () => {
@@ -184,16 +190,16 @@ describe("resolveReturnOrigin", () => {
     );
   });
 
-  it("trusts localhost over http on any port", () => {
-    expect(resolveReturnOrigin("http://localhost:3100", APP_URL)).toBe(
-      "http://localhost:3100"
+  it("does not trust localhost when appUrl is a different origin", () => {
+    expect(resolveReturnOrigin("http://localhost:3000", APP_URL)).toBe(
+      "https://prntd.org"
     );
   });
 
-  it("trusts 127.0.0.1 over http on any port", () => {
-    expect(resolveReturnOrigin("http://127.0.0.1:4000", APP_URL)).toBe(
-      "http://127.0.0.1:4000"
-    );
+  it("trusts localhost when it's the same origin as appUrl (local dev / e2e)", () => {
+    expect(
+      resolveReturnOrigin("http://localhost:3000", "http://localhost:3000")
+    ).toBe("http://localhost:3000");
   });
 
   it("does not trust vercel.app over plain http", () => {
@@ -218,5 +224,12 @@ describe("resolveReturnOrigin", () => {
     expect(
       resolveReturnOrigin("https://prntd-git-x.vercel.app/some/path", APP_URL)
     ).toBe("https://prntd-git-x.vercel.app");
+  });
+
+  it("returns a malformed appUrl unchanged rather than throwing", () => {
+    expect(resolveReturnOrigin(null, "not-a-url")).toBe("not-a-url");
+    expect(resolveReturnOrigin("https://evil.example", "not-a-url/")).toBe(
+      "not-a-url"
+    );
   });
 });

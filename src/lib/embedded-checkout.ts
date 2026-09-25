@@ -107,19 +107,30 @@ export function embeddedCheckoutPath(sessionId: string, backPath: string): strin
  * test-key phone check on a preview pays there and then gets sent to prod's
  * `/order/confirm`, where the preview's order doesn't exist.
  *
- * Trusts the same hosts `src/lib/auth.ts`'s `trustedOrigins` does (any
- * `*.vercel.app` host over https, any `prntd.org`/`*.prntd.org` host over
- * https) plus localhost/127.0.0.1 on any port, so an attacker-controlled
- * `Origin` header can't steer a real buyer's return trip off PRNTD
- * infrastructure. Anything else — missing, malformed, a different host, a
- * non-http(s) scheme like `javascript:` — falls back to `appUrl`'s origin.
- * Always returns a bare origin (no path, no trailing slash).
+ * Trusts exactly the production hosts `src/lib/auth.ts`'s `trustedOrigins`
+ * does: `https://prntd-*.vercel.app` (this project's preview deploys — not
+ * every `*.vercel.app` host on the platform) and `https://prntd.org` /
+ * `https://*.prntd.org`. Local dev and the e2e harness (where
+ * `NEXT_PUBLIC_APP_URL` itself is a localhost URL) are covered by the
+ * same-origin-as-`appUrl` check below, not a separate localhost branch — that
+ * matches auth.ts, which only widens its trusted set for localhost when
+ * `NODE_ENV=development` or `E2E_TRUST_LOCALHOST=true`, never in production.
+ * Anything else — missing, malformed, a different host, a non-http(s) scheme
+ * like `javascript:` — falls back to `appUrl`'s origin. Always returns a bare
+ * origin (no path, no trailing slash). Next.js already rejects a server
+ * action POST whose `Origin` doesn't match `Host`/its own trusted-origins
+ * config, so this check is defence in depth, not the only guard.
  */
 export function resolveReturnOrigin(
   originHeader: string | null,
   appUrl: string
 ): string {
-  const fallback = new URL(appUrl).origin;
+  let fallback: string;
+  try {
+    fallback = new URL(appUrl).origin;
+  } catch {
+    return appUrl.replace(/\/+$/, "");
+  }
   if (!originHeader) return fallback;
 
   let origin: URL;
@@ -133,14 +144,10 @@ export function resolveReturnOrigin(
 
   const host = origin.hostname;
   if (origin.protocol === "https:") {
-    if (host.endsWith(".vercel.app")) return origin.origin;
+    if (host.startsWith("prntd-") && host.endsWith(".vercel.app")) {
+      return origin.origin;
+    }
     if (host === "prntd.org" || host.endsWith(".prntd.org")) return origin.origin;
-  }
-  if (
-    (origin.protocol === "http:" || origin.protocol === "https:") &&
-    (host === "localhost" || host === "127.0.0.1")
-  ) {
-    return origin.origin;
   }
 
   return fallback;
