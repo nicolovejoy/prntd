@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Badge, Button, EmptyState } from "@/components/ui";
 import { getColorHex } from "@/lib/blanks";
+import { DISPLAY_TIME_ZONE } from "@/lib/display-time-zone";
 import type { UserOrder } from "@/lib/user-orders";
 
 type StatusFilter = "active" | "canceled" | "all";
@@ -23,12 +24,15 @@ const statusLabel: Record<string, string> = {
 // canceled (negative). Don't re-inline a status→color map here; Badge already
 // carries that mapping (and /admin's, so the two lists agree).
 
+// Printed on the server and again at hydration, so the zone is pinned as
+// well as the locale: a Pacific calendar day on both (display-time-zone.ts).
 function formatDate(date: Date | null) {
   if (!date) return "—";
   return new Date(date).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
+    timeZone: DISPLAY_TIME_ZONE,
   });
 }
 
