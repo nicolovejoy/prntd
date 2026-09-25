@@ -3,11 +3,12 @@
  * alert, shipping notification).
  *
  * Prefers the real Printful shirt mockup cached on `design.mockupUrls` (the same
- * render the customer approved on /preview). Falls back to the design artwork on
- * a shirt-color backdrop — the /orders thumbnail treatment — when no mockup is
- * cached (e.g. buy-existing or a scale we didn't render). A back image is
- * included only when the order actually has a `back` placement (#25): front-only
- * orders show one image, front+back orders show two.
+ * render the customer approved on /preview or the image detail page) — but
+ * only a mockup of the image actually pinned to that side. Falls back to that
+ * image's artwork on a shirt-color backdrop — the /orders thumbnail treatment —
+ * when no such mockup is cached (e.g. a scale we didn't render). A back image
+ * is included only when the order actually has a `back` placement (#25):
+ * front-only orders show one image, front+back orders show two.
  *
  * Pure — no I/O. Callers resolve the mockup map and fallback artwork URLs.
  */
