@@ -186,7 +186,8 @@ Vercel env changes apply only to new deployments. A flag a Playwright spec needs
 ### Migration discipline
 
 - Flow: edit `schema.ts` → `npm run db:generate` → review the SQL in the PR → apply → merge. `db:push` is dev-only.
-- **Apply the migration to prod BEFORE the PR merges.** Main auto-deploys; merging a schema PR first took prod down twice (0006 on 2026-07-25, 0013 on 2026-09-08). Mark schema PRs HOLD in the title and keep them held.
+- **Additive migrations (new tables/columns): apply to prod BEFORE the PR merges.** Old code ignores what it doesn't select, so this order has no window. Main auto-deploys; merging first took prod down twice (0006 on 2026-07-25, 0013 on 2026-09-08). Mark schema PRs HOLD in the title and keep them held.
+- **Destructive migrations (drops, renames): neither order is free.** Old code on the new schema fails on dropped columns; new code on the old schema fails on renamed ones. The PR must trace both windows (Stripe webhook, fulfillment, emails, crons) and its runbook names the order. Follow the runbook.
 - Back up first: `turso db create prntd-backup-<YYYYMMDD> --from-db prntd`.
 - Prod: `DATABASE_URL=libsql://prntd-nicolovejoy.aws-us-west-2.turso.io DATABASE_AUTH_TOKEN=$(turso db tokens create prntd) npm run db:migrate`. Preview: same with `prntd-preview`. Run from a checkout synced to current main — a stale `drizzle/` folder "succeeds" as a no-op.
 - CI migrates only its ephemeral copy. Apply every migration to `prntd-preview` and `prntd-dev` by hand too.
