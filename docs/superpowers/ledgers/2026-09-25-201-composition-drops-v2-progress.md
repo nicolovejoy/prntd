@@ -232,3 +232,74 @@ Not verified from here: anything on prntd.org, a Vercel preview, or a real
 Turso server (unreachable from this session). The PR's CI e2e job applies
 0014 to an ephemeral copy of `prntd-preview` over hrana — the first run on a
 real server.
+
+## Independent review (main session) → fix round
+
+An independent whole-branch review of `08d9334` found no Critical. It
+verified the migration, the guard on both migrator paths, the recreate, the
+`->>` generated column, drift, reader coverage and the tests by running them,
+and called judgment calls 1–4 sound. Fix round on the same branch:
+
+- **Ruling T5-1 — runbook order is MIGRATE FIRST, then merge. Supersedes
+  T4-1.** Traced against current main. Merge-first (new code, old schema):
+  every paid order in the gap lands `paid_printful_failed`
+  (`getDesignImageById` → `getDesignImageWithOwner` joins
+  `image_publication`, `design-images.ts` ~l.443), and two-sided orders
+  permanently lose their confirmation, owner-alert and shipping emails
+  (`resolveHeroImages`, `order-emails.ts` ~l.58), for a gap with no upper
+  bound if the deploy stalls. Migrate-first (old code, new schema) is
+  lossless. The Stripe webhook's `order.findFirst` selects `store_id` and
+  throws before the paid-claim → 400 → Stripe redelivers. The Printful webhook
+  400s and is retried. Old-code order inserts name every column (Drizzle's
+  SQLite insert emits `null` for unset columns), so checkout throws before a
+  Stripe session exists. The costs are 500 pages and guest sign-in / sign-up
+  failing (old `reparentUserData` updates `store`) for the ~2–4 minute
+  merge+build gap. A failed migration just means no merge. The plan now
+  carries the full runbook: pre-check → rehearsal on a throwaway prod copy →
+  backup → migrate + verify (the merge gate) → merge → preview AFTER the merge
+  (CI e2e, the nightly and Vercel previews branch from `prntd-preview`) → dev
+  → what to do if the guard fires or a payment landed in the gap. Added two
+  preconditions: the PR is green and mergeable against current main BEFORE
+  step d, so no merge conflict can stretch the gap; and the 0014 file and
+  journal stay untouched after step d, because the prod ledger row is stamped
+  with its journal `when`.
+- **Considered alternative, not built:** swap the fulfillment image resolver
+  so the new code tolerates the old schema, which would make merge-first safe.
+  Migrate-first makes it unnecessary, and it would put a compatibility shim
+  on the money path.
+- **Ruling T5-2 — dead organizer code deleted.** `src/lib/product-compose.ts`
+  and its test. From `pricing.ts`: `PRNTD_OPS_FEE`, `MIN_ORG_PROCEEDS`,
+  `SUGGESTED_ORG_PROCEEDS`, `ProceedsBreakdown`, `computeProceeds`,
+  `priceForProceeds`, `minViablePrice`, `suggestedPrice`,
+  `estimateComposeCogs`, plus `proceeds.test.ts`. The shipping-once-per-order
+  contract stays pinned by `pricing.test.ts`. The no-preselection-price guard
+  is untouched. **Kept, with a judgment call:** `validatePlacementFit`
+  (`blanks.ts`) and `probeImageAlpha` (`image-alpha.ts`) are now production-
+  dead too (their only caller was `product-compose.ts`), but they are
+  print-validity rules about the blank and the artwork, not organizer code,
+  and a Shop compose UI for two-sided compositions would need exactly them.
+  Their docblocks now say they have no production caller and why they stay.
+- **Ruling T5-3 — one "own composition" rule for both delete paths.**
+  `delete-image.ts` found an image's own composition by its front slot
+  (`findMirrorProduct` → `front_image_id`), while `delete-design.ts`'s
+  `isOwnMirror` required a single-slot `{front}` row. For a two-sided
+  composition fronted by one of the conversation's images, the conversation
+  delete treated it as a pin and detached the image, while the image delete
+  deleted it with the image. The fix is `compositionFrontImageId(placements)`
+  in `model-b-writes.ts`, the in-memory twin of the generated column.
+  `delete-design.ts` uses it: the row fronted by one of its images is that
+  image's own composition (deleted with it), and every OTHER image the row
+  places is pinned by it. That is exactly delete-image's probe ("a product
+  pins image I unless it is I's own composition"), including the degenerate
+  `{front: I, back: I}`. Nothing writes two-sided compositions yet. New
+  `composition-ownership.integration.test.ts` runs both planners on one
+  fixture, three cases: own two-sided composition deleted with its front;
+  another conversation's composition keeps our back image; the single-slot
+  publish shape unchanged. Mutation check: restoring the single-slot rule
+  fails case 1. Plus a unit test for the helper.
+- Item 4 (the tombstone route test) left as is.
+
+Fix-round gate: lint 0 errors · typecheck clean · **1771 tests / 171 files**
+(−17 tests and −2 files deleted with the organizer helpers; +4 tests and +1
+file added) · build with the CI dummy env clean · `db:generate` "No schema
+changes".

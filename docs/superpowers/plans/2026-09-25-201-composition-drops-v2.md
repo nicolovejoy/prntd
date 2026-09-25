@@ -165,7 +165,8 @@ changes" (the migration is committed, so a clean tree is the pass condition).
 ## Status
 
 Built on this branch; migration `drizzle/0014_thin_pride.sql` awaits Nico's
-hand-apply (runbook in the PR body). Deviations from the text above:
+hand-apply, migrate first and merge second (Runbook below; the PR body
+carries the same text). Deviations from the text above:
 
 - The generated column's expression is `placements ->> '$.front'`, not
   `json_extract(placements, '$.front')`: drizzle-kit 0.31's SQLite
@@ -178,3 +179,207 @@ hand-apply (runbook in the PR body). Deviations from the text above:
   post-0014 shape only (ops reads run after the migration).
 - The old branch's ledger was copied into `docs/superpowers/ledgers/`.
 - CLAUDE.md is untouched (the main session owns it).
+- Review fix round: the organizer pricing helpers and `product-compose.ts`
+  were deleted (dead after Task 1), and both delete paths now share one
+  "an image's own composition is the one it fronts" rule
+  (`compositionFrontImageId`).
+
+## Runbook — migrate first, then merge (Nico runs every step)
+
+Order matters. Migration 0014 is applied to prod BEFORE the PR merges, and a
+clean post-migration verify is the merge gate. While old code runs on the new
+schema (from step d until the merge's Vercel build is Ready, about 2–4
+minutes), nothing is lost: the Stripe and Printful webhooks 400 before they
+write anything and both redeliver, and checkout fails before a Stripe session
+exists, so no one is charged. The cost is 500s on most Shop, Studio, image
+and order pages, and guest sign-in / sign-up failing (the old
+`reparentUserData` still touches the `store` table). If the migration fails,
+the guard rolls it back and the PR simply does not merge. The opposite order
+(merge first) turns every paid order in the gap into `paid_printful_failed`
+and permanently drops confirmation, owner-alert and shipping emails for
+two-sided orders, for as long as the gap lasts.
+
+Apply 0014 ONLY with `npm run db:migrate`. A statement-by-statement run
+(`turso db shell < file`, `.read`, pasting) has no transaction, and the guard
+does not stop it.
+
+Before step a: the PR must be green and mergeable against current main. If
+main has moved, merge main into the branch and wait for CI first. Every step
+up to the merge runs from a checkout of the PR head (the pre-check script and
+the 0014 file exist only there). Do not edit or regenerate
+`drizzle/0014_thin_pride.sql` or the journal after step d: the migrations
+ledger on prod is stamped with this file's journal `when`.
+
+Check out the PR head:
+```
+git fetch origin && git checkout claude/201-composition-drops-v2 && git pull --ff-only && ls drizzle/0014_thin_pride.sql
+```
+
+### a. Pre-check on prod (read-only)
+
+Run:
+```
+DATABASE_URL=libsql://prntd-nicolovejoy.aws-us-west-2.turso.io DATABASE_AUTH_TOKEN=$(turso db tokens create prntd) npx tsx scripts/check-composition-read-parity.ts
+```
+
+Expect `mode: pre-0014`, a notes block listing the test-era organizer product
+rows the migration will delete (eyeball them), the note `migrations ledger:
+newest created_at 1788900841733 = 0013's journal when — db:migrate will apply
+exactly 0014`, and the last line `PRE-0014 CHECK CLEAN — safe to apply
+migration 0014`. Any `PROBLEM(S):` means stop; see step h. A ledger note
+saying `≠ 0013's journal when` means db:migrate would apply more than 0014:
+stop and find out why before going on.
+
+### b. Rehearsal on a throwaway copy of prod
+
+Create the copy:
+```
+turso db create prntd-0014-rehearsal --from-db prntd
+```
+
+Pre-check the copy:
+```
+DATABASE_URL=$(turso db show prntd-0014-rehearsal --url) DATABASE_AUTH_TOKEN=$(turso db tokens create prntd-0014-rehearsal) npx tsx scripts/check-composition-read-parity.ts
+```
+
+Migrate the copy, reading the EXIT CODE (a guard refusal exits 1 and prints
+no error text):
+```
+DATABASE_URL=$(turso db show prntd-0014-rehearsal --url) DATABASE_AUTH_TOKEN=$(turso db tokens create prntd-0014-rehearsal) npm run db:migrate; echo "migrate exit $?"
+```
+
+Verify the copy:
+```
+DATABASE_URL=$(turso db show prntd-0014-rehearsal --url) DATABASE_AUTH_TOKEN=$(turso db tokens create prntd-0014-rehearsal) npx tsx scripts/check-composition-read-parity.ts
+```
+
+Expect `PRE-0014 CHECK CLEAN`, then `migrate exit 0`, then `mode: post-0014`
+and `POST-0014 VERIFY CLEAN`. Anything else: stop, destroy the copy, see step
+h. Then destroy the copy:
+```
+turso db destroy prntd-0014-rehearsal --yes
+```
+
+### c. Backup prod
+
+Run (replace the date):
+```
+turso db create prntd-backup-<YYYYMMDD> --from-db prntd
+```
+
+### d. Migrate prod, then verify (the merge gate)
+
+Migrate:
+```
+DATABASE_URL=libsql://prntd-nicolovejoy.aws-us-west-2.turso.io DATABASE_AUTH_TOKEN=$(turso db tokens create prntd) npm run db:migrate; echo "migrate exit $?"
+```
+
+Expect `migrate exit 0`. Exit 1 means the batch rolled back and prod is
+untouched: do not merge, re-run step a to see why, then step h.
+
+Verify:
+```
+DATABASE_URL=libsql://prntd-nicolovejoy.aws-us-west-2.turso.io DATABASE_AUTH_TOKEN=$(turso db tokens create prntd) npx tsx scripts/check-composition-read-parity.ts
+```
+
+Expect `mode: post-0014` and `POST-0014 VERIFY CLEAN`. That line is the merge
+gate. Anything else: do not merge; the rollback is the step-c backup.
+
+### e. Merge immediately
+
+Merge the PR on GitHub right after the verify. Watch
+https://vercel.com/dashboard for the production deployment of the merge
+commit. If no deployment has started within about 2 minutes (a dropped push
+event, as in #120), trigger one with an empty commit on main:
+```
+git checkout main && git pull && git commit --allow-empty -m "chore: trigger production deploy" && git push
+```
+
+Once the deployment is Ready, run the prod smoke:
+
+1. Open https://prntd.org/shop
+2. Tap any card. The image detail page opens.
+3. Tap Order and pick a size. Don't pay.
+
+PASS: the Shop cards render, the detail page shows TITLE and DESIGNED BY, and
+a total appears after the size pick. FAIL: an error page anywhere.
+
+The `prod-smoke` workflow also runs on the merge and should pass, since code
+and schema now agree.
+
+### f. Preview, AFTER the merge
+
+CI e2e and the nightly Stripe e2e branch their ephemeral databases from
+`prntd-preview`, so a preview already at 0014 breaks e2e (and Vercel previews)
+for every open PR that does not contain 0014 yet. Migrate preview only after
+the merge; open PRs then need main merged in. From main:
+```
+git checkout main && git pull
+```
+
+Pre-check preview:
+```
+DATABASE_URL=libsql://prntd-preview-nicolovejoy.aws-us-west-2.turso.io DATABASE_AUTH_TOKEN=$(turso db tokens create prntd-preview) npx tsx scripts/check-composition-read-parity.ts
+```
+
+Migrate preview:
+```
+DATABASE_URL=libsql://prntd-preview-nicolovejoy.aws-us-west-2.turso.io DATABASE_AUTH_TOKEN=$(turso db tokens create prntd-preview) npm run db:migrate; echo "migrate exit $?"
+```
+
+Verify preview:
+```
+DATABASE_URL=libsql://prntd-preview-nicolovejoy.aws-us-west-2.turso.io DATABASE_AUTH_TOKEN=$(turso db tokens create prntd-preview) npx tsx scripts/check-composition-read-parity.ts
+```
+
+Same expectations as steps a and d.
+
+### g. Dev
+
+From main (`.env.local` points at `prntd-dev`; the preflight classifies it):
+```
+npx tsx --env-file=.env.local scripts/check-composition-read-parity.ts && npm run db:migrate && npx tsx --env-file=.env.local scripts/check-composition-read-parity.ts
+```
+
+### h. If something goes wrong
+
+If the pre-check (or the guard) names orders, inspect them:
+```
+turso db shell prntd "SELECT id, status, classification, store_id, store_product_id, total_price, datetime(created_at,'unixepoch') FROM \"order\" WHERE store_id IS NOT NULL OR store_product_id IN (SELECT id FROM product WHERE design_id IS NOT NULL OR store_id IS NOT NULL);"
+```
+
+A test-era order (test classification, a smoke or e2e purchase) keeps what
+was printed in its `order_item` lines; detach it from the organizer rows
+(replace the id):
+```
+turso db shell prntd "UPDATE \"order\" SET store_id = NULL, store_product_id = NULL WHERE id = '<order-id>';"
+```
+
+A real customer sale through an organizer storefront: stop and decide before
+migrating (none is expected; no organizer store ever sold). After any fix,
+re-run step a, and step b if data changed.
+
+Other pre-check problems: `front image … pinned by N surviving compositions`
+means two rows would collide on the new unique index; keep the one whose
+status matches the image's publication row and delete the other, but never
+one an order points at (`… AND id NOT IN (SELECT store_product_id FROM "order"
+WHERE store_product_id IS NOT NULL)`). `malformed placements JSON` rows need
+their JSON fixed by hand. `table __new_product already exists` (or
+`__slice5_guard`) is a leftover from an interrupted run: `DROP TABLE` it.
+`[parity]` lines do not stop the migration but mean a published image is
+already broken in the Shop; fix or decide first.
+
+If a Stripe payment happened in the step d–e window: its webhook got a 400
+before anything was written, and Stripe redelivers on its own (backoff, for
+up to 3 days); once the deploy is Ready the redelivery succeeds. To speed it
+up: https://dashboard.stripe.com/webhooks → the prntd.org endpoint → the
+failed `checkout.session.completed` event → Resend. Printful webhooks retry
+the same way. A guest whose sign-up failed in the window keeps their designs
+on the anonymous user; they can simply sign up again, or move the rows with
+the dry-run-first script (from main, after the merge):
+```
+DATABASE_URL=libsql://prntd-nicolovejoy.aws-us-west-2.turso.io DATABASE_AUTH_TOKEN=$(turso db tokens create prntd) npx tsx scripts/reparent-user.ts <anonUserId> <their-email>
+```
+Add `--apply --confirm-prod` once the dry run looks right.
+
+Rollback at any point after step d: the step-c backup branch.
