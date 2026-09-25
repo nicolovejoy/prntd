@@ -290,12 +290,12 @@ differ.
   linked to its conversation via `conversation_image`; `design_image` was
   dropped in Model B slice 5, migration `0009`). Append-only; never replaced.
 - **Print** — a published generation. Lives in the Shop, has a title,
-  description, and backdrop. Publishing writes a `listing` row (keyed on the
-  image id) that grants visibility (`published_at`, `is_hidden`); the
-  sellable fields — title, description, backdrop, feed rank — are read from
-  the image's mirror `product` row (composition slices 2–4, `storeId` and
-  `designId` both null), not from `listing` (whose same-named columns are now
-  a frozen, unread mirror pending composition slice 5).
+  description, and backdrop. Publishing writes an `image_publication` row
+  (keyed on the image id; named `listing` until composition slice 5) that
+  grants visibility (`published_at`, `is_hidden`); the sellable fields —
+  title, description, backdrop, feed rank — live on the image's `product`
+  composition (composition slices 2–4), found by its generated
+  `front_image_id` column.
 - **Mockup** — a generation placed on a physical product (Printful render).
 - **Product version** — a generation re-rendered for a specific product's
   print area (placement render).
@@ -313,11 +313,10 @@ differ.
   archived image; `/studio/archive` now 308s to `/studio/library`.
 - **Shop** — `/shop`, the community storefront (renamed from "Fresh
   Prints" 2026-07-19). Organizer stores were also shops (`/shop/[slug]`,
-  each a self-contained storefront) — retired 2026-09-05 (#191):
-  `STORES_ENABLED` is off in Production and Preview and there is no live
-  entry point; `/shop/[slug]` and `/dashboard` remain as files until
-  composition slice 5 (held, PR #201) drops the underlying tables. No
-  replacement — organizer storefronts are retired outright, not replaced.
+  each a self-contained storefront) — retired 2026-09-05 (#191), and the
+  routes, `/dashboard` and the `store` tables were deleted with composition
+  slice 5 (#201). No replacement — organizer storefronts are retired
+  outright, not replaced.
 - **Funnel** — Studio → Preview → Order → Confirm. Linear, breadcrumbed.
 - **Shelf** — the personal library of owned work: `/studio/library` (every
   owned image) and `/orders`. Library's Active/All filter (#238) is what
@@ -326,8 +325,8 @@ differ.
   `/studio/library`) — so Shelf is glossed as library, not archive.
 - **Counter** — `/admin`. Back of shop.
 - **Dashboard** — `/dashboard`. Where organizers ran their shops. Retired
-  2026-09-05 (#191): the file still exists but has no live entry point (see
-  Shop, above); no replacement.
+  2026-09-05 (#191) and deleted with composition slice 5 (#201); no
+  replacement.
 
 **Surfaces & regions**
 
@@ -467,12 +466,12 @@ Scale in use (Tailwind steps), roles:
   Shop)
 - `text-xl` / `text-2xl` `font-bold` — screen title (14 live headings:
   `/studio`, `/cart`, `/preview`, `/admin` ×3, and the four auth pages).
-  `text-lg font-semibold` survives only on the retired `/dashboard` and
-  `/shop/[slug]/[productId]` routes.
-- `text-sm font-medium` — card titles. Also still used for 7 section
-  labels not yet converted to the mono label below: 3 live (`/preview`'s
-  Product label, the publish modal's Name label, `background-picker.tsx`)
-  and 4 on the retired `/dashboard` compose form.
+  The `text-lg font-semibold` headings that survived on the retired
+  `/dashboard` and `/shop/[slug]/[productId]` routes went with them (#201).
+- `text-sm font-medium` — card titles. Also still used for 3 section
+  labels not yet converted to the mono label below (`/preview`'s Product
+  label, the publish modal's Name label, `background-picker.tsx`); the 4 on
+  the retired `/dashboard` compose form were deleted with it (#201).
 - `text-sm` — body, chat
 - `text-xs text-text-muted` — metadata
 - `text-xs text-text-faint` / `text-[10px]` — fine print; `Badge` and
@@ -532,9 +531,8 @@ were added since, mostly by the #218 alert sweep:
 
 Composites built from these: `SizePicker`/`ColorPicker`
 (`product-options.tsx`), `PublishModal`, `PublishedGrid`, `Breadcrumbs`,
-`BuyPanel`, `MakerHero`. `ComposeForm` (organizer product compose) is under
-the retired `/dashboard` (#191, see Vocabulary) — the file exists, but has
-no live entry point.
+`BuyPanel`, `MakerHero`. (`ComposeForm`, the organizer product compose,
+was deleted with the retired `/dashboard` — #191, #201.)
 
 Interaction grammar:
 
@@ -803,16 +801,14 @@ Job: browse Prints, pick one to buy.
 
 ### `/shop/[slug]` Organizer storefront (`app/shop/[slug]/…`)
 
-Retired (#191, 2026-09-05): organizer storefronts are retired outright, not
-replaced. `STORES_ENABLED` is off in Production and Preview and there is no
-live entry point; the files and this route remain until composition slice 5
-(held, PR #201) drops the underlying tables.
+Retired (#191, 2026-09-05) and deleted with composition slice 5 (#201):
+organizer storefronts are retired outright, not replaced. `/shop` is the
+community feed only.
 
 ### `/dashboard` Organizer dashboard (`app/dashboard/…`)
 
-Retired (#191, 2026-09-05): the file still exists but has no live entry
-point — `STORES_ENABLED` is off and the homepage footer's old "Open a shop
-→" link is gone (see Home item 5). No replacement.
+Retired (#191, 2026-09-05) and deleted with composition slice 5 (#201),
+along with `STORES_ENABLED`. No replacement.
 
 ### `/d/[imageId]` Print detail (`app/d/[imageId]/page.tsx`)
 
