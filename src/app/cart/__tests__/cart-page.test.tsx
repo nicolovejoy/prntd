@@ -141,15 +141,16 @@ describe("CartPage row shape (Paper)", () => {
     expect(totalAmount.className).toContain("font-mono");
   });
 
-  // #241 reversed ruling W1: the Studio admits guest sessions now, so both
-  // cart CTAs go to /studio like every other make-CTA (also pinned, with the
-  // history, in src/app/__tests__/maker-cta-hrefs.test.tsx).
-  it("the empty-state action links to /studio", async () => {
+  // #241: the empty cart keeps ruling W1 (/design, which a visitor with no
+  // session can reach and which mints the guest session); a cart with lines
+  // implies a session, so "Add another design" goes to /studio. History in
+  // src/app/__tests__/maker-cta-hrefs.test.tsx.
+  it("the empty-state action links to /design", async () => {
     getCart.mockResolvedValue(EMPTY);
     render(<CartPage />);
 
     const link = await screen.findByRole("link", { name: "Start a design" });
-    expect(link).toHaveAttribute("href", "/studio");
+    expect(link).toHaveAttribute("href", "/design");
   });
 
   it("Add another design pushes to /studio via the router", async () => {

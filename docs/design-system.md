@@ -791,9 +791,12 @@ Job: review the bundle and check out once.
 2. **Item list** — thumbnail, product, color/size, front+back marker, qty,
    unit×qty price, Remove.
 3. **Pricing summary** — items subtotal, bundled shipping, total.
-4. Add another design (secondary); empty state → Start a design. Both go to
-   `/studio`, like every make-CTA — #241 reversed ruling W1, which had
-   pointed them at `/design` while `/studio` still bounced guest sessions.
+4. Add another design (secondary) → `/studio`; empty state → Start a design
+   → `/design`. #241 reversed ruling W1 for the first (a cart with lines
+   implies a session, and the Studio admits guest sessions now) and kept it
+   for the empty state, which a first-time visitor with no session sees:
+   middleware sends a sessionless `/studio` request to sign-in, while
+   `/design` is open and mints the guest session.
 
 ### `/shop` Shop (`app/shop/page.tsx`)
 

@@ -118,12 +118,14 @@ export default function CartPage() {
           <EmptyState
             message="Your cart is empty."
             action={
-              // /studio, like every other make-CTA. A guest-funnel session
-              // reaches the Studio since #241, which reversed ruling W1 (this
-              // CTA used to point at /design because /studio bounced
-              // guests). A visitor with no session at all still lands on
-              // /sign-in from here — middleware's call, accepted in #241.
-              <Link href="/studio">
+              // /design, not /studio — the one make-CTA that keeps ruling W1
+              // after #241. An empty cart is exactly what a first-time
+              // visitor with no session sees (Cart is in the header bar, and
+              // /, /shop and /cart mint no session), and middleware sends a
+              // sessionless /studio request to /sign-in. /design is open to
+              // them and mints the guest session. "Add another design" below
+              // goes to /studio: a cart with lines implies a session.
+              <Link href="/design">
                 <Button size="lg">Start a design</Button>
               </Link>
             }
@@ -210,10 +212,10 @@ export default function CartPage() {
                 variant="secondary"
                 size="lg"
                 className="w-full"
-                // /studio, like the empty-state CTA above (#241 reversed
-                // ruling W1). A cart with lines implies a session — guest or
-                // real — so with the guest funnel on this always reaches the
-                // bench.
+                // /studio (#241 reversed ruling W1 here). A cart with lines
+                // implies a session — guest or real — so with the guest
+                // funnel on this always reaches the bench. The empty-state
+                // CTA above stays on /design; see its comment.
                 onClick={() => router.push("/studio")}
               >
                 Add another design
