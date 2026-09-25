@@ -8,7 +8,7 @@ Baseline suite on that commit: 173 files / 1812 tests, all passing.
 
 This controller session had no in-process subagent tool. Implementers and
 reviewers ran as separate `claude -p` processes in this worktree, with the
-model named in the batch brief (`--model sonnet|haiku|opus`) and a
+model the batch brief names for each role and a
 restricted `--allowedTools` list: reviewers get read-only tools plus
 test/lint/typecheck commands; implementers additionally get Edit/Write. No
 subagent could commit, push, install packages, or write outside the
@@ -73,39 +73,39 @@ key is the check.
 
 ### Task 1 — config, builder branch, deps (`b6306e9`)
 
-Implementer (sonnet): `embeddedCheckoutFlag()`, `src/lib/embedded-checkout.ts`
+Implementer: `embeddedCheckoutFlag()`, `src/lib/embedded-checkout.ts`
 (config resolver, `safeCheckoutReturnPath`, `embeddedCheckoutPath`), `uiMode`
 branch in `buildCheckoutSessionParams`, commented `.env.tpl` entries, 32 + 3
 tests. Check order in the resolver: flag → missing-key → invalid-key →
 mode-mismatch (an unparseable secret key is a mismatch).
 
-Review (sonnet): CLEAN, no findings. Reviewer re-ran the task tests (53
+Task review: CLEAN, no findings. Reviewer re-ran the task tests (53
 passing), typecheck, eslint.
 
 ### Task 2 — server wiring (`29399c6`)
 
-Implementer (sonnet): `createStripeCheckoutForOrder` takes
+Implementer: `createStripeCheckoutForOrder` takes
 `embedded?: { backPath }`; `buyPublishedDesign` resolves the config once,
 right before its `createStripeCheckoutForOrder` call, logs the reason when
 the flag is on but the config is disabled, and passes `embedded` only when
 enabled. `BuyPanel` untouched. New real-DB file
 `src/app/d/__tests__/buy-published-design-embedded.integration.test.ts`.
 
-Review (sonnet): CLEAN, one Minor — the flag-off test checked a subset of
+Task review: CLEAN, one Minor — the flag-off test checked a subset of
 properties, not the full deep-equal the acceptance criteria ask for.
 Controller ruling: fix it anyway; invariant 1 is the property that test
 exists to pin. Fix `044713c`: the flag-off, missing-key and mode-mismatch
 cases deep-equal `buildCheckoutSessionParams` output (no `uiMode`) for the
-persisted order. Re-review (haiku): RESOLVED.
+persisted order. Scoped re-review: RESOLVED.
 
 ### Task 4 — `/order/confirm` open-session branch (`89a4698`)
 
-Implementer (sonnet): `src/lib/checkout-session-status.ts`
+Implementer: `src/lib/checkout-session-status.ts`
 (`getCheckoutSessionState`, pure `resolveConfirmView`), confirm page gated on
 the raw flag + a pending order, 7 new page tests. Ran in parallel with
 Task 3 (disjoint files).
 
-Review (sonnet): CLEAN, no findings.
+Task review: CLEAN, no findings.
 
 Controller findings on top of the clean review (fix `fbb8375`):
 1. Important — the resume link was gated on the raw flag, so a flag-on /
@@ -116,11 +116,11 @@ Controller findings on top of the clean review (fix `fbb8375`):
    that a closed tab bounces back; both false. Rewritten.
 3. Minor — the incomplete/expired states labelled their breadcrumb
    "Confirmed". Now "Checkout".
-Re-review (haiku): RESOLVED.
+Scoped re-review: RESOLVED.
 
 ### Task 3 — `/checkout` page (`edb8b8a`)
 
-Implementer (sonnet): `src/lib/embedded-checkout-session.ts`
+Implementer: `src/lib/embedded-checkout-session.ts`
 (`loadEmbeddedCheckout`, server-only, cheapest checks first), the server
 page, the client `EmbeddedCheckoutForm` (module-cached `loadStripe`, lazy on
 the client only). 12 real-DB loader tests, 14 page tests, 4 form tests.
@@ -128,7 +128,7 @@ Ruling on its one question: the sign-in `next` and "Try again" hrefs reuse
 `embeddedCheckoutPath`, so a missing `from` becomes `from=%2Fshop` —
 accepted.
 
-Review (sonnet): CLEAN, no findings.
+Task review: CLEAN, no findings.
 
 Controller findings on top of the clean review:
 1. Important — `EmbeddedCheckoutProvider` swallows an
@@ -141,9 +141,9 @@ Controller findings on top of the clean review:
    full-column square from `md` up.
 
 Fix `7a94049` (96 px / `md` full-column preview; 15 s watchdog hint under
-the still-mounted form). Re-review (haiku): RESOLVED.
+the still-mounted form). Scoped re-review: RESOLVED.
 
-## Whole-branch review (opus) over `origin/main...7a94049`
+## Whole-branch review over `origin/main...7a94049`
 
 Verdict CLEAN; traces (a)–(e) all held:
 - (a) flag off: image-detail purchases send the builder's hosted params and
@@ -196,13 +196,13 @@ dropped (same-origin covers local dev and e2e); and it threw on a malformed
 `NEXT_PUBLIC_APP_URL` before the order insert — now throw-free.
 Fix `446c75d`.
 
-Scoped re-review (opus) of `7a94049..446c75d`: CLEAN. Confirmed R9–R10 and
+Scoped re-review of `7a94049..446c75d`: CLEAN. Confirmed R9–R10 and
 minors 1–4 resolved; invariants 1 and 2 hold (`headers()` is read only
 inside the enabled branch; hosted mode keeps `NEXT_PUBLIC_APP_URL`); no
 request can steer `return_url` off PRNTD hosts (Next's server-action check
 also binds Origin to Host); a missing Origin falls back to
 `NEXT_PUBLIC_APP_URL`. One Minor: the throw-free claim failed for an unset
-`NEXT_PUBLIC_APP_URL`. Fix `e516d4a`; re-review (haiku): RESOLVED.
+`NEXT_PUBLIC_APP_URL`. Fix `e516d4a`; scoped re-review: RESOLVED.
 
 ## Gate (controller, on `e516d4a`)
 
