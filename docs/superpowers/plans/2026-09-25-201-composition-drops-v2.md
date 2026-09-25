@@ -161,3 +161,20 @@ changes" (the migration is committed, so a clean tree is the pass condition).
 ## Ledger
 
 `docs/superpowers/ledgers/2026-09-25-201-composition-drops-v2-progress.md`.
+
+## Status
+
+Built on this branch; migration `drizzle/0014_thin_pride.sql` awaits Nico's
+hand-apply (runbook in the PR body). Deviations from the text above:
+
+- The generated column's expression is `placements ->> '$.front'`, not
+  `json_extract(placements, '$.front')`: drizzle-kit 0.31's SQLite
+  introspection truncates a generated expression at its first `)`, so the
+  nested form made every `db:push` against a migrated database propose
+  dropping and re-adding the column. Same values (probed).
+- `removeDesignIfNowEmpty` lost its "a product FKs this design" keeper (#243's
+  step 5), whose only source was `product.design_id`.
+- `dump-listing-mockups.ts` and `check-anonymous-listings.ts` read the
+  post-0014 shape only (ops reads run after the migration).
+- The old branch's ledger was copied into `docs/superpowers/ledgers/`.
+- CLAUDE.md is untouched (the main session owns it).

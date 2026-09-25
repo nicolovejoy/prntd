@@ -267,9 +267,10 @@ export async function publishImage(
   // description, backdrop, feed rank, listed-at) is written ONLY to the
   // image's mirror product row — the Shop composition; the publication row
   // beside it carries publishedAt/isHidden and nothing else. Lookup-before-
-  // insert keeps a re-publish from reviving nothing and hitting the unique
-  // front-image index; the publication row's primary key (and that index)
-  // roll the whole batch back if a concurrent publish races it.
+  // insert makes a re-publish revive the existing draft row rather than
+  // insert a second one (which the unique front-image index would reject);
+  // the publication row's primary key and that index both roll the whole
+  // batch back if a concurrent publish races it.
   const existingMirrorId = await findMirrorProduct(db, imageId);
   // Publish never leaves the backdrop transparent (#73): no pick — or an
   // explicit null from a legacy caller — persists as White.

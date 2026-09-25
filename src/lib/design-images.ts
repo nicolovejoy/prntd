@@ -342,8 +342,8 @@ export type ImageRef = {
  * Resolve image ids to their URL + aspect across BOTH artifact tables.
  *
  * An id minted by a generation lives in `image`; one minted by a placement
- * render lives in `placement_render`. Orders, cart lines and organizer
- * products pin whichever they were shown, and id reuse (§2) means the id
+ * render lives in `placement_render`. Orders, cart lines and `product`
+ * compositions pin whichever they were shown, and id reuse (§2) means the id
  * alone doesn't say which — so every id lookup checks both. Missing ids are
  * simply absent from the map.
  */

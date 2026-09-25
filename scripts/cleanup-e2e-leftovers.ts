@@ -1,6 +1,6 @@
 /**
  * One-off: purge orphaned e2e rows left in prntd-dev/prntd-preview when a spec
- * timed out before its finally{} cleanup ran. Matches the throwaway organizer
+ * timed out before its finally{} cleanup ran. Matches the throwaway sign-up
  * accounts (e2e-org-*@prntd.test) + seeded designs (id like e2e-%) and removes
  * their products/designs/sessions/accounts/user. Same never-prod guard
  * as e2e/helpers/db.ts. Run: `npx tsx --env-file=.env.local scripts/cleanup-e2e-leftovers.ts`
