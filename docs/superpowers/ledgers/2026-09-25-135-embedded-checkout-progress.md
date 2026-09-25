@@ -239,3 +239,58 @@ In each Vercel scope that should get embedded checkout:
 - Cross-account publishable key (same mode, different Stripe account) is
   not detectable server-side; the client shows the 15 s "taking a while"
   hint.
+
+## Independent review (main session, on `209903a`) → fix round `a5fb4ab`
+
+The review found no Critical issues. It confirmed: flag off is unchanged on every path;
+order writes precede the session; the params match hosted checkout except for
+`ui_mode`/`return_url`; the client secret reaches only the order's owner; and
+`return_url` can't be steered off-domain. Four findings were fixed in `a5fb4ab`:
+
+1. Important — `/checkout` was missing from `FUNNEL_PREFIXES`
+   (`src/lib/funnel-routes.ts`). The floating Feedback launcher sat over
+   Stripe's form on phones and could cover Pay. Added, with a test
+   (`/checkouts` stays unmatched).
+2. Minor — both Stripe session reads swallowed errors and inherited the
+   SDK's 80 s timeout with 2 retries. That put a slow Stripe on the receipt
+   page's critical path right after payment, and a systematic failure left
+   no trace. Both are now capped by `withTimeout` at
+   `STRIPE_SESSION_READ_TIMEOUT_MS = 3000`. Each logs one line via
+   `describeStripeError`: `type`/`code`/`statusCode` for SDK errors, the
+   message otherwise, never `raw`/headers/secrets. A test plants a
+   `client_secret` on the mocked error and asserts the log lacks it. The
+   fail-safe results are unchanged (null → "Order confirmed."; unavailable).
+   Flag off still makes no Stripe call on `/order/confirm`.
+3. Minor — the embedded form's load-failed and taking-a-while notices now
+   offer "← Back" (the page's safe `from` target) beside Reload. **Hosted
+   fallback for a stuck embedded buyer stays a later decision.** An embedded
+   session has no hosted URL, so the fallback would mean creating a second,
+   hosted session for the same order, which is a money-path design question
+   of its own. The task review noted that the page's own top Back link is
+   then also visible, so there are two Back links in the failure states.
+   Accepted: same target, and the notice's Back is the one within reach on
+   a phone.
+4. Minor — `resolveReturnOrigin` now trusts only this project's preview
+   shapes, `^prntd-[a-z0-9-]+-nico-lovejoys-projects\.vercel\.app$` (the
+   `nico-lovejoys-projects` team slug came from the main session and was not
+   verifiable from this session). This is deliberately narrower than
+   auth.ts's `prntd-*.vercel.app`. A non-matching preview host falls back to
+   `NEXT_PUBLIC_APP_URL`, so the buyer lands on prntd.org as before R10. The
+   task review checked uppercase, a trailing dot and a `…vercel.app.evil.com`
+   suffix against Node's URL parser; all fail closed.
+
+Task review: CLEAN.
+
+Recorded, not changed (per the main session):
+- The kill switch 404s a mid-checkout reload. This is R7.
+- `createStripeCheckoutForOrder` is exported from a `"use server"` file
+  (`src/app/order/actions.ts`), so Next may register it as an action
+  endpoint that takes caller-supplied `userId`/`itemPrice`/`cancelUrl`. This
+  predates the branch. The branch's new `embedded` param (`backPath`,
+  `returnOrigin`) adds no reach beyond what `cancelUrl`/`itemPrice` already
+  expose. It is worth its own issue.
+
+Gate on `a5fb4ab`: lint 0 errors (22 warnings, none in branch files),
+typecheck clean, vitest 179 files / 1933 tests, build with the CI dummy env
+passes (`ƒ /checkout`, `ƒ /order/confirm`), `db:generate` reports no schema
+changes.
