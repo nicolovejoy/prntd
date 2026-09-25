@@ -16,8 +16,10 @@ function subscribe() {
  * HTML and the client's hydration render have to agree, and some state (the
  * better-auth session, most visibly) can already be loaded on the client by
  * the time a hydration pass renders — in particular when React restarts
- * hydration, which re-reads every store. Gate that state on this hook and the
- * hydration render always matches the server.
+ * hydration: the restarted pass runs each component from scratch, so a hook
+ * that snapshots a store during render reads whatever the store holds by
+ * then. Gate that state on this hook and the hydration render always matches
+ * the server.
  *
  * `useSyncExternalStore` rather than a `useEffect` flag: React uses the
  * server snapshot (`false`) for the entire hydration pass, restarts
