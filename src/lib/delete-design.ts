@@ -38,6 +38,7 @@ import {
   imageGeneration as imageGenerationTable,
 } from "@/lib/db/schema";
 import { imageReferences } from "@/lib/design-publish";
+import { compositionFrontImageId } from "@/lib/model-b-writes";
 
 type Db = typeof appDb;
 
@@ -158,12 +159,13 @@ export async function planDesignDeletion(
   const linkedElsewhere = new Set<string>();
   const productPinned = new Set<string>();
   const cartPinned = new Set<string>();
-  // A published image's own composition (placements exactly {front: imageId})
-  // must not keep its image alive — it exists BECAUSE of the image — so it is
-  // excluded from the pin probe and deleted alongside the image row +
-  // publication row, the same lifecycle the publication row already had. Any
-  // OTHER composition that pins the image (a second slot, or a different
-  // front) is a real reference and detaches instead.
+  // An image's own composition — the product whose FRONT slot is that image
+  // (compositionFrontImageId, the same rule findMirrorProduct applies for
+  // delete-image.ts) — must not keep its image alive: it exists BECAUSE of the
+  // image, so it is excluded from that image's pin probe and deleted alongside
+  // the image row + publication row. Any other image the row places (a back
+  // slot) IS pinned by it and detaches, and a composition fronted by an image
+  // outside this design pins everything of ours it places.
   const mirrorIdByImage = new Map<string, string>();
   let imageRows: {
     id: string;
@@ -223,16 +225,13 @@ export async function planDesignDeletion(
     const imageIdSet = new Set(imageIds);
     for (const row of productPins) {
       const placements = row.placements ?? {};
-      const entries = Object.entries(placements);
-      const isOwnMirror =
-        entries.length === 1 &&
-        entries[0][0] === "front" &&
-        imageIdSet.has(entries[0][1]);
-      if (isOwnMirror) {
-        mirrorIdByImage.set(entries[0][1], row.id);
-        continue;
+      const front = compositionFrontImageId(placements);
+      if (front !== null && imageIdSet.has(front)) {
+        mirrorIdByImage.set(front, row.id);
       }
-      for (const id of Object.values(placements)) productPinned.add(id);
+      for (const id of Object.values(placements)) {
+        if (id !== front) productPinned.add(id);
+      }
     }
     for (const row of cartPins) {
       for (const id of Object.values(row.placements ?? {})) cartPinned.add(id);

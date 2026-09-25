@@ -241,8 +241,12 @@ export async function planImageDeletion(
         )
       )
       .limit(1),
-    // The image's own mirror product exists BECAUSE of the image, so it never
-    // keeps it alive — it is excluded here and deleted alongside it.
+    // The image's own composition — the product whose FRONT slot is this image
+    // (findMirrorProduct; the same rule delete-design.ts applies via
+    // compositionFrontImageId) — exists BECAUSE of the image, so it never
+    // keeps it alive: it is excluded here and deleted alongside it. Any other
+    // product that places this image (another composition's back slot) is a
+    // real reference and detaches.
     db
       .select({ id: productTable.id })
       .from(productTable)

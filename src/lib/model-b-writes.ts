@@ -233,8 +233,24 @@ export function mirrorPlacements(imageId: string): Record<string, string> {
 }
 
 /**
+ * The image a composition belongs to: its front placement slot. The in-memory
+ * twin of the generated column `product.front_image_id`
+ * (`placements ->> '$.front'`), for callers that already hold `placements` —
+ * delete-design.ts's batch probe. `findMirrorProduct` below answers the same
+ * question in SQL. Both delete paths key "this image's own composition" on
+ * this one rule: the row fronted by image I belongs to I, is deleted with I,
+ * and never counts as a reference keeping I alive; any OTHER image that row
+ * places (a back slot) IS kept alive by it.
+ */
+export function compositionFrontImageId(
+  placements: Record<string, string> | null | undefined
+): string | null {
+  return placements?.front ?? null;
+}
+
+/**
  * Predicate identifying the composition for an image: the row whose front
- * placement slot is that image. `front_image_id` is the generated column over
+ * placement slot is that image (the SQL form of compositionFrontImageId). `front_image_id` is the generated column over
  * `placements.front`, and `product_front_image_unique` on it makes "one
  * composition per front image" a DB guarantee (composition slice 5) — the
  * publish path still looks up first (findMirrorProduct) so a re-publish
