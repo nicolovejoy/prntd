@@ -47,16 +47,17 @@ const EMPTY_SLOT: SideSlot = {
 };
 
 /**
- * Owns the product/color/back selection shared by the hero and `BuyPanel`
- * (#135 slice 1, #167) — they're siblings under `page.tsx` (separated by the
- * title/naming block, passed through as `children` so its JSX stays authored
- * in the server page), and `PublishedImageView` also serves the owner's
- * backdrop-picker mode, so buy logic doesn't belong there. `BuyPanel` stays
- * the single source of truth for its own expanded/product/color/back state;
- * this wrapper just mirrors it (via BuyPanel's report effects) to know what
- * to render mockups for, and stays mounted as one instance across the hero
- * swap (same position in both returned trees) so BuyPanel's internal state
- * (size, back design, expanded) survives it.
+ * Holds the product/color/front/back selection shared by the hero and
+ * `BuyPanel` (#135 slice 1, #167, #138 slice 3) — they're siblings under
+ * `page.tsx` (separated by the title/naming block, passed through as
+ * `children` so its JSX stays authored in the server page), and
+ * `PublishedImageView` also serves the owner's backdrop-picker mode, so buy
+ * logic doesn't belong there. `BuyPanel` stays the single source of truth
+ * for its own expanded/product/color/back/swap state; this wrapper just
+ * mirrors it (via BuyPanel's report effects) to know what to render mockups
+ * for, and stays mounted as one instance across the collapsed → expanded
+ * hero change (same position in both returned trees) so BuyPanel's internal
+ * state (size, back design, swap, expanded) survives it.
  *
  * Collapsed: renders `PublishedImageView` unchanged — artwork on its pinned
  * backdrop, no mockup fetch, page stays cheap for browsers. Expanded: the

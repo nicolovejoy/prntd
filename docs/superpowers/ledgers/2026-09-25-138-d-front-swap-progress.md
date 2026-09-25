@@ -39,3 +39,17 @@ Ruling: a new pick from the picker always lands on the back (resets `swapped`); 
 Ruling: prominence (which side is large in the hero) is NOT reset by a swap — the images visibly trade places in either state, which is what makes the swap legible.
 Tests: +10 BuyPanel (buy-panel.test.tsx), +3 BuyHero (buy-hero.test.tsx); one existing assertion updated for the renamed section label (Paper pass test, "Back design" → "Front & back"; the price-line "Back design" text is unchanged). Mutation check: with the pre-change buy-panel.tsx, 9/10 new panel tests fail (+ the relabel test); the one pass pins unchanged behaviour (no swap/Front row before a back). With the pre-change buy-hero.tsx, 3/3 new hero tests fail.
 Self-review: clean.
+
+## Task 4 — docs
+`docs/buy-flow-front-swap-plan.md` Status (slice 3 built, rulings) + "#167 status" line; `docs/design-system.md` `/d` Stage + BuyPanel entries. Commit a50b791.
+
+## Whole-branch pass (controller, NOT independent — see "Process deviation")
+Scope: `git diff origin/main...HEAD` plus every reader of the values this branch changes (placements.front on /d orders, onBackChange semantics, getListingMockup's source) and every docblock that states the old invariant.
+Checked and clean: fulfillment resolves each placement by its pinned id across designs (`order-fulfillment.ts`), so a swapped front from another design prints; deletion guards scan ALL placement values by LIKE (`delete-image.ts` orderReferencesImage, `delete-design.ts`), so a swapped-in front is order-protected; attribution (`contributorAttribution`, front-first) and per-line identity read the pins; cart thumbnail + Stripe line follow the pin; BuyPanel hooks all run before its collapsed early return; the only consumer of `onBackChange` is BuyHero; no e2e spec touches the image detail page.
+Findings fixed:
+1. Stale docblock `src/lib/design-publish.ts` (imageReferencedByOrders): "The buy-existing path always sets placements.front = imageId" — false after a swap. Reworded.
+2. Stale/contradictory BuyHero docblock ("Owns the product/color/back selection"; state list without front/swap; "hero swap" now ambiguous next to the new Swap). Reworded.
+3. `docs/d-buy-checkout-plan.md` (#135 slice 2, built next on this branch's base by wave-2 controller C): its /checkout review pane assumes the front is the page image. Added a note to read the sides from the order line and pass `frontImageId`.
+Findings NOT fixed (recorded):
+- Email hero (pre-existing, see Task 1) — follow-up issue recommended.
+- `order.storeProductId` names the listing the sale came through, not the exact composition printed; after a swap the line is `{front: B, back: A}` while A's mirror product is `{front: A}`. Already true of any /d order with a back. Payout keys off `storeId` (NULL here) per the schema comment, so nothing reads it as the print spec.
