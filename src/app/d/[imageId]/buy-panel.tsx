@@ -22,12 +22,15 @@ import {
 } from "@/lib/purchase-defaults";
 import type { BackSourceGroup } from "@/lib/back-sources";
 import { ensureGuestSession } from "@/lib/ensure-guest-session";
+import { buyPagePlacements, type PlacementPick } from "@/lib/placement-pins";
 import { addToCart } from "@/app/cart/actions";
 import { buyPublishedDesign, getBuyPageBackSources } from "../actions";
 import { MONO_LABEL } from "./mono-label";
 
-/** A picked back design: the source image id and its artwork URL. */
-export type BackPick = { id: string; imageUrl: string };
+/** An image on one side of the shirt: the source image id and its artwork
+ * URL. Named for its first use (the back pick); the swap (#138 slice 3)
+ * reports the front in the same shape. */
+export type BackPick = PlacementPick;
 
 export type BuyPanelHandle = {
   /** Open the back-design picker (fetching its groups on first open). */
@@ -40,6 +43,10 @@ export type BuyPanelHandle = {
  * not yet picked) and the remix action passed in as
  * `startAction`. Tapping Order expands the picker stack in place
  * (product/size/color/back-design/price); buy stays gated on size only.
+ * With a back picked the buyer can swap the two sides (#138 slice 3): the
+ * picked image goes on the front and this page's image on the back. That is
+ * the only front change this page offers (no front picker, §1 of
+ * docs/buy-flow-front-swap-plan.md), and the server enforces the same rule.
  * Signed-out users see the same collapse; the sign-in gate applies at the
  * buy CTA inside the expanded stack, as before. Price is computed
  * client-side at generationCost 0 — the buyer never incurs generation cost —
@@ -48,6 +55,7 @@ export type BuyPanelHandle = {
 export function BuyPanel({
   ref,
   imageId,
+  imageUrl,
   isLoggedIn,
   preferredColor,
   remembered,
@@ -58,6 +66,7 @@ export function BuyPanel({
   onProductChange,
   onColorChange,
   onBackChange,
+  onFrontChange,
 }: {
   /** Imperative handle (#167): lets the hero's add-a-back tile open this
    * panel's picker without lifting the picker state out of the panel. The
@@ -65,6 +74,9 @@ export function BuyPanel({
    * while expanded, so the handle assumes expanded. */
   ref?: Ref<BuyPanelHandle>;
   imageId: string;
+  /** This page's image URL — the Front row's thumbnail, and what the front
+   * reports while not swapped. */
+  imageUrl?: string;
   isLoggedIn: boolean;
   /** The design's pinned backdrop color; pre-selected when this product carries it. */
   preferredColor?: string | null;
@@ -87,9 +99,13 @@ export function BuyPanel({
   onExpandedChange?: (expanded: boolean) => void;
   onProductChange?: (productId: string) => void;
   onColorChange?: (color: string) => void;
-  /** The picked back design, or null (#167: the hero renders a back tile
-   * for it). Same report-only contract as the three above. */
+  /** What is on the back, or null (#167: the hero renders a back tile for
+   * it). After a swap that is this page's image. Same report-only contract
+   * as the three above. */
   onBackChange?: (back: BackPick | null) => void;
+  /** What is on the front (#138 slice 3): this page's image, or the back
+   * pick after a swap. Same report-only contract. */
+  onFrontChange?: (front: BackPick) => void;
 }) {
   // Progressive disclosure (#128): the picker stack stays hidden until the
   // visitor taps Order.
@@ -146,11 +162,28 @@ export function BuyPanel({
   const [back, setBack] = useState<BackPick | null>(null);
   const [backPickerOpen, setBackPickerOpen] = useState(false);
   const [backGroups, setBackGroups] = useState<BackSourceGroup[] | null>(null);
+  // Swap (#138 slice 3): the pick on the front, this page's image on the
+  // back. Only meaningful with a pick; picking or removing one resets it.
+  const [swapped, setSwapped] = useState(false);
+  const sides = buyPagePlacements({
+    page: { id: imageId, imageUrl: imageUrl ?? "" },
+    added: back,
+    swapped,
+  });
+  // Swapping an image with itself (the page image picked as its own back,
+  // via Shop) changes nothing, so it isn't offered.
+  const canSwap = !!back && back.id !== imageId;
 
+  // Keyed on ids: `sides` is rebuilt every render, and an id names one
+  // image, so the report fires exactly when a side's image changes.
   useEffect(() => {
-    onBackChange?.(back);
+    onBackChange?.(sides.back);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [back]);
+  }, [sides.back?.id]);
+  useEffect(() => {
+    onFrontChange?.(sides.front);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sides.front.id]);
 
   function openBackPicker() {
     setBackPickerOpen(true);
@@ -187,9 +220,15 @@ export function BuyPanel({
   // price; a picked back design adds its own +$8 line.
   const sizeForPrice = size ?? sizes[0] ?? "M";
   const frontPrice = computePrice(0, productId, sizeForPrice).total;
+  // A swap moves images between sides; a back exists either way, so it
+  // never moves the price.
   const { shipping, total } = computeOrderTotal(
-    computePrice(0, productId, sizeForPrice, { back: !!back }).total
+    computePrice(0, productId, sizeForPrice, { back: !!sides.back }).total
   );
+  // The front travels only when it isn't this page's image — the common
+  // request stays byte-identical to the pre-swap shape.
+  const frontOverride =
+    sides.front.id !== imageId ? sides.front.id : undefined;
 
   async function handleBuy() {
     if (!size) return;
@@ -200,7 +239,8 @@ export function BuyPanel({
         productId,
         size,
         color,
-        backImageId: back?.id,
+        backImageId: sides.back?.id,
+        ...(frontOverride ? { frontImageId: frontOverride } : {}),
       });
       if (needsAuth) {
         window.location.href = `/sign-in?next=/d/${imageId}`;
@@ -222,12 +262,14 @@ export function BuyPanel({
       await ensureGuestSession();
       await addToCart({
         // Pin the exact image (#146): the server derives the design from it
-        // and rejects anything not published or owned by the buyer.
+        // and rejects anything not published or owned by the buyer. After a
+        // swap it rides on the back and `front` names the pick (#138 slice 3).
         frontImageId: imageId,
         productId,
         size,
         color,
-        ...(back ? { back: back.id } : {}),
+        ...(sides.back ? { back: sides.back.id } : {}),
+        ...(frontOverride ? { front: frontOverride } : {}),
       });
       // Same post-add affordance as /preview: a hard navigation to the cart
       // (not router.push — see preview/page.tsx handleAddToCart).
@@ -340,33 +382,57 @@ export function BuyPanel({
 
       {backEnabled && (
         <div>
-          <p className={`${MONO_LABEL} mb-2`}>Back design</p>
-          {back ? (
-            <div className="flex items-center gap-3">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={back.imageUrl}
-                alt="Back design"
-                className="w-11 h-11 rounded-md border border-border bg-surface-well object-contain"
-              />
-              <div className="flex-1 text-sm">
-                <button
-                  onClick={openBackPicker}
-                  className="text-text-muted underline"
-                >
-                  Change
-                </button>
+          <p className={`${MONO_LABEL} mb-2`}>Front &amp; back</p>
+          {back && sides.back ? (
+            <div className="space-y-2">
+              {/* Front row (#138 slice 3): no Change — this page has no
+                  front picker, only the swap below. The row is what tells
+                  the buyer which image is on the front after a swap. */}
+              <div className="flex items-center gap-3" data-testid="side-row-front">
+                <span className="w-10 text-sm text-text-muted">Front</span>
+                <SideThumb url={sides.front.imageUrl} alt="Front design" />
               </div>
-              <button
-                onClick={() => {
-                  setBack(null);
-                  setBackPickerOpen(false);
-                }}
-                aria-label="Remove back design"
-                className="w-11 h-11 flex items-center justify-center rounded-md border border-border text-text-muted hover:border-border-hover"
-              >
-                ×
-              </button>
+              <div className="flex items-center gap-3" data-testid="side-row-back">
+                <span className="w-10 text-sm text-text-muted">Back</span>
+                <SideThumb url={sides.back.imageUrl} alt="Back design" />
+                {/* Change and × act on the pick. While swapped the back is
+                    this page's image, which neither may replace or remove —
+                    swap back first. */}
+                {!swapped && (
+                  <>
+                    <div className="flex-1 text-sm">
+                      <button
+                        onClick={openBackPicker}
+                        className="min-h-11 text-text-muted underline"
+                      >
+                        Change
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setBack(null);
+                        setSwapped(false);
+                        setBackPickerOpen(false);
+                      }}
+                      aria-label="Remove back design"
+                      className="w-11 h-11 flex items-center justify-center rounded-md border border-border text-text-muted hover:border-border-hover"
+                    >
+                      ×
+                    </button>
+                  </>
+                )}
+              </div>
+              {canSwap && (
+                <button
+                  onClick={() => {
+                    setSwapped((s) => !s);
+                    setBackPickerOpen(false);
+                  }}
+                  className="block min-h-11 text-sm underline text-text-muted hover:text-foreground"
+                >
+                  <span aria-hidden>⇅ </span>Swap front and back
+                </button>
+              )}
             </div>
           ) : (
             !backPickerOpen && (
@@ -406,6 +472,9 @@ export function BuyPanel({
                           key={s.id}
                           onClick={() => {
                             setBack({ id: s.id, imageUrl: s.imageUrl });
+                            // A new pick always starts on the back: the
+                            // picker only ever fills the back.
+                            setSwapped(false);
                             setBackPickerOpen(false);
                           }}
                           className={`aspect-square min-h-11 rounded-md overflow-hidden border-2 bg-surface-well ${
@@ -469,6 +538,18 @@ export function BuyPanel({
       >
         {cta}
       </div>
+    </div>
+  );
+}
+
+/** 44px well holding one side's artwork (#138 slice 3's Front/Back rows). */
+function SideThumb({ url, alt }: { url: string; alt: string }) {
+  return (
+    <div className="w-11 h-11 shrink-0 rounded-md border border-border bg-surface-well overflow-hidden">
+      {url && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={url} alt={alt} className="w-full h-full object-contain" />
+      )}
     </div>
   );
 }
