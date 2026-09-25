@@ -271,3 +271,26 @@ describe("getListingBackMockup authorization (#167)", () => {
     expect(mockupRender.renderAndCacheMockup).not.toHaveBeenCalled();
   });
 });
+
+describe("getListingBackMockup after a swap (#138 slice 3)", () => {
+  it("renders the page image itself on the back", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    h.session = { user: { id: "buyer", isAnonymous: false } };
+
+    // Swapped: the buyer's pick went to the front, so the tile asks for the
+    // listing's own image on the back. It is published, so the guard passes.
+    await getListingBackMockup({
+      imageId: ids.publishedId,
+      backImageId: ids.publishedId,
+      ...PRODUCT,
+    });
+    expect(mockupRender.renderAndCacheMockup).toHaveBeenCalledWith(
+      expect.objectContaining({
+        designId: ids.soldDesignId,
+        placementId: "back",
+        sourceImageId: ids.publishedId,
+      })
+    );
+  });
+});

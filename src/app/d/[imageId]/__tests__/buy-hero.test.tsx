@@ -299,3 +299,87 @@ describe("BuyHero (#167)", () => {
     );
   });
 });
+
+// #138 slice 3: the hero follows the placement pins. After a swap in the
+// panel, the front renders the pick and the back tile renders this page's
+// image — front first, as always.
+describe("BuyHero after a swap (#138 slice 3)", () => {
+  function instantSrc(testId: "side-hero" | "side-tile") {
+    return within(screen.getByTestId(testId))
+      .getByTestId("side-mockup-instant")
+      .querySelector("img")
+      ?.getAttribute("src");
+  }
+
+  it("the front hero shows the pick and the back tile this page's image", async () => {
+    renderHero({ backEnabled: true });
+    expand();
+    await pickBack();
+    await screen.findByTestId("side-tile");
+    expect(instantSrc("side-hero")).toBe("https://img.example/front.png");
+    expect(instantSrc("side-tile")).toBe("https://img.example/back-1.png");
+
+    fireEvent.click(screen.getByRole("button", { name: "Swap front and back" }));
+    expect(screen.getByTestId("side-hero")).toHaveAttribute("data-side", "front");
+    expect(instantSrc("side-hero")).toBe("https://img.example/back-1.png");
+    expect(instantSrc("side-tile")).toBe("https://img.example/front.png");
+  });
+
+  it("re-fetches the front for the pick, then the back for this page's image", async () => {
+    renderHero({ backEnabled: true });
+    expand();
+    await pickBack();
+    await waitFor(() => expect(backMock).toHaveBeenCalledTimes(1));
+
+    const front = deferred<{ mockupUrl: string }>();
+    frontMock.mockReturnValue(front.promise);
+    fireEvent.click(screen.getByRole("button", { name: "Swap front and back" }));
+
+    await waitFor(() =>
+      expect(frontMock).toHaveBeenLastCalledWith({
+        imageId: "img-1",
+        productId: DEFAULT_BLANK_ID,
+        colorName: "Black",
+        frontImageId: "back-1",
+      })
+    );
+    // The back waits for the new front to settle.
+    expect(backMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      front.resolve({ mockupUrl: "https://r2/front-swapped.jpg" });
+    });
+    await waitFor(() => expect(backMock).toHaveBeenCalledTimes(2));
+    expect(backMock).toHaveBeenLastCalledWith({
+      imageId: "img-1",
+      backImageId: "img-1",
+      productId: DEFAULT_BLANK_ID,
+      colorName: "Black",
+    });
+  });
+
+  it("names each side's image in its alt text", async () => {
+    renderHero({ backEnabled: true });
+    expand();
+    await pickBack();
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId("side-tile")).getByTestId("side-mockup-exact")
+      ).toBeInTheDocument()
+    );
+    expect(
+      screen.getByAltText(/^This design on a Black/)
+    ).toBeInTheDocument();
+    expect(screen.getByAltText(/^Back design on a Black/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Swap front and back" }));
+    await waitFor(() => expect(backMock).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId("side-tile")).getByTestId("side-mockup-exact")
+      ).toBeInTheDocument()
+    );
+    expect(screen.getByAltText(/^Front design on a Black/)).toBeInTheDocument();
+    expect(screen.getByAltText(/^This design on a Black/)).toBeInTheDocument();
+  });
+});

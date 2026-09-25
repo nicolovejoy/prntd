@@ -23,6 +23,7 @@ import { createTestDb } from "@/lib/__tests__/test-db";
 import * as schema from "@/lib/db/schema";
 import { makeUser, makeDesign, makeSourceImage } from "@/lib/__tests__/factories";
 import { BACK_PLACEMENT_UPCHARGE, computePrice } from "@/lib/pricing";
+import { getBlankOrThrow } from "@/lib/blanks";
 
 const h = vi.hoisted(() => ({
   db: null as unknown,
@@ -71,6 +72,22 @@ import { addToCart } from "@/app/cart/actions";
 type Db = Awaited<ReturnType<typeof createTestDb>>;
 
 const OPTS = { productId: "bella-canvas-3001", size: "M", color: "Black" };
+
+/**
+ * Run `fn` with the Classic Tee's back print area removed — the shape of a
+ * blank that can't print a back. Mutates the catalog singleton and always
+ * restores it, so no other test sees the change.
+ */
+async function withoutBackPlacement(fn: () => Promise<void>) {
+  const blank = getBlankOrThrow(OPTS.productId);
+  const saved = blank.placements;
+  blank.placements = saved.filter((p) => p.id !== "back");
+  try {
+    await fn();
+  } finally {
+    blank.placements = saved;
+  }
+}
 
 async function seed(db: Db) {
   await makeUser(db, "nico");
@@ -286,5 +303,34 @@ describe("addToCart front pin on the designId path (#138)", () => {
       addToCart({ designId: ids.designId, front: ids.privateId, ...OPTS })
     ).rejects.toThrow("Front image is not available");
     expect(await db.query.cartItem.findMany()).toHaveLength(0);
+  });
+});
+
+// /preview keeps a picked back across a garment switch, so Order can arrive
+// with a back on a blank that has no back print area. Checkout must refuse it
+// rather than charge +$8 for a placement fulfillment would drop — the same
+// check buyPublishedDesign and addToCart make.
+describe("createCheckoutSession back print area", () => {
+  it("refuses a back on a blank with no back print area and books nothing", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+
+    await withoutBackPlacement(async () => {
+      await expect(
+        createCheckoutSession({
+          designId: ids.designId,
+          back: ids.siblingId,
+          ...OPTS,
+        })
+      ).rejects.toThrow("This product has no back print area");
+      expect(await db.query.order.findMany()).toHaveLength(0);
+      expect(await orderLines(db)).toHaveLength(0);
+      expect(h.sessionParams).toHaveLength(0);
+
+      // Front-only on the same blank is unaffected.
+      await createCheckoutSession({ designId: ids.designId, ...OPTS });
+    });
+    const [line] = await orderLines(db);
+    expect(line.placements).toEqual({ front: ids.primaryId });
   });
 });

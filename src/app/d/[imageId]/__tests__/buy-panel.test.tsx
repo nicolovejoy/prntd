@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { createRef } from "react";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { render, screen, fireEvent, act, within } from "@testing-library/react";
 import { getBlankOrThrow } from "@/lib/blanks";
 import { BuyPanel, type BuyPanelHandle } from "../buy-panel";
 
@@ -28,6 +28,7 @@ vi.mock("@/app/cart/actions", () => ({
 
 import { buyPublishedDesign } from "../../actions";
 import { addToCart } from "@/app/cart/actions";
+import { ADD_TO_CART_FAILED, CHECKOUT_FAILED } from "@/lib/action-copy";
 
 /** The panel starts collapsed (#128); most tests exercise the expanded stack. */
 function expand() {
@@ -363,7 +364,310 @@ describe("BuyPanel Paper pass (#188)", () => {
     render(<BuyPanel imageId="img-1" isLoggedIn backEnabled />);
     expand();
     expect(screen.getByText("Product")).toBeInTheDocument();
-    expect(screen.getByText("Back design")).toBeInTheDocument();
+    // The back section became "Front & back" when it gained the Front row
+    // and the swap (#138 slice 3).
+    expect(screen.getByText("Front & back")).toBeInTheDocument();
     expect(screen.getByText("Price")).toBeInTheDocument();
+  });
+});
+
+// #138 slice 3: with a back picked the buyer can swap the two sides — the
+// pick onto the front, this page's image onto the back. No front picker.
+describe("BuyPanel swap (#138 slice 3)", () => {
+  const PAGE_URL = "https://img.example/page.png";
+
+  function renderPanel(extra: Partial<Parameters<typeof BuyPanel>[0]> = {}) {
+    return render(
+      <BuyPanel
+        imageId="img-1"
+        imageUrl={PAGE_URL}
+        isLoggedIn
+        backEnabled
+        cartEnabled
+        {...extra}
+      />
+    );
+  }
+
+  async function pickBack() {
+    fireEvent.click(screen.getByText(/Add a back design/));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "My designs option" })
+    );
+  }
+
+  function rowImage(side: "front" | "back") {
+    return screen
+      .getByTestId(`side-row-${side}`)
+      .querySelector("img")
+      ?.getAttribute("src");
+  }
+
+  function swapButton() {
+    return screen.queryByRole("button", { name: "Swap front and back" });
+  }
+
+  it("offers no swap and no Front row until a back is picked", () => {
+    renderPanel();
+    expand();
+    expect(swapButton()).not.toBeInTheDocument();
+    expect(screen.queryByTestId("side-row-front")).not.toBeInTheDocument();
+    // And no front picker anywhere on this page.
+    expect(screen.queryByText(/print on the front/)).not.toBeInTheDocument();
+  });
+
+  it("with a back picked: Front row shows this page's image, Back row the pick", async () => {
+    renderPanel();
+    expand();
+    await pickBack();
+    expect(rowImage("front")).toBe(PAGE_URL);
+    expect(rowImage("back")).toBe("https://img.example/back-1.png");
+    expect(swapButton()).toBeInTheDocument();
+    // The Front row has no controls of its own.
+    const frontRow = screen.getByTestId("side-row-front");
+    expect(frontRow.querySelector("button")).toBeNull();
+  });
+
+  it("Swap exchanges the rows; × follows the pick, Change stays off the front", async () => {
+    renderPanel();
+    expand();
+    await pickBack();
+
+    fireEvent.click(swapButton()!);
+    expect(rowImage("front")).toBe("https://img.example/back-1.png");
+    expect(rowImage("back")).toBe(PAGE_URL);
+    // No Change anywhere while swapped — on the front it would be a front
+    // picker. The × moved with the pick to the Front row.
+    expect(screen.queryByRole("button", { name: "Change" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Remove back design" })
+    ).not.toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("side-row-front")).getByRole("button", {
+        name: "Remove front design",
+      })
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("side-row-back")).queryByRole("button")
+    ).toBeNull();
+
+    fireEvent.click(swapButton()!);
+    expect(rowImage("front")).toBe(PAGE_URL);
+    expect(rowImage("back")).toBe("https://img.example/back-1.png");
+    expect(screen.getByRole("button", { name: "Change" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Remove back design" })
+    ).toBeInTheDocument();
+  });
+
+  it("Swap is a toggle button: aria-pressed says which way round the shirt is", async () => {
+    renderPanel();
+    expand();
+    await pickBack();
+    expect(swapButton()).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(swapButton()!);
+    expect(swapButton()).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(swapButton()!);
+    expect(swapButton()).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("removing the pick while swapped leaves this page's image alone on the front", async () => {
+    const onFrontChange = vi.fn();
+    const onBackChange = vi.fn();
+    renderPanel({ onFrontChange, onBackChange });
+    expand();
+    await pickBack();
+    fireEvent.click(swapButton()!);
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove front design" }));
+    expect(screen.queryByTestId("side-row-front")).not.toBeInTheDocument();
+    expect(swapButton()).not.toBeInTheDocument();
+    expect(onFrontChange).toHaveBeenLastCalledWith({ id: "img-1", imageUrl: PAGE_URL });
+    expect(onBackChange).toHaveBeenLastCalledWith(null);
+
+    fireEvent.click(screen.getByRole("button", { name: "M" }));
+    // $19.43 + $4.69 — the back upcharge went with the back.
+    expect(
+      screen.getAllByRole("button", { name: "Order — $24.12" }).length
+    ).toBeGreaterThan(0);
+    vi.mocked(buyPublishedDesign).mockClear();
+    fireEvent.click(buyButton());
+    const call = vi.mocked(buyPublishedDesign).mock.calls[0][0];
+    expect(call.backImageId).toBeUndefined();
+    expect(call).not.toHaveProperty("frontImageId");
+  });
+
+  it("a swap never moves the price", async () => {
+    renderPanel();
+    expand();
+    await pickBack();
+    fireEvent.click(screen.getByRole("button", { name: "M" }));
+    // $19.43 front + $8.00 back + $4.69 shipping, before and after.
+    expect(
+      screen.getAllByRole("button", { name: "Order — $32.12" }).length
+    ).toBeGreaterThan(0);
+    fireEvent.click(swapButton()!);
+    expect(
+      screen.getAllByRole("button", { name: "Order — $32.12" }).length
+    ).toBeGreaterThan(0);
+    expect(screen.getByText("+$8.00")).toBeInTheDocument();
+  });
+
+  it("buy sends the swapped front and this page's image as the back", async () => {
+    renderPanel();
+    expand();
+    await pickBack();
+    fireEvent.click(swapButton()!);
+    fireEvent.click(screen.getByRole("button", { name: "M" }));
+    vi.mocked(buyPublishedDesign).mockClear();
+    fireEvent.click(buyButton());
+    expect(buyPublishedDesign).toHaveBeenCalledWith(
+      expect.objectContaining({
+        imageId: "img-1",
+        frontImageId: "back-1",
+        backImageId: "img-1",
+      })
+    );
+  });
+
+  it("unswapped, buy sends no frontImageId at all", async () => {
+    renderPanel();
+    expand();
+    await pickBack();
+    fireEvent.click(screen.getByRole("button", { name: "M" }));
+    vi.mocked(buyPublishedDesign).mockClear();
+    fireEvent.click(buyButton());
+    const call = vi.mocked(buyPublishedDesign).mock.calls[0][0];
+    expect(call).toMatchObject({ imageId: "img-1", backImageId: "back-1" });
+    expect(call).not.toHaveProperty("frontImageId");
+  });
+
+  it("add to cart sends the swap as front + back on the frontImageId entry", async () => {
+    renderPanel();
+    expand();
+    await pickBack();
+    fireEvent.click(swapButton()!);
+    fireEvent.click(screen.getByRole("button", { name: "M" }));
+    vi.mocked(addToCart).mockClear();
+    fireEvent.click(screen.getAllByTestId("add-to-cart")[0]);
+    await vi.waitFor(() => expect(addToCart).toHaveBeenCalled());
+    expect(addToCart).toHaveBeenCalledWith(
+      expect.objectContaining({
+        frontImageId: "img-1",
+        front: "back-1",
+        back: "img-1",
+      })
+    );
+  });
+
+  it("removing the back after swapping back resets to this page's image alone", async () => {
+    renderPanel();
+    expand();
+    await pickBack();
+    fireEvent.click(swapButton()!);
+    fireEvent.click(swapButton()!);
+    fireEvent.click(screen.getByRole("button", { name: "Remove back design" }));
+    expect(swapButton()).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "M" }));
+    vi.mocked(buyPublishedDesign).mockClear();
+    fireEvent.click(buyButton());
+    const call = vi.mocked(buyPublishedDesign).mock.calls[0][0];
+    expect(call.backImageId).toBeUndefined();
+    expect(call).not.toHaveProperty("frontImageId");
+  });
+
+  it("no swap is offered when the pick is this page's own image", async () => {
+    const { getBuyPageBackSources } = await import("../../actions");
+    vi.mocked(getBuyPageBackSources).mockResolvedValueOnce({
+      groups: [
+        {
+          id: "shop",
+          label: "Shop",
+          images: [{ id: "img-1", imageUrl: PAGE_URL }],
+        },
+      ],
+    });
+    renderPanel();
+    expand();
+    fireEvent.click(screen.getByText(/Add a back design/));
+    fireEvent.click(await screen.findByRole("button", { name: "Shop option" }));
+    expect(rowImage("back")).toBe(PAGE_URL);
+    expect(swapButton()).not.toBeInTheDocument();
+  });
+
+  it("reports both sides: onFrontChange and onBackChange follow the swap", async () => {
+    const onFrontChange = vi.fn();
+    const onBackChange = vi.fn();
+    renderPanel({ onFrontChange, onBackChange });
+    expect(onFrontChange).toHaveBeenLastCalledWith({
+      id: "img-1",
+      imageUrl: PAGE_URL,
+    });
+    expand();
+    await pickBack();
+    fireEvent.click(swapButton()!);
+    expect(onFrontChange).toHaveBeenLastCalledWith({
+      id: "back-1",
+      imageUrl: "https://img.example/back-1.png",
+    });
+    expect(onBackChange).toHaveBeenLastCalledWith({
+      id: "img-1",
+      imageUrl: PAGE_URL,
+    });
+  });
+});
+
+// Order and Add to cart used to swallow a failure: the button came back and
+// nothing said why. Now a line of our own copy appears under the CTAs (the
+// thrown message is a Next.js digest in production).
+describe("BuyPanel failure notices", () => {
+  it("a failed Order shows the checkout notice and re-enables the button", async () => {
+    vi.mocked(buyPublishedDesign).mockRejectedValueOnce(new Error("digest"));
+    render(<BuyPanel imageId="img-1" isLoggedIn />);
+    expand();
+    fireEvent.click(screen.getByRole("button", { name: "M" }));
+    fireEvent.click(buyButton());
+    const notices = await screen.findAllByText(CHECKOUT_FAILED);
+    expect(notices.length).toBeGreaterThan(0);
+    // The failure may be a refusal that repeats on every retry, so the copy
+    // states what happened and promises nothing.
+    expect(notices[0]).toHaveTextContent(
+      /^Couldn't start checkout\. Nothing was charged\.$/
+    );
+    expect(buyButton()).toBeEnabled();
+  });
+
+  it("a failed Add to cart shows the cart notice", async () => {
+    vi.mocked(addToCart).mockRejectedValueOnce(new Error("digest"));
+    render(<BuyPanel imageId="img-1" isLoggedIn cartEnabled />);
+    expand();
+    fireEvent.click(screen.getByRole("button", { name: "M" }));
+    fireEvent.click(screen.getAllByTestId("add-to-cart")[0]);
+    const notices = await screen.findAllByText(ADD_TO_CART_FAILED);
+    expect(notices.length).toBeGreaterThan(0);
+    expect(notices[0]).toHaveTextContent(/^Couldn't add this to your cart\.$/);
+    expect(screen.getAllByTestId("add-to-cart")[0]).toBeEnabled();
+  });
+
+  it("signed-out: a failed Add to cart shows the notice too", async () => {
+    vi.mocked(addToCart).mockRejectedValueOnce(new Error("digest"));
+    render(<BuyPanel imageId="img-1" isLoggedIn={false} cartEnabled />);
+    expand();
+    fireEvent.click(screen.getByRole("button", { name: "M" }));
+    fireEvent.click(screen.getAllByTestId("add-to-cart")[0]);
+    expect((await screen.findAllByText(ADD_TO_CART_FAILED)).length).toBeGreaterThan(0);
+  });
+
+  it("the notice clears on the next attempt", async () => {
+    vi.mocked(buyPublishedDesign)
+      .mockRejectedValueOnce(new Error("digest"))
+      .mockImplementationOnce(() => new Promise(() => {}));
+    render(<BuyPanel imageId="img-1" isLoggedIn />);
+    expand();
+    fireEvent.click(screen.getByRole("button", { name: "M" }));
+    fireEvent.click(buyButton());
+    await screen.findAllByText(CHECKOUT_FAILED);
+    fireEvent.click(buyButton());
+    expect(screen.queryByText(CHECKOUT_FAILED)).not.toBeInTheDocument();
   });
 });

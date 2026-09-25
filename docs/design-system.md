@@ -836,11 +836,18 @@ and manage the conversation it came from (#136 slice 1).
    `BuyHero` swaps in the shirt as an object (#135 slice 1, #167, #198) — a
    layered front hero (instant artwork-on-color, Printful mockup crossfaded
    in) and, once a back is picked, a smaller back tile; tapping the tile
-   swaps which side is large.
+   swaps which side is large. The two panels follow the placement pins, so
+   after a Swap (below) the front shows the buyer's pick and the tile shows
+   this page's image (#138 slice 3).
 2. **BuyPanel** (`app/d/[imageId]/buy-panel.tsx`) — collapsed: one outlined
    **Order** primary (`data-testid="order-expand"`, no price — the total
    depends on options not yet picked), beside the remix action. Expanded:
-   product / SizePicker / ColorPicker / back-design picker, Add to cart
+   product / SizePicker / ColorPicker / a mono `Front & back` section (the
+   "Add a back design (+$8.00)" link; once a back is picked, Front and Back
+   rows with 44px thumbnails, Change and × on the pick, and "⇅ Swap
+   front and back" — no front picker on this page, only the swap, #138
+   slice 3; while swapped Change hides and × moves to the Front row with
+   the pick), Add to cart
    (flag `CART_ENABLED`), and the total once size is picked (**Order —
    $X.XX**); signed-out sees "Sign in to buy" with `?next=` instead. An
    unpublished (owner-private) image has no BuyPanel — Order links out to

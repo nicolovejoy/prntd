@@ -43,6 +43,7 @@ export async function POST(request: NextRequest) {
             displayName: orderTable.displayName,
             designId: orderTable.designId,
             mockupUrls: designTable.mockupUrls,
+            primaryImageId: designTable.primaryImageId,
           })
           .from(orderTable)
           .innerJoin(userTable, eq(orderTable.userId, userTable.id))
@@ -66,6 +67,7 @@ export async function POST(request: NextRequest) {
                 designId: first.designId,
                 placements: first.placements,
                 mockupUrls: orderWithUser.mockupUrls ?? null,
+                primaryImageId: orderWithUser.primaryImageId ?? null,
               })
             : [];
           await sendShippingNotification({

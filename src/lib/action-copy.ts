@@ -68,6 +68,11 @@ export const SET_PRIMARY_IMAGE_FAILED = "Couldn't make this the design's image. 
 export const EMPTY_TITLE_REJECTED = "A title can't be blank. Type a title or cancel.";
 export const TITLE_TOO_LONG = "A title can't be longer than 80 characters.";
 export const SAVE_TITLE_FAILED = "Couldn't save this title. Try again.";
+// No "Try again" on these two: the same failure can be a refusal (a back on a
+// garment with no back print area, a pick hidden since it was chosen) that
+// fails identically on every retry — the DELETE_IMAGE_ERROR lesson.
+export const CHECKOUT_FAILED = "Couldn't start checkout. Nothing was charged.";
+export const ADD_TO_CART_FAILED = "Couldn't add this to your cart.";
 
 // --- admin (InlineNotice: one line, plus the raw error as a hint) ---
 

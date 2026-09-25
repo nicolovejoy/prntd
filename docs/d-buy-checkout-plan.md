@@ -204,7 +204,11 @@ client navigation after the session is created:
      (`getListingMockup` result is already warm from the `/d` hero; the
      design-your-own flow reuses `/preview`'s cache the same way), falling
      back to the instant artwork-on-color layer when no mockup has
-     resolved yet — never a blank box. Below it, the line summary: product,
+     resolved yet — never a blank box. After a #138 slice 3 swap the
+     order's front is `placements.front` (the buyer's pick), not the page
+     image: read the sides from the order line and call
+     `getListingMockup({ …, frontImageId })` / `getListingBackMockup`
+     with them, as `buy-hero.tsx` does. Below it, the line summary: product,
      color/size, back-design line if any, shipping, total. Data via
      `resolveOrderLines` on the just-created order.
    - **Payment form**: `<EmbeddedCheckout>` mounted with the client secret.
