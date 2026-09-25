@@ -116,6 +116,47 @@ describe("StudioClient hydration", () => {
     expect(container.textContent).not.toContain("0:25");
     expect(container.textContent).not.toContain("just now");
   });
+
+  it("hydrates a lane older than 30 days without a time-zone mismatch", async () => {
+    // Vercel renders in UTC; the browser hydrates in the viewer's zone.
+    // 03:00 UTC on Aug 11 is Aug 10 in Pacific time.
+    const lastActiveAt = new Date("2026-08-11T03:00:00.000Z");
+    const serverNow = lastActiveAt.getTime() + 45 * 24 * 60 * 60 * 1000;
+    const element = (
+      <StudioClient
+        initialLanes={[
+          {
+            designId: "design-old",
+            title: "a returning lane",
+            lastActiveAt,
+            cells: [],
+            pending: [],
+          },
+        ]}
+        initialNowMs={serverNow}
+      />
+    );
+
+    const original = process.env.TZ;
+    try {
+      const now = vi.spyOn(Date, "now").mockReturnValue(serverNow);
+      process.env.TZ = "UTC";
+      container.innerHTML = renderToString(element);
+      process.env.TZ = "America/Los_Angeles";
+      now.mockReturnValue(serverNow + 1_500);
+      await act(async () => {
+        root = hydrateRoot(container, element, {
+          onRecoverableError: (error) => recoverable.push(error),
+        });
+      });
+    } finally {
+      if (original === undefined) delete process.env.TZ;
+      else process.env.TZ = original;
+    }
+
+    expect(recoverable).toEqual([]);
+    expect(container.textContent).toContain("8/10/2026");
+  });
 });
 
 describe("Studio page wiring", () => {
