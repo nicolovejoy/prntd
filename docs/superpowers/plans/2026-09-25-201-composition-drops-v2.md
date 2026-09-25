@@ -375,8 +375,11 @@ up to 3 days); once the deploy is Ready the redelivery succeeds. To speed it
 up: https://dashboard.stripe.com/webhooks → the prntd.org endpoint → the
 failed `checkout.session.completed` event → Resend. Printful webhooks retry
 the same way. A guest whose sign-up failed in the window keeps their designs
-on the anonymous user; they can simply sign up again, or move the rows with
-the dry-run-first script (from main, after the merge):
+on the anonymous user. Their account row was already created before the
+hook failed, so signing up again returns "user already exists": they should
+sign in from the same window, which re-runs the re-parenting. If their guest
+cookie is gone, move the rows with the dry-run-first script (from main, after
+the merge):
 ```
 DATABASE_URL=libsql://prntd-nicolovejoy.aws-us-west-2.turso.io DATABASE_AUTH_TOKEN=$(turso db tokens create prntd) npx tsx scripts/reparent-user.ts <anonUserId> <their-email>
 ```
