@@ -16,8 +16,8 @@ import {
 type Search = Promise<Record<string, string | string[] | undefined>>;
 
 /**
- * The order row (and its stripeSessionId) is written before the customer is
- * redirected to Stripe, so by the time Stripe sends them back here the row
+ * The order row (and its stripeSessionId) is written before the Stripe
+ * session is created, so by the time Stripe sends them back here the row
  * already exists — there is no race with the webhook to guard against, and
  * this page never renders a field the webhook writes (ruling P3). That is
  * what lets this be a plain awaited server read with no retry/poll island.

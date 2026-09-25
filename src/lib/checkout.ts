@@ -22,8 +22,10 @@ export const CHECKOUT_SESSION_TTL_SECONDS = 2 * 60 * 60;
  * Both the design-your-own flow (`createCheckoutSession`) and the
  * buy-existing flow (`buyPublishedDesign`) build their session through
  * here so the line-item shape, metadata, and URLs can't drift apart.
- * The only per-flow difference is `cancelUrl` — where the customer lands
- * if they back out.
+ * Two things vary per flow/mode: `cancelUrl` — where the customer lands
+ * if they back out — and `uiMode`, which switches between Stripe's hosted
+ * page and our own embedded `/checkout` page (#135 slice 2); `cancelUrl`
+ * is ignored when `uiMode` is `"embedded"` (see that param's docblock).
  */
 export function buildCheckoutSessionParams(params: {
   orderId: string;

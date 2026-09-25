@@ -3,6 +3,7 @@ import {
   resolveEmbeddedCheckoutConfig,
   safeCheckoutReturnPath,
   embeddedCheckoutPath,
+  resolveReturnOrigin,
 } from "../embedded-checkout";
 
 const validPkTest = "pk_test_abc123";
@@ -143,5 +144,79 @@ describe("embeddedCheckoutPath", () => {
     expect(embeddedCheckoutPath("cs test&x", "/shop")).toBe(
       "/checkout?session=cs%20test%26x&from=%2Fshop"
     );
+  });
+});
+
+const APP_URL = "https://prntd.org";
+
+describe("resolveReturnOrigin", () => {
+  it("falls back to appUrl's origin when there's no Origin header", () => {
+    expect(resolveReturnOrigin(null, APP_URL)).toBe("https://prntd.org");
+  });
+
+  it("falls back to appUrl's origin when the header doesn't parse as a URL", () => {
+    expect(resolveReturnOrigin("not a url", APP_URL)).toBe(
+      "https://prntd.org"
+    );
+  });
+
+  it("trusts an origin identical to appUrl's", () => {
+    expect(resolveReturnOrigin("https://prntd.org", APP_URL)).toBe(
+      "https://prntd.org"
+    );
+  });
+
+  it("trusts any *.vercel.app host over https", () => {
+    expect(
+      resolveReturnOrigin("https://prntd-git-x.vercel.app", APP_URL)
+    ).toBe("https://prntd-git-x.vercel.app");
+  });
+
+  it("trusts the bare prntd.org host over https", () => {
+    expect(resolveReturnOrigin("https://prntd.org", "https://other.example")).toBe(
+      "https://prntd.org"
+    );
+  });
+
+  it("trusts any *.prntd.org subdomain over https", () => {
+    expect(resolveReturnOrigin("https://staging.prntd.org", APP_URL)).toBe(
+      "https://staging.prntd.org"
+    );
+  });
+
+  it("trusts localhost over http on any port", () => {
+    expect(resolveReturnOrigin("http://localhost:3100", APP_URL)).toBe(
+      "http://localhost:3100"
+    );
+  });
+
+  it("trusts 127.0.0.1 over http on any port", () => {
+    expect(resolveReturnOrigin("http://127.0.0.1:4000", APP_URL)).toBe(
+      "http://127.0.0.1:4000"
+    );
+  });
+
+  it("does not trust vercel.app over plain http", () => {
+    expect(resolveReturnOrigin("http://prntd-git-x.vercel.app", APP_URL)).toBe(
+      "https://prntd.org"
+    );
+  });
+
+  it("falls back to appUrl's origin for an untrusted host", () => {
+    expect(resolveReturnOrigin("https://evil.example", APP_URL)).toBe(
+      "https://prntd.org"
+    );
+  });
+
+  it("falls back to appUrl's origin for a non-http(s) scheme", () => {
+    expect(resolveReturnOrigin("javascript:alert(1)", APP_URL)).toBe(
+      "https://prntd.org"
+    );
+  });
+
+  it("returns a bare origin with no path even when the header carries one", () => {
+    expect(
+      resolveReturnOrigin("https://prntd-git-x.vercel.app/some/path", APP_URL)
+    ).toBe("https://prntd-git-x.vercel.app");
   });
 });

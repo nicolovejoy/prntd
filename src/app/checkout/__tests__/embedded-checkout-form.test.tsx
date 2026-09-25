@@ -171,6 +171,44 @@ describe("EmbeddedCheckoutForm", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("clears the stall notice once an iframe appears after the timeout fired", async () => {
+    vi.useFakeTimers();
+    h.loadStripe.mockResolvedValue({ fakeStripeInstance: true });
+
+    const { container } = render(
+      <EmbeddedCheckoutForm
+        publishableKey="pk_test_stall_4"
+        clientSecret="cs_secret_stall_4"
+      />
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(FORM_MOUNT_TIMEOUT_MS);
+    });
+
+    expect(
+      screen.getByText("The payment form is taking a while.")
+    ).toBeInTheDocument();
+
+    const formContainer = container.querySelector(
+      '[data-testid="embedded-checkout"]'
+    );
+    await act(async () => {
+      formContainer?.appendChild(document.createElement("iframe"));
+      // Flush the MutationObserver callback, which fires as a microtask.
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      screen.queryByText("The payment form is taking a while.")
+    ).not.toBeInTheDocument();
+  });
+
   it("clears the mount-stall timer on unmount without a state update warning", async () => {
     vi.useFakeTimers();
     h.loadStripe.mockResolvedValue({ fakeStripeInstance: true });

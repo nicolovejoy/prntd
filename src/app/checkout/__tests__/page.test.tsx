@@ -77,6 +77,27 @@ describe("CheckoutPage", () => {
     expect(h.loadEmbeddedCheckout).not.toHaveBeenCalled();
   });
 
+  it("awaits searchParams before checking the flag, so the page is dynamic even on the flag-off branch", async () => {
+    vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", "false");
+    let thenCalled = false;
+    // A thenable, not a real Promise.resolve() — records whether `.then` was
+    // actually invoked (i.e. searchParams was awaited) before notFound fires.
+    // If the flag check ran first, this callback would never run.
+    const searchParams = {
+      then(
+        resolve: (value: Record<string, string | string[] | undefined>) => void
+      ) {
+        thenCalled = true;
+        resolve({ session: VALID_SESSION });
+      },
+    } as unknown as Promise<Record<string, string | string[] | undefined>>;
+
+    await expect(
+      CheckoutPage({ searchParams })
+    ).rejects.toThrow("NEXT_NOT_FOUND");
+    expect(thenCalled).toBe(true);
+  });
+
   it("404s on a malformed session param", async () => {
     await expect(
       renderCheckout({ session: "not-a-real-session-id" })

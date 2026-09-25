@@ -45,8 +45,8 @@ export type ConfirmView =
   | { kind: "expired" };
 
 /**
- * Pure. Only a `pending` order with an `open` Stripe session is anything
- * other than "confirmed" — a paid/submitted/shipped/etc. order, a Stripe read
+ * Pure. Only a `pending` order with an `open` or `expired` Stripe session is
+ * anything other than "confirmed" — a paid/submitted/shipped/etc. order, a Stripe read
  * that failed, or a `complete` session all render the normal receipt (the
  * failure case matches today's behaviour: we don't know the session's state,
  * so we don't tell the buyer anything alarming was charged or not charged).

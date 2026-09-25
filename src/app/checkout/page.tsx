@@ -34,9 +34,16 @@ export default async function CheckoutPage({
 }: {
   searchParams: Search;
 }) {
-  if (!embeddedCheckoutFlag()) notFound();
-
+  // Await searchParams BEFORE the flag check. Reading searchParams is the
+  // request-time API that opts this page out of static prerendering (see
+  // node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/page.md).
+  // If the flag check ran first, `next build` with the flag off would never
+  // reach this await, and Next would prerender a static 404 for /checkout —
+  // one a later runtime flag flip (or `next start` after a flag-off build)
+  // could never un-404, since a static page ignores request-time env reads.
   const params = await searchParams;
+
+  if (!embeddedCheckoutFlag()) notFound();
   const rawSession = params.session;
   const sessionId = typeof rawSession === "string" ? rawSession : null;
   if (!sessionId || !SESSION_ID_RE.test(sessionId)) notFound();

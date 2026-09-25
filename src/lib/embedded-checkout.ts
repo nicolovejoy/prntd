@@ -96,3 +96,52 @@ export function embeddedCheckoutPath(sessionId: string, backPath: string): strin
   const safeBack = safeCheckoutReturnPath(backPath);
   return `/checkout?session=${encodeURIComponent(sessionId)}&from=${encodeURIComponent(safeBack)}`;
 }
+
+/**
+ * The origin an embedded checkout session's `return_url` should point at.
+ * Hosted checkout always uses `NEXT_PUBLIC_APP_URL` (prod's URL in every
+ * Vercel scope) because the buyer leaves our origin for Stripe's page, so it
+ * doesn't matter which deployment built the link. Embedded checkout keeps
+ * the buyer on our own `/checkout` page the whole time, so a session created
+ * on a preview deployment must return to that same preview — otherwise a
+ * test-key phone check on a preview pays there and then gets sent to prod's
+ * `/order/confirm`, where the preview's order doesn't exist.
+ *
+ * Trusts the same hosts `src/lib/auth.ts`'s `trustedOrigins` does (any
+ * `*.vercel.app` host over https, any `prntd.org`/`*.prntd.org` host over
+ * https) plus localhost/127.0.0.1 on any port, so an attacker-controlled
+ * `Origin` header can't steer a real buyer's return trip off PRNTD
+ * infrastructure. Anything else — missing, malformed, a different host, a
+ * non-http(s) scheme like `javascript:` — falls back to `appUrl`'s origin.
+ * Always returns a bare origin (no path, no trailing slash).
+ */
+export function resolveReturnOrigin(
+  originHeader: string | null,
+  appUrl: string
+): string {
+  const fallback = new URL(appUrl).origin;
+  if (!originHeader) return fallback;
+
+  let origin: URL;
+  try {
+    origin = new URL(originHeader);
+  } catch {
+    return fallback;
+  }
+
+  if (origin.origin === fallback) return origin.origin;
+
+  const host = origin.hostname;
+  if (origin.protocol === "https:") {
+    if (host.endsWith(".vercel.app")) return origin.origin;
+    if (host === "prntd.org" || host.endsWith(".prntd.org")) return origin.origin;
+  }
+  if (
+    (origin.protocol === "http:" || origin.protocol === "https:") &&
+    (host === "localhost" || host === "127.0.0.1")
+  ) {
+    return origin.origin;
+  }
+
+  return fallback;
+}

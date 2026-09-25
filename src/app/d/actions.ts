@@ -23,7 +23,7 @@ import {
 import { computePrice } from "@/lib/pricing";
 import { DEFAULT_BLANK_ID, multiPlacementEnabled } from "@/lib/blanks";
 import { createStripeCheckoutForOrder } from "@/app/order/actions";
-import { embeddedCheckoutConfig } from "@/lib/embedded-checkout";
+import { embeddedCheckoutConfig, resolveReturnOrigin } from "@/lib/embedded-checkout";
 import { embeddedCheckoutFlag } from "@/lib/flags";
 import { renderAndCacheMockup } from "@/lib/mockup-render";
 import { getPublishedFeed } from "@/lib/discover-feed";
@@ -538,7 +538,15 @@ export async function buyPublishedDesign(params: {
     cancelUrl: `${process.env.NEXT_PUBLIC_APP_URL}/d/${params.imageId}`,
     storeProductId,
     ...(embedded.enabled
-      ? { embedded: { backPath: `/d/${params.imageId}` } }
+      ? {
+          embedded: {
+            backPath: `/d/${params.imageId}`,
+            returnOrigin: resolveReturnOrigin(
+              (await headers()).get("origin"),
+              process.env.NEXT_PUBLIC_APP_URL!
+            ),
+          },
+        }
       : {}),
   });
 }

@@ -24,6 +24,8 @@ const h = vi.hoisted(() => ({
   session: null as unknown,
   sessionParams: [] as Stripe.Checkout.SessionCreateParams[],
   rowsAtCreateTime: [] as { orders: unknown[]; items: unknown[] }[],
+  /** Simulated `Origin` request header, read by resolveReturnOrigin (F6). */
+  originHeader: null as string | null,
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -38,7 +40,10 @@ vi.mock("@/lib/auth", () => ({
     Boolean(u?.isAnonymous),
 }));
 
-vi.mock("next/headers", () => ({ headers: async () => new Headers() }));
+vi.mock("next/headers", () => ({
+  headers: async () =>
+    new Headers(h.originHeader ? { origin: h.originHeader } : {}),
+}));
 
 vi.mock("@/lib/stripe", () => ({
   stripe: {
@@ -128,6 +133,7 @@ beforeEach(async () => {
   h.session = { user: { id: "buyer", isAnonymous: false } };
   h.sessionParams = [];
   h.rowsAtCreateTime = [];
+  h.originHeader = null;
   vi.stubEnv("MULTI_PLACEMENT_ENABLED", "false");
   vi.stubEnv("NEXT_PUBLIC_APP_URL", "http://localhost:3000");
   vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", undefined);
@@ -269,6 +275,58 @@ describe("buyPublishedDesign embedded-checkout gating (#135)", () => {
     expect(errSpy).toHaveBeenCalledWith(
       expect.stringContaining("mode-mismatch")
     );
+  });
+
+  it("flag on: return_url follows the request's Origin when it's a trusted preview host (F6)", async () => {
+    vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", "true");
+    vi.stubEnv("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", "pk_test_abc123");
+    vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_abc123");
+    h.originHeader = "https://prntd-git-x.vercel.app";
+    const db = h.db as Db;
+    const ids = await seed(db);
+
+    await buyPublishedDesign({ imageId: ids.listingId, ...OPTS });
+
+    const [params] = h.sessionParams;
+    expect(params.return_url).toBe(
+      "https://prntd-git-x.vercel.app/order/confirm?session_id={CHECKOUT_SESSION_ID}"
+    );
+  });
+
+  it("flag on: return_url falls back to NEXT_PUBLIC_APP_URL when the Origin isn't trusted (F6)", async () => {
+    vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", "true");
+    vi.stubEnv("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", "pk_test_abc123");
+    vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_abc123");
+    h.originHeader = "https://evil.example";
+    const db = h.db as Db;
+    const ids = await seed(db);
+
+    await buyPublishedDesign({ imageId: ids.listingId, ...OPTS });
+
+    const [params] = h.sessionParams;
+    expect(params.return_url).toBe(
+      "http://localhost:3000/order/confirm?session_id={CHECKOUT_SESSION_ID}"
+    );
+  });
+
+  it("flag off: hosted params deep-equal the builder output with NEXT_PUBLIC_APP_URL regardless of Origin (F6)", async () => {
+    h.originHeader = "https://prntd-git-x.vercel.app";
+    const db = h.db as Db;
+    const ids = await seed(db);
+
+    const { url } = await buyPublishedDesign({
+      imageId: ids.listingId,
+      ...OPTS,
+    });
+
+    expect(url).toBe("https://checkout.stripe.example/cs_test_hosted");
+    const [params] = h.sessionParams;
+    const expected = await expectedHostedParams(
+      db,
+      "https://img.example/listing.png",
+      `http://localhost:3000/d/${ids.listingId}`
+    );
+    expect(params).toEqual({ ...expected, expires_at: expect.any(Number) });
   });
 });
 

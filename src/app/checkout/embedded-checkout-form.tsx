@@ -86,7 +86,26 @@ export function EmbeddedCheckoutForm({
       const hasIframe = containerRef.current?.querySelector("iframe");
       if (!hasIframe) setMountStalled(true);
     }, FORM_MOUNT_TIMEOUT_MS);
-    return () => clearTimeout(timer);
+
+    // Once the stall notice is showing, it needs a way to go away again: a
+    // slow iframe can still arrive after the 15s watchdog fires. Started
+    // alongside the watchdog (not just after it fires) so a late-arriving
+    // iframe clears the notice as soon as it appears, whether that's before
+    // or after the timeout — which also makes the timeout itself moot for a
+    // form that does eventually mount.
+    const container = containerRef.current;
+    let observer: MutationObserver | null = null;
+    if (container) {
+      observer = new MutationObserver(() => {
+        if (container.querySelector("iframe")) setMountStalled(false);
+      });
+      observer.observe(container, { childList: true, subtree: true });
+    }
+
+    return () => {
+      clearTimeout(timer);
+      observer?.disconnect();
+    };
   }, [stripePromise]);
 
   if (loadFailed) {
