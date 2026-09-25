@@ -1,11 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// Personal-records routes — always behind sign-in. Note startsWith matching:
-// "/designs" stays protected even when "/design" is opened (the funnel route),
-// because "/design/x".startsWith("/designs") is false. Same for /orders vs
-// /order. "/studio" covers /studio/library (and /studio/archive, which just
-// 308s to /studio/library since the dedicated archive tab was dropped
-// 2026-09-09).
+// Personal-records routes — a visitor with no session cookie is sent to
+// sign-in. This only checks that a cookie exists; which sessions get in is
+// each page's call. /orders refuses an anonymous guest-funnel session
+// server-side (requireRealUser); /admin checks ADMIN_EMAIL. /studio admits one
+// while GUEST_FUNNEL_ENABLED is on (requireStudioUser, #241): a guest's
+// designs belong to their anonymous user, and the Studio is where they are
+// listed. A first visit with no cookie has nothing to list, so it still
+// lands on sign-in from here.
+//
+// Note startsWith matching: "/designs" stays protected even when "/design"
+// is opened (the funnel route), because "/design/x".startsWith("/designs") is
+// false. Same for /orders vs /order. "/studio" covers /studio/library (and
+// /studio/archive, which just 308s to /studio/library since the dedicated
+// archive tab was dropped 2026-09-09).
 //
 // "/designs" is now only a 308 to /studio/library (nav model A), but it stays
 // on this list so a signed-out visitor lands on /sign-in in one hop instead of
