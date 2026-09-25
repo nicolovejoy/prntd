@@ -16,6 +16,8 @@ import {
   resolveOrderVariant,
   multiPlacementEnabled,
   DEFAULT_BLANK_ID,
+  getBlank,
+  productSupportsPlacement,
 } from "@/lib/blanks";
 import {
   getDesignDisplayImageUrl,
@@ -75,6 +77,15 @@ export async function createCheckoutSession(params: {
   // from charging the upcharge / pinning a back while the feature is dark.
   const backImageId = multiPlacementEnabled() ? params.back ?? null : null;
   if (backImageId) {
+    // Fulfillment drops a placement the blank can't print, so a back on a
+    // blank without one would charge +$8 for nothing. /preview keeps a picked
+    // back across a garment switch, so this state is reachable from the UI.
+    // Same check as buyPublishedDesign and addToCart; an unknown product
+    // falls through to resolveOrderVariant's own refusal.
+    const blank = getBlank(resolvedProductId);
+    if (blank && !productSupportsPlacement(blank, "back")) {
+      throw new Error("This product has no back print area");
+    }
     await assertUsablePlacementImage(
       backImageId,
       params.designId,

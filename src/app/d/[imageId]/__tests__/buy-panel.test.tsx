@@ -629,6 +629,11 @@ describe("BuyPanel failure notices", () => {
     fireEvent.click(buyButton());
     const notices = await screen.findAllByText(CHECKOUT_FAILED);
     expect(notices.length).toBeGreaterThan(0);
+    // The failure may be a refusal that repeats on every retry, so the copy
+    // states what happened and promises nothing.
+    expect(notices[0]).toHaveTextContent(
+      /^Couldn't start checkout\. Nothing was charged\.$/
+    );
     expect(buyButton()).toBeEnabled();
   });
 
@@ -638,7 +643,9 @@ describe("BuyPanel failure notices", () => {
     expand();
     fireEvent.click(screen.getByRole("button", { name: "M" }));
     fireEvent.click(screen.getAllByTestId("add-to-cart")[0]);
-    expect((await screen.findAllByText(ADD_TO_CART_FAILED)).length).toBeGreaterThan(0);
+    const notices = await screen.findAllByText(ADD_TO_CART_FAILED);
+    expect(notices.length).toBeGreaterThan(0);
+    expect(notices[0]).toHaveTextContent(/^Couldn't add this to your cart\.$/);
     expect(screen.getAllByTestId("add-to-cart")[0]).toBeEnabled();
   });
 
