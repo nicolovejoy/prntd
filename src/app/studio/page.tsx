@@ -19,5 +19,17 @@ export default async function StudioPage() {
   const { session, isGuest } = await requireStudioUser();
   after(() => sweepStudioForUser(session.user.id));
   const lanes = await getStudioLanesData(session.user.id);
-  return <StudioClient initialLanes={lanes} isGuest={isGuest} />;
+  // One clock reading for the server render and the client's hydration
+  // render, so the time labels match (React #418; see StudioClient). The
+  // purity rule guards against a value that changes between re-renders; an
+  // async server component renders once per request and never re-renders.
+  // eslint-disable-next-line react-hooks/purity
+  const renderedAtMs = Date.now();
+  return (
+    <StudioClient
+      initialLanes={lanes}
+      initialNowMs={renderedAtMs}
+      isGuest={isGuest}
+    />
+  );
 }

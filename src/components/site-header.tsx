@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState, useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
+import { useHydrated } from "@/components/use-hydrated";
 import { getHeaderState } from "@/components/site-header-actions";
 import { FeedbackPanel } from "@/components/feedback-launcher";
 import { FEEDBACK_PROJECT_ID } from "@/lib/feedback/project-id";
@@ -16,7 +17,17 @@ export function SiteHeader({
   /** Resolved server-side (plain env reads, no round trip — #127). */
   cartEnabled: boolean;
 }) {
-  const { data: session } = authClient.useSession();
+  // The session is used only once hydrated (React #418, 2026-09-25). The
+  // server has no session here, so it always renders the header signed out.
+  // better-auth's store starts its /get-session fetch from inside the first
+  // hydration render, and a hydration pass that restarts after that fetch
+  // lands would read a signed-in session — dropping the "Sign in" link the
+  // server sent and failing hydration. Gated, the hydration render always
+  // matches the server; the signed-in shape appears right after hydration
+  // commits, or when the fetch lands, whichever is later.
+  const { data: liveSession } = authClient.useSession();
+  const hydrated = useHydrated();
+  const session = hydrated ? liveSession : null;
   const buildDate = process.env.NEXT_PUBLIC_BUILD_DATE ?? "dev";
   const [menuOpen, setMenuOpen] = useState(false);
   // Feedback panel opened from the nav — the entry point on funnel pages,
