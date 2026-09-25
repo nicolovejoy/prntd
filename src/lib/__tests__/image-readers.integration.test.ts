@@ -1,8 +1,9 @@
 /**
  * Model B read paths (docs/model-b-migration-plan.md). Every reader in
  * design-images / back-sources / discover-feed resolves against `image`,
- * `conversation_image`, `listing` and `placement_render` — `design_image` was
- * dropped in slice 5. Drives them against a real in-memory libSQL through the
+ * `conversation_image`, `image_publication` (named `listing` until composition
+ * slice 5) and `placement_render` — `design_image` was dropped in Model B
+ * slice 5. Drives them against a real in-memory libSQL through the
  * live write paths (insertDesignImage). Also locks the id-reuse contract
  * (§2/§5): a pinned placement id resolves whether it was minted as an
  * artifact or as a placement render.
@@ -112,14 +113,13 @@ describe("readers on dual-written rows", () => {
     expect(await getPublishedFeed()).toEqual([]);
   });
 
-  it("a hidden listing leaves the feed but stays resolvable by id", async () => {
+  it("a hidden publication leaves the feed but stays resolvable by id", async () => {
     const ids = await seed();
     const publishedAt = new Date(Date.UTC(2026, 0, 1, 11, 55));
-    await testDb.insert(schema.listing).values({
+    await testDb.insert(schema.imagePublication).values({
       imageId: ids.secondId,
       publishedAt,
       isHidden: true,
-      title: "Hidden",
     });
 
     expect(await getPublishedFeed()).toEqual([]);

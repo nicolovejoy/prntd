@@ -70,13 +70,12 @@ ADMIN_EMAIL=nicholas.lovejoy@gmail.com
 OWNER_EMAIL=nicholas.lovejoy@gmail.com
 
 # --- Feature flags (non-secret) -----------------------------------------
-# All four are ON in production, so local mirrors prod. Every one defaults
+# All three are ON in production, so local mirrors prod. Every one defaults
 # OFF when unset or empty (=== "true"), which is a quiet way to test a
 # different app than the one your users see.
 GUEST_FUNNEL_ENABLED=true
 CART_ENABLED=true
 MULTI_PLACEMENT_ENABLED=true
-STORES_ENABLED=true
 # Purchases from the image detail page open Stripe Embedded Checkout on our
 # own /checkout page instead of the hosted Stripe page. Needs a matching
 # NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY above or it fails closed to hosted

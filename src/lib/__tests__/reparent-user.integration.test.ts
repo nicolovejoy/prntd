@@ -46,18 +46,6 @@ describe("reparentUserData", () => {
         color: "Black",
       })
       .returning();
-    const [store] = await db
-      .insert(schema.store)
-      .values({ ownerId: "anon-1", slug: "guest-shop", name: "Guest Shop" })
-      .returning();
-    const [product] = await db
-      .insert(schema.product)
-      .values({
-        ownerId: "anon-1",
-        designId: design.id,
-        blankId: "bella-canvas-3001",
-      })
-      .returning();
     const [image] = await db
       .insert(schema.image)
       .values({
@@ -65,6 +53,18 @@ describe("reparentUserData", () => {
         imageUrl: "https://img/a.png",
         aspectRatio: "1:1",
         sourceDesignId: design.id,
+      })
+      .returning();
+    // The Shop composition a published image mirrors (composition slice 1):
+    // owned via ownerId, keyed on the front placement, no blank or price
+    // (buyer picks). The only `product` shape that survives the organizer
+    // storefront retirement (#191).
+    const [product] = await db
+      .insert(schema.product)
+      .values({
+        ownerId: "anon-1",
+        placements: { front: image.id },
+        status: "listed",
       })
       .returning();
     // A guest's generation job row: FK to user.id, and it outlives the render
@@ -99,10 +99,6 @@ describe("reparentUserData", () => {
     expect(
       (await db.query.cartItem.findFirst({ where: eq(schema.cartItem.id, cart.id) }))
         ?.userId
-    ).toBe("real-1");
-    expect(
-      (await db.query.store.findFirst({ where: eq(schema.store.id, store.id) }))
-        ?.ownerId
     ).toBe("real-1");
     expect(
       (await db.query.product.findFirst({ where: eq(schema.product.id, product.id) }))

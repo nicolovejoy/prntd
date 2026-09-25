@@ -99,7 +99,7 @@ jobs:
     runs-on: ubuntu-latest
     # Fake vendor creds satisfy SDK constructors that run at module-eval time
     # during `next build` and at runtime in the compiled server. The e2e specs
-    # never make real vendor calls (guest funnel / cart / storefront exercise DB
+    # never make real vendor calls (guest funnel / cart exercise DB
     # + auth only; the Stripe money-path spec self-skips without a real
     # sk_test_ key). Mirrors the `check` job's build env.
     env:

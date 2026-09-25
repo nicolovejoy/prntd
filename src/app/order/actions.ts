@@ -166,11 +166,9 @@ export async function createStripeCheckoutForOrder(params: {
   placements: Record<string, string> | null;
   checkoutImageUrl: string | null;
   cancelUrl: string;
-  /** Composition attribution. `storeId` is the organizer storefront (null for
-   * a PRNTD Shop sale); `storeProductId` is the `product` row bought — the
-   * organizer's sellable, or the published image's mirror composition. Both
-   * null for design-your-own. See the schema comment on `order`. */
-  storeId?: string | null;
+  /** Composition attribution: the `product` row bought — the published
+   * image's Shop composition. Null for design-your-own. See the schema
+   * comment on `order`. */
   storeProductId?: string | null;
   /** Present only when the caller has resolved `embeddedCheckoutConfig()` to
    * enabled (#135 slice 2): the session mounts on our own /checkout page
@@ -213,7 +211,6 @@ export async function createStripeCheckoutForOrder(params: {
       totalPrice: total,
       itemPrice: item,
       shippingPrice: shipping,
-      storeId: params.storeId ?? null,
       storeProductId: params.storeProductId ?? null,
     }),
     db.insert(orderItemTable).values({

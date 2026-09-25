@@ -81,7 +81,6 @@ async function main() {
     await count("design", schema.design, "userId");
     await count("order", schema.order, "userId");
     await count("cart_item", schema.cartItem, "userId");
-    await count("store", schema.store, "ownerId");
     await count("product", schema.product, "ownerId");
     await count("image", schema.image, "ownerId");
     await count("image_generation", schema.imageGeneration, "userId");

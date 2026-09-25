@@ -217,10 +217,8 @@ describe("buyPublishedDesign with a back design", () => {
     );
     expect(mirror).toBeTruthy();
     // Composition slice 4: the Shop purchase points at the composition, not
-    // just the design. storeId stays null — this is the PRNTD Shop, not an
-    // organizer storefront.
+    // just the design.
     expect(order.storeProductId).toBe(mirror!.id);
-    expect(order.storeId).toBeNull();
   });
 
   it("refuses (and books nothing) when the published image has no mirror product", async () => {

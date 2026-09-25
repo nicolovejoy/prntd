@@ -27,16 +27,6 @@ export function cartEnabled(): boolean {
 }
 
 /**
- * Organizer stores (pivot Phase 2): when on, the nav shows a Dashboard link and
- * the /dashboard back office + /shop/[slug] storefront are reachable. When off,
- * those surfaces stay hidden and their actions refuse — merge dark, flip
- * STORES_ENABLED=true once the flow is verified. Default off.
- */
-export function storesEnabled(): boolean {
-  return process.env.STORES_ENABLED === "true";
-}
-
-/**
  * Embedded checkout (#135 slice 2): the raw on/off switch, nothing else. When
  * on, purchases started on the image detail page open Stripe Embedded
  * Checkout on our own /checkout page instead of the hosted Stripe page. This

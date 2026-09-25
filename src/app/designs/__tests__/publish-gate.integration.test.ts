@@ -51,8 +51,11 @@ beforeEach(async () => {
   await makeUser(testDb, "u1");
 });
 
-async function listingRows(imageId: string) {
-  return testDb.select().from(schema.listing).where(eq(schema.listing.imageId, imageId));
+async function publicationRows(imageId: string) {
+  return testDb
+    .select()
+    .from(schema.imagePublication)
+    .where(eq(schema.imagePublication.imageId, imageId));
 }
 
 describe("publishImage — anonymous (guest-funnel) sessions are rejected", () => {
@@ -68,7 +71,7 @@ describe("publishImage — anonymous (guest-funnel) sessions are rejected", () =
     await expect(publishImage(imageId, { title: "T" })).rejects.toThrow(
       "Sign in to publish"
     );
-    expect(await listingRows(imageId)).toHaveLength(0);
+    expect(await publicationRows(imageId)).toHaveLength(0);
   });
 
   it("still succeeds for a real (non-anonymous) session", async () => {
@@ -82,7 +85,7 @@ describe("publishImage — anonymous (guest-funnel) sessions are rejected", () =
 
     await publishImage(imageId, { title: "T" });
 
-    const rows = await listingRows(imageId);
+    const rows = await publicationRows(imageId);
     expect(rows).toHaveLength(1);
     expect(rows[0].publishedAt).not.toBeNull();
   });

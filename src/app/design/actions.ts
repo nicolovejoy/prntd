@@ -28,7 +28,7 @@ import {
   chatMessage as chatMessageTable,
   image as imageTable,
   conversationImage as conversationImageTable,
-  listing as listingTable,
+  imagePublication as imagePublicationTable,
   product as productTable,
   imageGeneration as imageGenerationTable,
 } from "@/lib/db/schema";
@@ -897,8 +897,8 @@ export async function selectImage(designId: string, imageUrl: string) {
  * Delete an image from a design. The rules live in src/lib/delete-image.ts
  * (shared with the bulk library delete): an order reference refuses; a seed
  * link, a shop product pin or a cart pin downgrade the delete to a
- * link-detach; otherwise the image row, its listing and its mirror product
- * go. An id this thread can't reach is "Image not found" — owning the design
+ * link-detach; otherwise the image row, its publication row and its own
+ * composition go. An id this thread can't reach is "Image not found" — owning the design
  * doesn't authorise deleting an image it never had. primary_image_id moves
  * inside the same batch when the deleted image was the primary.
  *
@@ -906,8 +906,8 @@ export async function selectImage(designId: string, imageUrl: string) {
  * detach only keeps the image row alive elsewhere, it still drops this
  * thread's copy — so `executeImageDeletion` also checks whether the design
  * is now image-less and, if nothing else still points at it, removes the
- * conversation itself (owner ruling, 2026-09-09) — a running job, a cart
- * line or a shop product each keep it, and an order archives it instead;
+ * conversation itself (owner ruling, 2026-09-09) — a running job or its own
+ * cart line keeps it, and an order archives it instead;
  * `removeDesignIfNowEmpty` holds the full rule. `/studio` is revalidated
  * when the conversation went, on top of the library revalidation every image
  * delete needs.
@@ -1161,11 +1161,11 @@ export async function startConversationFromImage(
   const [seed] = await db
     .select({
       ownerId: imageTable.ownerId,
-      publishedAt: listingTable.publishedAt,
-      isHidden: listingTable.isHidden,
+      publishedAt: imagePublicationTable.publishedAt,
+      isHidden: imagePublicationTable.isHidden,
     })
     .from(imageTable)
-    .leftJoin(listingTable, eq(listingTable.imageId, imageTable.id))
+    .leftJoin(imagePublicationTable, eq(imagePublicationTable.imageId, imageTable.id))
     .where(eq(imageTable.id, imageId))
     .limit(1);
   if (!seed) throw new Error("Image not found");
@@ -1174,7 +1174,7 @@ export async function startConversationFromImage(
     !canStartFromImage({
       image: {
         publishedAt: seed.publishedAt,
-        // No listing row = not published (and not hidden).
+        // No publication row = not published (and not hidden).
         isHidden: seed.isHidden ?? false,
       },
       imageOwnerId: seed.ownerId,
@@ -1238,7 +1238,7 @@ export async function getDesign(designId: string) {
   // (§3): the design was published on this color, so show it on it.
   // Composition slice 2: read from the image's mirror `product` row, and only
   // while it is published (non-draft), which is exactly when the pinned
-  // backdrop applies — the same condition the listing row used to encode.
+  // backdrop applies — the same condition the visibility row used to encode.
   let backgroundColor: string | null = null;
   if (found.primaryImageId) {
     const [primary] = await db

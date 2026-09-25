@@ -9,6 +9,12 @@
  * exact renders a buyer sees. Only listings that someone has expanded
  * Order on will have any; the rest print "(no cached mockups)".
  *
+ * Reads the post-0014 schema (composition slice 5): visibility off
+ * `image_publication`, title / backdrop / feed rank off the image's `product`
+ * composition, joined on the generated `product.front_image_id`. Against a
+ * database still at 0013 it fails on the missing table rather than printing
+ * anything misleading.
+ *
  * Writes nothing. Safe against prod.
  *
  *   DATABASE_URL=libsql://prntd-nicolovejoy.aws-us-west-2.turso.io \
@@ -28,10 +34,9 @@ async function main() {
     const { rows } = await client.execute(`
       select l.image_id, p.title, p.backdrop_color, i.image_url,
              d.id as design_id, d.mockup_urls
-      from listing l
+      from image_publication l
       join image i on i.id = l.image_id
-      left join product p on json_extract(p.placements, '$.front') = l.image_id
-        and p.store_id is null and p.design_id is null
+      left join product p on p.front_image_id = l.image_id
       join conversation_image ci on ci.image_id = l.image_id
       join design d on d.id = ci.design_id
       where l.is_hidden = 0

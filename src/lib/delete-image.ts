@@ -11,20 +11,20 @@
  *    placements, or the legacy-fallback case (a pre-placements line whose
  *    design has this image as its primary). Orders are financial records.
  *  - A reference from another conversation (a seed carried into a fresh-start
- *    thread), a shop product's placements, or a cart line's placements
- *    downgrades the delete to a link-detach: the image row, its listing and
- *    its mirror product survive.
- *  - Otherwise the image row, its listing, its mirror `product` row, its
- *    placement_render row (id reuse) and its conversation links go.
+ *    thread), another composition's placements, or a cart line's placements
+ *    downgrades the delete to a link-detach: the image row, its publication
+ *    row and its own composition survive.
+ *  - Otherwise the image row, its publication row, its own `product`
+ *    composition, its placement_render row (id reuse) and its conversation
+ *    links go.
  *  - Whichever of the above happens, if it leaves the image's home design
  *    with zero remaining `conversation_image` links (every role) AND nothing
  *    else still pointing at the design — no running `image_generation` row,
- *    no cart line, no shop product — the conversation itself is removed
- *    (owner ruling, 2026-09-09), or archived when an order references it.
- *    An image-less conversation is dead weight: unreachable from Library or
- *    the image detail page, and an empty lane on the Studio bench. The full
- *    seven-step rule, and why each keeper is a keeper, is on
- *    `removeDesignIfNowEmpty`.
+ *    no cart line — the conversation itself is removed (owner ruling,
+ *    2026-09-09), or archived when an order references it. An image-less
+ *    conversation is dead weight: unreachable from Library or the image
+ *    detail page, and an empty lane on the Studio bench. The full six-step
+ *    rule, and why each keeper is a keeper, is on `removeDesignIfNowEmpty`.
  *
  * Two scopes, one plan:
  *  - design-scoped (`designId`): "remove this image from this thread". A
@@ -47,7 +47,7 @@ import {
   image as imageTable,
   conversationImage as conversationImageTable,
   placementRender as placementRenderTable,
-  listing as listingTable,
+  imagePublication as imagePublicationTable,
   imageGeneration as imageGenerationTable,
 } from "@/lib/db/schema";
 import { imageReferences, imageReferencedByOrders } from "@/lib/design-publish";
@@ -80,7 +80,7 @@ export interface ImageDeletionPlan {
   imageUrl: string | null;
   r2Key: string | null;
   /** The image's own mirror `product` row (its Shop composition), deleted
-   * with the image the way its listing always was. */
+   * with the image the way its publication row always was. */
   mirrorProductId: string | null;
   /** `designId` currently points primary_image_id at this image. */
   wasPrimary: boolean;
@@ -241,8 +241,12 @@ export async function planImageDeletion(
         )
       )
       .limit(1),
-    // The image's own mirror product exists BECAUSE of the image, so it never
-    // keeps it alive — it is excluded here and deleted alongside it.
+    // The image's own composition — the product whose FRONT slot is this image
+    // (findMirrorProduct; the same rule delete-design.ts applies via
+    // compositionFrontImageId) — exists BECAUSE of the image, so it never
+    // keeps it alive: it is excluded here and deleted alongside it. Any other
+    // product that places this image (another composition's back slot) is a
+    // real reference and detaches.
     db
       .select({ id: productTable.id })
       .from(productTable)
@@ -291,18 +295,19 @@ export type EmptyDesignOutcome =
  * unreachable from Library or the image detail page, and an empty lane on
  * the Studio bench.
  *
- * Deliberately does NOT reuse `isDeletionBlocked` (planDesignDeletion's
- * `orderReferenced || productCount > 0`) the way an earlier version did.
- * That two-in-one meaning is right for a whole-conversation delete request,
- * where a product-blocked design surfaces as an explicit error the caller
- * can act on — but here there is no caller to hand a refusal to, and
- * treating the product case the same as the order case would silently
- * archive a design a shop product still depends on, falsifying
- * `openConversation`'s documented invariant (d/conversation-actions.ts:
- * "Archived only ever means 'was ordered', so that is the status it goes
- * back to") — reopening one would wrongly flip it to `status: "ordered"`.
- * So the two are checked separately below, in the order an owner ruling
- * (2026-09-09) fixed:
+ * Deliberately does NOT reuse `isDeletionBlocked` the way an earlier version
+ * did. When that version shipped, `isDeletionBlocked` also meant "a shop
+ * product FKs this design" (`product.design_id`, an organizer sellable), and
+ * treating that case like the order case silently archived a design a
+ * product still depended on, falsifying `openConversation`'s documented
+ * invariant (d/conversation-actions.ts: "Archived only ever means 'was
+ * ordered', so that is the status it goes back to") — reopening one would
+ * wrongly flip it to `status: "ordered"`. Composition slice 5 dropped
+ * `product.design_id` (a composition now references images, never a
+ * conversation), so today `isDeletionBlocked` is the order check alone; the
+ * steps below still check `plan.orderReferenced` directly, in the order an
+ * owner ruling (2026-09-09) fixed, so that archiving stays tied to exactly
+ * one cause:
  *
  *  1. No design row (a legacy image with no home design, or a design
  *     deleted by some other path in the same request) — nothing to do.
@@ -325,15 +330,20 @@ export type EmptyDesignOutcome =
  *     deleted, keeps the two modules' opposite conventions about a
  *     design's own cart line (delete-design.ts excludes it deliberately;
  *     the image-level probe counts it as a keeper) from fighting.
- *  5. `plan.productCount > 0` — an organizer sellable FKs this design;
- *     archiving it anyway would misreport `status`, as above.
- *  6. `plan.orderReferenced` — archive (financial records never cascade).
- *  7. Otherwise — hard-delete via `executeDesignDeletion`.
+ *  5. `plan.orderReferenced` — archive (financial records never cascade).
+ *  6. Otherwise — hard-delete via `executeDesignDeletion`.
  *
- * Steps 4 and 5 are "keep" for the same reason as 3: the conversation is
- * not dead weight, something still points at it. An empty lane on the
- * Studio bench is the acceptable cost in these rare cases; destroying a
- * cart line or a shop product is not. `closed_at` is deliberately NOT used
+ * (Until composition slice 5 there was a step between 4 and 5: an
+ * organizer `product` row whose `design_id` FKed this design kept it. The
+ * column is gone; a composition that pins one of this design's images on
+ * one of its slots references the IMAGE, which `planImageDeletion` already
+ * turned into a detach, so the image survives for it and the conversation
+ * does not need to.)
+ *
+ * Step 4 is "keep" for the same reason as 3: the conversation is not dead
+ * weight, something still points at it. An empty lane on the Studio bench
+ * is the acceptable cost in this rare case; destroying a cart line is not.
+ * `closed_at` is deliberately NOT used
  * for any of these — an image-less closed conversation would be
  * unreachable forever, since nothing ever reopens a conversation with no
  * image to show for it.
@@ -403,7 +413,6 @@ export async function removeDesignIfNowEmpty(
     if (ownCartLines.length > 0) return "kept";
 
     const plan = await planDesignDeletion(db, designId);
-    if (plan.productCount > 0) return "kept";
     if (plan.orderReferenced) {
       await db
         .update(designTable)
@@ -497,7 +506,9 @@ export async function executeImageDeletion(
     ...(plan.outcome === "delete"
       ? [
           db.delete(imageTable).where(eq(imageTable.id, imageId)),
-          db.delete(listingTable).where(eq(listingTable.imageId, imageId)),
+          db
+            .delete(imagePublicationTable)
+            .where(eq(imagePublicationTable.imageId, imageId)),
           db
             .delete(placementRenderTable)
             .where(eq(placementRenderTable.id, imageId)),

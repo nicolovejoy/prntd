@@ -16,14 +16,12 @@ Chat with an AI to design a t-shirt, then buy it — the shirt is printed and sh
 
 Guests can use the whole design→preview→order funnel without an account (anonymous sessions with daily generation quotas per identity and per IP); the auth gate is at checkout, and guest designs/carts are re-parented to the real account on sign-in.
 
-There is also an organizer layer: a user can open a store, compose products (design × blank garment × placements) with their own pricing, and share a public storefront at `/shop/[slug]`.
-
 ## Architecture
 
 ```
 Next.js 16 (App Router, Server Actions) on Vercel
 │
-├─ Turso (libSQL) + Drizzle ORM — 15 tables, versioned migrations
+├─ Turso (libSQL) + Drizzle ORM — 18 tables, versioned migrations
 ├─ Better-Auth — email/password + anonymous guest sessions
 ├─ Anthropic API — Claude Sonnet 4.6 (prompt construction), Haiku 4.5 (readiness check)
 ├─ Replicate — ideogram-v3-turbo, recraft-v3, BiRefNet background removal
@@ -41,11 +39,11 @@ Server Actions handle all mutations; the only API routes are the Stripe and Prin
 **Treating LLM output as a wire format.** The chat model must return a JSON envelope (message, image prompt, readiness flag, quick-reply options), but models sometimes emit prose *and* the envelope in one reply. A naive parse failure once persisted the raw blob into chat history — which then taught every later turn to imitate the broken format, cascading across the thread. The fix is layered: a salvage parser extracts the envelope from mixed output, and history is scrubbed of embedded envelopes before each resend so the model never sees its own malformed replies. Related: user negations ("no text on it") are rewritten into affirmative image prompts, because diffusion models surface whatever you mention.
 
 - **Money-path integration tests against a real database.** Order → Stripe webhook → ledger runs against an in-memory libSQL instance whose DDL is derived from the live Drizzle schema at test time, so a schema/query mismatch fails the suite instead of hiding behind mocks.
-- **End-to-end tests in CI against real deploys.** Playwright specs (guest funnel, multi-item cart, store composition) run on every PR against the Vercel preview deployment, after applying pending migrations to an isolated preview database branch. Locally they run against a compiled production build.
+- **End-to-end tests in CI against real deploys.** Playwright specs (guest funnel, multi-item cart) run on every PR against the Vercel preview deployment, after applying pending migrations to an isolated preview database branch. Locally they run against a compiled production build.
 - **Background-removal correctness.** Transparent PNGs on colored shirts exposed soft-alpha artifacts (thin dark strokes going semi-transparent); the pipeline uses hard-threshold BiRefNet segmentation, chosen after the previous remover silently returned unprocessed images on painterly output.
 - **Append-only financial ledger** (sale / stripe_fee / cogs / refund) with COGS taken from Printful's real invoice, not estimates; order classification kept separate from freeform tags.
 - **Versioned schema migrations** (Drizzle) with per-environment database branches (dev / preview / prod), a baselined genesis snapshot, and a row-count smoke script that runs before and after production migrations.
-- **Anonymous-to-registered account claiming** — designs, orders, carts, and stores created as a guest are re-parented atomically when the user signs up.
+- **Anonymous-to-registered account claiming** — designs, orders, carts, and images created as a guest are re-parented atomically when the user signs up.
 
 ## Local development
 
@@ -67,10 +65,10 @@ Required env vars (names only — see `.env.example`):
 
 `DATABASE_URL`, `DATABASE_AUTH_TOKEN`, `ANTHROPIC_API_KEY`, `REPLICATE_API_TOKEN`, `IDEOGRAM_API_KEY`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `PRINTFUL_API_KEY`, `RESEND_API_KEY`, `BETTER_AUTH_SECRET`, `ADMIN_EMAIL`, `NEXT_PUBLIC_R2_PUBLIC_URL`, `NEXT_PUBLIC_APP_URL`
 
-Feature flags (env-based): `GUEST_FUNNEL_ENABLED`, `CART_ENABLED`, `MULTI_PLACEMENT_ENABLED`, `STORES_ENABLED`. `PRINTFUL_DRY_RUN=true` short-circuits real order submission for local testing.
+Feature flags (env-based): `GUEST_FUNNEL_ENABLED`, `CART_ENABLED`, `MULTI_PLACEMENT_ENABLED`. `PRINTFUL_DRY_RUN=true` short-circuits real order submission for local testing.
 
 ## Status
 
-In production at prntd.org with real paid orders fulfilled end-to-end (including two-sided prints and multi-item carts). Working: the full design→order funnel for guests and account holders, admin order management with ledger timeline, organizer stores with public storefronts.
+In production at prntd.org with real paid orders fulfilled end-to-end (including two-sided prints and multi-item carts). Working: the full design→order funnel for guests and account holders, admin order management with ledger timeline, and a community Shop of published designs.
 
-Known gaps: organizer storefronts attribute sales but don't move money to organizers yet (no payout/Stripe Connect); money-path idempotency hardening and cart-lifecycle fixes are tracked in the issue backlog; visual identity/copy pass is pending.
+Known gaps: money-path idempotency hardening and cart-lifecycle fixes are tracked in the issue backlog; visual identity/copy pass is pending.

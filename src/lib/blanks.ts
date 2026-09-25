@@ -645,11 +645,16 @@ export type FitResult = { ok: boolean; warnings: FitWarning[] };
 
 /**
  * The validity rule: can this design print on this blank at this placement?
- * Pure function of (artwork, blank, placement) — the testable core of the
- * organizer pivot's "Product" object. Policy is **warn + remediate, never
- * block**: only a missing placement is structurally fatal; everything else is
- * a warning with a fix hint (regenerate, knock out the background). `ok` means
- * zero warnings. See docs/organizer-pivot-plan.md.
+ * Pure function of (artwork, blank, placement). Policy is **warn + remediate,
+ * never block**: only a missing placement is structurally fatal; everything
+ * else is a warning with a fix hint (regenerate, knock out the background).
+ * `ok` means zero warnings.
+ *
+ * No production caller today: its only one was the organizer compose flow
+ * (`product-compose.ts`), deleted with the storefronts in composition slice 5
+ * (#191, #201). Kept, with its tests, because the rule is about the blank and
+ * the artwork, not about organizers — a compose-a-shirt UI for the Shop
+ * (two-sided compositions) would need exactly this check.
  */
 export function validatePlacementFit(params: {
   blank: Blank;
