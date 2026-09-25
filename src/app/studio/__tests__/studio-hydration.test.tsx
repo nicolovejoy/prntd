@@ -11,7 +11,16 @@
  * Each case server-renders, moves the clock (and, where it matters, the time
  * zone), then hydrates the same element and asserts React reported nothing.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  beforeAll,
+  afterAll,
+  beforeEach,
+  afterEach,
+} from "vitest";
 import { act } from "react";
 import { renderToString } from "react-dom/server";
 import { hydrateRoot, type Root } from "react-dom/client";
@@ -40,6 +49,20 @@ vi.mock("@/lib/studio", () => ({
   getStudioLanesData: vi.fn(async () => []),
   sweepStudioForUser: vi.fn(async () => {}),
 }));
+
+// These tests drive hydrateRoot/createRoot through React's own act(), not
+// Testing Library's render, so they opt in to the act environment
+// themselves; without it React stays silent about updates that escape act.
+let previousActEnvironment: unknown;
+beforeAll(() => {
+  const g = globalThis as { IS_REACT_ACT_ENVIRONMENT?: unknown };
+  previousActEnvironment = g.IS_REACT_ACT_ENVIRONMENT;
+  g.IS_REACT_ACT_ENVIRONMENT = true;
+});
+afterAll(() => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: unknown }).IS_REACT_ACT_ENVIRONMENT =
+    previousActEnvironment;
+});
 
 // The server's clock reading when it rendered the page.
 const T = Date.parse("2026-09-25T16:00:00.000Z");

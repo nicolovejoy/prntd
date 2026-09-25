@@ -291,8 +291,12 @@ export function StudioClient({
   // Right after hydration the two differ by the page's load time; after a
   // remount from the router cache, the cached initialNowMs can be minutes
   // old. Without pending work nothing else ticks, so this is the only
-  // refresh the lane-age labels get.
-  useEffect(() => {
+  // refresh the lane-age labels get. A layout effect, not a passive one: a
+  // state update in a layout effect re-renders before the browser paints,
+  // so a back/forward remount never shows a frame of stale labels. It runs
+  // after the hydration commit, so the hydration render itself still uses
+  // initialNowMs and matches the server.
+  useLayoutEffect(() => {
     setNowMs(Date.now());
   }, []);
 

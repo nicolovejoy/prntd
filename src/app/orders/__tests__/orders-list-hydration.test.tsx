@@ -6,7 +6,7 @@
  * the Pacific midnight, which fails hydration (React #418, the same class as
  * the Studio's lane dates). Dates are shown as Pacific calendar days.
  */
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import { act } from "react";
 import { renderToString } from "react-dom/server";
 import { hydrateRoot, type Root } from "react-dom/client";
@@ -36,6 +36,20 @@ const ORDER: UserOrder = {
     },
   ],
 };
+
+// These tests drive hydrateRoot/createRoot through React's own act(), not
+// Testing Library's render, so they opt in to the act environment
+// themselves; without it React stays silent about updates that escape act.
+let previousActEnvironment: unknown;
+beforeAll(() => {
+  const g = globalThis as { IS_REACT_ACT_ENVIRONMENT?: unknown };
+  previousActEnvironment = g.IS_REACT_ACT_ENVIRONMENT;
+  g.IS_REACT_ACT_ENVIRONMENT = true;
+});
+afterAll(() => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: unknown }).IS_REACT_ACT_ENVIRONMENT =
+    previousActEnvironment;
+});
 
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;

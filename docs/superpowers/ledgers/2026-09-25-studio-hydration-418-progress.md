@@ -131,3 +131,45 @@ reappeared. Files restored; worktree clean.
 - `npx vitest run`: 176 files, 1824 tests, all pass (main: 1812)
 - `npm run build` with the CI dummy env: pass; `/studio` still dynamic
 - `npm run db:generate`: "No schema changes, nothing to migrate"
+
+## Independent review (main session, after push) and fix round
+
+The main session ran an independent whole-branch review. No Critical or
+Important findings. It confirmed that the prod `args[]=HTML` matches the
+header mismatch and that 6 of the new tests fail on main. Three small
+changes were asked for, all made:
+
+1. **Mount clock sync is now a `useLayoutEffect`** (`studio-client.tsx`).
+   With a passive effect, a back/forward remount from the router cache (where
+   `initialNowMs` can be minutes old) painted one frame of stale labels
+   before the effect ran. A state update in a layout effect re-renders before
+   paint. It runs after the hydration commit, so the hydration render still
+   uses `initialNowMs`. React 19 does not warn about `useLayoutEffect` on the
+   server. The existing "switches to the browser's clock once hydrated" test
+   still pins the switch.
+2. **`display-time-zone.ts` docblock widened**: the Pacific rule covers
+   every calendar day shown to a person (repo convention), with hydration as
+   the second reason for server-rendered client components.
+3. **The three hydration test files opt in to the act environment**
+   (`IS_REACT_ACT_ENVIRONMENT = true` in `beforeAll`, previous value restored
+   in `afterAll`). The setup file imports Testing Library, but Testing
+   Library only sets this flag through global `beforeAll`, which this Vitest
+   config does not expose (`globals` is off), so it was unset for these
+   files. With it on, the three files print no act warnings. Also added:
+   `getHeaderState` is called exactly twice when signed in (mount, then the
+   session id appearing) and once when signed out, pinning review note 2
+   above. Mutation check: dropping the header gate still fails the
+   signed-in hydration test.
+
+Re-gate after the fix round: lint 0 errors (same 22 pre-existing warnings,
+none in branch files), typecheck pass, 176 files / 1824 tests pass, build
+pass with the CI dummy env, `db:generate` "No schema changes".
+
+## Follow-ups (not in this slice)
+
+- `src/app/admin/errors/page.tsx:54` (`toLocaleString(undefined, …)`) and
+  `src/app/admin/published/page.tsx:92` (`toLocaleDateString()`) format
+  dates in the server's zone, UTC on Vercel. Both are server components, so
+  there is no hydration mismatch; they break only the "Pacific on display"
+  convention. Left unchanged per the main session; pass `DISPLAY_TIME_ZONE`
+  and an explicit locale when they are next touched.
