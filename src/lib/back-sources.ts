@@ -15,7 +15,7 @@ import { db } from "@/lib/db";
 import {
   design as designTable,
   image as imageTable,
-  listing as listingTable,
+  imagePublication as imagePublicationTable,
 } from "@/lib/db/schema";
 import { eq, and, ne, desc, isNotNull } from "drizzle-orm";
 import {
@@ -219,22 +219,22 @@ async function getShopImages(
       id: imageTable.id,
       designId: imageTable.sourceDesignId,
       imageUrl: imageTable.imageUrl,
-      publishedAt: listingTable.publishedAt,
+      publishedAt: imagePublicationTable.publishedAt,
     })
-    .from(listingTable)
-    .innerJoin(imageTable, eq(imageTable.id, listingTable.imageId))
+    .from(imagePublicationTable)
+    .innerJoin(imageTable, eq(imageTable.id, imagePublicationTable.imageId))
     .where(
       and(
-        eq(listingTable.isHidden, false),
+        eq(imagePublicationTable.isHidden, false),
         ...(excludeDesignId
           ? [ne(imageTable.sourceDesignId, excludeDesignId)]
           : [])
       )
     )
-    .orderBy(desc(listingTable.publishedAt))
+    .orderBy(desc(imagePublicationTable.publishedAt))
     .limit(GROUP_LIMIT * 4);
 
-  // A listing row exists iff the image is published, so the old
+  // A publication row exists iff the image is published, so the old
   // published_at IS NOT NULL filter is the join itself. An image with no
   // source conversation is its own dedupe group.
   return dedupeFeedByDesign(

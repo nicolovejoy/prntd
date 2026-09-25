@@ -249,34 +249,51 @@ describe("deleting a conversation's last image removes the conversation", () => 
     expect(await testDb.select().from(schema.cartItem)).toHaveLength(1);
   });
 
-  it("(g) an organizer product on the design keeps the conversation — not archived — after its last image is deleted", async () => {
+  it("(g) another composition pinning the last image keeps the image, not the conversation", async () => {
+    // Until composition slice 5 an organizer `product` could FK the design
+    // itself (product.design_id) and kept an emptied conversation alive. That
+    // column is gone: a composition now references IMAGES, never a
+    // conversation. So the only way a product touches this thread is by
+    // pinning one of its images on a slot — here, the back of a composition
+    // fronted by another conversation's image.
     const d = await makeDesign(testDb, "u1");
     const imageId = await makeSourceImage(testDb, {
       designId: d.id,
       ownerId: "u1",
       imageUrl: "https://img/only.png",
     });
-    // The design's own organizer sellable (product.designId = d.id) — not a
-    // pin on the image itself, so the image's own plan is a plain "delete".
-    await testDb.insert(schema.product).values({
+    const other = await makeDesign(testDb, "u1");
+    const otherFront = await makeSourceImage(testDb, {
+      designId: other.id,
       ownerId: "u1",
-      designId: d.id,
-      blankId: "bella-canvas-3001",
+      imageUrl: "https://img/other-front.png",
     });
+    const [composition] = await testDb
+      .insert(schema.product)
+      .values({
+        ownerId: "u1",
+        placements: { front: otherFront, back: imageId },
+        status: "listed",
+        listedAt: new Date(),
+      })
+      .returning();
 
     await deleteDesignImage(d.id, imageId);
 
-    // Nothing keeps the image itself alive, so it's a real delete...
+    // The pin is a real reference, so the image detaches rather than going...
     expect(
       await testDb.select().from(schema.image).where(eq(schema.image.id, imageId))
-    ).toHaveLength(0);
-    // ...but the conversation is left exactly as it was: archiving it would
-    // falsify openConversation's documented invariant that "archived" only
-    // ever means "was ordered" (#242 review finding 2), and the product
-    // still needs a live design row to compose from.
-    const row = await designRow(d.id);
-    expect(row).toBeDefined();
-    expect(row?.status).toBe("draft");
+    ).toHaveLength(1);
+    expect(
+      await testDb
+        .select()
+        .from(schema.product)
+        .where(eq(schema.product.id, composition.id))
+    ).toHaveLength(1);
+    // ...but it points at the image, not at this conversation, which is now
+    // empty with nothing keeping it: deleted outright, not archived (no order
+    // references it, and "archived" only ever means "was ordered").
+    expect(await designRow(d.id)).toBeUndefined();
   });
 
   it("(h) deleteDesignImage reports designRemoved for a last-image delete", async () => {

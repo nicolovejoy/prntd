@@ -3,8 +3,8 @@
  *
  * The Model B migration (docs/model-b-migration-plan.md) is complete: every
  * read and write resolves against `image` + `conversation_image` for source
- * artifacts, `placement_render` for the render cache, `listing` for publish
- * state. `design_image` was dropped in slice 5.
+ * artifacts, `placement_render` for the render cache, `image_publication` for
+ * publish state. `design_image` was dropped in slice 5.
  *
  * Id reuse (§2) is what made the slice-2 read swap invisible to callers: a
  * pinned placement id resolves whether it was minted as an artifact or a
@@ -17,7 +17,7 @@ import {
   image as imageTable,
   conversationImage as conversationImageTable,
   placementRender as placementRenderTable,
-  listing as listingTable,
+  imagePublication as imagePublicationTable,
   type ChatMessage,
 } from "@/lib/db/schema";
 import { eq, and, asc, desc, inArray, sql } from "drizzle-orm";
@@ -413,7 +413,7 @@ export async function getDesignImageById(id: string): Promise<ImageRow | null> {
 
 /**
  * Fetch an image plus the fields the placement-source guard needs: publish /
- * moderation state (from `listing`) and the owner (#72). `image.ownerId` is
+ * moderation state (from `image_publication`) and the owner (#72). `image.ownerId` is
  * denormalized, so the artifact path no longer joins `design`; renders still
  * do, since only their conversation carries an owner.
  */
@@ -429,8 +429,8 @@ export async function getDesignImageWithOwner(
       aspectRatio: imageTable.aspectRatio,
       prompt: imageTable.prompt,
       ownerId: imageTable.ownerId,
-      publishedAt: listingTable.publishedAt,
-      isHidden: listingTable.isHidden,
+      publishedAt: imagePublicationTable.publishedAt,
+      isHidden: imagePublicationTable.isHidden,
     })
     .from(imageTable)
     .leftJoin(
@@ -440,7 +440,7 @@ export async function getDesignImageWithOwner(
         eq(conversationImageTable.role, "output")
       )
     )
-    .leftJoin(listingTable, eq(listingTable.imageId, imageTable.id))
+    .leftJoin(imagePublicationTable, eq(imagePublicationTable.imageId, imageTable.id))
     .where(eq(imageTable.id, id))
     .limit(1);
 
@@ -451,7 +451,7 @@ export async function getDesignImageWithOwner(
       imageUrl: artifact.imageUrl,
       aspectRatio: artifact.aspectRatio as AspectRatio,
       prompt: artifact.prompt,
-      // No listing row = not published. isHidden is listing-only state, so an
+      // No publication row = not published. isHidden lives only there, so an
       // unpublished image reads as not hidden — same as the old columns.
       publishedAt: artifact.publishedAt,
       isHidden: artifact.isHidden ?? false,
@@ -599,12 +599,12 @@ export async function getDesignSourceImages(
       designSpec: imageTable.designSpecJson,
       parentImageId: imageTable.parentImageId,
       createdAt: imageTable.createdAt,
-      publishedAt: listingTable.publishedAt,
+      publishedAt: imagePublicationTable.publishedAt,
       role: conversationImageTable.role,
     })
     .from(conversationImageTable)
     .innerJoin(imageTable, eq(imageTable.id, conversationImageTable.imageId))
-    .leftJoin(listingTable, eq(listingTable.imageId, imageTable.id))
+    .leftJoin(imagePublicationTable, eq(imagePublicationTable.imageId, imageTable.id))
     .where(
       and(
         eq(conversationImageTable.designId, designId),

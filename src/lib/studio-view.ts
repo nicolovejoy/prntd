@@ -30,11 +30,7 @@ export function timeAgo(date: Date, nowMs: number = Date.now()): string {
 }
 
 /** Why deleteConversations left a conversation alone (studio/actions.ts). */
-export type BulkDeleteSkipReason =
-  | "ordered"
-  | "product"
-  | "not_found"
-  | "failed";
+export type BulkDeleteSkipReason = "ordered" | "not_found" | "failed";
 
 export interface BulkDeleteResult {
   deleted: string[];
@@ -71,7 +67,6 @@ export function bulkDeleteSkipNotice(
   const by = (reason: BulkDeleteSkipReason) =>
     skipped.filter((s) => s.reason === reason).length;
   const ordered = by("ordered");
-  const product = by("product");
   const failed = by("failed");
   const parts: string[] = [];
   if (ordered > 0) {
@@ -79,13 +74,6 @@ export function bulkDeleteSkipNotice(
       ordered === 1
         ? "1 kept — it has an order."
         : `${ordered} kept — they have orders.`
-    );
-  }
-  if (product > 0) {
-    parts.push(
-      product === 1
-        ? "1 kept — a shop product uses it."
-        : `${product} kept — shop products use them.`
     );
   }
   if (failed > 0) {

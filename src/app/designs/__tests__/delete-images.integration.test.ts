@@ -123,7 +123,7 @@ describe("deleteImages — ownership", () => {
     expect(result).toEqual({ deleted: [imageId], skipped: [] });
     expect(await imageRows(imageId)).toHaveLength(0);
     expect(await testDb.select().from(schema.conversationImage)).toHaveLength(0);
-    expect(await testDb.select().from(schema.listing)).toHaveLength(0);
+    expect(await testDb.select().from(schema.imagePublication)).toHaveLength(0);
     expect(await testDb.select().from(schema.product)).toHaveLength(0);
     expect(deleteObjectByKey).toHaveBeenCalledWith("images/a.png");
   });
@@ -290,19 +290,28 @@ describe("deleteImages — references elsewhere keep the image", () => {
     expect(await imageRows(imageId)).toHaveLength(1);
   });
 
-  it("keeps an image a shop product pins", async () => {
+  it("keeps an image another composition pins", async () => {
     const d = await makeDesign(testDb, "u1");
     const imageId = await makeSourceImage(testDb, {
       designId: d.id,
       ownerId: "u1",
       imageUrl: "https://r2/images/on-product.png",
     });
+    // Since composition slice 5 every product row is a Shop composition keyed
+    // on its front image; this one fronts another image and pins ours on the
+    // back, which is the only way a product can still reference it.
     const other = await makeDesign(testDb, "u1");
+    const otherFront = await makeSourceImage(testDb, {
+      designId: other.id,
+      ownerId: "u1",
+      imageUrl: "https://r2/images/other-front.png",
+    });
     await testDb.insert(schema.product).values({
       ownerId: "u1",
-      designId: other.id,
       blankId: "bella-canvas-3001",
-      placements: { front_large: imageId },
+      placements: { front: otherFront, back: imageId },
+      status: "listed",
+      listedAt: new Date(),
     });
 
     const result = await deleteImages([imageId]);
