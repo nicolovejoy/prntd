@@ -18,7 +18,7 @@ Ruling: no product-back-support check in the swap rule. Every active blank has a
 
 ## Task 1 — server swap-only override
 Implemented: `resolveBuyPageFront` + `buyPagePlacements` (pure, `src/lib/placement-pins.ts`); `buyPublishedDesign({ frontImageId? })`; addToCart honours `front` on the frontImageId entry. Stripe thumbnail follows the front via `resolveImagesByIds`.
-Tests: +7 unit (placement-pins), +9 real-DB `src/app/d/__tests__/buy-published-design-swap.integration.test.ts`, +9 real-DB `src/app/cart/__tests__/add-to-cart-swap.integration.test.ts`.
+Tests: +8 unit (placement-pins), +9 real-DB `src/app/d/__tests__/buy-published-design-swap.integration.test.ts`, +9 real-DB `src/app/cart/__tests__/add-to-cart-swap.integration.test.ts`.
 Mutation check: with the pre-change `d/actions.ts`, 7/9 buy-swap tests fail (the 2 that pass pin unchanged behaviour); with the pre-change `cart/actions.ts`, 7/9 cart-swap tests fail (same 2).
 Self-review: first docblock sentence of buyPublishedDesign ("pinned … placements.front = imageId") was stale after the change → amended. Otherwise clean.
 Finding (pre-existing, NOT fixed, out of slice scope): order-email hero images (`resolveHeroImages` → `resolveOrderEmailImages`) take the front from the design's display image and the source-less `…:front:{color}` mockup key, not from `placements.front`. For a swapped order the confirmation email's "Front" image is the seller's primary (usually the page image), not the swapped-in front. Already true for any non-primary front pin (/preview slice 2, and /d buys of a non-primary listing). Per-line identity rows in the same email, /orders, the confirm page and admin detail all read the pin and are correct. Recommend a follow-up issue.
@@ -53,3 +53,11 @@ Findings fixed:
 Findings NOT fixed (recorded):
 - Email hero (pre-existing, see Task 1) — follow-up issue recommended.
 - `order.storeProductId` names the listing the sale came through, not the exact composition printed; after a swap the line is `{front: B, back: A}` while A's mirror product is `{front: A}`. Already true of any /d order with a back. Payout keys off `storeId` (NULL here) per the schema comment, so nothing reads it as the print spec.
+
+## Gate (run by the controller, 2026-09-25)
+- `npm run lint`: 0 errors (22 warnings, all pre-existing; `eslint` on the branch's changed .ts/.tsx files alone: clean).
+- `npm run typecheck`: clean.
+- `npx vitest run`: 175 files, 1860 tests, all passed (+48 on this branch).
+- `npm run build` with the CI dummy env: exit 0.
+- `npm run db:generate`: "No schema changes, nothing to migrate". No migration on this branch.
+Not run here: e2e (CI's `e2e` job; no spec touches the image detail page) and any prod/preview smoke (unreachable from the cloud session).
