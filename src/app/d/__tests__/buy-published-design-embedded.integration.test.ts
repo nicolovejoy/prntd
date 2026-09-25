@@ -16,6 +16,8 @@ import type Stripe from "stripe";
 import { createTestDb } from "@/lib/__tests__/test-db";
 import * as schema from "@/lib/db/schema";
 import { makeUser, makeDesign, makeSourceImage } from "@/lib/__tests__/factories";
+import { buildCheckoutSessionParams } from "@/lib/checkout";
+import { resolveOrderVariant } from "@/lib/blanks";
 
 const h = vi.hoisted(() => ({
   db: null as unknown,
@@ -86,6 +88,41 @@ async function seed(db: Db) {
 
 const OPTS = { productId: "bella-canvas-3001", size: "M", color: "Black" };
 
+/**
+ * The expected Stripe params for the hosted (non-embedded) path, computed
+ * from the real builder against whatever the order row actually persisted —
+ * this is what pins invariant 1 (flag off = today, byte for byte) rather
+ * than a hand-picked subset of properties. `expires_at` is asserted
+ * separately (via `expect.any(Number)`) since it's wall-clock-derived.
+ */
+async function expectedHostedParams(
+  db: Db,
+  imageUrl: string,
+  cancelUrl: string
+): Promise<Stripe.Checkout.SessionCreateParams> {
+  const [order] = await db.select().from(schema.order);
+  if (order.itemPrice == null || order.shippingPrice == null) {
+    throw new Error("expected itemPrice/shippingPrice to be persisted");
+  }
+  const { product } = resolveOrderVariant({
+    productId: OPTS.productId,
+    size: OPTS.size,
+    color: OPTS.color,
+  });
+  return buildCheckoutSessionParams({
+    orderId: order.id,
+    designId: order.designId,
+    productName: product.name,
+    color: OPTS.color,
+    size: OPTS.size,
+    itemPrice: order.itemPrice,
+    shippingPrice: order.shippingPrice,
+    imageUrl,
+    cancelUrl,
+    appUrl: "http://localhost:3000",
+  });
+}
+
 beforeEach(async () => {
   h.db = await createTestDb();
   h.session = { user: { id: "buyer", isAnonymous: false } };
@@ -115,9 +152,12 @@ describe("buyPublishedDesign embedded-checkout gating (#135)", () => {
 
     expect(url).toBe("https://checkout.stripe.example/cs_test_hosted");
     const [params] = h.sessionParams;
-    expect(params).not.toHaveProperty("ui_mode");
-    expect(params.success_url).toContain("/order/confirm?session_id=");
-    expect(params.cancel_url).toBe(`http://localhost:3000/d/${ids.listingId}`);
+    const expected = await expectedHostedParams(
+      db,
+      "https://img.example/listing.png",
+      `http://localhost:3000/d/${ids.listingId}`
+    );
+    expect(params).toEqual({ ...expected, expires_at: expect.any(Number) });
   });
 
   it("flag on + valid pk_test_/sk_test_ pair: embedded params and the /checkout redirect", async () => {
@@ -194,7 +234,12 @@ describe("buyPublishedDesign embedded-checkout gating (#135)", () => {
 
     expect(url).toBe("https://checkout.stripe.example/cs_test_hosted");
     const [params] = h.sessionParams;
-    expect(params).not.toHaveProperty("ui_mode");
+    const expected = await expectedHostedParams(
+      db,
+      "https://img.example/listing.png",
+      `http://localhost:3000/d/${ids.listingId}`
+    );
+    expect(params).toEqual({ ...expected, expires_at: expect.any(Number) });
     expect(errSpy).toHaveBeenCalledWith(
       expect.stringContaining("missing-key")
     );
@@ -215,7 +260,12 @@ describe("buyPublishedDesign embedded-checkout gating (#135)", () => {
 
     expect(url).toBe("https://checkout.stripe.example/cs_test_hosted");
     const [params] = h.sessionParams;
-    expect(params).not.toHaveProperty("ui_mode");
+    const expected = await expectedHostedParams(
+      db,
+      "https://img.example/listing.png",
+      `http://localhost:3000/d/${ids.listingId}`
+    );
+    expect(params).toEqual({ ...expected, expires_at: expect.any(Number) });
     expect(errSpy).toHaveBeenCalledWith(
       expect.stringContaining("mode-mismatch")
     );
