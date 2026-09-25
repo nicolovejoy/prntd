@@ -152,6 +152,40 @@ CTAs ignore the flag when it is off; "Sign in to publish" wording on the
 image detail page and lightbox; sign-up ignores `next`; the running-jobs
 header badge does not count guests.
 
+## Second fix round (re-review from the main session)
+
+Re-review of `75637e6..81e095e` confirmed the three fixes and found no
+hydration mismatch. One new Minor, taken:
+
+- **The bench line moved the composer.** On a ~375px phone the line wraps to
+  two 44px rows (~104px). Rendered above the composer, it appeared when a
+  guest pressed Generate on an empty bench and shoved the composer down under
+  their thumb; bulk-deleting their last lane did the reverse. **Ruling:** on
+  the bench the line renders BELOW the composer panel, between it and the
+  lanes, so its coming and going never moves the composer. It sits with the
+  composer as the bench's top chrome, so select mode (which hides the
+  composer) hides it too; it returns on Done. `GuestKeepLine` now renders
+  just the line and takes a `className`; each caller places it.
+- **Library unchanged in placement** (under the tab strip, now in its own
+  gutter container in the page). The same jump does not apply: the library
+  has no composer, and the line only changes on a full page render (the
+  server decides from `images.length`); a bulk delete of the last image
+  re-renders the page into its empty state, with the thumb on the fixed
+  select bar, not on content below the line.
+- Tests: placement pinned in `studio-client.test.tsx` (composer panel →
+  line → first lane, line not inside the panel; the first-lane case asserts
+  the line lands after the panel; select mode hides and Done restores).
+  Mutation-checked: moving the line back above the composer fails all three.
+
+## Gate after the second fix round
+
+- `npm run lint`: 0 errors (22 pre-existing warnings).
+- `npm run typecheck`: clean.
+- `npx vitest run`: 176 files, 1849 tests, all pass (+2 over the first fix
+  round).
+- `npm run build` with the CI dummy env: exit 0.
+- `npm run db:generate`: "No schema changes, nothing to migrate".
+
 ## Gate after the fix round (head `8ba0a52` + this ledger update)
 
 - `npm run lint`: 0 errors (22 pre-existing warnings).

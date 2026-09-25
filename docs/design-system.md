@@ -315,8 +315,11 @@ differ.
   anonymous guest-funnel session sees its own Bench and Library plus one
   line, "Sign up to keep these designs. Have an account? Sign in." (two
   links, `/sign-up` and `/sign-in`; either one from the same window moves
-  the guest's work to the account). The line is hidden on an empty Bench or
-  Library. A visitor with no session at all is sent to sign-in.
+  the guest's work to the account). On the Bench it sits under the
+  composer, never above it (it wraps to two rows on a phone and comes and
+  goes mid-session, so above would move the composer); in the Library it
+  sits under the tab strip. Hidden on an empty Bench or Library. A visitor
+  with no session at all is sent to sign-in.
 - **Shop** — `/shop`, the community storefront (renamed from "Fresh
   Prints" 2026-07-19). Organizer stores were also shops (`/shop/[slug]`,
   each a self-contained storefront) — retired 2026-09-05 (#191):

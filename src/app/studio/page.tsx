@@ -12,8 +12,8 @@ import { StudioClient } from "./studio-client";
 //
 // Guests (#241): requireStudioUser admits an anonymous guest-funnel session
 // while GUEST_FUNNEL_ENABLED is on. Their lanes are the anonymous user's.
-// The client renders the sign-up/sign-in line above the bench once there is
-// a lane to keep — including one the guest just started here — so it gets
+// The client renders the sign-up/sign-in line under the composer once there
+// is a lane to keep — including one the guest just started here — so it gets
 // `isGuest` rather than the page deciding from the initial lanes alone.
 export default async function StudioPage() {
   const { session, isGuest } = await requireStudioUser();

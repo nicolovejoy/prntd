@@ -1474,7 +1474,41 @@ describe("StudioClient — guest line (#241)", () => {
     fireEvent.submit(screen.getByTestId("studio-composer").closest("form")!);
 
     // The optimistic lane is on screen before the server has answered.
-    expect(await screen.findByTestId("guest-keep-line")).toBeTruthy();
+    const line = await screen.findByTestId("guest-keep-line");
+    // And it appeared BELOW the composer, so the composer did not move.
+    expect(
+      screen.getByTestId("studio-composer-panel").compareDocumentPosition(line) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it("sits between the composer and the lanes, so coming and going never moves the composer", () => {
+    render(<StudioClient initialLanes={[lane()]} isGuest />);
+    const panel = screen.getByTestId("studio-composer-panel");
+    const line = screen.getByTestId("guest-keep-line");
+    const firstLane = screen.getAllByTestId("studio-lane")[0];
+
+    expect(
+      panel.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      line.compareDocumentPosition(firstLane) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    // Not inside the composer panel either — it is not part of the control.
+    expect(panel.contains(line)).toBe(false);
+  });
+
+  it("hides with the composer in select mode and returns on Done", () => {
+    render(<StudioClient initialLanes={[lane({ cells: [cell("a")] })]} isGuest />);
+    expect(screen.getByTestId("guest-keep-line")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    fireEvent.click(screen.getByTestId("select-mode"));
+    expect(screen.queryByTestId("studio-composer-panel")).toBeNull();
+    expect(screen.queryByTestId("guest-keep-line")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("select-done"));
+    expect(screen.getByTestId("guest-keep-line")).toBeTruthy();
   });
 
   it("never shows it to a real account", () => {

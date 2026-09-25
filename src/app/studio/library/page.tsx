@@ -27,7 +27,13 @@ export default async function StudioLibraryPage() {
 
   return (
     <>
-      {isGuest && images.length > 0 && <GuestKeepLine />}
+      {isGuest && images.length > 0 && (
+        // The views' own gutters and max width, so the line sits flush with
+        // the tab strip above it; main keeps its 24px top gap below.
+        <div className="px-4 sm:px-6 pt-4 max-w-4xl mx-auto w-full">
+          <GuestKeepLine />
+        </div>
+      )}
       {/* 24px under the tab strip, the bench's default 24px. The layout
           contributes nothing below the strip, so each view owns this
           number; they used to disagree (24 / 32 / 32). */}
