@@ -12,6 +12,7 @@ import { eq } from "drizzle-orm";
 import { stripe } from "@/lib/stripe";
 import { computePrice, computeOrderTotal } from "@/lib/pricing";
 import { buildCheckoutSessionParams } from "@/lib/checkout";
+import { embeddedCheckoutPath } from "@/lib/embedded-checkout";
 import {
   resolveOrderVariant,
   multiPlacementEnabled,
@@ -160,6 +161,12 @@ export async function createStripeCheckoutForOrder(params: {
    * null for design-your-own. See the schema comment on `order`. */
   storeId?: string | null;
   storeProductId?: string | null;
+  /** Present only when the caller has resolved `embeddedCheckoutConfig()` to
+   * enabled (#135 slice 2): the session mounts on our own /checkout page
+   * instead of Stripe's hosted page. `backPath` is where /checkout's back
+   * link goes; `cancelUrl` above is ignored in this mode (buildCheckoutSessionParams
+   * doesn't take a cancel_url for an embedded session). */
+  embedded?: { backPath: string };
 }): Promise<{ url: string | null }> {
   // Validate product/size/color before taking money — rejects an
   // unknown/discontinued product or a combo with no fulfillable variant.
@@ -217,6 +224,7 @@ export async function createStripeCheckoutForOrder(params: {
       imageUrl: params.checkoutImageUrl,
       cancelUrl: params.cancelUrl,
       appUrl: process.env.NEXT_PUBLIC_APP_URL!,
+      uiMode: params.embedded ? "embedded" : "hosted",
     })
   );
 
@@ -224,6 +232,12 @@ export async function createStripeCheckoutForOrder(params: {
     .update(orderTable)
     .set({ stripeSessionId: checkoutSession.id })
     .where(eq(orderTable.id, orderId));
+
+  if (params.embedded) {
+    return {
+      url: embeddedCheckoutPath(checkoutSession.id, params.embedded.backPath),
+    };
+  }
 
   return { url: checkoutSession.url };
 }
