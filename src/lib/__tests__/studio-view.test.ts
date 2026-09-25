@@ -55,6 +55,25 @@ describe("timeAgo", () => {
     expect(at(2 * 60 * 60_000)).toBe("2h ago");
     expect(at(24 * 60 * 60_000)).toBe("1d ago");
   });
+
+  it("falls back to a Pacific calendar date after 30 days, whatever the process zone", () => {
+    // 03:00 UTC on Aug 11 is still Aug 10 in Pacific time. The server
+    // renders in UTC and the browser hydrates in the viewer's zone; the
+    // label has to be the same string in both (React #418), and the day
+    // shown is Pacific (repo convention: UTC at rest, Pacific on display).
+    const at = new Date("2026-08-11T03:00:00.000Z");
+    const later = at.getTime() + 45 * 24 * 60 * 60 * 1000;
+    const original = process.env.TZ;
+    try {
+      for (const tz of ["UTC", "Asia/Tokyo", "America/Los_Angeles"]) {
+        process.env.TZ = tz;
+        expect(timeAgo(at, later)).toBe("8/10/2026");
+      }
+    } finally {
+      if (original === undefined) delete process.env.TZ;
+      else process.env.TZ = original;
+    }
+  });
 });
 
 describe("bulkDeleteTitle", () => {
