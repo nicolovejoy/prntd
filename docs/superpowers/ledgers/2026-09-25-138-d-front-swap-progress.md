@@ -70,7 +70,8 @@ Verdict: no Critical; acceptance criteria 1/2/3/6 pass. One Important, four Mino
 2. Minor — Swap was silent to screen readers → `aria-pressed={swapped}`. Test asserts false/true/false.
 3. Minor — × hidden while swapped: my ledger reason was wrong (corrected in the Task 3 ruling above). × now follows the pick; Change stays hidden while swapped. aria-label names the row: "Remove back design" / "Remove front design". Tests: × on the Front row while swapped, none on the Back row; removing while swapped reports front = page, back = null, buy sends neither override nor back, total drops to the one-sided price.
 4. Minor — no server check for a back print area. `buyPublishedDesign` and `addToCart` (both entries — the check sits after the entry split) throw "This product has no back print area" when a back is set on a blank without one; an unknown product still falls through to resolveOrderVariant's refusal. Every active blank has a back, so the tests strip the Classic Tee's back placement inside a try/finally that restores the catalog singleton. Not added to `createCheckoutSession` (/preview): not in the review's list, and /preview already hides the back entry for a back-less blank (`productSupportsPlacement`); recorded as the one remaining path without the server check.
-5. Minor (pre-existing) — `handleBuy`/`handleAddToCart` swallowed errors. New `CHECKOUT_FAILED` ("Couldn't start checkout. Nothing was charged. Try again.") and `ADD_TO_CART_FAILED` ("Couldn't add this to your cart. Try again.") in `action-copy.ts`, shown via `InlineNotice` under the CTAs (both signed-in and signed-out stacks), cleared on the next attempt. "Nothing was charged" holds: a throw means no Stripe URL came back, so the buyer never reached payment. Tests: 4.
+  → WRONG, corrected in fix round 2: /preview's `handleProductChange` deliberately keeps `backImageId` across a garment switch, and `backActive` doesn't check the garment, so Order could reach checkout with a back on a back-less blank. The check is now in `createCheckoutSession` too.
+5. Minor (pre-existing) — `handleBuy`/`handleAddToCart` swallowed errors. New `CHECKOUT_FAILED` and `ADD_TO_CART_FAILED` (copy amended in fix round 2, below) in `action-copy.ts`, shown via `InlineNotice` under the CTAs (both signed-in and signed-out stacks), cleared on the next attempt. "Nothing was charged" holds: a throw means no Stripe URL came back, so the buyer never reached payment. Tests: 4.
 
 Recorded, not fixed (per the main session):
 (a) `getListingMockup({ frontImageId })` renders a buyer's own PRIVATE image and stores its mockup URL in the SELLER's `design.mockupUrls`, which /preview then sends to the seller's browser. The mockup is a public R2 object keyed by the buyer's image id. Filed under the existing ruling on anonymous mockup renders (Nico 2026-09-06: note it, revisit at 10× the Shop). The same is already true of a private back pick via `getListingBackMockup`.
@@ -80,5 +81,17 @@ Recorded, not fixed (per the main session):
 - `npm run lint`: 0 errors (22 pre-existing warnings; changed .ts/.tsx files alone: clean).
 - `npm run typecheck`: clean.
 - `npx vitest run`: 175 files, 1873 tests, all passed (+13 this round, +61 on the branch).
+- `npm run build` with the CI dummy env: exit 0.
+- `npm run db:generate`: "No schema changes, nothing to migrate". Still no migration.
+
+## Re-review (main session) → fix round 2
+Re-review of 10fdec2..9dc15b3 confirmed fixes 1, 2, 3, 5 (every new test fails without its fix). Two items:
+1. `createCheckoutSession` (/preview) gets the same back-print-area check, same error text ("This product has no back print area"), placed after the flag gate and before the back guard, unknown product falling through to resolveOrderVariant. My fix-round-1 reason for leaving it out was wrong (corrected above). Real-DB test in `src/app/order/__tests__/front-pin.integration.test.ts` with the same try/finally catalog-stripping helper: refuses with a back and books nothing (no order, no order_item, no Stripe session); front-only on the same blank still books. Fails on the pre-fix code.
+2. Copy: "Try again" dropped from both. A refusal (back on a back-less garment, a pick hidden since it was chosen, a private image) fails identically on every retry — same class as the DELETE_IMAGE_ERROR fix. Now `CHECKOUT_FAILED` = "Couldn't start checkout. Nothing was charged." and `ADD_TO_CART_FAILED` = "Couldn't add this to your cart." The BuyPanel notice tests now assert the exact rendered text (both fail on the old copy). Comment on the constants states why.
+
+## Gate after fix round 2 (run by the controller)
+- `npm run lint`: 0 errors (22 pre-existing warnings; changed .ts/.tsx files alone: clean).
+- `npm run typecheck`: clean.
+- `npx vitest run`: 175 files, 1874 tests, all passed (+1 this round — the two copy tests were tightened in place — +62 on the branch).
 - `npm run build` with the CI dummy env: exit 0.
 - `npm run db:generate`: "No schema changes, nothing to migrate". Still no migration.
