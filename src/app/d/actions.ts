@@ -19,7 +19,9 @@ import {
 import {
   getDesignImageWithOwner,
   getDesignSourceImages,
+  resolveImagesByIds,
 } from "@/lib/design-images";
+import { resolveBuyPageFront } from "@/lib/placement-pins";
 import { computePrice } from "@/lib/pricing";
 import { DEFAULT_BLANK_ID, multiPlacementEnabled } from "@/lib/blanks";
 import { createStripeCheckoutForOrder } from "@/app/order/actions";
@@ -454,11 +456,18 @@ export async function getListingBackMockup(params: {
  * lines.
  *
  * The order is pinned to the exact image bought (`placements.front =
- * imageId`) so the webhook prints that image regardless of later
- * regenerations of its source design. Price is `computePrice(0, …)` — the
+ * imageId`, or `placements.back` after a swap — below) so the webhook prints
+ * that image regardless of later regenerations of its source design. Price is `computePrice(0, …)` — the
  * buyer didn't incur generation cost; the designer's is internal-only and
  * never billed anyway. The order's designId is the image's source design,
  * NOT a new design — the buyer isn't creating one.
+ *
+ * Swap (#138 slice 3): with a back picked, the buyer may exchange the two
+ * sides, which sends `frontImageId` = the picked image and `backImageId` =
+ * this page's image. That is the ONLY front change this page allows
+ * (`resolveBuyPageFront`): the page image stays printed, because the order's
+ * designId and storeProductId both name it. The override clears the same
+ * guard as the back, and the price is unchanged — a back exists either way.
  */
 export async function buyPublishedDesign(params: {
   imageId: string;
@@ -468,6 +477,11 @@ export async function buyPublishedDesign(params: {
   /** Source design_image id to print on the back (#25). Honored only when
    * MULTI_PLACEMENT_ENABLED; ignored otherwise (defense in depth). */
   backImageId?: string;
+  /** Image to print on the front instead of this page's image (#138 slice
+   * 3). Swap only: accepted when `backImageId` is this page's image, refused
+   * otherwise. Absent (or equal to `imageId`) means the page image, as
+   * before. */
+  frontImageId?: string;
 }): Promise<{ url: string | null; needsAuth?: boolean }> {
   const session = await auth.api.getSession({ headers: await headers() });
   // Purchase point — guests (anonymous-plugin sessions) and the sessionless
@@ -495,6 +509,25 @@ export async function buyPublishedDesign(params: {
     await assertUsablePlacementImage(backImageId, image.designId, session.user.id);
   }
 
+  // Front: this page's image unless the buyer swapped (#138 slice 3). The
+  // shape rule runs against the back that will actually be pinned (after the
+  // flag gate above), so a dropped back also refuses the override; the
+  // override then clears the same guard as the back.
+  const frontImageId = resolveBuyPageFront({
+    pageImageId: params.imageId,
+    front: params.frontImageId,
+    back: backImageId,
+  });
+  const frontSwapped = frontImageId !== params.imageId;
+  if (frontSwapped) {
+    await assertUsablePlacementImage(
+      frontImageId,
+      image.designId,
+      session.user.id,
+      "front"
+    );
+  }
+
   const resolvedProductId = params.productId ?? DEFAULT_BLANK_ID;
   const pricing = computePrice(0, resolvedProductId, params.size, {
     back: !!backImageId,
@@ -517,10 +550,18 @@ export async function buyPublishedDesign(params: {
     color: params.color,
     itemPrice: pricing.total,
     placements: {
-      front: params.imageId,
+      front: frontImageId,
       ...(backImageId ? { back: backImageId } : {}),
     },
-    checkoutImageUrl: image.imageUrl,
+    // The Stripe line thumbnail follows the front pin, like
+    // createCheckoutSession's (#138 slice 1).
+    checkoutImageUrl: frontSwapped
+      ? (await resolveImagesByIds([frontImageId])).get(frontImageId)
+          ?.imageUrl ?? null
+      : image.imageUrl,
+    // Back to the page the buyer came from. It is still on the shirt after a
+    // swap (on the back), and this page keeps no placement state in its URL,
+    // so there is nothing further to carry.
     cancelUrl: `${process.env.NEXT_PUBLIC_APP_URL}/d/${params.imageId}`,
     storeProductId,
   });
