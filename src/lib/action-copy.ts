@@ -68,6 +68,8 @@ export const SET_PRIMARY_IMAGE_FAILED = "Couldn't make this the design's image. 
 export const EMPTY_TITLE_REJECTED = "A title can't be blank. Type a title or cancel.";
 export const TITLE_TOO_LONG = "A title can't be longer than 80 characters.";
 export const SAVE_TITLE_FAILED = "Couldn't save this title. Try again.";
+export const CHECKOUT_FAILED = "Couldn't start checkout. Nothing was charged. Try again.";
+export const ADD_TO_CART_FAILED = "Couldn't add this to your cart. Try again.";
 
 // --- admin (InlineNotice: one line, plus the raw error as a hint) ---
 

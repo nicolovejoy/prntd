@@ -8,7 +8,7 @@ import {
   type Ref,
 } from "react";
 import Link from "next/link";
-import { Button } from "@/components/ui";
+import { Button, InlineNotice } from "@/components/ui";
 import { SizePicker, ColorPicker } from "@/components/product-options";
 import { ACTIVE_BLANKS, DEFAULT_BLANK_ID, getBlank } from "@/lib/blanks";
 import {
@@ -26,6 +26,7 @@ import { buyPagePlacements, type PlacementPick } from "@/lib/placement-pins";
 import { addToCart } from "@/app/cart/actions";
 import { buyPublishedDesign, getBuyPageBackSources } from "../actions";
 import { MONO_LABEL } from "./mono-label";
+import { ADD_TO_CART_FAILED, CHECKOUT_FAILED } from "@/lib/action-copy";
 
 /** An image on one side of the shirt: the source image id and its artwork
  * URL. Named for its first use (the back pick); the swap (#138 slice 3)
@@ -140,6 +141,9 @@ export function BuyPanel({
   );
   const [loading, setLoading] = useState(false);
   const [addingToCart, setAddingToCart] = useState(false);
+  // One line under the CTAs when Order or Add to cart fails. The thrown
+  // message is a Next.js digest in production, so the copy is our own.
+  const [notice, setNotice] = useState<string | null>(null);
 
   // Report state up to the wrapper (#135 slice 1). Fires on mount too, so a
   // wrapper always has the current product/color/expanded before the buyer
@@ -173,6 +177,21 @@ export function BuyPanel({
   // Swapping an image with itself (the page image picked as its own back,
   // via Shop) changes nothing, so it isn't offered.
   const canSwap = !!back && back.id !== imageId;
+
+  // × on the pick, on whichever row it sits. Named for that row.
+  const removePick = (
+    <button
+      onClick={() => {
+        setBack(null);
+        setSwapped(false);
+        setBackPickerOpen(false);
+      }}
+      aria-label={swapped ? "Remove front design" : "Remove back design"}
+      className="w-11 h-11 flex items-center justify-center rounded-md border border-border text-text-muted hover:border-border-hover"
+    >
+      ×
+    </button>
+  );
 
   // Keyed on ids: `sides` is rebuilt every render, and an id names one
   // image, so the report fires exactly when a side's image changes.
@@ -233,6 +252,7 @@ export function BuyPanel({
   async function handleBuy() {
     if (!size) return;
     setLoading(true);
+    setNotice(null);
     try {
       const { url, needsAuth } = await buyPublishedDesign({
         imageId,
@@ -248,6 +268,7 @@ export function BuyPanel({
       }
       if (url) window.location.href = url;
     } catch {
+      setNotice(CHECKOUT_FAILED);
       setLoading(false);
     }
   }
@@ -255,6 +276,7 @@ export function BuyPanel({
   async function handleAddToCart() {
     if (!size) return;
     setAddingToCart(true);
+    setNotice(null);
     try {
       // A sessionless visitor gets an anonymous session first — guests have
       // carts (the guest funnel re-parents on sign-in); the auth gate stays
@@ -275,6 +297,7 @@ export function BuyPanel({
       // (not router.push — see preview/page.tsx handleAddToCart).
       window.location.href = "/cart";
     } catch {
+      setNotice(ADD_TO_CART_FAILED);
       setAddingToCart(false);
     }
   }
@@ -308,6 +331,7 @@ export function BuyPanel({
         {loading ? "Redirecting…" : `Order — $${total.toFixed(2)}`}
       </Button>
       {addToCartButton}
+      {notice && <InlineNotice message={notice} className="text-center" />}
     </div>
   ) : (
     <div className="space-y-1.5">
@@ -320,6 +344,7 @@ export function BuyPanel({
         </Button>
       </Link>
       {addToCartButton}
+      {notice && <InlineNotice message={notice} className="text-center" />}
     </div>
   );
 
@@ -391,13 +416,22 @@ export function BuyPanel({
               <div className="flex items-center gap-3" data-testid="side-row-front">
                 <span className="w-10 text-sm text-text-muted">Front</span>
                 <SideThumb url={sides.front.imageUrl} alt="Front design" />
+                {/* While swapped the pick is on the front: its × comes with
+                    it. Removing it puts this page's image back on the front
+                    with no back (buyPagePlacements). */}
+                {swapped && (
+                  <>
+                    <div className="flex-1" />
+                    {removePick}
+                  </>
+                )}
               </div>
               <div className="flex items-center gap-3" data-testid="side-row-back">
                 <span className="w-10 text-sm text-text-muted">Back</span>
                 <SideThumb url={sides.back.imageUrl} alt="Back design" />
-                {/* Change and × act on the pick. While swapped the back is
-                    this page's image, which neither may replace or remove —
-                    swap back first. */}
+                {/* Change replaces the pick through the back picker. Hidden
+                    while swapped: on the front it would be a front picker,
+                    which this page doesn't offer (swap only). */}
                 {!swapped && (
                   <>
                     <div className="flex-1 text-sm">
@@ -408,17 +442,7 @@ export function BuyPanel({
                         Change
                       </button>
                     </div>
-                    <button
-                      onClick={() => {
-                        setBack(null);
-                        setSwapped(false);
-                        setBackPickerOpen(false);
-                      }}
-                      aria-label="Remove back design"
-                      className="w-11 h-11 flex items-center justify-center rounded-md border border-border text-text-muted hover:border-border-hover"
-                    >
-                      ×
-                    </button>
+                    {removePick}
                   </>
                 )}
               </div>
@@ -428,6 +452,8 @@ export function BuyPanel({
                     setSwapped((s) => !s);
                     setBackPickerOpen(false);
                   }}
+                  // A toggle: announce which way round the shirt is now.
+                  aria-pressed={swapped}
                   className="block min-h-11 text-sm underline text-text-muted hover:text-foreground"
                 >
                   <span aria-hidden>⇅ </span>Swap front and back
