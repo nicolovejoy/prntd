@@ -3,11 +3,11 @@
  * drop retires a third. All three keep serving as permanent redirects so
  * bookmarks, shared links and stale `?from=` markers survive.
  *
- * The existsSync check below is the one worth having: `/shop` (static) now
- * sits beside the mothballed organizer `/shop/[slug]` (dynamic). A dynamic segment
- * requires a non-empty path segment, so `/shop` can only match the static
- * page — this asserts the two files both exist, which is what would break
- * if someone "helpfully" folded the feed into the slug route. It checks
+ * The existsSync checks below pin the Shop's route shape: `/shop` is the
+ * static community-feed page, and the organizer storefront that sat beside it
+ * at `/shop/[slug]` (dynamic) was deleted with composition slice 5 (#201,
+ * #191 step 2). Nothing under `/shop` is dynamic any more, so a stray slug
+ * route coming back would be a regression, not a neighbour. It checks
  * existence only (`existsSync`), not that `shop/page.tsx` exports a real
  * page component — importing it pulls in `getDiscoverFeed` and its DB
  * dependency, which this file deliberately doesn't mock.
@@ -57,14 +57,14 @@ describe("retired routes", () => {
   });
 });
 
-describe("/shop does not collide with the organizer /shop/[slug]", () => {
+describe("/shop is the feed; the organizer /shop/[slug] is gone", () => {
   const app = resolve(__dirname, "..");
 
   it("has a static page for /shop", () => {
     expect(existsSync(resolve(app, "shop/page.tsx"))).toBe(true);
   });
 
-  it("leaves the organizer slug route in place", () => {
-    expect(existsSync(resolve(app, "shop/[slug]/page.tsx"))).toBe(true);
+  it("has no organizer slug route beside it", () => {
+    expect(existsSync(resolve(app, "shop/[slug]"))).toBe(false);
   });
 });

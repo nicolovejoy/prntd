@@ -10,7 +10,7 @@ import { NextRequest, NextResponse } from "next/server";
 // "/designs" is now only a 308 to /studio/library (nav model A), but it stays
 // on this list so a signed-out visitor lands on /sign-in in one hop instead of
 // bouncing through the redirect. "/shop" is deliberately absent — the
-// community feed is public, and so is the mothballed organizer /shop/[slug].
+// community feed is public.
 const ALWAYS_PROTECTED = ["/designs", "/orders", "/admin", "/studio"];
 // The design → preview → order funnel. Opened to signed-out visitors when
 // GUEST_FUNNEL_ENABLED (#26) — a guest gets an anonymous session client-side

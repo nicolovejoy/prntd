@@ -66,13 +66,12 @@ ADMIN_EMAIL=nicholas.lovejoy@gmail.com
 OWNER_EMAIL=nicholas.lovejoy@gmail.com
 
 # --- Feature flags (non-secret) -----------------------------------------
-# All four are ON in production, so local mirrors prod. Every one defaults
+# All three are ON in production, so local mirrors prod. Every one defaults
 # OFF when unset or empty (=== "true"), which is a quiet way to test a
 # different app than the one your users see.
 GUEST_FUNNEL_ENABLED=true
 CART_ENABLED=true
 MULTI_PLACEMENT_ENABLED=true
-STORES_ENABLED=true
 # Daily generation caps guarding the ungated funnel. Defaults apply if unset.
 # GUEST_GEN_DAILY_CAP=8
 # USER_GEN_DAILY_CAP=50
