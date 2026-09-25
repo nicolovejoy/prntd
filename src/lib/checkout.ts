@@ -40,7 +40,18 @@ export function buildCheckoutSessionParams(params: {
   appUrl: string;
   /** Injected clock (ms) for `expires_at` — defaults to `Date.now()`. */
   now?: number;
+  /**
+   * Hosted (default) renders Stripe's own checkout page and redirects on
+   * completion/cancel via `success_url`/`cancel_url`. Embedded (#135 slice 2)
+   * mounts the form on our own `/checkout` page instead: Stripe requires
+   * `return_url` in place of `success_url`/`cancel_url` — there is no
+   * separate cancel destination, because the customer never leaves our
+   * origin in the first place. `cancelUrl` is ignored in embedded mode; the
+   * back link lives on `/checkout` itself (`safeCheckoutReturnPath`).
+   */
+  uiMode?: "hosted" | "embedded";
 }): Stripe.Checkout.SessionCreateParams {
+  const embedded = params.uiMode === "embedded";
   return {
     mode: "payment",
     allow_promotion_codes: true,
@@ -86,8 +97,15 @@ export function buildCheckoutSessionParams(params: {
       orderId: params.orderId,
       designId: params.designId,
     },
-    success_url: `${params.appUrl}/order/confirm?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: params.cancelUrl,
+    ...(embedded
+      ? {
+          ui_mode: "embedded" as const,
+          return_url: `${params.appUrl}/order/confirm?session_id={CHECKOUT_SESSION_ID}`,
+        }
+      : {
+          success_url: `${params.appUrl}/order/confirm?session_id={CHECKOUT_SESSION_ID}`,
+          cancel_url: params.cancelUrl,
+        }),
   };
 }
 

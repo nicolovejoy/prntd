@@ -44,6 +44,10 @@ NEXT_PUBLIC_R2_PUBLIC_URL=https://pub-7389d029733346daa7c3196cad2f5288.r2.dev
 # Local uses Stripe TEST mode. The live key is in Vercel only — never here.
 STRIPE_SECRET_KEY=op://dev-secrets/prntd-stripe-secret-test/password
 STRIPE_WEBHOOK_SECRET=op://dev-secrets/prntd-stripe-webhook-secret/credential
+# Embedded checkout (#135 slice 2) needs the matching publishable key —
+# same mode (test/live) as STRIPE_SECRET_KEY above. Client-exposed, so no
+# vault reference: paste the value directly if you enable the flag below.
+# NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
 
 # --- Fulfilment + email -------------------------------------------------
 PRINTFUL_API_KEY=op://dev-secrets/prntd-printful/credential
@@ -73,6 +77,11 @@ GUEST_FUNNEL_ENABLED=true
 CART_ENABLED=true
 MULTI_PLACEMENT_ENABLED=true
 STORES_ENABLED=true
+# Purchases from the image detail page open Stripe Embedded Checkout on our
+# own /checkout page instead of the hosted Stripe page. Needs a matching
+# NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY above or it fails closed to hosted
+# checkout. Default off.
+# EMBEDDED_CHECKOUT_ENABLED=true
 # Daily generation caps guarding the ungated funnel. Defaults apply if unset.
 # GUEST_GEN_DAILY_CAP=8
 # USER_GEN_DAILY_CAP=50

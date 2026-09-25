@@ -19,6 +19,67 @@ const base = {
 };
 
 describe("buildCheckoutSessionParams", () => {
+  it("with no uiMode deep-equals the hosted shape (pins today's params byte for byte)", () => {
+    const now = 1_700_000_000_000;
+    const p = buildCheckoutSessionParams({ ...base, now });
+    expect(p).toEqual({
+      mode: "payment",
+      allow_promotion_codes: true,
+      expires_at: Math.floor(now / 1000) + CHECKOUT_SESSION_TTL_SECONDS,
+      shipping_address_collection: { allowed_countries: ["US"] },
+      line_items: [
+        {
+          price_data: {
+            currency: "usd",
+            product_data: {
+              name: "PRNTD Unisex Tee",
+              description: "Black / L",
+              images: ["https://cdn.example.com/img.png"],
+            },
+            unit_amount: 1943,
+          },
+          quantity: 1,
+        },
+      ],
+      shipping_options: [
+        {
+          shipping_rate_data: {
+            type: "fixed_amount",
+            fixed_amount: { amount: 469, currency: "usd" },
+            display_name: "Standard shipping",
+          },
+        },
+      ],
+      metadata: { orderId: "order-1", designId: "design-1" },
+      success_url: "https://prntd.org/order/confirm?session_id={CHECKOUT_SESSION_ID}",
+      cancel_url: "https://prntd.org/preview?id=design-1",
+    });
+  });
+
+  it("uiMode: 'hosted' produces the identical shape as omitting uiMode", () => {
+    const now = 1_700_000_000_000;
+    expect(buildCheckoutSessionParams({ ...base, now, uiMode: "hosted" })).toEqual(
+      buildCheckoutSessionParams({ ...base, now })
+    );
+  });
+
+  it("uiMode: 'embedded' sets ui_mode + return_url, omits success_url/cancel_url, and otherwise matches hosted", () => {
+    const now = 1_700_000_000_000;
+    const hosted = buildCheckoutSessionParams({ ...base, now });
+    const embedded = buildCheckoutSessionParams({ ...base, now, uiMode: "embedded" });
+
+    expect(embedded).toEqual({
+      ...hosted,
+      ui_mode: "embedded",
+      return_url: "https://prntd.org/order/confirm?session_id={CHECKOUT_SESSION_ID}",
+      success_url: undefined,
+      cancel_url: undefined,
+    });
+    expect(embedded).not.toHaveProperty("success_url");
+    expect(embedded).not.toHaveProperty("cancel_url");
+    expect((embedded as { ui_mode?: string }).ui_mode).toBe("embedded");
+  });
+
   it("prices the single line item in cents, rounded", () => {
     const p = buildCheckoutSessionParams({ ...base, itemPrice: 19.43 });
     const item = p.line_items![0];
