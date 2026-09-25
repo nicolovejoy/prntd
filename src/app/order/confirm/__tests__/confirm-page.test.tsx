@@ -13,10 +13,25 @@ import { render, screen } from "@testing-library/react";
 import ConfirmPage from "../page";
 
 const getOrderBySession = vi.fn();
+const getCheckoutSessionState = vi.fn();
 
 vi.mock("../actions", () => ({
   getOrderBySession: (...args: unknown[]) => getOrderBySession(...args),
 }));
+
+vi.mock("@/lib/stripe", () => ({
+  stripe: { checkout: { sessions: { retrieve: vi.fn() } } },
+}));
+
+vi.mock("@/lib/checkout-session-status", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/checkout-session-status")>(
+    "@/lib/checkout-session-status"
+  );
+  return {
+    ...actual,
+    getCheckoutSessionState: (...args: unknown[]) => getCheckoutSessionState(...args),
+  };
+});
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
@@ -63,6 +78,8 @@ async function renderConfirm(searchParams: Record<string, string | string[] | un
 describe("ConfirmPage", () => {
   beforeEach(() => {
     getOrderBySession.mockReset();
+    getCheckoutSessionState.mockReset();
+    vi.unstubAllEnvs();
   });
 
   it("calls getOrderBySession once with the session id and renders the mono heading", async () => {
@@ -157,5 +174,107 @@ describe("ConfirmPage", () => {
     expect(consoleErrorSpy).toHaveBeenCalled();
 
     consoleErrorSpy.mockRestore();
+  });
+
+  const PENDING_ORDER = { ...FRONT_ONLY_ORDER, status: "pending" };
+
+  it("flag off + pending order: never calls the Stripe helper, renders Order confirmed.", async () => {
+    getOrderBySession.mockResolvedValue(PENDING_ORDER);
+
+    await renderConfirm({ session_id: "cs_1" });
+
+    expect(getCheckoutSessionState).not.toHaveBeenCalled();
+    expect(screen.getByText("Order confirmed.")).toBeInTheDocument();
+  });
+
+  it("flag on + paid order: never calls the Stripe helper", async () => {
+    vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", "true");
+    getOrderBySession.mockResolvedValue(FRONT_ONLY_ORDER);
+
+    await renderConfirm({ session_id: "cs_1" });
+
+    expect(getCheckoutSessionState).not.toHaveBeenCalled();
+    expect(screen.getByText("Order confirmed.")).toBeInTheDocument();
+  });
+
+  it("flag on + pending + open embedded session: shows Payment not completed. with a Return to checkout link", async () => {
+    vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", "true");
+    vi.stubEnv("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", "pk_test_abc123");
+    vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_abc123");
+    getOrderBySession.mockResolvedValue(PENDING_ORDER);
+    getCheckoutSessionState.mockResolvedValue({ status: "open", uiMode: "embedded", url: null });
+
+    await renderConfirm({ session_id: "cs_1" });
+
+    expect(getCheckoutSessionState).toHaveBeenCalledWith("cs_1");
+    expect(screen.getByText("Payment not completed.")).toBeInTheDocument();
+    expect(screen.getByText("Nothing was charged.")).toBeInTheDocument();
+    const link = screen.getByRole("link", { name: "Return to checkout" });
+    expect(link).toHaveAttribute("href", "/checkout?session=cs_1");
+  });
+
+  it("flag on + pending + open embedded session but no publishable key configured: no Return to checkout link", async () => {
+    // The outer gate that decides whether to call Stripe at all stays on the
+    // raw flag (plan's Task 4), but a usable /checkout page needs a real key
+    // pair too (embeddedCheckoutConfig()) — with the key missing, resumeHref
+    // must come back null rather than pointing at a page that can't render.
+    vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", "true");
+    getOrderBySession.mockResolvedValue(PENDING_ORDER);
+    getCheckoutSessionState.mockResolvedValue({ status: "open", uiMode: "embedded", url: null });
+
+    await renderConfirm({ session_id: "cs_1" });
+
+    expect(screen.getByText("Payment not completed.")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Return to checkout" })).not.toBeInTheDocument();
+  });
+
+  it("flag on + pending + open hosted session with a url: Return to checkout links to that url", async () => {
+    vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", "true");
+    getOrderBySession.mockResolvedValue(PENDING_ORDER);
+    getCheckoutSessionState.mockResolvedValue({
+      status: "open",
+      uiMode: "hosted",
+      url: "https://checkout.stripe.com/x",
+    });
+
+    await renderConfirm({ session_id: "cs_1" });
+
+    expect(screen.getByText("Payment not completed.")).toBeInTheDocument();
+    const link = screen.getByRole("link", { name: "Return to checkout" });
+    expect(link).toHaveAttribute("href", "https://checkout.stripe.com/x");
+  });
+
+  it("flag on + pending + complete session: shows Order confirmed.", async () => {
+    vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", "true");
+    getOrderBySession.mockResolvedValue(PENDING_ORDER);
+    getCheckoutSessionState.mockResolvedValue({ status: "complete", uiMode: "embedded", url: null });
+
+    await renderConfirm({ session_id: "cs_1" });
+
+    expect(screen.getByText("Order confirmed.")).toBeInTheDocument();
+  });
+
+  it("flag on + pending + expired session: shows the expired copy with a Back to Shop link, no Return to checkout", async () => {
+    vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", "true");
+    getOrderBySession.mockResolvedValue(PENDING_ORDER);
+    getCheckoutSessionState.mockResolvedValue({ status: "expired", uiMode: "embedded", url: null });
+
+    await renderConfirm({ session_id: "cs_1" });
+
+    expect(screen.getByText("This checkout expired.")).toBeInTheDocument();
+    expect(screen.getByText("Nothing was charged.")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Return to checkout" })).not.toBeInTheDocument();
+    const backLink = screen.getByRole("link", { name: "Back to Shop" });
+    expect(backLink).toHaveAttribute("href", "/shop");
+  });
+
+  it("flag on + pending + helper returns null: shows Order confirmed.", async () => {
+    vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", "true");
+    getOrderBySession.mockResolvedValue(PENDING_ORDER);
+    getCheckoutSessionState.mockResolvedValue(null);
+
+    await renderConfirm({ session_id: "cs_1" });
+
+    expect(screen.getByText("Order confirmed.")).toBeInTheDocument();
   });
 });

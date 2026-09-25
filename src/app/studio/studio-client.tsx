@@ -44,6 +44,7 @@ import {
 import type { OptimisticEntry } from "@/lib/studio-view";
 import type { StudioLane } from "@/lib/studio";
 import { deleteConversations, getStudioLanes } from "./actions";
+import { GuestKeepLine } from "./guest-keep-line";
 
 /**
  * /studio — the working surface (studio-plan slices 2+3): lanes render, a
@@ -122,6 +123,7 @@ const MOUNT_RECONCILE_DELAY_MS = 1500;
 export function StudioClient({
   initialLanes,
   initialNowMs,
+  isGuest = false,
 }: {
   initialLanes: StudioLane[];
   /**
@@ -132,6 +134,9 @@ export function StudioClient({
    * callers that never server-render (tests).
    */
   initialNowMs?: number;
+  /** An anonymous guest-funnel session (#241): shows the sign-up/sign-in
+   * line under the composer while there is at least one lane to keep. */
+  isGuest?: boolean;
 }) {
   const [lanes, setLanes] = useState<StudioLane[]>(initialLanes);
   const [anchor, setAnchor] = useState<Anchor | null>(null);
@@ -614,19 +619,33 @@ export function StudioClient({
         }`}
       >
         {selectMode ? null : (
-          <div className="py-6">
-            <Composer
-              panelRef={composerPanelRef}
-              text={text}
-              anchor={anchor}
-              atCap={atCap}
-              capNotice={AT_CAP_COPY}
-              notice={notice}
-              onChangeText={setText}
-              onSubmit={() => void submit()}
-              onClearAnchor={() => setAnchor(null)}
-            />
-          </div>
+          <>
+            <div className="py-6">
+              <Composer
+                panelRef={composerPanelRef}
+                text={text}
+                anchor={anchor}
+                atCap={atCap}
+                capNotice={AT_CAP_COPY}
+                notice={notice}
+                onChangeText={setText}
+                onSubmit={() => void submit()}
+                onClearAnchor={() => setAnchor(null)}
+              />
+            </div>
+            {/* The guest line (#241) goes BELOW the composer, never above:
+                it wraps to two 44px rows on a phone and comes and goes
+                mid-session (a guest's first lane appears, their last lane
+                is deleted), so above the composer it would shove the
+                composer down under the thumb that just pressed Generate.
+                Keyed off renderedLanes, optimistic lanes included, so it
+                shows as soon as a first lane does; hidden on an empty bench,
+                where there is nothing to keep. It sits with the composer as
+                the bench's top chrome, so select mode hides both. */}
+            {isGuest && renderedLanes.length > 0 && (
+              <GuestKeepLine className="-mt-3 pb-3" />
+            )}
+          </>
         )}
 
         {renderedLanes.length === 0 ? (

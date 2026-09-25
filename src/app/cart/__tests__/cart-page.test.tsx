@@ -141,6 +141,10 @@ describe("CartPage row shape (Paper)", () => {
     expect(totalAmount.className).toContain("font-mono");
   });
 
+  // #241: the empty cart keeps ruling W1 (/design, which a visitor with no
+  // session can reach and which mints the guest session); a cart with lines
+  // implies a session, so "Add another design" goes to /studio. History in
+  // src/app/__tests__/maker-cta-hrefs.test.tsx.
   it("the empty-state action links to /design", async () => {
     getCart.mockResolvedValue(EMPTY);
     render(<CartPage />);
@@ -149,13 +153,13 @@ describe("CartPage row shape (Paper)", () => {
     expect(link).toHaveAttribute("href", "/design");
   });
 
-  it("Add another design pushes to /design via the router", async () => {
+  it("Add another design pushes to /studio via the router", async () => {
     getCart.mockResolvedValue(ONE_ITEM);
     render(<CartPage />);
 
     fireEvent.click(
       await screen.findByRole("button", { name: "Add another design" })
     );
-    expect(push).toHaveBeenCalledWith("/design");
+    expect(push).toHaveBeenCalledWith("/studio");
   });
 });

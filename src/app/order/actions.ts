@@ -12,6 +12,7 @@ import { eq } from "drizzle-orm";
 import { stripe } from "@/lib/stripe";
 import { computePrice, computeOrderTotal } from "@/lib/pricing";
 import { buildCheckoutSessionParams } from "@/lib/checkout";
+import { embeddedCheckoutPath } from "@/lib/embedded-checkout";
 import {
   resolveOrderVariant,
   multiPlacementEnabled,
@@ -171,6 +172,17 @@ export async function createStripeCheckoutForOrder(params: {
    * null for design-your-own. See the schema comment on `order`. */
   storeId?: string | null;
   storeProductId?: string | null;
+  /** Present only when the caller has resolved `embeddedCheckoutConfig()` to
+   * enabled (#135 slice 2): the session mounts on our own /checkout page
+   * instead of Stripe's hosted page. `backPath` is where /checkout's back
+   * link goes; `cancelUrl` above is ignored in this mode (buildCheckoutSessionParams
+   * doesn't take a cancel_url for an embedded session). `returnOrigin` is the
+   * origin Stripe's `return_url` is built from — the caller resolves it via
+   * `resolveReturnOrigin` so a preview deployment's session returns to that
+   * same preview instead of always landing on `NEXT_PUBLIC_APP_URL`; hosted
+   * checkout keeps using `NEXT_PUBLIC_APP_URL` unconditionally, since the
+   * buyer already leaves our origin in that mode. */
+  embedded?: { backPath: string; returnOrigin: string };
 }): Promise<{ url: string | null }> {
   // Validate product/size/color before taking money — rejects an
   // unknown/discontinued product or a combo with no fulfillable variant.
@@ -227,7 +239,10 @@ export async function createStripeCheckoutForOrder(params: {
       shippingPrice: shipping,
       imageUrl: params.checkoutImageUrl,
       cancelUrl: params.cancelUrl,
-      appUrl: process.env.NEXT_PUBLIC_APP_URL!,
+      appUrl: params.embedded
+        ? params.embedded.returnOrigin
+        : process.env.NEXT_PUBLIC_APP_URL!,
+      uiMode: params.embedded ? "embedded" : "hosted",
     })
   );
 
@@ -235,6 +250,12 @@ export async function createStripeCheckoutForOrder(params: {
     .update(orderTable)
     .set({ stripeSessionId: checkoutSession.id })
     .where(eq(orderTable.id, orderId));
+
+  if (params.embedded) {
+    return {
+      url: embeddedCheckoutPath(checkoutSession.id, params.embedded.backPath),
+    };
+  }
 
   return { url: checkoutSession.url };
 }

@@ -43,7 +43,10 @@ vi.mock("@/app/designs/actions", () => ({
 // The page's collaborators, for the wiring test at the bottom.
 vi.mock("next/server", () => ({ after: vi.fn() }));
 vi.mock("@/lib/require-user", () => ({
-  requireRealUser: vi.fn(async () => ({ user: { id: "user-1" } })),
+  requireStudioUser: vi.fn(async () => ({
+    session: { user: { id: "user-1" } },
+    isGuest: false,
+  })),
 }));
 vi.mock("@/lib/studio", () => ({
   getStudioLanesData: vi.fn(async () => []),
@@ -195,5 +198,7 @@ describe("Studio page wiring", () => {
     expect(typeof initialNowMs).toBe("number");
     expect(initialNowMs).toBeGreaterThanOrEqual(before);
     expect(initialNowMs).toBeLessThanOrEqual(after);
+    // The #241 prop rides alongside it.
+    expect((element.props as { isGuest?: boolean }).isGuest).toBe(false);
   });
 });
