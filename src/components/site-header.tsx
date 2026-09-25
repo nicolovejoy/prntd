@@ -88,8 +88,7 @@ export function SiteHeader({
   // Guest-funnel (#26) anonymous sessions don't count as signed-in for the
   // nav: a guest sees "Sign in" rather than "Sign out", and the account
   // menu's Orders/Admin links stay off. This does NOT gate Studio — under
-  // nav model A, Studio shows to signed-out visitors too and middleware
-  // bounces them to sign-in on click (see the comment on primaryLinks
+  // nav model A, Studio shows to everyone (see the comment on primaryLinks
   // below); isAuthed only governs sign-in state and the account-only links.
   const isAuthed =
     Boolean(session) &&
@@ -105,10 +104,11 @@ export function SiteHeader({
   // (src/components/studio-tabs.tsx). Organizer storefronts are retired
   // (#191), so there is no Dashboard entry.
   //
-  // Studio shows signed-out too. It bounces an unauthenticated visitor to
-  // /sign-in via middleware, which is the honest answer to "where do I make
-  // one" — the alternative is hiding the product's main verb from everyone
-  // who has not signed up.
+  // Studio shows to everyone. A guest-funnel session gets its own Studio
+  // (#241, while GUEST_FUNNEL_ENABLED is on) with a line asking it to sign
+  // up; a visitor with no session at all is sent to /sign-in by middleware,
+  // which is the honest answer to "where do I make one" — the alternative is
+  // hiding the product's main verb from everyone who has not signed up.
   const primaryLinks: NavLink[] = [
     { href: "/studio", label: "Studio" },
     { href: "/shop", label: "Shop" },

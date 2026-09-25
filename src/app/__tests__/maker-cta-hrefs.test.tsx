@@ -1,20 +1,20 @@
 /**
- * Owner ruling W1 (docs/superpowers/plans/2026-09-07-paper-orders-cart-confirm.md):
+ * Every "make something" CTA points at `/studio`, the maker surface.
  *
- * `/cart` "make something" CTAs point at `/design`, not `/studio`, because
- * `/studio` sits behind `requireRealUser` and bounces an anonymous guest,
- * while `/cart` is a guest-reachable surface (`e2e/cart.spec.ts` buys as a
- * guest). `/orders` is itself behind `requireRealUser`, so its CTAs point at
- * `/studio` (the maker surface) — W1 does not apply there (reversal recorded
- * in the slice ledger).
+ * History: owner ruling W1 (PR #219,
+ * docs/superpowers/plans/2026-09-07-paper-orders-cart-confirm.md) pointed the
+ * two `/cart` CTAs at `/design`, because `/studio` bounced an anonymous
+ * guest-funnel session to sign-in while `/cart` is guest-reachable
+ * (`e2e/cart.spec.ts` buys as a guest). #241 opened the Studio to guest
+ * sessions and reversed W1 (Nico, 2026-09-25), so the cart now matches
+ * `/orders`.
  *
- * This file exists so a future nav sweep that blanket-retargets make-CTAs
- * fails here loudly, instead of silently walling a guest out of the purchase
- * path or sending a signed-in user off the Studio. It pins all three:
+ * This file exists so a future nav sweep that retargets make-CTAs has to
+ * change it on purpose. It pins all three:
  *
  *   1. /orders empty-state action "Make your first design" → /studio
- *   2. /cart empty-state action "Start a design"   → /design
- *   3. /cart "Add another design" (a router.push)  → /design
+ *   2. /cart empty-state action "Start a design"   → /studio
+ *   3. /cart "Add another design" (a router.push)  → /studio
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
@@ -68,7 +68,7 @@ function makeOrder(): UserOrder {
 
 const EMPTY_CART: CartView = { items: [], itemSubtotal: 0, shipping: 0, total: 0 };
 
-describe("maker-CTA hrefs (ruling W1: cart → /design; orders → /studio)", () => {
+describe("maker-CTA hrefs (#241: cart and orders → /studio)", () => {
   it("/orders empty-state action 'Make your first design' points at /studio", () => {
     render(<OrdersList orders={[]} />);
 
@@ -77,15 +77,15 @@ describe("maker-CTA hrefs (ruling W1: cart → /design; orders → /studio)", ()
     ).toHaveAttribute("href", "/studio");
   });
 
-  it("/cart empty-state action 'Start a design' points at /design", async () => {
+  it("/cart empty-state action 'Start a design' points at /studio", async () => {
     getCart.mockResolvedValue(EMPTY_CART);
     render(<CartPage />);
 
     const link = await screen.findByRole("link", { name: "Start a design" });
-    expect(link).toHaveAttribute("href", "/design");
+    expect(link).toHaveAttribute("href", "/studio");
   });
 
-  it("/cart 'Add another design' navigates to /design via the router", async () => {
+  it("/cart 'Add another design' navigates to /studio via the router", async () => {
     const oneItemCart: CartView = {
       items: [
         {
@@ -112,6 +112,6 @@ describe("maker-CTA hrefs (ruling W1: cart → /design; orders → /studio)", ()
     fireEvent.click(
       await screen.findByRole("button", { name: "Add another design" })
     );
-    expect(push).toHaveBeenCalledWith("/design");
+    expect(push).toHaveBeenCalledWith("/studio");
   });
 });

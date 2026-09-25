@@ -118,12 +118,12 @@ export default function CartPage() {
           <EmptyState
             message="Your cart is empty."
             action={
-              // /cart is a public guest surface (e2e/cart.spec.ts's "guest
-              // cart: two items"), but /studio requires a real account
-              // twice over (middleware + requireRealUser) and bounces an
-              // anonymous guest-funnel session to /sign-in. Stay on
-              // /design so a guest can actually start one.
-              <Link href="/design">
+              // /studio, like every other make-CTA. A guest-funnel session
+              // reaches the Studio since #241, which reversed ruling W1 (this
+              // CTA used to point at /design because /studio bounced
+              // guests). A visitor with no session at all still lands on
+              // /sign-in from here — middleware's call, accepted in #241.
+              <Link href="/studio">
                 <Button size="lg">Start a design</Button>
               </Link>
             }
@@ -210,11 +210,10 @@ export default function CartPage() {
                 variant="secondary"
                 size="lg"
                 className="w-full"
-                // Same reasoning as the empty-state CTA above: /cart is a
-                // guest-reachable surface and /studio is real-account-only,
-                // so this stays on /design rather than following the rest
-                // of the site's make-CTAs to /studio.
-                onClick={() => router.push("/design")}
+                // /studio, like the empty-state CTA above (#241 reversed
+                // ruling W1). A cart with lines implies a session — guest or
+                // real — so this always reaches the bench.
+                onClick={() => router.push("/studio")}
               >
                 Add another design
               </Button>
