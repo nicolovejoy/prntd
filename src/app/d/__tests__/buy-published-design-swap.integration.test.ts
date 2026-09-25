@@ -21,6 +21,7 @@ import type Stripe from "stripe";
 import { createTestDb } from "@/lib/__tests__/test-db";
 import * as schema from "@/lib/db/schema";
 import { makeUser, makeDesign, makeSourceImage } from "@/lib/__tests__/factories";
+import { getBlankOrThrow } from "@/lib/blanks";
 
 const h = vi.hoisted(() => ({
   db: null as unknown,
@@ -63,6 +64,22 @@ import { buyPublishedDesign } from "@/app/d/actions";
 type Db = Awaited<ReturnType<typeof createTestDb>>;
 
 const OPTS = { productId: "bella-canvas-3001", size: "M", color: "Black" };
+
+/**
+ * Run `fn` with the Classic Tee's back print area removed — the shape of a
+ * future blank that can't print a back. Mutates the catalog singleton and
+ * always restores it, so no other test sees the change.
+ */
+async function withoutBackPlacement(fn: () => Promise<void>) {
+  const blank = getBlankOrThrow(OPTS.productId);
+  const saved = blank.placements;
+  blank.placements = saved.filter((p) => p.id !== "back");
+  try {
+    await fn();
+  } finally {
+    blank.placements = saved;
+  }
+}
 
 /**
  * Three owners: the seller whose published listing is the page image (with a
@@ -326,5 +343,38 @@ describe("buyPublishedDesign swap (#138 slice 3)", () => {
     expect(line.placements).toEqual({ front: ids.listingId });
     expect(order.itemPrice).toBe(19.43);
     expect(lastLineImages()).toEqual(["https://img.example/listing.png"]);
+  });
+
+  it("refuses a back (swapped or not) on a blank with no back print area, booking nothing", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+
+    await withoutBackPlacement(async () => {
+      await expect(
+        buyPublishedDesign({
+          imageId: ids.listingId,
+          backImageId: ids.myImageId,
+          ...OPTS,
+        })
+      ).rejects.toThrow("This product has no back print area");
+      await expect(
+        buyPublishedDesign({
+          imageId: ids.listingId,
+          frontImageId: ids.myImageId,
+          backImageId: ids.listingId,
+          ...OPTS,
+        })
+      ).rejects.toThrow("This product has no back print area");
+    });
+    await expectNothingBooked(db);
+
+    // Restored: the same swap books normally.
+    await buyPublishedDesign({
+      imageId: ids.listingId,
+      frontImageId: ids.myImageId,
+      backImageId: ids.listingId,
+      ...OPTS,
+    });
+    expect(await db.select().from(schema.orderItem)).toHaveLength(1);
   });
 });

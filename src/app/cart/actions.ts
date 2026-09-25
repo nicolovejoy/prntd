@@ -13,6 +13,7 @@ import {
 import {
   getBlank,
   getVariantId,
+  productSupportsPlacement,
   resolveOrderVariant,
 } from "@/lib/blanks";
 import { computePrice, computeCartTotal, estimateShipping } from "@/lib/pricing";
@@ -124,7 +125,7 @@ export async function addToCart(params: {
   if (!userId) throw new Error("Unauthorized");
 
   // Reject an unfulfillable product/size/color before it can reach checkout.
-  resolveOrderVariant({
+  const { product } = resolveOrderVariant({
     productId: params.productId,
     size: params.size,
     color: params.color,
@@ -170,6 +171,11 @@ export async function addToCart(params: {
 
   const backId = multiPlacementEnabled() && params.back ? params.back : null;
   if (backId) {
+    // Fulfillment drops a placement the blank can't print — a paid-for back
+    // (after a /d swap, the page image itself) would silently vanish.
+    if (!productSupportsPlacement(product, "back")) {
+      throw new Error("This product has no back print area");
+    }
     // Same choke-point guard as createCheckoutSession (#72): only this
     // thread's images, the user's own designs, or published Shop images. On a
     // /d add designId is the SELLER's design; the guard deliberately gives

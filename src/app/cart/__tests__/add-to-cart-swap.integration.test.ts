@@ -22,6 +22,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import type Stripe from "stripe";
 import { createTestDb } from "@/lib/__tests__/test-db";
 import { makeUser, makeDesign, makeSourceImage } from "@/lib/__tests__/factories";
+import { getBlankOrThrow } from "@/lib/blanks";
 import { BACK_PLACEMENT_UPCHARGE, computePrice } from "@/lib/pricing";
 
 const h = vi.hoisted(() => ({
@@ -70,6 +71,22 @@ import { addToCart, getCart, checkoutCart } from "@/app/cart/actions";
 type Db = Awaited<ReturnType<typeof createTestDb>>;
 
 const OPTS = { productId: "bella-canvas-3001", size: "M", color: "Black" };
+
+/**
+ * Run `fn` with the Classic Tee's back print area removed — the shape of a
+ * future blank that can't print a back. Mutates the catalog singleton and
+ * always restores it, so no other test sees the change.
+ */
+async function withoutBackPlacement(fn: () => Promise<void>) {
+  const blank = getBlankOrThrow(OPTS.productId);
+  const saved = blank.placements;
+  blank.placements = saved.filter((p) => p.id !== "back");
+  try {
+    await fn();
+  } finally {
+    blank.placements = saved;
+  }
+}
 
 async function seed(db: Db) {
   await makeUser(db, "seller");
@@ -293,5 +310,33 @@ describe("addToCart swap on the frontImageId entry (#138 slice 3)", () => {
     const [row] = await cartRows(db);
     expect(row.designId).toBe(ids.myDesignId);
     expect(row.placements).toEqual({ front: ids.otherShopId });
+  });
+
+  it("refuses a back (swapped or not) on a blank with no back print area, carting nothing", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+
+    await withoutBackPlacement(async () => {
+      await expect(
+        addToCart({ frontImageId: ids.listingId, back: ids.myImageId, ...OPTS })
+      ).rejects.toThrow("This product has no back print area");
+      await expect(
+        addToCart({
+          frontImageId: ids.listingId,
+          front: ids.myImageId,
+          back: ids.listingId,
+          ...OPTS,
+        })
+      ).rejects.toThrow("This product has no back print area");
+      // The /preview designId entry shares the check.
+      await expect(
+        addToCart({ designId: ids.myDesignId, back: ids.otherShopId, ...OPTS })
+      ).rejects.toThrow("This product has no back print area");
+      // Front-only is unaffected.
+      await addToCart({ frontImageId: ids.listingId, ...OPTS });
+    });
+    const rows = await cartRows(db);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].placements).toEqual({ front: ids.listingId });
   });
 });

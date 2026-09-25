@@ -23,7 +23,12 @@ import {
 } from "@/lib/design-images";
 import { resolveBuyPageFront } from "@/lib/placement-pins";
 import { computePrice } from "@/lib/pricing";
-import { DEFAULT_BLANK_ID, multiPlacementEnabled } from "@/lib/blanks";
+import {
+  DEFAULT_BLANK_ID,
+  getBlank,
+  multiPlacementEnabled,
+  productSupportsPlacement,
+} from "@/lib/blanks";
 import { createStripeCheckoutForOrder } from "@/app/order/actions";
 import { renderAndCacheMockup } from "@/lib/mockup-render";
 import { getPublishedFeed } from "@/lib/discover-feed";
@@ -530,7 +535,16 @@ export async function buyPublishedDesign(params: {
   const backImageId = multiPlacementEnabled()
     ? params.backImageId ?? null
     : null;
+  const resolvedProductId = params.productId ?? DEFAULT_BLANK_ID;
   if (backImageId) {
+    // Fulfillment drops a placement the blank can't print, so a back on a
+    // blank without one would charge +$8 for nothing — and after a swap the
+    // dropped side is this page's image, the listing being bought. Unknown
+    // products fall through to resolveOrderVariant's own refusal.
+    const blank = getBlank(resolvedProductId);
+    if (blank && !productSupportsPlacement(blank, "back")) {
+      throw new Error("This product has no back print area");
+    }
     await assertUsablePlacementImage(backImageId, image.designId, session.user.id);
   }
 
@@ -553,7 +567,6 @@ export async function buyPublishedDesign(params: {
     );
   }
 
-  const resolvedProductId = params.productId ?? DEFAULT_BLANK_ID;
   const pricing = computePrice(0, resolvedProductId, params.size, {
     back: !!backImageId,
   });
