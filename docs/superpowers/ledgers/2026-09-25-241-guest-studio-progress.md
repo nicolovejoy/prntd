@@ -110,7 +110,58 @@ gets an anonymous session") was the anonymous session never minting, with
 `/design` — file-DB write contention in the local harness. CI runs e2e on a
 Turso branch over HTTP, where that lock does not exist.
 
-## Gate (final tree, head `ae236f9` + this ledger)
+## Fix round (after an independent whole-branch review from the main session)
+
+The review found no Critical issues and confirmed the security audit. Three
+fixes, all taken:
+
+1. **Important: empty cart walled a first-time visitor.** `/`, `/shop` and
+   `/cart` mint no session; Cart is always in the header bar. A visitor with
+   no session who opened an empty cart and tapped "Start a design" hit
+   middleware's sessionless `/studio` redirect to sign-in. **Controller
+   ruling: W1 survives for the empty cart only.** The empty-state CTA is back
+   on `/design` (open to them, mints the guest session); "Add another design"
+   stays on `/studio` (a cart with lines implies a session). This replaces
+   R6 above. Pins: `maker-cta-hrefs` and `cart-page` tests, a new
+   `src/__tests__/middleware.test.ts` (sessionless `/design` passes,
+   `/studio`, `/studio/library` and `/orders` go to sign-in, a session cookie
+   passes `/studio`, flag off gates `/design`), and a new
+   `get-cart-sessionless.test.ts` (no session → empty cart, no DB read).
+   Mutation-checked: pointing the CTA at `/studio` fails both href pins.
+2. **Important: a returning account holder read as a guest.** A session that
+   expired, then a new start from the homepage composer, makes an account
+   holder a guest; sign-up refuses their email, and on phones the header's
+   Sign in is inside the menu. The line is now "Sign up to keep these
+   designs. Have an account? Sign in." — two underlined links, `/sign-up`
+   and `/sign-in`, each 44px on phones. Signing in from the same window
+   re-parents via `onLinkAccount`; sign-in's default destination is
+   `/studio`. Replaces R7's copy. Test ids: `guest-keep-line` is now the
+   whole line, `guest-sign-up` / `guest-sign-in` the links (e2e updated).
+3. **Minor: line beside an empty state.** Hidden when the view is empty:
+   library when `images.length === 0`; bench when no lane is rendered. The
+   bench line moved from the page into `StudioClient` (new `isGuest` prop)
+   and keys off `renderedLanes`, optimistic lanes included, so a guest who
+   starts a first conversation on the bench sees it as soon as the lane
+   appears instead of after a reload. Known effect: that first appearance
+   pushes the composer down by one line. Mutation-checked: always showing
+   it fails the empty-bench and empty-library tests; keying off server
+   `lanes` fails the "first lane" test.
+
+Left as-is at the main session's direction (noted in the PR body): cart
+CTAs ignore the flag when it is off; "Sign in to publish" wording on the
+image detail page and lightbox; sign-up ignores `next`; the running-jobs
+header badge does not count guests.
+
+## Gate after the fix round (head `8ba0a52` + this ledger update)
+
+- `npm run lint`: 0 errors (22 pre-existing warnings).
+- `npm run typecheck`: clean.
+- `npx vitest run`: 176 files, 1847 tests, all pass (+14 over the first
+  round).
+- `npm run build` with the CI dummy env: exit 0.
+- `npm run db:generate`: "No schema changes, nothing to migrate".
+
+## Gate, first round (head `ae236f9` + this ledger)
 
 - `npm run lint`: 0 errors (22 warnings, all pre-existing, none in new code).
 - `npm run typecheck`: clean.
