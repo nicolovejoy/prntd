@@ -367,3 +367,44 @@ nightly (#110) runs it against a local server whose env decides the flag.
 
 All six: **go with recommendations.** No deviations. Build order is the
 checklist above, starting at slice 1.
+
+## Slice 2 status (2026-09-25, branch `claude/135-embedded-checkout`)
+
+Built behind `EMBEDDED_CHECKOUT_ENABLED` (default off; with it off, every
+purchase path, `/checkout` and `/order/confirm` behave exactly as before).
+Plan and rulings: `docs/superpowers/plans/2026-09-25-135-embedded-checkout.md`,
+`docs/superpowers/ledgers/2026-09-25-135-embedded-checkout-progress.md`.
+
+What differs from the sections above:
+
+- **`ui_mode: "embedded"`, not `embedded_page`.** Our pinned `stripe` 20.4.1
+  (API `2026-02-25.clover`) accepts `'custom' | 'embedded' | 'hosted'`;
+  `embedded_page` is the name in later API versions. Client packages are
+  pinned to the same `clover` release train: `@stripe/stripe-js` 8.x and
+  `@stripe/react-stripe-js` 5.x. Move all three together.
+- **The action keeps its `{ url }` shape.** In embedded mode
+  `buyPublishedDesign` returns a same-origin `/checkout?session=…&from=…`
+  path, so `BuyPanel` is unchanged. The client secret never passes through
+  an action or the URL: `/checkout` retrieves the session server-side on
+  each render (so a refresh works), after checking the viewer owns the order.
+- **No money on the review pane.** Stripe's embedded form shows the line
+  items, shipping, promo codes and the total; a total of ours would go stale
+  when a promo code is applied inside it. The pane shows the shirt (cached
+  mockup, else artwork on the shirt color), product, color/size and the back
+  design.
+- **Fail closed.** Flag on but the publishable key missing, malformed or in
+  the other mode from the secret key → hosted checkout plus one log line
+  naming the reason. `/checkout` renders a plain message instead of an empty
+  form when the session is expired or Stripe can't be reached, and a reload
+  hint if Stripe's iframe never mounts.
+- **`/order/confirm` open-session branch** runs only with the flag on (the
+  hosted benefit arrives when the flag flips).
+- **Embedded `return_url` follows the request origin** (trusted hosts only),
+  so a preview deployment returns to its own confirm page; hosted checkout
+  still uses `NEXT_PUBLIC_APP_URL`.
+
+Before flipping the flag: `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` (same mode as
+that scope's `STRIPE_SECRET_KEY`) and `EMBEDDED_CHECKOUT_ENABLED=true` in the
+target Vercel scope, then a new deployment (a `NEXT_PUBLIC_` value is inlined
+at build time); wallets (Apple Pay / Google Pay) inside Embedded Checkout
+need the domain registered under Stripe → Settings → Payment method domains.

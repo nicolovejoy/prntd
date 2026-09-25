@@ -5,18 +5,35 @@ import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
 import { getColorHex } from "@/lib/blanks";
 import { appErrorLogLine, shapeAppError } from "@/lib/app-error";
+import { embeddedCheckoutFlag } from "@/lib/flags";
+import { embeddedCheckoutConfig } from "@/lib/embedded-checkout";
+import {
+  getCheckoutSessionState,
+  resolveConfirmView,
+  type ConfirmView,
+} from "@/lib/checkout-session-status";
 
 type Search = Promise<Record<string, string | string[] | undefined>>;
 
 /**
- * The order row (and its stripeSessionId) is written before the customer is
- * redirected to Stripe, so by the time Stripe sends them back here the row
+ * The order row (and its stripeSessionId) is written before the Stripe
+ * session is created, so by the time Stripe sends them back here the row
  * already exists — there is no race with the webhook to guard against, and
  * this page never renders a field the webhook writes (ruling P3). That is
  * what lets this be a plain awaited server read with no retry/poll island.
  * `/orders` hides young pending rows (src/lib/user-orders.ts,
  * `STALE_PENDING_MS`), so the "View orders" link below can briefly not show
  * an order that was just paid here.
+ *
+ * #135 slice 2: when `EMBEDDED_CHECKOUT_ENABLED` is on and the order is still
+ * `pending`, this page makes one extra Stripe read (`getCheckoutSessionState`)
+ * to tell apart a genuine webhook lag (session `complete`, renders as
+ * confirmed) from a session that's still `open` — reachable with embedded
+ * checkout when Stripe redirects here without a completed payment (e.g. the
+ * buyer backed out of a redirect-based payment method) or when the URL is
+ * opened directly — or one that's `expired`. Flag off, or the order isn't
+ * `pending`, means zero Stripe calls — the page stays the plain DB read it
+ * always was.
  */
 export default async function ConfirmPage({ searchParams }: { searchParams: Search }) {
   const raw = (await searchParams).session_id;
@@ -76,6 +93,54 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Sear
           >
             Start a new design
           </Link>
+        </div>
+      </div>
+    );
+  }
+
+  let view: ConfirmView = { kind: "confirmed" };
+  if (sessionId && embeddedCheckoutFlag() && order.status === "pending") {
+    const stripeState = await getCheckoutSessionState(sessionId);
+    view = resolveConfirmView({
+      orderStatus: order.status,
+      stripe: stripeState,
+      embeddedEnabled: embeddedCheckoutConfig().enabled,
+      sessionId,
+    });
+  }
+
+  if (view.kind === "incomplete" || view.kind === "expired") {
+    const heading =
+      view.kind === "incomplete" ? "Payment not completed." : "This checkout expired.";
+    return (
+      <div className="min-h-screen flex flex-col px-4">
+        <Breadcrumbs
+          trail={breadcrumbTrail("/order/confirm")}
+          current="Checkout"
+          className="py-4"
+        />
+        <div className="flex-1 flex flex-col items-center justify-center">
+          <div className="max-w-md w-full space-y-6 text-center">
+            <h1 className="font-mono text-[13px] leading-5 tracking-[0.08em] uppercase">
+              {heading}
+            </h1>
+            <p className="text-text-muted">Nothing was charged.</p>
+            <div className="flex flex-col gap-3">
+              {view.kind === "incomplete" && view.resumeHref && (
+                <Link href={view.resumeHref}>
+                  <Button size="lg" className="w-full">
+                    Return to checkout
+                  </Button>
+                </Link>
+              )}
+              <Link
+                href="/shop"
+                className="min-h-11 inline-flex items-center justify-center text-sm underline underline-offset-[3px]"
+              >
+                Back to Shop
+              </Link>
+            </div>
+          </div>
         </div>
       </div>
     );

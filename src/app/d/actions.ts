@@ -23,6 +23,8 @@ import {
 import { computePrice } from "@/lib/pricing";
 import { DEFAULT_BLANK_ID, multiPlacementEnabled } from "@/lib/blanks";
 import { createStripeCheckoutForOrder } from "@/app/order/actions";
+import { embeddedCheckoutConfig, resolveReturnOrigin } from "@/lib/embedded-checkout";
+import { embeddedCheckoutFlag } from "@/lib/flags";
 import { renderAndCacheMockup } from "@/lib/mockup-render";
 import { getPublishedFeed } from "@/lib/discover-feed";
 import { requireMirrorProduct } from "@/lib/model-b-writes";
@@ -509,6 +511,18 @@ export async function buyPublishedDesign(params: {
   // organizer storefront (buyStoreProduct owns that path).
   const storeProductId = await requireMirrorProduct(db, params.imageId);
 
+  // #135 slice 2: mount on our own /checkout instead of Stripe's hosted page
+  // when a usable key pair is configured. `embeddedCheckoutFlag()` on but the
+  // config disabled means a key problem, not a deliberate off-switch — log it
+  // (never the key itself) and fall back to hosted rather than build a broken
+  // embedded session.
+  const embedded = embeddedCheckoutConfig();
+  if (embeddedCheckoutFlag() && !embedded.enabled) {
+    console.error(
+      `embedded checkout disabled: ${embedded.reason} — using hosted checkout`
+    );
+  }
+
   return createStripeCheckoutForOrder({
     userId: session.user.id,
     designId: image.designId,
@@ -523,6 +537,17 @@ export async function buyPublishedDesign(params: {
     checkoutImageUrl: image.imageUrl,
     cancelUrl: `${process.env.NEXT_PUBLIC_APP_URL}/d/${params.imageId}`,
     storeProductId,
+    ...(embedded.enabled
+      ? {
+          embedded: {
+            backPath: `/d/${params.imageId}`,
+            returnOrigin: resolveReturnOrigin(
+              (await headers()).get("origin"),
+              process.env.NEXT_PUBLIC_APP_URL!
+            ),
+          },
+        }
+      : {}),
   });
 }
 
