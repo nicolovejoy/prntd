@@ -174,12 +174,20 @@ Vercel env changes apply only to new deployments. A flag a Playwright spec needs
 ## Current state (2026-09-25)
 
 - **Prod** is at `fe7f515` (2026-09-10). Nightly Stripe e2e and prod-smoke are green.
-- **In flight:** the 2026-09-25 batch — plan of record `docs/superpowers/plans/2026-09-25-batch.md`, roadmap page https://claude.ai/artifact/WzPgkzJUzMYdAX156Z4Nfr. Branches: `/studio` hydration mismatch (React #418), #241 guests in Studio, #138 slice 3 (front/back swap on the image detail page), composition slice 5 rebuilt as migration 0014 (HELD — replaces PR #201), then #135 slice 2 (embedded checkout, flag off).
-- **Open issues:** #241 (guests can't reach their designs), #188 (Paper look — slice 4 focused stage needs Nico's call; slice 8 leftovers), #135 (slices 2–4), #138 (slice 3), #235 (app icon + link-preview mark), #139 (light/dark shirt filter), #127 (phone speed check), #14 (full Printful colors), #12 (zip export), #4 (charity, paused).
+- **In flight — the 2026-09-25 batch, all six PRs open with CI green; Nico merges.** Plan of record `docs/superpowers/plans/2026-09-25-batch.md`; roadmap page https://claude.ai/artifact/WzPgkzJUzMYdAX156Z4Nfr (republish with `url` from a new session). Merge order and what each needs:
+  1. #244 — this CLAUDE.md split + batch plan (docs only).
+  2. #246 — React #418 fix (header renders session only after hydration; Studio clock; Pacific dates). Merge BEFORE #248.
+  3. #247 — #138 slice 3, front/back swap on the image detail page; order emails lead with the pinned front; checkout refuses a back on a blank with no back area.
+  4. #248 — #241 guests in Studio/Library. Conflicts with #246 in `studio/page.tsx` + `studio-client.tsx`: after #246 merges, Claude merges main into `claude/241-guest-studio`, resolves, re-gates, pushes.
+  5. #250 — #135 slice 2, embedded checkout behind `EMBEDDED_CHECKOUT_ENABLED` (off → mergeable anytime). Flip needs `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` + the flag in Preview scope and the phone test in the PR body; live `client_secret`-on-retrieve is unverified until then. Conflicts with #249 only in `.env.tpl` / `flags.ts` (trivial).
+  6. #249 — HELD: composition slice 5, migration `0014_thin_pride.sql` (replaces closed #201). Runbook in the PR body: pre-check → rehearse on `prntd-0014-rehearsal` → backup → migrate prod → verify = merge gate → merge → preview AFTER merge → dev. Correction comment on the PR: a guest whose sign-up failed in the window signs IN.
+  Every merged PR has one prod smoke in its body. Whenever main moves, the still-open PRs need main merged in (Claude's job).
+- **Batch lesson:** subagents launched with the Agent tool can't launch their own agents, so each builder reviewed its own work; every PR then got an independent Opus review from the main session, and every one of those reviews found real defects (wrong email hero after a swap, empty-cart dead end, returning-user sign-in, the migrate-order trace, the Feedback button over Stripe's form). Keep the independent pass.
+- **Open issues:** #245 (lost Generate response reads as failure → duplicate), #251 (`createStripeCheckoutForOrder` exported from a "use server" file), #188 (Paper look — slice 4 focused stage needs Nico's call; slice 8 leftovers), #135 (slices 3–4), #235 (app icon + link-preview mark), #139 (light/dark shirt filter), #127 (phone speed check), #14 (full Printful colors), #12 (zip export), #4 (charity, paused). #241 and #138 close when #248 / #247 merge. Closed 2026-09-25: #45, #6, #17, #112, PR #201.
 - **Unrun smoke:** #242 + #243 in one pass — signed in, generate one image in a new conversation at https://prntd.org/studio, open it, Delete; PASS = the sheet names the conversation, confirming lands on /studio, and the lane is gone.
 - **Backups:** `prntd-backup-20260908` (safe to delete).
 - **Watch items:** anonymous back-mockup renders append to the seller's `design.mockup_urls` (~230 KB/design; revisit at 10× the Shop); the admin Refund button has never run on a real Printful cancel; fulfillment recovery can persist `submitted` with no COGS when Printful omits `costs.total` (loud log, book it by hand); leftmost `x-forwarded-for` feeds the IP quota.
-- **Deferred:** `middleware.ts` → `proxy.ts` (Next 16 deprecation; after #241 merges); the prompt-quality eval harness (`docs/async-generation-and-edit-plan.md` slice 4).
+- **Deferred:** `middleware.ts` → `proxy.ts` (Next 16 deprecation; after #248 merges); the prompt-quality eval harness (`docs/async-generation-and-edit-plan.md` slice 4); follow-ups noted in PR bodies (admin pages still print UTC days; "Sign in to publish" wording for guests; the running-jobs badge doesn't count guests; hosted fallback when Stripe.js is blocked).
 
 ## Standing rules
 
