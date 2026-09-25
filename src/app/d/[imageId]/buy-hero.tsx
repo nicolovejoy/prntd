@@ -47,16 +47,17 @@ const EMPTY_SLOT: SideSlot = {
 };
 
 /**
- * Owns the product/color/back selection shared by the hero and `BuyPanel`
- * (#135 slice 1, #167) — they're siblings under `page.tsx` (separated by the
- * title/naming block, passed through as `children` so its JSX stays authored
- * in the server page), and `PublishedImageView` also serves the owner's
- * backdrop-picker mode, so buy logic doesn't belong there. `BuyPanel` stays
- * the single source of truth for its own expanded/product/color/back state;
- * this wrapper just mirrors it (via BuyPanel's report effects) to know what
- * to render mockups for, and stays mounted as one instance across the hero
- * swap (same position in both returned trees) so BuyPanel's internal state
- * (size, back design, expanded) survives it.
+ * Holds the product/color/front/back selection shared by the hero and
+ * `BuyPanel` (#135 slice 1, #167, #138 slice 3) — they're siblings under
+ * `page.tsx` (separated by the title/naming block, passed through as
+ * `children` so its JSX stays authored in the server page), and
+ * `PublishedImageView` also serves the owner's backdrop-picker mode, so buy
+ * logic doesn't belong there. `BuyPanel` stays the single source of truth
+ * for its own expanded/product/color/back/swap state; this wrapper just
+ * mirrors it (via BuyPanel's report effects) to know what to render mockups
+ * for, and stays mounted as one instance across the collapsed → expanded
+ * hero change (same position in both returned trees) so BuyPanel's internal
+ * state (size, back design, swap, expanded) survives it.
  *
  * Collapsed: renders `PublishedImageView` unchanged — artwork on its pinned
  * backdrop, no mockup fetch, page stays cheap for browsers. Expanded: the
@@ -66,6 +67,11 @@ const EMPTY_SLOT: SideSlot = {
  * smaller back tile below it rendering the real back mockup; tapping the
  * tile swaps which side is large. With no back picked the tile slot offers
  * "Add a back design", which opens the panel's picker.
+ *
+ * The hero follows the placement pins, not the page (#138 slice 3): after
+ * the buyer swaps in the panel, the front renders their pick
+ * (`getListingMockup` with `frontImageId`) and the back tile renders this
+ * page's image. `BuyPanel` reports both sides; this wrapper only renders.
  *
  * Fetch order: the back mockup is requested only after the front's fetch has
  * settled (resolved or failed), never concurrently. A failed side shows its
@@ -113,6 +119,8 @@ export function BuyHero({
     initialBackgroundColor ?? "White"
   );
   const [back, setBack] = useState<BackPick | null>(null);
+  // The front pin: this page's image until the buyer swaps (#138 slice 3).
+  const [front, setFront] = useState<BackPick>({ id: imageId, imageUrl });
   // Which side the buyer last made large. Only meaningful with a back
   // picked; reset when the back goes so a later pick starts as the tile.
   const [prominent, setProminent] = useState<Side>("front");
@@ -152,7 +160,7 @@ export function BuyHero({
     setRetryNonce((n) => ({ ...n, [side]: n[side] + 1 }));
   }
 
-  const frontKey = `${productId}|${colorName}|${retryNonce.front}`;
+  const frontKey = `${productId}|${colorName}|${front.id}|${retryNonce.front}`;
   const backKey = back
     ? `${productId}|${colorName}|${back.id}|${retryNonce.back}`
     : null;
@@ -167,7 +175,13 @@ export function BuyHero({
       ...s,
       front: { ...s.front, key: frontKey, mockupUrl: null, loading: true, error: false },
     }));
-    getListingMockup({ imageId, productId, colorName })
+    getListingMockup({
+      imageId,
+      productId,
+      colorName,
+      // Only after a swap — the unswapped call is unchanged.
+      ...(front.id !== imageId ? { frontImageId: front.id } : {}),
+    })
       .then((result) => {
         if (!reqs.front.isCurrent(token)) return;
         patchSlot("front", { mockupUrl: result.mockupUrl });
@@ -274,7 +288,7 @@ export function BuyHero({
   // on — this page prints the exact picked images, fixed.
   function displayFor(side: Side) {
     const slot = slots[side];
-    const artwork = side === "front" ? imageUrl : (back?.imageUrl ?? null);
+    const artwork = side === "front" ? front.imageUrl : (back?.imageUrl ?? null);
     return resolveHeroDisplay({
       renderStatus: "ready",
       artworkUrl: artwork,
@@ -297,7 +311,16 @@ export function BuyHero({
   }
 
   function altFor(side: Side) {
-    return `${side === "front" ? "This design" : "Back design"} on a ${colorName} ${productName}`;
+    // "This design" names the page's image wherever it sits (the back, after
+    // a swap); anything else is named by its side.
+    const id = side === "front" ? front.id : back?.id;
+    const label =
+      id === imageId
+        ? "This design"
+        : side === "front"
+          ? "Front design"
+          : "Back design";
+    return `${label} on a ${colorName} ${productName}`;
   }
 
   const tileSize = "w-1/3 max-w-[8rem] aspect-[4/5]";
@@ -381,6 +404,7 @@ export function BuyHero({
         <BuyPanel
           ref={panelRef}
           imageId={imageId}
+          imageUrl={imageUrl}
           isLoggedIn={isLoggedIn}
           preferredColor={initialBackgroundColor}
           remembered={remembered}
@@ -391,6 +415,7 @@ export function BuyHero({
           onProductChange={setProductId}
           onColorChange={setColorName}
           onBackChange={handleBackChange}
+          onFrontChange={setFront}
         />
       </div>
     </>

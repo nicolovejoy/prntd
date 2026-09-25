@@ -13,6 +13,7 @@ import {
 import {
   getBlank,
   getVariantId,
+  productSupportsPlacement,
   resolveOrderVariant,
 } from "@/lib/blanks";
 import { computePrice, computeCartTotal, estimateShipping } from "@/lib/pricing";
@@ -24,6 +25,7 @@ import {
 } from "@/lib/design-images";
 import { canUseAsPlacementSource } from "@/lib/design-publish";
 import { assertUsablePlacementImage } from "@/lib/back-sources";
+import { resolveBuyPageFront } from "@/lib/placement-pins";
 import { estimateOrderCosts } from "@/lib/printful";
 import { stripe } from "@/lib/stripe";
 import { buildCartCheckoutSessionParams } from "@/lib/checkout";
@@ -81,13 +83,17 @@ async function currentUserId(): Promise<string | null> {
  *    pinned primary image (same as createCheckoutSession), unless `front`
  *    names an explicit pick (#138) — guarded the same way `back` is, so a
  *    front pin grants no reach a back pin didn't already have.
- *  - `frontImageId` (/d, #146): the front placement is pinned to the EXACT
- *    image, mirroring buyPublishedDesign — the design's primary can change
- *    after the add, and the buyer must get the image they tapped, not the
- *    seller's current display image. The line's designId is derived from the
- *    image server-side (never trusted from the client), and the image must
- *    pass canUseAsPlacementSource: the buyer owns it, or it's published and
- *    not admin-hidden. A forged private/hidden image id throws.
+ *  - `frontImageId` (/d, #146): the image detail page's image. The front
+ *    placement is pinned to that EXACT image, mirroring buyPublishedDesign —
+ *    the design's primary can change after the add, and the buyer must get
+ *    the image they tapped, not the seller's current display image. The
+ *    line's designId is derived from the image server-side (never trusted
+ *    from the client), and the image must pass canUseAsPlacementSource: the
+ *    buyer owns it, or it's published and not admin-hidden. A forged
+ *    private/hidden image id throws. `front` on this entry is the page's swap
+ *    (#138 slice 3), under the same rule as buyPublishedDesign: another
+ *    image may take the front only when `back` is the page image, and it
+ *    clears the same guard as the back.
  *
  * A back image is honored only when MULTI_PLACEMENT_ENABLED, guarded the same
  * way at this choke point.
@@ -101,10 +107,13 @@ async function currentUserId(): Promise<string | null> {
 export async function addToCart(params: {
   /** The design to cart (/preview path). Ignored when frontImageId is set. */
   designId?: string;
-  /** Exact image to pin as the front placement (/d path, #146). */
+  /** The image detail page's image (/d path, #146): the line's designId
+   * derives from it, and it is pinned as the front unless `front` swaps it
+   * to the back. */
   frontImageId?: string;
-  /** Front pick on the designId path (/preview, #138). Ignored when
-   * `frontImageId` is set — that entry already names the front. */
+  /** Front pick. On the designId path (/preview, #138) any guarded image.
+   * On the frontImageId path (/d, #138 slice 3) a swap only: accepted when
+   * `back` is the page image, refused otherwise. */
   front?: string;
   productId: string;
   size: string;
@@ -116,7 +125,7 @@ export async function addToCart(params: {
   if (!userId) throw new Error("Unauthorized");
 
   // Reject an unfulfillable product/size/color before it can reach checkout.
-  resolveOrderVariant({
+  const { product } = resolveOrderVariant({
     productId: params.productId,
     size: params.size,
     color: params.color,
@@ -124,6 +133,8 @@ export async function addToCart(params: {
 
   let designId: string;
   let frontId: string | null;
+  // Set on the /d path only: the page image, which a swap moves to the back.
+  let pageImageId: string | null = null;
   if (params.frontImageId) {
     // /d path: pin the exact image. Same guard chain as buyPublishedDesign —
     // resolve the image with its owner, derive the line's designId from it,
@@ -142,6 +153,7 @@ export async function addToCart(params: {
     }
     designId = image.designId;
     frontId = params.frontImageId;
+    pageImageId = params.frontImageId;
   } else {
     if (!params.designId) throw new Error("designId or frontImageId required");
     designId = params.designId;
@@ -159,11 +171,29 @@ export async function addToCart(params: {
 
   const backId = multiPlacementEnabled() && params.back ? params.back : null;
   if (backId) {
+    // Fulfillment drops a placement the blank can't print — a paid-for back
+    // (after a /d swap, the page image itself) would silently vanish.
+    if (!productSupportsPlacement(product, "back")) {
+      throw new Error("This product has no back print area");
+    }
     // Same choke-point guard as createCheckoutSession (#72): only this
     // thread's images, the user's own designs, or published Shop images. On a
     // /d add designId is the SELLER's design; the guard deliberately gives
     // that no weight (see canUseAsPlacementSource).
     await assertUsablePlacementImage(backId, designId, userId);
+  }
+  if (pageImageId) {
+    // The /d swap (#138 slice 3): checked against the back that will actually
+    // be pinned, so a back dropped by the flag also refuses the override.
+    const swappedFront = resolveBuyPageFront({
+      pageImageId,
+      front: params.front,
+      back: backId,
+    });
+    if (swappedFront !== pageImageId) {
+      await assertUsablePlacementImage(swappedFront, designId, userId, "front");
+      frontId = swappedFront;
+    }
   }
   const placements: Record<string, string> | null = frontId
     ? { front: frontId, ...(backId ? { back: backId } : {}) }

@@ -7,7 +7,7 @@
  * R2/cache) is covered separately in mockup-render.test.ts; this file mocks
  * it out so the matrix stays about auth, not rendering.
  */
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createTestDb } from "@/lib/__tests__/test-db";
 import { makeUser, makeDesign, makeSourceImage } from "@/lib/__tests__/factories";
 
@@ -191,5 +191,175 @@ describe("getListingMockup authorization (#135 slice 1)", () => {
         colorName: "Black",
       })
     ).rejects.toThrow("Image not found");
+  });
+});
+
+/**
+ * The swapped-in front (#138 slice 3): after the buyer swaps, the hero renders
+ * their back pick on the front. That source is held to the same bar as a back
+ * pick in getListingBackMockup — the flag, then the placement guard — on top
+ * of the page image's own visibility gate.
+ */
+describe("getListingMockup with a swapped-in front (#138 slice 3)", () => {
+  async function seedSwap(db: Db) {
+    const ids = await seed(db);
+    await makeUser(db, "other");
+    const mine = await makeDesign(db, "buyer");
+    const myImageId = await makeSourceImage(db, {
+      designId: mine.id,
+      ownerId: "buyer",
+      imageUrl: "https://img.example/mine.png",
+    });
+    const theirs = await makeDesign(db, "other");
+    const otherShopId = await makeSourceImage(db, {
+      designId: theirs.id,
+      ownerId: "other",
+      imageUrl: "https://img.example/other-shop.png",
+      publishedAt: new Date(),
+    });
+    return { ...ids, myImageId, otherShopId };
+  }
+
+  beforeEach(() => {
+    vi.stubEnv("MULTI_PLACEMENT_ENABLED", "true");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("renders the buyer's own image on the front, cached on the page image's design", async () => {
+    const db = h.db as Db;
+    const ids = await seedSwap(db);
+    h.session = { user: { id: "buyer", isAnonymous: false } };
+
+    await getListingMockup({
+      imageId: ids.publishedId,
+      frontImageId: ids.myImageId,
+      productId: "bella-canvas-3001",
+      colorName: "Black",
+    });
+
+    expect(mockupRender.renderAndCacheMockup).toHaveBeenCalledWith({
+      designId: ids.designId,
+      productId: "bella-canvas-3001",
+      colorName: "Black",
+      scale: 1.0,
+      placementId: "front",
+      sourceImageId: ids.myImageId,
+      userId: "buyer",
+    });
+  });
+
+  it("renders a third maker's published image on the front", async () => {
+    const db = h.db as Db;
+    const ids = await seedSwap(db);
+    h.session = { user: { id: "buyer", isAnonymous: false } };
+
+    await getListingMockup({
+      imageId: ids.publishedId,
+      frontImageId: ids.otherShopId,
+      productId: "bella-canvas-3001",
+      colorName: "Black",
+    });
+    expect(mockupRender.renderAndCacheMockup).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceImageId: ids.otherShopId })
+    );
+  });
+
+  it("a frontImageId equal to the page image is the unchanged call", async () => {
+    const db = h.db as Db;
+    const ids = await seedSwap(db);
+
+    await getListingMockup({
+      imageId: ids.publishedId,
+      frontImageId: ids.publishedId,
+      productId: "bella-canvas-3001",
+      colorName: "Black",
+    });
+    expect(mockupRender.renderAndCacheMockup).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceImageId: ids.publishedId, userId: null })
+    );
+  });
+
+  it("rejects a cross-owner private front and renders nothing", async () => {
+    const db = h.db as Db;
+    const ids = await seedSwap(db);
+    h.session = { user: { id: "buyer", isAnonymous: false } };
+
+    await expect(
+      getListingMockup({
+        imageId: ids.publishedId,
+        frontImageId: ids.privateId,
+        productId: "bella-canvas-3001",
+        colorName: "Black",
+      })
+    ).rejects.toThrow("Front image is not available");
+    expect(mockupRender.renderAndCacheMockup).not.toHaveBeenCalled();
+  });
+
+  it("rejects a cross-owner admin-hidden front and renders nothing", async () => {
+    const db = h.db as Db;
+    const ids = await seedSwap(db);
+    h.session = { user: { id: "buyer", isAnonymous: false } };
+
+    await expect(
+      getListingMockup({
+        imageId: ids.publishedId,
+        frontImageId: ids.hiddenId,
+        productId: "bella-canvas-3001",
+        colorName: "Black",
+      })
+    ).rejects.toThrow("Front image is not available");
+    expect(mockupRender.renderAndCacheMockup).not.toHaveBeenCalled();
+  });
+
+  it("a signed-out visitor cannot render someone's private image on the front", async () => {
+    const db = h.db as Db;
+    const ids = await seedSwap(db);
+
+    await expect(
+      getListingMockup({
+        imageId: ids.publishedId,
+        frontImageId: ids.myImageId,
+        productId: "bella-canvas-3001",
+        colorName: "Black",
+      })
+    ).rejects.toThrow("Front image is not available");
+    expect(mockupRender.renderAndCacheMockup).not.toHaveBeenCalled();
+  });
+
+  it("refuses a swapped-in front when the flag is off", async () => {
+    vi.stubEnv("MULTI_PLACEMENT_ENABLED", "false");
+    const db = h.db as Db;
+    const ids = await seedSwap(db);
+    h.session = { user: { id: "buyer", isAnonymous: false } };
+
+    await expect(
+      getListingMockup({
+        imageId: ids.publishedId,
+        frontImageId: ids.myImageId,
+        productId: "bella-canvas-3001",
+        colorName: "Black",
+      })
+    ).rejects.toThrow("Back designs are not enabled");
+    expect(mockupRender.renderAndCacheMockup).not.toHaveBeenCalled();
+  });
+
+  it("the page image's own visibility gate still runs first", async () => {
+    const db = h.db as Db;
+    const ids = await seedSwap(db);
+    h.session = { user: { id: "buyer", isAnonymous: false } };
+
+    // A usable front does not unlock a page the viewer cannot see.
+    await expect(
+      getListingMockup({
+        imageId: ids.privateId,
+        frontImageId: ids.myImageId,
+        productId: "bella-canvas-3001",
+        colorName: "Black",
+      })
+    ).rejects.toThrow("Unauthorized");
+    expect(mockupRender.renderAndCacheMockup).not.toHaveBeenCalled();
   });
 });
