@@ -6,9 +6,11 @@
  * load and is exercised elsewhere.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { eq } from "drizzle-orm";
 import { createTestDb } from "./test-db";
 import * as schema from "@/lib/db/schema";
 import { createDefaultOrderEmailDeps } from "@/lib/order-emails";
+import { getDesignImageById } from "@/lib/design-images";
 
 vi.mock("@/lib/design-images", () => ({
   getDesignDisplayImageUrl: vi.fn().mockResolvedValue("https://img.example/x.png"),
@@ -120,6 +122,39 @@ describe("createDefaultOrderEmailDeps.loadOrderForEmail", () => {
 
     expect(payload?.lines).toEqual([]);
     expect(payload?.images).toEqual([]);
+  });
+
+  it("leads a swapped order's hero with the pinned front, not the design's primary (#138)", async () => {
+    const { design, order } = await seedOrder(db, {
+      item: { placements: { front: "img-B", back: "img-A" } },
+    });
+    // The order's design (the seller's) displays A and has a /preview front
+    // mockup of it; the buyer swapped their pick B onto the front.
+    await db
+      .update(schema.design)
+      .set({
+        primaryImageId: "img-A",
+        mockupUrls: {
+          "v2:bella-canvas-3001:front:Black:100": "https://printful/A-front.png",
+          "v2:bella-canvas-3001:back:img-A:Black:100": "https://printful/A-back.png",
+        },
+      })
+      .where(eq(schema.design.id, design.id));
+    vi.mocked(getDesignImageById).mockImplementation(async (id: string) =>
+      id === "img-B"
+        ? ({ id, imageUrl: "https://img.example/B.png" } as Awaited<
+            ReturnType<typeof getDesignImageById>
+          >)
+        : null
+    );
+    const deps = createDefaultOrderEmailDeps(db, senders);
+
+    const payload = await deps.loadOrderForEmail(order.id);
+
+    expect(payload?.images.map((i) => [i.label, i.url])).toEqual([
+      ["Front", "https://img.example/B.png"],
+      ["Back", "https://printful/A-back.png"],
+    ]);
   });
 
   it("returns null for a missing order", async () => {

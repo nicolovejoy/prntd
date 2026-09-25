@@ -37,9 +37,12 @@ export type OrderEmailDeps = {
 
 /**
  * Resolve the hero image(s) for an order's emails: the cached Printful mockup
- * when available, else the design artwork on a shirt-color backdrop. Back image
- * only when the order pinned a `back` placement (#25). Shared by the order
- * confirmation/owner alert path and the shipping notification.
+ * when available, else the artwork on a shirt-color backdrop. Both sides follow
+ * the line's placement pins — the front is `placements.front` (which after a
+ * #138 swap is not the design's image), falling back to the design's display
+ * image only for a legacy line with no front pin. Back image only when the
+ * order pinned a `back` placement (#25). Shared by the order confirmation/owner
+ * alert path and the shipping notification.
  */
 export async function resolveHeroImages(row: {
   productId: string;
@@ -47,13 +50,18 @@ export async function resolveHeroImages(row: {
   designId: string;
   placements: Record<string, string> | null;
   mockupUrls: Record<string, string> | null;
+  /** Primary image of the design `mockupUrls` came from — decides whether
+   * its source-less front mockup may stand for this order's front. */
+  primaryImageId: string | null;
 }): Promise<EmailImage[]> {
   // Lazy import: @/lib/design-images instantiates the libSQL client at module
   // load. Keeping it out of the top level lets sendPostOrderEmails (and its
   // tests) import this module without a live DATABASE_URL.
   const { getDesignDisplayImageUrl, getDesignImageById } = await import("@/lib/design-images");
+  const frontSourceId = row.placements?.front ?? null;
   const backSourceId = row.placements?.back ?? null;
-  const [frontArtworkUrl, backArtworkUrl] = await Promise.all([
+  const [pinnedFrontUrl, displayUrl, backArtworkUrl] = await Promise.all([
+    frontSourceId ? getDesignImageById(frontSourceId).then((i) => i?.imageUrl ?? null) : Promise.resolve(null),
     getDesignDisplayImageUrl(row.designId),
     backSourceId ? getDesignImageById(backSourceId).then((i) => i?.imageUrl ?? null) : Promise.resolve(null),
   ]);
@@ -62,7 +70,8 @@ export async function resolveHeroImages(row: {
     color: row.color,
     placements: row.placements,
     mockupUrls: row.mockupUrls,
-    frontArtworkUrl,
+    primaryImageId: row.primaryImageId,
+    frontArtworkUrl: pinnedFrontUrl ?? displayUrl,
     backArtworkUrl,
     backdropHex: getColorHex(row.productId, row.color),
   });
@@ -140,6 +149,7 @@ export function createDefaultOrderEmailDeps(
           displayName: orderTable.displayName,
           designId: orderTable.designId,
           mockupUrls: designTable.mockupUrls,
+          primaryImageId: designTable.primaryImageId,
         })
         .from(orderTable)
         .innerJoin(userTable, eq(orderTable.userId, userTable.id))
@@ -193,6 +203,7 @@ export function createDefaultOrderEmailDeps(
             designId: first.designId,
             placements: first.placements,
             mockupUrls: row.mockupUrls ?? null,
+            primaryImageId: row.primaryImageId ?? null,
           })
         : [];
 

@@ -22,10 +22,14 @@ export type EmailImage = {
 /**
  * Find a cached mockup URL by matching key segments, ignoring the trailing
  * scale segment so a mockup rendered at a non-default scale still resolves.
- * Front keys are `${product}:front:${color}:${scale}`; back keys (which pin a
- * source image) are `${product}:back:${sourceId}:${color}:${scale}`. Keys
- * written since #102 lead with a version segment (`v2:…`) — skip it so both
- * generations resolve: old orders only have old-format entries.
+ * Keys come from `mockupCacheKey` (src/lib/mockup-cache.ts):
+ * `${product}:${placement}[:${sourceId}]:${color}:${scale}`. A front key has
+ * no source segment when /preview rendered the design's primary unpinned; it
+ * carries one when /preview rendered a pinned non-primary front (#138) and
+ * always on the image detail page (`getListingMockup`). Back keys always pin
+ * a source. Keys written since #102 lead with a version segment (`v2:…`) —
+ * skip it so both generations resolve: old orders only have old-format
+ * entries.
  */
 function findCachedMockup(
   mockupUrls: Record<string, string> | null | undefined,
@@ -44,16 +48,41 @@ export function resolveOrderEmailImages(opts: {
   color: string;
   placements: Record<string, string> | null;
   mockupUrls: Record<string, string> | null;
+  /** The primary image of the design whose `mockupUrls` these are. A
+   * source-less front key is a render of that primary, so it may stand for
+   * the order's front only when the front IS the primary — or when the
+   * order pinned no front at all (legacy). */
+  primaryImageId: string | null;
+  /** The pinned front image's artwork (else the design's display image). */
   frontArtworkUrl: string | null;
   backArtworkUrl: string | null;
   backdropHex: string;
 }): EmailImage[] {
-  const { productId, color, placements, mockupUrls, frontArtworkUrl, backArtworkUrl, backdropHex } = opts;
+  const {
+    productId,
+    color,
+    placements,
+    mockupUrls,
+    primaryImageId,
+    frontArtworkUrl,
+    backArtworkUrl,
+    backdropHex,
+  } = opts;
   const images: EmailImage[] = [];
 
   // Front — every order has one. Legacy orders may have null placements; treat
-  // those as front-only.
-  const frontMockup = findCachedMockup(mockupUrls, [productId, "front", color]);
+  // those as front-only. The front's own source-keyed mockup wins; the
+  // source-less key is the design's primary, so it only stands in when the
+  // front is that primary (or unpinned). Otherwise a swapped or non-primary
+  // front (#138) would lead the email with the wrong artwork.
+  const frontSourceId = placements?.front ?? null;
+  const frontMockup =
+    (frontSourceId
+      ? findCachedMockup(mockupUrls, [productId, "front", frontSourceId, color])
+      : null) ??
+    (!frontSourceId || frontSourceId === primaryImageId
+      ? findCachedMockup(mockupUrls, [productId, "front", color])
+      : null);
   if (frontMockup) {
     images.push({ label: "Front", url: frontMockup, backdrop: null });
   } else if (frontArtworkUrl) {
