@@ -1450,3 +1450,35 @@ describe("lane overflow menu placement (flip-up near the fold)", () => {
     expect(screen.getByRole("menu").className).toContain("top-full");
   });
 });
+
+describe("StudioClient — guest line (#241)", () => {
+  it("shows the sign-up/sign-in line to a guest with a lane", () => {
+    render(<StudioClient initialLanes={[lane()]} isGuest />);
+    expect(screen.getByTestId("guest-keep-line").textContent).toBe(
+      "Sign up to keep these designs. Have an account? Sign in."
+    );
+  });
+
+  it("hides it on a guest's empty bench, where there is nothing to keep", () => {
+    render(<StudioClient initialLanes={[]} isGuest />);
+    expect(screen.getByText("No open designs.")).toBeTruthy();
+    expect(screen.queryByTestId("guest-keep-line")).toBeNull();
+  });
+
+  it("shows it as soon as a guest's first lane appears on an empty bench", async () => {
+    render(<StudioClient initialLanes={[]} isGuest />);
+
+    fireEvent.change(screen.getByTestId("studio-composer"), {
+      target: { value: "a red dragon" },
+    });
+    fireEvent.submit(screen.getByTestId("studio-composer").closest("form")!);
+
+    // The optimistic lane is on screen before the server has answered.
+    expect(await screen.findByTestId("guest-keep-line")).toBeTruthy();
+  });
+
+  it("never shows it to a real account", () => {
+    render(<StudioClient initialLanes={[lane()]} />);
+    expect(screen.queryByTestId("guest-keep-line")).toBeNull();
+  });
+});

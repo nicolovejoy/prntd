@@ -17,7 +17,9 @@ import { GuestKeepLine } from "../guest-keep-line";
  * links, plus the Active/All filter and select mode for bulk delete (#195,
  * #238). Per-image actions live one tap deeper, on the image detail page.
  *
- * Guests (#241) get their own images and the sign-up line, like the bench.
+ * Guests (#241) get their own images and, once there is at least one, the
+ * sign-up/sign-in line, like the bench. An empty library shows only its
+ * empty state: "keep these designs" beside "No designs yet." reads wrong.
  */
 export default async function StudioLibraryPage() {
   const { session, isGuest } = await requireStudioUser();
@@ -25,7 +27,7 @@ export default async function StudioLibraryPage() {
 
   return (
     <>
-      {isGuest && <GuestKeepLine />}
+      {isGuest && images.length > 0 && <GuestKeepLine />}
       {/* 24px under the tab strip, the bench's default 24px. The layout
           contributes nothing below the strip, so each view owns this
           number; they used to disagree (24 / 32 / 32). */}

@@ -12,9 +12,9 @@ import { StudioTabs } from "@/components/studio-tabs";
  * The pages own their own auth gate (requireStudioUser, which admits a
  * guest-funnel session while the guest funnel is on, #241); a layout renders
  * before that resolves, but the strip is static links, so there is nothing
- * here to leak. For the same reason the guest sign-up line lives in the
- * pages, not here: it depends on the session, and a layout does not
- * re-render on navigation.
+ * here to leak. The guest sign-up/sign-in line lives in the views, not here:
+ * it depends on the session (and, on the bench, on whether any lane is on
+ * screen), and a layout does not re-render on navigation.
  */
 export default function StudioLayout({
   children,

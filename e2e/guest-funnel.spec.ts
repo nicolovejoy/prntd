@@ -4,8 +4,9 @@
  * record routes stay behind sign-in.
  *
  * #241: the Studio (bench + library) is open to that anonymous session too,
- * with a "Sign up to keep these designs" line. A visitor with no session at
- * all is still sent to sign-in, and /orders still refuses a guest.
+ * with a "Sign up to keep these designs. Have an account? Sign in." line. A
+ * visitor with no session at all is still sent to sign-in, and /orders
+ * still refuses a guest.
  */
 import { test, expect } from "@playwright/test";
 import { waitForSessionCookie } from "./helpers/session";
@@ -51,13 +52,17 @@ test("a guest with an anonymous session reaches their own Studio, not /orders", 
     const designId = await seedDesign(userId, key);
     seeded.push(designId);
 
-    // Bench: the guest's own lane, plus the sign-up line.
+    // Bench: the guest's own lane, plus the sign-up/sign-in line.
     await page.goto("/studio");
     await expect(page).toHaveURL(/\/studio$/);
     await expect(page.getByTestId("guest-keep-line")).toBeVisible();
-    await expect(page.getByTestId("guest-keep-line")).toHaveAttribute(
+    await expect(page.getByTestId("guest-sign-up")).toHaveAttribute(
       "href",
       "/sign-up"
+    );
+    await expect(page.getByTestId("guest-sign-in")).toHaveAttribute(
+      "href",
+      "/sign-in"
     );
     await expect(page.getByTestId("studio-lane")).toHaveCount(1);
 

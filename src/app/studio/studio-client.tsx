@@ -44,6 +44,7 @@ import {
 import type { OptimisticEntry } from "@/lib/studio-view";
 import type { StudioLane } from "@/lib/studio";
 import { deleteConversations, getStudioLanes } from "./actions";
+import { GuestKeepLine } from "./guest-keep-line";
 
 /**
  * /studio — the working surface (studio-plan slices 2+3): lanes render, a
@@ -119,7 +120,15 @@ const GENERATE_FAILED_COPY = "Something went wrong. Try again.";
  */
 const MOUNT_RECONCILE_DELAY_MS = 1500;
 
-export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
+export function StudioClient({
+  initialLanes,
+  isGuest = false,
+}: {
+  initialLanes: StudioLane[];
+  /** An anonymous guest-funnel session (#241): shows the sign-up/sign-in
+   * line above the bench while there is at least one lane to keep. */
+  isGuest?: boolean;
+}) {
   const [lanes, setLanes] = useState<StudioLane[]>(initialLanes);
   const [anchor, setAnchor] = useState<Anchor | null>(null);
   const [text, setText] = useState("");
@@ -581,6 +590,11 @@ export function StudioClient({ initialLanes }: { initialLanes: StudioLane[] }) {
   return (
     <>
       {confirmSheet}
+      {/* Keyed off renderedLanes, not the server's initial lanes, so a guest
+          who starts their first conversation here sees the line as soon as
+          its optimistic lane appears. Hidden on an empty bench, where there
+          is nothing to keep yet. */}
+      {isGuest && renderedLanes.length > 0 && <GuestKeepLine />}
       <main
         className={`flex-1 px-4 sm:px-6 max-w-4xl mx-auto w-full ${
           selectMode ? "pb-40" : "pb-8"

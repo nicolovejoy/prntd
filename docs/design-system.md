@@ -313,8 +313,10 @@ differ.
   archived image; `/studio/archive` now 308s to `/studio/library`.
   Guests use it too (#241): while `GUEST_FUNNEL_ENABLED` is on, an
   anonymous guest-funnel session sees its own Bench and Library plus one
-  line, "Sign up to keep these designs." → `/sign-up`. A visitor with no
-  session at all is sent to sign-in.
+  line, "Sign up to keep these designs. Have an account? Sign in." (two
+  links, `/sign-up` and `/sign-in`; either one from the same window moves
+  the guest's work to the account). The line is hidden on an empty Bench or
+  Library. A visitor with no session at all is sent to sign-in.
 - **Shop** — `/shop`, the community storefront (renamed from "Fresh
   Prints" 2026-07-19). Organizer stores were also shops (`/shop/[slug]`,
   each a self-contained storefront) — retired 2026-09-05 (#191):

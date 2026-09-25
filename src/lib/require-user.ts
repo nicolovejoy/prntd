@@ -44,7 +44,8 @@ export function canUseStudio(
 /**
  * Page gate for /studio and /studio/library. Redirects to /sign-in when
  * canUseStudio says no; otherwise returns the session and whether it is a
- * guest's, so the page can render the "Sign up to keep these designs" line.
+ * guest's, so the view can render the guest line ("Sign up to keep these
+ * designs. Have an account? Sign in.").
  *
  * A visitor with no session at all never reaches this: middleware sends them
  * to /sign-in first (there is nothing of theirs to show).
