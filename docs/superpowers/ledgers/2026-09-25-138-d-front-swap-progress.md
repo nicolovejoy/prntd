@@ -75,3 +75,10 @@ Verdict: no Critical; acceptance criteria 1/2/3/6 pass. One Important, four Mino
 Recorded, not fixed (per the main session):
 (a) `getListingMockup({ frontImageId })` renders a buyer's own PRIVATE image and stores its mockup URL in the SELLER's `design.mockupUrls`, which /preview then sends to the seller's browser. The mockup is a public R2 object keyed by the buyer's image id. Filed under the existing ruling on anonymous mockup renders (Nico 2026-09-06: note it, revisit at 10× the Shop). The same is already true of a private back pick via `getListingBackMockup`.
 (b) After a swap the order line's title (`order-line-identity`) is the front pick's listing title, or null when the pick is unpublished — consistent with that module's documented rule (name = published listing title of the pinned front, no fabricated labels). Note only.
+
+## Gate after fix round 1 (run by the controller)
+- `npm run lint`: 0 errors (22 pre-existing warnings; changed .ts/.tsx files alone: clean).
+- `npm run typecheck`: clean.
+- `npx vitest run`: 175 files, 1873 tests, all passed (+13 this round, +61 on the branch).
+- `npm run build` with the CI dummy env: exit 0.
+- `npm run db:generate`: "No schema changes, nothing to migrate". Still no migration.
