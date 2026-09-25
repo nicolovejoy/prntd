@@ -387,10 +387,22 @@ Each has a recommendation; "go with recommendations" is a sufficient reply.
   only-when-differing, Placements block, Swap, plus the two defects in
   "Two defects found while reading" and a third instance in
   `prefetchProductMockups`).
-- **Slice 3: HELD** (open questions 1 and 6 answered "go with
-  recommendations" — swap only, after #135 slice 1 — but Nico held it on
-  2026-08-17 pending the composition model; `/d` has no front row and no
-  swap). #167 below does not touch it.
+- **Slice 3: built 2026-09-25** (branch `claude/138-d-front-swap`; Nico
+  unheld it the same day, answers unchanged: swap only, on #135 slice 1's
+  `buy-hero.tsx`). `buyPublishedDesign` takes an optional `frontImageId` and
+  `addToCart`'s `frontImageId` entry honours `front`; both accept a
+  different front ONLY as a swap — the page image must then be the back
+  (`resolveBuyPageFront` in `src/lib/placement-pins.ts`), checked against the
+  back actually pinned after the flag gate — then run the same placement
+  guard as the back. Stripe line thumbnail follows the pinned front; the
+  cancel URL stays on the page (it keeps no placement state). The hero's
+  front mockup (`getListingMockup({ frontImageId })`) is held to the back
+  tile's bar. BuyPanel: section "Front & back", Front row + Back row + "⇅
+  Swap front and back"; Change and × hidden while swapped. Plan + rulings:
+  `docs/superpowers/plans/2026-09-25-138-d-front-swap.md`,
+  `docs/superpowers/ledgers/2026-09-25-138-d-front-swap-progress.md`.
+  Tests: `src/app/d/__tests__/buy-published-design-swap.integration.test.ts`,
+  `src/app/cart/__tests__/add-to-cart-swap.integration.test.ts`.
 
 ## #167 status (both sides at once)
 
@@ -412,7 +424,9 @@ toggle" presentation this plan assumed in §6 on BOTH buy surfaces:
   image AND `canUseAsPlacementSource` for the back source, flag-gated) renders
   the picked back; `BuyHero` shows hero + tile driven by `BuyPanel`'s back
   pick, with the same instant-artwork → mockup crossfade and in-tile error +
-  retry. Still no front picker and no swap here (slice 3 hold).
+  retry. Still no front picker; the swap arrived with slice 3 (above) —
+  after a swap the hero renders the pick on the front and the page image
+  in the back tile.
 - Decision 2's first slice: the order confirmation page and `/orders` show a
   back thumbnail next to the front when the line's `placements.back` exists,
   read from `order-line-identity.ts`'s `backImageUrl`. Cart line and the
