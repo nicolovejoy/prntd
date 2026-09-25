@@ -1,13 +1,18 @@
 /**
  * #135 slice 2 — resolving what `/order/confirm` should show for an order
- * that's still `pending` by the time the buyer lands back on the page. With
- * hosted checkout this never happens (Stripe only redirects here after a
- * completed payment); with embedded checkout the buyer can bounce back
- * (closed tab, back button) while the session is still open, or return after
- * it expired. `getCheckoutSessionState` is the one Stripe read this needs —
- * a plain server-side lib, not a `"use server"` action, so it's never
- * reachable as an action endpoint. `resolveConfirmView` is pure so the
- * branching is unit-testable without touching Stripe.
+ * that's still `pending` by the time the buyer lands back on the page. A
+ * `pending` order here is routine even with hosted checkout — Stripe
+ * redirects on a completed payment, often before the webhook has marked the
+ * order paid, which is the `complete` → confirmed branch below, not an error
+ * state. What's new with embedded checkout is the `open` branch: Stripe can
+ * send the buyer to `return_url` (this page) without a completed payment —
+ * e.g. they backed out of a redirect-based payment method — while the
+ * session itself is still open, or anyone can open the URL directly. A
+ * closed tab never reaches this page at all; there's no redirect to make.
+ * `getCheckoutSessionState` is the one Stripe read this needs — a plain
+ * server-side lib, not a `"use server"` action, so it's never reachable as
+ * an action endpoint. `resolveConfirmView` is pure so the branching is
+ * unit-testable without touching Stripe.
  */
 import { stripe } from "@/lib/stripe";
 

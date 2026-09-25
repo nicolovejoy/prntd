@@ -6,6 +6,7 @@ import { breadcrumbTrail } from "@/lib/nav";
 import { getColorHex } from "@/lib/blanks";
 import { appErrorLogLine, shapeAppError } from "@/lib/app-error";
 import { embeddedCheckoutFlag } from "@/lib/flags";
+import { embeddedCheckoutConfig } from "@/lib/embedded-checkout";
 import {
   getCheckoutSessionState,
   resolveConfirmView,
@@ -25,12 +26,14 @@ type Search = Promise<Record<string, string | string[] | undefined>>;
  * an order that was just paid here.
  *
  * #135 slice 2: when `EMBEDDED_CHECKOUT_ENABLED` is on and the order is still
- * `pending` — the buyer bounced back here without finishing an open Embedded
- * Checkout, or their session expired — this page makes one extra Stripe read
- * (`getCheckoutSessionState`) to tell "still open, come back and finish"
- * apart from "expired, nothing was charged" and from a genuine webhook lag.
- * Flag off, or the order isn't `pending`, means zero Stripe calls — the page
- * stays the plain DB read it always was.
+ * `pending`, this page makes one extra Stripe read (`getCheckoutSessionState`)
+ * to tell apart a genuine webhook lag (session `complete`, renders as
+ * confirmed) from a session that's still `open` — reachable with embedded
+ * checkout when Stripe redirects here without a completed payment (e.g. the
+ * buyer backed out of a redirect-based payment method) or when the URL is
+ * opened directly — or one that's `expired`. Flag off, or the order isn't
+ * `pending`, means zero Stripe calls — the page stays the plain DB read it
+ * always was.
  */
 export default async function ConfirmPage({ searchParams }: { searchParams: Search }) {
   const raw = (await searchParams).session_id;
@@ -101,7 +104,7 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Sear
     view = resolveConfirmView({
       orderStatus: order.status,
       stripe: stripeState,
-      embeddedEnabled: embeddedCheckoutFlag(),
+      embeddedEnabled: embeddedCheckoutConfig().enabled,
       sessionId,
     });
   }
@@ -113,7 +116,7 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Sear
       <div className="min-h-screen flex flex-col px-4">
         <Breadcrumbs
           trail={breadcrumbTrail("/order/confirm")}
-          current="Confirmed"
+          current="Checkout"
           className="py-4"
         />
         <div className="flex-1 flex flex-col items-center justify-center">
