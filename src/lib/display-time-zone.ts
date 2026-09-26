@@ -12,3 +12,37 @@
  * explicit locale, whenever a date is formatted for display.
  */
 export const DISPLAY_TIME_ZONE = "America/Los_Angeles";
+
+type DisplayDateInput = Date | string | number;
+
+/** A calendar day in the display zone, e.g. `9/25/2026`. */
+export function formatDisplayDate(date: DisplayDateInput): string {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: DISPLAY_TIME_ZONE,
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  }).format(new Date(date));
+}
+
+/**
+ * A day and time in the display zone with the short zone name, e.g.
+ * `9/25/26, 8:04:05 PM PDT`. The zone name is shown so a reader matching a
+ * row against UTC logs doesn't have to guess the offset. Explicit fields are
+ * used because `timeZoneName` can't be combined with `dateStyle`/`timeStyle`.
+ */
+export function formatDisplayDateTime(
+  date: DisplayDateInput,
+  opts?: { seconds?: boolean },
+): string {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: DISPLAY_TIME_ZONE,
+    year: "2-digit",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    ...(opts?.seconds ? { second: "2-digit" } : {}),
+    timeZoneName: "short",
+  }).format(new Date(date));
+}
