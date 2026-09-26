@@ -2,7 +2,9 @@
 
 import { headers } from "next/headers";
 import { after } from "next/server";
-import { auth, isAnonymousUser } from "@/lib/auth";
+import { auth } from "@/lib/auth";
+import { canUseStudio } from "@/lib/require-user";
+import { guestFunnelEnabled } from "@/lib/flags";
 import { isAdminUser } from "@/app/admin/actions";
 import { getCartCount } from "@/app/cart/actions";
 import { sweepStaleJobs, countActiveGenerationsForUser } from "@/lib/generation-job";
@@ -59,19 +61,16 @@ async function sweepUserJobsAfterResponse(userId: string): Promise<void> {
  * refunds the quota unit it charged. Do not "fix" this by awaiting the
  * sweep again.
  *
- * 0 for signed-out and anonymous guest-funnel visitors, without a job-table
- * query: signed-out visitors have no jobs, and skipping guests saves a query
- * on every guest page view. The cost is that a guest who starts a generation
- * and then leaves /design or /studio sees no badge; their jobs are scoped to
- * their anon user id and this branch never looks them up. Before #241 that
- * was moot, because the badge links to /studio and /studio bounced guests to
- * sign-in. Since #241 a guest can reach /studio, so counting guests here is
- * now a real option — deliberately left out of #241's scope.
+ * 0 for signed-out visitors, and for anonymous guests while the guest
+ * funnel is off, without a job-table query. The badge links to /studio, so it
+ * counts exactly the users `canUseStudio` lets follow it there: real
+ * accounts, plus guests when GUEST_FUNNEL_ENABLED is on. A guest's count and
+ * sweep are scoped to their anonymous user id, like a real user's.
  */
 async function runningJobsForCurrentUser(): Promise<number> {
   const session = await auth.api.getSession({ headers: await headers() });
   const user = session?.user;
-  if (!user || isAnonymousUser(user)) return 0;
+  if (!user || !canUseStudio(user, guestFunnelEnabled())) return 0;
 
   // Narrowest scope for this call site — only the cron sweeps scope: "all".
   // Scheduled BEFORE the read, so a thrown read still leaves the sweep to
