@@ -127,11 +127,7 @@ function PreviewPageInner() {
     const fromUrl = searchParams.get("size");
     return fromUrl && (product?.sizes ?? []).includes(fromUrl) ? fromUrl : null;
   });
-  const [pricing, setPricing] = useState<{
-    baseCost: number;
-    generationCost: number;
-    total: number;
-  } | null>(null);
+  const [pricing, setPricing] = useState<{ total: number } | null>(null);
   const [checkingOut, setCheckingOut] = useState(false);
   // Cart (#26 B3): show "Add to cart" alongside the buy CTA when CART_ENABLED.
   const [cartShown, setCartShown] = useState(false);

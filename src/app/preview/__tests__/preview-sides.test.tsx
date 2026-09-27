@@ -29,11 +29,7 @@ vi.mock("../../design/actions", () => ({
 }));
 
 vi.mock("../../order/actions", () => ({
-  calculatePrice: vi.fn(async () => ({
-    baseCost: 10,
-    generationCost: 0,
-    total: 19.43,
-  })),
+  calculatePrice: vi.fn(async () => ({ total: 19.43 })),
   createCheckoutSession: vi.fn(),
 }));
 

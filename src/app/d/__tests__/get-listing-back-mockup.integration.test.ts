@@ -30,7 +30,7 @@ vi.mock("@/lib/auth", () => ({
 
 vi.mock("next/headers", () => ({ headers: async () => new Headers() }));
 
-// d/actions.ts imports createStripeCheckoutForOrder from order/actions.ts,
+// d/actions.ts imports createStripeCheckoutForOrder from lib/order-checkout.ts,
 // which constructs a real Stripe client at module load; mocked the same way
 // the sibling get-listing-mockup test does.
 vi.mock("@/lib/stripe", () => ({
