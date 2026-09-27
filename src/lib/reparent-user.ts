@@ -25,9 +25,11 @@ import {
  * `image_generation.user_id` is a real FK to `user.id` and outlives the
  * generation (the row is only removed with the design), so a guest who
  * generated once and then signed up would make the anonymous plugin's delete
- * fail on that FK if it were left behind. When later
- * migration slices add user-owned tables, extend this list — the integration
- * test seeds one row per table as the checklist.
+ * fail on that FK if it were left behind. Since better-auth 1.6 that failure
+ * is logged, not thrown: sign-up succeeds and the anon user plus every
+ * unmoved row stay behind silently. When later migration slices add
+ * user-owned tables, extend this list — the integration test seeds one row
+ * per table as the checklist.
  */
 export async function reparentUserData(
   db: typeof appDb,

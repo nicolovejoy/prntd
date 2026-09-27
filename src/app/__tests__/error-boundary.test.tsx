@@ -22,11 +22,7 @@ function makeError(digest?: string) {
 describe("app error boundary", () => {
   it("states what happened in one literal line", () => {
     render(
-      <ErrorBoundary
-        error={makeError()}
-        unstable_retry={vi.fn()}
-        reset={vi.fn()}
-      />
+      <ErrorBoundary error={makeError()} retry={vi.fn()} reset={vi.fn()} />
     );
     expect(
       screen.getByRole("heading", {
@@ -37,9 +33,7 @@ describe("app error boundary", () => {
 
   it("logs the error once on mount and never writes it to the page", () => {
     const error = makeError();
-    render(
-      <ErrorBoundary error={error} unstable_retry={vi.fn()} reset={vi.fn()} />
-    );
+    render(<ErrorBoundary error={error} retry={vi.fn()} reset={vi.fn()} />);
     expect(consoleError).toHaveBeenCalledWith(error);
     expect(consoleError).toHaveBeenCalledTimes(1);
     // The thrown message is a Next digest in production, so it is never the
@@ -47,18 +41,16 @@ describe("app error boundary", () => {
     expect(screen.queryByText(/boom/)).not.toBeInTheDocument();
   });
 
-  it("re-fetches the segment via unstable_retry when Try again is tapped", () => {
+  it("re-fetches the segment via retry when Try again is tapped, not reset", () => {
     const retry = vi.fn();
     const reset = vi.fn();
-    render(
-      <ErrorBoundary error={makeError()} unstable_retry={retry} reset={reset} />
-    );
+    render(<ErrorBoundary error={makeError()} retry={retry} reset={reset} />);
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(retry).toHaveBeenCalledTimes(1);
     expect(reset).not.toHaveBeenCalled();
   });
 
-  it("falls back to reset if a future Next drops unstable_retry", () => {
+  it("falls back to reset if a future Next drops retry", () => {
     const reset = vi.fn();
     render(<ErrorBoundary error={makeError()} reset={reset} />);
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
@@ -69,7 +61,7 @@ describe("app error boundary", () => {
     render(
       <ErrorBoundary
         error={makeError("abc123def")}
-        unstable_retry={vi.fn()}
+        retry={vi.fn()}
         reset={vi.fn()}
       />
     );
@@ -78,22 +70,14 @@ describe("app error boundary", () => {
 
   it("renders no digest row when the error carries no digest", () => {
     render(
-      <ErrorBoundary
-        error={makeError()}
-        unstable_retry={vi.fn()}
-        reset={vi.fn()}
-      />
+      <ErrorBoundary error={makeError()} retry={vi.fn()} reset={vi.fn()} />
     );
     expect(screen.queryByTestId("error-digest")).not.toBeInTheDocument();
   });
 
   it("offers the home page, not /studio (guests cannot reach /studio)", () => {
     render(
-      <ErrorBoundary
-        error={makeError()}
-        unstable_retry={vi.fn()}
-        reset={vi.fn()}
-      />
+      <ErrorBoundary error={makeError()} retry={vi.fn()} reset={vi.fn()} />
     );
     const link = screen.getByRole("link", { name: "Go to the home page" });
     expect(link).toHaveAttribute("href", "/");
@@ -101,15 +85,10 @@ describe("app error boundary", () => {
 });
 
 describe("global error boundary", () => {
-  it("states what happened and offers Try again", () => {
+  it("states what happened and calls retry, not reset, on Try again", () => {
     const retry = vi.fn();
-    render(
-      <GlobalError
-        error={makeError()}
-        unstable_retry={retry}
-        reset={vi.fn()}
-      />
-    );
+    const reset = vi.fn();
+    render(<GlobalError error={makeError()} retry={retry} reset={reset} />);
     expect(
       screen.getByRole("heading", {
         name: "Something went wrong loading this page.",
@@ -117,16 +96,22 @@ describe("global error boundary", () => {
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(retry).toHaveBeenCalledTimes(1);
+    expect(reset).not.toHaveBeenCalled();
+  });
+
+  it("falls back to reset if a future Next drops retry", () => {
+    const reset = vi.fn();
+    render(<GlobalError error={makeError()} reset={reset} />);
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(reset).toHaveBeenCalledTimes(1);
   });
 
   it("shows the digest when present", () => {
     render(
-      <GlobalError
-        error={makeError("zz99")}
-        unstable_retry={vi.fn()}
-        reset={vi.fn()}
-      />
+      <GlobalError error={makeError("zz99")} retry={vi.fn()} reset={vi.fn()} />
     );
-    expect(screen.getByTestId("global-error-digest")).toHaveTextContent("zz99");
+    expect(screen.getByTestId("global-error-digest")).toHaveTextContent(
+      "zz99"
+    );
   });
 });
