@@ -190,3 +190,66 @@ Confirmed every earlier Important fixed. New findings:
 - `npm run db:generate`: "No schema changes, nothing to migrate".
 - e2e not run locally (brief); the spec most exposed is
   `e2e/guest-funnel.spec.ts` (the only one that touches Studio/generation).
+
+---
+
+# Rebuild on a client-minted job id (2026-09-27)
+
+## Nico's ruling
+
+An independent Opus review of the heuristic build (head `8bf8d94`) found it
+mergeable but disproportionate (~470 lines of lane-snapshot inference) with
+blind spots (another tab submitting into the same lane, two lost submits in
+one lane, a baseline job cancelled during the window, a brief slower than
+20 s) and one Important race (at the deadline a fresh poll could queue behind
+another in-flight `generateDesign`, judging the verdict from stale lanes and
+reporting a landed job as failed). Nico ruled: rebuild on a client-minted job
+id. The client mints the id, the server uses it for the `image_generation`
+row, and a lost response is reconciled by looking up that exact id. Build
+forward on this branch, no force-push.
+
+Commit `ff48ca0` restores `studio-client.tsx`, `studio-view.ts` and their two
+test files to `origin/main`. Plan rewritten in place (same file).
+
+## Controller rulings (before code)
+
+1. **Replay check before quota.** An own id on the same design returns the
+   same `queued` result from the row with no quota, no write, no render. Any
+   other existing id (another user's, or the caller's on another design)
+   throws the same generic error as a malformed id, before quota.
+2. **Insert conflict vs capacity.** Keep the guarded `INSERT … SELECT … WHERE
+   count < 3`. A PK violation means the id exists; zero rows means the cap
+   refused it unless the id exists (a replay whose original holds a slot makes
+   the WHERE false before the key is checked). Both read the row by id:
+   own + same design → `duplicate`; else `conflict`; absent → `at_capacity`.
+   `duplicate` refunds inline and returns `queued` without `after()`;
+   `conflict` throws (outer catch refunds once). Only a concurrent replay
+   reaches these; its duplicate user turn and skipped generation number are
+   accepted.
+3. **A dedicated status action, not the lanes poll.** Lanes list running jobs
+   by id but a finished job only as a cell keyed by image id, which the client
+   does not know after a lost response; failed jobs are not in lanes at all.
+   `getGenerationJobStatus(jobId)` is exact: owner-scoped, `none` for another
+   user's or a malformed id, cancel-requested running reads `cancelled`.
+4. **Bound the brief so the window is finite.** The job row is written after
+   the Claude brief, which has no bound of its own today (SDK default 10 min ×
+   3 attempts). `constructDesignBrief` gets a hard 45 s bound
+   (`AbortSignal.timeout`); the client window is 60 s from the catch (the
+   server started the request no later than the catch).
+5. **"None" decides only from a lookup CALLED after the deadline.** Serial
+   dispatch means a call made at T runs at or after T, so a lookup called after
+   the deadline can only see a later server state; one called before may have
+   been answered before the row existed. A lookup that throws is treated like
+   `none` by the same rule.
+6. **Overlay settles by the client id.** `settleOptimistic` drops an
+   unconfirmed entry once its `clientJobId` is pending in a lane, so the
+   overlay and the server's cell never render together; another tab's job has
+   a different id and never matches.
+7. **Plain offline fails fast** only when `navigator.onLine` was `false` both at
+   submit and at the catch (the fetch was refused on the device). `onLine`
+   `true` proves nothing, so every other transport error waits the window.
+8. **`cancelled` is silent** (drop the cell, no notice, no words back): the
+   only way to cancel is the user's Cancel, and today a cancelled queued job
+   just leaves. Judgment call against the brief's literal "failed/cancelled →
+   failure handling"; flagged in the summary.
+9. **Digest throws fail at once** (#204 closed lane unchanged).

@@ -1,8 +1,10 @@
-# Lost Generate response reads as failure (#245) — plan
+# Lost Generate response reads as failure (#245) — plan (rebuild on a client-minted job id)
 
-Slice G of batch 2 (`docs/superpowers/plans/2026-09-25-batch.md` rules; batch-2
-brief). Branch `claude/245-lost-generate-response`. No migration, no schema
-change, no server change.
+Slice G of batch 2. Branch `claude/245-lost-generate-response`. No migration,
+no schema change. Revised 2026-09-27: Nico ruled to rebuild the fix on a
+client-minted job id after an independent review found the first build (a
+lane-snapshot heuristic) mergeable but disproportionate. The history section at
+the end keeps what the first build learned.
 
 ## The bug
 
@@ -20,282 +22,219 @@ anchored lane was closed between the tab's last read and the tap (#204). That
 case must keep working: notice, words back, the closed lane leaves, an anchor
 into it clears.
 
-## Approach
+## Facts the design rests on (verified in the first build)
 
-Reconcile before deciding. In the catch, keep the optimistic cell on screen
-(phone-first: nothing moves while we find out), read the surface once with
-`getStudioLanes()`, apply it exactly as a poll does, and ask whether the server
-now shows work that this submit started:
+1. A throw from `generateDesign` itself reaches the client as an Error with a
+   string `digest` (React's Flight client, `resolveErrorProd` and
+   `resolveErrorDev`; the server sets it in `createReactServerErrorHandler`).
+   A lost or cut response (fetch `TypeError`, cut stream, 504) has none.
+2. `generateDesign` throws only while no job row exists (Unauthorized, a closed
+   lane, the brief failing, a forged anchor); every such throw is refunded by
+   its outer catch. `at_capacity`, `limit` and `clarification` are RETURNED,
+   not thrown.
+3. The Next client runs Server Functions strictly one at a time
+   (`runRemainingActions`). A call made at client time T is dispatched at or
+   after T, so the server runs it at or after T. A call can sit queued behind
+   another in-flight action (a slow `generateDesign`) for seconds.
+4. When the job row can first exist: `generateDesign` does quota, capacity,
+   the design-row insert, the user turn, two context reads, then the Claude
+   brief (`constructDesignBrief`), then reserves a generation number and
+   inserts the job row. The brief is the only slow step, and today it has no
+   bound of its own (the SDK default is a 10-minute timeout with 2 retries).
 
-- **Landed:** the lane for `targetDesignId` has a pending job, or a cell, that
-  was not there when the submit fired. Drop the optimistic entry (the server's
-  own cell takes its place in the same spot), no notice, composer untouched
-  (it was cleared at submit and stays that way unless the user typed since).
-- **Not landed:** today's behaviour — drop the entry, `GENERATE_FAILED_COPY`,
-  give the words back if the box is empty.
+## Design
 
-"Not there when the submit fired" is a baseline captured at submit time from
-the tab's server `lanes` for that design: its pending job ids and its cell
-image ids. An unanchored submit's id is fresh, so its baseline is empty and
-any job or cell counts. An anchored submit's lane already exists, so its old
-jobs and cells are excluded. Job ids that other optimistic entries already
-hold (a concurrent submit into the same lane whose response did arrive) are
-excluded too, read at decision time.
+### Server
 
-Why "a job or a cell" and not "the lane exists": for an unanchored submit the
-server creates the design row after quota and capacity pass but before the job
-row, so a genuine failure between the two (the brief call throwing) leaves an
-empty lane. That is a real failure and should read as one.
+1. **Client job id.** `generateDesign(designId, text, { anchorImageId?, jobId? })`.
+   `jobId` is optional (`/design` does not send one). When present it must be
+   a UUID, or the call throws before anything is written (no quota spent).
+2. **Replay check before quota.** Right after the session check, if `jobId` is
+   given, read the row with that id. Owned by the caller and on the same
+   design → return the same `{ kind: "queued", jobId, generationNumber,
+   imageId }` from the row, consume no quota, write nothing, schedule no
+   render. Anything else (another user's row, or the caller's row on another
+   design) → throw the same generic error as an invalid id, before quota.
+3. **The row uses the client id.** `insertGenerationJob` takes an optional
+   `id` and uses it instead of `crypto.randomUUID()`. The capacity cap's
+   guarded `INSERT … SELECT … WHERE count < 3` is unchanged. Two outcomes the
+   insert must tell apart, because a replay racing its original can pass the
+   early check and reach the insert while the original's row is being written:
+   - the statement throws a primary-key violation (`isUniqueViolation`) → a row
+     with that id exists;
+   - the statement affects zero rows → the cap refused it, UNLESS a row with
+     that id already exists (a replay whose own original holds a cap slot:
+     the WHERE is false before the key is ever checked).
+   In both cases the function reads the row by id: owned by the caller on the
+   same design → `{ ok: false, reason: "duplicate", job }`; exists otherwise →
+   `{ ok: false, reason: "conflict" }`; absent (zero rows only) →
+   `{ ok: false, reason: "at_capacity" }` as today.
+4. **Refunds stay exactly-once.** In `prepareGeneration`: `duplicate` refunds
+   this request's unit inline (like `at_capacity`) and RETURNS an
+   `already_queued` result, which `generateDesign` maps to `queued` without
+   scheduling `after()`; `conflict` THROWS, and the existing outer catch
+   refunds once. Accepted cost of the (only concurrent) duplicate path: the
+   user turn is persisted twice and a generation number is skipped.
+5. **Status lookup.** `getGenerationJobStatus(jobId)` in
+   `src/app/studio/actions.ts`, behind `requireStudioActionSession` (the same
+   gate as `getStudioLanes`, so guests work). Reads by id AND the session's
+   user id; returns `{ status: "running" | "succeeded" | "failed" |
+   "cancelled" }` or `{ status: "none" }`. A running row with `cancelled_at`
+   set reports `cancelled`. Another user's id and a malformed id both read as
+   `none`, so the action says nothing about other users' ids. No sweep: a stale
+   `running` row reads as running; the lanes poll's sweep fails it later.
+6. **Bound the brief.** `constructDesignBrief` passes
+   `signal: AbortSignal.timeout(DESIGN_BRIEF_TIMEOUT_MS)` (45 s) to the SDK
+   call, a hard bound across its retries. A timeout throws, which
+   `prepareGeneration` already turns into "Failed to construct prompt" and a
+   refund. This is what makes the client's window finite: the job row exists
+   within ~45 s of the server starting, plus fast DB work.
 
-The reconcile read is a direct `getStudioLanes()` call, not `pollOnce()`:
-`pollOnce` returns early when a poll is already in flight, and that in-flight
-poll may have started before the server wrote the job row. If the read itself
-throws (the network is still switching), wait `RECONCILE_RETRY_DELAY_MS`
-(1000 ms) and try once more; if that throws too, we cannot know, so fall back
-to today's failure behaviour.
+### Client
 
-Server-side idempotency keys are out of scope (issue: "a bigger change than
-this needs").
+1. Every submit mints `clientJobId = crypto.randomUUID()` (as it already mints
+   a new lane's designId), stores it on the optimistic entry
+   (`OptimisticEntry.clientJobId`), and passes it as `opts.jobId`.
+2. **Exact overlay settling.** `settleOptimistic` drops an entry whose `jobId`
+   is still null when some lane's `pending` holds its `clientJobId` (the
+   server's cell replaces it, so the two never render together), and
+   `unseenOptimisticCount` counts such an entry as seen. Nothing else changes
+   in those functions; another tab's job in the same lane has a different id
+   and never matches.
+3. **The catch.**
+   - Error with a `digest` → today's path at once: drop the entry, notice,
+     words back, `pollOnce()` (#204 keeps working).
+   - Browser offline both when the submit fired and when it failed
+     (`navigator.onLine === false` twice) → today's path at once. The fetch was
+     refused on the device, so nothing reached the server. `navigator.onLine`
+     is trusted only in its `false` direction.
+   - Otherwise the response is lost: keep the cell (nothing moves) and run the
+     reconcile loop for that submit's own id.
+4. **Reconcile loop** (one per lost submit). Deadline =
+   `Date.now()` at the catch + `LOST_SUBMIT_WINDOW_MS` (60 s: the 45 s brief
+   bound plus margin for cold start and the DB work around it; the server
+   started the request no later than the catch, so its job row exists by the
+   deadline or never). Each round records `calledAtMs = Date.now()`, calls
+   `getGenerationJobStatus(clientJobId)`, and asks the pure
+   `judgeLostSubmit({ status, calledAtMs, deadlineMs })`:
+   - `running` / `succeeded` → **landed**: set the entry's `jobId` to the
+     client id and `jobIdKnownAtMs` to now (exactly what a `queued` response
+     does), `pollOnce()`. No notice; the composer stays as it is.
+   - `failed` → **failed**: today's failure path (drop, notice, words back if
+     the box is empty, `pollOnce()`).
+   - `cancelled` → **cancelled**: drop the entry and `pollOnce()`, no notice,
+     no words back (a cancel is deliberate; today a cancelled queued job just
+     leaves).
+   - `none`, or the lookup threw (`error`) → **failed** only if `calledAtMs >=
+     deadlineMs`, else **wait**: sleep `LOST_SUBMIT_LOOKUP_INTERVAL_MS` (3 s)
+     and ask again. A lookup CALLED before the deadline can never fail the
+     submit, however late it resolves (fact 3: it may have queued behind
+     another action and been answered from a moment when the row was still
+     coming).
+   The first lookup goes out at once. The loop stops on unmount.
+5. `generateDesign` resolving normally is unchanged: `queued` sets the entry's
+   `jobId`; `limit` / `at_capacity` / `clarification` drop it with the message.
+
+### Out of scope, noted
+
+- If the job-row insert commits but its response is lost to the server,
+  `generateDesign` throws with a digest and refunds while a `running` row holds
+  a cap slot until the sweep. With client ids the client could check that id
+  before failing; follow-up, not built.
+- The client never replays a submit automatically; the server-side replay path
+  exists so a repeated id is safe, not because the client resends.
 
 ## Tasks
 
-### Task 1 — pure decision helpers in `src/lib/studio-view.ts`
+### Task 1 — server: client job id, replay, conflict (real-DB tests)
 
-Add, next to `settleOptimistic`:
+Files: `src/lib/generation-job.ts`, `src/app/design/actions.ts`, a small
+`src/lib/uuid.ts` (`isUuid`), tests.
 
-```ts
-/** What one lane held when a submit fired (#245). */
-export type LaneBaseline = { jobIds: string[]; imageIds: string[] };
+Acceptance:
+- `insertGenerationJob({ …, id? })` uses the id; returns `duplicate` / `conflict`
+  / `at_capacity` per Design §Server 3.
+- `generateDesign` validates, replays before quota, maps `duplicate` to
+  `queued` without `after()`, throws on `conflict` (refunded once by the outer
+  catch).
+- Real-DB tests (`src/app/design/__tests__/client-job-id.integration.test.ts`
+  plus cases in `src/lib/__tests__/generation-job.integration.test.ts`):
+  the row carries the client id; own-id replay returns the same queued result
+  with no quota consumed, no brief call, no second `after()`, one row; foreign
+  id refused before quota, other user's row untouched; caller's id on another
+  design refused; malformed id refused before quota; capacity still enforced
+  with a client id (3 running → `at_capacity`, refunded, no row); an insert
+  racing its original (row appears between the early check and the insert,
+  both under and at the cap) → `queued` with the original's data, net quota =
+  one unit, no second `after()`; a foreign row appearing at the insert → throw,
+  refunded exactly once.
 
-/** Baseline for `designId` from the tab's server lanes; empty when no lane. */
-export function laneBaseline(lanes: StudioLane[], designId: string): LaneBaseline;
+### Task 2 — status lookup, brief bound, pure client helpers
 
-/**
- * Whether a fresh read shows work a submit started even though its response
- * never arrived: the lane for `designId` has a pending job not in the
- * baseline and not in `claimedJobIds`, or a cell not in the baseline.
- */
-export function submitLanded(
-  fresh: StudioLane[],
-  designId: string,
-  baseline: LaneBaseline,
-  claimedJobIds?: Iterable<string>
-): boolean;
-```
+Files: `src/lib/generation-job.ts` (`getGenerationJobStatusForUser`),
+`src/app/studio/actions.ts` (`getGenerationJobStatus`), `src/lib/ai.ts`,
+new `src/lib/lost-submit.ts` (`DESIGN_BRIEF_TIMEOUT_MS`,
+`LOST_SUBMIT_WINDOW_MS`, `LOST_SUBMIT_LOOKUP_INTERVAL_MS`, `judgeLostSubmit`,
+`isServerActionError`), `src/lib/studio-view.ts` (`clientJobId`,
+`settleOptimistic`, `unseenOptimisticCount`), tests.
 
-Only server lanes are read (callers pass server `lanes`, never
-`applyOptimistic` output, so optimistic cells can't count). Docblocks say why
-"lane exists" alone is not enough (the empty-lane case above).
+Acceptance:
+- Real-DB: status for own running / succeeded / failed / cancel-requested
+  running / cancelled rows; another user's id → none; missing → none;
+  malformed → none (no query).
+- `constructDesignBrief` passes an `AbortSignal` to the SDK call (unit test on
+  the mock's second argument).
+- `LOST_SUBMIT_WINDOW_MS > DESIGN_BRIEF_TIMEOUT_MS` asserted in a test.
+- `judgeLostSubmit` unit tests for every status × before/after the deadline,
+  including `calledAtMs` just below and equal to the deadline.
+- `isServerActionError`: string digest true; TypeError, plain Error,
+  non-string digest false.
+- `settleOptimistic` / `unseenOptimisticCount`: an unconfirmed entry whose
+  `clientJobId` is pending is dropped / counted seen; a pending job with a
+  different id in the same lane does neither; entries without `clientJobId`
+  behave as before.
 
-Acceptance / tests in `src/lib/__tests__/studio-view.test.ts`:
-1. `laneBaseline` returns the lane's pending job ids and cell image ids; empty
-   arrays when the design has no lane.
-2. `submitLanded` true: fresh lane (empty baseline) with a pending job.
-3. true: fresh lane with a cell and no pending (job already finished).
-4. false: no lane for the id (closed lane, #204; or never created).
-5. false: lane exists but empty (design row written, job never was).
-6. false: anchored lane whose only pending job and cells are in the baseline.
-7. true: anchored lane with one baseline job plus one new job.
-8. false: the only new job id is in `claimedJobIds`.
-9. Other designs' lanes never count.
+### Task 3 — client wiring and client tests
 
-### Task 2 — reconcile in `studio-client.tsx`'s submit catch
+Files: `src/app/studio/studio-client.tsx`,
+`src/app/studio/__tests__/studio-client.test.tsx`.
 
-1. In `submit()`, before `generateDesign`, capture
-   `baseline = laneBaseline(lanes, targetDesignId)`.
-2. Factor the "apply a fresh snapshot" half of `pollOnce` (setLanes +
-   settleOptimistic with `snapshotStartedAtMs` + reset poll errors) into one
-   function both paths use, so the reconcile read can't drift from the poll.
-3. Add a ref mirror of `optimistic` (like `activeRef`) so the decision can read
-   other entries' claimed job ids at the moment it runs.
-4. The catch: keep the optimistic entry while reconciling. Read the lanes
-   (one retry after `RECONCILE_RETRY_DELAY_MS` if the read throws), apply the
-   snapshot, decide with `submitLanded(fresh, targetDesignId, baseline,
-   claimed)` where `claimed` = job ids of every other optimistic entry. Landed:
-   drop the entry, no notice, no text restore. Not landed or unreadable: drop
-   the entry, `GENERATE_FAILED_COPY`, restore text if the box is empty.
-5. Replace the catch's comment: it now names both throws it handles (lost
-   response, #245; closed lane, #204) and why it reconciles before deciding.
-   Update the component docblock if anything it says about submit or polling
-   becomes wrong. Check the rest of the file for comments that describe the
-   old catch.
+Acceptance: the Design §Client behaviour, with the header comment and the catch
+comment describing it (the stale mention of the old catch goes). Tests (each
+fails on main):
+1. Landed after loss: action rejects without digest, lookup → running → no
+   notice, composer empty, one pending cell at every observable step, and the
+   lookup was for the id sent to `generateDesign`.
+2. A poll lists the job under the client id before the lookup answers → still
+   one cell (the overlay settles by `clientJobId`).
+3. Failed after loss: lookup → failed → notice, words back, cell gone.
+4. None until the deadline: cell stays and no notice before; failure after.
+5. Serialized-queue race: a lookup called before the deadline that resolves
+   `none` after it does not fail the submit; the next lookup (called after the
+   deadline) decides.
+6. Digest throw fails at once and never calls the lookup.
+7. #204: anchored submit into a closed lane (digest throw) → notice, words
+   back, lane leaves on the poll, anchor cleared, no lookup.
+8. Two quick submits into one lane, both lost: each looked up by its own id;
+   A running → landed; B none → fails at its deadline.
+9. Another tab's job in the same lane (different id, pending in lanes) is not
+   taken as this submit's: the overlay stays, failure at the deadline.
+10. Offline at submit and at the catch → fails at once, no lookup.
+11. Cancelled → cell leaves, no notice, words not returned.
+12. Every lookup throws → no failure before the deadline; failure after.
+13. Unmount during the window → no further lookups.
+14. Words typed during the window survive a failure.
+Phone-first: the cell never leaves and comes back; nothing above it moves.
 
-Acceptance / tests in `src/app/studio/__tests__/studio-client.test.tsx`
-(`generateDesign` rejects in every case):
-1. Unanchored, reconcile read shows a lane for the submitted id with a running
-   job: exactly one pending cell remains, no "Something went wrong", composer
-   empty. Assert the id: the lane the read returns uses the id
-   `generateDesign` was called with.
-2. Unanchored, reconcile read shows no lane: notice shown, words back, no
-   pending cell (the existing "removes the cell when the action throws" test
-   stays and still passes).
-3. Unanchored, reconcile read shows the lane but empty: failure path.
-4. Anchored, read shows the anchored lane with a new job id: no notice,
-   composer empty, anchor still set.
-5. Anchored, read shows the lane with only its pre-existing pending job:
-   failure path.
-6. #204: anchored, read no longer lists the lane (closed): notice, words back,
-   lane gone, anchor chip cleared.
-7. While the reconcile read is in flight (deferred), the pending cell is still
-   on screen and no notice is shown (no layout shift).
-8. Reconcile read throws once then succeeds with a running job: landed path.
-   Read throws twice: failure path. (Fake timers or an awaited delay; no test
-   may take more than a few seconds of real time.)
+## History: the first build (heuristic), 2026-09-26
 
-## Gate
-
-`npm run lint`, `npm run typecheck`, `npx vitest run`, `npm run build` with
-CI's dummy env, `npm run db:generate` → "No schema changes".
-
-## Revision after the whole-branch review (Task 3)
-
-Tasks 1 and 2 shipped a single reconcile read (timeout, one retry) decided by
-`submitLanded(fresh, designId, baseline, claimed, unresolvedOthers)`, with
-`claimed` = `{jobId, imageId}` pairs this tab got back from other submits.
-The Opus whole-branch review then showed the one-read design is wrong on the
-path #245 is about:
-
-- **Server Functions run one at a time on the client** (Next's
-  `runRemainingActions`). A network switch can drop the response while the
-  server is still inside `generateDesign` — the brief call alone takes
-  seconds and runs before the job row exists. The reconcile read then sees
-  no job and reports failure: the #245 bug again, for the most likely timing.
-- A poll queued behind the failed `generateDesign` is applied before the
-  reconcile read and shows the server's cell beside the still-present
-  optimistic one (two cells, then one: a layout shift on a phone).
-- The retry after a timeout cannot help: the timed-out read still heads the
-  serial queue.
-- Two same-lane submits that both lose their response could resolve A as
-  failed and then B as "landed" on A's job — B's words silently lost.
-- `unresolvedOthers` counted submits fired after the snapshot was requested.
-- A claimed baseline job that finished still counted as "departed".
-
-### Design
-
-Replace the one-shot read with a **reconcile window** judged on every applied
-snapshot (poll or otherwise), with three verdicts:
-
-- **landed** — evidence beyond what other unresolved submits could explain →
-  drop the entry silently (the server's own cell takes its place).
-- **failed** — decisive: the anchored lane is gone (closed or deleted, #204),
-  or the window has closed without enough evidence → drop the entry, notice,
-  words back if the box is empty, and disown the unexplained new ids in that
-  lane so a later decision can't take them as its own.
-- **wait** — no decision yet: the cell stays, polling continues.
-
-Window: `RECONCILE_WINDOW_MS` = 20 000 ms from the throw (the brief call
-usually takes 3–8 s; a slower brief reads as a failure, which is today's
-behaviour, not worse). An unanchored submit whose lane is absent waits too:
-the read may have raced the design-row write. Only an anchored lane that is
-absent fails at once.
-
-Evidence (`judgeLostSubmit`, pure, replaces `submitLanded`):
-- `LaneBaseline` gains `laneExisted: boolean`.
-- Claims are `{ jobId: string | null; imageId: string | null }`: a queued
-  result claims both ids; a disowned pending job claims only its jobId; a
-  disowned cell only its imageId.
-- known jobs = baseline jobs ∪ claimed jobIds; known images = baseline images
-  ∪ claimed imageIds.
-- newPending = pending jobs not known; newCells = cells not known.
-- departed = distinct job ids, from baseline jobs and job-only claims, minus
-  job ids of claims that carry an imageId, that are no longer pending. Each can
-  explain one new cell (its image id is unknown).
-- evidence = newPending + max(0, newCells − departed).
-- verdict: lane absent → `failed` if `baseline.laneExisted`, else `failed` if
-  past the deadline, else `wait`. Evidence > unresolvedOthers → `landed`. Past
-  the deadline → `failed` with `unexplained` = new pending jobs as
-  `{jobId, imageId: null}` and new cells as `{jobId: null, imageId}`.
-  Otherwise `wait`.
-
-Client (`studio-client.tsx`):
-- All bookkeeping the decision reads lives in refs updated synchronously (not
-  mirrored from state in an effect), so a mock or a fast network resolving in
-  the same tick still sees it:
-  - `claimsRef: Map<designId, LaneClaim[]>` — queued results add
-    `{jobId, imageId}`; failures add their `unexplained`.
-  - `inFlightRef: Map<localId, { designId, startedAtMs }>` — added at submit,
-    removed when the action returns (any result) or throws.
-  - `lostRef: Map<localId, { designId, prompt, baseline, startedAtMs,
-    deadlineMs }>` — added in the catch, removed when decided.
-- `unresolvedOthers` for a lost entry = other entries (in `inFlightRef` or
-  `lostRef`, same design, not itself) whose `startedAtMs` is before the
-  snapshot's `snapshotStartedAtMs`.
-- `applyFreshLanes(fresh, snapshotStartedAtMs)` runs the judgement for every
-  lost entry after applying the snapshot. `pollOnce` is the only reader, so the
-  direct reconcile read, its timeout and its retry are deleted.
-- The catch: record the lost entry, schedule a deadline timer (judge with the
-  latest applied lanes, kept in a `lanesRef`; past the deadline; then one
-  `pollOnce()` so a job that did land shows even if the loop has stopped), and
-  call `pollOnce()` (it returns early if a poll is already queued; that poll
-  was dispatched after the throw and is judged the same way). The polling loop
-  stays alive while the entry is in `optimistic`, so snapshots keep arriving
-  through the window.
-- A decision removes the entry from `optimistic` in the same batch as the
-  `setLanes` that produced it, so the two cells never render together.
-- Decisions are idempotent per localId (the deadline timer and a snapshot can
-  both reach one).
-- Comments: the catch explains both throws (#245, #204), serial dispatch, the
-  window, and the accepted trade that an `after()` failure right after the job
-  insert reads as landed (the sweep then fails the job).
-
-### Task 3 acceptance / tests
-
-Helper (`src/lib/__tests__/studio-view.test.ts`, replacing `submitLanded`'s):
-lane absent anchored → failed now; lane absent unanchored → wait, failed past
-deadline; new pending → landed; new cell only → landed; empty lane → wait,
-failed past deadline; baseline job departed + one new cell → wait; + two →
-landed; claimed `{jobId,imageId}` pending or finished → not evidence, and not
-departed; job-only claim finished + one new cell → wait; evidence ≤
-unresolvedOthers → wait; past-deadline failure reports the unexplained ids;
-other designs never count.
-
-Client (`src/app/studio/__tests__/studio-client.test.tsx`, replacing the Task
-2 block where it conflicts):
-1. Unanchored: rejects, the next snapshot shows the job → one pending cell at
-   every observable step (never two), no notice, empty composer.
-2. Unanchored: the snapshot shows no lane → the cell stays with no notice;
-   a later snapshot shows the job → landed.
-3. Unanchored: no lane through the window → at the deadline, notice, words
-   back, cell gone, and a poll fires afterwards.
-4. Unanchored: empty lane, then the job appears → landed; empty through the
-   window → failure at the deadline.
-5. Anchored: new job → landed, anchor kept, composer empty.
-6. Anchored: only the pre-existing job through the window → failure at the
-   deadline.
-7. #204: anchored lane absent → failure immediately (no waiting), lane gone,
-   anchor cleared.
-8. Every read fails → failure at the deadline.
-9. Words typed during the window survive a failure.
-10. Concurrent same-lane: B queued `job-b`, A lost, snapshots show only
-    `job-b` → A fails at the deadline.
-11. Both A and B lost into one lane, one new job visible → neither lands on
-    it; both fail by their deadlines.
-12. A claimed job pending at A's submit (B's `job-b` in `lanes`) finishes
-    during A's window, and A's own job finishes too → A landed.
-13. A submit fired after a snapshot was requested is not counted against an
-    earlier lost submit judged by that snapshot.
-
-## Amendments from the Task 3 review and the second whole-branch review
-
-These change the Task 3 Design above; the code follows these.
-
-- **Landed claims its evidence.** `judgeLostSubmit` returns `accounted` on
-  `landed` (new jobs as `{jobId, imageId: null}`, new cells as
-  `{jobId: null, imageId}`); failures return `unexplained` the same way.
-  `judgeLost` appends both to `claimsRef` after the whole pass, so a sibling
-  judged in the same pass is not affected, and a later lost submit in the lane
-  cannot land on work an earlier verdict already took.
-- **The deadline decides from a fresh read.** At the deadline the client
-  starts a poll and lets its snapshot decide (`pastDeadline` true); a poll that
-  throws is decided in `pollOnce`'s `finally` (`judgePastDeadline`). A poll
-  already in flight at the deadline gets `RECONCILE_GRACE_MS` (5 s); a hung
-  read is decided against the last applied lanes when the backstop fires.
-- **The loop does not halt on poll errors while a submit awaits a verdict**
-  (an optimistic entry with no `jobId`), so a network that recovers inside the
-  window is seen.
-- **A server-thrown error is decided at once.** A throw from `generateDesign`
-  itself reaches the client as an Error carrying a `digest`; every such throw
-  happens before a job row exists (and is refunded). Those take the old path
-  (notice, words back, one poll for #204). Only an error without a digest (a
-  lost or cut response) enters the reconcile window.
-- A lost submit's deadline timers are cleared when it is decided early.
+The first build judged a lost submit from lane snapshots (a per-lane baseline
+of job and cell ids at submit, "departed" job accounting, sibling counts, a
+20 s window). An independent Opus review found it mergeable but ~470 lines with
+blind spots (another tab submitting into the same lane, two lost submits in one
+lane, a baseline job cancelled during the window, a brief slower than 20 s) and
+one Important race (at the deadline a fresh poll could queue behind another
+in-flight `generateDesign` and the verdict be judged from stale lanes). Its
+lasting findings are the three facts above (digest, serial dispatch, where the
+row is written). Its code was restored to main in `ff48ca0`; the full record is
+in the ledger.
