@@ -110,6 +110,16 @@ export function breadcrumbTrail(
   return [];
 }
 
+/**
+ * Whether `pathname` sits inside the section rooted at `href` — an exact
+ * match, or a path under it. Used by the header bar to underline the current
+ * primary link; a prefix match alone would be wrong (`/design` must not
+ * light up `/designs`, nor the reverse).
+ */
+export function isCurrentSection(pathname: string, href: string): boolean {
+  return pathname === href || pathname.startsWith(href + "/");
+}
+
 /** The immediate parent — Escape target and mobile back chip — or null at the root. */
 export function upTarget(
   pathname: string,

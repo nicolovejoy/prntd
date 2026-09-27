@@ -1,5 +1,27 @@
 import { describe, it, expect } from "vitest";
-import { breadcrumbTrail, upTarget, HOME } from "@/lib/nav";
+import { breadcrumbTrail, isCurrentSection, upTarget, HOME } from "@/lib/nav";
+
+describe("isCurrentSection", () => {
+  it("matches the href exactly", () => {
+    expect(isCurrentSection("/studio", "/studio")).toBe(true);
+  });
+
+  it("matches a path nested under the href", () => {
+    expect(isCurrentSection("/studio/x", "/studio")).toBe(true);
+  });
+
+  it("does not treat /designs as current for /design", () => {
+    expect(isCurrentSection("/designs", "/design")).toBe(false);
+  });
+
+  it("does not treat /design as current for /designs", () => {
+    expect(isCurrentSection("/design", "/designs")).toBe(false);
+  });
+
+  it("does not match an unrelated path", () => {
+    expect(isCurrentSection("/shop", "/studio")).toBe(false);
+  });
+});
 
 describe("breadcrumbTrail", () => {
   it("returns no ancestors at the root", () => {
