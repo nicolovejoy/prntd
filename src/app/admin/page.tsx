@@ -13,6 +13,7 @@ import {
 } from "./actions";
 import { Badge, Button, InlineNotice, useConfirm, type InlineNoticeTone } from "@/components/ui";
 import { getColorHex } from "@/lib/blanks";
+import { formatDisplayDateTime } from "@/lib/display-time-zone";
 import {
   ORDER_CLASSIFICATIONS,
   CLASSIFICATION_INFO,
@@ -475,10 +476,7 @@ export default function AdminPage() {
                     </td>
                     <td className="py-3 pr-4 font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted whitespace-nowrap">
                       {order.createdAt
-                        ? new Date(order.createdAt).toLocaleString(undefined, {
-                            dateStyle: "short",
-                            timeStyle: "short",
-                          })
+                        ? formatDisplayDateTime(order.createdAt)
                         : "—"}
                     </td>
                     <td className="py-3 text-xs space-x-2">

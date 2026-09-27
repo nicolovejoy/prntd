@@ -28,7 +28,7 @@ describe("PublishCta", () => {
     expect(screen.getByText("Publish to the Shop")).toBeInTheDocument();
   });
 
-  it("!canPublish: no Publish button, a Sign in to publish link instead", () => {
+  it("!canPublish: no Publish button, a sign-up / sign-in prompt instead", () => {
     render(
       <PublishCta
         imageId="img-1"
@@ -37,10 +37,17 @@ describe("PublishCta", () => {
       />
     );
     expect(screen.queryByRole("button", { name: "Publish" })).toBeNull();
-    const link = screen.getByRole("link", { name: "Sign in to publish" });
-    expect(link).toHaveAttribute(
+    expect(screen.getByTestId("guest-publish-prompt")).toHaveTextContent(
+      "Sign up to publish. Have an account? Sign in."
+    );
+    expect(screen.getByTestId("guest-publish-sign-up")).toHaveAttribute(
+      "href",
+      `/sign-up?next=${encodeURIComponent("/d/img-1")}`
+    );
+    expect(screen.getByTestId("guest-publish-sign-in")).toHaveAttribute(
       "href",
       `/sign-in?next=${encodeURIComponent("/d/img-1")}`
     );
+    expect(screen.queryByText("Sign in to publish")).toBeNull();
   });
 });
