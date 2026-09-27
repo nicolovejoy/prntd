@@ -442,3 +442,18 @@ export function unseenOptimisticCount(
     );
   }).length;
 }
+
+/**
+ * Whether a caught Server Function error was thrown by the function itself.
+ * React's Flight client sets a string `digest` on the errors it rebuilds from
+ * a server-side throw. A response that never arrived (a `TypeError` from
+ * fetch, a cut stream, a 504) has none. `generateDesign` throws only before
+ * its job row exists, so a digest means nothing was started (#245).
+ */
+export function isServerActionError(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    typeof (err as { digest?: unknown }).digest === "string"
+  );
+}

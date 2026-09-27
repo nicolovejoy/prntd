@@ -38,6 +38,7 @@ import {
   bulkDeleteTitle,
   formatElapsed,
   judgeLostSubmit,
+  isServerActionError,
   laneBaseline,
   settleOptimistic,
   timeAgo,
@@ -256,10 +257,17 @@ export function StudioClient({
   );
   // Submits whose call threw and are waiting for a verdict, by localId.
   const lostRef = useRef(new Map<string, LostSubmit>());
-  const deadlineTimersRef = useRef(new Set<ReturnType<typeof setTimeout>>());
+  // Deadline and backstop timers by localId, so deciding an entry early
+  // clears its own and a landing does not cost a stray read 20 s later.
+  const deadlineTimersRef = useRef(
+    new Map<string, Set<ReturnType<typeof setTimeout>>>()
+  );
   useEffect(() => {
     const timers = deadlineTimersRef.current;
-    return () => timers.forEach((t) => clearTimeout(t));
+    return () => {
+      timers.forEach((set) => set.forEach((t) => clearTimeout(t)));
+      timers.clear();
+    };
   }, []);
   // The latest lanes, for the deadline timer, which fires long after the
   // closure that scheduled it. applyFreshLanes sets it synchronously (the same
@@ -296,7 +304,12 @@ export function StudioClient({
         if (claims.length === 0) return;
         newClaims.set(designId, [...(newClaims.get(designId) ?? []), ...claims]);
       };
-      for (const [localId, lost] of [...lostRef.current]) {
+      // The entries this pass starts with. A sibling decided earlier in the
+      // pass still counts as unresolved for the ones after it: they are all
+      // judged on the same snapshot, and A failing must not free B to land on
+      // the evidence A could equally have owned.
+      const pass = [...lostRef.current];
+      for (const [localId, lost] of pass) {
         if (dueOnly && judgedAtMs < lost.deadlineMs) continue;
         // Other same-lane submits that could own a new job or cell in this
         // snapshot. Under serial dispatch a submit fired after the snapshot
@@ -304,7 +317,7 @@ export function StudioClient({
         // fired in the same millisecond does: ambiguity resolves to failure.
         const unresolvedOthers = [
           ...inFlightRef.current,
-          ...lostRef.current,
+          ...pass,
         ].filter(
           ([id, o]) =>
             id !== localId &&
@@ -322,6 +335,10 @@ export function StudioClient({
         if (verdict.kind === "wait") continue;
         lostRef.current.delete(localId);
         decided.add(localId);
+        deadlineTimersRef.current
+          .get(localId)
+          ?.forEach((t) => clearTimeout(t));
+        deadlineTimersRef.current.delete(localId);
         if (verdict.kind === "landed") {
           // The work this verdict rests on is now this submit's, so a later
           // lost submit in the lane can't land on it.
@@ -407,9 +424,14 @@ export function StudioClient({
   // budget, so the loop resumes when the user looks at the tab again.
   // An overlay entry keeps the loop alive too, so polling starts the instant
   // a cell appears — harmless if the job row isn't written yet.
+  // A halted loop stays alive while an entry has no jobId: that submit is
+  // either still in flight (polls queue behind the action, and pollOnce's
+  // guard stops them piling up) or lost, and the reconcile window bounds how
+  // long it waits. Halting there would leave a job that landed unseen until
+  // the deadline and report it as a failure.
   const active =
     (serverPendingCount > 0 || optimistic.length > 0) &&
-    !isPollHalted(pollErrors);
+    (!isPollHalted(pollErrors) || optimistic.some((e) => e.jobId === null));
   // A ref mirror of `active`, read by the mount-reconcile timer below at the
   // moment it FIRES rather than the moment it was scheduled — a plain
   // closure over `active` from an empty-deps mount effect would be stale by
@@ -694,32 +716,47 @@ export function StudioClient({
         // Give the words back if the box is still empty — the turn didn't run.
         setText((t) => t || trimmed);
       }
-    } catch {
-      // Two different things throw here, and the error can't tell them apart:
-      //  - The response was lost after the server accepted the request (#245,
-      //    e.g. ERR_NETWORK_CHANGED). The server may still be inside
-      //    generateDesign, or done. Reporting failure would invite a retry
-      //    that costs a second quota unit and render.
-      //  - assertConversationOpen refused because the lane closed (#204) —
-      //    e.g. the after() idle-archive sweep — between this tab's last read
-      //    and the tap. Nothing ran.
-      // The error can't say which, so the surface decides. The cell stays on
-      // screen, nothing moves, and the poll loop keeps running while it does.
+    } catch (err) {
+      inFlightRef.current.delete(localId);
+      // Two different things throw here, and the error says which:
+      //  - A throw from generateDesign itself reaches the client as an Error
+      //    with a string `digest` (isServerActionError). The server raises
+      //    those only before any job row exists (Unauthorized, a closed lane
+      //    (#204, e.g. the after() idle-archive sweep between this tab's last
+      //    read and the tap), the brief failing), so nothing ran: drop the
+      //    entry, show the failure line, hand the words back, and read once
+      //    so a closed lane leaves and its anchor clears.
+      //  - A response lost after the server accepted the request (#245, e.g.
+      //    ERR_NETWORK_CHANGED) has no digest: a TypeError from fetch, a cut
+      //    stream, a 504. The server may still be inside generateDesign, or
+      //    done, and reporting failure would invite a retry that costs a
+      //    second quota unit and render. The surface decides instead. The
+      //    cell stays, nothing moves, and the poll loop keeps running.
       // Every snapshot applied from here on was read by the server after
       // generateDesign settled on the client (a poll queued behind it was
       // requested earlier but runs after it) and is judged in applyFreshLanes
       // (judgeLostSubmit): the work showing up means landed, the anchored lane
       // missing means #204 (failed at once), and RECONCILE_WINDOW_MS without
       // evidence means failed. Server Functions dispatch one at a time, so no
-      // snapshot from before the throw is judged. The deadline timer below
-      // decides a window that closes between snapshots (after waiting up to
-      // RECONCILE_GRACE_MS for a poll in flight) and asks for one last poll,
-      // since the loop may have stopped.
+      // snapshot from before the throw is judged. At the deadline the entry
+      // is decided by a fresh read (or, if one is already in flight, by that
+      // one, for up to RECONCILE_GRACE_MS).
       //
       // Accepted trade: if the server's after() work fails right after the
       // job row is written, this reads as landed. The sweep then fails that
       // job with no notice, and the words are gone.
-      inFlightRef.current.delete(localId);
+      // Accepted limit: a `wait` held open by unresolvedOthers can show the
+      // server's cell next to the overlay, and count both toward the cap,
+      // until a deadline. Only two same-lane submits that both lose their
+      // response reach it.
+      if (isServerActionError(err)) {
+        setOptimistic((entries) => entries.filter((e) => e.localId !== localId));
+        setNotice(GENERATE_FAILED_COPY);
+        // Give the words back if the box is still empty.
+        setText((t) => t || trimmed);
+        void pollOnce();
+        return;
+      }
       const deadlineMs = Date.now() + RECONCILE_WINDOW_MS;
       lostRef.current.set(localId, {
         designId: targetDesignId,
@@ -728,18 +765,31 @@ export function StudioClient({
         startedAtMs,
         deadlineMs,
       });
-      const armDeadline = (delayMs: number, graceUsed: boolean) => {
+      const timers = new Set<ReturnType<typeof setTimeout>>();
+      deadlineTimersRef.current.set(localId, timers);
+      const arm = (delayMs: number, onFire: () => void) => {
         const timer = setTimeout(() => {
-          deadlineTimersRef.current.delete(timer);
-          if (polling.current && !graceUsed) {
-            armDeadline(RECONCILE_GRACE_MS, true);
+          timers.delete(timer);
+          if (lostRef.current.has(localId)) onFire();
+        }, delayMs);
+        timers.add(timer);
+      };
+      const armDeadline = (delayMs: number, graceUsed: boolean) =>
+        arm(delayMs, () => {
+          if (polling.current) {
+            // A poll is in flight and may show the job. Give it the grace,
+            // then judge against whatever was last applied.
+            if (graceUsed) judgePastDeadline();
+            else armDeadline(RECONCILE_GRACE_MS, true);
             return;
           }
-          judgePastDeadline();
+          // Decide from a fresh read, not the last one applied: the loop may
+          // have been quiet for seconds. The poll's apply judges past the
+          // deadline, and its finally fails the entry if the read throws.
+          // The backstop covers a read that hangs.
           void pollOnce();
-        }, delayMs);
-        deadlineTimersRef.current.add(timer);
-      };
+          arm(RECONCILE_GRACE_MS, judgePastDeadline);
+        });
       armDeadline(RECONCILE_WINDOW_MS, false);
       void pollOnce();
     }

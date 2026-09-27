@@ -1674,16 +1674,19 @@ describe("a lost Generate response (#245)", () => {
     expect(Math.max(...counts)).toBe(1);
   });
 
-  it("3. unanchored: no lane through the window fails at the deadline, and one last poll goes out", async () => {
-    h.polledLanes = [lane()];
-    // Reads take 300 ms, so the loop's polls never start exactly at the
-    // deadline and the poll counted below is the deadline's own.
+  /** Reads take 300 ms, so with the 2 s cadence no loop poll is in flight at the deadline (the last one ends at 18.7 s, the next starts at 21 s). */
+  function slowReads() {
     vi.mocked(getStudioLanes).mockImplementation(
       () =>
         new Promise((resolve) => {
           setTimeout(() => resolve(h.polledLanes as never), 300);
         }) as never
     );
+  }
+
+  it("3a. unanchored: the deadline decides from a fresh read — a job that shows up after the last applied snapshot lands, and no failure is shown", async () => {
+    h.polledLanes = [lane()];
+    slowReads();
     vi.mocked(generateDesign).mockRejectedValueOnce(new Error("boom"));
     render(<StudioClient initialLanes={[lane()]} />);
 
@@ -1691,15 +1694,41 @@ describe("a lost Generate response (#245)", () => {
     await advance(WINDOW_MS - 1);
     expect(pendingCount()).toBe(1);
     expect(screen.queryByText(FAILED)).toBeNull();
-    const readsBefore = vi.mocked(getStudioLanes).mock.calls.length;
+    // The last applied snapshot has no lane. Only a read taken at the
+    // deadline can see this.
+    h.polledLanes = [
+      lane({ designId: sentId(), pending: [pendingJob("job-x", 0)] }),
+      lane(),
+    ];
 
     await advance(1);
+    expect(screen.queryByText(FAILED)).toBeNull();
+    await advance(300);
+
+    expect(screen.queryByText(FAILED)).toBeNull();
+    expect(composerValue()).toBe("");
+    expect(pendingCount()).toBe(1);
+    expect(screen.getByTestId("cancel-generation")).toBeTruthy();
+  });
+
+  it("3b. unanchored: no lane through the window fails once the deadline's own poll comes back empty", async () => {
+    h.polledLanes = [lane()];
+    slowReads();
+    vi.mocked(generateDesign).mockRejectedValueOnce(new Error("boom"));
+    render(<StudioClient initialLanes={[lane()]} />);
+
+    submitText("a red dragon");
+    await advance(WINDOW_MS);
+    // The deadline's poll is out; it decides, not the older snapshot.
+    expect(screen.queryByText(FAILED)).toBeNull();
+    expect(pendingCount()).toBe(1);
+
+    await advance(300);
 
     expect(screen.getByText(FAILED)).toBeTruthy();
     expect(composerValue()).toBe("a red dragon");
     expect(pendingCount()).toBe(0);
     expect(screen.getAllByTestId("studio-lane")).toHaveLength(1);
-    expect(vi.mocked(getStudioLanes).mock.calls.length).toBe(readsBefore + 1);
   });
 
   it("4a. unanchored: an empty lane waits, then the job appears and it lands", async () => {
@@ -1808,7 +1837,7 @@ describe("a lost Generate response (#245)", () => {
     expect(pendingCount()).toBe(0);
   });
 
-  it("8. every read fails: the cell stays through the window, then it is a failure", async () => {
+  it("8. every read fails through the window: the cell stays, then the deadline's failed read fails it", async () => {
     vi.mocked(getStudioLanes).mockRejectedValue(new Error("offline"));
     vi.mocked(generateDesign).mockRejectedValueOnce(new Error("boom"));
     render(<StudioClient initialLanes={[lane()]} />);
@@ -1817,15 +1846,39 @@ describe("a lost Generate response (#245)", () => {
     await advance(WINDOW_MS - 1);
     expect(pendingCount()).toBe(1);
     expect(screen.queryByText(FAILED)).toBeNull();
-    const readsBefore = vi.mocked(getStudioLanes).mock.calls.length;
 
     await advance(1);
 
     expect(screen.getByText(FAILED)).toBeTruthy();
     expect(composerValue()).toBe("a red dragon");
     expect(pendingCount()).toBe(0);
-    // The loop halted on its error budget; the deadline still asks once more.
-    expect(vi.mocked(getStudioLanes).mock.calls.length).toBe(readsBefore + 1);
+  });
+
+  it("8b. reads fail past the error budget and then recover before the deadline: the job lands and no failure is ever shown", async () => {
+    vi.mocked(generateDesign).mockRejectedValueOnce(new Error("boom"));
+    for (let n = 0; n < 5; n++) {
+      vi.mocked(getStudioLanes).mockRejectedValueOnce(new Error("offline"));
+    }
+    render(<StudioClient initialLanes={[lane()]} />);
+
+    submitText("a red dragon");
+    await advance(0);
+    h.polledLanes = [
+      lane({ designId: sentId(), pending: [pendingJob("job-x", 0)] }),
+      lane(),
+    ];
+    // Five rejected reads is past the budget of four; the loop must go on.
+    for (let sec = 0; sec < 12; sec++) {
+      await advance(1000);
+      expect(screen.queryByText(FAILED)).toBeNull();
+    }
+    expect(vi.mocked(getStudioLanes).mock.calls.length).toBeGreaterThan(5);
+    await advance(WINDOW_MS);
+
+    expect(screen.queryByText(FAILED)).toBeNull();
+    expect(composerValue()).toBe("");
+    expect(pendingCount()).toBe(1);
+    expect(screen.getByTestId("cancel-generation")).toBeTruthy();
   });
 
   it("9. words typed during the window survive a failure", async () => {
@@ -2071,7 +2124,7 @@ describe("a lost Generate response (#245)", () => {
     expect(pendingCount()).toBe(0);
   });
 
-  it("18. a snapshot decides an entry and the deadline timer then reaches it: one notice, words restored once", async () => {
+  it("18. a snapshot decides an entry and the deadline timer then reaches it: the words are not put back a second time", async () => {
     h.polledLanes = []; // the lane closed elsewhere: failed at once (#204)
     vi.mocked(generateDesign).mockRejectedValueOnce(new Error("boom"));
     render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
@@ -2079,7 +2132,7 @@ describe("a lost Generate response (#245)", () => {
     anchorCell(0);
     submitText("make it blue");
     await advance(0);
-    expect(screen.getAllByText(FAILED)).toHaveLength(1);
+    expect(screen.getByText(FAILED)).toBeTruthy();
     expect(composerValue()).toBe("make it blue");
 
     // The user clears the box; a second decision would put the words back.
@@ -2088,8 +2141,61 @@ describe("a lost Generate response (#245)", () => {
     });
     await advance(WINDOW_MS + GRACE_MS);
 
-    expect(screen.getAllByText(FAILED)).toHaveLength(1);
     expect(composerValue()).toBe("");
     expect(pendingCount()).toBe(0);
   });
+
+  it("19. a server throw (digest) in an anchored, still-open lane fails at once, words back", async () => {
+    h.polledLanes = [lane({ cells: [cell("img-1")] })];
+    vi.mocked(generateDesign).mockRejectedValueOnce(
+      Object.assign(new Error("x"), { digest: "123" })
+    );
+    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+
+    anchorCell(0);
+    submitText("make it blue");
+    await advance(0);
+
+    expect(screen.getByText(FAILED)).toBeTruthy();
+    expect(composerValue()).toBe("make it blue");
+    expect(pendingCount()).toBe(0);
+    expect(screen.getByTestId("anchor-chip")).toBeTruthy();
+  });
+
+  it("20. #204 with a digest error: the lane leaves at once and the anchor clears", async () => {
+    h.polledLanes = []; // the sweep closed the lane
+    vi.mocked(generateDesign).mockRejectedValueOnce(
+      Object.assign(new Error("closed"), { digest: "456" })
+    );
+    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+
+    anchorCell(0);
+    submitText("make it blue");
+    await advance(0);
+
+    expect(screen.getByText(FAILED)).toBeTruthy();
+    expect(composerValue()).toBe("make it blue");
+    expect(screen.queryByTestId("studio-lane")).toBeNull();
+    expect(screen.queryByTestId("anchor-chip")).toBeNull();
+  });
+
+  it("21. an entry decided early leaves no deadline timer behind: no read after the loop has stopped", async () => {
+    h.polledLanes = [lane({ cells: [cell("img-1"), cell("img-new")] })];
+    vi.mocked(generateDesign).mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+
+    anchorCell(0);
+    submitText("make it blue");
+    // Lands on the first read. 2 s also lets the mount reconcile (1.5 s) run.
+    await advance(2000);
+    expect(screen.queryByText(FAILED)).toBeNull();
+    expect(pendingCount()).toBe(0);
+    const reads = vi.mocked(getStudioLanes).mock.calls.length;
+
+    await advance(WINDOW_MS + GRACE_MS + 1000);
+
+    expect(vi.mocked(getStudioLanes).mock.calls.length).toBe(reads);
+    expect(screen.queryByText(FAILED)).toBeNull();
+  });
 });
+

@@ -11,6 +11,7 @@ import {
   timeAgo,
   unseenOptimisticCount,
   type OptimisticEntry,
+  isServerActionError,
 } from "@/lib/studio-view";
 import type { StudioLane } from "@/lib/studio";
 
@@ -662,5 +663,30 @@ describe("settleOptimistic against a stale snapshot (#187 review)", () => {
         nowMs: startedAt.getTime() + STALE_OPTIMISTIC_MS - 1,
       })
     ).toHaveLength(1);
+  });
+});
+
+describe("isServerActionError (#245)", () => {
+  it("is true for an error with a string digest, as the Flight client rebuilds a server throw", () => {
+    expect(
+      isServerActionError(Object.assign(new Error("x"), { digest: "123" }))
+    ).toBe(true);
+  });
+
+  it("is false for a lost response: a fetch TypeError, a cut stream, a digest that is not a string", () => {
+    expect(isServerActionError(new TypeError("Failed to fetch"))).toBe(false);
+    expect(isServerActionError(new Error("Connection closed."))).toBe(false);
+    expect(
+      isServerActionError(Object.assign(new Error("x"), { digest: undefined }))
+    ).toBe(false);
+    expect(isServerActionError(Object.assign(new Error("x"), { digest: 1 }))).toBe(
+      false
+    );
+  });
+
+  it("is false for non-objects", () => {
+    expect(isServerActionError(null)).toBe(false);
+    expect(isServerActionError(undefined)).toBe(false);
+    expect(isServerActionError("digest")).toBe(false);
   });
 });
