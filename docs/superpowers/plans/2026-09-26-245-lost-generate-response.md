@@ -274,3 +274,28 @@ Client (`src/app/studio/__tests__/studio-client.test.tsx`, replacing the Task
     during A's window, and A's own job finishes too → A landed.
 13. A submit fired after a snapshot was requested is not counted against an
     earlier lost submit judged by that snapshot.
+
+## Amendments from the Task 3 review and the second whole-branch review
+
+These change the Task 3 Design above; the code follows these.
+
+- **Landed claims its evidence.** `judgeLostSubmit` returns `accounted` on
+  `landed` (new jobs as `{jobId, imageId: null}`, new cells as
+  `{jobId: null, imageId}`); failures return `unexplained` the same way.
+  `judgeLost` appends both to `claimsRef` after the whole pass, so a sibling
+  judged in the same pass is not affected, and a later lost submit in the lane
+  cannot land on work an earlier verdict already took.
+- **The deadline decides from a fresh read.** At the deadline the client
+  starts a poll and lets its snapshot decide (`pastDeadline` true); a poll that
+  throws is decided in `pollOnce`'s `finally` (`judgePastDeadline`). A poll
+  already in flight at the deadline gets `RECONCILE_GRACE_MS` (5 s); a hung
+  read is decided against the last applied lanes when the backstop fires.
+- **The loop does not halt on poll errors while a submit awaits a verdict**
+  (an optimistic entry with no `jobId`), so a network that recovers inside the
+  window is seen.
+- **A server-thrown error is decided at once.** A throw from `generateDesign`
+  itself reaches the client as an Error carrying a `digest`; every such throw
+  happens before a job row exists (and is refunded). Those take the old path
+  (notice, words back, one poll for #204). Only an error without a digest (a
+  lost or cut response) enters the reconcile window.
+- A lost submit's deadline timers are cleared when it is decided early.
