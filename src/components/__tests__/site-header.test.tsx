@@ -209,6 +209,30 @@ describe("SiteHeader phone tap targets (44px rule)", () => {
     expect(cart.className).toContain("min-h-11");
   });
 
+  // Same honesty note as above: jsdom resolves no layout, so this checks the
+  // gap utility token, not a measured width. Below 359px, Studio + My
+  // Designs + Shop + "Cart (12)" + the hamburger no longer fit a 320px phone
+  // at gap-2's 8px spacing (see the comment above the group div) — the gap
+  // collapses to zero in that band only, so a two-digit cart count still
+  // fits without the bar's tap targets losing their 44px height.
+  it("collapses the bar's item gap below 359px so a 320px phone fits", async () => {
+    h.session = { user: { id: "u1" } };
+    h.headerState = { isAdmin: false, cartCount: 12, runningJobs: 0 };
+    render(<SiteHeader cartEnabled />);
+    await settle();
+
+    const studio = within(bar()).getByRole("link", { name: "Studio" });
+    const group = studio.parentElement as HTMLElement;
+    const tokens = group.className.split(/\s+/).filter(Boolean);
+    expect(tokens).toContain("gap-2");
+    expect(tokens).toContain("max-[359px]:gap-0");
+    expect(tokens).toContain("sm:gap-4");
+
+    // The tap targets themselves are unaffected by the gap change.
+    const cart = within(bar()).getByRole("link", { name: "Cart (12)" });
+    expect(cart.className).toContain("min-h-11");
+  });
+
   it("gives the account-menu trigger a 44px-square class on phones", async () => {
     render(<SiteHeader cartEnabled={false} />);
     await settle();

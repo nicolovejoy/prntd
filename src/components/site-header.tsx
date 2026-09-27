@@ -169,8 +169,13 @@ export function SiteHeader({
         {/* Geist 14px widths: wordmark 47px, Studio 41, My Designs 75, Shop
             33, "Cart (12)" 53, hamburger 44 (–8 via -mr-2). At 360px there
             are 328px inside the gutters; gap-4 needs ~349px, gap-3 ~333px,
-            gap-2 ~317px (plan: docs/superpowers/plans/2026-09-27-my-designs-nav.md). */}
-        <div className="flex items-center gap-2 sm:gap-4">
+            gap-2 ~317px (plan: docs/superpowers/plans/2026-09-27-my-designs-nav.md).
+            Below 360px the same five items with zero gap still need ~285px,
+            which overflows a 320px phone's 288px by only ~3px with gap-2's
+            8px×4 gaps removed — gap-2 alone overflows 344px by ~5px and
+            320px by ~29px, so the gap collapses to zero rather than a
+            smaller-but-nonzero value in that band. */}
+        <div className="flex items-center gap-2 max-[359px]:gap-0 sm:gap-4">
           {/* The three verbs, in the bar at every width now (My Designs used
               to live only in the Studio's own Library tab). Each gets a real
               44px tap target below sm:. Current-section styling is shared
