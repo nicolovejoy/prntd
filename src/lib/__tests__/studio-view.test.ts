@@ -316,6 +316,10 @@ describe("laneBaseline / submitLanded (#245)", () => {
     createdAt: new Date(),
   });
   const empty = { jobIds: [], imageIds: [] };
+  const claim = (jobId: string, imageId = `img-of-${jobId}`) => ({
+    jobId,
+    imageId,
+  });
 
   it("laneBaseline lists the lane's pending job ids and cell image ids", () => {
     const lanes = [
@@ -383,7 +387,7 @@ describe("laneBaseline / submitLanded (#245)", () => {
 
   it("not landed: the only new job id is claimed by another optimistic entry", () => {
     const fresh = [lane({ designId: "design-1", pending: [job("job-new")] })];
-    expect(submitLanded(fresh, "design-1", empty, ["job-new"])).toBe(false);
+    expect(submitLanded(fresh, "design-1", empty, [claim("job-new")])).toBe(false);
   });
 
   it("not landed: a baseline job departed and one new cell appeared", () => {
@@ -403,9 +407,30 @@ describe("laneBaseline / submitLanded (#245)", () => {
     expect(submitLanded(fresh, "design-1", baseline)).toBe(true);
   });
 
-  it("not landed: a claimed job departed and one new cell appeared", () => {
-    const fresh = [lane({ designId: "design-1", cells: [cell("img-new")] })];
-    expect(submitLanded(fresh, "design-1", empty, ["job-claimed"])).toBe(false);
+  it("not landed: a claimed job finished (its cell present) and nothing else is new", () => {
+    const fresh = [lane({ designId: "design-1", cells: [cell("img-c")] })];
+    expect(
+      submitLanded(fresh, "design-1", empty, [claim("job-c", "img-c")])
+    ).toBe(false);
+  });
+
+  it("landed: a claimed job finished (its cell present) and one more cell is new", () => {
+    const fresh = [
+      lane({ designId: "design-1", cells: [cell("img-c"), cell("img-new")] }),
+    ];
+    expect(
+      submitLanded(fresh, "design-1", empty, [claim("job-c", "img-c")])
+    ).toBe(true);
+  });
+
+  it("landed: a claimed job finished before the submit (its cell in the baseline) and one new cell", () => {
+    const fresh = [
+      lane({ designId: "design-1", cells: [cell("img-c"), cell("img-new")] }),
+    ];
+    const baseline = { jobIds: [], imageIds: ["img-c"] };
+    expect(
+      submitLanded(fresh, "design-1", baseline, [claim("job-c", "img-c")])
+    ).toBe(true);
   });
 
   it("not landed: the only cell is in the baseline and no jobs were", () => {
@@ -424,6 +449,23 @@ describe("laneBaseline / submitLanded (#245)", () => {
       }),
     ];
     expect(submitLanded(fresh, "design-1", empty)).toBe(false);
+  });
+
+  it("not landed: one new job is owed to another unresolved submit", () => {
+    const fresh = [lane({ designId: "design-1", pending: [job("job-a")] })];
+    expect(submitLanded(fresh, "design-1", empty, [], 1)).toBe(false);
+  });
+
+  it("landed: two new jobs with one other unresolved submit", () => {
+    const fresh = [
+      lane({ designId: "design-1", pending: [job("job-a"), job("job-b")] }),
+    ];
+    expect(submitLanded(fresh, "design-1", empty, [], 1)).toBe(true);
+  });
+
+  it("not landed: one new cell (nothing departed) is owed to another unresolved submit", () => {
+    const fresh = [lane({ designId: "design-1", cells: [cell("img-new")] })];
+    expect(submitLanded(fresh, "design-1", empty, [], 1)).toBe(false);
   });
 });
 

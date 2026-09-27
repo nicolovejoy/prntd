@@ -37,13 +37,16 @@ import {
   bulkDeleteSkipNotice,
   bulkDeleteTitle,
   formatElapsed,
+  laneBaseline,
   settleOptimistic,
+  submitLanded,
   timeAgo,
   unseenOptimisticCount,
 } from "@/lib/studio-view";
 import type { OptimisticEntry } from "@/lib/studio-view";
 import type { StudioLane } from "@/lib/studio";
 import { deleteConversations, getStudioLanes } from "./actions";
+import { withTimeout } from "@/lib/timeout";
 import { GuestKeepLine } from "./guest-keep-line";
 
 /**
@@ -78,7 +81,10 @@ import { GuestKeepLine } from "./guest-keep-line";
  * out of `lanes` is what makes a poll's wholesale setLanes safe; each refresh
  * then retires the entries server truth can account for (settleOptimistic).
  * The cap counts only the entries the server cannot see yet, and Cancel waits
- * for the real jobId.
+ * for the real jobId. If the submit's response is lost (generateDesign
+ * throws), the cell stays while one read of the surface shows whether the
+ * server started the work (#245); only then is it removed and, if nothing
+ * landed, the failure shown.
  *
  * The anchor lives OUTSIDE the lane state on purpose: a poll refresh replaces
  * `lanes` wholesale with server truth, and the anchor (plus the draft text)
@@ -119,6 +125,17 @@ const GENERATE_FAILED_COPY = "Something went wrong. Try again.";
  * long.
  */
 const MOUNT_RECONCILE_DELAY_MS = 1500;
+
+/**
+ * Wait before the one retry of submit's reconcile read (#245). That read
+ * runs because generateDesign threw, often on a network switch, so an
+ * immediate retry would likely fail the same way.
+ */
+const RECONCILE_RETRY_DELAY_MS = 1000;
+
+// A reconcile read that hangs (the network switch that lost the response) is
+// treated as a failed read rather than leaving the cell up indefinitely.
+const RECONCILE_READ_TIMEOUT_MS = 6000;
 
 export function StudioClient({
   initialLanes,
@@ -202,14 +219,10 @@ export function StudioClient({
     optimistic.filter((e) => e.jobId === null).map((e) => e.localId)
   );
 
-  const pollOnce = useCallback(async () => {
-    if (polling.current) return;
-    polling.current = true;
-    // When THIS fetch went out. A poll can straddle the job-row write, and a
-    // snapshot taken before it can't testify that the job is gone.
-    const snapshotStartedAtMs = Date.now();
-    try {
-      const fresh = await getStudioLanes();
+  // Apply one read of the surface. Shared by the poll and by submit's
+  // reconcile (#245) so the two can't drift apart.
+  const applyFreshLanes = useCallback(
+    (fresh: StudioLane[], snapshotStartedAtMs: number) => {
       // Server truth replaces the lanes — and only the lanes. The anchor and
       // the draft are the local state this refresh must not clobber; both
       // live in their own useState and are untouched here.
@@ -220,6 +233,19 @@ export function StudioClient({
         settleOptimistic(fresh, entries, { snapshotStartedAtMs })
       );
       setPollErrors(0);
+    },
+    []
+  );
+
+  const pollOnce = useCallback(async () => {
+    if (polling.current) return;
+    polling.current = true;
+    // When THIS fetch went out. A poll can straddle the job-row write, and a
+    // snapshot taken before it can't testify that the job is gone.
+    const snapshotStartedAtMs = Date.now();
+    try {
+      const fresh = await getStudioLanes();
+      applyFreshLanes(fresh, snapshotStartedAtMs);
     } catch {
       // Transient transport failure: keep what's rendered, spend budget.
       setPollErrors((n) => n + 1);
@@ -227,7 +253,7 @@ export function StudioClient({
       polling.current = false;
       setPollNonce((n) => n + 1);
     }
-  }, []);
+  }, [applyFreshLanes]);
 
   // Poll only while a generation is in flight; stop entirely otherwise.
   // Halted is a stop, not a give-up — the wake handler below clears the
@@ -245,6 +271,20 @@ export function StudioClient({
   useEffect(() => {
     activeRef.current = active;
   }, [active]);
+  // Same idea for `optimistic`: submit's reconcile counts the other entries
+  // still awaiting a response after awaiting, when its own closure is stale.
+  const optimisticRef = useRef(optimistic);
+  useEffect(() => {
+    optimisticRef.current = optimistic;
+  }, [optimistic]);
+  // jobId -> { designId, imageId } for every queued result this tab has
+  // received. Unlike `optimistic` it is never pruned by a poll, so a submit
+  // that landed and settled still counts as claimed (a handful of entries per
+  // session). The imageId is the cell the finished job will show, so claimed
+  // work is recognised by both ids, whether or not it is still pending.
+  const queuedJobs = useRef(
+    new Map<string, { designId: string; imageId: string }>()
+  );
   useEffect(() => {
     if (!active) {
       pollStartedAt.current = null;
@@ -472,6 +512,9 @@ export function StudioClient({
     // lane below the composer panel — which is off-screen on a phone if the
     // user had scrolled down (see the `reveal` nudge-into-view below).
     const localId = crypto.randomUUID();
+    // What the lane held before this submit, so a lost response can be told
+    // from a failed one afterwards (#245).
+    const baseline = laneBaseline(lanes, targetDesignId);
     if (!submitAnchor) setRevealDesignId(targetDesignId);
     setOptimistic((entries) => [
       ...entries,
@@ -491,6 +534,10 @@ export function StudioClient({
         submitAnchor ? { anchorImageId: submitAnchor.imageId } : {}
       );
       if (result.kind === "queued") {
+        queuedJobs.current.set(result.jobId, {
+          designId: targetDesignId,
+          imageId: result.imageId,
+        });
         // Now the cell has a real job behind it: Cancel appears, and the next
         // poll that lists the job retires the overlay entry.
         setOptimistic((entries) =>
@@ -512,16 +559,61 @@ export function StudioClient({
         setText((t) => t || trimmed);
       }
     } catch {
+      // Two different things throw here, and the error can't tell them apart:
+      //  - The response was lost after the server accepted the request (#245,
+      //    e.g. ERR_NETWORK_CHANGED). The job is running; reporting failure
+      //    would invite a retry that costs a second quota unit and render.
+      //  - assertConversationOpen refused because the lane closed (#204) —
+      //    e.g. the after() idle-archive sweep — between this tab's last read
+      //    and the tap. Nothing ran.
+      // So read the surface before deciding, with the optimistic cell still
+      // on screen so nothing moves meanwhile. The read also removes a closed
+      // lane and, via the anchor effect above, clears an anchor into it.
+      // It is a direct read rather than pollOnce, which returns early while
+      // a poll is in flight, and that poll may predate the job-row write.
+      // Like a poll it can overlap another read (`polling.current` doesn't
+      // guard it); serial Server Function dispatch keeps responses in order
+      // today, and a stale one would be corrected by the next poll.
+      let fresh: StudioLane[] | null = null;
+      for (let attempt = 0; attempt < 2 && !fresh; attempt++) {
+        if (attempt > 0) {
+          await new Promise((r) => setTimeout(r, RECONCILE_RETRY_DELAY_MS));
+        }
+        const snapshotStartedAtMs = Date.now();
+        try {
+          // Applied only after the race, so a read that resolves after its
+          // timeout is dropped.
+          const read = await withTimeout(
+            "reconcile read",
+            RECONCILE_READ_TIMEOUT_MS,
+            () => getStudioLanes()
+          );
+          applyFreshLanes(read, snapshotStartedAtMs);
+          fresh = read;
+        } catch {
+          // Offline or hung, perhaps. Retry once, then treat it as unknown.
+        }
+      }
+      // Work that isn't ours: jobs this tab already got back for this lane,
+      // and other same-lane submits still awaiting a response, each of which
+      // may own a new job or cell the fresh read shows.
+      const claimed = [...queuedJobs.current]
+        .filter(([, q]) => q.designId === targetDesignId)
+        .map(([jobId, q]) => ({ jobId, imageId: q.imageId }));
+      const unresolvedOthers = optimisticRef.current.filter(
+        (e) =>
+          e.localId !== localId &&
+          e.designId === targetDesignId &&
+          e.jobId === null
+      ).length;
+      const landed =
+        fresh !== null &&
+        submitLanded(fresh, targetDesignId, baseline, claimed, unresolvedOthers);
       setOptimistic((entries) => entries.filter((e) => e.localId !== localId));
-      setNotice(GENERATE_FAILED_COPY);
-      setText((t) => t || trimmed);
-      // A thrown assertConversationOpen is the shape this takes (#204): the
-      // lane closed — e.g. the after() idle-archive sweep — between this
-      // tab's last read and the tap. Reconcile now so the closed lane
-      // actually leaves (and, via the anchor effect above, clears an anchor
-      // that pointed into it) instead of sitting there as a dead end until
-      // something else pokes the surface.
-      void pollOnce();
+      if (!landed) {
+        setNotice(GENERATE_FAILED_COPY);
+        setText((t) => t || trimmed);
+      }
     }
   }
 

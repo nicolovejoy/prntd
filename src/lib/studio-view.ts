@@ -295,24 +295,31 @@ export function laneBaseline(
 
 /**
  * Whether a fresh read shows work a submit started even though its response
- * never arrived. Landed when the lane for `designId` has a pending job that is
- * in neither `baseline` nor `claimedJobIds`, or when it has more new cells
- * (image ids not in `baseline`) than jobs that departed. Pass server lanes
- * only, so an optimistic cell can't vouch for itself.
+ * never arrived. Work this tab already knows about is excluded: the baseline's
+ * jobs and images, and `claimed` (job and image ids this tab got back from
+ * other submits, so the work is identified by both ids whether or not it is
+ * still pending). Landed when the lane for `designId` shows more evidence than
+ * `unresolvedOthers`, where evidence is the pending jobs that are not known,
+ * plus the cells that are not known, less the baseline jobs that departed.
+ * Pass server lanes only, so an optimistic cell can't vouch for itself.
  *
- * A job that was already pending (in `baseline.jobIds`) or is held by another
- * optimistic entry (`claimedJobIds`) can finish during the reconcile window
- * and produce a cell that has nothing to do with this submit. So each departed
- * job (in those sets, no longer pending) cancels one new cell. A departed job
+ * A baseline job can finish during the reconcile window and produce a cell
+ * that has nothing to do with this submit, and its image id is unknown. So
+ * each baseline job no longer pending cancels one new cell. A departed job
  * that failed or was cancelled makes no cell, so this can under-count our own
  * cell and report "not landed" for a submit that did land. That direction is
  * deliberate: when the evidence is ambiguous, report failure and give the
  * words back rather than silently swallow them.
  *
- * `claimedJobIds` must be the job ids of other optimistic entries for the
- * SAME `designId`. This helper does not filter by design; a claimed job from
- * another lane is never in this lane's pending list and would inflate the
- * departed count.
+ * `claimed` must be the same-design jobs this tab got back from other
+ * submits. This helper does not filter by design. A claimed job from another
+ * lane is harmless (its ids never appear in this lane), but it is not what the
+ * caller should pass.
+ *
+ * `unresolvedOthers` is how many other same-design submits are still awaiting
+ * their response. Each may own one new job or one new cell the fresh read
+ * shows, so this submit needs evidence beyond that many. Same direction as
+ * above: when it is ambiguous, report failure.
  *
  * "The lane exists" is not enough. For an unanchored submit the server writes
  * the design row after quota and capacity pass but before the job row, so a
@@ -324,20 +331,24 @@ export function submitLanded(
   fresh: StudioLane[],
   designId: string,
   baseline: LaneBaseline,
-  claimedJobIds: Iterable<string> = []
+  claimed: Iterable<{ jobId: string; imageId: string }> = [],
+  unresolvedOthers = 0
 ): boolean {
   const found = fresh.find((l) => l.designId === designId);
   if (!found) return false;
-  const known = new Set(baseline.jobIds);
-  for (const id of claimedJobIds) known.add(id);
-  const pendingIds = new Set(found.pending.map((p) => p.jobId));
-  const newPending = found.pending.filter((p) => !known.has(p.jobId));
-  if (newPending.length > 0) return true;
+  const knownJobs = new Set(baseline.jobIds);
   const knownImages = new Set(baseline.imageIds);
+  for (const c of claimed) {
+    knownJobs.add(c.jobId);
+    knownImages.add(c.imageId);
+  }
+  const pendingIds = new Set(found.pending.map((p) => p.jobId));
+  const newPending = found.pending.filter((p) => !knownJobs.has(p.jobId));
   const newCells = found.cells.filter((c) => !knownImages.has(c.imageId));
   let departed = 0;
-  for (const id of known) if (!pendingIds.has(id)) departed++;
-  return newCells.length > departed;
+  for (const id of baseline.jobIds) if (!pendingIds.has(id)) departed++;
+  const evidence = newPending.length + Math.max(0, newCells.length - departed);
+  return evidence > unresolvedOthers;
 }
 
 /**
