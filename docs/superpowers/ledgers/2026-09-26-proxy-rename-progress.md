@@ -90,3 +90,18 @@ narrowing `/design/:path*`.
 - e2e: not run locally (batch rule); CI covers it. Most exposed specs:
   `e2e/guest-funnel.spec.ts` (sessionless redirect), `e2e/cart.spec.ts`,
   `e2e/landing.spec.ts`, and any signed-in spec that loads `/studio`.
+
+## Base update — merged `origin/claude/deps-security` (main session's request)
+
+Three commits landed on the base after this branch was cut: `fb658d1` (error
+boundaries use the stable `retry` prop), `2ccae3d` (schema-driven reparent
+coverage test), `da8e5f3` (new `e2e/guest-claim.spec.ts`). Merged (not
+rebased); clean, no conflicts. None of the six files names middleware or
+proxy. `guest-claim.spec.ts` crosses the proxy twice: `/design` sessionless
+(open while the guest funnel is on) and `/studio/library` with a session
+(passes the cookie check) — add it to the at-risk e2e list.
+
+Gate re-run on the merged tree: lint 0 errors / 34 warnings; typecheck clean;
+`npx vitest run` 188 files, 2068 tests passed; `npm run build` (CI dummy env)
+passed, no deprecation warning, `ƒ Proxy (Middleware)`, manifest runtime
+`nodejs`; `db:generate` "No schema changes".
