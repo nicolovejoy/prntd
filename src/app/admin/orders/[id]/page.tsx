@@ -16,6 +16,7 @@ import {
 } from "../../actions";
 import { Badge, Button, Card, InlineNotice, useConfirm, type InlineNoticeTone } from "@/components/ui";
 import { getBlank, getColorHex } from "@/lib/blanks";
+import { formatDisplayDateTime } from "@/lib/display-time-zone";
 import {
   ORDER_CLASSIFICATIONS,
   CLASSIFICATION_INFO,
@@ -239,7 +240,7 @@ export default function OrderDetailPage() {
           <span className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted">archived</span>
         )}
         <span className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted ml-auto">
-          {order.createdAt ? new Date(order.createdAt).toLocaleString() : "—"}
+          {order.createdAt ? formatDisplayDateTime(order.createdAt) : "—"}
         </span>
       </div>
 
@@ -477,7 +478,7 @@ export default function OrderDetailPage() {
                         {entry.description}
                       </p>
                       <p className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted">
-                        {entry.createdAt ? new Date(entry.createdAt).toLocaleString() : "—"}
+                        {entry.createdAt ? formatDisplayDateTime(entry.createdAt) : "—"}
                       </p>
                     </div>
                   );
