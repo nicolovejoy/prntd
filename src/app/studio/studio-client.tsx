@@ -593,9 +593,11 @@ export function StudioClient({
         // (StudioCell) carry no job id at all, so a submit whose job already
         // succeeded and left `pending` can't be recognised this way — that
         // case is instead caught by the lookup itself eventually answering
-        // "succeeded" (which is exactly what the "keeps erroring, then
-        // succeeds" test below exercises). A genuine status "failed" is
-        // authoritative and always fails here regardless.
+        // "succeeded" (which is exactly what
+        // src/app/studio/__tests__/studio-client.test.tsx's "test 12b:
+        // lookups keep erroring past the deadline, then one succeeds"
+        // exercises). A genuine status "failed" is authoritative and always
+        // fails here regardless.
         if (status !== "failed") {
           const clientIdPending = lanesRef.current.some((lane) =>
             lane.pending.some((job) => job.jobId === clientJobId)

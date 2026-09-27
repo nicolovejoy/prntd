@@ -320,6 +320,14 @@ export async function generateDesign(
         return replayed;
       }
     }
+    // Residual window (fix round item 4, accepted, not fixed): the original
+    // can still be INSIDE its brief call (constructDesignBrief, bounded to
+    // DESIGN_BRIEF_TIMEOUT_MS — 45s) when this replay's own quota bump lands
+    // here. No image_generation row exists yet at all, so findJobById above
+    // returns null regardless of ownership, this call reports "limit" for a
+    // request that is actually going to queue successfully, and its own
+    // wasted quota bump is never refunded (only the `replayed` branch
+    // refunds). Same gap applies to the advisory capacity check below.
     return { kind: "limit", message: generationLimitMessage(quota.reason) };
   }
 
