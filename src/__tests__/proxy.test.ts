@@ -101,10 +101,15 @@ describe("proxy — matcher", () => {
     expect(matches(path)).toBe(true);
   });
 
-  it.each(["/api/health", "/", "/shop", "/d/abc", "/cart", "/sign-in", "/sign-up"])(
-    "skips %s",
-    (path) => {
-      expect(matches(path)).toBe(false);
-    }
-  );
+  it.each([
+    "/api/health",
+    "/",
+    "/shop",
+    "/d/abc",
+    "/cart",
+    "/sign-in",
+    "/sign-up",
+  ])("skips %s", (path) => {
+    expect(matches(path)).toBe(false);
+  });
 });
