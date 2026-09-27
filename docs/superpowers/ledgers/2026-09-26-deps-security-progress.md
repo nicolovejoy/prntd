@@ -9,13 +9,36 @@ Plan: `docs/superpowers/plans/2026-09-26-deps-security.md`. Branch
 - `next` 16.2.1 → 16.3.6, `eslint-config-next` 16.2.1 → 16.3.6 (exact pins
   kept). `react`/`react-dom` stay 19.2.4: next 16.3.6's peer range is
   `^18.2.0 || ^19.0.0`, so nothing forced a move. `@types/react*` untouched.
-- `better-auth` 1.5.6 → 1.6.33 (`package.json` `^1.5.6` → `^1.6.33`), all
+- `better-auth` 1.5.6 → 1.6.33 (`package.json` `^1.5.6` → `~1.6.33`), all
   `@better-auth/*` packages 1.6.33 in lockstep.
 - `drizzle-orm` 0.45.1 → 0.45.3 (`package.json` `^0.45.1` → `^0.45.2`).
 - `drizzle-kit` stays 0.31.x (0.31.11), `vitest` stays 3.2.4, `resend` stays
   6.10.0, `@anthropic-ai/sdk` stays 0.80.0.
 - `npm audit`: 30 (3 critical, 13 high, 13 moderate, 1 low) → 10 (1 critical,
   9 moderate). Every high is gone.
+- Transitive majors and removals (found by the T6 review; all expected, none
+  a surprise):
+  - `vite` 6.4.1 → 7.3.6 (dev-only, via vitest's `^5 || ^6 || ^7` range;
+    `audit fix` took the newest in range for the vite ≤ 6.4.2 high advisory,
+    though 6.4.3 would also have fixed it). Vite 7 needs Node
+    `^20.19.0 || >=22.12.0`; local is 20.19.2, CI 22. Vercel builds never load
+    vite. Left as is: tests are green.
+  - `sharp` 0.34.5 → 0.35.4 + the `@img/*` packages (next 16.3.6 declares
+    `sharp ^0.35.4`; fixes a high advisory).
+  - `rou3` 0.7 → 0.9, `@better-auth/utils` 0.3.1 → 0.4.2 (plus 0.5.0 nested
+    under `better-call`), both from better-auth 1.6.
+  - Removed: `fast-xml-parser`, `strnum`, `fast-xml-builder`,
+    `path-expression-matcher` (the `@aws-sdk/xml-builder` patch dropped them)
+    and next's nested `postcss@8.4.31` (next now pins 8.5.23).
+  - Two `@better-fetch/fetch` copies: `@better-auth/core`/`telemetry` 1.6.33
+    declare an exact `1.3.1` peer while `better-call` hoists 1.3.2, so
+    `npm ls @better-fetch/fetch` reports `invalid` (ELSPROBLEMS). `.npmrc` has
+    `legacy-peer-deps=true`, so install and `npm ci` accept it. better-auth's
+    client code resolves its nested 1.3.1; core uses the hoisted 1.3.2 only in
+    social-provider modules we don't load. No `overrides` added.
+- One copy each of react, react-dom, next, better-call (1.4.0), zod (4.6.5),
+  kysely (0.28.17), drizzle-orm (0.45.3). Every new lockfile entry resolves to
+  registry.npmjs.org with an `integrity` hash (T6 checked).
 
 ## Rulings
 
@@ -24,9 +47,9 @@ Plan: `docs/superpowers/plans/2026-09-26-deps-security.md`. Branch
    needed a hotfix a day later). The slice brief scopes the move to 1.6.x, and
    1.6.33 (2026-09-14, same day as 1.7.5) is the maintained 1.6 release and is
    past every fixed version `npm audit` names (≥ 1.6.22). Pinned with
-   `npm install better-auth@1.6.33`, which rewrote the range to `^1.6.33`. A
-   later `npm update` could still take 1.7; the lockfile holds 1.6.33 for
-   `npm ci` (CI + Vercel).
+   `npm install better-auth@1.6.33` and then the range set to `~1.6.33` (T6
+   finding 6: `^1.6.33` would let `npm update` or a lockfile regeneration
+   take 1.7.6). Moving to 1.7 is its own slice with its own changelog review.
 2. **drizzle-orm range floor raised to `^0.45.2`.** `audit fix` moved the
    lockfile to 0.45.3 but left the declared range at `^0.45.1`, which still
    admits the vulnerable 0.45.1. better-auth 1.6 also declares
@@ -41,12 +64,15 @@ Plan: `docs/superpowers/plans/2026-09-26-deps-security.md`. Branch
    stays a warning, and none of its 12 hits are changed.** eslint-config-next
    16.3 adds it at `warn`; lint is still 0 errors (34 warnings: 12 from this
    rule, 22 pre-existing). Every hit is a deliberate hard navigation: the
-   sign-in/sign-up hard-nav fix (`cb4d745`, the sign-in hang — the rule's
+   sign-up hard-nav fix (`cb4d745`, the sign-in hang — the rule's
    suggested `router.push` is exactly what hung), `signOut`, Stripe checkout
    redirects, and conversation/start-from-image handoffs. Rewriting them is
    application behaviour, not a dependency bump. The T3 reviewer reported "no
    new rule fired"; that was wrong (it counted the warnings without reading
    their rules); the controller's `eslint -f json` rule tally is the record.
+   The 12 hits: sign-up page (the sign-in page assigns a variable, which the
+   rule does not flag), cart, buy-panel ×2, conversation-actions ×2,
+   start-from-image, design-client, preview ×2, store-buy-panel, site-header.
 5. **The build's new `BETTER_AUTH_SECRET` warnings are expected under the CI
    dummy env.** better-auth 1.6 `validateSecret` logs (never throws) when the
    secret is < 32 chars or estimated entropy < 120 bits
@@ -164,13 +190,49 @@ copied out of the browser, and its `session_token` then matches no row.
 
 ## T5 — forced code changes
 
-None. No reviewer found a required change; controller checks agree.
+No executable code change is forced. One comment-only change, from T6
+finding 5 (commit `e4a59d3`): `src/lib/auth.ts` said "better-auth 1.5.6
+after-hook order", and `src/lib/reparent-user.ts` + its integration test said
+a missed table makes the anon-user delete fail, without saying that 1.6 now
+swallows that failure. All three now state the 1.6 behaviour. Same commit
+narrows the better-auth range to `~1.6.33` (ruling 1). Process deviation: the
+controller made this edit itself rather than through an implementer
+subprocess (three comments), then ran a fresh `sonnet` task reviewer on it.
 
-## T6 — whole-branch review (opus)
+T5 review (`sonnet`, on `e4a59d3`): clean; it quoted the anon plugin's
+after-hook (onLinkAccount awaited outside any try; deleteUser in try/catch
+with the logged message) and confirmed the comments match. Three Minor
+nits: (1) `reparent-user.ts` docblock's historical "(cart, store, product)"
+aside — not about better-auth, `store` is being dropped by slice D (#249),
+left alone to avoid a conflict there; (2) and (3) the integration test's file
+header ("cascaded away") and the comment above its anon delete ("throws
+there") had the same 1.5.6 staleness — fixed in `bf2439f`. Haiku scoped
+re-review of `bf2439f`: clean.
 
-(filled in below after the run)
+## T6 — whole-branch review (opus, on `505c926`)
 
-## Gate (controller, on the branch head)
+Verdict: clean, no code change required. It re-ran typecheck, lint (same rule
+tally), vitest (2044 passed) and audit (10) itself, and independently
+re-verified the anon-plugin diff against the 1.5.6 tarball, cookie names,
+`validateSecret`, the password hash round trip (Unicode password, both
+directions), the origin check, and the release dates. Findings:
+
+1. Important — e2e is the only test of real sign-in/sign-up traffic and has
+   not run (CI runs it on PRs only). The 1.6.16 origin check now applies to
+   every guest sign-up (the anon cookie is always present), and a failed
+   anon-user delete no longer fails the request. **Ruling:** the PR's green
+   `e2e` job (guest-funnel, cart, signed-in helper specs) is a merge
+   condition, and the prod smoke is a guest→sign-up claim.
+2. Minor — two `@better-fetch/fetch` copies, `npm ls` exits 1. Recorded under
+   Versions; no override.
+3. Minor — `vite` 6 → 7 unrecorded. Recorded under Versions.
+4. Minor — other majors/removals unrecorded. Recorded under Versions.
+5. Minor — stale comments in `auth.ts` and `reparent-user.ts`. Fixed (T5).
+6. Minor — `^1.6.33` doesn't hold the 1.6 line. Changed to `~1.6.33`.
+7. Minor — ruling 4 named the sign-in page among the rule's hits; only
+   sign-up is flagged. Corrected.
+
+## Gate (controller; first run on `3cab20c`, re-run on `bf2439f` after T5 — same results)
 
 - `npm run lint`: 0 errors, 34 warnings (12 new-rule, see ruling 4).
 - `npm run typecheck`: clean.
@@ -201,3 +263,11 @@ None. No reviewer found a required change; controller checks agree.
 - `@anthropic-ai/sdk` 0.80.0 (1 moderate, two GHSAs): both are the SDK's local
   filesystem Memory Tool helper; `src/` and `scripts/` never use it. Fix is
   0.128.0, a new major (0.x minor), excluded by the slice brief.
+
+## e2e
+
+Not run locally (batch rule). Most at risk, because better-auth 1.6 changes
+sign-in/sign-up request handling and next 16.3 changes middleware/router
+internals: `guest-funnel`, `cart`, specs using `e2e/helpers/auth.ts`
+(`signUpFreshAccount`), `landing`. A green PR `e2e` job is a merge condition
+(T6 finding 1).
