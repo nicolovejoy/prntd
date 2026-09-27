@@ -269,3 +269,20 @@ test files to `origin/main`. Plan rewritten in place (same file).
   reports `at_capacity` (refunded, returned) rather than rethrowing; reachable
   only if the row is deleted between the insert and the read, and the outcome is
   still refunded exactly once.
+
+## Rebuild Task 2 — status lookup, brief bound, pure helpers
+
+- Implementer (sonnet): `getGenerationJobStatusForUser` (owner-scoped WHERE,
+  malformed → none without a query, cancel-requested running → cancelled),
+  `getGenerationJobStatus` action behind `requireStudioActionSession`,
+  `constructDesignBrief` bounded by `AbortSignal.timeout(DESIGN_BRIEF_TIMEOUT_MS)`,
+  pure `src/lib/lost-submit.ts` (constants, `judgeLostSubmit`,
+  `isServerActionError`, the status type), `OptimisticEntry.clientJobId` with
+  `settleOptimistic` / `unseenOptimisticCount` matching it exactly. 32 new
+  tests; `src/lib src/app/studio src/app/design` 1597 pass.
+- Task review (sonnet): APPROVED, no findings. It traced the SDK's
+  `retryRequest` to confirm one signal bounds every retry, and that a timeout
+  lands in the existing pre-row refunded catch.
+- Controller edit: `judgeLostSubmit`'s docblock said "dispatched"; the rule
+  uses the time the Server Function was CALLED (dispatch is at or after it),
+  reworded.

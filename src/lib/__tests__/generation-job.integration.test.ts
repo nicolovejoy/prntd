@@ -19,6 +19,7 @@ import {
   countActiveGenerationsForUser,
   discardCancelledJobStatement,
   failGenerationJob,
+  getGenerationJobStatusForUser,
   getRunningJobsForDesign,
   insertGenerationJob,
   insertIfJobSucceededStatement,
@@ -826,5 +827,69 @@ describe("getRunningJobsForDesign", () => {
     const otherDesign = await makeDesign(db, USER);
 
     expect(await getRunningJobsForDesign(otherDesign.id, db)).toHaveLength(0);
+  });
+});
+
+describe("getGenerationJobStatusForUser", () => {
+  it("reports running for the owner's running job", async () => {
+    const job = await seedJob();
+    expect(await getGenerationJobStatusForUser(job.id, USER, db)).toEqual({
+      status: "running",
+    });
+  });
+
+  it("reports succeeded", async () => {
+    const job = await seedJob();
+    await db
+      .update(imageGeneration)
+      .set({ status: "succeeded" })
+      .where(eq(imageGeneration.id, job.id));
+    expect(await getGenerationJobStatusForUser(job.id, USER, db)).toEqual({
+      status: "succeeded",
+    });
+  });
+
+  it("reports failed", async () => {
+    const job = await seedJob();
+    await failGenerationJob({ jobId: job.id, error: "boom", db });
+    expect(await getGenerationJobStatusForUser(job.id, USER, db)).toEqual({
+      status: "failed",
+    });
+  });
+
+  it("reports cancelled for a cancel-requested running job", async () => {
+    const job = await seedJob();
+    await cancelGenerationJob({ jobId: job.id, userId: USER, db });
+    expect(await getGenerationJobStatusForUser(job.id, USER, db)).toEqual({
+      status: "cancelled",
+    });
+  });
+
+  it("reports the terminal cancelled status once the continuation writes it", async () => {
+    const job = await seedJob();
+    await cancelGenerationJob({ jobId: job.id, userId: USER, db });
+    await discardCancelledJobStatement(db, job.id, NOW);
+    expect(await getGenerationJobStatusForUser(job.id, USER, db)).toEqual({
+      status: "cancelled",
+    });
+  });
+
+  it("reports none for another user's job id", async () => {
+    const job = await seedJob();
+    expect(await getGenerationJobStatusForUser(job.id, "someone-else", db)).toEqual({
+      status: "none",
+    });
+  });
+
+  it("reports none for a missing id", async () => {
+    expect(
+      await getGenerationJobStatusForUser(crypto.randomUUID(), USER, db)
+    ).toEqual({ status: "none" });
+  });
+
+  it("reports none for a malformed id without querying", async () => {
+    expect(await getGenerationJobStatusForUser("not-a-uuid", USER, db)).toEqual({
+      status: "none",
+    });
   });
 });

@@ -14,8 +14,10 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createTestDb } from "@/lib/__tests__/test-db";
-import { makeUser } from "@/lib/__tests__/factories";
+import { makeDesign, makeUser } from "@/lib/__tests__/factories";
 import * as schema from "@/lib/db/schema";
+import { dayKeyUTC } from "@/lib/generation-quota";
+import { insertGenerationJob } from "@/lib/generation-job";
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
 let testDb: Db;
@@ -53,7 +55,9 @@ vi.mock("@/lib/auth", () => ({
     user.isAnonymous === true,
 }));
 
-const { getStudioLanes } = await import("@/app/studio/actions");
+const { getStudioLanes, getGenerationJobStatus } = await import(
+  "@/app/studio/actions"
+);
 
 let savedFlag: string | undefined;
 
@@ -111,5 +115,55 @@ describe("getStudioLanes", () => {
     const lanes = await getStudioLanes();
 
     expect(lanes.map((l) => l.designId)).toEqual([mine.id]);
+  });
+});
+
+describe("getGenerationJobStatus", () => {
+  it("refuses a signed-out caller", async () => {
+    h.userId = null;
+    await expect(getGenerationJobStatus(crypto.randomUUID())).rejects.toThrow(
+      /Unauthorized/
+    );
+  });
+
+  it("reports the caller's own running job", async () => {
+    const design = await makeDesign(testDb, "owner");
+    const job = await insertGenerationJob({
+      designId: design.id,
+      userId: "owner",
+      operation: "generate",
+      imageId: crypto.randomUUID(),
+      r2Key: `images/${crypto.randomUUID()}.png`,
+      anchorImageId: null,
+      generationNumber: 1,
+      dayKey: dayKeyUTC(new Date()),
+      ip: null,
+      cost: 0.03,
+      db: testDb,
+    });
+    if (!job.ok) throw new Error("expected insert to succeed");
+
+    expect(await getGenerationJobStatus(job.job.id)).toEqual({ status: "running" });
+  });
+
+  it("reports none for another user's job id, scoped to the session's own user", async () => {
+    await makeUser(testDb, "stranger");
+    const design = await makeDesign(testDb, "stranger");
+    const job = await insertGenerationJob({
+      designId: design.id,
+      userId: "stranger",
+      operation: "generate",
+      imageId: crypto.randomUUID(),
+      r2Key: `images/${crypto.randomUUID()}.png`,
+      anchorImageId: null,
+      generationNumber: 1,
+      dayKey: dayKeyUTC(new Date()),
+      ip: null,
+      cost: 0.03,
+      db: testDb,
+    });
+    if (!job.ok) throw new Error("expected insert to succeed");
+
+    expect(await getGenerationJobStatus(job.job.id)).toEqual({ status: "none" });
   });
 });

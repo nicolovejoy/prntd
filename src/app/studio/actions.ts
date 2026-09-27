@@ -10,6 +10,8 @@ import {
   planDesignDeletion,
 } from "@/lib/delete-design";
 import { r2KeysForPlan } from "@/lib/delete-designs-since";
+import { getGenerationJobStatusForUser } from "@/lib/generation-job";
+import type { GenerationJobStatus } from "@/lib/lost-submit";
 import { deleteObjectByKey, imageKeyFromUrl } from "@/lib/r2";
 import { requireStudioActionSession } from "@/lib/require-user";
 import {
@@ -36,6 +38,22 @@ export async function getStudioLanes(): Promise<StudioLane[]> {
   const session = await requireStudioActionSession();
   after(() => sweepStudioForUser(session.user.id));
   return getStudioLanesData(session.user.id);
+}
+
+/**
+ * Owner-scoped job status lookup for the Studio's lost-submit reconcile
+ * (#245): when a `generateDesign` response is lost after the server already
+ * accepted the request, the client mints and sends its own job id, then asks
+ * here whether that id ever became a real row. Same gate as `getStudioLanes`
+ * (guests included while the guest funnel is on). Scoped to the session's own
+ * user id by `getGenerationJobStatusForUser` — this says nothing about
+ * another user's job id, or a malformed one; both read as `{status:"none"}`.
+ */
+export async function getGenerationJobStatus(
+  jobId: string
+): Promise<GenerationJobStatus> {
+  const session = await requireStudioActionSession();
+  return getGenerationJobStatusForUser(jobId, session.user.id);
 }
 
 /**

@@ -120,6 +120,16 @@ export type OptimisticEntry = {
   startedAt: Date;
   jobId: string | null;
   /**
+   * The id minted client-side and sent as `generateDesign`'s `jobId` option
+   * (#245) — the server's `image_generation` row uses it verbatim, so once a
+   * lane's pending list carries this id, that IS this submit's job, even if
+   * `generateDesign`'s own response never made it back (a lost response) and
+   * `jobId` above is still null. Undefined for callers that don't mint one
+   * (there are none left in the Studio itself, but the type stays optional so
+   * an entry built without it behaves exactly as before).
+   */
+  clientJobId?: string;
+  /**
    * The trimmed composer text this submit fired with (#203). Every submit
    * has one, so the field is required. It stands in for the lane's title
    * until the server lane carries the first user chat turn — a synthetic
@@ -245,6 +255,11 @@ export function applyOptimistic(
  *   Then the absence is server truth: the job finished or was cancelled. A
  *   snapshot fetched before the row was written is simply blind to it, and
  *   acting on that silence deletes a live cell and stops the poll loop.
+ * - a `jobId: null` entry whose `clientJobId` (#245) shows up in some lane's
+ *   pending — dropped; a lost-submit reconcile is still in flight, but the
+ *   server's own cell (rendered under the same id) has already arrived, so
+ *   the overlay would duplicate it. Checked after the stale-window rule
+ *   above, same as every other rule here.
  * - anything else — kept; the row isn't visible yet.
  *
  * `snapshotStartedAtMs` defaults to now (a caller with no fetch timing gets
@@ -259,7 +274,13 @@ export function settleOptimistic(
   const snapshotStartedAtMs = options.snapshotStartedAtMs ?? nowMs;
   return entries.filter((entry) => {
     if (nowMs - entry.startedAt.getTime() >= STALE_OPTIMISTIC_MS) return false;
-    if (entry.jobId === null) return true;
+    if (entry.jobId === null) {
+      if (entry.clientJobId == null) return true;
+      const clientIdPending = lanes.some((lane) =>
+        lane.pending.some((job) => job.jobId === entry.clientJobId)
+      );
+      return !clientIdPending;
+    }
     const visiblyPending = lanes.some((lane) =>
       lane.pending.some((job) => job.jobId === entry.jobId)
     );
@@ -276,17 +297,20 @@ export function settleOptimistic(
  * How many optimistic entries are not yet visible in server lanes' pending
  * lists — the count to add to the server's own pending count for the
  * generation cap (`isAtGenerationCap`), so a cell that has already landed
- * in server lanes isn't counted twice. An entry with `jobId: null` is
- * always unseen (the server can't show it before the action returns).
+ * in server lanes isn't counted twice. An entry with `jobId: null` and no
+ * `clientJobId` is always unseen (the server can't show it before the action
+ * returns). An entry with `jobId: null` but a `clientJobId` (#245, a lost
+ * submit still being reconciled) is seen once that id shows up as pending —
+ * the server is already rendering its cell, so the overlay must not also
+ * count toward the cap.
  */
 export function unseenOptimisticCount(
   lanes: StudioLane[],
   entries: OptimisticEntry[]
 ): number {
   return entries.filter((entry) => {
-    if (entry.jobId === null) return true;
-    return !lanes.some((lane) =>
-      lane.pending.some((job) => job.jobId === entry.jobId)
-    );
+    const id = entry.jobId ?? entry.clientJobId;
+    if (id == null) return true;
+    return !lanes.some((lane) => lane.pending.some((job) => job.jobId === id));
   }).length;
 }

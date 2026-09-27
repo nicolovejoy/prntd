@@ -281,4 +281,23 @@ describe("constructDesignBrief — the brief prompt's clarify contract", () => {
       "Never answer a request for a design with a question instead of a design"
     );
   });
+
+  it("bounds the SDK call with an AbortSignal (#245)", async () => {
+    const mockCreate = await getMockCreate();
+    mockCreate.mockResolvedValue(
+      respond(
+        JSON.stringify({
+          operation: "generate",
+          message: "ok",
+          spec: { subject: "a fox", elements: [{ type: "obj", desc: "a fox" }] },
+        })
+      )
+    );
+
+    const { constructDesignBrief } = await import("../ai");
+    await constructDesignBrief([], [], "a fox");
+
+    const options = mockCreate.mock.calls[0][1] as { signal?: AbortSignal };
+    expect(options?.signal).toBeInstanceOf(AbortSignal);
+  });
 });
