@@ -6,9 +6,15 @@ import { LibraryGrid } from "./library-grid";
 import { GuestKeepLine } from "../studio/guest-keep-line";
 
 /**
- * My Designs: every image this user has made (nav model A, 2026-09-27). A
- * top-level destination reachable straight from the header, not a Studio
- * view — the Studio's tab strip is gone (#256 plan).
+ * My Designs: every image this user has made. A top-level destination in the
+ * header since 2026-09-27 ("it's hard to find my designs" — Nico), no longer
+ * a tab inside the Studio; /studio/library and /studio/archive 308 here
+ * (docs/superpowers/plans/2026-09-27-my-designs-nav.md).
+ *
+ * Same gate as the Studio bench (requireStudioUser): a real account, or a
+ * guest-funnel session while GUEST_FUNNEL_ENABLED is on (#241). A visitor
+ * with no session cookie never gets here — middleware sends them to
+ * /sign-in.
  *
  * A server component. The grid (LibraryGrid) is the client island: tiles are
  * links, plus the Active/All filter and select mode for bulk delete (#195,
