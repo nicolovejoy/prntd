@@ -193,7 +193,7 @@ function DesignPageInner({ initialThreadPromise, canPublish }: Props) {
   const { notice, element: noticeSheet } = useNotice();
   // Delete-image's own confirm (#242 review finding 4) — the lightbox's
   // Delete/Remove used to fire straight through with no confirm at all,
-  // unlike Library's bulk delete (#200).
+  // unlike My Designs' bulk delete (#200).
   const { confirm, element: confirmSheet } = useConfirm();
 
   const running = jobs.running;

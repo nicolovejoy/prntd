@@ -106,11 +106,11 @@ export function SiteHeader({
     Boolean(session) &&
     !(session?.user as { isAnonymous?: boolean } | undefined)?.isAnonymous;
 
-  // Nav model A (docs/ux-design-review-2026-09.md): three verbs in the bar —
-  // Studio, My Designs, Shop — plus Cart and an account menu, at every
-  // width. Studio is where you make; My Designs is everything you have made;
-  // Shop is where you buy; Cart is funnel-critical so it never goes behind a
-  // tap. Everything about *you* — Orders, Admin, Feedback, which account
+  // Nav model A (docs/ux-design-review-2026-09.md), as revised 2026-09-27:
+  // three verbs in the bar — Studio, My Designs, Shop — plus Cart and an
+  // account menu, at every width. Studio is where you make; My Designs is
+  // everything you have made; Shop is where you buy; Cart is funnel-critical
+  // so it never goes behind a tap. Everything about *you* — Orders, Admin, Feedback, which account
   // this is, the build, signing out — is one tap into the menu.
   //
   // My Designs moved back into the bar (2026-09-27): it used to be the

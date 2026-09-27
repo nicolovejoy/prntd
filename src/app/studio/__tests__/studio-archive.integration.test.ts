@@ -3,8 +3,8 @@
  * in-memory libSQL: an idle conversation leaves the Studio and Reopen
  * (`reopenConversation`) puts the lane back.
  *
- * The dedicated `/studio/archive` list view was dropped 2026-09-09 (Library's
- * Active/All filter, #238, already showed every archived image, and the
+ * The dedicated `/studio/archive` list view was dropped 2026-09-09 (My
+ * Designs' Active/All filter, #238, already showed every archived image, and the
  * image detail page's "Open conversation" already reopened a closed thread)
  * — its wrapper `reopenFromArchive` is gone with it. What this test still
  * proves is real: archiving is a new writer of an EXISTING state, and

@@ -2,10 +2,10 @@ import { permanentRedirect } from "next/navigation";
 import { pathWithSearch } from "@/lib/redirect-path";
 
 /**
- * /studio/library moved to /designs (nav model A, 2026-09-27): My Designs is
- * a top-level destination now, not a Studio view. A permanent (308) redirect
- * carries the query string so bookmarks, shared links and `?from=` markers
- * keep working.
+ * /studio/library moved to /designs (2026-09-27, revising nav model A): My
+ * Designs is a top-level destination now, not a Studio view. A permanent
+ * (308) redirect carries the query string so bookmarks, shared links and
+ * `?from=` markers keep working.
  */
 export default async function StudioLibraryPage({
   searchParams,

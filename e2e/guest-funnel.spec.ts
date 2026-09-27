@@ -4,7 +4,7 @@
  * record routes stay behind sign-in.
  *
  * #241: the Studio bench and My Designs (/designs, moved out from under the
- * Studio by nav model A, 2026-09-27) are open to that anonymous session too,
+ * Studio 2026-09-27, revising nav model A) are open to that anonymous session too,
  * with a "Sign up to keep these designs. Have an account? Sign in." line. A
  * visitor with no session at all is still sent to sign-in, and /orders
  * still refuses a guest.
@@ -81,6 +81,10 @@ test("a guest with an anonymous session reaches their own Studio, not /orders", 
       "/sign-in?next=%2Fdesigns"
     );
     await expect(page.getByTestId("library-tile")).toHaveCount(1);
+
+    // The old /studio/library address still 308s here, carrying the query.
+    await page.goto("/studio/library?from=x");
+    await expect(page).toHaveURL(/\/designs\?from=x$/);
 
     // Orders stay real-account-only.
     await page.goto("/orders");
