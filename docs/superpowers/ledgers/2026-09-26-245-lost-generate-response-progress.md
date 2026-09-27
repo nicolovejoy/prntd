@@ -344,3 +344,31 @@ Minors and rulings (all applied in the fix round):
 
 - Fix round (sonnet) applied 1-7. Re-review (haiku): RESOLVED.
   `src/app/studio src/app/design src/lib`: 1613 pass.
+
+## Rebuild gate (controller, after merging origin/main `f2792a5` into the branch)
+
+Main moved (#256) during the rebuild; merged it in (`3fb27a7`, clean) and ran
+the gate on the combined tree:
+
+- `npm run lint`: 0 errors, 22 warnings (all pre-existing).
+- `npm run typecheck`: clean.
+- `npx vitest run`: 194 files, 2168 tests passed.
+- `npm run build` with CI's dummy env: success.
+- `npm run db:generate`: "No schema changes, nothing to migrate".
+- e2e not run locally (brief). Most exposed: `e2e/guest-funnel.spec.ts` (the
+  only spec that generates from the Studio; it now sends a `jobId`).
+
+Size: src +1991 / −59 across 16 files, of which ~1480 lines are tests. Product
+code: `studio-client.tsx` +184 (was +318 for the heuristic), `lost-submit.ts`
+92, `generation-job.ts` +117, `design/actions.ts` +88.
+
+## Follow-ups (not built)
+
+- `insertGenerationJob`'s read-back after a committed insert can throw → a
+  digest error with a running orphan row: double refund once the sweep fails
+  it, and a held cap slot. Fix: return the job built from the insert's own
+  values (the id is known now).
+- `/design` (`design-client.tsx`) still fails every throw at once and sends no
+  `jobId`; the same lost-response case there reads as failure.
+- A lost submit whose job the server wrote but whose insert response was lost
+  server-side (the case above) could be checked by id before failing.
