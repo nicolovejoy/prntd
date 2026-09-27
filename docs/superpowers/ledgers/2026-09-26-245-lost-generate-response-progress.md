@@ -253,3 +253,19 @@ test files to `origin/main`. Plan rewritten in place (same file).
    just leaves. Judgment call against the brief's literal "failed/cancelled →
    failure handling"; flagged in the summary.
 9. **Digest throws fail at once** (#204 closed lane unchanged).
+
+## Rebuild Task 1 — server: client job id, replay, conflict
+
+- Implementer (sonnet): `src/lib/uuid.ts` (`isUuid`), `insertGenerationJob({ id? })`
+  with `duplicate` / `conflict` / `at_capacity` resolved by one read-back by id
+  on a PK violation or zero rows; `generateDesign` validates, replays before
+  quota, maps `already_queued` to `queued` without `after()`, throws on
+  `conflict`. 9 real-DB cases in `client-job-id.integration.test.ts`, 5 in
+  `generation-job.integration.test.ts`, 6 `isUuid` units. Full suite 2064 pass.
+- Task review (sonnet): APPROVED, no findings. It traced every quota-consuming
+  exit (exactly one owner or one refund) and confirmed `id` is the table's only
+  unique constraint, so `isUniqueViolation` cannot misattribute.
+- Controller note, accepted: a PK violation whose row is gone on read-back
+  reports `at_capacity` (refunded, returned) rather than rethrowing; reachable
+  only if the row is deleted between the insert and the read, and the outcome is
+  still refunded exactly once.

@@ -167,6 +167,117 @@ describe("insertGenerationJob", () => {
     expect(await countRunningJobsForUser("user-b", db)).toBe(1);
   });
 
+  it("uses the caller's id (#245) instead of minting a random one", async () => {
+    const clientId = crypto.randomUUID();
+    const job = await seedJob({ id: clientId });
+    expect(job.id).toBe(clientId);
+  });
+
+  it("reports `duplicate` with the original row when a replay's own id already exists", async () => {
+    const clientId = crypto.randomUUID();
+    const original = await seedJob({ id: clientId, generationNumber: 1 });
+
+    const replay = await insertGenerationJob({
+      designId,
+      userId: USER,
+      operation: "generate",
+      imageId: crypto.randomUUID(),
+      r2Key: "images/replay.png",
+      anchorImageId: null,
+      generationNumber: 2,
+      dayKey: dayKeyUTC(NOW),
+      ip: IP,
+      cost: 0.03,
+      id: clientId,
+      now: NOW,
+      db,
+    });
+    expect(replay).toEqual({ ok: false, reason: "duplicate", job: original });
+
+    // Nothing else was written under that id.
+    const rows = await db
+      .select()
+      .from(imageGeneration)
+      .where(eq(imageGeneration.id, clientId));
+    expect(rows).toHaveLength(1);
+  });
+
+  it("reports `conflict` when the id belongs to another user's job", async () => {
+    const clientId = crypto.randomUUID();
+    await makeUser(db, "user-other");
+    const otherDesign = await makeDesign(db, "user-other");
+    await seedJob({
+      id: clientId,
+      userId: "user-other",
+      designId: otherDesign.id,
+      generationNumber: 1,
+    });
+
+    const attempt = await insertGenerationJob({
+      designId,
+      userId: USER,
+      operation: "generate",
+      imageId: crypto.randomUUID(),
+      r2Key: "images/mine.png",
+      anchorImageId: null,
+      generationNumber: 1,
+      dayKey: dayKeyUTC(NOW),
+      ip: IP,
+      cost: 0.03,
+      id: clientId,
+      now: NOW,
+      db,
+    });
+    expect(attempt).toEqual({ ok: false, reason: "conflict" });
+  });
+
+  it("reports `conflict` for the same user's id on another design", async () => {
+    const clientId = crypto.randomUUID();
+    await seedJob({ id: clientId, generationNumber: 1 });
+    const otherDesign = await makeDesign(db, USER);
+
+    const attempt = await insertGenerationJob({
+      designId: otherDesign.id,
+      userId: USER,
+      operation: "generate",
+      imageId: crypto.randomUUID(),
+      r2Key: "images/mine2.png",
+      anchorImageId: null,
+      generationNumber: 1,
+      dayKey: dayKeyUTC(NOW),
+      ip: IP,
+      cost: 0.03,
+      id: clientId,
+      now: NOW,
+      db,
+    });
+    expect(attempt).toEqual({ ok: false, reason: "conflict" });
+  });
+
+  it("reports `at_capacity`, not `duplicate`/`conflict`, when a client id is fresh and the cap refuses it", async () => {
+    for (let i = 0; i < GENERATION_CONCURRENCY_CAP; i++) {
+      await seedJob({ generationNumber: i + 1 });
+    }
+    const clientId = crypto.randomUUID();
+
+    const attempt = await insertGenerationJob({
+      designId,
+      userId: USER,
+      operation: "generate",
+      imageId: crypto.randomUUID(),
+      r2Key: "images/fresh.png",
+      anchorImageId: null,
+      generationNumber: 4,
+      dayKey: dayKeyUTC(NOW),
+      ip: IP,
+      cost: 0.03,
+      id: clientId,
+      now: NOW,
+      db,
+    });
+    expect(attempt).toEqual({ ok: false, reason: "at_capacity" });
+  });
+
   it("admits exactly one of two concurrent inserts at the cap boundary", async () => {
     for (let i = 0; i < GENERATION_CONCURRENCY_CAP - 1; i++) {
       await seedJob({ generationNumber: i + 1 });

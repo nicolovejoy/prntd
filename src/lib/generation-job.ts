@@ -28,6 +28,7 @@ import type { SQLiteTable } from "drizzle-orm/sqlite-core";
 import type { db as appDb } from "./db";
 import { imageGeneration } from "./db/schema";
 import { refundGenerationQuota } from "./generation-quota";
+import { isUniqueViolation } from "./ledger";
 
 // Imported for its TYPE only, so callers can inject a test db without this
 // module constructing the libSQL client at import time.
@@ -83,6 +84,20 @@ async function resolveDb(db?: AppDb): Promise<AppDb> {
  * an insert lets two tabs both observe 2 and both write a third and fourth.
  * `INSERT … SELECT … WHERE (subquery) < cap` evaluates the predicate inside
  * the one statement; a loser affects zero rows.
+ *
+ * `params.id` (#245): when the caller supplies a client-minted id, it is used
+ * verbatim instead of a fresh `crypto.randomUUID()` — the id becomes the
+ * handle a lost/replayed response can look the job up by. Two outcomes then
+ * need telling apart, because a replay racing its own original can reach this
+ * INSERT while the original's row is mid-write: a primary-key violation on
+ * `id` means a row with that id already exists; zero rows affected means the
+ * cap predicate was false BEFORE the key was ever checked, which is also what
+ * a plain over-capacity refusal produces. Both are resolved with one read-back
+ * by id: a row owned by the same user on the same design is a `duplicate`
+ * (the replay's own original); any other existing row is a foreign
+ * `conflict`; no row at all is `at_capacity`. When no `id` is supplied the
+ * random id can't collide, so only `at_capacity` is reachable, unchanged from
+ * before.
  */
 export async function insertGenerationJob(params: {
   designId: string;
@@ -95,34 +110,63 @@ export async function insertGenerationJob(params: {
   dayKey: string;
   ip: string | null;
   cost: number;
+  id?: string;
   now?: Date;
   db?: AppDb;
-}): Promise<{ ok: true; job: GenerationJob } | { ok: false; reason: "at_capacity" }> {
+}): Promise<
+  | { ok: true; job: GenerationJob }
+  | { ok: false; reason: "at_capacity" }
+  | { ok: false; reason: "duplicate"; job: GenerationJob }
+  | { ok: false; reason: "conflict" }
+> {
   const db = await resolveDb(params.db);
   const now = params.now ?? new Date();
-  const id = crypto.randomUUID();
+  const id = params.id ?? crypto.randomUUID();
   const ts = toEpochSeconds(now);
+
+  async function resolveConflict(): Promise<
+    | { ok: false; reason: "duplicate"; job: GenerationJob }
+    | { ok: false; reason: "conflict" }
+    | { ok: false; reason: "at_capacity" }
+  > {
+    const [existing] = await db
+      .select()
+      .from(imageGeneration)
+      .where(eq(imageGeneration.id, id))
+      .limit(1);
+    if (!existing) return { ok: false, reason: "at_capacity" };
+    if (existing.userId === params.userId && existing.designId === params.designId) {
+      return { ok: false, reason: "duplicate", job: existing };
+    }
+    return { ok: false, reason: "conflict" };
+  }
 
   // Values are bound parameters (drizzle's sql`` template parameterises every
   // interpolation) — never string-interpolated into the statement text.
-  const result = await db.run(sql`
-    insert into image_generation (
-      id, design_id, user_id, status, operation, image_id, r2_key,
-      anchor_image_id, generation_number, day_key, ip, cost,
-      started_at, created_at
-    )
-    select
-      ${id}, ${params.designId}, ${params.userId}, 'running', ${params.operation},
-      ${params.imageId}, ${params.r2Key}, ${params.anchorImageId},
-      ${params.generationNumber}, ${params.dayKey}, ${params.ip}, ${params.cost},
-      ${ts}, ${ts}
-    where (
-      select count(*) from image_generation
-      where user_id = ${params.userId} and status = 'running'
-    ) < ${GENERATION_CONCURRENCY_CAP}
-  `);
+  let result;
+  try {
+    result = await db.run(sql`
+      insert into image_generation (
+        id, design_id, user_id, status, operation, image_id, r2_key,
+        anchor_image_id, generation_number, day_key, ip, cost,
+        started_at, created_at
+      )
+      select
+        ${id}, ${params.designId}, ${params.userId}, 'running', ${params.operation},
+        ${params.imageId}, ${params.r2Key}, ${params.anchorImageId},
+        ${params.generationNumber}, ${params.dayKey}, ${params.ip}, ${params.cost},
+        ${ts}, ${ts}
+      where (
+        select count(*) from image_generation
+        where user_id = ${params.userId} and status = 'running'
+      ) < ${GENERATION_CONCURRENCY_CAP}
+    `);
+  } catch (err) {
+    if (!isUniqueViolation(err)) throw err;
+    return resolveConflict();
+  }
 
-  if (result.rowsAffected !== 1) return { ok: false, reason: "at_capacity" };
+  if (result.rowsAffected !== 1) return resolveConflict();
 
   const [job] = await db
     .select()
