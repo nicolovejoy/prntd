@@ -110,8 +110,9 @@ export function SiteHeader({
   // three verbs in the bar — Studio, My Designs, Shop — plus Cart and an
   // account menu, at every width. Studio is where you make; My Designs is
   // everything you have made; Shop is where you buy; Cart is funnel-critical
-  // so it never goes behind a tap. Everything about *you* — Orders, Admin, Feedback, which account
-  // this is, the build, signing out — is one tap into the menu.
+  // so it never goes behind a tap. Everything about *you* — Orders, Admin,
+  // Feedback, which account this is, the build, signing out — is one tap
+  // into the menu.
   //
   // My Designs moved back into the bar (2026-09-27): it used to be the
   // Studio's own Library tab, reached three taps deep on a phone
