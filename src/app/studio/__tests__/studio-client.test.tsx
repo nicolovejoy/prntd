@@ -16,6 +16,7 @@ import { StudioClient } from "../studio-client";
 import type { StudioLane } from "@/lib/studio";
 import type { BulkDeleteResult } from "@/lib/studio-view";
 import {
+  LOST_SUBMIT_ERROR_ATTEMPTS,
   LOST_SUBMIT_LOOKUP_INTERVAL_MS,
   LOST_SUBMIT_LOOKUP_TIMEOUT_MS,
 } from "@/lib/lost-submit";
@@ -2285,6 +2286,91 @@ describe("lost Generate response reconcile (#245)", () => {
       expect(getGenerationJobStatus).toHaveBeenCalledTimes(2);
       expect(screen.getByTestId("studio-pending-cell")).toBeTruthy();
       expect(screen.queryByText(/Something went wrong/)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("test 18: foreground errors, then a mid-loop device freeze — the post-wake error doesn't fail, but the streak keeps counting and eventually does (third review, item 1)", async () => {
+    vi.useFakeTimers();
+    try {
+      mockUuidSequence(["design-18", "local-18", "job-18"]);
+      vi.mocked(generateDesign).mockImplementationOnce(lostResponse);
+      vi.mocked(getGenerationJobStatus).mockRejectedValue(new Error("network"));
+      // h.polledLanes is left at its default `[]` (never shows job-18
+      // pending), same as the ordinary failure tests (3, 4, 12) — this test
+      // is deliberately the case where the server genuinely never learned
+      // about the job (the lost-response scenario proper), not the "it
+      // landed but the phone can't see it yet" case tests 12b/16 exercise.
+      // The overlay's own entry (jobId still null, keyed on clientJobId)
+      // renders the pending cell by itself while its age is under
+      // STALE_OPTIMISTIC_MS; once real time crosses that (which this test's
+      // freeze does), settleOptimistic's own unrelated age-out drops it with
+      // nothing to hand off to — expected, and irrelevant to what this test
+      // is checking (the streak-count threshold), so assertions below don't
+      // depend on the cell still being visible past that point.
+
+      render(<StudioClient initialLanes={[lane()]} />);
+      submitText("a lost submit that survives a mid-loop freeze");
+
+      // Call 1, at t=0 — the network is nominally fine; this is an ordinary
+      // foreground blip, not a freeze.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      // Calls 2 and 3, at t=3000 and t=6000 — more ordinary foreground
+      // errors. All well before hardDeadlineMs (STALE_OPTIMISTIC_MS, 6
+      // minutes), so none of this can fail regardless of the count.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6_000);
+      });
+      expect(getGenerationJobStatus).toHaveBeenCalledTimes(3);
+      expect(screen.getByTestId("studio-pending-cell")).toBeTruthy();
+      expect(screen.queryByText(/Something went wrong/)).toBeNull();
+
+      // The device freezes right here: no further attempts happen while
+      // asleep, only the clock moves. Unlike test 16 (which jumps the clock
+      // synchronously before the very first lookup, because no timer exists
+      // yet to interfere), there IS a pending setTimeout now — the loop's own
+      // 3s interval wait. Its remaining delay is unaffected by the jump, so
+      // the very next vi.advanceTimersByTimeAsync call still has to run out
+      // that same interval before the timer fires; the jump alone does not
+      // make it fire early or "overdue".
+      vi.setSystemTime(Date.now() + 8 * 60_000);
+
+      // The phone wakes and makes its first attempt since the freeze (call
+      // 4). Its calledAtMs is now far past hardDeadlineMs, but the streak is
+      // only 4 long — nowhere near LOST_SUBMIT_ERROR_ATTEMPTS — so this must
+      // not fail, exactly like test 16's single post-wake error. This is the
+      // case a wall-clock streak got wrong: sleeping consumed 8 minutes of
+      // clock time but made zero attempts, so it must not have consumed any
+      // of the attempt budget either.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3_000);
+      });
+      expect(getGenerationJobStatus).toHaveBeenCalledTimes(4);
+      expect(screen.queryByText(/Something went wrong/)).toBeNull();
+      expect(
+        (screen.getByTestId("studio-composer") as HTMLInputElement).value
+      ).toBe("");
+
+      // The device keeps trying and keeps failing to reach the server after
+      // waking. Once the streak reaches LOST_SUBMIT_ERROR_ATTEMPTS in total
+      // (call 20 — 16 more from here, all past hardDeadlineMs), the submit is
+      // finally judged failed: notice shown, words restored.
+      const remainingCalls = LOST_SUBMIT_ERROR_ATTEMPTS - 4;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(
+          remainingCalls * LOST_SUBMIT_LOOKUP_INTERVAL_MS
+        );
+      });
+      expect(getGenerationJobStatus).toHaveBeenCalledTimes(
+        LOST_SUBMIT_ERROR_ATTEMPTS
+      );
+      expect(screen.getByText(/Something went wrong/)).toBeTruthy();
+      expect(
+        (screen.getByTestId("studio-composer") as HTMLInputElement).value
+      ).toBe("a lost submit that survives a mid-loop freeze");
     } finally {
       vi.useRealTimers();
     }

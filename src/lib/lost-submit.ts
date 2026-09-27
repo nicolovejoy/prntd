@@ -39,9 +39,30 @@ export const LOST_SUBMIT_LOOKUP_INTERVAL_MS = 3_000;
  * an ordinary round trip is never cut off, short enough that a hung request
  * costs only a few poll cycles rather than an unbounded wait. A timeout is
  * treated exactly like a lookup that threw — see `judgeLostSubmit`'s
- * "error" handling.
+ * "error" handling. Abandoning the promise client-side does not free up
+ * anything server-side: Next's action queue (`runRemainingActions`) runs one
+ * Server Function at a time, so a lookup that is genuinely still working on
+ * the server keeps that queue occupied for however long it actually takes,
+ * delaying every action queued behind it (including this loop's own next
+ * lookup) regardless of this timeout. The loop stays bounded anyway, because
+ * each timed-out lookup is simply counted as an "error" attempt toward
+ * `LOST_SUBMIT_ERROR_ATTEMPTS` like any other — it does not need the queue to
+ * drain to make progress.
  */
 export const LOST_SUBMIT_LOOKUP_TIMEOUT_MS = 10_000;
+
+/**
+ * How many CONSECUTIVE "error" lookups (see `judgeLostSubmit`'s
+ * `errorStreakCount`) a lost submit's reconcile loop must see, past
+ * `hardDeadlineMs`, before an "error" verdict may fail the submit. Measured
+ * in ATTEMPTS rather than wall-clock time (third review, 2026-09-27; see
+ * `errorStreakCount`'s docs for why) — roughly `LOST_SUBMIT_WINDOW_MS` worth
+ * of tries at the ordinary cadence, so an actively-retrying device gets
+ * about the same grace a fresh submit gets from `deadlineMs` itself.
+ */
+export const LOST_SUBMIT_ERROR_ATTEMPTS = Math.ceil(
+  LOST_SUBMIT_WINDOW_MS / LOST_SUBMIT_LOOKUP_INTERVAL_MS
+);
 
 /**
  * The pure status union `getGenerationJobStatusForUser` (src/lib/generation-job.ts)
@@ -83,32 +104,44 @@ export function judgeLostSubmit(params: {
    * minutes backgrounded, the render finishes, the tab returns to
    * momentarily no network) — the render finishes regardless, the words come
    * back next to the finished image, and a re-tap duplicates it. So an
-   * "error" keeps waiting past `deadlineMs` and only fails at this later
-   * backstop. It is set to `Date.now()` at submit plus `STALE_OPTIMISTIC_MS`
-   * (src/lib/generation-poll.ts): past that point `settleOptimistic` would
-   * drop the overlay entry on its own age-out rule regardless of this
-   * verdict, so the reconcile loop must stop actively here rather than poll
-   * forever into the void chasing an entry nothing will show any more.
+   * "error" keeps waiting past `deadlineMs` and only fails once
+   * `errorStreakCount` (below) has itself reached `LOST_SUBMIT_ERROR_ATTEMPTS`
+   * past this point. It is set to `Date.now()` at submit plus
+   * `STALE_OPTIMISTIC_MS` (src/lib/generation-poll.ts): past that point
+   * `settleOptimistic` may already have dropped the overlay entry on its own
+   * age-out rule, on whatever poll happens to run next — independently of
+   * this verdict and possibly before it. That is not a bug in this function:
+   * a cell that vanished early is not the same as a submit that failed, and
+   * `failSubmit` still restores the words and shows the notice whenever this
+   * loop does eventually decide "failed", even if nothing on screen was
+   * showing the cell any more by then.
    */
   hardDeadlineMs: number;
   /**
-   * When the CURRENT run of consecutive "error" lookups began — the first
-   * such error's own `calledAtMs` — or `null` if the last lookup was not an
-   * error (no streak in progress). Ignored for every status other than
-   * "error". Second independent review, item 1: `hardDeadlineMs` alone is
-   * anchored on the submit's own clock reading, so a phone backgrounded for
-   * LONGER than that (STALE_OPTIMISTIC_MS, 6 minutes) wakes with the hard
-   * deadline already behind it. Without this, the very first post-wake
-   * lookup — which proves nothing on its own; the device may simply not have
-   * network back yet — would fail the submit outright, right next to an
-   * image that then lands anyway. Requiring the streak to have itself run for
-   * `LOST_SUBMIT_WINDOW_MS` gives a genuinely reconnecting device a real
-   * chance to answer before that verdict is drawn, the same margin a fresh
-   * submit gets from `deadlineMs` itself.
+   * How many CONSECUTIVE "error" lookups have occurred so far, ending with
+   * (and including) this call — 0 if the last lookup was not an error (no
+   * streak in progress). Ignored for every status other than "error".
+   *
+   * Counted in ATTEMPTS, not wall-clock time (third review, 2026-09-27; this
+   * replaces the original `errorStreakStartMs`, which measured the streak by
+   * elapsed time from its first error). A device freeze inflates a
+   * time-based streak for free: no attempts are made while the phone sleeps,
+   * but the clock keeps running regardless, so a phone that freezes for 8
+   * minutes and wakes up offline saw its very first post-wake lookup already
+   * credited with a full `LOST_SUBMIT_WINDOW_MS` of "streak duration" it
+   * never actually attempted — failing a submit that then lands anyway
+   * (#245 again, one level up, or a lookup in flight when the freeze hit).
+   * Counting attempts instead means sleep cannot consume any of the budget:
+   * only lookups the device genuinely made and that genuinely errored do.
+   * `LOST_SUBMIT_ERROR_ATTEMPTS` (≈ `LOST_SUBMIT_WINDOW_MS` worth of tries at
+   * the ordinary cadence) is the threshold; any non-error answer resets this
+   * to 0, and it is likewise irrelevant before `hardDeadlineMs` — a phone
+   * that never went anywhere near sleep hits the ordinary `deadlineMs`/"none"
+   * path long before this backstop matters.
    */
-  errorStreakStartMs: number | null;
+  errorStreakCount: number;
 }): "landed" | "failed" | "cancelled" | "wait" {
-  const { status, calledAtMs, deadlineMs, hardDeadlineMs, errorStreakStartMs } = params;
+  const { status, calledAtMs, deadlineMs, hardDeadlineMs, errorStreakCount } = params;
   if (status === "running" || status === "succeeded") return "landed";
   if (status === "failed") return "failed";
   if (status === "cancelled") return "cancelled";
@@ -116,13 +149,12 @@ export function judgeLostSubmit(params: {
   // deadline, same as before.
   if (status === "none") return calledAtMs >= deadlineMs ? "failed" : "wait";
   // "error": the lookup itself failed to answer — see hardDeadlineMs above.
-  // Failing requires BOTH the hard backstop to have passed AND the current
-  // streak of consecutive errors to have itself lasted at least
-  // LOST_SUBMIT_WINDOW_MS (errorStreakStartMs's docs) — a lone error right as
-  // the hard deadline is crossed is not proof of anything by itself.
+  // Failing requires BOTH the hard backstop to have passed AND the number of
+  // CONSECUTIVE errors (attempts, not elapsed time — errorStreakCount's docs)
+  // to have reached LOST_SUBMIT_ERROR_ATTEMPTS — a lone error right as the
+  // hard deadline is crossed is not proof of anything by itself.
   if (calledAtMs < hardDeadlineMs) return "wait";
-  if (errorStreakStartMs === null) return "wait";
-  return calledAtMs - errorStreakStartMs >= LOST_SUBMIT_WINDOW_MS ? "failed" : "wait";
+  return errorStreakCount >= LOST_SUBMIT_ERROR_ATTEMPTS ? "failed" : "wait";
 }
 
 /**

@@ -108,12 +108,14 @@ import { GuestKeepLine } from "./guest-keep-line";
  * deadline (the phone briefly has no network, not the server saying "no such
  * row") must not: it waits instead for a second, later backstop
  * (`STALE_OPTIMISTIC_MS` after the submit) before giving up — and even once
- * that backstop is behind it, only a run of consecutive errors that has
- * ITSELF lasted a full `LOST_SUBMIT_WINDOW_MS` counts as failure (second
- * independent review, item 1): a backstop anchored purely on the submit's own
- * clock can already be behind a device woken from a long background freeze,
- * so its very first post-wake lookup must get the same grace a fresh submit
- * gets, not an instant verdict.
+ * that backstop is behind it, only a run of `LOST_SUBMIT_ERROR_ATTEMPTS`
+ * CONSECUTIVE errors counts as failure (third review, 2026-09-27; measured in
+ * attempts, not elapsed time — a wall-clock streak lets a device freeze
+ * inflate it for free, since sleep makes no attempts but the clock still
+ * runs): a backstop anchored purely on the submit's own clock can already be
+ * behind a device woken from a long background freeze, so its very first
+ * post-wake lookup must get the same grace a fresh submit gets, not an
+ * instant verdict.
  *
  * The anchor lives OUTSIDE the lane state on purpose: a poll refresh replaces
  * `lanes` wholesale with server truth, and the anchor (plus the draft text)
@@ -533,12 +535,14 @@ export function StudioClient({
     hardDeadlineMs: number,
     trimmed: string
   ) {
-    // Tracks the current run of consecutive "error" lookups for
-    // judgeLostSubmit's errorStreakStartMs (second independent review, item
-    // 1): null when the last lookup was NOT an error (a real answer resets
-    // it), else the calledAtMs of the streak's first error. Local to this
-    // submit's own loop — each lost submit reconciles independently.
-    let errorStreakStartMs: number | null = null;
+    // Tracks the current run of CONSECUTIVE "error" lookups for
+    // judgeLostSubmit's errorStreakCount (third review, 2026-09-27): 0 when
+    // the last lookup was NOT an error (a real answer resets it), else the
+    // number of errors in a row ending with the most recent lookup. Counted
+    // in attempts, not elapsed time, so a device that makes zero attempts
+    // while asleep can't have the budget consumed by the sleep itself. Local
+    // to this submit's own loop — each lost submit reconciles independently.
+    let errorStreakCount = 0;
     for (;;) {
       if (!mountedRef.current) return;
       const calledAtMs = Date.now();
@@ -559,17 +563,13 @@ export function StudioClient({
         status = "error";
       }
       if (!mountedRef.current) return;
-      if (status === "error") {
-        if (errorStreakStartMs === null) errorStreakStartMs = calledAtMs;
-      } else {
-        errorStreakStartMs = null;
-      }
+      errorStreakCount = status === "error" ? errorStreakCount + 1 : 0;
       const verdict = judgeLostSubmit({
         status,
         calledAtMs,
         deadlineMs,
         hardDeadlineMs,
-        errorStreakStartMs,
+        errorStreakCount,
       });
       if (verdict === "landed") {
         // Exactly what a queued response does: the cell now has a real job

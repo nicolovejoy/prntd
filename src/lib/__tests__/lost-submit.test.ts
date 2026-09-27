@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   DESIGN_BRIEF_TIMEOUT_MS,
+  LOST_SUBMIT_ERROR_ATTEMPTS,
   LOST_SUBMIT_WINDOW_MS,
   isServerActionError,
   judgeLostSubmit,
@@ -17,9 +18,9 @@ describe("judgeLostSubmit", () => {
   // Comfortably past deadlineMs, same relationship as
   // LOST_SUBMIT_WINDOW_MS < STALE_OPTIMISTIC_MS in the real constants.
   const hardDeadlineMs = 400_000;
-  // Non-"error" statuses never consult errorStreakStartMs; null is the
+  // Non-"error" statuses never consult errorStreakCount; 0 is the
   // "no streak in progress" value every one of them is given below.
-  const noStreak = null;
+  const noStreak = 0;
 
   it("running lands", () => {
     expect(
@@ -28,7 +29,7 @@ describe("judgeLostSubmit", () => {
         calledAtMs: 0,
         deadlineMs,
         hardDeadlineMs,
-        errorStreakStartMs: noStreak,
+        errorStreakCount: noStreak,
       })
     ).toBe("landed");
   });
@@ -40,7 +41,7 @@ describe("judgeLostSubmit", () => {
         calledAtMs: 0,
         deadlineMs,
         hardDeadlineMs,
-        errorStreakStartMs: noStreak,
+        errorStreakCount: noStreak,
       })
     ).toBe("landed");
   });
@@ -52,7 +53,7 @@ describe("judgeLostSubmit", () => {
         calledAtMs: 0,
         deadlineMs,
         hardDeadlineMs,
-        errorStreakStartMs: noStreak,
+        errorStreakCount: noStreak,
       })
     ).toBe("failed");
     expect(
@@ -61,7 +62,7 @@ describe("judgeLostSubmit", () => {
         calledAtMs: deadlineMs + 1,
         deadlineMs,
         hardDeadlineMs,
-        errorStreakStartMs: noStreak,
+        errorStreakCount: noStreak,
       })
     ).toBe("failed");
   });
@@ -73,7 +74,7 @@ describe("judgeLostSubmit", () => {
         calledAtMs: 0,
         deadlineMs,
         hardDeadlineMs,
-        errorStreakStartMs: noStreak,
+        errorStreakCount: noStreak,
       })
     ).toBe("cancelled");
     expect(
@@ -82,7 +83,7 @@ describe("judgeLostSubmit", () => {
         calledAtMs: deadlineMs + 1,
         deadlineMs,
         hardDeadlineMs,
-        errorStreakStartMs: noStreak,
+        errorStreakCount: noStreak,
       })
     ).toBe("cancelled");
   });
@@ -94,7 +95,7 @@ describe("judgeLostSubmit", () => {
         calledAtMs: deadlineMs - 1,
         deadlineMs,
         hardDeadlineMs,
-        errorStreakStartMs: noStreak,
+        errorStreakCount: noStreak,
       })
     ).toBe("wait");
     expect(
@@ -103,7 +104,7 @@ describe("judgeLostSubmit", () => {
         calledAtMs: deadlineMs,
         deadlineMs,
         hardDeadlineMs,
-        errorStreakStartMs: noStreak,
+        errorStreakCount: noStreak,
       })
     ).toBe("failed");
     expect(
@@ -112,7 +113,7 @@ describe("judgeLostSubmit", () => {
         calledAtMs: deadlineMs + 1,
         deadlineMs,
         hardDeadlineMs,
-        errorStreakStartMs: noStreak,
+        errorStreakCount: noStreak,
       })
     ).toBe("failed");
   });
@@ -125,12 +126,12 @@ describe("judgeLostSubmit", () => {
         calledAtMs: deadlineMs - 1,
         deadlineMs,
         hardDeadlineMs,
-        errorStreakStartMs: noStreak,
+        errorStreakCount: noStreak,
       })
     ).not.toBe("failed");
   });
 
-  describe("error (independent review, item 1)", () => {
+  describe("error (independent review, item 1; third review — counted in attempts, not time)", () => {
     it("waits at and past the ordinary deadline — an error is not proof of absence", () => {
       expect(
         judgeLostSubmit({
@@ -138,7 +139,7 @@ describe("judgeLostSubmit", () => {
           calledAtMs: deadlineMs - 1,
           deadlineMs,
           hardDeadlineMs,
-          errorStreakStartMs: noStreak,
+          errorStreakCount: noStreak,
         })
       ).toBe("wait");
       expect(
@@ -147,7 +148,7 @@ describe("judgeLostSubmit", () => {
           calledAtMs: deadlineMs,
           deadlineMs,
           hardDeadlineMs,
-          errorStreakStartMs: noStreak,
+          errorStreakCount: noStreak,
         })
       ).toBe("wait");
       expect(
@@ -156,91 +157,113 @@ describe("judgeLostSubmit", () => {
           calledAtMs: deadlineMs + 1,
           deadlineMs,
           hardDeadlineMs,
-          errorStreakStartMs: noStreak,
+          errorStreakCount: noStreak,
         })
       ).toBe("wait");
     });
 
-    it("waits at and past the hard backstop while the error streak is still short, however long the streak's own start is unknown", () => {
-      // Before this fix: a lone error at/after hardDeadlineMs failed outright.
-      // Now: no known streak (null) can never fail — there is nothing to
-      // measure duration against.
-      expect(
-        judgeLostSubmit({
-          status: "error",
-          calledAtMs: hardDeadlineMs,
-          deadlineMs,
-          hardDeadlineMs,
-          errorStreakStartMs: noStreak,
-        })
-      ).toBe("wait");
-      expect(
-        judgeLostSubmit({
-          status: "error",
-          calledAtMs: hardDeadlineMs + 1,
-          deadlineMs,
-          hardDeadlineMs,
-          errorStreakStartMs: noStreak,
-        })
-      ).toBe("wait");
-    });
-
-    it("second independent review, item 1 — past the hard deadline, a streak that JUST started waits", () => {
-      // The streak began at this very call: duration is 0, far short of
-      // LOST_SUBMIT_WINDOW_MS. This is exactly the woken-from-a-long-freeze
-      // case: hardDeadlineMs is already behind the device, but its first
-      // post-wake error gets the same grace a fresh submit would.
-      expect(
-        judgeLostSubmit({
-          status: "error",
-          calledAtMs: hardDeadlineMs + 1,
-          deadlineMs,
-          hardDeadlineMs,
-          errorStreakStartMs: hardDeadlineMs + 1,
-        })
-      ).toBe("wait");
-    });
-
-    it("second independent review, item 1 — past the hard deadline, a streak lasting the full window fails", () => {
-      const streakStart = hardDeadlineMs + 1;
-      expect(
-        judgeLostSubmit({
-          status: "error",
-          calledAtMs: streakStart + LOST_SUBMIT_WINDOW_MS - 1,
-          deadlineMs,
-          hardDeadlineMs,
-          errorStreakStartMs: streakStart,
-        })
-      ).toBe("wait");
-      expect(
-        judgeLostSubmit({
-          status: "error",
-          calledAtMs: streakStart + LOST_SUBMIT_WINDOW_MS,
-          deadlineMs,
-          hardDeadlineMs,
-          errorStreakStartMs: streakStart,
-        })
-      ).toBe("failed");
-    });
-
-    it("a streak that started before the hard deadline but has already run the full window fails as soon as the hard deadline itself is crossed", () => {
-      const streakStart = hardDeadlineMs - LOST_SUBMIT_WINDOW_MS;
+    it("waits before the hard deadline no matter how high the error count already is", () => {
+      // calledAtMs alone gates this: a count at or even past the threshold
+      // still waits until hardDeadlineMs itself is crossed.
       expect(
         judgeLostSubmit({
           status: "error",
           calledAtMs: hardDeadlineMs - 1,
           deadlineMs,
           hardDeadlineMs,
-          errorStreakStartMs: streakStart,
+          errorStreakCount: LOST_SUBMIT_ERROR_ATTEMPTS,
         })
-      ).toBe("wait"); // still short of hardDeadlineMs itself
+      ).toBe("wait");
+    });
+
+    it("third review — past the hard deadline, a count below the threshold waits", () => {
       expect(
         judgeLostSubmit({
           status: "error",
           calledAtMs: hardDeadlineMs,
           deadlineMs,
           hardDeadlineMs,
-          errorStreakStartMs: streakStart,
+          errorStreakCount: LOST_SUBMIT_ERROR_ATTEMPTS - 1,
+        })
+      ).toBe("wait");
+    });
+
+    it("third review — past the hard deadline, a count AT the threshold fails", () => {
+      expect(
+        judgeLostSubmit({
+          status: "error",
+          calledAtMs: hardDeadlineMs,
+          deadlineMs,
+          hardDeadlineMs,
+          errorStreakCount: LOST_SUBMIT_ERROR_ATTEMPTS,
+        })
+      ).toBe("failed");
+    });
+
+    it("third review — a woken-from-freeze device's first post-wake error (count 1, or even 0 mid-reset) waits, exactly like a fresh streak", () => {
+      // This is the woken-from-a-long-freeze case the fix targets:
+      // hardDeadlineMs is already behind the device by the time its very
+      // first post-wake lookup ever runs, but the count has not yet had a
+      // chance to climb — sleep made zero attempts, so it consumed none of
+      // the budget.
+      expect(
+        judgeLostSubmit({
+          status: "error",
+          calledAtMs: hardDeadlineMs + 1,
+          deadlineMs,
+          hardDeadlineMs,
+          errorStreakCount: 1,
+        })
+      ).toBe("wait");
+      expect(
+        judgeLostSubmit({
+          status: "error",
+          calledAtMs: hardDeadlineMs + 1,
+          deadlineMs,
+          hardDeadlineMs,
+          errorStreakCount: 0,
+        })
+      ).toBe("wait");
+    });
+
+    it("third review — a non-error answer resets the count, so a subsequent error starting from 0 cannot fail even far past the hard deadline", () => {
+      // The reset itself happens in the caller's loop (a non-error answer
+      // sets its tracked count back to 0); this proves the pure function
+      // honors that reset — a fresh count of 0, however far past
+      // hardDeadlineMs, is indistinguishable from a brand new streak.
+      expect(
+        judgeLostSubmit({
+          status: "error",
+          calledAtMs: hardDeadlineMs + 10 * LOST_SUBMIT_WINDOW_MS,
+          deadlineMs,
+          hardDeadlineMs,
+          errorStreakCount: 0,
+        })
+      ).toBe("wait");
+    });
+
+    it("a non-error status ignores errorStreakCount entirely, even at or above the threshold", () => {
+      // "none" is server truth and is judged purely against deadlineMs,
+      // regardless of what any in-progress error streak looks like — proof
+      // that a real answer's own verdict never depends on the count (which
+      // is exactly why the caller is free to reset it to 0 on any such
+      // answer).
+      expect(
+        judgeLostSubmit({
+          status: "none",
+          calledAtMs: deadlineMs - 1,
+          deadlineMs,
+          hardDeadlineMs,
+          errorStreakCount: LOST_SUBMIT_ERROR_ATTEMPTS,
+        })
+      ).toBe("wait");
+      expect(
+        judgeLostSubmit({
+          status: "none",
+          calledAtMs: deadlineMs,
+          deadlineMs,
+          hardDeadlineMs,
+          errorStreakCount: LOST_SUBMIT_ERROR_ATTEMPTS,
         })
       ).toBe("failed");
     });
