@@ -1,7 +1,9 @@
 /**
  * Guest→account claim (#37): reparentUserData must move EVERY user-owned table
  * in one atomic batch — the anonymous plugin deletes the anon user right after,
- * so anything left behind gets cascaded away. One seeded row per table doubles
+ * so anything left behind either blocks that delete on its FK (better-auth 1.6
+ * logs the failure and the sign-in succeeds anyway, leaving the rows stranded
+ * under the anon user) or is cascaded away. One seeded row per table doubles
  * as the checklist when new user-owned tables land (conversation/image model).
  */
 import { describe, it, expect, beforeEach } from "vitest";
@@ -123,7 +125,8 @@ describe("reparentUserData", () => {
     ).toBe("real-1");
 
     // The claim's whole point: the anonymous plugin deletes the anon user
-    // immediately after this, and any surviving FK reference throws there.
+    // immediately after this, and any surviving FK reference makes that delete
+    // fail (better-auth 1.6 only logs it, so this assertion is the guard).
     await db.delete(schema.user).where(eq(schema.user.id, "anon-1"));
     expect(
       await db.query.user.findMany({ where: eq(schema.user.id, "anon-1") })
