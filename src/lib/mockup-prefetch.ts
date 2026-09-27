@@ -12,9 +12,10 @@ import {
 
 /**
  * Pre-fetch Printful mockups for every color of a product, best-effort.
- * Triggered via after() on accept so the user lands on /preview with the
- * color cache already warming. Printful mockup tasks are free; only wall
- * time costs.
+ * Scheduled via after() by `ensureMockupsPrefetched`
+ * (src/app/preview/actions.ts), which /preview calls on page load after
+ * checking that the viewer owns the design. Printful mockup tasks are free;
+ * only wall time costs.
  *
  * Issues a single multi-variant Printful task instead of one task per
  * color. One API round trip, one DB write at the end — no read-modify-

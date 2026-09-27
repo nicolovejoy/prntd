@@ -12,11 +12,13 @@ import { embeddedCheckoutPath } from "@/lib/embedded-checkout";
 import { resolveOrderVariant } from "@/lib/blanks";
 
 /**
- * Shared order-creation + Stripe-checkout step for both purchase flows
- * (design-your-own via `createCheckoutSession`, buy-existing via
- * `buyPublishedDesign`). Inserts the order row, creates the Stripe
- * session with `buildCheckoutSessionParams`, persists the session id,
- * and returns the redirect URL. Callers own auth, pricing, image-pinning
+ * Shared order-creation + Stripe-checkout step for the single-item purchase
+ * flows: design-your-own (`createCheckoutSession`, order/actions.ts),
+ * buy-existing (`buyPublishedDesign`, d/actions.ts) and organizer
+ * storefronts (`buyStoreProduct`, shop/actions.ts; retired, flag off). The
+ * cart builds its own session in `checkoutCart`. Inserts the order row,
+ * creates the Stripe session with `buildCheckoutSessionParams`, persists
+ * the session id, and returns the redirect URL. Callers own auth, pricing, image-pinning
  * and the cancel URL; this owns the parts that would otherwise drift.
  */
 export async function createStripeCheckoutForOrder(params: {
