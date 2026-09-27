@@ -12,6 +12,12 @@ import { FEEDBACK_PROJECT_ID } from "@/lib/feedback/project-id";
 
 type NavLink = { href: string; label: string };
 
+// Studio and My Designs are both in the proxy's ALWAYS_PROTECTED list — a
+// visitor with no session cookie at all is bounced straight to /sign-in
+// (src/proxy.ts), so prefetching either one for a signed-out visitor fetches
+// a page nobody will see. Shop is public and keeps Link's default prefetch.
+const NO_SESSION_PREFETCH_OFF = new Set(["/studio", "/designs"]);
+
 export function SiteHeader({
   cartEnabled: showCart,
 }: {
@@ -182,10 +188,18 @@ export function SiteHeader({
               with Cart just below. */}
           {primaryLinks.map((l) => {
             const current = isCurrentSection(pathname, l.href);
+            // undefined keeps Link's own default (viewport prefetch); false
+            // only while there is no session at all, matching the proxy's
+            // gate on these two routes (see NO_SESSION_PREFETCH_OFF above).
+            const prefetch =
+              !session && NO_SESSION_PREFETCH_OFF.has(l.href)
+                ? false
+                : undefined;
             return (
               <Link
                 key={l.href}
                 href={l.href}
+                prefetch={prefetch}
                 aria-current={current ? "page" : undefined}
                 className={`flex items-center min-h-11 sm:min-h-0 text-sm transition-colors ${
                   current
