@@ -32,6 +32,13 @@ import {
   nextPollDelayMs,
 } from "@/lib/generation-poll";
 import {
+  isServerActionError,
+  judgeLostSubmit,
+  LOST_SUBMIT_LOOKUP_INTERVAL_MS,
+  LOST_SUBMIT_WINDOW_MS,
+  type LostSubmitLookup,
+} from "@/lib/lost-submit";
+import {
   applyOptimistic,
   bulkDeleteConsequence,
   bulkDeleteSkipNotice,
@@ -43,7 +50,7 @@ import {
 } from "@/lib/studio-view";
 import type { OptimisticEntry } from "@/lib/studio-view";
 import type { StudioLane } from "@/lib/studio";
-import { deleteConversations, getStudioLanes } from "./actions";
+import { deleteConversations, getGenerationJobStatus, getStudioLanes } from "./actions";
 import { GuestKeepLine } from "./guest-keep-line";
 
 /**
@@ -79,6 +86,22 @@ import { GuestKeepLine } from "./guest-keep-line";
  * then retires the entries server truth can account for (settleOptimistic).
  * The cap counts only the entries the server cannot see yet, and Cancel waits
  * for the real jobId.
+ *
+ * A lost Generate response (#245): `generateDesign` can accept a request,
+ * write its job row, and start the render, while the response itself never
+ * reaches this tab (a transport failure — prod's `net::ERR_NETWORK_CHANGED`).
+ * The old catch treated every throw as a genuine refusal, which duplicated
+ * the design on retry. Each submit now mints its own job id up front
+ * (`clientJobId`, sent as `generateDesign`'s `jobId`) so a lost response can
+ * be told apart from a real failure: an error with a string `digest` is
+ * React's Flight client marking an actual server-side throw (#204, an
+ * anchored lane closed underneath the tap) and fails at once; anything else
+ * starts a reconcile loop that looks the exact id up
+ * (`getGenerationJobStatus`) until it lands, fails, is cancelled, or a 60s
+ * window (`LOST_SUBMIT_WINDOW_MS`, comfortably past the 45s brief bound
+ * behind it) runs out. See `src/lib/lost-submit.ts` for the pure rules this
+ * leans on, in particular why only a lookup CALLED after the deadline may
+ * report failure.
  *
  * The anchor lives OUTSIDE the lane state on purpose: a poll refresh replaces
  * `lanes` wholesale with server truth, and the anchor (plus the draft text)
@@ -168,6 +191,16 @@ export function StudioClient({
 
   const polling = useRef(false);
   const pollStartedAt = useRef<number | null>(null);
+  // Guards every lost-submit reconcile loop (#245): each loop checks this
+  // before touching state, so an unmount stops it without a stray setState
+  // and StrictMode's mount → unmount → remount still works.
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
   // The composer panel is the only place `notice` renders, and it now sits
   // at the top of the page — but the control that SETS a notice (Close,
   // Delete, bulk delete, a refused submit) can be lanes below the fold. On a
@@ -453,6 +486,70 @@ export function StudioClient({
     composerPanelRef.current?.scrollIntoView({ block: "nearest" });
   }
 
+  // The shared "this submit genuinely failed" path (#245): a digest throw
+  // (#204), an offline fast-fail, and a reconcile loop's own "failed"
+  // verdict all land here. Drops the cell, shows the notice, gives the words
+  // back only if the box is still empty (a later draft must never be
+  // clobbered), and reconciles once so a closed lane actually leaves.
+  function failSubmit(localId: string, trimmed: string) {
+    setOptimistic((entries) => entries.filter((e) => e.localId !== localId));
+    setNotice(GENERATE_FAILED_COPY);
+    setText((t) => t || trimmed);
+    void pollOnce();
+  }
+
+  // One lost submit's reconcile loop (#245 Design §Client 4): looks its own
+  // clientJobId up on LOST_SUBMIT_LOOKUP_INTERVAL_MS cadence, starting
+  // immediately, until judgeLostSubmit calls it. Independent of pollOnce and
+  // of every other lost submit's own loop — each looks up only its own id.
+  async function reconcileLostSubmit(
+    localId: string,
+    clientJobId: string,
+    deadlineMs: number,
+    trimmed: string
+  ) {
+    for (;;) {
+      if (!mountedRef.current) return;
+      const calledAtMs = Date.now();
+      let status: LostSubmitLookup;
+      try {
+        status = (await getGenerationJobStatus(clientJobId)).status;
+      } catch {
+        status = "error";
+      }
+      if (!mountedRef.current) return;
+      const verdict = judgeLostSubmit({ status, calledAtMs, deadlineMs });
+      if (verdict === "landed") {
+        // Exactly what a queued response does: the cell now has a real job
+        // behind it, and the next poll that lists it retires the overlay.
+        setOptimistic((entries) =>
+          entries.map((e) =>
+            e.localId === localId
+              ? { ...e, jobId: clientJobId, jobIdKnownAtMs: Date.now() }
+              : e
+          )
+        );
+        void pollOnce();
+        return;
+      }
+      if (verdict === "failed") {
+        failSubmit(localId, trimmed);
+        return;
+      }
+      if (verdict === "cancelled") {
+        // Deliberate: the only way to cancel is the user's own Cancel, and a
+        // cancelled queued job today just leaves — no notice, words not
+        // given back.
+        setOptimistic((entries) => entries.filter((e) => e.localId !== localId));
+        void pollOnce();
+        return;
+      }
+      await new Promise((resolve) =>
+        setTimeout(resolve, LOST_SUBMIT_LOOKUP_INTERVAL_MS)
+      );
+    }
+  }
+
   async function submit() {
     const trimmed = text.trim();
     // Only the cap blocks — an in-flight submit does not: firing the next
@@ -472,6 +569,16 @@ export function StudioClient({
     // lane below the composer panel — which is off-screen on a phone if the
     // user had scrolled down (see the `reveal` nudge-into-view below).
     const localId = crypto.randomUUID();
+    // Minted here, not by the server (#245): lets a lost response be
+    // reconciled by looking this exact id up, whatever `generateDesign`
+    // itself returns or throws.
+    const clientJobId = crypto.randomUUID();
+    // `navigator.onLine` is trusted only in its `false` direction — `true`
+    // proves nothing. Captured now so the catch can compare against the
+    // reading at failure time (Design §Client 3): only offline at both
+    // moments means the fetch was refused on the device.
+    const offlineAtSubmit =
+      typeof navigator !== "undefined" && navigator.onLine === false;
     if (!submitAnchor) setRevealDesignId(targetDesignId);
     setOptimistic((entries) => [
       ...entries,
@@ -481,15 +588,15 @@ export function StudioClient({
         anchorImageId: submitAnchor?.imageId ?? null,
         startedAt: new Date(),
         jobId: null,
+        clientJobId,
         prompt: trimmed,
       },
     ]);
     try {
-      const result = await generateDesign(
-        targetDesignId,
-        trimmed,
-        submitAnchor ? { anchorImageId: submitAnchor.imageId } : {}
-      );
+      const result = await generateDesign(targetDesignId, trimmed, {
+        ...(submitAnchor ? { anchorImageId: submitAnchor.imageId } : {}),
+        jobId: clientJobId,
+      });
       if (result.kind === "queued") {
         // Now the cell has a real job behind it: Cancel appears, and the next
         // poll that lists the job retires the overlay entry.
@@ -511,17 +618,33 @@ export function StudioClient({
         // Give the words back if the box is still empty — the turn didn't run.
         setText((t) => t || trimmed);
       }
-    } catch {
-      setOptimistic((entries) => entries.filter((e) => e.localId !== localId));
-      setNotice(GENERATE_FAILED_COPY);
-      setText((t) => t || trimmed);
-      // A thrown assertConversationOpen is the shape this takes (#204): the
-      // lane closed — e.g. the after() idle-archive sweep — between this
-      // tab's last read and the tap. Reconcile now so the closed lane
-      // actually leaves (and, via the anchor effect above, clears an anchor
-      // that pointed into it) instead of sitting there as a dead end until
-      // something else pokes the surface.
-      void pollOnce();
+    } catch (err) {
+      // A digest means React's Flight client rebuilt this from an actual
+      // server-side throw (#204: e.g. an anchored lane closed underneath the
+      // tap) — that submit never queued, so there is nothing to reconcile.
+      if (isServerActionError(err)) {
+        failSubmit(localId, trimmed);
+        return;
+      }
+      // The fetch was refused on the device at both ends of the call: no
+      // request reached the server, so there is no job row to find.
+      if (
+        offlineAtSubmit &&
+        typeof navigator !== "undefined" &&
+        navigator.onLine === false
+      ) {
+        failSubmit(localId, trimmed);
+        return;
+      }
+      // Otherwise the response is lost, not necessarily the request: keep
+      // the cell exactly where it is (no notice, no words back) and find out
+      // what actually happened.
+      void reconcileLostSubmit(
+        localId,
+        clientJobId,
+        Date.now() + LOST_SUBMIT_WINDOW_MS,
+        trimmed
+      );
     }
   }
 

@@ -26,6 +26,7 @@ vi.mock("../actions", () => ({
     deleted: ids,
     skipped: [],
   })),
+  getGenerationJobStatus: vi.fn(async () => ({ status: "none" })),
 }));
 vi.mock("@/app/design/actions", () => ({
   generateDesign: vi.fn(async () => ({
@@ -41,7 +42,11 @@ vi.mock("@/app/designs/actions", () => ({
   deleteDesign: vi.fn(async () => ({})),
 }));
 
-import { deleteConversations, getStudioLanes } from "../actions";
+import {
+  deleteConversations,
+  getGenerationJobStatus,
+  getStudioLanes,
+} from "../actions";
 import {
   generateDesign,
   closeConversation,
@@ -335,6 +340,7 @@ describe("the composer", () => {
     await waitFor(() =>
       expect(generateDesign).toHaveBeenCalledWith("design-1", "make it blue", {
         anchorImageId: "img-1",
+        jobId: expect.any(String),
       })
     );
     // The anchor stays where the user put it — it never advances to a result.
@@ -353,7 +359,7 @@ describe("the composer", () => {
     const [designId, message, opts] = vi.mocked(generateDesign).mock.calls[0];
     expect(designId).not.toBe("design-1"); // a freshly minted id
     expect(message).toBe("a red dragon");
-    expect(opts).toEqual({});
+    expect(opts).toEqual({ jobId: expect.any(String) });
   });
 
   it("shows the server's message when the turn is refused", async () => {
@@ -965,7 +971,12 @@ describe("the optimistic pending cell (#187)", () => {
   });
 
   it("removes the cell when the action throws", async () => {
-    vi.mocked(generateDesign).mockRejectedValueOnce(new Error("boom"));
+    // A digest is what marks this as a genuine server-side throw (#245) —
+    // without one it would now be treated as a lost response and wait out
+    // the reconcile window instead of failing immediately.
+    vi.mocked(generateDesign).mockRejectedValueOnce(
+      Object.assign(new Error("boom"), { digest: "test-digest" })
+    );
     render(<StudioClient initialLanes={[lane()]} />);
 
     submitText("a red dragon");
@@ -1514,5 +1525,482 @@ describe("StudioClient — guest line (#241)", () => {
   it("never shows it to a real account", () => {
     render(<StudioClient initialLanes={[lane()]} />);
     expect(screen.queryByTestId("guest-keep-line")).toBeNull();
+  });
+});
+
+/**
+ * #245 rebuild: a generateDesign response can be lost after the server
+ * already accepted the request (a transport failure, not a thrown digest
+ * error) — the job row may exist even though the client never heard back.
+ * The client mints its own job id up front and sends it as generateDesign's
+ * `jobId`; if the response is lost, a reconcile loop looks that exact id up
+ * (getGenerationJobStatus) until it lands, fails, is cancelled, or the
+ * window runs out. See docs/superpowers/plans/2026-09-26-245-lost-generate-
+ * response.md, Design §Client, and the ledger's rebuild rulings.
+ */
+describe("lost Generate response reconcile (#245)", () => {
+  function submitText(value: string) {
+    fireEvent.change(screen.getByTestId("studio-composer"), {
+      target: { value },
+    });
+    fireEvent.submit(screen.getByTestId("studio-composer").closest("form")!);
+  }
+
+  /** Stubs crypto.randomUUID to hand out `ids` in call order. */
+  function mockUuidSequence(ids: string[]) {
+    let i = 0;
+    return vi.spyOn(crypto, "randomUUID").mockImplementation(() => {
+      const id = ids[i] ?? `extra-uuid-${i}`;
+      i += 1;
+      return id as `${string}-${string}-${string}-${string}-${string}`;
+    });
+  }
+
+  function lostResponse() {
+    return Promise.reject(new TypeError("Failed to fetch")) as never;
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("test 1: landed after loss — no notice, composer empty, one cell throughout, looked up by the sent id", async () => {
+    vi.useFakeTimers();
+    try {
+      mockUuidSequence(["local-1", "job-1"]);
+      vi.mocked(generateDesign).mockImplementationOnce(lostResponse);
+      vi.mocked(getGenerationJobStatus).mockResolvedValueOnce({
+        status: "running",
+      });
+      h.polledLanes = [
+        lane({ cells: [cell("img-1")], pending: [pendingJob("job-1", 0)] }),
+      ];
+
+      render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+      anchorCell(0);
+      submitText("make it blue");
+
+      expect(screen.getAllByTestId("studio-pending-cell")).toHaveLength(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      expect(getGenerationJobStatus).toHaveBeenCalledWith("job-1");
+      expect(screen.getAllByTestId("studio-pending-cell")).toHaveLength(1);
+      expect(screen.queryByText(/Something went wrong/)).toBeNull();
+      expect(
+        (screen.getByTestId("studio-composer") as HTMLInputElement).value
+      ).toBe("");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("test 2: a poll lists the job under the client id before the lookup answers — still one cell", async () => {
+    vi.useFakeTimers();
+    try {
+      mockUuidSequence(["local-2", "job-2"]);
+      vi.mocked(generateDesign).mockImplementationOnce(lostResponse);
+      let resolveStatus!: (v: { status: string }) => void;
+      vi.mocked(getGenerationJobStatus).mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveStatus = resolve as never;
+        }) as never
+      );
+
+      render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+      anchorCell(0);
+      submitText("make it blue");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(getGenerationJobStatus).toHaveBeenCalledWith("job-2");
+
+      // A periodic poll lists the job under the client id while the lookup
+      // is still outstanding.
+      h.polledLanes = [
+        lane({ cells: [cell("img-1")], pending: [pendingJob("job-2", 0)] }),
+      ];
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+
+      expect(screen.getAllByTestId("studio-pending-cell")).toHaveLength(1);
+
+      resolveStatus({ status: "running" });
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(screen.getAllByTestId("studio-pending-cell")).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("test 3: failed after loss — notice, words back, cell gone", async () => {
+    vi.useFakeTimers();
+    try {
+      mockUuidSequence(["local-3", "job-3"]);
+      vi.mocked(generateDesign).mockImplementationOnce(lostResponse);
+      vi.mocked(getGenerationJobStatus).mockResolvedValueOnce({
+        status: "failed",
+      });
+
+      render(<StudioClient initialLanes={[lane()]} />);
+      submitText("a red dragon");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      expect(screen.queryByTestId("studio-pending-cell")).toBeNull();
+      expect(screen.getByText(/Something went wrong/)).toBeTruthy();
+      expect(
+        (screen.getByTestId("studio-composer") as HTMLInputElement).value
+      ).toBe("a red dragon");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("test 4: none until the deadline — cell stays and no notice before, then fails", async () => {
+    vi.useFakeTimers();
+    try {
+      mockUuidSequence(["local-4", "job-4"]);
+      vi.mocked(generateDesign).mockImplementationOnce(lostResponse);
+      vi.mocked(getGenerationJobStatus).mockResolvedValue({ status: "none" });
+
+      render(<StudioClient initialLanes={[lane()]} />);
+      submitText("a red dragon");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(screen.getByTestId("studio-pending-cell")).toBeTruthy();
+
+      // Well before the 60s deadline.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+      });
+      expect(screen.getByTestId("studio-pending-cell")).toBeTruthy();
+      expect(screen.queryByText(/Something went wrong/)).toBeNull();
+
+      // Past the deadline.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(40_000);
+      });
+      expect(screen.queryByTestId("studio-pending-cell")).toBeNull();
+      expect(screen.getByText(/Something went wrong/)).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("test 5: a lookup called before the deadline can't fail the submit, however late it resolves", async () => {
+    vi.useFakeTimers();
+    try {
+      mockUuidSequence(["local-5", "job-5"]);
+      vi.mocked(generateDesign).mockImplementationOnce(lostResponse);
+      const resolvers: ((v: { status: string }) => void)[] = [];
+      vi.mocked(getGenerationJobStatus).mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            resolvers.push(resolve as never);
+          }) as never
+      );
+
+      render(<StudioClient initialLanes={[lane()]} />);
+      submitText("a red dragon");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(resolvers).toHaveLength(1);
+
+      // Past the deadline; the lookup called well before it is still
+      // outstanding — the loop cannot have scheduled a second one yet.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(65_000);
+      });
+      expect(resolvers).toHaveLength(1);
+      expect(screen.getByTestId("studio-pending-cell")).toBeTruthy();
+
+      resolvers[0]({ status: "none" });
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(screen.getByTestId("studio-pending-cell")).toBeTruthy();
+      expect(screen.queryByText(/Something went wrong/)).toBeNull();
+
+      // The next lookup, called after the deadline, decides.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3_000);
+      });
+      expect(resolvers).toHaveLength(2);
+      resolvers[1]({ status: "none" });
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(screen.queryByTestId("studio-pending-cell")).toBeNull();
+      expect(screen.getByText(/Something went wrong/)).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("test 6: a digest throw fails at once and never calls the lookup", async () => {
+    mockUuidSequence(["local-6", "job-6"]);
+    vi.mocked(generateDesign).mockRejectedValueOnce(
+      Object.assign(new Error("x"), { digest: "123" })
+    );
+
+    render(<StudioClient initialLanes={[lane()]} />);
+    submitText("a red dragon");
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("studio-pending-cell")).toBeNull()
+    );
+    expect(screen.getByText(/Something went wrong/)).toBeTruthy();
+    expect(getGenerationJobStatus).not.toHaveBeenCalled();
+  });
+
+  it("test 7 (#204): a digest throw on an anchored closed lane reconciles via one poll, no lookup", async () => {
+    mockUuidSequence(["local-7", "job-7"]);
+    vi.mocked(generateDesign).mockRejectedValueOnce(
+      Object.assign(new Error("closed"), { digest: "abc" })
+    );
+    h.polledLanes = []; // the lane closed server-side
+
+    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+    anchorCell(0);
+    submitText("make it blue");
+
+    await waitFor(() => expect(getStudioLanes).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByTestId("studio-lane")).toBeNull());
+    expect(screen.queryByTestId("anchor-chip")).toBeNull();
+    expect(screen.getByText(/Something went wrong/)).toBeTruthy();
+    expect(
+      (screen.getByTestId("studio-composer") as HTMLInputElement).value
+    ).toBe("make it blue");
+    expect(getGenerationJobStatus).not.toHaveBeenCalled();
+  });
+
+  it("test 8: two lost submits in one lane reconcile independently by their own id", async () => {
+    vi.useFakeTimers();
+    try {
+      mockUuidSequence(["local-a", "job-a", "local-b", "job-b"]);
+      vi.mocked(generateDesign)
+        .mockImplementationOnce(lostResponse)
+        .mockImplementationOnce(lostResponse);
+      vi.mocked(getGenerationJobStatus).mockImplementation(
+        async (jobId: string) =>
+          jobId === "job-a" ? { status: "running" } : { status: "none" }
+      );
+      // Present from the start so the "job-a landed" pollOnce doesn't wipe
+      // the lane out from under the still-outstanding "job-b" overlay.
+      h.polledLanes = [
+        lane({ cells: [cell("img-1")], pending: [pendingJob("job-a", 0)] }),
+      ];
+
+      render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+      anchorCell(0);
+      submitText("first");
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      anchorCell(0);
+      submitText("second");
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      expect(getGenerationJobStatus).toHaveBeenCalledWith("job-a");
+      expect(getGenerationJobStatus).toHaveBeenCalledWith("job-b");
+      // job-a landed (now the server's own pending cell); job-b is still
+      // waiting on its own deadline.
+      expect(screen.getAllByTestId("studio-pending-cell")).toHaveLength(2);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(65_000);
+      });
+      // job-b fails at its own deadline; job-a's cell remains.
+      expect(screen.getByText(/Something went wrong/)).toBeTruthy();
+      expect(screen.getAllByTestId("studio-pending-cell")).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("test 9: another tab's job in the same lane isn't mistaken for this submit's", async () => {
+    vi.useFakeTimers();
+    try {
+      mockUuidSequence(["local-9", "job-9"]);
+      vi.mocked(generateDesign).mockImplementationOnce(lostResponse);
+      vi.mocked(getGenerationJobStatus).mockResolvedValue({ status: "none" });
+      h.polledLanes = [
+        lane({
+          cells: [cell("img-1")],
+          pending: [pendingJob("other-tab-job", 0)],
+        }),
+      ];
+
+      render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+      anchorCell(0);
+      submitText("make it blue");
+
+      // A periodic poll picks up the other tab's job.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      // The other tab's real cell, plus this submit's own overlay (still
+      // unresolved) — never merged into one.
+      expect(screen.getAllByTestId("studio-pending-cell")).toHaveLength(2);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(65_000);
+      });
+      expect(screen.getByText(/Something went wrong/)).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("test 10: offline at submit and at the catch fails fast, no lookup", async () => {
+    mockUuidSequence(["local-10", "job-10"]);
+    const onLineSpy = vi
+      .spyOn(navigator, "onLine", "get")
+      .mockReturnValue(false);
+    vi.mocked(generateDesign).mockRejectedValueOnce(
+      new TypeError("Failed to fetch")
+    );
+
+    render(<StudioClient initialLanes={[lane()]} />);
+    submitText("a red dragon");
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("studio-pending-cell")).toBeNull()
+    );
+    expect(screen.getByText(/Something went wrong/)).toBeTruthy();
+    expect(getGenerationJobStatus).not.toHaveBeenCalled();
+    onLineSpy.mockRestore();
+  });
+
+  it("test 11: a cancelled reconcile drops the cell silently — no notice, no words back", async () => {
+    vi.useFakeTimers();
+    try {
+      mockUuidSequence(["local-11", "job-11"]);
+      vi.mocked(generateDesign).mockImplementationOnce(lostResponse);
+      vi.mocked(getGenerationJobStatus).mockResolvedValueOnce({
+        status: "cancelled",
+      });
+
+      render(<StudioClient initialLanes={[lane()]} />);
+      submitText("a red dragon");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      expect(screen.queryByTestId("studio-pending-cell")).toBeNull();
+      expect(screen.queryByText(/Something went wrong/)).toBeNull();
+      expect(
+        (screen.getByTestId("studio-composer") as HTMLInputElement).value
+      ).toBe("");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("test 12: every lookup throwing behaves like none — waits, then fails at the deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      mockUuidSequence(["local-12", "job-12"]);
+      vi.mocked(generateDesign).mockImplementationOnce(lostResponse);
+      vi.mocked(getGenerationJobStatus).mockRejectedValue(
+        new Error("network")
+      );
+
+      render(<StudioClient initialLanes={[lane()]} />);
+      submitText("a red dragon");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+      });
+      expect(screen.getByTestId("studio-pending-cell")).toBeTruthy();
+      expect(screen.queryByText(/Something went wrong/)).toBeNull();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(40_000);
+      });
+      expect(screen.queryByTestId("studio-pending-cell")).toBeNull();
+      expect(screen.getByText(/Something went wrong/)).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("test 13: unmounting during the window stops further lookups", async () => {
+    vi.useFakeTimers();
+    try {
+      mockUuidSequence(["local-13", "job-13"]);
+      vi.mocked(generateDesign).mockImplementationOnce(lostResponse);
+      vi.mocked(getGenerationJobStatus).mockResolvedValue({ status: "none" });
+
+      const { unmount } = render(<StudioClient initialLanes={[lane()]} />);
+      submitText("a red dragon");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      const callsBeforeUnmount = vi.mocked(getGenerationJobStatus).mock.calls
+        .length;
+      expect(callsBeforeUnmount).toBeGreaterThan(0);
+
+      unmount();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(65_000);
+      });
+      expect(vi.mocked(getGenerationJobStatus).mock.calls.length).toBe(
+        callsBeforeUnmount
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("test 14: words typed during the window survive a failure", async () => {
+    vi.useFakeTimers();
+    try {
+      mockUuidSequence(["local-14", "job-14"]);
+      vi.mocked(generateDesign).mockImplementationOnce(lostResponse);
+      vi.mocked(getGenerationJobStatus).mockResolvedValueOnce({
+        status: "failed",
+      });
+
+      render(<StudioClient initialLanes={[lane()]} />);
+      submitText("a red dragon");
+
+      expect(
+        (screen.getByTestId("studio-composer") as HTMLInputElement).value
+      ).toBe("");
+      fireEvent.change(screen.getByTestId("studio-composer"), {
+        target: { value: "something new" },
+      });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      expect(screen.getByText(/Something went wrong/)).toBeTruthy();
+      expect(
+        (screen.getByTestId("studio-composer") as HTMLInputElement).value
+      ).toBe("something new");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -286,3 +286,22 @@ test files to `origin/main`. Plan rewritten in place (same file).
 - Controller edit: `judgeLostSubmit`'s docblock said "dispatched"; the rule
   uses the time the Server Function was CALLED (dispatch is at or after it),
   reworded.
+
+## Rebuild Task 3 — client wiring and client tests
+
+- Implementer (sonnet): `clientJobId` minted per submit and sent as `jobId`;
+  `failSubmit` shared by the digest path, the offline fast-fail and a
+  `failed` verdict; `reconcileLostSubmit` (one loop per lost submit, first
+  lookup at once, 3 s cadence, stops on unmount via a mounted ref); header
+  docblock rewritten. 14 new client tests. Two existing assertions gained
+  `jobId: expect.any(String)`; the existing "removes the cell when the action
+  throws" test now rejects with a digest (a bare Error is a lost response under
+  the new rule). Accepted.
+- Task review (sonnet): APPROVED, no findings.
+- Controller check against main's component (new tests run with main's
+  `studio-client.tsx` swapped in): 11 fail as intended (1, 2, 4, 5, 8, 9, 11,
+  12, 13 plus the two argument assertions). Tests 3 and 14 pass on main
+  because main also fails at once; 6, 7 and 10 are guards of the unchanged
+  fast-fail paths. Carried to the fix round: 3 and 14 must prove the reconcile
+  happened (lookup for the sent id, no notice before it answered); 6, 7 and 10
+  assert the submit carried a UUID `jobId`.
