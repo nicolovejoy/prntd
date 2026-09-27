@@ -198,7 +198,7 @@ export function SiteHeader({
                     <span
                       aria-hidden
                       data-testid="running-jobs-dot"
-                      className="sm:hidden absolute -top-1 -right-1.5 w-1.5 h-1.5 rounded-full bg-foreground"
+                      className="sm:hidden absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full bg-foreground"
                     />
                     <span className="sr-only sm:hidden">
                       , {runningJobs === 1 ? "1 generating" : `${runningJobs} generating`}
