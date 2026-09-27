@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { getRecentAppErrors } from "../actions";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
+import { formatDisplayDateTime } from "@/lib/display-time-zone";
 
 export const dynamic = "force-dynamic";
 
@@ -51,10 +52,7 @@ export default async function AdminErrorsPage() {
               {errors.map((e) => (
                 <tr key={e.id} className="align-top hover:bg-surface-raised">
                   <td className="py-3 pr-4 font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted whitespace-nowrap">
-                    {new Date(e.createdAt).toLocaleString(undefined, {
-                      dateStyle: "short",
-                      timeStyle: "medium",
-                    })}
+                    {formatDisplayDateTime(e.createdAt, { seconds: true })}
                   </td>
                   <td className="py-3 pr-4 font-mono text-xs">{e.digest ?? "—"}</td>
                   <td className="py-3 pr-4 text-xs">
