@@ -496,6 +496,70 @@ describe("generateDesign({ jobId }) — client-minted job id (#245)", () => {
     }
   );
 
+  it.each(["failed", "cancelled"] as const)(
+    "an insert racing its own original whose winner already settled to %s is refused, not replayed as queued (fix round item 2)",
+    async (status) => {
+      await seedUser();
+      const designId = crypto.randomUUID();
+      const jobId = crypto.randomUUID();
+
+      // The mocked brief call inserts the "rival's" row UNDER THIS SAME
+      // client id — same shape as the "insert racing its own original"
+      // tests above — except this rival has already settled to failed or
+      // cancelled by the time this call's own insertGenerationJob hits the
+      // primary-key violation. The pre-quota replay check (a few lines
+      // above generateDesign's quota spend) ran moments earlier and found
+      // nothing, so this call proceeds all the way to its own insert before
+      // discovering the row.
+      briefMock.mockImplementationOnce(async () => {
+        await testDb.insert(schema.imageGeneration).values({
+          id: jobId,
+          designId,
+          userId: "u1",
+          status,
+          operation: "generate",
+          imageId: crypto.randomUUID(),
+          r2Key: "images/rival-settled.png",
+          generationNumber: 1,
+          dayKey: dayKeyUTC(new Date()),
+          cost: 0.03,
+          startedAt: new Date(),
+          finishedAt: new Date(),
+        });
+        await testDb
+          .update(schema.generationUsage)
+          .set({ count: sql`${schema.generationUsage.count} + 1` })
+          .where(
+            and(
+              eq(schema.generationUsage.bucket, "user:u1"),
+              eq(schema.generationUsage.day, dayKeyUTC(new Date()))
+            )
+          );
+        return GENERATE_BRIEF;
+      });
+
+      // Reporting "queued" here (the pre-fix behaviour) would tell the
+      // client the generation is still working, or already delivered, when
+      // it demonstrably is neither — the same defect the pre-quota replay
+      // check (#245 rebuild review, item 3) already guards against, through
+      // this other door.
+      await expect(
+        generateDesign(designId, "a red dragon", { jobId })
+      ).rejects.toThrow("Invalid job id");
+
+      const rows = await jobsById(jobId);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].status).toBe(status);
+      // Net quota consumed = 1, the rival's own unit spent inline above:
+      // this call's own spend was refunded exactly once by the OUTER catch
+      // (prepareGeneration throws instead of refunding inline here, the same
+      // way the foreign-row "conflict" branch already does — refunding
+      // inline too would double-credit).
+      expect(await quotaCount()).toBe(1);
+      expect(afterQueue.callbacks).toHaveLength(0);
+    }
+  );
+
   it("a FOREIGN row appearing at insert time throws and refunds exactly once", async () => {
     await seedUser("u1");
     await seedUser("owner2");

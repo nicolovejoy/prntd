@@ -218,7 +218,7 @@ function queuedResultForReplay(
   job: Awaited<ReturnType<typeof findJobById>>,
   userId: string,
   designId: string
-): GenerateResult | null {
+): Extract<GenerateResult, { kind: "queued" }> | null {
   if (!job) return null;
   if (job.userId !== userId || job.designId !== designId) return null;
   if (job.status !== "running" && job.status !== "succeeded") return null;
@@ -664,18 +664,37 @@ async function prepareGeneration({
   });
   if (!inserted.ok) {
     if (inserted.reason === "duplicate") {
-      // A concurrent replay of this SAME client job id already won the insert
-      // (only reachable when jobId was supplied): refund this call's unit
-      // inline, like at_capacity, and hand back the winning row's result —
-      // no second assistant turn, no continuation.
+      // A concurrent replay of this SAME client job id already won the
+      // insert (only reachable when jobId was supplied): resolve through
+      // queuedResultForReplay, the same helper the pre-quota check above
+      // uses, rather than trusting the row's mere existence (fix round item
+      // 2 — the same defect as the pre-quota check's own "don't replay a
+      // failed/cancelled row as queued" fix, through this other door: the
+      // winning row can settle to failed/cancelled during THIS call's own
+      // brief call, moments after the earlier pre-quota check found nothing
+      // yet).
+      const replayed = queuedResultForReplay(inserted.job, userId, designId);
+      if (!replayed) {
+        // The winner already failed or was cancelled — reporting "queued"
+        // would tell the client the generation is still working, or already
+        // delivered, when it demonstrably is neither. Same "invalid job id"
+        // outcome as a malformed or foreign id: thrown, NOT refunded here,
+        // so the caller's outer catch refunds this call's unit exactly once
+        // (refunding here too would double-credit — the running/succeeded
+        // branch below returns normally instead of throwing, which is why
+        // ITS refund has to happen inline).
+        throw new Error("Invalid job id");
+      }
+      // Refund this call's unit inline, like at_capacity, and hand back the
+      // winning row's result — no second assistant turn, no continuation.
       await refundGenerationQuota({ userId, ip, day: dayKey }).catch((e) =>
         console.error("refundGenerationQuota failed:", e)
       );
       return {
         kind: "already_queued",
-        jobId: inserted.job.id,
-        generationNumber: inserted.job.generationNumber,
-        imageId: inserted.job.imageId,
+        jobId: replayed.jobId,
+        generationNumber: replayed.generationNumber,
+        imageId: replayed.imageId,
       };
     }
     if (inserted.reason === "conflict") {
