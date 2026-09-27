@@ -630,11 +630,16 @@ async function prepareGeneration({
   // Computed BEFORE the insert on purpose. Everything the caller's
   // direct-refund catch covers must happen while no job row exists; a throw in
   // here after a successful insert would refund inline AND leave a `running`
-  // row for the sweeper to refund again. The insert is the last thing in this
-  // function that can throw — except insertGenerationJob's read-back after a
-  // successful insert, which can also throw with the row already committed
-  // (double refund, held cap slot until the sweep; pre-existing, out of scope
-  // for #245, see plan).
+  // row for the sweeper to refund again. insertGenerationJob itself can throw
+  // from two different reads, and only one of them is safe to lump in with
+  // everything above: `resolveConflict`'s read-back (on a unique-key violation
+  // or a zero-row insert) runs BEFORE any row of THIS call's own exists — a
+  // duplicate/conflict/at_capacity outcome, or a throw from that read itself,
+  // is covered by the caller's direct-refund catch exactly like the rest of
+  // this span. The one true exception is the read-back AFTER a SUCCESSFUL
+  // insert (inside insertGenerationJob, once the row is committed), which can
+  // also throw — but now with the row already there (double refund, held cap
+  // slot until the sweep; pre-existing, out of scope for #245, see plan).
   // Keyed off the resolved operation, not the brief's: a clarify brief and an
   // anchorless edit both come out the far side as generates, and the stored
   // prompt has to describe what was actually rendered.
