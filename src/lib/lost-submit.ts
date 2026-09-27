@@ -57,14 +57,35 @@ export function judgeLostSubmit(params: {
   status: LostSubmitLookup;
   calledAtMs: number;
   deadlineMs: number;
+  /**
+   * A second, later backstop for a lookup that keeps ERRORING past
+   * `deadlineMs` (independent review of the rebuild, item 1). An error proves
+   * nothing about the job — the lookup itself may never have reached the
+   * server, unlike a real "none" answer, which is server truth that no such
+   * row exists. Treating the first post-deadline ERROR as proof of failure
+   * loses a result that actually landed whenever the phone's network happens
+   * to be down at exactly that moment (the prod scenario this fix is for: two
+   * minutes backgrounded, the render finishes, the tab returns to
+   * momentarily no network) — the render finishes regardless, the words come
+   * back next to the finished image, and a re-tap duplicates it. So an
+   * "error" keeps waiting past `deadlineMs` and only fails at this later
+   * backstop. It is set to `Date.now()` at submit plus `STALE_OPTIMISTIC_MS`
+   * (src/lib/generation-poll.ts): past that point `settleOptimistic` would
+   * drop the overlay entry on its own age-out rule regardless of this
+   * verdict, so the reconcile loop must stop actively here rather than poll
+   * forever into the void chasing an entry nothing will show any more.
+   */
+  hardDeadlineMs: number;
 }): "landed" | "failed" | "cancelled" | "wait" {
-  const { status, calledAtMs, deadlineMs } = params;
+  const { status, calledAtMs, deadlineMs, hardDeadlineMs } = params;
   if (status === "running" || status === "succeeded") return "landed";
   if (status === "failed") return "failed";
   if (status === "cancelled") return "cancelled";
-  // "none" or "error": treated the same, since a lookup that threw says
-  // nothing more than one that found no row.
-  return calledAtMs >= deadlineMs ? "failed" : "wait";
+  // "none" is server truth (no such row) and is judged against the ordinary
+  // deadline, same as before.
+  if (status === "none") return calledAtMs >= deadlineMs ? "failed" : "wait";
+  // "error": the lookup itself failed to answer — see hardDeadlineMs above.
+  return calledAtMs >= hardDeadlineMs ? "failed" : "wait";
 }
 
 /**

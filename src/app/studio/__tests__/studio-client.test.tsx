@@ -1948,7 +1948,7 @@ describe("lost Generate response reconcile (#245)", () => {
     }
   });
 
-  it("test 12: every lookup throwing behaves like none — waits, then fails at the deadline", async () => {
+  it("test 12: every lookup throwing waits well past the ordinary deadline, then fails only at the hard backstop (independent review, item 1)", async () => {
     vi.useFakeTimers();
     try {
       mockUuidSequence(["design-12", "local-12", "job-12"]);
@@ -1960,17 +1960,69 @@ describe("lost Generate response reconcile (#245)", () => {
       render(<StudioClient initialLanes={[lane()]} />);
       submitText("a red dragon");
 
+      // Well past the ordinary 60s deadline: an ERRORING lookup is not proof
+      // the job is gone (the device may simply have no network right now),
+      // unlike a real "none" answer, so it must not fail here the way test 4
+      // does for "none".
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(30_000);
+        await vi.advanceTimersByTimeAsync(90_000);
       });
       expect(screen.getByTestId("studio-pending-cell")).toBeTruthy();
       expect(screen.queryByText(/Something went wrong/)).toBeNull();
 
+      // Only the hard backstop — STALE_OPTIMISTIC_MS (6 minutes) since the
+      // submit — gives up on a lookup that never once answers.
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(40_000);
+        await vi.advanceTimersByTimeAsync(5 * 60_000);
       });
       expect(screen.queryByTestId("studio-pending-cell")).toBeNull();
       expect(screen.getByText(/Something went wrong/)).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("test 12b: lookups keep erroring past the deadline, then one succeeds — no notice, composer empty, one cell (independent review, item 1)", async () => {
+    vi.useFakeTimers();
+    try {
+      mockUuidSequence(["design-12b", "local-12b", "job-12b"]);
+      vi.mocked(generateDesign).mockImplementationOnce(lostResponse);
+      // Persistent default: every lookup errors until told otherwise below.
+      vi.mocked(getGenerationJobStatus).mockRejectedValue(
+        new Error("network")
+      );
+
+      render(<StudioClient initialLanes={[lane()]} />);
+      submitText("a red dragon");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(getGenerationJobStatus).toHaveBeenCalledTimes(1);
+
+      // Scenario from the prod report: a phone loses the response, sits with
+      // no network for a couple of minutes (well past the 60s deadline) while
+      // the render actually finishes, then regains signal. Every lookup in
+      // that window errors — none of them may report failure.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(70_000);
+      });
+      expect(screen.getByTestId("studio-pending-cell")).toBeTruthy();
+      expect(screen.queryByText(/Something went wrong/)).toBeNull();
+
+      // The phone regains signal: the very next lookup answers for real.
+      vi.mocked(getGenerationJobStatus).mockResolvedValueOnce({
+        status: "succeeded",
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3_000);
+      });
+
+      expect(screen.getAllByTestId("studio-pending-cell")).toHaveLength(1);
+      expect(screen.queryByText(/Something went wrong/)).toBeNull();
+      expect(
+        (screen.getByTestId("studio-composer") as HTMLInputElement).value
+      ).toBe("");
     } finally {
       vi.useRealTimers();
     }
@@ -2049,7 +2101,7 @@ describe("lost Generate response reconcile (#245)", () => {
     }
   });
 
-  it("test 15: a poll lists the job under the client id past the deadline while lookups keep throwing — no notice, words not given back", async () => {
+  it("test 15: a poll lists the job under the client id past BOTH backstops while lookups keep throwing — no notice, words not given back", async () => {
     vi.useFakeTimers();
     try {
       mockUuidSequence(["design-15", "local-15", "job-15"]);
@@ -2074,8 +2126,18 @@ describe("lost Generate response reconcile (#245)", () => {
         await vi.advanceTimersByTimeAsync(2000);
       });
 
+      // Past the ordinary 60s deadline...
       await act(async () => {
         await vi.advanceTimersByTimeAsync(65_000);
+      });
+      expect(screen.getByTestId("studio-pending-cell")).toBeTruthy();
+
+      // ...and past the hard backstop too (STALE_OPTIMISTIC_MS, 6 minutes
+      // since the submit): the lane safety net recognises the pending job id
+      // and must save this from failing even at the point where an ERRORING
+      // lookup would otherwise finally give up.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5 * 60_000);
       });
 
       expect(screen.getByTestId("studio-pending-cell")).toBeTruthy();

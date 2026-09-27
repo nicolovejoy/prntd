@@ -30,6 +30,7 @@ import {
   isAtGenerationCap,
   isPollHalted,
   nextPollDelayMs,
+  STALE_OPTIMISTIC_MS,
 } from "@/lib/generation-poll";
 import {
   isServerActionError,
@@ -101,7 +102,10 @@ import { GuestKeepLine } from "./guest-keep-line";
  * window (`LOST_SUBMIT_WINDOW_MS`, comfortably past the 45s brief bound
  * behind it) runs out. See `src/lib/lost-submit.ts` for the pure rules this
  * leans on, in particular why only a lookup CALLED after the deadline may
- * report failure.
+ * report failure — and, distinctly, why a lookup that ERRORS past the
+ * deadline (the phone briefly has no network, not the server saying "no such
+ * row") must not: it waits instead for a second, later backstop
+ * (`STALE_OPTIMISTIC_MS` after the submit) before giving up.
  *
  * The anchor lives OUTSIDE the lane state on purpose: a poll refresh replaces
  * `lanes` wholesale with server truth, and the anchor (plus the draft text)
@@ -508,10 +512,17 @@ export function StudioClient({
   // clientJobId up on LOST_SUBMIT_LOOKUP_INTERVAL_MS cadence, starting
   // immediately, until judgeLostSubmit calls it. Independent of pollOnce and
   // of every other lost submit's own loop — each looks up only its own id.
+  //
+  // `hardDeadlineMs` (independent review, item 1) is the backstop for a
+  // lookup that keeps ERRORING past `deadlineMs` — never trusted as proof of
+  // absence the way a real "none" answer is, so it can only fail this submit
+  // once STALE_OPTIMISTIC_MS has passed since the submit itself (see
+  // judgeLostSubmit's docs).
   async function reconcileLostSubmit(
     localId: string,
     clientJobId: string,
     deadlineMs: number,
+    hardDeadlineMs: number,
     trimmed: string
   ) {
     for (;;) {
@@ -524,7 +535,7 @@ export function StudioClient({
         status = "error";
       }
       if (!mountedRef.current) return;
-      const verdict = judgeLostSubmit({ status, calledAtMs, deadlineMs });
+      const verdict = judgeLostSubmit({ status, calledAtMs, deadlineMs, hardDeadlineMs });
       if (verdict === "landed") {
         // Exactly what a queued response does: the cell now has a real job
         // behind it, and the next poll that lists it retires the overlay.
@@ -539,11 +550,17 @@ export function StudioClient({
         return;
       }
       if (verdict === "failed") {
-        // A "failed" verdict from "none" or "error" is a deadline call, not
-        // server proof — a poll may already list this id as pending, and
-        // that is positive evidence the submit landed even if lookups keep
-        // failing. A genuine status "failed" is authoritative and always
-        // fails here regardless.
+        // A "failed" verdict from "none" (at deadlineMs) or "error" (at
+        // hardDeadlineMs) is a timeout call, not server proof — a poll may
+        // already list this id as pending, and that is positive evidence the
+        // submit landed even if lookups keep failing or coming back empty.
+        // The net only recognises a PENDING cell: a lane's finished cells
+        // (StudioCell) carry no job id at all, so a submit whose job already
+        // succeeded and left `pending` can't be recognised this way — that
+        // case is instead caught by the lookup itself eventually answering
+        // "succeeded" (which is exactly what the "keeps erroring, then
+        // succeeds" test below exercises). A genuine status "failed" is
+        // authoritative and always fails here regardless.
         if (status !== "failed") {
           const clientIdPending = lanesRef.current.some((lane) =>
             lane.pending.some((job) => job.jobId === clientJobId)
@@ -600,6 +617,11 @@ export function StudioClient({
     // reconciled by looking this exact id up, whatever `generateDesign`
     // itself returns or throws.
     const clientJobId = crypto.randomUUID();
+    // The submit's own clock reading — the optimistic entry's age (and so
+    // settleOptimistic's STALE_OPTIMISTIC_MS cutoff) is measured from it, and
+    // a lost response's reconcile loop uses the same instant as the start of
+    // ITS hard backstop (below), so the two "give up" points move together.
+    const startedAtMs = Date.now();
     // `navigator.onLine` is trusted only in its `false` direction — `true`
     // proves nothing. Captured now so the catch can compare against the
     // reading at failure time (Design §Client 3): only offline at both
@@ -613,7 +635,7 @@ export function StudioClient({
         localId,
         designId: targetDesignId,
         anchorImageId: submitAnchor?.imageId ?? null,
-        startedAt: new Date(),
+        startedAt: new Date(startedAtMs),
         jobId: null,
         clientJobId,
         prompt: trimmed,
@@ -665,11 +687,19 @@ export function StudioClient({
       }
       // Otherwise the response is lost, not necessarily the request: keep
       // the cell exactly where it is (no notice, no words back) and find out
-      // what actually happened.
+      // what actually happened. deadlineMs is anchored on THIS CATCH, same as
+      // before (Design §Client 4: the server started the request no later
+      // than here). hardDeadlineMs (item 1) is anchored on the SUBMIT itself
+      // (startedAtMs) rather than the catch — it exists to bound an
+      // ERRORING lookup, which can recur for as long as the device stays
+      // offline, and STALE_OPTIMISTIC_MS is defined as time since the
+      // overlay entry's own startedAt (settleOptimistic), so anchoring both
+      // on the same instant keeps them the same "give up" moment.
       void reconcileLostSubmit(
         localId,
         clientJobId,
         Date.now() + LOST_SUBMIT_WINDOW_MS,
+        startedAtMs + STALE_OPTIMISTIC_MS,
         trimmed
       );
     }

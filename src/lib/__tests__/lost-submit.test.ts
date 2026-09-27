@@ -14,63 +14,133 @@ describe("timing constants", () => {
 
 describe("judgeLostSubmit", () => {
   const deadlineMs = 100_000;
+  // Comfortably past deadlineMs, same relationship as
+  // LOST_SUBMIT_WINDOW_MS < STALE_OPTIMISTIC_MS in the real constants.
+  const hardDeadlineMs = 400_000;
 
   it("running lands", () => {
     expect(
-      judgeLostSubmit({ status: "running", calledAtMs: 0, deadlineMs })
+      judgeLostSubmit({ status: "running", calledAtMs: 0, deadlineMs, hardDeadlineMs })
     ).toBe("landed");
   });
 
   it("succeeded lands", () => {
     expect(
-      judgeLostSubmit({ status: "succeeded", calledAtMs: 0, deadlineMs })
+      judgeLostSubmit({ status: "succeeded", calledAtMs: 0, deadlineMs, hardDeadlineMs })
     ).toBe("landed");
   });
 
   it("failed fails, before or after the deadline", () => {
     expect(
-      judgeLostSubmit({ status: "failed", calledAtMs: 0, deadlineMs })
+      judgeLostSubmit({ status: "failed", calledAtMs: 0, deadlineMs, hardDeadlineMs })
     ).toBe("failed");
     expect(
-      judgeLostSubmit({ status: "failed", calledAtMs: deadlineMs + 1, deadlineMs })
+      judgeLostSubmit({
+        status: "failed",
+        calledAtMs: deadlineMs + 1,
+        deadlineMs,
+        hardDeadlineMs,
+      })
     ).toBe("failed");
   });
 
   it("cancelled cancels, before or after the deadline", () => {
     expect(
-      judgeLostSubmit({ status: "cancelled", calledAtMs: 0, deadlineMs })
+      judgeLostSubmit({ status: "cancelled", calledAtMs: 0, deadlineMs, hardDeadlineMs })
     ).toBe("cancelled");
     expect(
-      judgeLostSubmit({ status: "cancelled", calledAtMs: deadlineMs + 1, deadlineMs })
+      judgeLostSubmit({
+        status: "cancelled",
+        calledAtMs: deadlineMs + 1,
+        deadlineMs,
+        hardDeadlineMs,
+      })
     ).toBe("cancelled");
   });
 
   it("none waits before the deadline, fails at or after it", () => {
     expect(
-      judgeLostSubmit({ status: "none", calledAtMs: deadlineMs - 1, deadlineMs })
+      judgeLostSubmit({
+        status: "none",
+        calledAtMs: deadlineMs - 1,
+        deadlineMs,
+        hardDeadlineMs,
+      })
     ).toBe("wait");
     expect(
-      judgeLostSubmit({ status: "none", calledAtMs: deadlineMs, deadlineMs })
+      judgeLostSubmit({ status: "none", calledAtMs: deadlineMs, deadlineMs, hardDeadlineMs })
     ).toBe("failed");
     expect(
-      judgeLostSubmit({ status: "none", calledAtMs: deadlineMs + 1, deadlineMs })
+      judgeLostSubmit({
+        status: "none",
+        calledAtMs: deadlineMs + 1,
+        deadlineMs,
+        hardDeadlineMs,
+      })
     ).toBe("failed");
   });
 
-  it("error is treated exactly like none", () => {
-    expect(
-      judgeLostSubmit({ status: "error", calledAtMs: deadlineMs - 1, deadlineMs })
-    ).toBe("wait");
-    expect(
-      judgeLostSubmit({ status: "error", calledAtMs: deadlineMs, deadlineMs })
-    ).toBe("failed");
-  });
-
-  it("a call made before the deadline can never fail, however late it is answered", () => {
+  it("a call made before the deadline can never fail on 'none', however late it is answered", () => {
     // calledAtMs is when the lookup went OUT, not when this judgement runs.
     expect(
-      judgeLostSubmit({ status: "none", calledAtMs: deadlineMs - 1, deadlineMs })
+      judgeLostSubmit({
+        status: "none",
+        calledAtMs: deadlineMs - 1,
+        deadlineMs,
+        hardDeadlineMs,
+      })
     ).not.toBe("failed");
+  });
+
+  describe("error (independent review, item 1)", () => {
+    it("waits at and past the ordinary deadline — an error is not proof of absence", () => {
+      expect(
+        judgeLostSubmit({
+          status: "error",
+          calledAtMs: deadlineMs - 1,
+          deadlineMs,
+          hardDeadlineMs,
+        })
+      ).toBe("wait");
+      expect(
+        judgeLostSubmit({ status: "error", calledAtMs: deadlineMs, deadlineMs, hardDeadlineMs })
+      ).toBe("wait");
+      expect(
+        judgeLostSubmit({
+          status: "error",
+          calledAtMs: deadlineMs + 1,
+          deadlineMs,
+          hardDeadlineMs,
+        })
+      ).toBe("wait");
+    });
+
+    it("fails only once the hard backstop is reached", () => {
+      expect(
+        judgeLostSubmit({
+          status: "error",
+          calledAtMs: hardDeadlineMs - 1,
+          deadlineMs,
+          hardDeadlineMs,
+        })
+      ).toBe("wait");
+      expect(
+        judgeLostSubmit({
+          status: "error",
+          calledAtMs: hardDeadlineMs,
+          deadlineMs,
+          hardDeadlineMs,
+        })
+      ).toBe("failed");
+      expect(
+        judgeLostSubmit({
+          status: "error",
+          calledAtMs: hardDeadlineMs + 1,
+          deadlineMs,
+          hardDeadlineMs,
+        })
+      ).toBe("failed");
+    });
   });
 });
 
