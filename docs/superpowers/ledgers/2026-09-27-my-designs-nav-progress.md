@@ -133,3 +133,112 @@ e2e reliance on the hamburger (only `store-compose` opens it, for Sign out).
   menu), `e2e/landing.spec.ts` (header).
 - The `/studio` page itself was not rendered (needs a session); its spacing
   was checked by reading the markup.
+
+## Fix round (2026-09-27, second pass)
+
+Merged `origin/claude/proxy-rename` (PR #255, itself stacked on the Next
+16.3.6 / better-auth 1.6 dependency bump) into this branch first, then four
+commits addressing review feedback. No e2e, no db commands, no build run in
+this pass (not requested; `db:generate` explicitly out of scope).
+
+### Merge: `origin/claude/proxy-rename`
+
+`git merge` (not rebase), commit `a9eaae0`. Git's rename detection matched
+`src/middleware.ts` → `src/proxy.ts` at the same path on both sides and
+merged its two independent hunks (proxy-rename's function rename plus this
+branch's `?next=` addition and "/designs" wording) automatically — no
+conflict there. Manual resolution needed only in
+`src/__tests__/middleware.test.ts` → `src/__tests__/proxy.test.ts`: combined
+proxy-rename's `proxy(...)`-calling style, the `__Secure-` cookie case, and
+the matcher-table tests with this branch's `/designs`-inclusive assertions
+and the two new `?next=` cases, all rewritten to call `proxy(...)`. Checked
+every other file the merge touched (`site-header.tsx`, `require-user.ts`,
+`docs/design-system.md`) — all comment-only diffs on the proxy-rename side,
+already carried correctly by the auto-merge. Fixed one stale comment the
+merge didn't touch: `src/app/designs/page.tsx`'s docblock still said
+"middleware sends them" — now "the proxy sends them". `node_modules` replaced
+with a copy-on-write clone of the proxy-rename worktree's install (matching
+next 16.3.6 / better-auth 1.6.33 in the merged `package.json`), not
+`npm install`. Full suite green post-merge: 193 files, 2144 tests.
+
+### 1. Header gap below 359px (`e0ca053`)
+
+Reusing the ledger's own width model (base fixed-item width, independent of
+gap, backed out from its stated "gap-4 needs 349px / gap-3 333px / gap-2
+317px" progression): the five bar items need ~285px with zero gap. A 360px
+phone has 328px inside the gutters (gap-2 fits, ~11px spare, matches ruling
+1); 344px has only 312px (gap-2 overflows by exactly the ~5px the task
+named); 320px has 288px (gap-2 overflows by exactly ~29px). Working the same
+model backwards, only a full collapse to zero gap fits 320px (288 - 285 =
+3px spare) — anything between gap-1.5 and gap-1 still overflows by double
+digits. Added `max-[359px]:gap-0` to the bar's item-group div, alongside the
+existing `gap-2 sm:gap-4`. Verified the cascade order isn't a Tailwind v4
+sorting gamble by compiling the actual stylesheet with the project's own
+`@tailwindcss/postcss` plugin against a throwaway probe file: the compiled
+`.max-\[359px\]\:gap-0` rule (wrapped in `@media (width < 359px)`) is emitted
+*after* the base `.gap-2` rule and *before* `.sm\:gap-4`, so it overrides
+gap-2 only inside its own media query and never fights `sm:`'s wider range —
+confirmed via `postcss([tw()]).process(...)` rather than trusting the
+class-order-implies-cascade-order assumption. Test:
+`site-header.test.tsx`'s new case renders with a two-digit cart count and
+asserts the group div carries `gap-2`, `max-[359px]:gap-0`, and `sm:gap-4`
+as class tokens (jsdom resolves no layout, so this is the class-presence
+style the file's own 44px tests already use, not a measured width) and that
+Cart's `min-h-11` class is untouched.
+
+### 2. No prefetch for Studio/My Designs when signed out (`8bea912`)
+
+`NO_SESSION_PREFETCH_OFF` (`/studio`, `/designs`) gates `prefetch={false}` on
+those two `Link`s only while `!session`; `undefined` (Link's own default)
+otherwise, covering both real and guest-funnel sessions — matching exactly
+what the proxy's cookie check admits, not `isAuthed` (which excludes
+guests). Shop is never gated. New dedicated test file
+`site-header-prefetch.test.tsx`: `next/link` doesn't forward its `prefetch`
+prop to the rendered `<a>`, so observing it needs a mock, and mocking
+`next/link` file-wide would break `site-header.test.tsx`'s and
+`site-header-hydration.test.tsx`'s reliance on the real `Link` — kept
+isolated in its own file instead. Also mocks `useHydrated` to `true`
+unconditionally so the four cases (no session / real user / guest / Shop
+unaffected) don't have to fight the hydration-gate timing this component
+otherwise imposes on `session`.
+
+### 3. `requireRealUser`/`requireStudioUser` carry `?next=` (`cf10c35`)
+
+Both now take a required `currentPath: string` parameter and redirect via
+`withNext("/sign-in", currentPath)` (`src/lib/safe-next.ts`) instead of a
+bare `/sign-in`. Went with an explicit parameter over reading `headers()`
+inside the helper: every call site today (`/orders`, `/studio`, `/designs`)
+is a static route that reads no `searchParams` of its own, so there is
+nothing dynamic to preserve, and a literal string argument is trivially
+testable without mocking a headers-derived pathname. Updated the three
+callers and `require-user.test.ts` (every `requireRealUser()` /
+`requireStudioUser()` call now passes a path; assertions check the encoded
+`?next=` on the thrown redirect URL; added a second `requireStudioUser`
+redirect case with a different path to prove the parameter, not a hardcoded
+string, drives the value). The three existing mocks of `requireStudioUser`
+in `guest-keep-line.test.tsx`, `studio-hydration.test.tsx`, and
+`designs/__tests__/page.test.tsx` are zero-arg `vi.fn()`s and needed no
+change — they don't care what they're called with.
+
+### 4. `funnel-routes.test.ts` boundary case (`6711a4d`)
+
+Added `isFunnelRoute("/designer")` → `false` as the replacement boundary
+case: "/designer" shares the "/design" prefix as a substring but not the
+"/design" or "/design/…" boundary `isFunnelRoute` requires, and isn't
+swallowed by the separately-listed "/designs" prefix either (matching the
+existing `/dashboard`-vs-`/d` and `/checkouts`-vs-`/checkout` cases already
+in that same describe block). Fixed the stale "library and archive never had
+any [fixed bottom chrome]" comment on the `/studio/library` assertion —
+`/studio/library` is now only a 308 to `/designs`, not a real view with
+chrome of its own; reworded to say that instead of describing a view that no
+longer exists.
+
+### Gate (this pass)
+
+- `npx vitest run`: 194 files, 2150 tests passed
+- `npm run typecheck`: clean
+- `npm run lint`: 0 errors, 33 pre-existing warnings (none in a file this
+  pass touched beyond the one `site-header.tsx` already had — the
+  `window.location.href` sign-out warning predates this branch)
+- No `npm run build`, no `db:generate`, no e2e run in this pass (out of
+  scope per the fix-round instructions)
