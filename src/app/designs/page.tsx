@@ -25,7 +25,7 @@ import { GuestKeepLine } from "../studio/guest-keep-line";
  * these designs" beside "No designs yet." reads wrong.
  */
 export default async function DesignsPage() {
-  const { session, isGuest } = await requireStudioUser();
+  const { session, isGuest } = await requireStudioUser("/designs");
   const images = await getUserImageLibrary(session.user.id);
 
   return (

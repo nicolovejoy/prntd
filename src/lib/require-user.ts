@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth, isAnonymousUser } from "@/lib/auth";
 import { guestFunnelEnabled } from "@/lib/flags";
+import { withNext } from "@/lib/safe-next";
 
 /**
  * Session gate for real-account pages (/orders) rendered as server
@@ -10,12 +11,22 @@ import { guestFunnelEnabled } from "@/lib/flags";
  * instead of the Unauthorized throw the old client-fetch path surfaced as an
  * error state.
  *
+ * `currentPath` is the page's own route (an explicit literal from the call
+ * site, not read off headers — every caller today is a static route with no
+ * searchParams to carry along, and a parameter is simpler to test than
+ * threading headers() through). It rides to /sign-in as `?next=`, the same
+ * way the proxy's own redirect does, so a signed-out visitor who follows a
+ * link here lands back on it after signing in instead of on the default
+ * post-sign-in page.
+ *
  * The Studio used this too until #241 opened it to guests; it now has its own
  * gate below.
  */
-export async function requireRealUser() {
+export async function requireRealUser(currentPath: string) {
   const session = await auth.api.getSession({ headers: await headers() });
-  if (!session || isAnonymousUser(session.user)) redirect("/sign-in");
+  if (!session || isAnonymousUser(session.user)) {
+    redirect(withNext("/sign-in", currentPath));
+  }
   return session;
 }
 
@@ -50,13 +61,16 @@ export function canUseStudio(
  * guest's, so the view can render the guest line ("Sign up to keep these
  * designs. Have an account? Sign in.").
  *
+ * `currentPath` (the caller's own route — see requireRealUser's docblock)
+ * rides to /sign-in as `?next=`, same as the proxy's own redirect.
+ *
  * A visitor with no session at all never reaches this: the proxy sends them
  * to /sign-in first (there is nothing of theirs to show).
  */
-export async function requireStudioUser() {
+export async function requireStudioUser(currentPath: string) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session || !canUseStudio(session.user, guestFunnelEnabled())) {
-    redirect("/sign-in");
+    redirect(withNext("/sign-in", currentPath));
   }
   return { session, isGuest: isAnonymousUser(session.user) };
 }
