@@ -5,7 +5,7 @@ import { guestFunnelEnabled } from "@/lib/flags";
 
 /**
  * Session gate for real-account pages (/orders) rendered as server
- * components. Middleware already bounces cookie-less visitors; this covers the
+ * components. The proxy already bounces cookie-less visitors; this covers the
  * remaining case — an anonymous guest session (#26) — with the same redirect
  * instead of the Unauthorized throw the old client-fetch path surfaced as an
  * error state.
@@ -50,7 +50,7 @@ export function canUseStudio(
  * guest's, so the view can render the guest line ("Sign up to keep these
  * designs. Have an account? Sign in.").
  *
- * A visitor with no session at all never reaches this: middleware sends them
+ * A visitor with no session at all never reaches this: the proxy sends them
  * to /sign-in first (there is nothing of theirs to show).
  */
 export async function requireStudioUser() {

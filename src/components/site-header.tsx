@@ -121,7 +121,7 @@ export function SiteHeader({
   //
   // Studio shows to everyone. A guest-funnel session gets its own Studio
   // (#241, while GUEST_FUNNEL_ENABLED is on) with a line offering sign-up and
-  // sign-in; a visitor with no session at all is sent to /sign-in by middleware,
+  // sign-in; a visitor with no session at all is sent to /sign-in by the proxy,
   // which is the honest answer to "where do I make one" — the alternative is
   // hiding the product's main verb from everyone who has not signed up.
   const primaryLinks: NavLink[] = [

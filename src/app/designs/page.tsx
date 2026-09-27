@@ -13,7 +13,7 @@ import { GuestKeepLine } from "../studio/guest-keep-line";
  *
  * Same gate as the Studio bench (requireStudioUser): a real account, or a
  * guest-funnel session while GUEST_FUNNEL_ENABLED is on (#241). A visitor
- * with no session cookie never gets here — middleware sends them to
+ * with no session cookie never gets here — the proxy sends them to
  * /sign-in.
  *
  * A server component. The grid (LibraryGrid) is the client island: tiles are

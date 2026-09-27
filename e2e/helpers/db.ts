@@ -141,6 +141,28 @@ export async function cleanupDesigns(designIds: string[]): Promise<void> {
   });
 }
 
+/** True if a user row still exists — used to confirm better-auth's own
+ * anonymous-plugin cleanup actually deleted the guest user after a claim
+ * (guest-claim.spec.ts). */
+export async function userExists(userId: string): Promise<boolean> {
+  const res = await db().execute({
+    sql: "SELECT 1 FROM user WHERE id = ? LIMIT 1",
+    args: [userId],
+  });
+  return res.rows.length > 0;
+}
+
+/** A design's current owning user id — what reparentUserData is supposed to
+ * flip from the anon user's id to the claimed account's id on sign-up. */
+export async function designOwnerId(designId: string): Promise<string | null> {
+  const res = await db().execute({
+    sql: "SELECT user_id FROM design WHERE id = ?",
+    args: [designId],
+  });
+  const row = res.rows[0];
+  return row?.user_id == null ? null : String(row.user_id);
+}
+
 /** A design's current primary image id (what a fresh order/cart line pins as
  * the front placement when no explicit pick overrides it). */
 export async function primaryImageIdForDesign(
