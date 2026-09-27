@@ -329,30 +329,34 @@ describe("ImageLightbox actions row", () => {
     );
   });
 
-  it("signInHref without onPublish: a Sign in to publish link, no Publish button", () => {
-    renderLightbox({ onDelete: vi.fn(), signInHref: "/sign-in?next=/design%3Fid%3Dabc" });
+  it("guestPublishNext without onPublish: a sign-up / sign-in prompt, no Publish button", () => {
+    renderLightbox({ onDelete: vi.fn(), guestPublishNext: "/design?id=abc" });
     expect(screen.queryByRole("button", { name: "Publish" })).toBeNull();
-    const link = screen.getByRole("link", { name: "Sign in to publish" });
-    expect(link).toHaveAttribute("href", "/sign-in?next=/design%3Fid%3Dabc");
+    expect(screen.getByTestId("guest-publish-sign-up")).toHaveAttribute(
+      "href",
+      "/sign-up?next=%2Fdesign%3Fid%3Dabc"
+    );
+    expect(screen.getByTestId("guest-publish-sign-in")).toHaveAttribute(
+      "href",
+      "/sign-in?next=%2Fdesign%3Fid%3Dabc"
+    );
   });
 
-  it("onPublish takes precedence over signInHref when both are given", () => {
-    renderLightbox({ ...fullCallbacks(), signInHref: "/sign-in?next=/design" });
+  it("onPublish takes precedence over guestPublishNext when both are given", () => {
+    renderLightbox({ ...fullCallbacks(), guestPublishNext: "/design" });
     expect(screen.getByRole("button", { name: "Publish" })).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Sign in to publish" })).toBeNull();
+    expect(screen.queryByTestId("guest-publish-prompt")).toBeNull();
   });
 
-  it("a seed image with signInHref: no Sign in to publish link either", () => {
+  it("a seed image with guestPublishNext: no publish prompt either", () => {
     const seed: LightboxImage[] = [{ ...images[1], role: "seed" }];
     renderLightbox({
       onDelete: vi.fn(),
       images: seed,
       currentIndex: 0,
-      signInHref: "/sign-in?next=/design",
+      guestPublishNext: "/design",
     });
-    expect(
-      screen.queryByRole("link", { name: "Sign in to publish" })
-    ).toBeNull();
+    expect(screen.queryByTestId("guest-publish-prompt")).toBeNull();
   });
 
   it("a seed image: labelled Remove, stays enabled, no Publish", () => {

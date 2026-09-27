@@ -8,8 +8,8 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import Link from "next/link";
 import { Button } from "@/components/ui";
+import { GuestPublishPrompt } from "@/components/guest-publish-prompt";
 
 /**
  * The minimum an image needs to be shown here. `DesignImage` (the /design
@@ -32,7 +32,7 @@ export function ImageLightbox({
   onDelete,
   onMakeProducts,
   onPublish,
-  signInHref,
+  guestPublishNext,
   onStartFrom,
   actions,
 }: {
@@ -45,11 +45,12 @@ export function ImageLightbox({
   onMakeProducts?: (imageUrl: string) => void;
   onPublish?: (imageId: string) => void | Promise<void>;
   /**
-   * Rendered in place of the Publish control, labelled "Sign in to publish",
-   * when the viewer can't publish (a guest-funnel anonymous session) but
-   * would otherwise see one — pass this instead of `onPublish`, never both.
+   * The path to return to after auth. When given, a sign-up / sign-in prompt
+   * (GuestPublishPrompt) replaces the Publish control for a viewer who can't
+   * publish (a guest-funnel anonymous session) but would otherwise see one —
+   * pass this instead of `onPublish`, never both.
    */
-  signInHref?: string;
+  guestPublishNext?: string;
   /** Fresh start (slice 3): open a new conversation seeded by this image. */
   onStartFrom?: (imageId: string) => void | Promise<void>;
   /** Consumer-specific controls for the shown image, rendered first in the
@@ -115,7 +116,7 @@ export function ImageLightbox({
 
   const hasActions =
     (actions != null && actions !== false) ||
-    Boolean(onMakeProducts || onStartFrom || onPublish || signInHref || onDelete);
+    Boolean(onMakeProducts || onStartFrom || onPublish || guestPublishNext || onDelete);
 
   return (
     <div
@@ -238,10 +239,8 @@ export function ImageLightbox({
                   {publishing ? "Publishing…" : "Publish"}
                 </Button>
               ))}
-            {!onPublish && signInHref && !isSeed && !image.publishedAt && (
-              <Link href={signInHref}>
-                <Button variant="secondary">Sign in to publish</Button>
-              </Link>
+            {!onPublish && guestPublishNext && !isSeed && !image.publishedAt && (
+              <GuestPublishPrompt next={guestPublishNext} />
             )}
             {onDelete && (
               <Button
