@@ -29,7 +29,7 @@ import {
   multiPlacementEnabled,
   productSupportsPlacement,
 } from "@/lib/blanks";
-import { createStripeCheckoutForOrder } from "@/app/order/actions";
+import { createStripeCheckoutForOrder } from "@/lib/order-checkout";
 import { embeddedCheckoutConfig, resolveReturnOrigin } from "@/lib/embedded-checkout";
 import { embeddedCheckoutFlag } from "@/lib/flags";
 import { renderAndCacheMockup } from "@/lib/mockup-render";
