@@ -33,6 +33,10 @@ const nextConfig: NextConfig = {
     serverActions: {
       bodySizeLimit: "10mb",
     },
+    // Server-action POSTs on proxied routes pass through src/proxy.ts, which
+    // buffers request bodies up to this limit and silently truncates past it.
+    // Keep it equal to serverActions.bodySizeLimit above.
+    proxyClientMaxBodySize: "10mb",
   },
   env: {
     NEXT_PUBLIC_BUILD_DATE: new Date().toLocaleString("en-US", {

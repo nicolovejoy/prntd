@@ -10,7 +10,7 @@ let ensured: Promise<void> | null = null;
  * failed mint clears the cache so a later action can retry.
  *
  * Safe to call regardless of GUEST_FUNNEL_ENABLED: when the flag is off the
- * middleware redirects sessionless visitors away from the funnel before this
+ * proxy redirects sessionless visitors away from the funnel before this
  * runs, and a real user's existing session short-circuits the mint.
  *
  * Only a *clean* no-session read mints. Better-Auth's client returns
