@@ -81,3 +81,77 @@ matches all four files; (6) only 4 of 13 `"use server"` files are pinned —
 matches the plan ("any other file touched"); pinning all 13 is a follow-up
 candidate. Controller widened the lister's docblock to mention the new
 throw. 21/21 green.
+
+## Whole-branch review (opus)
+
+No Critical. Every caller of both moved functions re-read in full:
+`createCheckoutSession`, `buyPublishedDesign`, `buyStoreProduct` each check
+the session (non-anonymous), derive `userId` from it, price on the server and
+guard pinned images; `ensureMockupsPrefetched` checks session + ownership
+before `after()`. Bodies byte-identical to `9901586`; `after()` scoping
+unaffected by the callee's module (request-scoped). No `vi.mock` of
+`@/app/order/actions` carries the moved function.
+
+1. **Important — merge hazard with held PR #249**
+   (`claude/201-composition-drops-v2`). #249 edits `createStripeCheckoutForOrder`
+   in place in `order/actions.ts` (drops the `storeId` param + docblock + the
+   `storeId: params.storeId ?? null` insert) and deletes
+   `src/app/shop/actions.ts`. Controller confirmed with
+   `git merge-tree`: both are loud conflicts (content conflict in
+   `order/actions.ts`, modify/delete on `shop/actions.ts`), nothing merges
+   silently. **Ruling: not fixable from this branch** (it is not mine to
+   push to, and the function must live here). Resolution recipe for whoever
+   merges the second of the two:
+   a. take this branch's `src/app/order/actions.ts` (the function is gone
+      from it);
+   b. re-apply #249's `storeId` removal to `src/lib/order-checkout.ts`: drop
+      the `storeId?: string | null` param, replace its docblock with #249's
+      ("Composition attribution: the `product` row bought — the published
+      image's Shop composition. Null for design-your-own. See the schema
+      comment on `order`."), drop `storeId: params.storeId ?? null,` from the
+      order insert, drop "store attribution" from the file header, and drop
+      the `buyStoreProduct` / shop clause from the function docblock;
+   c. accept #249's deletion of `src/app/shop/actions.ts` and delete its
+      entry from `pins` in `src/app/__tests__/server-action-exports.test.ts`;
+   d. typecheck (catches a leftover `storeId` once the column leaves the
+      schema), the pin test, and the full gate, before #249's runbook
+      verify step.
+2. **Minor — audit gap, dormant.** `saveProduct`
+   (`dashboard/actions.ts`) → `store-service.updateProduct` writes
+   `patch.placements` without `assertOwnsPlacementImages` (createProduct does
+   check) and an unbounded `patch.price`, which `buyStoreProduct` then passes
+   into checkout. Unreachable: `assertEnabled()` throws with `STORES_ENABLED`
+   unset (removed from Vercel), and #249 deletes the path. **Ruling: not
+   fixed** (out of #251's scope, dead code). If #249 slips, add the
+   ownership check to `updateProduct`.
+3. **Minor — stale moved docblock** (`mockup-prefetch.ts`: "Triggered via
+   after() on accept"). **Fixed** (`34d5508`).
+4. **Minor — stale caller list** (`order-checkout.ts` named two of three
+   callers). **Fixed** (`34d5508`): names all three, notes the cart builds
+   its own session. Haiku re-review clean.
+5. **Minor — dead `prefetchProductMockups` mocks** in five design/designs
+   tests. Agrees with the task-2 ruling: leave, follow-up.
+6. **Minor — pin covers 4 of 13 `"use server"` files.** Follow-up: assert
+   every file whose first statement is the directive has a `pins` entry.
+7. **Minor — CLAUDE.md "Open issues" still lists #251.** Main session owns
+   CLAUDE.md; noted for it.
+
+## Gate (controller, on `34d5508`)
+
+- `npm run lint`: exit 0, 0 errors, 22 warnings (none in touched files;
+  `npx eslint` on the 9 touched files is clean).
+- `npm run typecheck`: exit 0.
+- `npx vitest run`: 188 files, 2065 tests passed.
+- `npm run build` with the CI dummy env: exit 0. Server-reference manifest
+  has 71 actions; neither `createStripeCheckoutForOrder` nor
+  `prefetchProductMockups` has an action ID; `createCheckoutSession` and
+  `ensureMockupsPrefetched` still do.
+- `npm run db:generate`: "No schema changes, nothing to migrate".
+
+## Follow-ups (not done here)
+
+- `calculatePrice` returns `baseCost` + `generationCost` for any design id
+  with no ownership check (information leak).
+- Delete the five dead `vi.mock("@/app/preview/actions", { prefetchProductMockups })`.
+- Pin every `"use server"` file's exports, not just the four touched.
+- `store-service.updateProduct` placement ownership check, only if #249 slips.
