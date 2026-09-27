@@ -2149,4 +2149,76 @@ describe("lost Generate response reconcile (#245)", () => {
       vi.useRealTimers();
     }
   });
+
+  it("test 16: a device woken past the hard deadline is not failed by its first post-wake errors — no notice, composer empty, one cell (second independent review, item 1)", async () => {
+    vi.useFakeTimers();
+    try {
+      mockUuidSequence(["design-16", "local-16", "job-16"]);
+      vi.mocked(generateDesign).mockImplementationOnce(lostResponse);
+      vi.mocked(getGenerationJobStatus).mockRejectedValue(
+        new Error("network")
+      );
+      // The design DID land server-side (only the response was lost), so
+      // the independent poll loop's own STALE_OPTIMISTIC_MS ghost-drop
+      // (settleOptimistic, unrelated to this reconcile fix) has real server
+      // truth to hand off to once the overlay entry ages out mid-test — the
+      // whole point of that drop being safe is that setLanes(fresh) runs
+      // first in the same pollOnce(). Without this, the test would show no
+      // cell at all once the poll fires, for a reason unrelated to the fix
+      // under test.
+      h.polledLanes = [
+        lane({ designId: "design-16", pending: [pendingJob("job-16", 0)] }),
+      ];
+
+      render(<StudioClient initialLanes={[lane()]} />);
+      // submit() reads Date.now() for startedAtMs (hence hardDeadlineMs)
+      // synchronously, before generateDesign's rejection is even a
+      // microtask yet — nothing has run asynchronously at this point, so
+      // jumping the clock here, before flushing anything, faithfully
+      // simulates a phone that freezes (no JS runs at all, no lookups are
+      // even attempted) for 8 minutes starting the instant it submits: well
+      // past STALE_OPTIMISTIC_MS (6 minutes), so hardDeadlineMs is already
+      // BEHIND the device by the time its very first reconcile lookup is
+      // ever dispatched, once everything below finally gets to run.
+      submitText("a red dragon");
+      vi.setSystemTime(Date.now() + 8 * 60_000);
+
+      // The very first lookup ever made for this submit, and every one for
+      // the next 30s, errors — the prod scenario this fix is for:
+      // momentarily no network right when the tab wakes, even though the
+      // render finishes regardless. Before this fix, a single error whose
+      // calledAtMs is already past hardDeadlineMs failed the submit outright
+      // on the spot; now the streak (which only just started, at this very
+      // call) must itself run for the full window first.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(getGenerationJobStatus).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId("studio-pending-cell")).toBeTruthy();
+      expect(screen.queryByText(/Something went wrong/)).toBeNull();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+      });
+
+      expect(screen.getByTestId("studio-pending-cell")).toBeTruthy();
+      expect(screen.queryByText(/Something went wrong/)).toBeNull();
+
+      // The phone regains signal for real.
+      vi.mocked(getGenerationJobStatus).mockResolvedValueOnce({
+        status: "succeeded",
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3_000);
+      });
+
+      expect(screen.getAllByTestId("studio-pending-cell")).toHaveLength(1);
+      expect(screen.queryByText(/Something went wrong/)).toBeNull();
+      expect(
+        (screen.getByTestId("studio-composer") as HTMLInputElement).value
+      ).toBe("");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

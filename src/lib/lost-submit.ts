@@ -76,8 +76,24 @@ export function judgeLostSubmit(params: {
    * forever into the void chasing an entry nothing will show any more.
    */
   hardDeadlineMs: number;
+  /**
+   * When the CURRENT run of consecutive "error" lookups began — the first
+   * such error's own `calledAtMs` — or `null` if the last lookup was not an
+   * error (no streak in progress). Ignored for every status other than
+   * "error". Second independent review, item 1: `hardDeadlineMs` alone is
+   * anchored on the submit's own clock reading, so a phone backgrounded for
+   * LONGER than that (STALE_OPTIMISTIC_MS, 6 minutes) wakes with the hard
+   * deadline already behind it. Without this, the very first post-wake
+   * lookup — which proves nothing on its own; the device may simply not have
+   * network back yet — would fail the submit outright, right next to an
+   * image that then lands anyway. Requiring the streak to have itself run for
+   * `LOST_SUBMIT_WINDOW_MS` gives a genuinely reconnecting device a real
+   * chance to answer before that verdict is drawn, the same margin a fresh
+   * submit gets from `deadlineMs` itself.
+   */
+  errorStreakStartMs: number | null;
 }): "landed" | "failed" | "cancelled" | "wait" {
-  const { status, calledAtMs, deadlineMs, hardDeadlineMs } = params;
+  const { status, calledAtMs, deadlineMs, hardDeadlineMs, errorStreakStartMs } = params;
   if (status === "running" || status === "succeeded") return "landed";
   if (status === "failed") return "failed";
   if (status === "cancelled") return "cancelled";
@@ -85,7 +101,13 @@ export function judgeLostSubmit(params: {
   // deadline, same as before.
   if (status === "none") return calledAtMs >= deadlineMs ? "failed" : "wait";
   // "error": the lookup itself failed to answer — see hardDeadlineMs above.
-  return calledAtMs >= hardDeadlineMs ? "failed" : "wait";
+  // Failing requires BOTH the hard backstop to have passed AND the current
+  // streak of consecutive errors to have itself lasted at least
+  // LOST_SUBMIT_WINDOW_MS (errorStreakStartMs's docs) — a lone error right as
+  // the hard deadline is crossed is not proof of anything by itself.
+  if (calledAtMs < hardDeadlineMs) return "wait";
+  if (errorStreakStartMs === null) return "wait";
+  return calledAtMs - errorStreakStartMs >= LOST_SUBMIT_WINDOW_MS ? "failed" : "wait";
 }
 
 /**
