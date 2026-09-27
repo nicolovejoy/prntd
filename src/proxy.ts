@@ -25,7 +25,7 @@ const ALWAYS_PROTECTED = ["/designs", "/orders", "/admin", "/studio"];
 // and the auth gate moves to checkout. When the flag is off these stay gated.
 const FUNNEL_ROUTES = ["/design", "/preview", "/order"];
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const sessionToken =
     request.cookies.get("better-auth.session_token") ||
     request.cookies.get("__Secure-better-auth.session_token");
