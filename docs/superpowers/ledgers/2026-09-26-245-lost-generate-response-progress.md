@@ -455,3 +455,108 @@ covered modules).
 
 Not done: `npm run build`, e2e (both out of scope per the fix-round brief;
 no schema, flag, or route-shape change to re-verify).
+
+## Fix round: second independent review of the rebuild (2026-09-27)
+
+A third independent review found four more issues, all fixed on
+`claude/245-lost-generate-response`, one commit each, each with pure and/or
+real-DB/client tests that failed against the pre-fix code (verified before
+implementing):
+
+1. **`3b4eea5`** — `hardDeadlineMs` (`startedAtMs + STALE_OPTIMISTIC_MS`, 6
+   minutes) is anchored purely on the submit's own clock. A phone
+   backgrounded for LONGER than that wakes with the hard deadline already
+   behind it: the OLD "error" rule (`calledAtMs >= hardDeadlineMs ?
+   "failed" : "wait"`) failed the submit outright on the very FIRST post-wake
+   lookup, even though a lone error at that instant proves nothing — the
+   device may simply not have network back yet, and the render finishes
+   regardless (notice + words back next to an image that then lands anyway;
+   a re-tap duplicates it). Fixed: `judgeLostSubmit` gained
+   `errorStreakStartMs` — an "error" verdict now requires BOTH
+   `calledAtMs >= hardDeadlineMs` AND the CURRENT streak of consecutive
+   errors to have itself run for the full `LOST_SUBMIT_WINDOW_MS`,
+   measured from the first error in the streak; any non-error answer resets
+   it. `studio-client.tsx`'s `reconcileLostSubmit` tracks the streak as a
+   plain local variable (one loop per lost submit, so no cross-submit
+   state). A real "none" answer is unaffected (still judged against the
+   ordinary `deadlineMs`, unchanged) — it's server truth, not a network
+   blip. 9 new pure tests; one new client test (`test 16`) jumps the fake
+   clock 8 minutes ahead BEFORE the very first reconcile lookup ever runs
+   (via `vi.setSystemTime` called synchronously right after `submitText`,
+   before any microtask flush — the only way to make a call's OWN
+   `calledAtMs` already reflect a big jump without vitest's fake-timer
+   `setSystemTime` shifting a pending `setTimeout`'s REMAINING delay rather
+   than treating it as overdue, which was tried first and doesn't work for
+   this — see the scratch experiment discussed live, not committed), then
+   errors for 30s (under the window) before succeeding. `h.polledLanes` had
+   to be seeded with the real server-visible job for this test, or the
+   UNRELATED periodic poll's own `settleOptimistic` age-based ghost-drop
+   (`nowMs - entry.startedAt >= STALE_OPTIMISTIC_MS`, which fires
+   independently of this reconcile fix and would otherwise make the cell
+   vanish for a reason unrelated to the fix under test, since the mocked
+   server state was otherwise empty).
+2. **`60e2dfd`** — `prepareGeneration`'s `duplicate` branch (this call's own
+   `insertGenerationJob` hitting a primary-key violation on its own
+   client-minted id) returned `"already_queued"` straight from the row's
+   mere existence, regardless of its status — the SAME defect the pre-quota
+   replay check already guards against (`queuedResultForReplay`), through a
+   different door: the original can settle to `failed`/`cancelled` during
+   THIS call's own brief call, moments after the earlier pre-quota check
+   ran and found nothing yet. Routed through `queuedResultForReplay`: a
+   `running`/`succeeded` winner still refunds inline and returns
+   `already_queued` exactly as before; a `failed`/`cancelled` winner now
+   throws the same `"Invalid job id"` the pre-quota check and the foreign-
+   row `conflict` branch already use, so the caller's OUTER catch refunds
+   this call's unit exactly once (refunding inline too would
+   double-credit — this is why the running/succeeded branch still refunds
+   inline and returns normally instead of throwing). `queuedResultForReplay`'s
+   return type narrowed to `Extract<GenerateResult, {kind:"queued"}> | null`
+   so the caller can read `jobId`/`generationNumber`/`imageId` without a
+   runtime-only guarantee. Two new real-DB tests (failed/cancelled rival,
+   same shape as the existing "insert racing its own original" tests).
+3. **`d1787f9`** — `getGenerationJobStatus` calls from the client had no
+   timeout of their own: a fetch that never resolves stalled the reconcile
+   loop forever (no further attempts, no notice) until the UNRELATED
+   periodic poll's `settleOptimistic` age-out silently dropped the cell with
+   no explanation at all. Each lookup is now wrapped in `withTimeout`
+   (`src/lib/timeout.ts` — already used server-side; plain
+   `setTimeout`/`Promise.race`, confirmed to work fine client-side too) at a
+   new `LOST_SUBMIT_LOOKUP_TIMEOUT_MS` (10s: comfortably longer than the 3s
+   poll cadence so an ordinary round trip is never cut off, short enough
+   that a hung request costs only a few cycles). A timeout is caught and
+   treated exactly like a lookup that threw ("error"), so item 1's streak
+   rule applies to it identically. New client test (`test 17`): a lookup
+   that never resolves at all is proven to still produce a SECOND attempt
+   after the timeout, rather than stalling. **Existing `test 5` had to be
+   rewritten**: its premise (one lookup held open across the WHOLE 60s
+   ordinary deadline, via a `resolvers` array that never got auto-resolved)
+   is no longer constructible now that every call is bounded to 10s — a
+   held-open call now internally times out well before 60s regardless.
+   Rewritten with the same intent (a lookup CALLED before the deadline can't
+   fail however late it ANSWERS) using ~19 fast "none" calls to reach t≈57s,
+   then ONE call held open for 5s (well inside its own 10s budget) spanning
+   the deadline crossing at t=60s, then a fresh call after it decides.
+4. **`725bccb`** — docs only. Two additions: (a) next to the
+   limit/at_capacity concurrent-replay checks in `generateDesign`, a comment
+   naming the accepted residual gap — while the original is still inside its
+   brief call (bounded to `DESIGN_BRIEF_TIMEOUT_MS`, 45s), no
+   `image_generation` row exists yet at all, so `findJobById` returns null
+   regardless of ownership; a replay landing in this window reports
+   `"limit"`/`"at_capacity"` for a request that will actually queue
+   successfully, and its own wasted quota bump is never refunded (only the
+   `replayed` branch refunds) — accepted, not fixed. (b) the
+   `studio-client.tsx` comment that said "the test below" (production code
+   whose relationship to a test file's line order is not a contract) now
+   names the actual test by file and title.
+
+Gate on `725bccb` (final commit of this fix round): `npx vitest run` — 194
+files, 2181 tests passed (2174 baseline + 7 net new: +9 pure
+`judgeLostSubmit` tests for the streak rule minus 2 pure tests removed/
+folded during the rewrite = net +7 in `lost-submit.test.ts`; +2 real-DB
+`client-job-id` tests for item 2; +2 client tests, `test 16` and `test 17`,
+for items 1 and 3; `test 5`'s rewrite is a like-for-like replacement, no net
+count change). `npm run typecheck`: clean. `npm run lint`: 0 errors, 22
+warnings, identical set to every prior gate (all pre-existing, unrelated
+files). `npm run build`/`db:generate` not re-run this round — no schema,
+build-relevant, or route-shape change; comment-, logic-, and test-only
+within already-covered modules, same as the previous fix round's rationale.
