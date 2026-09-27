@@ -9,7 +9,8 @@
  * browser at hydration (the viewer's zone and locale). Formatted in the
  * process's own zone, the two disagree for any timestamp between 00:00 UTC
  * and the Pacific midnight, and React throws #418. Pass this zone, and an
- * explicit locale, whenever a date is formatted for display.
+ * explicit locale, whenever a date is formatted for display — or use
+ * formatDisplayDate / formatDisplayDateTime below, which do both.
  */
 export const DISPLAY_TIME_ZONE = "America/Los_Angeles";
 
