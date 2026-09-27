@@ -69,7 +69,7 @@ describe("My Designs select mode", () => {
     // Out of select mode a tile is a link to the image detail page.
     expect(
       tiles()[0].closest("a")?.getAttribute("href")
-    ).toBe("/d/i1?from=/studio/library");
+    ).toBe("/d/i1?from=/designs");
 
     fireEvent.click(screen.getByTestId("library-select"));
 

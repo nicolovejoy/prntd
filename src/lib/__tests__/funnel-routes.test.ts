@@ -15,6 +15,10 @@ describe("isFunnelRoute", () => {
     // (see the docblock in funnel-routes.ts) — pin that explicitly rather
     // than only covering the Bench tab.
     expect(isFunnelRoute("/studio/library")).toBe(true);
+    // /designs (My Designs, moved out of the Studio by nav model A) has its
+    // own select-mode bottom bar the launcher would overlap.
+    expect(isFunnelRoute("/designs")).toBe(true);
+    expect(isFunnelRoute("/designs/whatever")).toBe(true);
     // /d is the buy page; its sticky Add-to-cart bar is what the launcher
     // overlapped.
     expect(isFunnelRoute("/d")).toBe(true);
@@ -25,11 +29,11 @@ describe("isFunnelRoute", () => {
   });
 
   it("does not match sibling routes sharing a prefix", () => {
-    expect(isFunnelRoute("/designs")).toBe(false);
     expect(isFunnelRoute("/orders")).toBe(false);
     // /dashboard shares its first two characters with the /d prefix but
     // never the "/d" or "/d/…" boundary the matcher requires — the same
-    // trap /designs pins for /design.
+    // trap /designs would pin for /design, except /designs is its own
+    // listed prefix now (nav model A) so that boundary is moot here.
     expect(isFunnelRoute("/dashboard")).toBe(false);
     // Same trap, one prefix over: shares "/checkout" as a substring but not
     // the "/checkout" or "/checkout/…" boundary.

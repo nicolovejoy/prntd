@@ -49,11 +49,12 @@ describe("middleware — a visitor with no session (guest funnel on)", () => {
     expect(redirectTarget(middleware(request("/design")))).toBeNull();
   });
 
-  it("sends /studio and /studio/library to /sign-in", () => {
+  it("sends /studio, /studio/library and /designs to /sign-in", () => {
     expect(redirectTarget(middleware(request("/studio")))).toBe("/sign-in");
     expect(redirectTarget(middleware(request("/studio/library")))).toBe(
       "/sign-in"
     );
+    expect(redirectTarget(middleware(request("/designs")))).toBe("/sign-in");
   });
 
   it("sends /orders to /sign-in", () => {
@@ -66,6 +67,14 @@ describe("middleware — a visitor with a session cookie", () => {
     process.env.GUEST_FUNNEL_ENABLED = "true";
     const res = middleware(
       request("/studio", "better-auth.session_token=tok.sig")
+    );
+    expect(redirectTarget(res)).toBeNull();
+  });
+
+  it("passes /designs with a cookie too", () => {
+    process.env.GUEST_FUNNEL_ENABLED = "true";
+    const res = middleware(
+      request("/designs", "better-auth.session_token=tok.sig")
     );
     expect(redirectTarget(res)).toBeNull();
   });

@@ -20,13 +20,16 @@ export async function requireRealUser() {
 }
 
 /**
- * Who may use the Studio — the bench and the library (#241, option 1).
+ * Who may use the Studio bench and My Designs (#241, option 1) — the same
+ * predicate, even though My Designs moved to its own top-level route
+ * (nav model A, 2026-09-27).
  *
  * A real account always may. An anonymous guest-funnel session may too, but
  * only while GUEST_FUNNEL_ENABLED is on: the guest made those designs in the
  * funnel, their lanes and images are scoped to the anonymous user id, and
- * Studio is the only place that lists them. With the flag off there is no
- * guest funnel, so Studio stays real-account-only, exactly as before #241.
+ * the Studio bench / My Designs are the only places that list them. With the
+ * flag off there is no guest funnel, so both stay real-account-only, exactly
+ * as before #241.
  *
  * One predicate for the pages AND their server actions, so the two can never
  * disagree about who gets in — a page that admits a guest whose poll action
@@ -42,7 +45,7 @@ export function canUseStudio(
 }
 
 /**
- * Page gate for /studio and /studio/library. Redirects to /sign-in when
+ * Page gate for /studio and /designs (My Designs). Redirects to /sign-in when
  * canUseStudio says no; otherwise returns the session and whether it is a
  * guest's, so the view can render the guest line ("Sign up to keep these
  * designs. Have an account? Sign in.").

@@ -3,7 +3,8 @@
  * signed-out visitors, who get an anonymous Better-Auth session; personal
  * record routes stay behind sign-in.
  *
- * #241: the Studio (bench + library) is open to that anonymous session too,
+ * #241: the Studio bench and My Designs (/designs, moved out from under the
+ * Studio by nav model A, 2026-09-27) are open to that anonymous session too,
  * with a "Sign up to keep these designs. Have an account? Sign in." line. A
  * visitor with no session at all is still sent to sign-in, and /orders
  * still refuses a guest.
@@ -33,7 +34,7 @@ test("a guest on /design gets an anonymous session", async ({ page }) => {
 test("personal routes still redirect a visitor with no session to sign-in", async ({
   page,
 }) => {
-  await page.goto("/studio/library");
+  await page.goto("/designs");
   await expect(page).toHaveURL(/sign-in/);
   await page.goto("/orders");
   await expect(page).toHaveURL(/sign-in/);
@@ -66,18 +67,18 @@ test("a guest with an anonymous session reaches their own Studio, not /orders", 
     );
     await expect(page.getByTestId("studio-lane")).toHaveCount(1);
 
-    // Library: the guest's own image, plus the same line.
-    await page.goto("/studio/library");
-    await expect(page).toHaveURL(/\/studio\/library$/);
+    // My Designs: the guest's own image, plus the same line.
+    await page.goto("/designs");
+    await expect(page).toHaveURL(/\/designs$/);
     await expect(page.getByTestId("guest-keep-line")).toBeVisible();
-    // The library's line carries next, so sign-up/sign-in return here.
+    // My Designs' line carries next, so sign-up/sign-in return here.
     await expect(page.getByTestId("guest-sign-up")).toHaveAttribute(
       "href",
-      "/sign-up?next=%2Fstudio%2Flibrary"
+      "/sign-up?next=%2Fdesigns"
     );
     await expect(page.getByTestId("guest-sign-in")).toHaveAttribute(
       "href",
-      "/sign-in?next=%2Fstudio%2Flibrary"
+      "/sign-in?next=%2Fdesigns"
     );
     await expect(page.getByTestId("library-tile")).toHaveCount(1);
 

@@ -7,15 +7,25 @@
 // bordered panel at the TOP of the page (Paper bench, #188 slice 3), so Bench
 // no longer has standing bottom chrome of its own — but its select-mode bar
 // (Select all/Delete/Done) is still fixed to the bottom edge and stretches
-// under the launcher's corner, so the prefix stays swept in. /studio/library
-// has no fixed bottom chrome either way; nothing so far has needed the
-// launcher to distinguish the two tabs. /d joined for the
+// under the launcher's corner, so the prefix stays swept in. /designs (My
+// Designs, moved out of the Studio by nav model A, 2026-09-27) has its own
+// select-mode bar for the same reason and joined for the same shape of
+// reason. /d joined for the
 // same shape of reason (nav-model-a, 2026-09-07): it's the buy page, and the
 // launcher overlapped its sticky Add-to-cart bar. /checkout joined for the
 // same reason again (#135 slice 2): the embedded Stripe form is mounted
 // full-width on phones, and the fixed-position launcher can sit right over
 // its Pay button.
-const FUNNEL_PREFIXES = ["/design", "/preview", "/order", "/cart", "/studio", "/d", "/checkout"];
+const FUNNEL_PREFIXES = [
+  "/design",
+  "/preview",
+  "/order",
+  "/cart",
+  "/studio",
+  "/designs",
+  "/d",
+  "/checkout",
+];
 
 export function isFunnelRoute(pathname: string): boolean {
   return FUNNEL_PREFIXES.some(
