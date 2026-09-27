@@ -70,6 +70,15 @@ test("a guest with an anonymous session reaches their own Studio, not /orders", 
     await page.goto("/studio/library");
     await expect(page).toHaveURL(/\/studio\/library$/);
     await expect(page.getByTestId("guest-keep-line")).toBeVisible();
+    // The library's line carries next, so sign-up/sign-in return here.
+    await expect(page.getByTestId("guest-sign-up")).toHaveAttribute(
+      "href",
+      "/sign-up?next=%2Fstudio%2Flibrary"
+    );
+    await expect(page.getByTestId("guest-sign-in")).toHaveAttribute(
+      "href",
+      "/sign-in?next=%2Fstudio%2Flibrary"
+    );
     await expect(page.getByTestId("library-tile")).toHaveCount(1);
 
     // Orders stay real-account-only.
