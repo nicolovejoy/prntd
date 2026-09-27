@@ -19,19 +19,31 @@ import {
 } from "@/lib/design-images";
 import { assertUsablePlacementImage } from "@/lib/back-sources";
 
+/**
+ * Client-facing price for a design/product/size/back combination (/preview).
+ * Takes no session — any design id works, by design (the buyer is picking a
+ * product/size before committing to anything design-specific). Returns only
+ * `total`, the one field the client reads: `computePrice`'s `baseCost` and
+ * `generationCost` are internal accounting figures (Printful's real cost and
+ * the AI generation spend), and there is no reason to hand either to an
+ * unauthenticated caller for any design id (#251).
+ */
 export async function calculatePrice(
   designId: string,
   productId?: string,
   size?: string,
   back?: boolean
-) {
+): Promise<{ total: number }> {
   const found = await db.query.design.findFirst({
     where: eq(designTable.id, designId),
   });
 
   if (!found) throw new Error("Design not found");
 
-  return computePrice(found.generationCost, productId, size, { back });
+  const { total } = computePrice(found.generationCost, productId, size, {
+    back,
+  });
+  return { total };
 }
 
 export async function createCheckoutSession(params: {
