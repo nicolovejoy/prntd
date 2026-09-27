@@ -31,7 +31,7 @@ export default async function StudioLibraryPage() {
         // The views' own gutters and max width, so the line sits flush with
         // the tab strip above it; main keeps its 24px top gap below.
         <div className="px-4 sm:px-6 pt-4 max-w-4xl mx-auto w-full">
-          <GuestKeepLine />
+          <GuestKeepLine next="/studio/library" />
         </div>
       )}
       {/* 24px under the tab strip, the bench's default 24px. The layout

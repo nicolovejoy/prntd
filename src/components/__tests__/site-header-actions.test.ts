@@ -6,7 +6,7 @@
  * DB layer underneath isAdminUser/getCartCount/generation-job (each has its
  * own coverage).
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const getSession = vi.fn();
 vi.mock("next/headers", () => ({ headers: async () => new Headers() }));
@@ -56,6 +56,10 @@ async function drainAfter() {
 
 const { getHeaderState } = await import("@/components/site-header-actions");
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 beforeEach(() => {
   getSession.mockReset();
   isAdminUser.mockReset().mockResolvedValue(false);
@@ -77,7 +81,8 @@ describe("getHeaderState — runningJobs", () => {
     expect(afterQueue.callbacks).toHaveLength(0);
   });
 
-  it("is 0 for an anonymous guest-funnel user, without querying the job table", async () => {
+  it("is 0 for an anonymous guest when the guest funnel is off, without querying the job table", async () => {
+    vi.stubEnv("GUEST_FUNNEL_ENABLED", "false");
     getSession.mockResolvedValue({ user: { id: "anon-1", isAnonymous: true } });
 
     const state = await getHeaderState(false);
@@ -86,6 +91,22 @@ describe("getHeaderState — runningJobs", () => {
     expect(sweepStaleJobs).not.toHaveBeenCalled();
     expect(countActiveGenerationsForUser).not.toHaveBeenCalled();
     expect(afterQueue.callbacks).toHaveLength(0);
+  });
+
+  it("counts an anonymous guest when the guest funnel is on, and schedules their user-scoped sweep", async () => {
+    vi.stubEnv("GUEST_FUNNEL_ENABLED", "true");
+    getSession.mockResolvedValue({ user: { id: "anon-1", isAnonymous: true } });
+    countActiveGenerationsForUser.mockResolvedValue(2);
+
+    const state = await getHeaderState(false);
+
+    expect(state.runningJobs).toBe(2);
+    expect(countActiveGenerationsForUser).toHaveBeenCalledWith("anon-1");
+    expect(afterQueue.callbacks).toHaveLength(1);
+
+    await drainAfter();
+
+    expect(sweepStaleJobs).toHaveBeenCalledWith({ scope: "user", userId: "anon-1" });
   });
 
   it("counts without waiting on the sweep, and schedules the sweep with after()", async () => {
