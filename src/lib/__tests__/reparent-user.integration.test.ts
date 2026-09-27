@@ -69,7 +69,8 @@ describe("reparentUserData", () => {
       .returning();
     // A guest's generation job row: FK to user.id, and it outlives the render
     // (only deleteDesign removes it), so leaving it behind makes the anonymous
-    // plugin's delete of the anon user fail.
+    // plugin's delete of the anon user fail (logged, not thrown, since
+    // better-auth 1.6 — so nothing but this test would notice).
     const [job] = await db
       .insert(schema.imageGeneration)
       .values({
