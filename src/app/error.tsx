@@ -26,14 +26,17 @@ import {
  */
 export default function Error({
   error,
-  unstable_retry,
+  retry,
   reset,
 }: {
   error: Error & { digest?: string };
-  // Both are supplied by Next 16.2. They are typed optional so that a
-  // future rename of the unstable_ prop cannot turn the click handler into
-  // `undefined()` at runtime — see the ?? below.
-  unstable_retry?: () => void;
+  // `retry` re-fetches and re-renders the segment; it's the one Next's own
+  // docs recommend (node_modules/next/dist/docs/.../error.md). `reset`
+  // clears the boundary without re-fetching — kept as a fallback only in
+  // case a future Next version stops supplying `retry`, not because either
+  // is expected to be missing today (the runtime's error-boundary.js always
+  // sets both).
+  retry?: () => void;
   reset?: () => void;
 }) {
   useEffect(() => {
@@ -50,7 +53,7 @@ export default function Error({
         </h1>
         <div className="flex flex-wrap items-center gap-4">
           <Button
-            onClick={() => (unstable_retry ?? reset)?.()}
+            onClick={() => (retry ?? reset)?.()}
             className="min-h-11"
           >
             {ERROR_BOUNDARY_RETRY}
