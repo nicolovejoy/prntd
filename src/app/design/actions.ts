@@ -190,6 +190,46 @@ export type GenerateResult =
 /** Copy shown when the user already holds the max concurrent generations. */
 const AT_CAPACITY_MESSAGE = `You have ${GENERATION_CONCURRENCY_CAP} designs generating already — give them a moment.`;
 
+/**
+ * Raw row lookup for a client-minted job id (#245), with no ownership
+ * filtering — every caller below applies that itself, since a foreign row
+ * means different things at different call sites (the initial replay check
+ * throws on one; the limit/at_capacity branches after a concurrent replay's
+ * own execution just fall through to their ordinary refusal).
+ */
+async function findJobById(jobId: string) {
+  const [existing] = await db
+    .select()
+    .from(imageGenerationTable)
+    .where(eq(imageGenerationTable.id, jobId))
+    .limit(1);
+  return existing ?? null;
+}
+
+/**
+ * The queued `GenerateResult` for `job`, but ONLY when it is `userId`'s own
+ * row on `designId` AND still `running` or `succeeded`. A `failed` or
+ * `cancelled` row must never be reported as queued (#245 rebuild review, item
+ * 3): that would tell the client the generation is still working, or already
+ * delivered, when it demonstrably is not. Returns null for anything else,
+ * including a foreign row — callers decide what a foreign row means.
+ */
+function queuedResultForReplay(
+  job: Awaited<ReturnType<typeof findJobById>>,
+  userId: string,
+  designId: string
+): GenerateResult | null {
+  if (!job) return null;
+  if (job.userId !== userId || job.designId !== designId) return null;
+  if (job.status !== "running" && job.status !== "succeeded") return null;
+  return {
+    kind: "queued",
+    jobId: job.id,
+    generationNumber: job.generationNumber,
+    imageId: job.imageId,
+  };
+}
+
 export async function generateDesign(
   designId: string,
   userMessage?: string,
@@ -221,25 +261,17 @@ export async function generateDesign(
   // Replay check (#245), before quota, capacity or any write. A resubmit of a
   // request whose response was lost returns the ORIGINAL queued result
   // untouched — no second quota spend, no second render. Anything else (the
-  // id belongs to another user, or to this user on a different design) is
+  // id belongs to another user, or to this user on a different design, or to
+  // this user on THIS design but already settled to `failed`/`cancelled`) is
   // treated the same as a malformed id: reject before anything is spent.
+  // `failed`/`cancelled` must NOT be replayed as "queued" (#245 rebuild
+  // review, item 3) — that would tell the client the generation is still
+  // working, or already delivered, when it demonstrably is not.
   if (opts.jobId !== undefined) {
-    const [existing] = await db
-      .select()
-      .from(imageGenerationTable)
-      .where(eq(imageGenerationTable.id, opts.jobId))
-      .limit(1);
-    if (existing) {
-      if (existing.userId === session.user.id && existing.designId === designId) {
-        return {
-          kind: "queued",
-          jobId: existing.id,
-          generationNumber: existing.generationNumber,
-          imageId: existing.imageId,
-        };
-      }
-      throw new Error("Invalid job id");
-    }
+    const existing = await findJobById(opts.jobId);
+    const replayed = queuedResultForReplay(existing, session.user.id, designId);
+    if (replayed) return replayed;
+    if (existing) throw new Error("Invalid job id");
   }
 
   // Find only — NOT create. Creating the row is deferred past the quota and

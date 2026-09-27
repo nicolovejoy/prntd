@@ -352,6 +352,44 @@ describe("generateDesign({ jobId }) — client-minted job id (#245)", () => {
     expect(await quotaCount()).toBe(1);
   });
 
+  it.each(["failed", "cancelled"] as const)(
+    "an own id whose row already settled to %s is refused, not replayed as queued",
+    async (status) => {
+      await seedUser();
+      const designId = crypto.randomUUID();
+      const jobId = crypto.randomUUID();
+      await testDb.insert(schema.design).values({ id: designId, userId: "u1" });
+      await testDb.insert(schema.imageGeneration).values({
+        id: jobId,
+        designId,
+        userId: "u1",
+        status,
+        operation: "generate",
+        imageId: crypto.randomUUID(),
+        r2Key: "images/settled.png",
+        generationNumber: 1,
+        dayKey: dayKeyUTC(new Date()),
+        cost: 0.03,
+        startedAt: new Date(),
+        finishedAt: new Date(),
+      });
+
+      // No quota spent yet (this is the pre-quota replay check) — a genuine
+      // failure/cancel must not be reported back as "queued", which would
+      // tell the client the generation is still working or already
+      // delivered when it demonstrably isn't (#245 rebuild review, item 3).
+      await expect(
+        generateDesign(designId, "a red dragon", { jobId })
+      ).rejects.toThrow("Invalid job id");
+
+      expect(await quotaCount()).toBe(0);
+      expect(briefMock).not.toHaveBeenCalled();
+      expect(afterQueue.callbacks).toHaveLength(0);
+      const row = await jobRow(jobId);
+      expect(row.status).toBe(status);
+    }
+  );
+
   it("a FOREIGN row appearing at insert time throws and refunds exactly once", async () => {
     await seedUser("u1");
     await seedUser("owner2");
