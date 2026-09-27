@@ -3,18 +3,11 @@
 import { headers } from "next/headers";
 import { auth, isAnonymousUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import {
-  design as designTable,
-  order as orderTable,
-  orderItem as orderItemTable,
-} from "@/lib/db/schema";
+import { design as designTable } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { stripe } from "@/lib/stripe";
-import { computePrice, computeOrderTotal } from "@/lib/pricing";
-import { buildCheckoutSessionParams } from "@/lib/checkout";
-import { embeddedCheckoutPath } from "@/lib/embedded-checkout";
+import { computePrice } from "@/lib/pricing";
+import { createStripeCheckoutForOrder } from "@/lib/order-checkout";
 import {
-  resolveOrderVariant,
   multiPlacementEnabled,
   DEFAULT_BLANK_ID,
   getBlank,
@@ -143,119 +136,4 @@ export async function createCheckoutSession(params: {
     checkoutImageUrl,
     cancelUrl: `${process.env.NEXT_PUBLIC_APP_URL}/preview?id=${params.designId}&size=${encodeURIComponent(params.size)}&color=${encodeURIComponent(params.color)}&product=${resolvedProductId}${frontImageId ? `&front=${frontImageId}` : ""}${backImageId ? `&back=${backImageId}` : ""}`,
   });
-}
-
-/**
- * Shared order-creation + Stripe-checkout step for both purchase flows
- * (design-your-own via `createCheckoutSession`, buy-existing via
- * `buyPublishedDesign`). Inserts the order row, creates the Stripe
- * session with `buildCheckoutSessionParams`, persists the session id,
- * and returns the redirect URL. Callers own auth, pricing, image-pinning
- * and the cancel URL; this owns the parts that would otherwise drift.
- */
-export async function createStripeCheckoutForOrder(params: {
-  userId: string;
-  designId: string;
-  productId: string;
-  size: string;
-  color: string;
-  /** Product price (computePrice total). Shipping is added here. */
-  itemPrice: number;
-  /** placement id → source design_image id. `front` is the pinned primary;
-   * `back` (#25) is present only for multi-placement orders. */
-  placements: Record<string, string> | null;
-  checkoutImageUrl: string | null;
-  cancelUrl: string;
-  /** Composition attribution. `storeId` is the organizer storefront (null for
-   * a PRNTD Shop sale); `storeProductId` is the `product` row bought — the
-   * organizer's sellable, or the published image's mirror composition. Both
-   * null for design-your-own. See the schema comment on `order`. */
-  storeId?: string | null;
-  storeProductId?: string | null;
-  /** Present only when the caller has resolved `embeddedCheckoutConfig()` to
-   * enabled (#135 slice 2): the session mounts on our own /checkout page
-   * instead of Stripe's hosted page. `backPath` is where /checkout's back
-   * link goes; `cancelUrl` above is ignored in this mode (buildCheckoutSessionParams
-   * doesn't take a cancel_url for an embedded session). `returnOrigin` is the
-   * origin Stripe's `return_url` is built from — the caller resolves it via
-   * `resolveReturnOrigin` so a preview deployment's session returns to that
-   * same preview instead of always landing on `NEXT_PUBLIC_APP_URL`; hosted
-   * checkout keeps using `NEXT_PUBLIC_APP_URL` unconditionally, since the
-   * buyer already leaves our origin in that mode. */
-  embedded?: { backPath: string; returnOrigin: string };
-}): Promise<{ url: string | null }> {
-  // Validate product/size/color before taking money — rejects an
-  // unknown/discontinued product or a combo with no fulfillable variant.
-  const { product } = resolveOrderVariant({
-    productId: params.productId,
-    size: params.size,
-    color: params.color,
-  });
-  const productName = product.name;
-
-  // Split the charge: product (the line item promos discount) + shipping
-  // (a separate Stripe line, excluded from % promos). Persist both plus the
-  // grand total; the webhook later reconciles totalPrice to the actual amount
-  // charged (after any discount) from Stripe.
-  const { item, shipping, total } = computeOrderTotal(params.itemPrice);
-
-  // Phase 1b/1c: the order_item row is the only record of what was bought —
-  // the header carries order-level money and linkage only. Order + item commit
-  // together; the id is pre-generated so both inserts build before the batch
-  // (the checkoutCart pattern). Single line, quantity 1; itemPrice is the
-  // product line (shipping is order-level, not per item).
-  const orderId = crypto.randomUUID();
-  await db.batch([
-    db.insert(orderTable).values({
-      id: orderId,
-      userId: params.userId,
-      designId: params.designId,
-      totalPrice: total,
-      itemPrice: item,
-      shippingPrice: shipping,
-      storeId: params.storeId ?? null,
-      storeProductId: params.storeProductId ?? null,
-    }),
-    db.insert(orderItemTable).values({
-      orderId,
-      designId: params.designId,
-      productId: params.productId,
-      size: params.size,
-      color: params.color,
-      placements: params.placements,
-      quantity: 1,
-      itemPrice: item,
-    }),
-  ]);
-
-  const checkoutSession = await stripe.checkout.sessions.create(
-    buildCheckoutSessionParams({
-      orderId,
-      designId: params.designId,
-      productName,
-      color: params.color,
-      size: params.size,
-      itemPrice: item,
-      shippingPrice: shipping,
-      imageUrl: params.checkoutImageUrl,
-      cancelUrl: params.cancelUrl,
-      appUrl: params.embedded
-        ? params.embedded.returnOrigin
-        : process.env.NEXT_PUBLIC_APP_URL!,
-      uiMode: params.embedded ? "embedded" : "hosted",
-    })
-  );
-
-  await db
-    .update(orderTable)
-    .set({ stripeSessionId: checkoutSession.id })
-    .where(eq(orderTable.id, orderId));
-
-  if (params.embedded) {
-    return {
-      url: embeddedCheckoutPath(checkoutSession.id, params.embedded.backPath),
-    };
-  }
-
-  return { url: checkoutSession.url };
 }
