@@ -1,14 +1,18 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "fs";
+import { readFileSync, readdirSync } from "fs";
 import { join } from "path";
 import ts from "typescript";
 
 // Every export of a "use server" file is a Server Action: a public endpoint
 // anyone can POST to with arbitrary arguments (#251). These tests pin the
-// runtime export list of each such file so a trusted-input helper can't be
-// added to one by accident, and check that the two helpers moved out for that
-// reason stay out.
+// runtime export list of four such files so a trusted-input helper can't be
+// added to one by accident; check, across EVERY "use server" file under src/
+// (not just the four pinned), that neither helper moved out for that reason
+// is exported or re-exported; and check that no file under src/lib/**
+// contains a "use server" directive anywhere, since that would turn a
+// trusted helper into an unauthenticated Server Action just as surely as
+// putting it in an app/**/actions.ts file.
 
 const ROOT = join(__dirname, "../../..");
 
@@ -123,6 +127,29 @@ function containsUseServer(source: string): boolean {
 
 function read(rel: string): string {
   return readFileSync(join(ROOT, rel), "utf-8");
+}
+
+/**
+ * Every .ts/.tsx source file under `dir` (relative to ROOT), recursively,
+ * skipping test files and directories. Used to check a property across ALL
+ * matching files rather than a hand-maintained list, so a new file can't
+ * silently sit outside the check.
+ */
+function listSourceFiles(dir: string): string[] {
+  const abs = join(ROOT, dir);
+  const out: string[] = [];
+  for (const entry of readdirSync(abs, { withFileTypes: true })) {
+    if (entry.name === "node_modules" || entry.name === "__tests__") continue;
+    const rel = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      out.push(...listSourceFiles(rel));
+      continue;
+    }
+    if (!/\.(ts|tsx)$/.test(entry.name)) continue;
+    if (/\.test\.tsx?$/.test(entry.name)) continue;
+    out.push(rel);
+  }
+  return out;
 }
 
 describe("runtimeExports helper", () => {
@@ -274,6 +301,62 @@ describe("helpers moved out of use-server files", () => {
       const source = read(file);
       expect(runtimeExports(source)).toContain(name);
       expect(containsUseServer(source)).toBe(false);
+    });
+  }
+});
+
+describe("no \"use server\" file re-exposes a moved trusted-input helper", () => {
+  // Every file whose first statement is the directive, not just the four
+  // pinned above — a re-export from any of them would put a trusted-input
+  // helper back on the Server Action surface just as surely as defining it
+  // there directly (#251). runtimeExports already resolves `export { x }
+  // from "./m"` and `export * as ns from "./m"` to their bound names, so a
+  // re-export is caught the same way a direct export is.
+  const bannedNames = ["createStripeCheckoutForOrder", "prefetchProductMockups"];
+  const useServerFiles = listSourceFiles("src").filter((f) =>
+    startsWithUseServer(read(f)),
+  );
+
+  it("found at least one \"use server\" file to check", () => {
+    expect(useServerFiles.length).toBeGreaterThan(0);
+  });
+
+  for (const file of useServerFiles) {
+    it(`${file} does not export or re-export a moved trusted-input helper`, () => {
+      const exported = runtimeExports(read(file));
+      for (const banned of bannedNames) {
+        expect(
+          exported,
+          `${file} exports ${banned}. That helper was moved out of "use ` +
+            `server" files because it trusts caller-supplied input with no ` +
+            `auth of its own (#251); exporting or re-exporting it from a ` +
+            `Server Action file puts it back on the POST-able surface.`,
+        ).not.toContain(banned);
+      }
+    });
+  }
+});
+
+describe("no src/lib file contains a \"use server\" directive", () => {
+  // A directive anywhere in a src/lib file — even nested inside a function
+  // body — turns its exports (or that function) into Server Actions with no
+  // auth of their own, which is exactly the #251 problem. src/lib is meant to
+  // hold trusted helpers that a "use server" file's own auth check gates.
+  const libFiles = listSourceFiles("src/lib");
+
+  it("found src/lib files to check", () => {
+    expect(libFiles.length).toBeGreaterThan(0);
+  });
+
+  for (const file of libFiles) {
+    it(`${file} has no "use server" directive`, () => {
+      expect(
+        containsUseServer(read(file)),
+        `${file} contains a "use server" directive. src/lib holds trusted ` +
+          `helpers, not Server Actions (#251) — a directive here, even ` +
+          `inside a function body, makes its exports directly callable with ` +
+          `no auth of their own.`,
+      ).toBe(false);
     });
   }
 });
