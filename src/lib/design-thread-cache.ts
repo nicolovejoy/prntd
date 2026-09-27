@@ -2,11 +2,12 @@
  * Client-side cache for design threads.
  *
  * Two producers feed it:
- * - Warm path (#87): a /designs card prefetches its thread when visible or
- *   touched, so tapping through hydrates instantly instead of flashing an
- *   empty composer.
+ * - Warm path (#87): the old /designs card grid (retired) prefetched a
+ *   thread when its card was visible or touched, so tapping through
+ *   hydrated instantly instead of flashing an empty composer. Nothing warms
+ *   this path today.
  * - Revisit path (#127): the /design page mirrors its rendered state back
- *   here, so /designs → thread → back → same thread re-renders from memory.
+ *   here, so thread → back → same thread re-renders from memory.
  *
  * Snapshots are initial state only: the page still revalidates from the
  * server-streamed thread payload, so a stale or absent entry never breaks

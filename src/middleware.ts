@@ -39,7 +39,12 @@ export function middleware(request: NextRequest) {
     !sessionToken &&
     protectedRoutes.some((route) => request.nextUrl.pathname.startsWith(route))
   ) {
-    return NextResponse.redirect(new URL("/sign-in", request.url));
+    // Carry the intended destination — sign-in runs it through safeNextPath
+    // and passes it on to sign-up, so a signed-out visitor lands where they
+    // were headed instead of the default post-sign-in page.
+    const url = new URL("/sign-in", request.url);
+    url.searchParams.set("next", request.nextUrl.pathname + request.nextUrl.search);
+    return NextResponse.redirect(url);
   }
 
   return NextResponse.next();

@@ -315,7 +315,7 @@ differ.
   Guests use the Studio too (#241): while `GUEST_FUNNEL_ENABLED` is on, an
   anonymous guest-funnel session sees its own bench and its own My Designs
   (an empty state when it has no designs yet); once it has at least one
-  design, My Designs also shows one line, "Sign up to keep
+  design, both the bench and My Designs show one line, "Sign up to keep
   these designs. Have an account? Sign in." (two links, `/sign-up` and
   `/sign-in`; either one from the same window moves the guest's work to the
   account). On the bench it sits under the composer, never above it (it

@@ -3,8 +3,10 @@
  * (docs/ux-design-review-2026-09.md) moved My Designs out to its own
  * top-level route (`/designs`), so the Studio is a single view now — the
  * bench — and this layout is just its heading. No bottom margin on the
- * `<h1>`: the bench's own `py-6` wrapper around the composer supplies the
- * 24px gap beneath it, the same 24px the bench had under the old tab strip.
+ * `<h1>`: outside select mode, the bench's own `py-6` wrapper around the
+ * composer supplies the 24px gap beneath it; in select mode, where that
+ * wrapper unmounts, `main`'s own `pt-6` supplies it instead. Either way it's
+ * the same 24px the bench had under the old tab strip.
  *
  * The page owns its own auth gate (requireStudioUser, which admits a
  * guest-funnel session while the guest funnel is on, #241); a layout renders

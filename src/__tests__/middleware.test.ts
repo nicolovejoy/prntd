@@ -60,6 +60,22 @@ describe("middleware — a visitor with no session (guest funnel on)", () => {
   it("sends /orders to /sign-in", () => {
     expect(redirectTarget(middleware(request("/orders")))).toBe("/sign-in");
   });
+
+  it("carries the intended destination as ?next= for /designs", () => {
+    const res = middleware(request("/designs"));
+    const location = res.headers.get("location");
+    expect(location).not.toBeNull();
+    const next = new URL(location as string).searchParams.get("next");
+    expect(next).toBe("/designs");
+  });
+
+  it("carries the intended destination with its query string for /orders", () => {
+    const res = middleware(request("/orders?tab=all"));
+    const location = res.headers.get("location");
+    expect(location).not.toBeNull();
+    const next = new URL(location as string).searchParams.get("next");
+    expect(next).toBe("/orders?tab=all");
+  });
 });
 
 describe("middleware — a visitor with a session cookie", () => {

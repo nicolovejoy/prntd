@@ -121,8 +121,9 @@ function DesignPageInner({ initialThreadPromise, canPublish }: Props) {
   const designId = useRef(resumeId ?? crypto.randomUUID());
 
   // Initial thread state, in precedence order:
-  // 1. Client thread cache — a snapshot warmed from a /designs card (#87) or
-  //    written back by a previous visit to this thread (revisit path, #127).
+  // 1. Client thread cache — a snapshot warmed by the old /designs card grid
+  //    (retired, #87; nothing warms this path today) or written back by a
+  //    previous visit to this thread (revisit path, #127).
   //    Read once (lazy initializer) so a later warm can't retro-populate a
   //    live session; the server payload below still revalidates it.
   // 2. The server-streamed thread — chat AND gallery in one payload, so a
