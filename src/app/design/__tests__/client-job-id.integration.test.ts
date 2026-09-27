@@ -81,12 +81,31 @@ vi.mock("@/lib/generators/registry", () => {
   };
 });
 
+// consumeGenerationQuota is wrapped (not replaced) so every existing test
+// keeps the real quota math; the two "concurrent replay" tests below use
+// `mockImplementationOnce` to insert a rival job row from inside a real
+// consumeGenerationQuota call — the only way to land that row strictly
+// BETWEEN the pre-quota replay check (which runs once, moments earlier, and
+// finds nothing) and the limit/at_capacity checks that follow it, since a
+// plain sequential second call to generateDesign would just hit the replay
+// check itself (#245 rebuild review, item 2).
+const quotaModuleState = vi.hoisted(() => ({
+  actual: undefined as unknown as typeof import("@/lib/generation-quota"),
+}));
+vi.mock("@/lib/generation-quota", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/generation-quota")>();
+  quotaModuleState.actual = actual;
+  return { ...actual, consumeGenerationQuota: vi.fn(actual.consumeGenerationQuota) };
+});
+
 const { generateDesign } = await import("@/app/design/actions");
 const { GENERATION_CONCURRENCY_CAP } = await import("@/lib/generation-job");
 const ai = await import("@/lib/ai");
 const { auth: authMock } = await import("@/lib/auth");
+const quotaModule = await import("@/lib/generation-quota");
 
 const briefMock = ai.constructDesignBrief as Mock;
+const consumeQuotaMock = quotaModule.consumeGenerationQuota as Mock;
 
 async function seedUser(id = "u1") {
   await testDb.insert(schema.user).values({ id, email: `${id}@b.c`, name: id });
@@ -113,6 +132,28 @@ async function quotaCount(bucket = "user:u1"): Promise<number> {
     .from(schema.generationUsage)
     .where(eq(schema.generationUsage.bucket, bucket));
   return usage?.count ?? 0;
+}
+
+/**
+ * Insert a `running` job row directly under a specific id, simulating a
+ * concurrent execution of the SAME client-minted request that has already
+ * reached `insertGenerationJob` by the time this call's own quota/capacity
+ * check runs.
+ */
+async function insertRivalJob(designId: string, jobId: string, userId = "u1") {
+  await testDb.insert(schema.imageGeneration).values({
+    id: jobId,
+    designId,
+    userId,
+    status: "running",
+    operation: "generate",
+    imageId: crypto.randomUUID(),
+    r2Key: "images/rival.png",
+    generationNumber: 1,
+    dayKey: dayKeyUTC(new Date()),
+    cost: 0.03,
+    startedAt: new Date(),
+  });
 }
 
 /** Fill `count` of a user's concurrency slots with running jobs on another design. */
@@ -246,6 +287,71 @@ describe("generateDesign({ jobId }) — client-minted job id (#245)", () => {
     expect(res.kind).toBe("at_capacity");
     expect(await jobRow(jobId)).toBeUndefined();
     expect(await quotaCount()).toBe(0);
+    expect(afterQueue.callbacks).toHaveLength(0);
+  });
+
+  it("a concurrent replay that trips the quota limit sees the original's queued job instead, net quota unchanged", async () => {
+    await seedUser();
+    const designId = crypto.randomUUID();
+    const jobId = crypto.randomUUID();
+    await testDb.insert(schema.design).values({ id: designId, userId: "u1" });
+
+    // The identity bucket is already AT the cap — representing the
+    // "original" concurrent execution's own spend having already landed —
+    // so this call's own (real) consumeGenerationQuota bump pushes it over.
+    const { USER_GEN_DAILY_CAP } = quotaModuleState.actual;
+    await testDb.insert(schema.generationUsage).values({
+      bucket: "user:u1",
+      day: dayKeyUTC(new Date()),
+      count: USER_GEN_DAILY_CAP,
+    });
+
+    consumeQuotaMock.mockImplementationOnce(async (opts) => {
+      // The concurrent original's own insertGenerationJob has landed by now
+      // — its replay pre-check ran moments earlier and found nothing yet.
+      await insertRivalJob(designId, jobId, opts.userId);
+      return quotaModuleState.actual.consumeGenerationQuota(opts);
+    });
+
+    const res = await generateDesign(designId, "a red dragon", { jobId });
+
+    expect(res.kind).toBe("queued");
+    expect(res.kind === "queued" && res.jobId).toBe(jobId);
+    // Net-unchanged by the replay: this call's own spend (which pushed the
+    // bucket to CAP + 1) was refunded once the rival's row was found.
+    expect(await quotaCount()).toBe(USER_GEN_DAILY_CAP);
+    expect(await jobsById(jobId)).toHaveLength(1);
+    expect(briefMock).not.toHaveBeenCalled();
+    expect(afterQueue.callbacks).toHaveLength(0);
+  });
+
+  it("a concurrent replay that trips the advisory capacity check sees the original's queued job instead, net quota unchanged", async () => {
+    await seedUser();
+    await fillSlots("u1", GENERATION_CONCURRENCY_CAP - 1); // one slot free
+    const designId = crypto.randomUUID();
+    const jobId = crypto.randomUUID();
+    await testDb.insert(schema.design).values({ id: designId, userId: "u1" });
+
+    consumeQuotaMock.mockImplementationOnce(async (opts) => {
+      // The concurrent original's own insertGenerationJob has already landed
+      // by the time this call reaches its (allowed) quota check — its own
+      // replay pre-check ran moments earlier and found nothing yet. That row
+      // now occupies the one free slot, so the advisory capacity check right
+      // after this trips for THIS call too.
+      await insertRivalJob(designId, jobId, opts.userId);
+      return quotaModuleState.actual.consumeGenerationQuota(opts);
+    });
+
+    const quotaBefore = await quotaCount();
+    const res = await generateDesign(designId, "a red dragon", { jobId });
+
+    expect(res.kind).toBe("queued");
+    expect(res.kind === "queued" && res.jobId).toBe(jobId);
+    // Net-unchanged: this call's own spend was refunded when the advisory
+    // capacity check found the rival's row.
+    expect(await quotaCount()).toBe(quotaBefore);
+    expect(await jobsById(jobId)).toHaveLength(1);
+    expect(briefMock).not.toHaveBeenCalled();
     expect(afterQueue.callbacks).toHaveLength(0);
   });
 

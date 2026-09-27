@@ -299,6 +299,27 @@ export async function generateDesign(
     now,
   });
   if (!quota.allowed) {
+    // A concurrent replay of this exact client id can consume quota itself
+    // (the counter bumps even on a blocked attempt) and, for a user near the
+    // cap, land here even though the OTHER execution of this same request
+    // has already reached insertGenerationJob (#245 rebuild review, item 2).
+    // Reporting "limit" to this call would tell the client it hit its daily
+    // cap while the design it actually asked for is queued and rendering.
+    // Check for that row before refusing, and if it's there, refund this
+    // call's wasted spend and hand back the same queued result.
+    if (opts.jobId !== undefined) {
+      const replayed = queuedResultForReplay(
+        await findJobById(opts.jobId),
+        userId,
+        designId
+      );
+      if (replayed) {
+        await refundGenerationQuota({ userId, ip, day: dayKey }).catch((e) =>
+          console.error("refundGenerationQuota failed:", e)
+        );
+        return replayed;
+      }
+    }
     return { kind: "limit", message: generationLimitMessage(quota.reason) };
   }
 
@@ -314,6 +335,17 @@ export async function generateDesign(
     await refundGenerationQuota({ userId, ip, day: dayKey }).catch((e) =>
       console.error("refundGenerationQuota failed:", e)
     );
+    // Same concurrent-replay case as the limit branch above, tripped one
+    // check later: the OTHER execution of this exact request occupied the
+    // slot this call just lost the race for (#245 rebuild review, item 2).
+    if (opts.jobId !== undefined) {
+      const replayed = queuedResultForReplay(
+        await findJobById(opts.jobId),
+        userId,
+        designId
+      );
+      if (replayed) return replayed;
+    }
     return { kind: "at_capacity", message: AT_CAPACITY_MESSAGE };
   }
 
