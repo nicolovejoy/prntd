@@ -152,9 +152,9 @@ export function SiteHeader({
 
         {/* Full pill from sm: up, where it fits beside four bar items and the
             wordmark. On a phone, four items plus the wordmark already fill a
-            360px bar (see the gap-2/gap-3/gap-4 measurements below), so
-            there is no room for a fifth element here — the Studio link
-            itself carries the phone signal instead (the dot just below). */}
+            360px bar, so there is no room for a fifth element here — the
+            Studio link itself carries the phone signal instead (the dot
+            just below). */}
         {runningJobs > 0 && (
           <Link
             href="/studio"
@@ -165,6 +165,10 @@ export function SiteHeader({
           </Link>
         )}
 
+        {/* Geist 14px widths: wordmark 47px, Studio 41, My Designs 75, Shop
+            33, "Cart (12)" 53, hamburger 44 (–8 via -mr-2). At 360px there
+            are 328px inside the gutters; gap-4 needs ~349px, gap-3 ~333px,
+            gap-2 ~317px (plan: docs/superpowers/plans/2026-09-27-my-designs-nav.md). */}
         <div className="flex items-center gap-2 sm:gap-4">
           {/* The three verbs, in the bar at every width now (My Designs used
               to live only in the Studio's own Library tab). Each gets a real
@@ -178,16 +182,14 @@ export function SiteHeader({
                 href={l.href}
                 aria-current={current ? "page" : undefined}
                 className={`flex items-center min-h-11 sm:min-h-0 text-sm transition-colors ${
-                  l.href === "/studio" ? "relative" : ""
-                } ${
                   current
                     ? "text-foreground underline underline-offset-[3px]"
                     : "text-text-muted hover:text-foreground"
                 }`}
               >
-                {l.label}
-                {l.href === "/studio" && runningJobs > 0 && (
-                  <>
+                {l.href === "/studio" && runningJobs > 0 ? (
+                  <span className="relative">
+                    {l.label}
                     {/* Phone-only stand-in for the full badge above: a 6px
                         ink dot (not rose — rose stays on the wordmark and
                         Generate, Paper "One Mark") that adds no layout width,
@@ -200,7 +202,9 @@ export function SiteHeader({
                     <span className="sr-only sm:hidden">
                       , {runningJobs === 1 ? "1 generating" : `${runningJobs} generating`}
                     </span>
-                  </>
+                  </span>
+                ) : (
+                  l.label
                 )}
               </Link>
             );
@@ -214,9 +218,9 @@ export function SiteHeader({
           {showCart && (
             <Link
               href="/cart"
-              aria-current={pathname === "/cart" ? "page" : undefined}
+              aria-current={isCurrentSection(pathname, "/cart") ? "page" : undefined}
               className={`flex items-center min-h-11 sm:min-h-0 text-sm transition-colors ${
-                pathname === "/cart"
+                isCurrentSection(pathname, "/cart")
                   ? "text-foreground underline underline-offset-[3px]"
                   : "text-text-muted hover:text-foreground"
               }`}

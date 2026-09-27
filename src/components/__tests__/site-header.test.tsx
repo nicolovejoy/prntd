@@ -322,6 +322,22 @@ describe("SiteHeader running-jobs phone dot", () => {
     expect(screen.getByTestId("running-jobs-dot")).toBeTruthy();
     const studioLink = within(bar()).getByRole("link", { name: /Studio/ });
     expect(within(studioLink).getByText(/2 generating/)).toBeTruthy();
+    expect(studioLink.textContent).toContain(", 2 generating");
+  });
+
+  it("anchors the dot to a positioned wrapper around the Studio text, not the link directly", async () => {
+    h.session = { user: { id: "u1" } };
+    h.headerState = { isAdmin: false, cartCount: 0, runningJobs: 2 };
+    render(<SiteHeader cartEnabled={false} />);
+    await settle();
+
+    const dot = screen.getByTestId("running-jobs-dot");
+    const wrapper = dot.parentElement;
+    expect(wrapper?.textContent?.startsWith("Studio")).toBe(true);
+    expect(wrapper?.className.split(/\s+/)).toContain("relative");
+
+    const studioLink = within(bar()).getByRole("link", { name: /Studio/ });
+    expect(dot.parentElement).not.toBe(studioLink);
   });
 
   it("omits the dot when no jobs are running", async () => {

@@ -65,7 +65,7 @@ export function OrdersList({ orders }: { orders: UserOrder[] }) {
           </h1>
         </div>
 
-        {/* Status filter — a tab-style strip, same pattern as other filtered lists. */}
+        {/* Status filter — underline tabs, a bottom-border indicator on the selected filter. */}
         {orders.length > 0 && (
           <div className="flex items-center gap-4 border-b border-border mb-4">
             {(["active", "canceled", "all"] as const).map((f) => (
