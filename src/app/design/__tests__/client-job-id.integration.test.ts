@@ -346,8 +346,9 @@ describe("generateDesign({ jobId }) — client-minted job id (#245)", () => {
     const rows = await jobsById(jobId);
     expect(rows).toHaveLength(1);
     expect(afterQueue.callbacks).toHaveLength(0);
-    // Net quota consumed = the (cap - 1) filled slots + the rival's own unit;
-    // this call's own spend was refunded.
+    // Net quota consumed = 1, the rival's own unit spent inline above:
+    // fillSlots writes rows directly, spending no quota, and this call's
+    // own spend was refunded.
     expect(await quotaCount()).toBe(1);
   });
 

@@ -294,10 +294,20 @@ describe("constructDesignBrief — the brief prompt's clarify contract", () => {
       )
     );
 
-    const { constructDesignBrief } = await import("../ai");
-    await constructDesignBrief([], [], "a fox");
+    const { DESIGN_BRIEF_TIMEOUT_MS } = await import("../lost-submit");
+    const fakeSignal = new AbortController().signal;
+    const timeoutSpy = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockReturnValue(fakeSignal);
+    try {
+      const { constructDesignBrief } = await import("../ai");
+      await constructDesignBrief([], [], "a fox");
 
-    const options = mockCreate.mock.calls[0][1] as { signal?: AbortSignal };
-    expect(options?.signal).toBeInstanceOf(AbortSignal);
+      expect(timeoutSpy).toHaveBeenCalledWith(DESIGN_BRIEF_TIMEOUT_MS);
+      const options = mockCreate.mock.calls[0][1] as { signal?: AbortSignal };
+      expect(options?.signal).toBe(fakeSignal);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
   });
 });

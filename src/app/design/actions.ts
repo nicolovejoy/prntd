@@ -567,7 +567,10 @@ async function prepareGeneration({
   // direct-refund catch covers must happen while no job row exists; a throw in
   // here after a successful insert would refund inline AND leave a `running`
   // row for the sweeper to refund again. The insert is the last thing in this
-  // function that can throw.
+  // function that can throw — except insertGenerationJob's read-back after a
+  // successful insert, which can also throw with the row already committed
+  // (double refund, held cap slot until the sweep; pre-existing, out of scope
+  // for #245, see plan).
   // Keyed off the resolved operation, not the brief's: a clarify brief and an
   // anchorless edit both come out the far side as generates, and the stored
   // prompt has to describe what was actually rendered.

@@ -305,3 +305,42 @@ test files to `origin/main`. Plan rewritten in place (same file).
   fast-fail paths. Carried to the fix round: 3 and 14 must prove the reconcile
   happened (lookup for the sent id, no notice before it answered); 6, 7 and 10
   assert the submit carried a UUID `jobId`.
+
+## Rebuild whole-branch review (opus) — APPROVED with minors
+
+No Critical or Important. It confirmed: every quota-consuming path ends with
+one owner or one refund (replay, duplicate, conflict, brief timeout); the cap
+cannot be bypassed by a client id (SQLite never checks the key when the
+`INSERT … SELECT` WHERE is false; `id` is the only unique constraint); the
+lookup is owner-filtered in the WHERE; ids cannot be pre-claimed (browser
+`crypto.randomUUID()`); re-parenting moves `image_generation.user_id` and the
+tab keeps the cookie; Next's action queue runs a call made at T at or after T;
+the SDK checks `signal.aborted` before every retry; Close/Delete/Select are
+hidden on lanes with a pending cell.
+
+Minors and rulings (all applied in the fix round):
+1. Window docblock overclaimed ("exists by the deadline or never"): now "in
+   practice", naming the residual case (a >15 s Turso stall → the old failure,
+   not a new one).
+2. `isServerActionError` and `prepareGeneration`'s "the insert is the last
+   thing that can throw" miss one case: `insertGenerationJob`'s read-back after
+   a committed insert can throw → digest error, outer refund, and the sweep
+   later fails the orphan row and refunds AGAIN (a double refund) while it
+   holds a cap slot. Pre-existing; the brief puts this class out of scope.
+   Docblocks and the plan's out-of-scope note now say so. Follow-up, not built
+   (cheap now: build the returned job from the insert's own values).
+3. `studio-view.ts` comments on `jobId` and the `jobId: null` settle bullet
+   updated for the reconcile path.
+4. The controller's carried test items (tests 3/14 prove the reconcile, 6/7/10
+   assert the UUID `jobId`, `mockUuidSequence` given three named ids) done.
+5. A wrong quota comment in `client-job-id.integration.test.ts` fixed.
+6. Guest lookup test added; the brief bound's value pinned via a spy on
+   `AbortSignal.timeout`; a "dispatched" test title → "called".
+7. Safeguard added: a `none`/`error` deadline verdict first checks the latest
+   lanes (`lanesRef`) for the client id pending, and treats that as landed. A
+   genuine `failed` status still fails. Test 15.
+8. `/design` (`design-client.tsx`) still has the pre-#245 catch and sends no
+   `jobId`: follow-up, mentioned in the summary.
+
+- Fix round (sonnet) applied 1-7. Re-review (haiku): RESOLVED.
+  `src/app/studio src/app/design src/lib`: 1613 pass.

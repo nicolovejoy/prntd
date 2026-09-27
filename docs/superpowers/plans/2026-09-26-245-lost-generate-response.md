@@ -141,6 +141,12 @@ into it clears.
   `generateDesign` throws with a digest and refunds while a `running` row holds
   a cap slot until the sweep. With client ids the client could check that id
   before failing; follow-up, not built.
+- `insertGenerationJob`'s read-back after a successful insert
+  (`src/lib/generation-job.ts`) can itself throw, after the row is committed.
+  `generateDesign` then throws with a digest, the outer catch refunds, and the
+  running row has no continuation — the stale sweep later fails it and refunds
+  a second time (a double refund), and it holds a cap slot until then.
+  Pre-existing, out of scope for #245.
 - The client never replays a submit automatically; the server-side replay path
   exists so a repeated id is safe, not because the client resends.
 

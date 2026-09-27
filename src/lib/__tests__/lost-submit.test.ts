@@ -66,7 +66,7 @@ describe("judgeLostSubmit", () => {
     ).toBe("failed");
   });
 
-  it("a call dispatched before the deadline can never fail, however late it is answered", () => {
+  it("a call made before the deadline can never fail, however late it is answered", () => {
     // calledAtMs is when the lookup went OUT, not when this judgement runs.
     expect(
       judgeLostSubmit({ status: "none", calledAtMs: deadlineMs - 1, deadlineMs })

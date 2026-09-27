@@ -16,7 +16,12 @@ export const DESIGN_BRIEF_TIMEOUT_MS = 45_000;
  * How long a lost submit's reconcile loop waits before giving up as failed.
  * Set above DESIGN_BRIEF_TIMEOUT_MS with margin for cold start and the DB
  * work around the brief call: the server started the request no later than
- * the client's catch, so its job row exists by this deadline or never will.
+ * the client's catch, so in practice its job row exists by this deadline or
+ * never will. Residual case: a Turso stall of more than ~15 s across
+ * generateDesign's pre-insert round trips could still write the row after
+ * the deadline. The client then shows the old failure (notice, words back)
+ * and the cell appears on the next poll — today's behaviour, not a new
+ * failure.
  */
 export const LOST_SUBMIT_WINDOW_MS = 60_000;
 
@@ -68,9 +73,14 @@ export function judgeLostSubmit(params: {
  * (`resolveErrorProd` / `resolveErrorDev`; the server attaches it in
  * `createReactServerErrorHandler`). A lost response (a fetch `TypeError`, a
  * cut stream, a 504) reaches the client with no digest at all.
- * `generateDesign` throws only while no job row exists (#245 design), so a
- * digest means this submit definitely never queued and the reconcile window
- * would be wasted time.
+ * `generateDesign` throws only while no job row exists (#245 design), except
+ * one case: `insertGenerationJob`'s read-back after a successful insert
+ * (src/lib/generation-job.ts) can itself throw, after the row is committed.
+ * There, the outer catch refunds while the running row has no continuation,
+ * so the stale sweep later fails it and refunds again (a double refund), and
+ * it holds a cap slot until then. Pre-existing, out of scope for #245 (see
+ * plan). A digest otherwise means this submit definitely never queued and the
+ * reconcile window would be wasted time.
  */
 export function isServerActionError(err: unknown): boolean {
   return (

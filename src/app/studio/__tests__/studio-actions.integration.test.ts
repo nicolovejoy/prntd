@@ -166,4 +166,49 @@ describe("getGenerationJobStatus", () => {
 
     expect(await getGenerationJobStatus(job.job.id)).toEqual({ status: "none" });
   });
+
+  it("lets an anonymous guest look up their own job, and reports none for another user's", async () => {
+    process.env.GUEST_FUNNEL_ENABLED = "true";
+    await makeUser(testDb, "guest");
+    const design = await makeDesign(testDb, "guest");
+    const job = await insertGenerationJob({
+      designId: design.id,
+      userId: "guest",
+      operation: "generate",
+      imageId: crypto.randomUUID(),
+      r2Key: `images/${crypto.randomUUID()}.png`,
+      anchorImageId: null,
+      generationNumber: 1,
+      dayKey: dayKeyUTC(new Date()),
+      ip: null,
+      cost: 0.03,
+      db: testDb,
+    });
+    if (!job.ok) throw new Error("expected insert to succeed");
+
+    const ownerJob = await insertGenerationJob({
+      designId: await makeDesign(testDb, "owner").then((d) => d.id),
+      userId: "owner",
+      operation: "generate",
+      imageId: crypto.randomUUID(),
+      r2Key: `images/${crypto.randomUUID()}.png`,
+      anchorImageId: null,
+      generationNumber: 1,
+      dayKey: dayKeyUTC(new Date()),
+      ip: null,
+      cost: 0.03,
+      db: testDb,
+    });
+    if (!ownerJob.ok) throw new Error("expected insert to succeed");
+
+    h.userId = "guest";
+    h.anonymous = true;
+
+    expect(await getGenerationJobStatus(job.job.id)).toEqual({
+      status: "running",
+    });
+    expect(await getGenerationJobStatus(ownerJob.job.id)).toEqual({
+      status: "none",
+    });
+  });
 });

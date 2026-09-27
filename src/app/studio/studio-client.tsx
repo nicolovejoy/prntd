@@ -191,6 +191,12 @@ export function StudioClient({
 
   const polling = useRef(false);
   const pollStartedAt = useRef<number | null>(null);
+  // Mirrors `lanes` for the async reconcile loop below, which must read
+  // current server state, not the closure it started with.
+  const lanesRef = useRef(lanes);
+  useEffect(() => {
+    lanesRef.current = lanes;
+  }, [lanes]);
   // Guards every lost-submit reconcile loop (#245): each loop checks this
   // before touching state, so an unmount stops it without a stray setState
   // and StrictMode's mount → unmount → remount still works.
@@ -533,6 +539,27 @@ export function StudioClient({
         return;
       }
       if (verdict === "failed") {
+        // A "failed" verdict from "none" or "error" is a deadline call, not
+        // server proof — a poll may already list this id as pending, and
+        // that is positive evidence the submit landed even if lookups keep
+        // failing. A genuine status "failed" is authoritative and always
+        // fails here regardless.
+        if (status !== "failed") {
+          const clientIdPending = lanesRef.current.some((lane) =>
+            lane.pending.some((job) => job.jobId === clientJobId)
+          );
+          if (clientIdPending) {
+            setOptimistic((entries) =>
+              entries.map((e) =>
+                e.localId === localId
+                  ? { ...e, jobId: clientJobId, jobIdKnownAtMs: Date.now() }
+                  : e
+              )
+            );
+            void pollOnce();
+            return;
+          }
+        }
         failSubmit(localId, trimmed);
         return;
       }

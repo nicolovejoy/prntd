@@ -1642,17 +1642,33 @@ describe("lost Generate response reconcile (#245)", () => {
   it("test 3: failed after loss — notice, words back, cell gone", async () => {
     vi.useFakeTimers();
     try {
-      mockUuidSequence(["local-3", "job-3"]);
+      mockUuidSequence(["design-3", "local-3", "job-3"]);
       vi.mocked(generateDesign).mockImplementationOnce(lostResponse);
-      vi.mocked(getGenerationJobStatus).mockResolvedValueOnce({
-        status: "failed",
-      });
+      let resolveStatus!: (v: { status: string }) => void;
+      vi.mocked(getGenerationJobStatus).mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveStatus = resolve as never;
+        }) as never
+      );
 
       render(<StudioClient initialLanes={[lane()]} />);
       submitText("a red dragon");
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(0);
+      });
+
+      expect(getGenerationJobStatus).toHaveBeenCalledWith("job-3");
+      expect(generateDesign).toHaveBeenCalledWith(
+        "design-3",
+        "a red dragon",
+        expect.objectContaining({ jobId: "job-3" })
+      );
+      expect(screen.queryByText(/Something went wrong/)).toBeNull();
+
+      resolveStatus({ status: "failed" });
+      await act(async () => {
+        await Promise.resolve();
       });
 
       expect(screen.queryByTestId("studio-pending-cell")).toBeNull();
@@ -1668,7 +1684,7 @@ describe("lost Generate response reconcile (#245)", () => {
   it("test 4: none until the deadline — cell stays and no notice before, then fails", async () => {
     vi.useFakeTimers();
     try {
-      mockUuidSequence(["local-4", "job-4"]);
+      mockUuidSequence(["design-4", "local-4", "job-4"]);
       vi.mocked(generateDesign).mockImplementationOnce(lostResponse);
       vi.mocked(getGenerationJobStatus).mockResolvedValue({ status: "none" });
 
@@ -1701,7 +1717,7 @@ describe("lost Generate response reconcile (#245)", () => {
   it("test 5: a lookup called before the deadline can't fail the submit, however late it resolves", async () => {
     vi.useFakeTimers();
     try {
-      mockUuidSequence(["local-5", "job-5"]);
+      mockUuidSequence(["design-5", "local-5", "job-5"]);
       vi.mocked(generateDesign).mockImplementationOnce(lostResponse);
       const resolvers: ((v: { status: string }) => void)[] = [];
       vi.mocked(getGenerationJobStatus).mockImplementation(
@@ -1752,13 +1768,19 @@ describe("lost Generate response reconcile (#245)", () => {
   });
 
   it("test 6: a digest throw fails at once and never calls the lookup", async () => {
-    mockUuidSequence(["local-6", "job-6"]);
+    mockUuidSequence(["design-6", "local-6", "job-6"]);
     vi.mocked(generateDesign).mockRejectedValueOnce(
       Object.assign(new Error("x"), { digest: "123" })
     );
 
     render(<StudioClient initialLanes={[lane()]} />);
     submitText("a red dragon");
+
+    expect(generateDesign).toHaveBeenCalledWith(
+      "design-6",
+      "a red dragon",
+      expect.objectContaining({ jobId: "job-6" })
+    );
 
     await waitFor(() =>
       expect(screen.queryByTestId("studio-pending-cell")).toBeNull()
@@ -1777,6 +1799,12 @@ describe("lost Generate response reconcile (#245)", () => {
     render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
     anchorCell(0);
     submitText("make it blue");
+
+    expect(generateDesign).toHaveBeenCalledWith(
+      expect.any(String),
+      "make it blue",
+      expect.objectContaining({ jobId: "job-7" })
+    );
 
     await waitFor(() => expect(getStudioLanes).toHaveBeenCalled());
     await waitFor(() => expect(screen.queryByTestId("studio-lane")).toBeNull());
@@ -1869,7 +1897,7 @@ describe("lost Generate response reconcile (#245)", () => {
   });
 
   it("test 10: offline at submit and at the catch fails fast, no lookup", async () => {
-    mockUuidSequence(["local-10", "job-10"]);
+    mockUuidSequence(["design-10", "local-10", "job-10"]);
     const onLineSpy = vi
       .spyOn(navigator, "onLine", "get")
       .mockReturnValue(false);
@@ -1879,6 +1907,12 @@ describe("lost Generate response reconcile (#245)", () => {
 
     render(<StudioClient initialLanes={[lane()]} />);
     submitText("a red dragon");
+
+    expect(generateDesign).toHaveBeenCalledWith(
+      "design-10",
+      "a red dragon",
+      expect.objectContaining({ jobId: "job-10" })
+    );
 
     await waitFor(() =>
       expect(screen.queryByTestId("studio-pending-cell")).toBeNull()
@@ -1891,7 +1925,7 @@ describe("lost Generate response reconcile (#245)", () => {
   it("test 11: a cancelled reconcile drops the cell silently — no notice, no words back", async () => {
     vi.useFakeTimers();
     try {
-      mockUuidSequence(["local-11", "job-11"]);
+      mockUuidSequence(["design-11", "local-11", "job-11"]);
       vi.mocked(generateDesign).mockImplementationOnce(lostResponse);
       vi.mocked(getGenerationJobStatus).mockResolvedValueOnce({
         status: "cancelled",
@@ -1917,7 +1951,7 @@ describe("lost Generate response reconcile (#245)", () => {
   it("test 12: every lookup throwing behaves like none — waits, then fails at the deadline", async () => {
     vi.useFakeTimers();
     try {
-      mockUuidSequence(["local-12", "job-12"]);
+      mockUuidSequence(["design-12", "local-12", "job-12"]);
       vi.mocked(generateDesign).mockImplementationOnce(lostResponse);
       vi.mocked(getGenerationJobStatus).mockRejectedValue(
         new Error("network")
@@ -1945,7 +1979,7 @@ describe("lost Generate response reconcile (#245)", () => {
   it("test 13: unmounting during the window stops further lookups", async () => {
     vi.useFakeTimers();
     try {
-      mockUuidSequence(["local-13", "job-13"]);
+      mockUuidSequence(["design-13", "local-13", "job-13"]);
       vi.mocked(generateDesign).mockImplementationOnce(lostResponse);
       vi.mocked(getGenerationJobStatus).mockResolvedValue({ status: "none" });
 
@@ -1975,11 +2009,14 @@ describe("lost Generate response reconcile (#245)", () => {
   it("test 14: words typed during the window survive a failure", async () => {
     vi.useFakeTimers();
     try {
-      mockUuidSequence(["local-14", "job-14"]);
+      mockUuidSequence(["design-14", "local-14", "job-14"]);
       vi.mocked(generateDesign).mockImplementationOnce(lostResponse);
-      vi.mocked(getGenerationJobStatus).mockResolvedValueOnce({
-        status: "failed",
-      });
+      let resolveStatus!: (v: { status: string }) => void;
+      vi.mocked(getGenerationJobStatus).mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveStatus = resolve as never;
+        }) as never
+      );
 
       render(<StudioClient initialLanes={[lane()]} />);
       submitText("a red dragon");
@@ -1995,10 +2032,57 @@ describe("lost Generate response reconcile (#245)", () => {
         await vi.advanceTimersByTimeAsync(0);
       });
 
+      expect(getGenerationJobStatus).toHaveBeenCalledWith("job-14");
+      expect(screen.queryByText(/Something went wrong/)).toBeNull();
+
+      resolveStatus({ status: "failed" });
+      await act(async () => {
+        await Promise.resolve();
+      });
+
       expect(screen.getByText(/Something went wrong/)).toBeTruthy();
       expect(
         (screen.getByTestId("studio-composer") as HTMLInputElement).value
       ).toBe("something new");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("test 15: a poll lists the job under the client id past the deadline while lookups keep throwing — no notice, words not given back", async () => {
+    vi.useFakeTimers();
+    try {
+      mockUuidSequence(["design-15", "local-15", "job-15"]);
+      vi.mocked(generateDesign).mockImplementationOnce(lostResponse);
+      vi.mocked(getGenerationJobStatus).mockRejectedValue(
+        new Error("network")
+      );
+
+      render(<StudioClient initialLanes={[lane()]} />);
+      submitText("a red dragon");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(screen.getByTestId("studio-pending-cell")).toBeTruthy();
+
+      // A poll lists this submit's job under the client id — positive
+      // server proof the submit landed, even though the lookup keeps
+      // throwing on its own cadence.
+      h.polledLanes = [lane({ pending: [pendingJob("job-15", 0)] })];
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(65_000);
+      });
+
+      expect(screen.getByTestId("studio-pending-cell")).toBeTruthy();
+      expect(screen.queryByText(/Something went wrong/)).toBeNull();
+      expect(
+        (screen.getByTestId("studio-composer") as HTMLInputElement).value
+      ).toBe("");
     } finally {
       vi.useRealTimers();
     }

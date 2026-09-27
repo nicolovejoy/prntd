@@ -106,8 +106,10 @@ export function bulkDeleteSkipNotice(
  * instant Generate is pressed, not after the next poll's round trip.
  *
  * `jobId` starts null (the action hasn't returned yet) and is set to the
- * real image_generation id once `generateDesign` resolves with
- * `{kind:"queued"}`. `anchorImageId` is carried for callers that need to
+ * real image_generation id either once `generateDesign` resolves with
+ * `{kind:"queued"}`, or once a lost submit's reconcile (#245) finds its row
+ * — in that second case `jobId` is set to `clientJobId`, the id this submit
+ * sent. `anchorImageId` is carried for callers that need to
  * tell an anchored append apart from a fresh conversation, though
  * applyOptimistic itself derives that from server lanes rather than
  * trusting a snapshot flag, since a flag captured at submit time could go
@@ -244,8 +246,8 @@ export function applyOptimistic(
  *   the server ever accounts for lives that long, so what's left is the
  *   client's own ghost, and it would otherwise hold a cap slot and keep the
  *   poll loop alive forever.
- * - `jobId: null` (the generateDesign call hasn't returned yet) — kept; the
- *   server has nothing to say about it yet.
+ * - `jobId: null` (the generateDesign call hasn't returned, or its response
+ *   was lost) — kept, unless its `clientJobId` is pending (below).
  * - a known `jobId` found in some lane's `pending` — dropped; the server
  *   is now rendering the real cell, so the overlay would duplicate it. True
  *   of any snapshot, however old: seeing the row is positive evidence.
