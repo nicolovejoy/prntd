@@ -5,8 +5,8 @@
  * renders the empty state whose "Start a design" CTA stays on /design (#241
  * fix round; ruling W1 kept for the empty cart only). The CTA href itself is
  * pinned in src/app/__tests__/maker-cta-hrefs.test.tsx, and that a
- * sessionless /design passes middleware while /studio does not in
- * src/__tests__/middleware.test.ts.
+ * sessionless /design passes the proxy while /studio does not in
+ * src/__tests__/proxy.test.ts.
  */
 import { describe, it, expect, vi } from "vitest";
 

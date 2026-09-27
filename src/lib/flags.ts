@@ -8,7 +8,7 @@
  * Guest funnel (#26): when on, the design → preview → order surface is open to
  * signed-out visitors (a Better-Auth anonymous session is minted client-side on
  * entry); the sign-in gate moves to the purchase point. When off, those routes
- * stay behind the middleware auth check, exactly as before. Default off — flip
+ * stay behind the proxy auth check, exactly as before. Default off — flip
  * GUEST_FUNNEL_ENABLED=true once the abuse cap (A3) is in place.
  */
 export function guestFunnelEnabled(): boolean {

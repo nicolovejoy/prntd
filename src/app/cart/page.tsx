@@ -121,7 +121,7 @@ export default function CartPage() {
               // /design, not /studio — the one make-CTA that keeps ruling W1
               // after #241. An empty cart is exactly what a first-time
               // visitor with no session sees (Cart is in the header bar, and
-              // /, /shop and /cart mint no session), and middleware sends a
+              // /, /shop and /cart mint no session), and the proxy sends a
               // sessionless /studio request to /sign-in. /design is open to
               // them and mints the guest session. "Add another design" below
               // goes to /studio: a cart with lines implies a session.
