@@ -114,9 +114,19 @@ export function ImageLightbox({
 
   if (!image) return null;
 
+  // The guestPublishNext term mirrors the exact condition the
+  // GuestPublishPrompt render below it uses — a guest prompt with a seed
+  // image or an already-published image never renders, so it must not make
+  // this true either (it previously did, leaving an empty actions row).
   const hasActions =
     (actions != null && actions !== false) ||
-    Boolean(onMakeProducts || onStartFrom || onPublish || guestPublishNext || onDelete);
+    Boolean(
+      onMakeProducts ||
+        onStartFrom ||
+        onPublish ||
+        (guestPublishNext && !onPublish && !isSeed && !image.publishedAt) ||
+        onDelete
+    );
 
   return (
     <div

@@ -359,6 +359,30 @@ describe("ImageLightbox actions row", () => {
     expect(screen.queryByTestId("guest-publish-prompt")).toBeNull();
   });
 
+  it("guestPublishNext alone on a seed image: no actions row at all (hasActions must not go true for a prompt that won't render)", () => {
+    const seed: LightboxImage[] = [{ ...images[1], role: "seed" }];
+    renderLightbox({
+      images: seed,
+      currentIndex: 0,
+      guestPublishNext: "/design",
+    });
+    expect(screen.queryByTestId("lightbox-actions")).toBeNull();
+    expect(screen.queryByTestId("guest-publish-prompt")).toBeNull();
+  });
+
+  it("guestPublishNext alone on an already-published image: no actions row at all", () => {
+    const published: LightboxImage[] = [
+      { ...images[1], publishedAt: new Date("2026-09-01T00:00:00Z") },
+    ];
+    renderLightbox({
+      images: published,
+      currentIndex: 0,
+      guestPublishNext: "/design",
+    });
+    expect(screen.queryByTestId("lightbox-actions")).toBeNull();
+    expect(screen.queryByTestId("guest-publish-prompt")).toBeNull();
+  });
+
   it("a seed image: labelled Remove, stays enabled, no Publish", () => {
     const seed: LightboxImage[] = [
       { ...images[1], role: "seed", publishedAt: new Date() },
