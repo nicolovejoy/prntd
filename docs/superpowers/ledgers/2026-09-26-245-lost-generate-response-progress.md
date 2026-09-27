@@ -560,3 +560,111 @@ warnings, identical set to every prior gate (all pre-existing, unrelated
 files). `npm run build`/`db:generate` not re-run this round — no schema,
 build-relevant, or route-shape change; comment-, logic-, and test-only
 within already-covered modules, same as the previous fix round's rationale.
+
+## Fix round: third independent review — count the error streak in attempts, not time (2026-09-27)
+
+**Problem.** `errorStreakStartMs` measured the error streak in WALL-CLOCK
+TIME from its first error. A device freeze inflates that for free: no
+attempts happen while the phone sleeps, but the clock keeps running
+regardless. Concretely: errors start while the tab is foregrounded
+(`errorStreakStartMs` set to that first error's `calledAtMs`), the phone
+sleeps for 8 minutes, wakes up still offline — the very first post-wake
+lookup's `calledAtMs` is already `hardDeadlineMs + LOST_SUBMIT_WINDOW_MS` or
+more past the streak's recorded start, so the OLD rule (`calledAtMs -
+errorStreakStartMs >= LOST_SUBMIT_WINDOW_MS`) fails the submit outright on
+that single lookup — even though the render finishes regardless (the exact
+#245 case, one level up: this time the false failure comes from a frozen
+device, not a lost network response). The same shape hits a lookup that was
+already in flight when the freeze hit.
+
+**Fix (Nico-approved direction).** `judgeLostSubmit` now takes
+`errorStreakCount: number` — how many CONSECUTIVE "error" lookups have
+happened, ending with (and including) this call; 0 when the last lookup was
+not an error. A new exported constant, `LOST_SUBMIT_ERROR_ATTEMPTS =
+Math.ceil(LOST_SUBMIT_WINDOW_MS / LOST_SUBMIT_LOOKUP_INTERVAL_MS)` (= 20 at
+today's constants), replaces the time-based comparison: an "error" verdict
+past `hardDeadlineMs` now fails only once `errorStreakCount >=
+LOST_SUBMIT_ERROR_ATTEMPTS`. `studio-client.tsx`'s `reconcileLostSubmit`
+tracks the count as a plain local variable (`errorStreakCount = status ===
+"error" ? errorStreakCount + 1 : 0`), same place `errorStreakStartMs` lived.
+A frozen device makes zero attempts, so sleep cannot consume any of the
+budget — only lookups the device genuinely made and that genuinely errored
+do. The "none" path (server truth) is untouched — it still fails purely off
+`calledAtMs >= deadlineMs`, no streak involved.
+
+**Comments (no code change).** (a) `hardDeadlineMs`'s docblock said the loop
+"must stop actively here rather than poll forever into the void" — no longer
+true: the attempt-based budget isn't pinned to a fixed wall-clock instant
+the way the old time-based backstop was, so the reconcile loop's own verdict
+can now land well after a poll's `settleOptimistic` has already dropped the
+overlay cell on its own unrelated age-out. Reworded: that's not a bug in
+this function — a cell that vanished early isn't the same as a submit that
+failed, and `failSubmit` still restores the words and shows the notice
+whenever the loop does decide "failed", even if nothing on screen was
+showing the cell any more by then. (b) `LOST_SUBMIT_LOOKUP_TIMEOUT_MS`'s
+docblock now notes that abandoning the promise client-side on timeout
+doesn't free anything server-side — Next's action queue
+(`runRemainingActions`) still runs one Server Function at a time, so a
+lookup that is genuinely still working on the server keeps that queue
+occupied for however long it actually takes, delaying every action queued
+behind it (including this loop's own next lookup) regardless of the
+client-side timeout. The loop stays bounded anyway because each timed-out
+lookup is simply counted as an "error" attempt like any other — no need for
+the queue to drain.
+
+**Tests.**
+- Pure (`lost-submit.test.ts`): rewrote the whole `describe("error", …)`
+  block for the count-based contract — waits before the hard deadline
+  regardless of count (even at/above the threshold); past the hard deadline,
+  a count one below the threshold waits and a count at the threshold fails;
+  a woken-from-freeze device's first post-wake error (count 1, or 0
+  mid-reset) waits exactly like a fresh streak; a reset count of 0, however
+  far past the hard deadline, cannot fail; a non-error status ("none")
+  ignores `errorStreakCount` entirely, even at/above the threshold. Verified
+  the "at the threshold fails" test genuinely fails on the pre-fix code
+  (`git stash` on just `lost-submit.ts`, old code returns `"wait"` since
+  `errorStreakStartMs` is `undefined` there and `calledAtMs - undefined` is
+  `NaN`) before restoring the fix.
+- Client (`studio-client.test.tsx`, `test 18`): a few foreground lookup
+  errors (calls 1–3, all well before `hardDeadlineMs`), then
+  `vi.setSystemTime(+8 min)` — placed AFTER those calls rather than
+  synchronously before the very first one the way `test 16` does, since
+  there IS a pending `setTimeout` (the loop's own interval wait) by this
+  point; its remaining delay is unaffected by the jump, so the very next
+  `vi.advanceTimersByTimeAsync(3000)` still has to run out that same
+  interval rather than firing early — confirmed empirically, matching the
+  ledger's earlier note that a jump can't make an already-scheduled timer
+  "overdue". That next call (call 4) is now far past `hardDeadlineMs` but
+  the streak is only 4 long: asserted NO failure notice and an empty
+  composer. Then advanced through the remaining `LOST_SUBMIT_ERROR_ATTEMPTS
+  - 4` calls (all erroring) to reach the threshold exactly at call 20:
+  asserted the failure notice appears and the words are restored verbatim.
+  `h.polledLanes` is left at its default `[]` throughout (unlike `test 16`),
+  deliberately — this test is the "the server genuinely never saw the job"
+  case, not the "it landed but the phone can't see it yet" case; keeping
+  `h.polledLanes` showing the job pending forever was tried first and
+  discovered to be self-contradictory with a "failed" outcome: the
+  `reconcileLostSubmit` safety net (`clientIdPending` check, added in an
+  earlier fix round) correctly treats a job still visibly pending in server
+  lanes as landed, never failed — as it should, since a job the server shows
+  running clearly hasn't failed. Cell-visibility assertions past the freeze
+  point were dropped for the same reason `test 16`'s docblock already flags:
+  once real time crosses `STALE_OPTIMISTIC_MS`, `settleOptimistic`'s own
+  unrelated age-out drops the overlay cell regardless of this fix, and
+  without a matching server lane to hand off to (which this test
+  deliberately doesn't provide) there's nothing to assert there — orthogonal
+  to what this test is checking (the streak-count threshold itself).
+  Verified `test 18` genuinely fails on the pre-fix code (`git stash` on
+  both `lost-submit.ts` and `studio-client.tsx`: call 4 fails immediately,
+  before even reaching the "no failure notice yet" assertion) before
+  restoring the fix. `test 5` and `test 16` both still pass unchanged.
+
+**Gate** (commit `e6e7f11`): `npx vitest run` — 194 files, 2184 tests passed
+(2181 baseline + 3 net new: +2 pure tests in the rewritten `error` describe
+block — 7 tests now vs. 5 before — and +1 client test, `test 18`).
+`npm run typecheck`: clean. `npm run lint`: 0 errors, 22 warnings, identical
+set to every prior gate (all pre-existing, unrelated files).
+`npm run build`/`db:generate` not re-run — no schema, build-relevant, or
+route-shape change; logic, comment, and test changes only, confined to
+`src/lib/lost-submit.ts` and `src/app/studio/studio-client.tsx`, both
+already fully covered.
