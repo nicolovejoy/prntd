@@ -16,7 +16,7 @@ import {
   type BlankColor,
 } from "@/lib/blanks";
 import { computePrice, computeOrderTotal } from "@/lib/pricing";
-import { createStripeCheckoutForOrder } from "../order/actions";
+import { createStripeCheckoutForOrder } from "@/lib/order-checkout";
 
 /** The item price the customer sees: the organizer's override, else the
  * computed default for the blank at size M. */

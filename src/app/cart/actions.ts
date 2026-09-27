@@ -79,10 +79,15 @@ async function currentUserId(): Promise<string | null> {
  * cart re-parents to their account on sign-in.
  *
  * Two entry shapes, one per surface:
- *  - `designId` (/preview): the front placement resolves from the design's
- *    pinned primary image (same as createCheckoutSession), unless `front`
- *    names an explicit pick (#138) — guarded the same way `back` is, so a
- *    front pin grants no reach a back pin didn't already have.
+ *  - `designId` (/preview): requires the caller own the design (#251, same
+ *    check as createCheckoutSession) — this entry trusts the design's CURRENT
+ *    primary image as the front, so without the check any design id (public
+ *    on any published image via getImagePage's sourceDesignId) could cart a
+ *    stranger's private artwork. The front placement resolves from the
+ *    design's pinned primary image, unless `front` names an explicit pick
+ *    (#138) — guarded the same way `back` is, so a front pin grants no reach
+ *    a back pin didn't already have. A cross-owner add must go through
+ *    `frontImageId` instead.
  *  - `frontImageId` (/d, #146): the image detail page's image. The front
  *    placement is pinned to that EXACT image, mirroring buyPublishedDesign —
  *    the design's primary can change after the add, and the buyer must get
@@ -157,15 +162,26 @@ export async function addToCart(params: {
   } else {
     if (!params.designId) throw new Error("designId or frontImageId required");
     designId = params.designId;
+    // Owner check (#251), mirroring createCheckoutSession: this entry is
+    // /preview's, which only ever operates on the viewer's own design (it
+    // loads the design via getDesign, which already throws for a design the
+    // viewer doesn't own). Without this check, a design id — public on any
+    // published image via getImagePage's sourceDesignId — let any caller cart
+    // the design's CURRENT primary image, private or not, with no ownership
+    // check at all. A cross-owner add must go through frontImageId instead,
+    // which is guarded by canUseAsPlacementSource.
+    const design = await db.query.design.findFirst({
+      where: eq(designTable.id, designId),
+    });
+    if (!design || design.userId !== userId) {
+      throw new Error("Design not found");
+    }
     if (params.front) {
       // Explicit front pick (#138) — same choke-point guard as the back.
       await assertUsablePlacementImage(params.front, designId, userId, "front");
       frontId = params.front;
     } else {
-      const design = await db.query.design.findFirst({
-        where: eq(designTable.id, designId),
-      });
-      frontId = design?.primaryImageId ?? null;
+      frontId = design.primaryImageId ?? null;
     }
   }
 
