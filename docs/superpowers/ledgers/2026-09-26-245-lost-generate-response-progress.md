@@ -372,3 +372,86 @@ code: `studio-client.tsx` +184 (was +318 for the heuristic), `lost-submit.ts`
   `jobId`; the same lost-response case there reads as failure.
 - A lost submit whose job the server wrote but whose insert response was lost
   server-side (the case above) could be checked by id before failing.
+
+## Fix round: independent review of the rebuild (2026-09-27)
+
+A second independent review (Opus) of the merged rebuild found four more
+issues, all fixed on `claude/245-lost-generate-response`, one commit each,
+each with real-DB or client tests that failed against the pre-fix code
+(verified before implementing):
+
+1. **`761b797`** — a reconcile lookup that ERRORS after the 60s deadline was
+   judged exactly like a "none" answer: fail. On the prod scenario (phone
+   backgrounds for a couple of minutes while the render finishes, returns
+   with momentarily no network) the first post-deadline lookup throws before
+   ever seeing the real state, giving a false failure next to the image that
+   then lands anyway — notice + words back beside a finished result, and a
+   re-tap duplicates it. Fixed by giving `judgeLostSubmit` a second, later
+   `hardDeadlineMs` (submit time + `STALE_OPTIMISTIC_MS`, 6 minutes): a real
+   "none" still fails at the ordinary deadline (server truth), but an
+   "error" (which proves nothing — the lookup itself may never have reached
+   the server) only fails at the backstop. **Chose the time backstop over a
+   bounded error count**, per the plan's stated preference — a count would
+   have to guess an interval-independent threshold, while the time backstop
+   reuses a constant the overlay's own lifetime already depends on
+   (`settleOptimistic` drops the entry at the same age regardless of this
+   verdict, so the reconcile loop giving up there too means it never chases
+   an entry nothing would show any more). `hardDeadlineMs` is anchored on the
+   submit's own clock reading, not the catch — an erroring lookup can recur
+   for as long as the device is offline, so it needs a fixed start rather
+   than one that could reset with every failed attempt. Also documented (no
+   code change needed) that the lanesRef safety net can only recognise a
+   still-PENDING job id: `StudioCell` carries no job id at all, so a submit
+   whose job already succeeded and left `pending` is instead caught by the
+   lookup itself eventually answering "succeeded" — which is exactly what
+   the new "keeps erroring, then succeeds" client test exercises.
+2. **`85f917b`** — a concurrent replay of the same client-minted request
+   (Chrome silently resending the POST) that itself lands in the `limit` or
+   advisory `at_capacity` branch, while the OTHER execution of that same
+   request has already reached `insertGenerationJob`, was reported to the
+   caller as a genuine refusal — a user at 7/8 would be told they hit their
+   daily limit while the design they asked for is actually queued. Both
+   branches now re-check (owner-scoped, `running`/`succeeded`, via the
+   `findJobById`/`queuedResultForReplay` pair item 3 introduces) before
+   refusing, refund this call's own wasted spend when the row is found, and
+   hand back the same queued result. The THIRD `at_capacity` return site
+   (inside `prepareGeneration`, once `insertGenerationJob` itself reports
+   `at_capacity`) needed no such check and none was added: that outcome is
+   only reachable when `insertGenerationJob`'s own read-back already found no
+   row with the id — a duplicate is structurally impossible there, since a
+   PK violation or the guarded insert matching zero rows AND a row existing
+   both resolve to `duplicate`/`conflict` instead. Real-DB tests inject the
+   rival row from inside a mocked-but-call-through `consumeGenerationQuota`
+   (`vi.mock` with `importOriginal`, wrapped not replaced), since a plain
+   sequential second `generateDesign` call would just hit the earlier replay
+   pre-check instead of this specific race — the only way to land the row
+   strictly between the pre-check and these later branches. Both assert net
+   quota unchanged by the replay.
+3. **`4001419`** — the pre-quota replay check returned `queued` for an own
+   id regardless of the row's status, including `failed`/`cancelled` —
+   falsely claiming the generation was still working or already delivered.
+   Now only `running`/`succeeded` replay as queued; a `failed`/`cancelled`
+   row throws the same generic `"Invalid job id"` a foreign row does, which
+   the client already treats as a genuine failure. Factored into
+   `findJobById`/`queuedResultForReplay` so item 2 could reuse them.
+4. **`8a8081b`** — comment-only. The "the insert is the last thing in this
+   function that can throw" comment only carved out ONE of
+   `insertGenerationJob`'s two throwing reads (the success read-back);
+   `resolveConflict`'s read-back (on a unique violation or a zero-row
+   insert) can throw too, and the comment implied it didn't exist. Reworded
+   to say why that read IS safe (no row of this call's own exists yet, so
+   it's covered by the same outer catch as everything above it) rather than
+   only naming the one exception that isn't.
+
+Gate on `8a8081b` (working tree; no new commits after): `npx vitest run` —
+194 files, 2174 tests passed (2168 baseline + 6 net new: +2 studio-client
+lost-submit tests, +2 `client-job-id` replay-status tests, +2
+`client-job-id` concurrent-replay tests, −1 renamed-in-place test doesn't
+change the count since it's a rename not an add). `npm run typecheck`:
+clean. `npm run lint`: 0 errors, 22 warnings, identical set to the prior
+gate (all pre-existing). `npm run build`/`db:generate` not re-run this round
+(no schema or build-relevant change; comment- and logic-only within already
+covered modules).
+
+Not done: `npm run build`, e2e (both out of scope per the fix-round brief;
+no schema, flag, or route-shape change to re-verify).
