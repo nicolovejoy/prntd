@@ -1,11 +1,22 @@
 "use client";
 
 import { authClient } from "@/lib/auth-client";
-import { useState } from "react";
+import { Suspense, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button, Input } from "@/components/ui";
+import { safeNextPath, withNext } from "@/lib/safe-next";
 
 export default function SignUpPage() {
+  return (
+    <Suspense>
+      <SignUpForm />
+    </Suspense>
+  );
+}
+
+function SignUpForm() {
+  const searchParams = useSearchParams();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -31,7 +42,8 @@ export default function SignUpPage() {
     // sign-in/page.tsx: the header's session-keyed getHeaderState() effect
     // races the App Router's transition on the same session-identity change,
     // and router.push() can get stuck behind it indefinitely.
-    window.location.href = "/studio";
+    // The target comes from ?next= via safeNextPath (same-origin paths only).
+    window.location.href = safeNextPath(searchParams.get("next"));
   }
 
   return (
@@ -68,7 +80,10 @@ export default function SignUpPage() {
         </form>
         <p className="text-center text-sm text-text-muted">
           Already have an account?{" "}
-          <Link href="/sign-in" className="underline underline-offset-[3px]">
+          <Link
+            href={withNext("/sign-in", searchParams.get("next"))}
+            className="underline underline-offset-[3px]"
+          >
             Sign in
           </Link>
         </p>

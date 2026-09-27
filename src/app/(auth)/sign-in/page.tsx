@@ -5,6 +5,7 @@ import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button, Input } from "@/components/ui";
+import { safeNextPath, withNext } from "@/lib/safe-next";
 
 export default function SignInPage() {
   return (
@@ -36,13 +37,10 @@ function SignInForm() {
       return;
     }
 
-    // Honor ?next= for post-sign-in redirects. Restricted to same-origin
-    // paths to prevent open-redirect. The default is the Studio — under nav
-    // model A that is where a signed-in user's work lives.
-    const next = searchParams.get("next");
-    const safeNext = next && next.startsWith("/") && !next.startsWith("//")
-      ? next
-      : "/studio";
+    // Honor ?next= for post-sign-in redirects. safeNextPath restricts it to
+    // same-origin paths to prevent an open redirect. The default is the
+    // Studio — under nav model A that is where a signed-in user's work lives.
+    const safeNext = safeNextPath(searchParams.get("next"));
     // Hard navigation, not router.push: the header's session-keyed
     // getHeaderState() effect (site-header.tsx) fires a server action the
     // instant this sign-in flips session?.user?.id, and that can race the
@@ -88,7 +86,10 @@ function SignInForm() {
         </form>
         <p className="text-center text-sm text-text-muted">
           Don&apos;t have an account?{" "}
-          <Link href="/sign-up" className="underline underline-offset-[3px]">
+          <Link
+            href={withNext("/sign-up", searchParams.get("next"))}
+            className="underline underline-offset-[3px]"
+          >
             Sign up
           </Link>
         </p>

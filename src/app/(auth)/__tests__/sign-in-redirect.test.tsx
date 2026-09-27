@@ -1,7 +1,8 @@
 /**
  * Nav model A (#219) made /studio the post-sign-in home. This pins that
- * default on the sign-in page only (sign-up hard-codes the same target,
- * unpinned) plus the same-origin restriction on ?next= (open-redirect guard).
+ * default on the sign-in page (sign-up has its own test) plus the same-origin
+ * restriction on ?next= (open-redirect guard) and that the "Sign up" link
+ * carries ?next= along.
  *
  * Post-sign-in redirect is a hard navigation (window.location.href), not
  * router.push — see the comment in sign-in/page.tsx: router.push() can get
@@ -63,6 +64,22 @@ describe("sign-in redirect target", () => {
     render(<SignInPage />);
     await submit();
     await waitFor(() => expect(window.location.href).toBe("/studio"));
+  });
+
+  it("refuses a backslash ?next= (browsers read it as //) and falls back to /studio", async () => {
+    search = new URLSearchParams("next=/\\evil.example.com");
+    render(<SignInPage />);
+    await submit();
+    await waitFor(() => expect(window.location.href).toBe("/studio"));
+  });
+
+  it("carries ?next= on the Sign up link", () => {
+    search = new URLSearchParams("next=/cart");
+    render(<SignInPage />);
+    expect(screen.getByRole("link", { name: "Sign up" })).toHaveAttribute(
+      "href",
+      "/sign-up?next=%2Fcart"
+    );
   });
 
   it("shows the failure line on the negative token, never a raw red", async () => {
