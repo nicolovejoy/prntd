@@ -273,14 +273,20 @@ export function settleOptimistic(
 }
 
 /** What one lane held when a submit fired (#245). */
-export type LaneBaseline = { jobIds: string[]; imageIds: string[] };
+export type LaneBaseline = {
+  jobIds: string[];
+  imageIds: string[];
+  /** Whether the tab's server lanes had a lane for the design at all. */
+  laneExisted: boolean;
+};
 
 /**
  * The pending job ids and cell image ids `designId`'s lane holds right now,
  * read from the tab's server lanes (never `applyOptimistic` output). Captured
- * when a submit fires so `submitLanded` can tell work this submit started
- * from work the lane already had. Empty when there is no lane, which is the
- * case for an unanchored submit's fresh design id.
+ * when a submit fires so `judgeLostSubmit` can tell work this submit started
+ * from work the lane already had. `laneExisted` separates an anchored submit,
+ * whose lane is already on the bench, from an unanchored one, whose fresh
+ * design id has no lane yet.
  */
 export function laneBaseline(
   lanes: StudioLane[],
@@ -290,65 +296,132 @@ export function laneBaseline(
   return {
     jobIds: found ? found.pending.map((p) => p.jobId) : [],
     imageIds: found ? found.cells.map((c) => c.imageId) : [],
+    laneExisted: found !== undefined,
   };
 }
 
 /**
- * Whether a fresh read shows work a submit started even though its response
- * never arrived. Work this tab already knows about is excluded: the baseline's
- * jobs and images, and `claimed` (job and image ids this tab got back from
- * other submits, so the work is identified by both ids whether or not it is
- * still pending). Landed when the lane for `designId` shows more evidence than
- * `unresolvedOthers`, where evidence is the pending jobs that are not known,
- * plus the cells that are not known, less the baseline jobs that departed.
- * Pass server lanes only, so an optimistic cell can't vouch for itself.
- *
- * A baseline job can finish during the reconcile window and produce a cell
- * that has nothing to do with this submit, and its image id is unknown. So
- * each baseline job no longer pending cancels one new cell. A departed job
- * that failed or was cancelled makes no cell, so this can under-count our own
- * cell and report "not landed" for a submit that did land. That direction is
- * deliberate: when the evidence is ambiguous, report failure and give the
- * words back rather than silently swallow them.
- *
- * `claimed` must be the same-design jobs this tab got back from other
- * submits. This helper does not filter by design. A claimed job from another
- * lane is harmless (its ids never appear in this lane), but it is not what the
- * caller should pass.
- *
- * `unresolvedOthers` is how many other same-design submits are still awaiting
- * their response. Each may own one new job or one new cell the fresh read
- * shows, so this submit needs evidence beyond that many. Same direction as
- * above: when it is ambiguous, report failure.
- *
- * "The lane exists" is not enough. For an unanchored submit the server writes
- * the design row after quota and capacity pass but before the job row, so a
- * failure in between (the brief call throwing) leaves an empty lane and no
- * job. That is a real failure and must read as one. A job or a cell is the
- * evidence that the request got past that point.
+ * Work in a lane that some other submit of this tab owns. A submit whose
+ * response arrived claims both ids (`{jobId, imageId}`). Work the tab could
+ * not attribute when a lost submit gave up is disowned by one id only: a
+ * pending job by its `jobId`, a cell by its `imageId`.
  */
-export function submitLanded(
-  fresh: StudioLane[],
-  designId: string,
-  baseline: LaneBaseline,
-  claimed: Iterable<{ jobId: string; imageId: string }> = [],
-  unresolvedOthers = 0
-): boolean {
+export type LaneClaim = { jobId: string | null; imageId: string | null };
+
+export type LostSubmitVerdict =
+  | { kind: "landed"; accounted: LaneClaim[] }
+  | { kind: "wait" }
+  | { kind: "failed"; unexplained: LaneClaim[] };
+
+/**
+ * Decides what became of a submit whose response never arrived (#245), from
+ * one snapshot of the surface. Pure; the caller supplies the clock verdict as
+ * `pastDeadline` and passes server lanes only, so an optimistic cell can't
+ * vouch for itself.
+ *
+ * Evidence that the request got past the server's checks is work in the
+ * submit's lane that nobody else accounts for:
+ * - known jobs are the baseline's plus every claim's `jobId`; known images are
+ *   the baseline's plus every claim's `imageId`;
+ * - `newPending` are pending jobs not known, `newCells` are cells not known;
+ * - a job that was pending when the submit fired (baseline), or that a
+ *   job-only claim names, and is no longer pending may have finished into a
+ *   cell whose image id nobody knows. Each such `departed` job explains one new
+ *   cell. A claim that carries an `imageId` is not counted: its cell is already
+ *   known, so it has nothing to explain;
+ * - evidence = newPending + max(0, newCells - departed).
+ *
+ * "The lane exists" is not evidence. For an unanchored submit the server writes
+ * the design row after quota and capacity pass but before the job row, so a
+ * failure in between (the brief call throwing) leaves an empty lane. That is a
+ * real failure and must read as one.
+ *
+ * Verdicts:
+ * - The lane is absent. Anchored (`baseline.laneExisted`): `failed` now, since
+ *   the lane closed or was deleted (#204) and nothing ran. Unanchored: `wait`,
+ *   because the snapshot may have raced the design-row write; `failed` once
+ *   past the deadline.
+ * - evidence > `unresolvedOthers`: `landed`. `unresolvedOthers` counts other
+ *   same-lane submits that could own that many of the new jobs or cells.
+ *   `accounted` names the new pending jobs and new cells the verdict rests on
+ *   (same shape as `unexplained`); the caller records them as claims, so a
+ *   later lost submit in the lane can't land on the same work.
+ * - Past the deadline otherwise: `failed`, with the new pending jobs and cells
+ *   as `unexplained` so the caller can disown them for later decisions.
+ * - Else `wait`.
+ *
+ * Ambiguity is biased toward `failed`: another submit's work can absorb the
+ * evidence, and an unexplained new job or cell only counts once. A baseline job
+ * that failed (no cell) is not a silent-loss case: it counts as departed and
+ * can hide this submit's own single new cell, which reads as `wait` and then
+ * `failed`, so the words come back with the failure line. Known exceptions,
+ * where words can be dropped without a notice:
+ * - another tab starts a job in the same lane during the window, and it reads
+ *   as this submit's work (`landed`); a tab can't see another tab's submits;
+ * - the accepted `after()` trade: the server's background work fails right
+ *   after the job row is written, so the submit reads as landed and the sweep
+ *   fails the job later.
+ */
+export function judgeLostSubmit(input: {
+  fresh: StudioLane[];
+  designId: string;
+  baseline: LaneBaseline;
+  claims?: Iterable<LaneClaim>;
+  unresolvedOthers?: number;
+  pastDeadline: boolean;
+}): LostSubmitVerdict {
+  const { fresh, designId, baseline, pastDeadline } = input;
+  const unresolvedOthers = input.unresolvedOthers ?? 0;
   const found = fresh.find((l) => l.designId === designId);
-  if (!found) return false;
+  if (!found) {
+    if (baseline.laneExisted || pastDeadline) {
+      return { kind: "failed", unexplained: [] };
+    }
+    return { kind: "wait" };
+  }
+
+  const claims = [...(input.claims ?? [])];
   const knownJobs = new Set(baseline.jobIds);
   const knownImages = new Set(baseline.imageIds);
-  for (const c of claimed) {
-    knownJobs.add(c.jobId);
-    knownImages.add(c.imageId);
+  const jobsWithCell = new Set<string>();
+  const jobOnlyClaims: string[] = [];
+  for (const c of claims) {
+    if (c.jobId !== null) {
+      knownJobs.add(c.jobId);
+      if (c.imageId !== null) jobsWithCell.add(c.jobId);
+      else jobOnlyClaims.push(c.jobId);
+    }
+    if (c.imageId !== null) knownImages.add(c.imageId);
   }
+
   const pendingIds = new Set(found.pending.map((p) => p.jobId));
   const newPending = found.pending.filter((p) => !knownJobs.has(p.jobId));
   const newCells = found.cells.filter((c) => !knownImages.has(c.imageId));
-  let departed = 0;
-  for (const id of baseline.jobIds) if (!pendingIds.has(id)) departed++;
-  const evidence = newPending.length + Math.max(0, newCells.length - departed);
-  return evidence > unresolvedOthers;
+  const departedJobs = new Set(
+    [...baseline.jobIds, ...jobOnlyClaims].filter(
+      (id) => !jobsWithCell.has(id) && !pendingIds.has(id)
+    )
+  );
+  const evidence =
+    newPending.length + Math.max(0, newCells.length - departedJobs.size);
+
+  const newPendingClaims = newPending.map(
+    (p): LaneClaim => ({ jobId: p.jobId, imageId: null })
+  );
+  const newCellClaims = newCells.map(
+    (c): LaneClaim => ({ jobId: null, imageId: c.imageId })
+  );
+  if (evidence > unresolvedOthers) {
+    return {
+      kind: "landed",
+      accounted: [...newPendingClaims, ...newCellClaims],
+    };
+  }
+  if (!pastDeadline) return { kind: "wait" };
+  return {
+    kind: "failed",
+    unexplained: [...newPendingClaims, ...newCellClaims],
+  };
 }
 
 /**

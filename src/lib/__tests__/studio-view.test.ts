@@ -5,9 +5,9 @@ import {
   bulkDeleteSkipNotice,
   bulkDeleteTitle,
   formatElapsed,
+  judgeLostSubmit,
   laneBaseline,
   settleOptimistic,
-  submitLanded,
   timeAgo,
   unseenOptimisticCount,
   type OptimisticEntry,
@@ -303,7 +303,7 @@ describe("unseenOptimisticCount", () => {
   });
 });
 
-describe("laneBaseline / submitLanded (#245)", () => {
+describe("laneBaseline / judgeLostSubmit (#245)", () => {
   const job = (jobId: string) => ({
     jobId,
     generationNumber: 1,
@@ -315,11 +315,34 @@ describe("laneBaseline / submitLanded (#245)", () => {
     isPrimary: false,
     createdAt: new Date(),
   });
-  const empty = { jobIds: [], imageIds: [] };
+  // An unanchored submit: no lane when it fired.
+  const empty = { jobIds: [], imageIds: [], laneExisted: false };
+  // An anchored submit: the lane was on the bench.
+  const anchored = (jobIds: string[] = [], imageIds: string[] = []) => ({
+    jobIds,
+    imageIds,
+    laneExisted: true,
+  });
   const claim = (jobId: string, imageId = `img-of-${jobId}`) => ({
     jobId,
     imageId,
   });
+  const verdict = (
+    fresh: StudioLane[],
+    baseline: ReturnType<typeof anchored>,
+    extra: {
+      claims?: { jobId: string | null; imageId: string | null }[];
+      unresolvedOthers?: number;
+      pastDeadline?: boolean;
+    } = {}
+  ) =>
+    judgeLostSubmit({
+      fresh,
+      designId: "design-1",
+      baseline,
+      pastDeadline: false,
+      ...extra,
+    });
 
   it("laneBaseline lists the lane's pending job ids and cell image ids", () => {
     const lanes = [
@@ -332,37 +355,77 @@ describe("laneBaseline / submitLanded (#245)", () => {
     expect(laneBaseline(lanes, "design-1")).toEqual({
       jobIds: ["job-1", "job-2"],
       imageIds: ["img-1"],
+      laneExisted: true,
     });
   });
 
-  it("laneBaseline is empty when the design has no lane", () => {
+  it("laneBaseline is empty, and the lane did not exist, when the design has no lane", () => {
     expect(laneBaseline([lane({ designId: "design-1" })], "design-2")).toEqual(
       empty
     );
   });
 
-  it("landed: a fresh lane with a pending job", () => {
+  it("laneBaseline marks an existing but empty lane as existing", () => {
+    expect(laneBaseline([lane({ designId: "design-1" })], "design-1")).toEqual(
+      anchored()
+    );
+  });
+
+  it("failed at once: the anchored lane is gone (closed or deleted, #204)", () => {
+    expect(verdict([], anchored(["job-old"], ["img-old"]))).toEqual({
+      kind: "failed",
+      unexplained: [],
+    });
+  });
+
+  it("waits: an unanchored submit's lane is absent inside the window", () => {
+    expect(verdict([], empty)).toEqual({ kind: "wait" });
+  });
+
+  it("failed: an unanchored submit's lane is still absent past the deadline", () => {
+    expect(verdict([], empty, { pastDeadline: true })).toEqual({
+      kind: "failed",
+      unexplained: [],
+    });
+  });
+
+  it("landed: a new pending job", () => {
     const fresh = [lane({ designId: "design-1", pending: [job("job-1")] })];
-    expect(submitLanded(fresh, "design-1", empty)).toBe(true);
+    expect(verdict(fresh, empty)).toMatchObject({ kind: "landed" });
   });
 
-  it("landed: a fresh lane with a cell and nothing pending (job already finished)", () => {
+  it("landed: the verdict names the new jobs and cells it rests on", () => {
+    const fresh = [
+      lane({
+        designId: "design-1",
+        pending: [job("job-old"), job("job-new")],
+        cells: [cell("img-old"), cell("img-new")],
+      }),
+    ];
+    expect(verdict(fresh, anchored(["job-old"], ["img-old"]))).toEqual({
+      kind: "landed",
+      accounted: [
+        { jobId: "job-new", imageId: null },
+        { jobId: null, imageId: "img-new" },
+      ],
+    });
+  });
+
+  it("landed: a new cell and nothing pending (the job already finished)", () => {
     const fresh = [lane({ designId: "design-1", cells: [cell("img-1")] })];
-    expect(submitLanded(fresh, "design-1", empty)).toBe(true);
+    expect(verdict(fresh, empty)).toMatchObject({ kind: "landed" });
   });
 
-  it("not landed: no lane for the id (closed lane, or never created)", () => {
-    const fresh = [lane({ designId: "design-other", pending: [job("job-1")] })];
-    expect(submitLanded(fresh, "design-1", empty)).toBe(false);
-    expect(submitLanded([], "design-1", empty)).toBe(false);
-  });
-
-  it("not landed: the lane exists but is empty (design row written, job never was)", () => {
+  it("waits, then fails past the deadline: the lane exists but is empty (job row never written, or not yet)", () => {
     const fresh = [lane({ designId: "design-1" })];
-    expect(submitLanded(fresh, "design-1", empty)).toBe(false);
+    expect(verdict(fresh, empty)).toEqual({ kind: "wait" });
+    expect(verdict(fresh, empty, { pastDeadline: true })).toEqual({
+      kind: "failed",
+      unexplained: [],
+    });
   });
 
-  it("not landed: an anchored lane whose pending job and cells were all in the baseline", () => {
+  it("waits: an anchored lane holding only what the baseline held", () => {
     const fresh = [
       lane({
         designId: "design-1",
@@ -370,73 +433,120 @@ describe("laneBaseline / submitLanded (#245)", () => {
         cells: [cell("img-old")],
       }),
     ];
-    const baseline = { jobIds: ["job-old"], imageIds: ["img-old"] };
-    expect(submitLanded(fresh, "design-1", baseline)).toBe(false);
+    expect(verdict(fresh, anchored(["job-old"], ["img-old"]))).toEqual({
+      kind: "wait",
+    });
   });
 
   it("landed: an anchored lane with a baseline job plus a new one", () => {
     const fresh = [
-      lane({
-        designId: "design-1",
-        pending: [job("job-old"), job("job-new")],
-      }),
+      lane({ designId: "design-1", pending: [job("job-old"), job("job-new")] }),
     ];
-    const baseline = { jobIds: ["job-old"], imageIds: [] };
-    expect(submitLanded(fresh, "design-1", baseline)).toBe(true);
+    expect(verdict(fresh, anchored(["job-old"]))).toMatchObject({ kind: "landed" });
   });
 
-  it("not landed: the only new job id is claimed by another optimistic entry", () => {
-    const fresh = [lane({ designId: "design-1", pending: [job("job-new")] })];
-    expect(submitLanded(fresh, "design-1", empty, [claim("job-new")])).toBe(false);
-  });
-
-  it("not landed: a baseline job departed and one new cell appeared", () => {
+  it("waits: a baseline job departed and one new cell appeared (it may be that job's)", () => {
     const fresh = [lane({ designId: "design-1", cells: [cell("img-new")] })];
-    const baseline = { jobIds: ["job-old"], imageIds: [] };
-    expect(submitLanded(fresh, "design-1", baseline)).toBe(false);
+    expect(verdict(fresh, anchored(["job-old"]))).toEqual({ kind: "wait" });
   });
 
   it("landed: a baseline job departed and two new cells appeared", () => {
     const fresh = [
+      lane({ designId: "design-1", cells: [cell("img-a"), cell("img-b")] }),
+    ];
+    expect(verdict(fresh, anchored(["job-old"]))).toMatchObject({ kind: "landed" });
+  });
+
+  it("a claimed job, pending or finished, is neither evidence nor departed", () => {
+    // Pending: its job id is claimed.
+    const pending = [lane({ designId: "design-1", pending: [job("job-c")] })];
+    expect(
+      verdict(pending, empty, { claims: [claim("job-c", "img-c")] })
+    ).toEqual({ kind: "wait" });
+    // Finished: its cell is claimed too, and it does not offset another cell.
+    const finished = [
+      lane({ designId: "design-1", cells: [cell("img-c"), cell("img-new")] }),
+    ];
+    expect(
+      verdict(finished, empty, { claims: [claim("job-c", "img-c")] })
+    ).toMatchObject({ kind: "landed" });
+  });
+
+  it("a claimed baseline job that finished does not cancel a new cell", () => {
+    // job-c was pending when the submit fired and its claim carries the cell.
+    // Its cell is known, so a second, unknown cell is this submit's.
+    const fresh = [
+      lane({ designId: "design-1", cells: [cell("img-c"), cell("img-new")] }),
+    ];
+    expect(
+      verdict(fresh, anchored(["job-c"]), { claims: [claim("job-c", "img-c")] })
+    ).toMatchObject({ kind: "landed" });
+  });
+
+  it("a job-only claim that finished offsets one new cell", () => {
+    const fresh = [lane({ designId: "design-1", cells: [cell("img-new")] })];
+    expect(
+      verdict(fresh, empty, { claims: [{ jobId: "job-x", imageId: null }] })
+    ).toEqual({ kind: "wait" });
+    const two = [
+      lane({ designId: "design-1", cells: [cell("img-a"), cell("img-b")] }),
+    ];
+    expect(
+      verdict(two, empty, { claims: [{ jobId: "job-x", imageId: null }] })
+    ).toMatchObject({ kind: "landed" });
+  });
+
+  it("a cell-only claim makes that cell known", () => {
+    const fresh = [lane({ designId: "design-1", cells: [cell("img-x")] })];
+    expect(
+      verdict(fresh, empty, { claims: [{ jobId: null, imageId: "img-x" }] })
+    ).toEqual({ kind: "wait" });
+  });
+
+  it("waits while the evidence does not exceed the other unresolved submits", () => {
+    const one = [lane({ designId: "design-1", pending: [job("job-a")] })];
+    expect(verdict(one, empty, { unresolvedOthers: 1 })).toEqual({
+      kind: "wait",
+    });
+    const cellOnly = [lane({ designId: "design-1", cells: [cell("img-a")] })];
+    expect(verdict(cellOnly, empty, { unresolvedOthers: 1 })).toEqual({
+      kind: "wait",
+    });
+    const two = [
+      lane({ designId: "design-1", pending: [job("job-a"), job("job-b")] }),
+    ];
+    expect(verdict(two, empty, { unresolvedOthers: 1 })).toMatchObject({
+      kind: "landed",
+    });
+  });
+
+  it("past the deadline, the failure names the ids nobody could explain", () => {
+    const fresh = [
       lane({
         designId: "design-1",
-        cells: [cell("img-a"), cell("img-b")],
+        pending: [job("job-old"), job("job-x")],
+        cells: [cell("img-old"), cell("img-x")],
       }),
     ];
-    const baseline = { jobIds: ["job-old"], imageIds: [] };
-    expect(submitLanded(fresh, "design-1", baseline)).toBe(true);
-  });
-
-  it("not landed: a claimed job finished (its cell present) and nothing else is new", () => {
-    const fresh = [lane({ designId: "design-1", cells: [cell("img-c")] })];
     expect(
-      submitLanded(fresh, "design-1", empty, [claim("job-c", "img-c")])
-    ).toBe(false);
+      verdict(fresh, anchored(["job-old"], ["img-old"]), {
+        unresolvedOthers: 2,
+        pastDeadline: true,
+      })
+    ).toEqual({
+      kind: "failed",
+      unexplained: [
+        { jobId: "job-x", imageId: null },
+        { jobId: null, imageId: "img-x" },
+      ],
+    });
   });
 
-  it("landed: a claimed job finished (its cell present) and one more cell is new", () => {
-    const fresh = [
-      lane({ designId: "design-1", cells: [cell("img-c"), cell("img-new")] }),
-    ];
-    expect(
-      submitLanded(fresh, "design-1", empty, [claim("job-c", "img-c")])
-    ).toBe(true);
-  });
-
-  it("landed: a claimed job finished before the submit (its cell in the baseline) and one new cell", () => {
-    const fresh = [
-      lane({ designId: "design-1", cells: [cell("img-c"), cell("img-new")] }),
-    ];
-    const baseline = { jobIds: [], imageIds: ["img-c"] };
-    expect(
-      submitLanded(fresh, "design-1", baseline, [claim("job-c", "img-c")])
-    ).toBe(true);
-  });
-
-  it("not landed: the only cell is in the baseline and no jobs were", () => {
-    const fresh = [lane({ designId: "design-1", cells: [cell("img-old")] })];
-    const baseline = { jobIds: [], imageIds: ["img-old"] };
-    expect(submitLanded(fresh, "design-1", baseline)).toBe(false);
+  it("evidence past the deadline still lands", () => {
+    const fresh = [lane({ designId: "design-1", pending: [job("job-1")] })];
+    expect(verdict(fresh, empty, { pastDeadline: true })).toMatchObject({
+      kind: "landed",
+    });
   });
 
   it("ignores other designs' lanes", () => {
@@ -448,24 +558,7 @@ describe("laneBaseline / submitLanded (#245)", () => {
         cells: [cell("img-x")],
       }),
     ];
-    expect(submitLanded(fresh, "design-1", empty)).toBe(false);
-  });
-
-  it("not landed: one new job is owed to another unresolved submit", () => {
-    const fresh = [lane({ designId: "design-1", pending: [job("job-a")] })];
-    expect(submitLanded(fresh, "design-1", empty, [], 1)).toBe(false);
-  });
-
-  it("landed: two new jobs with one other unresolved submit", () => {
-    const fresh = [
-      lane({ designId: "design-1", pending: [job("job-a"), job("job-b")] }),
-    ];
-    expect(submitLanded(fresh, "design-1", empty, [], 1)).toBe(true);
-  });
-
-  it("not landed: one new cell (nothing departed) is owed to another unresolved submit", () => {
-    const fresh = [lane({ designId: "design-1", cells: [cell("img-new")] })];
-    expect(submitLanded(fresh, "design-1", empty, [], 1)).toBe(false);
+    expect(verdict(fresh, empty)).toEqual({ kind: "wait" });
   });
 });
 

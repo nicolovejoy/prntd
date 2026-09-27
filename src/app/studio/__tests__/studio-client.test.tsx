@@ -11,6 +11,7 @@
  * lives in generation-poll's own unit tests.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { Profiler } from "react";
 import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 import { StudioClient } from "../studio-client";
 import type { StudioLane } from "@/lib/studio";
@@ -964,16 +965,22 @@ describe("the optimistic pending cell (#187)", () => {
     expect(screen.getAllByTestId("studio-lane")).toHaveLength(1);
   });
 
-  it("removes the cell when the action throws", async () => {
-    vi.mocked(generateDesign).mockRejectedValueOnce(new Error("boom"));
-    render(<StudioClient initialLanes={[lane()]} />);
+  it("removes the cell when the action throws and the reconcile window closes (#245)", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(generateDesign).mockRejectedValueOnce(new Error("boom"));
+      render(<StudioClient initialLanes={[lane()]} />);
 
-    submitText("a red dragon");
+      submitText("a red dragon");
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000);
+      });
 
-    await waitFor(() =>
-      expect(screen.queryByTestId("studio-pending-cell")).toBeNull()
-    );
-    expect(screen.getByText(/Something went wrong/)).toBeTruthy();
+      expect(screen.queryByTestId("studio-pending-cell")).toBeNull();
+      expect(screen.getByText(/Something went wrong/)).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("counts the optimistic cell once — a queued job it can now see is not double-counted", async () => {
@@ -1519,11 +1526,26 @@ describe("StudioClient — guest line (#241)", () => {
 
 /**
  * #245: generateDesign can throw after the server accepted the request (a lost
- * response, prod 2026-09-25 ERR_NETWORK_CHANGED). The catch reads the surface
- * before deciding, so a submit that landed is not reported as a failure.
+ * response, prod 2026-09-25 ERR_NETWORK_CHANGED). The cell stays for a
+ * reconcile window while the poll loop's snapshots are judged, so a submit
+ * that landed is not reported as a failure and no snapshot shows the server's
+ * cell beside the overlay's. Everything here runs on fake timers: the window
+ * is 20 s.
  */
 describe("a lost Generate response (#245)", () => {
   const FAILED = /Something went wrong/;
+  const WINDOW_MS = 20_000;
+  const GRACE_MS = 5_000;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    // Back to the module mocks' own implementations.
+    vi.mocked(getStudioLanes).mockReset();
+    vi.mocked(generateDesign).mockReset();
+  });
 
   function submitText(value: string) {
     fireEvent.change(screen.getByTestId("studio-composer"), {
@@ -1536,370 +1558,538 @@ describe("a lost Generate response (#245)", () => {
     return (screen.getByTestId("studio-composer") as HTMLInputElement).value;
   }
 
-  /** The design id the client actually sent to generateDesign. */
-  function submittedDesignId() {
-    return vi.mocked(generateDesign).mock.calls[0][0];
+  function pendingCount() {
+    return screen.queryAllByTestId("studio-pending-cell").length;
   }
 
-  /**
-   * generateDesign rejects; `serverLanes` builds what the server holds by then
-   * (the poll mock returns `h.polledLanes`), given the id the client sent.
-   */
-  function rejectGenerate(serverLanes: (sentId: string) => StudioLane[]) {
-    vi.mocked(generateDesign).mockImplementationOnce(async (id: string) => {
-      h.polledLanes = serverLanes(id);
-      throw new Error("net::ERR_NETWORK_CHANGED");
+  async function advance(ms: number) {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
     });
   }
 
-  it("unanchored: a running job for the sent id keeps one cell and no failure", async () => {
-    rejectGenerate((id) => [
+  /** The design id the client sent to generateDesign on its nth call. */
+  function sentId(n = 0) {
+    return vi.mocked(generateDesign).mock.calls[n][0];
+  }
+
+  /** The next generateDesign call hangs until the returned function rejects it. */
+  function holdGenerate() {
+    let rejectIt!: (err: Error) => void;
+    vi.mocked(generateDesign).mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          rejectIt = reject;
+        }) as never
+    );
+    return async () => {
+      await act(async () => {
+        rejectIt(new Error("net::ERR_NETWORK_CHANGED"));
+      });
+    };
+  }
+
+  /** The next getStudioLanes call hangs until the returned function settles it. */
+  function holdRead() {
+    let settle!: (lanes: unknown) => void;
+    vi.mocked(getStudioLanes).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          settle = resolve;
+        }) as never
+    );
+    return async (lanes: unknown) => {
+      await act(async () => {
+        settle(lanes);
+      });
+    };
+  }
+
+  /** Renders with a Profiler that records the pending-cell count at every commit. */
+  function renderCounting(initialLanes: StudioLane[]) {
+    const counts: number[] = [];
+    render(
+      <Profiler id="studio" onRender={() => counts.push(pendingCount())}>
+        <StudioClient initialLanes={initialLanes} />
+      </Profiler>
+    );
+    return counts;
+  }
+
+  it("1. unanchored: a poll queued behind the call resolves with the job — one pending cell at every commit, no notice", async () => {
+    const counts = renderCounting([lane()]);
+    const rejectGenerate = holdGenerate();
+    const finishRead = holdRead();
+
+    submitText("a red dragon");
+    // The loop's first poll goes out at 2 s and, on the real client, waits
+    // behind the running generateDesign call.
+    await advance(2000);
+    await advance(500);
+    await rejectGenerate();
+    expect(pendingCount()).toBe(1);
+    expect(screen.queryByText(FAILED)).toBeNull();
+
+    // The queued poll's snapshot was fetched after the server finished.
+    const id = sentId();
+    await finishRead([
       lane({ designId: id, pending: [pendingJob("job-x", 0)] }),
       lane(),
     ]);
-    render(<StudioClient initialLanes={[lane()]} />);
 
-    submitText("a red dragon");
-
-    await waitFor(() => expect(getStudioLanes).toHaveBeenCalled());
-    await waitFor(() => expect(screen.getAllByTestId("studio-lane")).toHaveLength(2));
-    await waitFor(() =>
-      expect(screen.getAllByTestId("studio-pending-cell")).toHaveLength(1)
-    );
+    expect(pendingCount()).toBe(1);
+    expect(screen.getByTestId("cancel-generation")).toBeTruthy();
     expect(screen.queryByText(FAILED)).toBeNull();
     expect(composerValue()).toBe("");
-    // It is the server's cell now (real job id, so Cancel is offered).
-    expect(screen.getByTestId("cancel-generation")).toBeTruthy();
+    expect(screen.getAllByTestId("studio-lane")).toHaveLength(2);
+    // Never two cells at any commit, including the one that decided.
+    expect(Math.max(...counts)).toBe(1);
   });
 
-  it("unanchored: no lane for the sent id is a failure — notice, words back, no cell", async () => {
-    vi.mocked(generateDesign).mockRejectedValueOnce(new Error("boom"));
+  it("2. unanchored: a snapshot with no lane keeps the cell and says nothing; a later one with the job lands it", async () => {
     h.polledLanes = [lane()];
+    vi.mocked(generateDesign).mockRejectedValueOnce(new Error("boom"));
+    const counts = renderCounting([lane()]);
+
+    submitText("a red dragon");
+    await advance(0);
+    expect(pendingCount()).toBe(1);
+    expect(screen.queryByText(FAILED)).toBeNull();
+
+    await advance(6000);
+    expect(pendingCount()).toBe(1);
+    expect(screen.queryByText(FAILED)).toBeNull();
+    expect(composerValue()).toBe("");
+
+    h.polledLanes = [
+      lane({ designId: sentId(), pending: [pendingJob("job-x", 0)] }),
+      lane(),
+    ];
+    await advance(2000);
+
+    expect(pendingCount()).toBe(1);
+    expect(screen.getByTestId("cancel-generation")).toBeTruthy();
+    expect(screen.queryByText(FAILED)).toBeNull();
+    expect(composerValue()).toBe("");
+    expect(Math.max(...counts)).toBe(1);
+  });
+
+  it("3. unanchored: no lane through the window fails at the deadline, and one last poll goes out", async () => {
+    h.polledLanes = [lane()];
+    // Reads take 300 ms, so the loop's polls never start exactly at the
+    // deadline and the poll counted below is the deadline's own.
+    vi.mocked(getStudioLanes).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(() => resolve(h.polledLanes as never), 300);
+        }) as never
+    );
+    vi.mocked(generateDesign).mockRejectedValueOnce(new Error("boom"));
     render(<StudioClient initialLanes={[lane()]} />);
 
     submitText("a red dragon");
+    await advance(WINDOW_MS - 1);
+    expect(pendingCount()).toBe(1);
+    expect(screen.queryByText(FAILED)).toBeNull();
+    const readsBefore = vi.mocked(getStudioLanes).mock.calls.length;
 
-    await waitFor(() => expect(screen.getByText(FAILED)).toBeTruthy());
+    await advance(1);
+
+    expect(screen.getByText(FAILED)).toBeTruthy();
     expect(composerValue()).toBe("a red dragon");
-    expect(screen.queryByTestId("studio-pending-cell")).toBeNull();
+    expect(pendingCount()).toBe(0);
     expect(screen.getAllByTestId("studio-lane")).toHaveLength(1);
+    expect(vi.mocked(getStudioLanes).mock.calls.length).toBe(readsBefore + 1);
   });
 
-  it("unanchored: an empty lane for the sent id (job never written) is a failure", async () => {
-    rejectGenerate((id) => [lane({ designId: id, title: null })]);
+  it("4a. unanchored: an empty lane waits, then the job appears and it lands", async () => {
+    vi.mocked(generateDesign).mockRejectedValueOnce(new Error("boom"));
+    render(<StudioClient initialLanes={[]} />);
+    // The design row is written; the job row is not, yet.
+    vi.mocked(getStudioLanes).mockImplementation(async () => {
+      return [lane({ designId: sentId(), title: null })] as never;
+    });
+
+    submitText("a red dragon");
+    await advance(6000);
+    expect(pendingCount()).toBe(1);
+    expect(screen.queryByText(FAILED)).toBeNull();
+
+    h.polledLanes = [
+      lane({
+        designId: sentId(),
+        title: null,
+        pending: [pendingJob("job-x", 0)],
+      }),
+    ];
+    vi.mocked(getStudioLanes).mockImplementation(
+      async () => h.polledLanes as never
+    );
+    await advance(2000);
+
+    expect(pendingCount()).toBe(1);
+    expect(screen.getByTestId("cancel-generation")).toBeTruthy();
+    expect(screen.queryByText(FAILED)).toBeNull();
+    expect(composerValue()).toBe("");
+  });
+
+  it("4b. unanchored: an empty lane through the whole window is a failure at the deadline", async () => {
+    vi.mocked(generateDesign).mockRejectedValueOnce(new Error("boom"));
+    vi.mocked(getStudioLanes).mockImplementation(
+      async () => [lane({ designId: sentId(), title: null })] as never
+    );
     render(<StudioClient initialLanes={[]} />);
 
     submitText("a red dragon");
+    await advance(WINDOW_MS - 1);
+    expect(screen.queryByText(FAILED)).toBeNull();
+    expect(pendingCount()).toBe(1);
 
-    await waitFor(() => expect(screen.getByText(FAILED)).toBeTruthy());
+    await advance(1);
+
+    expect(screen.getByText(FAILED)).toBeTruthy();
     expect(composerValue()).toBe("a red dragon");
-    expect(screen.queryByTestId("studio-pending-cell")).toBeNull();
+    expect(pendingCount()).toBe(0);
   });
 
-  it("anchored: a new job in the anchored lane keeps the cell, the anchor and an empty composer", async () => {
-    rejectGenerate((id) => [
-      lane({
-        designId: id,
-        cells: [cell("img-1")],
-        pending: [pendingJob("job-new", 0)],
-      }),
-    ]);
+  it("5. anchored: a new job in the anchored lane lands it, keeps the anchor and empties the composer", async () => {
+    h.polledLanes = [
+      lane({ cells: [cell("img-1")], pending: [pendingJob("job-new", 0)] }),
+    ];
+    vi.mocked(generateDesign).mockRejectedValueOnce(new Error("boom"));
     render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
 
     anchorCell(0);
     submitText("make it blue");
+    await advance(0);
 
-    await waitFor(() => expect(getStudioLanes).toHaveBeenCalled());
-    await waitFor(() =>
-      expect(screen.getByTestId("cancel-generation")).toBeTruthy()
-    );
-    expect(screen.getAllByTestId("studio-pending-cell")).toHaveLength(1);
+    expect(pendingCount()).toBe(1);
+    expect(screen.getByTestId("cancel-generation")).toBeTruthy();
     expect(screen.queryByText(FAILED)).toBeNull();
     expect(composerValue()).toBe("");
     expect(screen.getByTestId("anchor-chip")).toBeTruthy();
   });
 
-  it("anchored: only the lane's pre-existing job is a failure", async () => {
+  it("6. anchored: only the pre-existing job through the window is a failure at the deadline", async () => {
     const existing = () =>
       lane({ cells: [cell("img-1")], pending: [pendingJob("job-old")] });
-    rejectGenerate(() => [existing()]);
+    h.polledLanes = [existing()];
+    vi.mocked(generateDesign).mockRejectedValueOnce(new Error("boom"));
     render(<StudioClient initialLanes={[existing()]} />);
 
     anchorCell(0);
     submitText("make it blue");
+    await advance(WINDOW_MS - 1);
+    // The old job's cell and this submit's, and no verdict yet.
+    expect(pendingCount()).toBe(2);
+    expect(screen.queryByText(FAILED)).toBeNull();
 
-    await waitFor(() => expect(screen.getByText(FAILED)).toBeTruthy());
+    await advance(1);
+
+    expect(screen.getByText(FAILED)).toBeTruthy();
     expect(composerValue()).toBe("make it blue");
-    // Only the old job's cell is left, not a second one for this submit.
-    expect(screen.getAllByTestId("studio-pending-cell")).toHaveLength(1);
+    expect(pendingCount()).toBe(1);
   });
 
-  it("closed lane (#204): notice, words back, lane gone, anchor cleared", async () => {
+  it("7. #204: an anchored lane that is gone fails at once — notice, words back, lane gone, anchor cleared", async () => {
     h.polledLanes = []; // the sweep closed the lane
     vi.mocked(generateDesign).mockRejectedValueOnce(new Error("closed"));
     render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
 
     anchorCell(0);
     submitText("make it blue");
+    // No time passes: the window does not apply to a lane that is gone.
+    await advance(0);
 
-    await waitFor(() => expect(screen.getByText(FAILED)).toBeTruthy());
+    expect(screen.getByText(FAILED)).toBeTruthy();
     expect(composerValue()).toBe("make it blue");
-    await waitFor(() => expect(screen.queryByTestId("studio-lane")).toBeNull());
+    expect(screen.queryByTestId("studio-lane")).toBeNull();
     expect(screen.queryByTestId("anchor-chip")).toBeNull();
-    expect(screen.queryByTestId("studio-pending-cell")).toBeNull();
+    expect(pendingCount()).toBe(0);
   });
 
-  it("keeps the cell on screen, and shows no failure, while the reconcile read is in flight", async () => {
-    let settleRead!: (lanes: unknown) => void;
-    vi.mocked(getStudioLanes).mockReturnValueOnce(
-      new Promise((resolve) => {
-        settleRead = resolve;
-      }) as never
-    );
+  it("8. every read fails: the cell stays through the window, then it is a failure", async () => {
+    vi.mocked(getStudioLanes).mockRejectedValue(new Error("offline"));
     vi.mocked(generateDesign).mockRejectedValueOnce(new Error("boom"));
     render(<StudioClient initialLanes={[lane()]} />);
 
     submitText("a red dragon");
-    await waitFor(() => expect(getStudioLanes).toHaveBeenCalledTimes(1));
-
-    expect(screen.getAllByTestId("studio-pending-cell")).toHaveLength(1);
+    await advance(WINDOW_MS - 1);
+    expect(pendingCount()).toBe(1);
     expect(screen.queryByText(FAILED)).toBeNull();
-    expect(composerValue()).toBe("");
+    const readsBefore = vi.mocked(getStudioLanes).mock.calls.length;
 
-    const id = submittedDesignId();
-    h.polledLanes = [lane({ designId: id, pending: [pendingJob("job-x", 0)] })];
-    await act(async () => {
-      settleRead(h.polledLanes);
-    });
+    await advance(1);
 
-    await waitFor(() =>
-      expect(screen.getByTestId("cancel-generation")).toBeTruthy()
-    );
-    expect(screen.getAllByTestId("studio-pending-cell")).toHaveLength(1);
-    expect(screen.queryByText(FAILED)).toBeNull();
+    expect(screen.getByText(FAILED)).toBeTruthy();
+    expect(composerValue()).toBe("a red dragon");
+    expect(pendingCount()).toBe(0);
+    // The loop halted on its error budget; the deadline still asks once more.
+    expect(vi.mocked(getStudioLanes).mock.calls.length).toBe(readsBefore + 1);
   });
 
-  it("keeps words typed during the reconcile read when the read shows no job", async () => {
-    let settleRead!: (lanes: unknown) => void;
-    vi.mocked(getStudioLanes).mockReturnValueOnce(
-      new Promise((resolve) => {
-        settleRead = resolve;
-      }) as never
-    );
+  it("9. words typed during the window survive a failure", async () => {
+    h.polledLanes = [lane()];
     vi.mocked(generateDesign).mockRejectedValueOnce(new Error("boom"));
     render(<StudioClient initialLanes={[lane()]} />);
 
     submitText("a red dragon");
-    await waitFor(() => expect(getStudioLanes).toHaveBeenCalledTimes(1));
+    await advance(1000);
     fireEvent.change(screen.getByTestId("studio-composer"), {
       target: { value: "a blue whale" },
     });
+    await advance(WINDOW_MS);
 
-    await act(async () => {
-      settleRead([lane()]);
-    });
-
-    await waitFor(() => expect(screen.getByText(FAILED)).toBeTruthy());
+    expect(screen.getByText(FAILED)).toBeTruthy();
     expect(composerValue()).toBe("a blue whale");
+    expect(pendingCount()).toBe(0);
   });
 
-  it("unanchored: a lane with a finished cell and nothing pending is landed", async () => {
-    rejectGenerate((id) => [
-      lane({ designId: id, cells: [cell("img-done")] }),
-      lane(),
-    ]);
-    render(<StudioClient initialLanes={[lane()]} />);
-
-    submitText("a red dragon");
-
-    await waitFor(() => expect(getStudioLanes).toHaveBeenCalled());
-    await waitFor(() =>
-      expect(screen.queryByTestId("studio-pending-cell")).toBeNull()
-    );
-    expect(screen.getAllByTestId("studio-cell")).toHaveLength(1);
-    expect(screen.queryByText(FAILED)).toBeNull();
-    expect(composerValue()).toBe("");
-  });
-
-  it("a concurrent same-lane submit's job is not this submit's: A fails, B's cell stays", async () => {
-    const existing = () => lane({ cells: [cell("img-1")] });
-    let rejectA!: (err: Error) => void;
-    vi.mocked(generateDesign)
-      .mockImplementationOnce(
-        () =>
-          new Promise((_, reject) => {
-            rejectA = reject;
-          }) as never
-      )
-      .mockResolvedValueOnce({
-        kind: "queued",
-        jobId: "job-b",
-        generationNumber: 2,
-        imageId: "img-b",
-      } as never);
-    // What the server holds once B is accepted: only B's job is running.
+  it("10. concurrent same-lane: B's queued job is not A's, so A fails at its deadline", async () => {
+    const rejectA = holdGenerate();
+    vi.mocked(generateDesign).mockResolvedValueOnce({
+      kind: "queued",
+      jobId: "job-b",
+      generationNumber: 2,
+      imageId: "img-b",
+    } as never);
+    // The server holds only B's job.
     h.polledLanes = [
       lane({ cells: [cell("img-1")], pending: [pendingJob("job-b", 0)] }),
     ];
-    render(<StudioClient initialLanes={[existing()]} />);
-
-    anchorCell(0);
-    submitText("make it blue");
-    // The anchor stays across a submit, so B goes into the same lane.
-    submitText("make it green");
-    await waitFor(() => expect(getStudioLanes).toHaveBeenCalled());
-    await waitFor(() =>
-      expect(screen.getByTestId("cancel-generation")).toBeTruthy()
-    );
-
-    await act(async () => {
-      rejectA(new Error("net::ERR_NETWORK_CHANGED"));
-    });
-
-    await waitFor(() => expect(screen.getByText(FAILED)).toBeTruthy());
-    expect(composerValue()).toBe("make it blue");
-    expect(screen.getAllByTestId("studio-pending-cell")).toHaveLength(1);
-  });
-
-  it("a claimed job that already finished is not counted as departed: A landed, no failure", async () => {
-    let rejectA!: (err: Error) => void;
-    vi.mocked(generateDesign)
-      .mockResolvedValueOnce({
-        kind: "queued",
-        jobId: "job-b",
-        generationNumber: 2,
-        imageId: "img-b",
-      } as never)
-      .mockImplementationOnce(
-        () =>
-          new Promise((_, reject) => {
-            rejectA = reject;
-          }) as never
-      );
-    // B finished: its cell is on the surface and nothing is pending.
-    h.polledLanes = [lane({ cells: [cell("img-1"), cell("img-b")] })];
     render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
 
     anchorCell(0);
-    submitText("make it green");
-    await waitFor(() => expect(generateDesign).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(getStudioLanes).toHaveBeenCalled());
-    await waitFor(() =>
-      expect(screen.queryByTestId("studio-pending-cell")).toBeNull()
-    );
+    submitText("make it blue"); // A
+    submitText("make it green"); // B, same lane: the anchor stays
+    await advance(0);
+    await rejectA();
+    await advance(WINDOW_MS - 1);
+    // A's cell and B's job.
+    expect(pendingCount()).toBe(2);
+    expect(screen.queryByText(FAILED)).toBeNull();
 
-    // Submit A; its job finishes before the reconcile read.
-    submitText("make it blue");
-    await waitFor(() => expect(generateDesign).toHaveBeenCalledTimes(2));
+    await advance(1);
+
+    expect(screen.getByText(FAILED)).toBeTruthy();
+    expect(composerValue()).toBe("make it blue");
+    expect(pendingCount()).toBe(1);
+    expect(screen.getByTestId("cancel-generation")).toBeTruthy();
+  });
+
+  it("11. both A and B lost into one lane, one new job visible: neither lands on it, both fail by their deadlines", async () => {
+    const rejectA = holdGenerate();
+    const rejectB = holdGenerate();
+    h.polledLanes = [
+      lane({ cells: [cell("img-1")], pending: [pendingJob("job-x", 0)] }),
+    ];
+    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+
+    anchorCell(0);
+    submitText("make it blue"); // A
+    submitText("make it green"); // B
+    await advance(0);
+    await rejectA();
+    await advance(1000);
+    await rejectB();
+    // Inside both windows: the one job cannot settle either, so both cells
+    // and job-x are on screen.
+    await advance(WINDOW_MS - 1000 - 1);
+    expect(pendingCount()).toBe(3);
+    expect(screen.queryByText(FAILED)).toBeNull();
+
+    // A's deadline: A fails and disowns job-x.
+    await advance(1);
+    expect(screen.getByText(FAILED)).toBeTruthy();
+    expect(composerValue()).toBe("make it blue");
+    expect(pendingCount()).toBe(2);
+
+    // B does not take the job A gave up on.
+    await advance(999);
+    expect(pendingCount()).toBe(2);
+    await advance(1);
+    expect(pendingCount()).toBe(1);
+    expect(screen.getByTestId("cancel-generation")).toBeTruthy();
+  });
+
+  it("12. a claimed job pending at A's submit that finishes, plus A's own job finishing, is A landed", async () => {
+    vi.mocked(generateDesign).mockResolvedValueOnce({
+      kind: "queued",
+      jobId: "job-b",
+      generationNumber: 2,
+      imageId: "img-b",
+    } as never);
+    // B's job is running when the tab reads the surface.
+    h.polledLanes = [
+      lane({ cells: [cell("img-1")], pending: [pendingJob("job-b", 0)] }),
+    ];
+    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+
+    anchorCell(0);
+    submitText("make it green"); // B, queued
+    await advance(0);
+    expect(screen.getByTestId("cancel-generation")).toBeTruthy();
+
+    const rejectA = holdGenerate();
+    submitText("make it blue"); // A, with job-b in its baseline
+    await advance(0);
+    // Both jobs finish; nothing is pending.
     h.polledLanes = [
       lane({ cells: [cell("img-1"), cell("img-b"), cell("img-a")] }),
     ];
-    await act(async () => {
-      rejectA(new Error("net::ERR_NETWORK_CHANGED"));
-    });
+    await rejectA();
+    await advance(2000);
 
-    await waitFor(() =>
-      expect(screen.getAllByTestId("studio-cell")).toHaveLength(3)
-    );
+    expect(screen.queryByText(FAILED)).toBeNull();
+    expect(composerValue()).toBe("");
+    expect(pendingCount()).toBe(0);
+    expect(screen.getAllByTestId("studio-cell")).toHaveLength(3);
+  });
+
+  it("13. a submit fired after a snapshot was requested is not counted against an earlier lost submit", async () => {
+    const rejectA = holdGenerate();
+    const finishRead = holdRead();
+    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+
+    anchorCell(0);
+    submitText("make it blue"); // A
+    // The poll at 2 s is the snapshot A will be judged by.
+    await advance(2000);
+    await advance(200);
+    holdGenerate();
+    submitText("make it green"); // B, fired after that snapshot was requested
+    await advance(100);
+    await rejectA();
+    expect(pendingCount()).toBe(2);
+
+    // The snapshot shows one new job, which is A's: B could not be in it.
+    await finishRead([
+      lane({ cells: [cell("img-1")], pending: [pendingJob("job-a", 0)] }),
+    ]);
+
+    expect(screen.queryByText(FAILED)).toBeNull();
+    // job-a as the server's cell, and B's cell still waiting on its response.
+    expect(pendingCount()).toBe(2);
+    expect(screen.getAllByTestId("cancel-generation")).toHaveLength(1);
+  });
+
+  it("14. A lands on S; B, fired after S was requested, is then lost: B must not land on A's job", async () => {
+    const rejectA = holdGenerate();
+    const finishRead = holdRead();
+    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+
+    anchorCell(0);
+    submitText("make it blue"); // A
+    await advance(2000);
+    await advance(200); // S is requested and hangs
+    const rejectB = holdGenerate();
+    submitText("make it green"); // B: fired after S, baseline lacks job-a
+    await advance(100);
+    await rejectA();
+    // S shows job-a: A lands, and claims it.
+    h.polledLanes = [
+      lane({ cells: [cell("img-1")], pending: [pendingJob("job-a", 0)] }),
+    ];
+    await finishRead(h.polledLanes);
+    expect(screen.queryByText(FAILED)).toBeNull();
+    expect(pendingCount()).toBe(2);
+
+    await rejectB();
+    // The next snapshots still show only job-a: B has no work of its own.
+    await advance(WINDOW_MS - 1000);
+    expect(screen.queryByText(FAILED)).toBeNull();
+    expect(pendingCount()).toBe(2);
+    await advance(1000);
+
+    expect(screen.getByText(FAILED)).toBeTruthy();
+    expect(composerValue()).toBe("make it green");
+    expect(pendingCount()).toBe(1);
+  });
+
+  it("15. a poll started before the deadline that resolves after it with the job lands, and no failure is ever shown", async () => {
+    const finishRead = holdRead();
+    vi.mocked(generateDesign).mockRejectedValueOnce(new Error("boom"));
+    render(<StudioClient initialLanes={[lane()]} />);
+
+    submitText("a red dragon");
+    // The catch's own poll is the one in flight and stays there.
+    await advance(WINDOW_MS + 2000);
+    expect(screen.queryByText(FAILED)).toBeNull();
+    expect(pendingCount()).toBe(1);
+
+    await finishRead([
+      lane({ designId: sentId(), pending: [pendingJob("job-x", 0)] }),
+      lane(),
+    ]);
+    expect(screen.queryByText(FAILED)).toBeNull();
+    expect(pendingCount()).toBe(1);
+    expect(screen.getByTestId("cancel-generation")).toBeTruthy();
+
+    await advance(GRACE_MS + 5000);
     expect(screen.queryByText(FAILED)).toBeNull();
     expect(composerValue()).toBe("");
   });
 
-  describe("when the reconcile read itself fails", () => {
-    // These tests assume the 1500 ms mount reconcile (skipped while a cell
-    // is pending anyway) and the first poll delay (2000 ms) do not fire inside
-    // the 1000 ms RECONCILE_RETRY_DELAY_MS window, so getStudioLanes call
-    // counts here are the reconcile's own.
-    beforeEach(() => {
-      vi.useFakeTimers();
-    });
-    afterEach(() => {
-      vi.useRealTimers();
-    });
+  it("16. a poll in flight at the deadline that never settles fails at the deadline plus the grace", async () => {
+    holdRead();
+    vi.mocked(generateDesign).mockRejectedValueOnce(new Error("boom"));
+    render(<StudioClient initialLanes={[lane()]} />);
 
-    it("retries once after a pause; a read that then shows the job is the landed path", async () => {
-      rejectGenerate((id) => [
-        lane({ designId: id, pending: [pendingJob("job-x", 0)] }),
-      ]);
-      vi.mocked(getStudioLanes).mockRejectedValueOnce(new Error("offline"));
-      render(<StudioClient initialLanes={[]} />);
+    submitText("a red dragon");
+    await advance(WINDOW_MS + GRACE_MS - 1);
+    expect(screen.queryByText(FAILED)).toBeNull();
+    expect(pendingCount()).toBe(1);
 
-      submitText("a red dragon");
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(0);
-      });
-      // First read failed; nothing is decided yet and the cell is still up.
-      expect(getStudioLanes).toHaveBeenCalledTimes(1);
-      expect(screen.getAllByTestId("studio-pending-cell")).toHaveLength(1);
-      expect(screen.queryByText(FAILED)).toBeNull();
+    await advance(1);
 
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(1000);
-      });
-      expect(getStudioLanes).toHaveBeenCalledTimes(2);
-      expect(screen.getAllByTestId("studio-pending-cell")).toHaveLength(1);
-      expect(screen.getByTestId("cancel-generation")).toBeTruthy();
-      expect(screen.queryByText(FAILED)).toBeNull();
-      expect(composerValue()).toBe("");
+    expect(screen.getByText(FAILED)).toBeTruthy();
+    expect(composerValue()).toBe("a red dragon");
+    expect(pendingCount()).toBe(0);
+  });
+
+  it("17. a poll in flight at the deadline that then fails decides the entry as failed", async () => {
+    let failRead!: (err: Error) => void;
+    vi.mocked(getStudioLanes).mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          failRead = reject;
+        }) as never
+    );
+    vi.mocked(generateDesign).mockRejectedValueOnce(new Error("boom"));
+    render(<StudioClient initialLanes={[lane()]} />);
+
+    submitText("a red dragon");
+    await advance(WINDOW_MS + 1000);
+    expect(screen.queryByText(FAILED)).toBeNull();
+
+    await act(async () => {
+      failRead(new Error("offline"));
     });
 
-    it("two failed reads fall back to the failure path", async () => {
-      vi.mocked(generateDesign).mockRejectedValueOnce(new Error("boom"));
-      vi.mocked(getStudioLanes)
-        .mockRejectedValueOnce(new Error("offline"))
-        .mockRejectedValueOnce(new Error("offline"));
-      render(<StudioClient initialLanes={[]} />);
+    expect(screen.getByText(FAILED)).toBeTruthy();
+    expect(composerValue()).toBe("a red dragon");
+    expect(pendingCount()).toBe(0);
+  });
 
-      submitText("a red dragon");
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(0);
-      });
-      expect(screen.queryByText(FAILED)).toBeNull();
+  it("18. a snapshot decides an entry and the deadline timer then reaches it: one notice, words restored once", async () => {
+    h.polledLanes = []; // the lane closed elsewhere: failed at once (#204)
+    vi.mocked(generateDesign).mockRejectedValueOnce(new Error("boom"));
+    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
 
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(1000);
-      });
-      expect(getStudioLanes).toHaveBeenCalledTimes(2);
-      expect(screen.getByText(FAILED)).toBeTruthy();
-      expect(composerValue()).toBe("a red dragon");
-      expect(screen.queryByTestId("studio-pending-cell")).toBeNull();
+    anchorCell(0);
+    submitText("make it blue");
+    await advance(0);
+    expect(screen.getAllByText(FAILED)).toHaveLength(1);
+    expect(composerValue()).toBe("make it blue");
+
+    // The user clears the box; a second decision would put the words back.
+    fireEvent.change(screen.getByTestId("studio-composer"), {
+      target: { value: "" },
     });
+    await advance(WINDOW_MS + GRACE_MS);
 
-    it("a read that never settles times out after 6000 ms, is retried, and two timeouts are a failure", async () => {
-      vi.mocked(generateDesign).mockRejectedValueOnce(new Error("boom"));
-      // Every read hangs, the poll's too. Calls: the reconcile read at 0 ms,
-      // one poll at 2000 ms (stays in flight), the retry after the timeout.
-      vi.mocked(getStudioLanes).mockImplementation(
-        () => new Promise(() => {}) as never
-      );
-      render(<StudioClient initialLanes={[]} />);
-
-      submitText("a red dragon");
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(6000);
-      });
-      // Timed out but still inside the retry pause: nothing decided yet.
-      expect(screen.queryByText(FAILED)).toBeNull();
-      expect(screen.getAllByTestId("studio-pending-cell")).toHaveLength(1);
-      expect(getStudioLanes).toHaveBeenCalledTimes(2);
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(1000);
-      });
-      // The retry went out (third call) and hangs too.
-      expect(getStudioLanes).toHaveBeenCalledTimes(3);
-      expect(screen.queryByText(FAILED)).toBeNull();
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(6000);
-      });
-      expect(screen.getByText(FAILED)).toBeTruthy();
-      expect(composerValue()).toBe("a red dragon");
-      expect(screen.queryByTestId("studio-pending-cell")).toBeNull();
-      // clearAllMocks keeps implementations; put the default back.
-      vi.mocked(getStudioLanes).mockImplementation(
-        async () => h.polledLanes as never
-      );
-    });
+    expect(screen.getAllByText(FAILED)).toHaveLength(1);
+    expect(composerValue()).toBe("");
+    expect(pendingCount()).toBe(0);
   });
 });
