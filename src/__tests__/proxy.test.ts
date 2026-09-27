@@ -70,6 +70,14 @@ describe("proxy — a visitor with a session cookie", () => {
     );
     expect(redirectTarget(res)).toBeNull();
   });
+
+  it("passes /studio with the __Secure- cookie name prod uses on https", () => {
+    process.env.GUEST_FUNNEL_ENABLED = "true";
+    const res = proxy(
+      request("/studio", "__Secure-better-auth.session_token=tok.sig")
+    );
+    expect(redirectTarget(res)).toBeNull();
+  });
 });
 
 describe("proxy — guest funnel off", () => {
