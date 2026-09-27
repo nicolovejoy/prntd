@@ -15,6 +15,10 @@ import { render, screen, fireEvent, waitFor, act, within } from "@testing-librar
 import { StudioClient } from "../studio-client";
 import type { StudioLane } from "@/lib/studio";
 import type { BulkDeleteResult } from "@/lib/studio-view";
+import {
+  LOST_SUBMIT_LOOKUP_INTERVAL_MS,
+  LOST_SUBMIT_LOOKUP_TIMEOUT_MS,
+} from "@/lib/lost-submit";
 
 const h = vi.hoisted(() => ({
   polledLanes: [] as unknown[],
@@ -1719,46 +1723,72 @@ describe("lost Generate response reconcile (#245)", () => {
     try {
       mockUuidSequence(["design-5", "local-5", "job-5"]);
       vi.mocked(generateDesign).mockImplementationOnce(lostResponse);
-      const resolvers: ((v: { status: string }) => void)[] = [];
-      vi.mocked(getGenerationJobStatus).mockImplementation(
-        () =>
-          new Promise((resolve) => {
-            resolvers.push(resolve as never);
-          }) as never
-      );
+      // Every ordinary call answers "none" instantly — a plain reconcile
+      // cadence right up to the deadline. Second independent review, item 3
+      // bounds each lookup to LOST_SUBMIT_LOOKUP_TIMEOUT_MS (10s), so a call
+      // can no longer be held open across the WHOLE 60s ordinary deadline the
+      // way the pre-item-3 version of this test did — the one call that
+      // matters here is instead held open for a few seconds, well inside its
+      // own 10s budget, spanning the deadline itself.
+      vi.mocked(getGenerationJobStatus).mockResolvedValue({ status: "none" });
 
       render(<StudioClient initialLanes={[lane()]} />);
       submitText("a red dragon");
 
+      // Call 1 at t=0.
       await act(async () => {
         await vi.advanceTimersByTimeAsync(0);
       });
-      expect(resolvers).toHaveLength(1);
+      expect(getGenerationJobStatus).toHaveBeenCalledTimes(1);
 
-      // Past the deadline; the lookup called well before it is still
-      // outstanding — the loop cannot have scheduled a second one yet.
+      // Calls 2 through 19, at t=3000..54000 — all instant "none", all well
+      // before deadlineMs (60s).
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(65_000);
+        await vi.advanceTimersByTimeAsync(54_000);
       });
-      expect(resolvers).toHaveLength(1);
+      expect(getGenerationJobStatus).toHaveBeenCalledTimes(19);
       expect(screen.getByTestId("studio-pending-cell")).toBeTruthy();
 
-      resolvers[0]({ status: "none" });
+      // Call 20, dispatched at t=57000 — still before the 60s deadline —
+      // hangs instead of answering instantly.
+      let holdResolve!: (v: { status: string }) => void;
+      vi.mocked(getGenerationJobStatus).mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            holdResolve = resolve as never;
+          }) as never
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3_000);
+      });
+      expect(getGenerationJobStatus).toHaveBeenCalledTimes(20);
+
+      // Real time crosses the ordinary deadline (t=60000) while call 20 —
+      // dispatched at t=57000, so its OWN calledAtMs is still before it — is
+      // still outstanding, well inside its 10s timeout budget (so no
+      // internal timeout fires and no new call is dispatched yet).
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+      expect(getGenerationJobStatus).toHaveBeenCalledTimes(20);
+      expect(screen.getByTestId("studio-pending-cell")).toBeTruthy();
+
+      // Call 20 finally answers "none" at t=62000 — after the deadline was
+      // crossed — but since IT was called before the deadline, it must not
+      // fail (rule 5).
+      holdResolve({ status: "none" });
       await act(async () => {
         await Promise.resolve();
       });
       expect(screen.getByTestId("studio-pending-cell")).toBeTruthy();
       expect(screen.queryByText(/Something went wrong/)).toBeNull();
 
-      // The next lookup, called after the deadline, decides.
+      // The next lookup (call 21), dispatched well after the deadline,
+      // decides for real.
       await act(async () => {
         await vi.advanceTimersByTimeAsync(3_000);
       });
-      expect(resolvers).toHaveLength(2);
-      resolvers[1]({ status: "none" });
-      await act(async () => {
-        await Promise.resolve();
-      });
+      expect(getGenerationJobStatus).toHaveBeenCalledTimes(21);
 
       expect(screen.queryByTestId("studio-pending-cell")).toBeNull();
       expect(screen.getByText(/Something went wrong/)).toBeTruthy();
@@ -2217,6 +2247,44 @@ describe("lost Generate response reconcile (#245)", () => {
       expect(
         (screen.getByTestId("studio-composer") as HTMLInputElement).value
       ).toBe("");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("test 17: a lookup that never resolves times out and counts as an error, not an infinite stall (second independent review, item 3)", async () => {
+    vi.useFakeTimers();
+    try {
+      mockUuidSequence(["design-17", "local-17", "job-17"]);
+      vi.mocked(generateDesign).mockImplementationOnce(lostResponse);
+      // Never settles at all — without a timeout on the lookup itself, the
+      // reconcile loop would await this forever: no further attempts, no
+      // notice, ever.
+      vi.mocked(getGenerationJobStatus).mockReturnValue(
+        new Promise(() => {}) as never
+      );
+
+      render(<StudioClient initialLanes={[lane()]} />);
+      submitText("a red dragon");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(getGenerationJobStatus).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId("studio-pending-cell")).toBeTruthy();
+
+      // Past LOST_SUBMIT_LOOKUP_TIMEOUT_MS the hung lookup times out
+      // (counted as "error"), and the loop's ordinary cadence fires a second
+      // attempt — proof the loop is still alive rather than stuck.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(
+          LOST_SUBMIT_LOOKUP_TIMEOUT_MS + LOST_SUBMIT_LOOKUP_INTERVAL_MS
+        );
+      });
+
+      expect(getGenerationJobStatus).toHaveBeenCalledTimes(2);
+      expect(screen.getByTestId("studio-pending-cell")).toBeTruthy();
+      expect(screen.queryByText(/Something went wrong/)).toBeNull();
     } finally {
       vi.useRealTimers();
     }

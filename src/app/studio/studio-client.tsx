@@ -36,9 +36,11 @@ import {
   isServerActionError,
   judgeLostSubmit,
   LOST_SUBMIT_LOOKUP_INTERVAL_MS,
+  LOST_SUBMIT_LOOKUP_TIMEOUT_MS,
   LOST_SUBMIT_WINDOW_MS,
   type LostSubmitLookup,
 } from "@/lib/lost-submit";
+import { withTimeout } from "@/lib/timeout";
 import {
   applyOptimistic,
   bulkDeleteConsequence,
@@ -542,7 +544,17 @@ export function StudioClient({
       const calledAtMs = Date.now();
       let status: LostSubmitLookup;
       try {
-        status = (await getGenerationJobStatus(clientJobId)).status;
+        // A plain Server Function call with no timeout of its own: a
+        // genuinely hung request (not just a fast network error) would
+        // otherwise stall this loop forever (second independent review,
+        // item 3). Treated exactly like a lookup that threw.
+        status = (
+          await withTimeout(
+            "lost-submit lookup",
+            LOST_SUBMIT_LOOKUP_TIMEOUT_MS,
+            () => getGenerationJobStatus(clientJobId)
+          )
+        ).status;
       } catch {
         status = "error";
       }

@@ -29,6 +29,21 @@ export const LOST_SUBMIT_WINDOW_MS = 60_000;
 export const LOST_SUBMIT_LOOKUP_INTERVAL_MS = 3_000;
 
 /**
+ * Bounds a single reconcile lookup call (second independent review, item 3).
+ * `getGenerationJobStatus` is a plain Server Function call with no timeout of
+ * its own; a request that never resolves (a genuinely hung connection, not
+ * just a fast network error) would otherwise stall the reconcile loop
+ * forever — no further attempts, no notice, ever, until
+ * `settleOptimistic`'s unrelated STALE_OPTIMISTIC_MS age-out silently drops
+ * the cell. Comfortably longer than `LOST_SUBMIT_LOOKUP_INTERVAL_MS` (3s) so
+ * an ordinary round trip is never cut off, short enough that a hung request
+ * costs only a few poll cycles rather than an unbounded wait. A timeout is
+ * treated exactly like a lookup that threw — see `judgeLostSubmit`'s
+ * "error" handling.
+ */
+export const LOST_SUBMIT_LOOKUP_TIMEOUT_MS = 10_000;
+
+/**
  * The pure status union `getGenerationJobStatusForUser` (src/lib/generation-job.ts)
  * resolves to. Defined here, not there, so a client component can import the
  * type without pulling in that module's db import.
