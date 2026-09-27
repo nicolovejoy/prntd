@@ -224,7 +224,7 @@ export async function publishImage(
   // the PUBLIC `/` feed and `/shop` attributed to that ghost account, so it
   // needs a real one. Do not simplify this back to the bare session check.
   if (isAnonymousUser(session.user)) {
-    throw new Error("Sign in to publish");
+    throw new Error("Sign up to publish");
   }
 
   // Model B: whether the image is published lives in `image_publication`. The

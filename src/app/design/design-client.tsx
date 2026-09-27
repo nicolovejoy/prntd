@@ -871,15 +871,13 @@ function DesignPageInner({ initialThreadPromise, canPublish }: Props) {
           onDelete={handleDeleteImage}
           onMakeProducts={handleMakeProductsForImage}
           onPublish={canPublish ? handlePublishImage : undefined}
-          // Anonymous guest: same "why" the /d/[imageId] Publish CTA gives.
-          // designId.current (not the URL) names the thread — Publish only
-          // ever shows once a real design row exists, whether or not the URL
-          // has caught up to it (a brand-new thread's id never lands in the
-          // address bar).
-          signInHref={
-            canPublish
-              ? undefined
-              : `/sign-in?next=${encodeURIComponent(`/design?id=${designId.current}`)}`
+          // Anonymous guest: same sign-up / sign-in prompt the /d/[imageId]
+          // Publish CTA gives. designId.current (not the URL) names the thread
+          // to return to — Publish only ever shows once a real design row
+          // exists, whether or not the URL has caught up to it (a brand-new
+          // thread's id never lands in the address bar).
+          guestPublishNext={
+            canPublish ? undefined : `/design?id=${designId.current}`
           }
           onStartFrom={handleStartFromImage}
         />

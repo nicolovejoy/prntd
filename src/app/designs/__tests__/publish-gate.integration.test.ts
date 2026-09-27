@@ -69,7 +69,7 @@ describe("publishImage — anonymous (guest-funnel) sessions are rejected", () =
     isAnonymous = true;
 
     await expect(publishImage(imageId, { title: "T" })).rejects.toThrow(
-      "Sign in to publish"
+      "Sign up to publish"
     );
     expect(await publicationRows(imageId)).toHaveLength(0);
   });

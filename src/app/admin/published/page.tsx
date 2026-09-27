@@ -11,6 +11,7 @@ import {
 import { Button, Input } from "@/components/ui";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
+import { formatDisplayDate } from "@/lib/display-time-zone";
 
 export const dynamic = "force-dynamic";
 
@@ -89,7 +90,7 @@ export default async function AdminPublishedPage() {
                   {img.designerName} · {img.designerEmail}
                 </p>
                 <p className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted">
-                  {img.publishedAt.toLocaleDateString()}
+                  {formatDisplayDate(img.publishedAt)}
                 </p>
                 {/* Shop feed position. Ranked images list first (lowest
                     number first); blank = unranked, recency order. */}
