@@ -41,10 +41,6 @@ async function drainAfter() {
   }
 }
 
-vi.mock("@/app/preview/actions", () => ({
-  prefetchProductMockups: vi.fn(async () => {}),
-}));
-
 vi.mock("@/lib/auth", () => ({
   auth: {
     api: {

@@ -62,10 +62,6 @@ async function drainOne(index: number) {
   await cb();
 }
 
-vi.mock("@/app/preview/actions", () => ({
-  prefetchProductMockups: vi.fn(async () => {}),
-}));
-
 vi.mock("@/lib/auth", () => ({
   auth: {
     api: {
