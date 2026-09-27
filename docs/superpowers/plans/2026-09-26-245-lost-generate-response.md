@@ -146,3 +146,131 @@ Acceptance / tests in `src/app/studio/__tests__/studio-client.test.tsx`
 
 `npm run lint`, `npm run typecheck`, `npx vitest run`, `npm run build` with
 CI's dummy env, `npm run db:generate` → "No schema changes".
+
+## Revision after the whole-branch review (Task 3)
+
+Tasks 1 and 2 shipped a single reconcile read (timeout, one retry) decided by
+`submitLanded(fresh, designId, baseline, claimed, unresolvedOthers)`, with
+`claimed` = `{jobId, imageId}` pairs this tab got back from other submits.
+The Opus whole-branch review then showed the one-read design is wrong on the
+path #245 is about:
+
+- **Server Functions run one at a time on the client** (Next's
+  `runRemainingActions`). A network switch can drop the response while the
+  server is still inside `generateDesign` — the brief call alone takes
+  seconds and runs before the job row exists. The reconcile read then sees
+  no job and reports failure: the #245 bug again, for the most likely timing.
+- A poll queued behind the failed `generateDesign` is applied before the
+  reconcile read and shows the server's cell beside the still-present
+  optimistic one (two cells, then one: a layout shift on a phone).
+- The retry after a timeout cannot help: the timed-out read still heads the
+  serial queue.
+- Two same-lane submits that both lose their response could resolve A as
+  failed and then B as "landed" on A's job — B's words silently lost.
+- `unresolvedOthers` counted submits fired after the snapshot was requested.
+- A claimed baseline job that finished still counted as "departed".
+
+### Design
+
+Replace the one-shot read with a **reconcile window** judged on every applied
+snapshot (poll or otherwise), with three verdicts:
+
+- **landed** — evidence beyond what other unresolved submits could explain →
+  drop the entry silently (the server's own cell takes its place).
+- **failed** — decisive: the anchored lane is gone (closed or deleted, #204),
+  or the window has closed without enough evidence → drop the entry, notice,
+  words back if the box is empty, and disown the unexplained new ids in that
+  lane so a later decision can't take them as its own.
+- **wait** — no decision yet: the cell stays, polling continues.
+
+Window: `RECONCILE_WINDOW_MS` = 20 000 ms from the throw (the brief call
+usually takes 3–8 s; a slower brief reads as a failure, which is today's
+behaviour, not worse). An unanchored submit whose lane is absent waits too:
+the read may have raced the design-row write. Only an anchored lane that is
+absent fails at once.
+
+Evidence (`judgeLostSubmit`, pure, replaces `submitLanded`):
+- `LaneBaseline` gains `laneExisted: boolean`.
+- Claims are `{ jobId: string | null; imageId: string | null }`: a queued
+  result claims both ids; a disowned pending job claims only its jobId; a
+  disowned cell only its imageId.
+- known jobs = baseline jobs ∪ claimed jobIds; known images = baseline images
+  ∪ claimed imageIds.
+- newPending = pending jobs not known; newCells = cells not known.
+- departed = distinct job ids, from baseline jobs and job-only claims, minus
+  job ids of claims that carry an imageId, that are no longer pending. Each can
+  explain one new cell (its image id is unknown).
+- evidence = newPending + max(0, newCells − departed).
+- verdict: lane absent → `failed` if `baseline.laneExisted`, else `failed` if
+  past the deadline, else `wait`. Evidence > unresolvedOthers → `landed`. Past
+  the deadline → `failed` with `unexplained` = new pending jobs as
+  `{jobId, imageId: null}` and new cells as `{jobId: null, imageId}`.
+  Otherwise `wait`.
+
+Client (`studio-client.tsx`):
+- All bookkeeping the decision reads lives in refs updated synchronously (not
+  mirrored from state in an effect), so a mock or a fast network resolving in
+  the same tick still sees it:
+  - `claimsRef: Map<designId, LaneClaim[]>` — queued results add
+    `{jobId, imageId}`; failures add their `unexplained`.
+  - `inFlightRef: Map<localId, { designId, startedAtMs }>` — added at submit,
+    removed when the action returns (any result) or throws.
+  - `lostRef: Map<localId, { designId, prompt, baseline, startedAtMs,
+    deadlineMs }>` — added in the catch, removed when decided.
+- `unresolvedOthers` for a lost entry = other entries (in `inFlightRef` or
+  `lostRef`, same design, not itself) whose `startedAtMs` is before the
+  snapshot's `snapshotStartedAtMs`.
+- `applyFreshLanes(fresh, snapshotStartedAtMs)` runs the judgement for every
+  lost entry after applying the snapshot. `pollOnce` is the only reader, so the
+  direct reconcile read, its timeout and its retry are deleted.
+- The catch: record the lost entry, schedule a deadline timer (judge with the
+  latest applied lanes, kept in a `lanesRef`; past the deadline; then one
+  `pollOnce()` so a job that did land shows even if the loop has stopped), and
+  call `pollOnce()` (it returns early if a poll is already queued; that poll
+  was dispatched after the throw and is judged the same way). The polling loop
+  stays alive while the entry is in `optimistic`, so snapshots keep arriving
+  through the window.
+- A decision removes the entry from `optimistic` in the same batch as the
+  `setLanes` that produced it, so the two cells never render together.
+- Decisions are idempotent per localId (the deadline timer and a snapshot can
+  both reach one).
+- Comments: the catch explains both throws (#245, #204), serial dispatch, the
+  window, and the accepted trade that an `after()` failure right after the job
+  insert reads as landed (the sweep then fails the job).
+
+### Task 3 acceptance / tests
+
+Helper (`src/lib/__tests__/studio-view.test.ts`, replacing `submitLanded`'s):
+lane absent anchored → failed now; lane absent unanchored → wait, failed past
+deadline; new pending → landed; new cell only → landed; empty lane → wait,
+failed past deadline; baseline job departed + one new cell → wait; + two →
+landed; claimed `{jobId,imageId}` pending or finished → not evidence, and not
+departed; job-only claim finished + one new cell → wait; evidence ≤
+unresolvedOthers → wait; past-deadline failure reports the unexplained ids;
+other designs never count.
+
+Client (`src/app/studio/__tests__/studio-client.test.tsx`, replacing the Task
+2 block where it conflicts):
+1. Unanchored: rejects, the next snapshot shows the job → one pending cell at
+   every observable step (never two), no notice, empty composer.
+2. Unanchored: the snapshot shows no lane → the cell stays with no notice;
+   a later snapshot shows the job → landed.
+3. Unanchored: no lane through the window → at the deadline, notice, words
+   back, cell gone, and a poll fires afterwards.
+4. Unanchored: empty lane, then the job appears → landed; empty through the
+   window → failure at the deadline.
+5. Anchored: new job → landed, anchor kept, composer empty.
+6. Anchored: only the pre-existing job through the window → failure at the
+   deadline.
+7. #204: anchored lane absent → failure immediately (no waiting), lane gone,
+   anchor cleared.
+8. Every read fails → failure at the deadline.
+9. Words typed during the window survive a failure.
+10. Concurrent same-lane: B queued `job-b`, A lost, snapshots show only
+    `job-b` → A fails at the deadline.
+11. Both A and B lost into one lane, one new job visible → neither lands on
+    it; both fail by their deadlines.
+12. A claimed job pending at A's submit (B's `job-b` in `lanes`) finishes
+    during A's window, and A's own job finishes too → A landed.
+13. A submit fired after a snapshot was requested is not counted against an
+    earlier lost submit judged by that snapshot.
