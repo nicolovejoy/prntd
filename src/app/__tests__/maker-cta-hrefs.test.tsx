@@ -8,7 +8,7 @@
  * (`e2e/cart.spec.ts` buys as a guest). #241 opened the Studio to guest
  * sessions (Nico, 2026-09-25) and reversed W1 — except for the empty cart
  * (controller ruling, #241 fix round): an empty cart is what a first-time
- * visitor with NO session sees, and middleware sends a sessionless /studio
+ * visitor with NO session sees, and the proxy sends a sessionless /studio
  * request to /sign-in, while /design is open and mints the guest session.
  * A cart with lines implies a session, so "Add another design" follows the
  * rest of the site to /studio.
@@ -21,7 +21,7 @@
  *   3. /cart "Add another design" (a router.push)  → /studio
  *
  * The sessionless half of (2) — /cart and /design reachable with no cookie,
- * /studio not — is pinned in src/__tests__/middleware.test.ts.
+ * /studio not — is pinned in src/__tests__/proxy.test.ts.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
