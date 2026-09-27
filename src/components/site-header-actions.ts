@@ -65,7 +65,9 @@ async function sweepUserJobsAfterResponse(userId: string): Promise<void> {
  * funnel is off, without a job-table query. The badge links to /studio, so it
  * counts exactly the users `canUseStudio` lets follow it there: real
  * accounts, plus guests when GUEST_FUNNEL_ENABLED is on. A guest's count and
- * sweep are scoped to their anonymous user id, like a real user's.
+ * sweep are scoped to their anonymous user id, like a real user's. Accepted
+ * cost: a funnel guest now pays the same running-jobs count query plus the
+ * `after()` sweep as a real user, on every header mount.
  */
 async function runningJobsForCurrentUser(): Promise<number> {
   const session = await auth.api.getSession({ headers: await headers() });
