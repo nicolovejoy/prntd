@@ -86,5 +86,9 @@ STORES_ENABLED=true
 # GUEST_GEN_DAILY_CAP=8
 # USER_GEN_DAILY_CAP=50
 # IP_GEN_DAILY_CAP=20
+# Daily chat-turn caps (one Claude call per turn). The IP cap counts guest turns only.
+# GUEST_CHAT_DAILY_CAP=24
+# USER_CHAT_DAILY_CAP=150
+# IP_CHAT_DAILY_CAP=60
 # Short-circuit Printful submission so local orders never reach fulfilment.
 # PRINTFUL_DRY_RUN=true

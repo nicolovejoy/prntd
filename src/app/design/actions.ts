@@ -7,6 +7,8 @@ import { auth, isAnonymousUser } from "@/lib/auth";
 import {
   consumeGenerationQuota,
   refundGenerationQuota,
+  consumeChatQuota,
+  refundChatQuota,
   dayKeyUTC,
 } from "@/lib/generation-quota";
 import {
@@ -38,7 +40,7 @@ import {
   mirrorFrontImageId,
 } from "@/lib/composition-reads";
 import { buildImageRow, buildOutputLinkRow } from "@/lib/model-b-writes";
-import { chatAboutDesign, constructDesignBrief } from "@/lib/ai";
+import { chatAboutDesign, constructDesignBrief, type ChatOption } from "@/lib/ai";
 import { uploadImageObject, deleteImageObject } from "@/lib/r2";
 import { getGenerator } from "@/lib/generators/registry";
 import type { GenerateOperation } from "@/lib/generators/types";
@@ -93,13 +95,16 @@ async function findOwnedDesign(designId: string, userId: string) {
 }
 
 /**
- * Used by `sendChatMessage` and `uploadReferenceImage` — neither spends a
- * quota unit, so unlike `generateDesign` this leaves the plain find-then-
- * insert race unguarded: two concurrent calls on the same unseen id can both
- * see `null` and both try to insert, and the loser's insert throws instead of
- * recovering onto the winner's row. Acceptable here because nothing is at
- * stake but a double-tapped Ask (or upload) surfacing an error to retry —
- * no wasted spend, no row left behind either way.
+ * Used by `sendChatMessage` and `uploadReferenceImage`. Unlike `generateDesign`
+ * this leaves the plain find-then-insert race unguarded: two concurrent calls
+ * on the same unseen id can both see `null` and both try to insert, and the
+ * loser's insert throws instead of recovering onto the winner's row.
+ * `sendChatMessage` calls this after spending a chat-quota unit (#253); it
+ * refunds that unit when the insert loses (as it does for any failure before
+ * Claude answers). Acceptable here because nothing is at stake but a
+ * double-tapped Ask (or upload) surfacing an error to retry. A later failure
+ * in the same turn leaves the design row this call created (empty, and
+ * harmless).
  */
 async function getOrCreateDesign(designId: string, userId: string) {
   const found = await findOwnedDesign(designId, userId);
@@ -127,18 +132,74 @@ function generationLimitMessage(reason: "identity" | "ip" | undefined): string {
     : "You've reached today's free design limit. Sign in to keep designing.";
 }
 
-export async function sendChatMessage(designId: string, userMessage: string) {
-  const session = await auth.api.getSession({ headers: await headers() });
+/** What a chat turn resolved to: Claude's reply, or a daily-cap refusal. */
+export type ChatResult =
+  | {
+      kind: "reply";
+      message: string;
+      readyToGenerate: boolean;
+      options: ChatOption[];
+    }
+  | { kind: "limit"; message: string };
+
+/** Copy shown when a chat turn is blocked by the daily cap (#253). */
+function chatLimitMessage(isAnonymous: boolean): string {
+  return isAnonymous
+    ? "Daily chat limit reached. Sign in to continue."
+    : "Daily chat limit reached. Try again tomorrow.";
+}
+
+export async function sendChatMessage(
+  designId: string,
+  userMessage: string
+): Promise<ChatResult> {
+  const hdrs = await headers();
+  const session = await auth.api.getSession({ headers: hdrs });
   if (!session) throw new Error("Unauthorized");
 
-  const found = await getOrCreateDesign(designId, session.user.id);
-  // Closed conversation = read-only thread (slice 3): no chat turns.
-  assertConversationOpen(found);
-  const messages = await getDesignMessages(designId);
-  const images = await getDesignImagesForAIContext(designId);
+  const userId = session.user.id;
+  const isAnonymous = isAnonymousUser(session.user);
 
-  const aiResponse = await chatAboutDesign(userMessage, messages, images);
+  // Find only, NOT create (same rule as #197 for generate): a refused turn on
+  // a never-seen designId must leave no design row behind.
+  const found = await findOwnedDesign(designId, userId);
+  // Closed conversation = read-only thread (slice 3): no chat turns, and no
+  // quota unit burned on one. A brand-new id can't be closed yet.
+  if (found) assertConversationOpen(found);
 
+  const ip = clientIp(hdrs);
+  // The day the unit is spent on, captured once, so a refund after midnight
+  // UTC credits the bucket the spend came out of.
+  const now = new Date();
+  const day = dayKeyUTC(now);
+
+  // Every chat turn is a paid Claude call, guests included (#253).
+  const quota = await consumeChatQuota({ userId, isAnonymous, ip, now, db });
+  if (!quota.allowed) {
+    return { kind: "limit", message: chatLimitMessage(isAnonymous) };
+  }
+
+  let aiResponse: Awaited<ReturnType<typeof chatAboutDesign>>;
+  try {
+    if (!found) await getOrCreateDesign(designId, userId);
+    const messages = await getDesignMessages(designId);
+    const images = await getDesignImagesForAIContext(designId);
+
+    aiResponse = await chatAboutDesign(userMessage, messages, images);
+  } catch (err) {
+    // A turn that fails before Claude answers gives its unit back.
+    // Best-effort: a refund failure is logged and never masks the original
+    // error.
+    try {
+      await refundChatQuota({ userId, isAnonymous, ip, day, db });
+    } catch (refundErr) {
+      console.error("[chat] quota refund failed", refundErr);
+    }
+    throw err;
+  }
+
+  // Claude has answered and been billed, so a persistence failure from here
+  // propagates without a refund.
   await insertChatMessage({ designId, role: "user", content: userMessage });
   await insertChatMessage({
     designId,
@@ -152,6 +213,7 @@ export async function sendChatMessage(designId: string, userMessage: string) {
     .where(eq(designTable.id, designId));
 
   return {
+    kind: "reply",
     message: aiResponse.message,
     readyToGenerate: aiResponse.readyToGenerate,
     options: aiResponse.options,
