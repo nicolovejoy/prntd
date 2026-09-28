@@ -343,3 +343,11 @@ unread GET and asserts no R2 read.
     `compress_type` 0, sizes match.
   - The manifest names part 2 of 3 and lists the missing image with "The
     image file could not be read from storage."
+
+## Scoped re-review fix round (main session, 2026-09-28)
+
+FIX_BASE: `25b474942af257a38d90617f5f325ac8b1aafb94`. Verdict: all seven
+findings addressed; one Important gap (G1) and five minor (G2–G6). The
+re-reviewer checked the hand-written writer against APPNOTE and five readers
+with byte-identical extraction, and judged oldest first the better order;
+both stand.
