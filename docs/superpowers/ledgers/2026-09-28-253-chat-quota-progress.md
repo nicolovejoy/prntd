@@ -41,3 +41,13 @@ Plan: `docs/superpowers/plans/2026-09-28-253-chat-quota.md`. Branch
 - Ruling (finding 6): the limit path keeps the user's unpersisted bubble and shows the refusal as an unpersisted assistant bubble; both vanish on reload — same as the generate `limit` path today — cost if wrong: a copy/UX tweak.
 - Ruling (finding 7): no client test for `handleSend`'s limit branch — `design-client.tsx` has no test harness and building one is outside the slice; the branch is four lines and the server contract it depends on is covered by the action tests — cost if wrong: a client regression on the limit branch goes uncaught until the smoke.
 - Fix round (sonnet) applied 1–5. Scoped re-review (haiku) marked all resolved, no new defects. The first haiku re-review ran against a clobbered prompt (the sibling slice-3 controller writes the same scratchpad file names); it was rerun from a slice-specific path.
+
+## Gate (run by the controller, 2026-09-28)
+
+- `npm run lint`: 0 errors (33 warnings, all pre-existing, none in changed files).
+- `npm run typecheck`: clean.
+- `npx vitest run`: 201 files, 2406 tests passed (new: 17 in `src/lib/__tests__/chat-quota.integration.test.ts`, 17 in `src/app/design/__tests__/chat-quota.integration.test.ts`).
+- `npm run build` with the CI dummy env: exit 0.
+- `npm run db:generate`: "No schema changes, nothing to migrate".
+
+Whole-branch review: run by the main session, not by this controller.
