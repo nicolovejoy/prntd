@@ -90,9 +90,11 @@ export interface BulkImageDeleteResult {
  * src/lib/delete-image.ts — this wrapper adds the session gate, maps each
  * plan's outcome to something the grid can say, and cleans up R2.
  *
- * The gate is the Studio's (canUseStudio, src/lib/require-user.ts), because
- * the library is a Studio view: a guest is admitted while the guest funnel is
- * on (#241). Ownership is still per image, via planImageDeletion's userId.
+ * The gate is requireStudioActionSession (canUseStudio, src/lib/require-user.ts)
+ * — My Designs shares the Studio's admission rule even though it is its own
+ * top-level route now (nav model A): a guest is admitted while the guest
+ * funnel is on (#241). Ownership is still per image, via
+ * planImageDeletion's userId.
  *
  *  - an id that is gone, or was never the caller's, is reported
  *    `not-found` / `not-owned` and never touched;
@@ -183,7 +185,7 @@ export async function deleteImages(
     }
   }
 
-  revalidatePath("/studio/library");
+  revalidatePath("/designs");
   if (designRemoved) {
     revalidatePath("/studio");
   }

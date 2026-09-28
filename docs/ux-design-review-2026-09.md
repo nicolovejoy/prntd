@@ -91,6 +91,13 @@ two views (bench, library), not three.**
 the Studio needs a sub-nav it does not have. Cost is mostly the sub-nav and
 retargeting ~12 links.
 
+**2026-09-27, Nico ("it's hard to find my designs"):** My Designs is a
+top-level header item at `/designs` — Studio · My Designs · Shop · Cart ·
+menu. `/studio/library` and `/studio/archive` 308 to `/designs`; the Studio
+has no tab strip. This is no longer Model A as written above: `/designs` did
+not become a redirect, and Studio isn't a sub-nav with library as a view
+inside it. The shipped shape is closer to Model B, "Three nouns", below.
+
 B. _Three nouns._ Studio · Designs · Shop, Orders under account. Keeps the
 bench/library split visible in the top bar since the plan
 (`docs/studio-plan.md`) argues they are different jobs. Tradeoffs: still two

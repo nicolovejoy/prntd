@@ -75,9 +75,9 @@ export function ConversationActions({
       return;
     }
     // This page's image is usually gone with the conversation — and when it
-    // survives (order/seed/cart reference) the library is still where the
+    // survives (order/seed/cart reference) My Designs is still where the
     // user should land.
-    window.location.assign("/studio/library");
+    window.location.assign("/designs");
   }
 
   return (

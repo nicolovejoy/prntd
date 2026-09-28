@@ -72,6 +72,7 @@ import {
 } from "@/lib/generation-poll";
 import { renderSpecSummary, fallbackSpec } from "@/lib/design-spec";
 import { isUniqueViolation } from "@/lib/ledger";
+import { isUuid } from "@/lib/uuid";
 import { latestUserText } from "@/lib/design-prompt";
 import type { ChatMessage } from "@/lib/db/schema";
 import type { DesignImage } from "@/lib/design-images";
@@ -189,6 +190,46 @@ export type GenerateResult =
 /** Copy shown when the user already holds the max concurrent generations. */
 const AT_CAPACITY_MESSAGE = `You have ${GENERATION_CONCURRENCY_CAP} designs generating already — give them a moment.`;
 
+/**
+ * Raw row lookup for a client-minted job id (#245), with no ownership
+ * filtering — every caller below applies that itself, since a foreign row
+ * means different things at different call sites (the initial replay check
+ * throws on one; the limit/at_capacity branches after a concurrent replay's
+ * own execution just fall through to their ordinary refusal).
+ */
+async function findJobById(jobId: string) {
+  const [existing] = await db
+    .select()
+    .from(imageGenerationTable)
+    .where(eq(imageGenerationTable.id, jobId))
+    .limit(1);
+  return existing ?? null;
+}
+
+/**
+ * The queued `GenerateResult` for `job`, but ONLY when it is `userId`'s own
+ * row on `designId` AND still `running` or `succeeded`. A `failed` or
+ * `cancelled` row must never be reported as queued (#245 rebuild review, item
+ * 3): that would tell the client the generation is still working, or already
+ * delivered, when it demonstrably is not. Returns null for anything else,
+ * including a foreign row — callers decide what a foreign row means.
+ */
+function queuedResultForReplay(
+  job: Awaited<ReturnType<typeof findJobById>>,
+  userId: string,
+  designId: string
+): Extract<GenerateResult, { kind: "queued" }> | null {
+  if (!job) return null;
+  if (job.userId !== userId || job.designId !== designId) return null;
+  if (job.status !== "running" && job.status !== "succeeded") return null;
+  return {
+    kind: "queued",
+    jobId: job.id,
+    generationNumber: job.generationNumber,
+    imageId: job.imageId,
+  };
+}
+
 export async function generateDesign(
   designId: string,
   userMessage?: string,
@@ -200,11 +241,38 @@ export async function generateDesign(
      * conversation's own images or the whole turn is refused.
      */
     anchorImageId?: string;
+    /**
+     * Client-minted job id (#245). Lets a lost/replayed response be
+     * reconciled by looking this exact id up: `insertGenerationJob` uses it
+     * for the `image_generation` row instead of a random one. Optional — the
+     * older `/design` surface does not send one.
+     */
+    jobId?: string;
   } = {}
 ): Promise<GenerateResult> {
   const hdrs = await headers();
   const session = await auth.api.getSession({ headers: hdrs });
   if (!session) throw new Error("Unauthorized");
+
+  if (opts.jobId !== undefined && !isUuid(opts.jobId)) {
+    throw new Error("Invalid job id");
+  }
+
+  // Replay check (#245), before quota, capacity or any write. A resubmit of a
+  // request whose response was lost returns the ORIGINAL queued result
+  // untouched — no second quota spend, no second render. Anything else (the
+  // id belongs to another user, or to this user on a different design, or to
+  // this user on THIS design but already settled to `failed`/`cancelled`) is
+  // treated the same as a malformed id: reject before anything is spent.
+  // `failed`/`cancelled` must NOT be replayed as "queued" (#245 rebuild
+  // review, item 3) — that would tell the client the generation is still
+  // working, or already delivered, when it demonstrably is not.
+  if (opts.jobId !== undefined) {
+    const existing = await findJobById(opts.jobId);
+    const replayed = queuedResultForReplay(existing, session.user.id, designId);
+    if (replayed) return replayed;
+    if (existing) throw new Error("Invalid job id");
+  }
 
   // Find only — NOT create. Creating the row is deferred past the quota and
   // capacity checks below (#197): a refused submit on a never-seen designId
@@ -231,6 +299,35 @@ export async function generateDesign(
     now,
   });
   if (!quota.allowed) {
+    // A concurrent replay of this exact client id can consume quota itself
+    // (the counter bumps even on a blocked attempt) and, for a user near the
+    // cap, land here even though the OTHER execution of this same request
+    // has already reached insertGenerationJob (#245 rebuild review, item 2).
+    // Reporting "limit" to this call would tell the client it hit its daily
+    // cap while the design it actually asked for is queued and rendering.
+    // Check for that row before refusing, and if it's there, refund this
+    // call's wasted spend and hand back the same queued result.
+    if (opts.jobId !== undefined) {
+      const replayed = queuedResultForReplay(
+        await findJobById(opts.jobId),
+        userId,
+        designId
+      );
+      if (replayed) {
+        await refundGenerationQuota({ userId, ip, day: dayKey }).catch((e) =>
+          console.error("refundGenerationQuota failed:", e)
+        );
+        return replayed;
+      }
+    }
+    // Residual window (fix round item 4, accepted, not fixed): the original
+    // can still be INSIDE its brief call (constructDesignBrief, bounded to
+    // DESIGN_BRIEF_TIMEOUT_MS — 45s) when this replay's own quota bump lands
+    // here. No image_generation row exists yet at all, so findJobById above
+    // returns null regardless of ownership, this call reports "limit" for a
+    // request that is actually going to queue successfully, and its own
+    // wasted quota bump is never refunded (only the `replayed` branch
+    // refunds). Same gap applies to the advisory capacity check below.
     return { kind: "limit", message: generationLimitMessage(quota.reason) };
   }
 
@@ -246,6 +343,17 @@ export async function generateDesign(
     await refundGenerationQuota({ userId, ip, day: dayKey }).catch((e) =>
       console.error("refundGenerationQuota failed:", e)
     );
+    // Same concurrent-replay case as the limit branch above, tripped one
+    // check later: the OTHER execution of this exact request occupied the
+    // slot this call just lost the race for (#245 rebuild review, item 2).
+    if (opts.jobId !== undefined) {
+      const replayed = queuedResultForReplay(
+        await findJobById(opts.jobId),
+        userId,
+        designId
+      );
+      if (replayed) return replayed;
+    }
     return { kind: "at_capacity", message: AT_CAPACITY_MESSAGE };
   }
 
@@ -312,12 +420,24 @@ export async function generateDesign(
       ip,
       dayKey,
       explicitAnchorId: opts.anchorImageId ?? null,
+      jobId: opts.jobId,
     });
   } catch (err) {
     await refundGenerationQuota({ userId, ip, day: dayKey }).catch((e) =>
       console.error("refundGenerationQuota failed:", e)
     );
     throw err;
+  }
+  if (prepared.kind === "already_queued") {
+    // A concurrent replay of this same request already created the job row
+    // (prepareGeneration refunded this call's unit inline) — no continuation
+    // to schedule, nothing more to do.
+    return {
+      kind: "queued",
+      jobId: prepared.jobId,
+      generationNumber: prepared.generationNumber,
+      imageId: prepared.imageId,
+    };
   }
   if (prepared.kind !== "prepared") {
     // No job row was created, so nothing owns the unit spent above — give it
@@ -351,6 +471,10 @@ export async function generateDesign(
 /**
  * What `prepareGeneration` hands back. "prepared" means the job row exists —
  * the caller must schedule the continuation and must NOT refund on its own.
+ * "already_queued" (#245) means a concurrent replay of this same client job
+ * id beat this call to the insert; this call's unit has already been refunded
+ * inline (like `at_capacity`) and there is no continuation to schedule — the
+ * caller maps it straight to `queued` from the winning row.
  */
 type PreparedGeneration =
   | Exclude<GenerateResult, { kind: "queued" } | { kind: "limit" }>
@@ -360,6 +484,12 @@ type PreparedGeneration =
       generationNumber: number;
       imageId: string;
       continuation: GenerationJobParams;
+    }
+  | {
+      kind: "already_queued";
+      jobId: string;
+      generationNumber: number;
+      imageId: string;
     };
 
 async function prepareGeneration({
@@ -370,6 +500,7 @@ async function prepareGeneration({
   ip,
   dayKey,
   explicitAnchorId,
+  jobId,
 }: {
   designId: string;
   found: typeof designTable.$inferSelect;
@@ -378,6 +509,7 @@ async function prepareGeneration({
   ip: string | null;
   dayKey: string;
   explicitAnchorId: string | null;
+  jobId?: string;
 }): Promise<PreparedGeneration> {
   const messages = await getDesignMessages(designId);
   const images = await getDesignImagesForAIContext(designId);
@@ -506,8 +638,16 @@ async function prepareGeneration({
   // Computed BEFORE the insert on purpose. Everything the caller's
   // direct-refund catch covers must happen while no job row exists; a throw in
   // here after a successful insert would refund inline AND leave a `running`
-  // row for the sweeper to refund again. The insert is the last thing in this
-  // function that can throw.
+  // row for the sweeper to refund again. insertGenerationJob itself can throw
+  // from two different reads, and only one of them is safe to lump in with
+  // everything above: `resolveConflict`'s read-back (on a unique-key violation
+  // or a zero-row insert) runs BEFORE any row of THIS call's own exists — a
+  // duplicate/conflict/at_capacity outcome, or a throw from that read itself,
+  // is covered by the caller's direct-refund catch exactly like the rest of
+  // this span. The one true exception is the read-back AFTER a SUCCESSFUL
+  // insert (inside insertGenerationJob, once the row is committed), which can
+  // also throw — but now with the row already there (double refund, held cap
+  // slot until the sweep; pre-existing, out of scope for #245, see plan).
   // Keyed off the resolved operation, not the brief's: a clarify brief and an
   // anchorless edit both come out the far side as generates, and the stored
   // prompt has to describe what was actually rendered.
@@ -527,9 +667,51 @@ async function prepareGeneration({
     dayKey,
     ip,
     cost: generationCost,
+    id: jobId,
     db,
   });
   if (!inserted.ok) {
+    if (inserted.reason === "duplicate") {
+      // A concurrent replay of this SAME client job id already won the
+      // insert (only reachable when jobId was supplied): resolve through
+      // queuedResultForReplay, the same helper the pre-quota check above
+      // uses, rather than trusting the row's mere existence (fix round item
+      // 2 — the same defect as the pre-quota check's own "don't replay a
+      // failed/cancelled row as queued" fix, through this other door: the
+      // winning row can settle to failed/cancelled during THIS call's own
+      // brief call, moments after the earlier pre-quota check found nothing
+      // yet).
+      const replayed = queuedResultForReplay(inserted.job, userId, designId);
+      if (!replayed) {
+        // The winner already failed or was cancelled — reporting "queued"
+        // would tell the client the generation is still working, or already
+        // delivered, when it demonstrably is neither. Same "invalid job id"
+        // outcome as a malformed or foreign id: thrown, NOT refunded here,
+        // so the caller's outer catch refunds this call's unit exactly once
+        // (refunding here too would double-credit — the running/succeeded
+        // branch below returns normally instead of throwing, which is why
+        // ITS refund has to happen inline).
+        throw new Error("Invalid job id");
+      }
+      // Refund this call's unit inline, like at_capacity, and hand back the
+      // winning row's result — no second assistant turn, no continuation.
+      await refundGenerationQuota({ userId, ip, day: dayKey }).catch((e) =>
+        console.error("refundGenerationQuota failed:", e)
+      );
+      return {
+        kind: "already_queued",
+        jobId: replayed.jobId,
+        generationNumber: replayed.generationNumber,
+        imageId: replayed.imageId,
+      };
+    }
+    if (inserted.reason === "conflict") {
+      // The id collided with a row that is neither this user's nor this
+      // design's — a forged or foreign id. Throw so the caller's outer catch
+      // refunds this call's unit exactly once; refunding here too would
+      // double-credit.
+      throw new Error("Invalid job id");
+    }
     // The AUTHORITATIVE cap: the advisory check above passed and then lost a
     // race (a second tab starting a generation in between). Unlike the advisory
     // refusal this is not dead code, and the user's turn is already in the
@@ -945,7 +1127,7 @@ export async function deleteDesignImage(designId: string, imageId: string) {
   // One batch, including the primary_image_id move when this image was the
   // thread's primary — no follow-up write to fail after the rows are gone.
   const { designRemoved } = await executeImageDeletion(db, plan);
-  revalidatePath("/studio/library");
+  revalidatePath("/designs");
   if (designRemoved === "deleted" || designRemoved === "archived") {
     revalidatePath("/studio");
   }
@@ -1011,7 +1193,7 @@ export async function setPrimaryImage(designId: string, imageId: string) {
     .set({ primaryImageId: imageId, updatedAt: new Date() })
     .where(eq(designTable.id, designId));
 
-  revalidatePath("/studio/library");
+  revalidatePath("/designs");
   revalidatePath(`/d/${imageId}`);
 }
 

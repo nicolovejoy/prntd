@@ -1,0 +1,670 @@
+# #245 lost Generate response — SDD ledger
+
+Plan: `docs/superpowers/plans/2026-09-26-245-lost-generate-response.md`.
+Branch `claude/245-lost-generate-response` from `origin/main` `9901586`.
+Controller: Opus. Implementers and task reviewers: `claude -p --model sonnet`;
+scoped re-reviews: `haiku`; whole-branch review: `opus`.
+
+## Controller rulings (before any code)
+
+1. **Evidence of "landed" is a job or a cell, not the lane.** For an unanchored
+   submit the server writes the design row after quota and capacity pass but
+   before the job row, so a throw in between (brief call failing) leaves an
+   empty lane. That is a real failure and reads as one.
+2. **Baseline at submit time.** An anchored submit's lane already has jobs and
+   cells; only ids absent from a snapshot of the tab's server lanes taken when
+   the submit fired count. An unanchored id is fresh, so its baseline is empty.
+3. **The reconcile read is a direct `getStudioLanes()`, not `pollOnce()`.**
+   `pollOnce` returns early while a poll is in flight, and that poll may have
+   started before the job row was written.
+4. **One retry.** If the reconcile read itself throws (the network is still
+   switching, the prod case), wait 1 s and read once more; if that throws too,
+   fall back to today's failure behaviour. Costs up to ~1 s of extra wait only
+   when the read fails; a #204 closed-lane throw is decided on the first read.
+5. **The cell stays on screen during the reconcile** (phone-first, no layout
+   shift). It leaves on both paths once decided; on the landed path the
+   server's own cell takes the same spot.
+6. **Server-side idempotency stays out of scope** (the issue says so).
+
+## Task 1 — `laneBaseline` / `submitLanded` (commit `a461b63`)
+
+- Implementer (sonnet): helpers + 10 tests, test-first (10 failed before
+  implementation, all passed after).
+- Task review (sonnet): CHANGES REQUESTED.
+  - Important: any cell not in the baseline counted as "landed", but a job
+    already pending at submit time (or held by another optimistic entry) can
+    finish during the reconcile window and produce a cell unrelated to this
+    submit → false "landed" → the user's words silently vanish.
+  - Minor: temporary spread array for the known-job set; no test isolating
+    the cell exclusion.
+- Ruling on the Important: count instead of test for presence. Landed = a new
+  pending job, or more new cells than departed jobs (baseline ∪ claimed ids no
+  longer pending). A departed job that failed or was cancelled leaves no cell,
+  so this can under-count and report failure for a submit that did land. That
+  is the chosen direction: when ambiguous, give the words back (today's
+  behaviour, at worst a duplicate) rather than swallow them. `claimedJobIds`
+  must be same-design ids (documented contract; the caller filters).
+- Fix round (sonnet): counting rule, set built without a spread, four more
+  tests (departed + one new cell → false; departed + two → true; claimed
+  departed + one → false; baseline cell only → false). 47 tests pass.
+- Re-review (haiku): RESOLVED.
+
+## Task 2 — reconcile in the submit catch (commit `810aad3`)
+
+- Implementer (sonnet): `applyFreshLanes` shared by poll and reconcile, direct
+  `getStudioLanes()` read with one retry after 1 s, decision via
+  `submitLanded`, 8 tests (5 fail on the old catch, 3 are regression guards).
+- Task review (sonnet): no Critical/Important; six Minors. Rulings:
+  - #1 claimed ids depended on serial dispatch and on entries still being in
+    `optimistic` → a never-pruned `jobId → designId` map of queued results,
+    plus an `unresolvedOthers` count (same-design submits still awaiting a
+    response); `submitLanded` gained the parameter.
+  - #2 a hanging reconcile read left the cell up with no notice → 6 s
+    `withTimeout` per attempt.
+  - #3 comment on overlap with a poll; #4 tautological assertion removed;
+    #5 three more tests (words typed during the read survive, landed with a
+    cell only, concurrent same-lane submit); #6 timer-assumption comment and a
+    hang test.
+- Controller finding while checking fix round 1: the never-pruned map made a
+  job that finished before this submit count as "departed", cancelling one of
+  this submit's cells → false failure. Fix round 2: claims carry
+  `{jobId, imageId}` (the queued result's `imageId` is the eventual cell id),
+  so claimed work is excluded by both ids and never counts as departed.
+- Re-review (haiku): RESOLVED. 152 targeted tests pass.
+
+## Whole-branch review 1 (opus) — CHANGES REQUESTED
+
+Key fact it established: the Next client runs Server Functions strictly one at
+a time (`runRemainingActions`). Consequences:
+1. Important: a poll queued behind the failed `generateDesign` is applied
+   before the reconcile read and shows the server's cell beside the optimistic
+   one (two cells, then one), and if the reads then fail the notice appears
+   next to the running cell.
+2. Important: two lost same-lane submits could resolve A as failed and then B
+   as landed on A's job, losing B's words silently.
+3–10. Minor: `unresolvedOthers` counted later submits; a claimed baseline job
+   still counted as departed (and its client test was vacuous); the retry
+   after a timeout can't help (the timed-out read heads the serial queue); the
+   reason given for not using `pollOnce` was wrong; nothing shows a job that
+   landed when the reads fail; a mock restore inside a test body; the plan no
+   longer matched the code; an `after()` failure after the job insert reads
+   as landed.
+
+Controller analysis beyond the review: with serial dispatch, the most likely
+#245 timing is a response dropped while the server is still inside
+`generateDesign` (the brief call runs for seconds before the job row exists).
+A single reconcile read then sees nothing and reports failure: the bug again.
+
+Ruling: replace the one-shot read with a reconcile window (Task 3 in the plan):
+every applied snapshot judges each lost submit landed / failed / wait; 20 s
+window; an anchored lane that is gone fails at once (#204); disowned ids after
+a failure; claims as `{jobId|null, imageId|null}`; `unresolvedOthers` counts
+only submits started before the snapshot was requested; refs updated
+synchronously; after a deadline failure one `pollOnce()`. The `after()` trade
+is accepted and documented.
+
+## Task 3 — reconcile window (commit `822b205`)
+
+- Implementer (sonnet): `judgeLostSubmit` replaces `submitLanded`; refs
+  (`claimsRef`, `inFlightRef`, `lostRef`, `lanesRef`) written synchronously;
+  judgement inside `applyFreshLanes`; deadline timer; the direct read, its
+  timeout and retry deleted. Deviation accepted: `unresolvedOthers` counts
+  submits with `startedAtMs <= snapshotStartedAtMs` (a same-millisecond submit
+  can't be ruled out; ties resolve to failure). Nine hand mutations each
+  failed a test.
+- Task review (sonnet): two Importants.
+  1. A landed verdict claimed nothing, so a later lost submit B (fired after a
+     snapshot was requested, before it was applied) could land on A's job and
+     lose B's words silently. Ruling: `landed` returns `accounted`; claims are
+     recorded after the whole pass (in-loop claiming would flip siblings).
+  2. The deadline judged the last applied snapshot while a poll that would
+     show the job was in flight. Ruling: `RECONCILE_GRACE_MS` 5 s re-arm while a
+     poll is in flight, and `pollOnce`'s `finally` judges past-deadline entries.
+  Minors: docblock overclaimed ("never drops words"): now "biased toward
+  failure" with the exceptions listed (another tab's job in the lane; the
+  `after()` trade); comment wording on which snapshots are judged; `nowMs`
+  shadowing renamed `judgedAtMs`; idempotency test; test 8 asserts the final
+  poll.
+- Re-review (haiku): RESOLVED. 207 targeted tests pass.
+
+## Whole-branch review 2 (opus) — CHANGES REQUESTED
+
+Confirmed every earlier Important fixed. New findings:
+1. Important: poll errors halt the loop after 4 failures (~8 s); at the
+   deadline the timer judged the pre-submit snapshot and reported failure, then
+   polled and showed the running cell beside the notice (#245 again on a flaky
+   network). Ruling: at the deadline start a poll and let it decide; grace
+   backstop only for a hung read; the loop ignores the halt while an entry
+   with no `jobId` is in `optimistic`.
+2. Important: a throw from `generateDesign` itself arrives with a `digest`
+   (Flight client `resolveErrorProd`), and every such throw precedes the job
+   row; a lost or cut response has none. The window made every genuine
+   failure (e.g. an Anthropic outage) wait 20 s, and could take another tab's
+   job as "landed". Ruling: digest → old path at once (notice, words back, one
+   poll for #204); no digest → window.
+3–8. Minor: clear a decided entry's deadline timers; a vacuous "one notice"
+   assertion (notice is one string); test 3's timing; plan drift (plan
+   amended, `944d3d1`); ledger uncommitted; one-line note on the
+   two-lost-submits cap overcount.
+
+## Review-2 fixes (commit `e6fcf09`)
+
+- Implementer (sonnet) implemented all rulings. It also found a defect the
+  poll-first change exposed: a full pass at the deadline removed A from
+  `lostRef` when A failed, so B, judged later in the same pass, saw no other
+  unresolved submit and landed on the job A could equally have owned. Fix:
+  `unresolvedOthers` is computed from the entries the pass started with.
+  Accepted.
+- Digest claim verified by both the implementer and the re-reviewer in
+  Next's bundled code: the Flight client attaches `digest` in production
+  (`resolveErrorProd`) and development (`resolveErrorDev`); the server sets it
+  in `createReactServerErrorHandler`. Errors sent without a digest (aborts,
+  large-shell errors) fall into the window: the safe direction (a 20 s wait,
+  not a wrong verdict).
+- Re-review (sonnet, scoped): RESOLVED. Two minors, both accepted as-is:
+  test 21 pins the observable (no stray read after an early landing), which
+  both the timer clear and the `lostRef.has` guard in the timer provide, not
+  the clear alone; plan and ledger updates (done here and in `944d3d1`).
+- Noted, not changed: a `generateDesign` call that hangs while reads fail now
+  polls at the slow cadence until the browser gives up on the request (only one
+  poll in flight at a time), where the loop used to halt after 4 errors.
+
+## Known limits (documented in code)
+
+- Another tab starting a job in the same lane during the window reads as
+  landed for this submit.
+- If the server's `after()` work fails right after the job row is written, the
+  submit reads as landed; the sweep then fails the job with no notice.
+- Two same-lane submits that both lose their response can show the server's
+  cell next to the overlay (and count both toward the cap) until a deadline.
+- A brief call slower than 20 s reads as a failure with the words back
+  (today's behaviour, no worse).
+
+## Gate (controller, on `e6fcf09`)
+
+- `npm run lint`: 0 errors, 22 warnings (all pre-existing; eslint on the
+  changed files is clean).
+- `npm run typecheck`: clean.
+- `npx vitest run`: 187 files, 2093 tests passed.
+- `npm run build` with CI's dummy env: success.
+- `npm run db:generate`: "No schema changes, nothing to migrate".
+- e2e not run locally (brief); the spec most exposed is
+  `e2e/guest-funnel.spec.ts` (the only one that touches Studio/generation).
+
+---
+
+# Rebuild on a client-minted job id (2026-09-27)
+
+## Nico's ruling
+
+An independent Opus review of the heuristic build (head `8bf8d94`) found it
+mergeable but disproportionate (~470 lines of lane-snapshot inference) with
+blind spots (another tab submitting into the same lane, two lost submits in
+one lane, a baseline job cancelled during the window, a brief slower than
+20 s) and one Important race (at the deadline a fresh poll could queue behind
+another in-flight `generateDesign`, judging the verdict from stale lanes and
+reporting a landed job as failed). Nico ruled: rebuild on a client-minted job
+id. The client mints the id, the server uses it for the `image_generation`
+row, and a lost response is reconciled by looking up that exact id. Build
+forward on this branch, no force-push.
+
+Commit `ff48ca0` restores `studio-client.tsx`, `studio-view.ts` and their two
+test files to `origin/main`. Plan rewritten in place (same file).
+
+## Controller rulings (before code)
+
+1. **Replay check before quota.** An own id on the same design returns the
+   same `queued` result from the row with no quota, no write, no render. Any
+   other existing id (another user's, or the caller's on another design)
+   throws the same generic error as a malformed id, before quota.
+2. **Insert conflict vs capacity.** Keep the guarded `INSERT … SELECT … WHERE
+   count < 3`. A PK violation means the id exists; zero rows means the cap
+   refused it unless the id exists (a replay whose original holds a slot makes
+   the WHERE false before the key is checked). Both read the row by id:
+   own + same design → `duplicate`; else `conflict`; absent → `at_capacity`.
+   `duplicate` refunds inline and returns `queued` without `after()`;
+   `conflict` throws (outer catch refunds once). Only a concurrent replay
+   reaches these; its duplicate user turn and skipped generation number are
+   accepted.
+3. **A dedicated status action, not the lanes poll.** Lanes list running jobs
+   by id but a finished job only as a cell keyed by image id, which the client
+   does not know after a lost response; failed jobs are not in lanes at all.
+   `getGenerationJobStatus(jobId)` is exact: owner-scoped, `none` for another
+   user's or a malformed id, cancel-requested running reads `cancelled`.
+4. **Bound the brief so the window is finite.** The job row is written after
+   the Claude brief, which has no bound of its own today (SDK default 10 min ×
+   3 attempts). `constructDesignBrief` gets a hard 45 s bound
+   (`AbortSignal.timeout`); the client window is 60 s from the catch (the
+   server started the request no later than the catch).
+5. **"None" decides only from a lookup CALLED after the deadline.** Serial
+   dispatch means a call made at T runs at or after T, so a lookup called after
+   the deadline can only see a later server state; one called before may have
+   been answered before the row existed. A lookup that throws is treated like
+   `none` by the same rule.
+6. **Overlay settles by the client id.** `settleOptimistic` drops an
+   unconfirmed entry once its `clientJobId` is pending in a lane, so the
+   overlay and the server's cell never render together; another tab's job has
+   a different id and never matches.
+7. **Plain offline fails fast** only when `navigator.onLine` was `false` both at
+   submit and at the catch (the fetch was refused on the device). `onLine`
+   `true` proves nothing, so every other transport error waits the window.
+8. **`cancelled` is silent** (drop the cell, no notice, no words back): the
+   only way to cancel is the user's Cancel, and today a cancelled queued job
+   just leaves. Judgment call against the brief's literal "failed/cancelled →
+   failure handling"; flagged in the summary.
+9. **Digest throws fail at once** (#204 closed lane unchanged).
+
+## Rebuild Task 1 — server: client job id, replay, conflict
+
+- Implementer (sonnet): `src/lib/uuid.ts` (`isUuid`), `insertGenerationJob({ id? })`
+  with `duplicate` / `conflict` / `at_capacity` resolved by one read-back by id
+  on a PK violation or zero rows; `generateDesign` validates, replays before
+  quota, maps `already_queued` to `queued` without `after()`, throws on
+  `conflict`. 9 real-DB cases in `client-job-id.integration.test.ts`, 5 in
+  `generation-job.integration.test.ts`, 6 `isUuid` units. Full suite 2064 pass.
+- Task review (sonnet): APPROVED, no findings. It traced every quota-consuming
+  exit (exactly one owner or one refund) and confirmed `id` is the table's only
+  unique constraint, so `isUniqueViolation` cannot misattribute.
+- Controller note, accepted: a PK violation whose row is gone on read-back
+  reports `at_capacity` (refunded, returned) rather than rethrowing; reachable
+  only if the row is deleted between the insert and the read, and the outcome is
+  still refunded exactly once.
+
+## Rebuild Task 2 — status lookup, brief bound, pure helpers
+
+- Implementer (sonnet): `getGenerationJobStatusForUser` (owner-scoped WHERE,
+  malformed → none without a query, cancel-requested running → cancelled),
+  `getGenerationJobStatus` action behind `requireStudioActionSession`,
+  `constructDesignBrief` bounded by `AbortSignal.timeout(DESIGN_BRIEF_TIMEOUT_MS)`,
+  pure `src/lib/lost-submit.ts` (constants, `judgeLostSubmit`,
+  `isServerActionError`, the status type), `OptimisticEntry.clientJobId` with
+  `settleOptimistic` / `unseenOptimisticCount` matching it exactly. 32 new
+  tests; `src/lib src/app/studio src/app/design` 1597 pass.
+- Task review (sonnet): APPROVED, no findings. It traced the SDK's
+  `retryRequest` to confirm one signal bounds every retry, and that a timeout
+  lands in the existing pre-row refunded catch.
+- Controller edit: `judgeLostSubmit`'s docblock said "dispatched"; the rule
+  uses the time the Server Function was CALLED (dispatch is at or after it),
+  reworded.
+
+## Rebuild Task 3 — client wiring and client tests
+
+- Implementer (sonnet): `clientJobId` minted per submit and sent as `jobId`;
+  `failSubmit` shared by the digest path, the offline fast-fail and a
+  `failed` verdict; `reconcileLostSubmit` (one loop per lost submit, first
+  lookup at once, 3 s cadence, stops on unmount via a mounted ref); header
+  docblock rewritten. 14 new client tests. Two existing assertions gained
+  `jobId: expect.any(String)`; the existing "removes the cell when the action
+  throws" test now rejects with a digest (a bare Error is a lost response under
+  the new rule). Accepted.
+- Task review (sonnet): APPROVED, no findings.
+- Controller check against main's component (new tests run with main's
+  `studio-client.tsx` swapped in): 11 fail as intended (1, 2, 4, 5, 8, 9, 11,
+  12, 13 plus the two argument assertions). Tests 3 and 14 pass on main
+  because main also fails at once; 6, 7 and 10 are guards of the unchanged
+  fast-fail paths. Carried to the fix round: 3 and 14 must prove the reconcile
+  happened (lookup for the sent id, no notice before it answered); 6, 7 and 10
+  assert the submit carried a UUID `jobId`.
+
+## Rebuild whole-branch review (opus) — APPROVED with minors
+
+No Critical or Important. It confirmed: every quota-consuming path ends with
+one owner or one refund (replay, duplicate, conflict, brief timeout); the cap
+cannot be bypassed by a client id (SQLite never checks the key when the
+`INSERT … SELECT` WHERE is false; `id` is the only unique constraint); the
+lookup is owner-filtered in the WHERE; ids cannot be pre-claimed (browser
+`crypto.randomUUID()`); re-parenting moves `image_generation.user_id` and the
+tab keeps the cookie; Next's action queue runs a call made at T at or after T;
+the SDK checks `signal.aborted` before every retry; Close/Delete/Select are
+hidden on lanes with a pending cell.
+
+Minors and rulings (all applied in the fix round):
+1. Window docblock overclaimed ("exists by the deadline or never"): now "in
+   practice", naming the residual case (a >15 s Turso stall → the old failure,
+   not a new one).
+2. `isServerActionError` and `prepareGeneration`'s "the insert is the last
+   thing that can throw" miss one case: `insertGenerationJob`'s read-back after
+   a committed insert can throw → digest error, outer refund, and the sweep
+   later fails the orphan row and refunds AGAIN (a double refund) while it
+   holds a cap slot. Pre-existing; the brief puts this class out of scope.
+   Docblocks and the plan's out-of-scope note now say so. Follow-up, not built
+   (cheap now: build the returned job from the insert's own values).
+3. `studio-view.ts` comments on `jobId` and the `jobId: null` settle bullet
+   updated for the reconcile path.
+4. The controller's carried test items (tests 3/14 prove the reconcile, 6/7/10
+   assert the UUID `jobId`, `mockUuidSequence` given three named ids) done.
+5. A wrong quota comment in `client-job-id.integration.test.ts` fixed.
+6. Guest lookup test added; the brief bound's value pinned via a spy on
+   `AbortSignal.timeout`; a "dispatched" test title → "called".
+7. Safeguard added: a `none`/`error` deadline verdict first checks the latest
+   lanes (`lanesRef`) for the client id pending, and treats that as landed. A
+   genuine `failed` status still fails. Test 15.
+8. `/design` (`design-client.tsx`) still has the pre-#245 catch and sends no
+   `jobId`: follow-up, mentioned in the summary.
+
+- Fix round (sonnet) applied 1-7. Re-review (haiku): RESOLVED.
+  `src/app/studio src/app/design src/lib`: 1613 pass.
+
+## Rebuild gate (controller, after merging origin/main `f2792a5` into the branch)
+
+Main moved (#256) during the rebuild; merged it in (`3fb27a7`, clean) and ran
+the gate on the combined tree:
+
+- `npm run lint`: 0 errors, 22 warnings (all pre-existing).
+- `npm run typecheck`: clean.
+- `npx vitest run`: 194 files, 2168 tests passed.
+- `npm run build` with CI's dummy env: success.
+- `npm run db:generate`: "No schema changes, nothing to migrate".
+- e2e not run locally (brief). Most exposed: `e2e/guest-funnel.spec.ts` (the
+  only spec that generates from the Studio; it now sends a `jobId`).
+
+Size: src +1991 / −59 across 16 files, of which ~1480 lines are tests. Product
+code: `studio-client.tsx` +184 (was +318 for the heuristic), `lost-submit.ts`
+92, `generation-job.ts` +117, `design/actions.ts` +88.
+
+## Follow-ups (not built)
+
+- `insertGenerationJob`'s read-back after a committed insert can throw → a
+  digest error with a running orphan row: double refund once the sweep fails
+  it, and a held cap slot. Fix: return the job built from the insert's own
+  values (the id is known now).
+- `/design` (`design-client.tsx`) still fails every throw at once and sends no
+  `jobId`; the same lost-response case there reads as failure.
+- A lost submit whose job the server wrote but whose insert response was lost
+  server-side (the case above) could be checked by id before failing.
+
+## Fix round: independent review of the rebuild (2026-09-27)
+
+A second independent review (Opus) of the merged rebuild found four more
+issues, all fixed on `claude/245-lost-generate-response`, one commit each,
+each with real-DB or client tests that failed against the pre-fix code
+(verified before implementing):
+
+1. **`761b797`** — a reconcile lookup that ERRORS after the 60s deadline was
+   judged exactly like a "none" answer: fail. On the prod scenario (phone
+   backgrounds for a couple of minutes while the render finishes, returns
+   with momentarily no network) the first post-deadline lookup throws before
+   ever seeing the real state, giving a false failure next to the image that
+   then lands anyway — notice + words back beside a finished result, and a
+   re-tap duplicates it. Fixed by giving `judgeLostSubmit` a second, later
+   `hardDeadlineMs` (submit time + `STALE_OPTIMISTIC_MS`, 6 minutes): a real
+   "none" still fails at the ordinary deadline (server truth), but an
+   "error" (which proves nothing — the lookup itself may never have reached
+   the server) only fails at the backstop. **Chose the time backstop over a
+   bounded error count**, per the plan's stated preference — a count would
+   have to guess an interval-independent threshold, while the time backstop
+   reuses a constant the overlay's own lifetime already depends on
+   (`settleOptimistic` drops the entry at the same age regardless of this
+   verdict, so the reconcile loop giving up there too means it never chases
+   an entry nothing would show any more). `hardDeadlineMs` is anchored on the
+   submit's own clock reading, not the catch — an erroring lookup can recur
+   for as long as the device is offline, so it needs a fixed start rather
+   than one that could reset with every failed attempt. Also documented (no
+   code change needed) that the lanesRef safety net can only recognise a
+   still-PENDING job id: `StudioCell` carries no job id at all, so a submit
+   whose job already succeeded and left `pending` is instead caught by the
+   lookup itself eventually answering "succeeded" — which is exactly what
+   the new "keeps erroring, then succeeds" client test exercises.
+2. **`85f917b`** — a concurrent replay of the same client-minted request
+   (Chrome silently resending the POST) that itself lands in the `limit` or
+   advisory `at_capacity` branch, while the OTHER execution of that same
+   request has already reached `insertGenerationJob`, was reported to the
+   caller as a genuine refusal — a user at 7/8 would be told they hit their
+   daily limit while the design they asked for is actually queued. Both
+   branches now re-check (owner-scoped, `running`/`succeeded`, via the
+   `findJobById`/`queuedResultForReplay` pair item 3 introduces) before
+   refusing, refund this call's own wasted spend when the row is found, and
+   hand back the same queued result. The THIRD `at_capacity` return site
+   (inside `prepareGeneration`, once `insertGenerationJob` itself reports
+   `at_capacity`) needed no such check and none was added: that outcome is
+   only reachable when `insertGenerationJob`'s own read-back already found no
+   row with the id — a duplicate is structurally impossible there, since a
+   PK violation or the guarded insert matching zero rows AND a row existing
+   both resolve to `duplicate`/`conflict` instead. Real-DB tests inject the
+   rival row from inside a mocked-but-call-through `consumeGenerationQuota`
+   (`vi.mock` with `importOriginal`, wrapped not replaced), since a plain
+   sequential second `generateDesign` call would just hit the earlier replay
+   pre-check instead of this specific race — the only way to land the row
+   strictly between the pre-check and these later branches. Both assert net
+   quota unchanged by the replay.
+3. **`4001419`** — the pre-quota replay check returned `queued` for an own
+   id regardless of the row's status, including `failed`/`cancelled` —
+   falsely claiming the generation was still working or already delivered.
+   Now only `running`/`succeeded` replay as queued; a `failed`/`cancelled`
+   row throws the same generic `"Invalid job id"` a foreign row does, which
+   the client already treats as a genuine failure. Factored into
+   `findJobById`/`queuedResultForReplay` so item 2 could reuse them.
+4. **`8a8081b`** — comment-only. The "the insert is the last thing in this
+   function that can throw" comment only carved out ONE of
+   `insertGenerationJob`'s two throwing reads (the success read-back);
+   `resolveConflict`'s read-back (on a unique violation or a zero-row
+   insert) can throw too, and the comment implied it didn't exist. Reworded
+   to say why that read IS safe (no row of this call's own exists yet, so
+   it's covered by the same outer catch as everything above it) rather than
+   only naming the one exception that isn't.
+
+Gate on `8a8081b` (working tree; no new commits after): `npx vitest run` —
+194 files, 2174 tests passed (2168 baseline + 6 net new: +2 studio-client
+lost-submit tests, +2 `client-job-id` replay-status tests, +2
+`client-job-id` concurrent-replay tests, −1 renamed-in-place test doesn't
+change the count since it's a rename not an add). `npm run typecheck`:
+clean. `npm run lint`: 0 errors, 22 warnings, identical set to the prior
+gate (all pre-existing). `npm run build`/`db:generate` not re-run this round
+(no schema or build-relevant change; comment- and logic-only within already
+covered modules).
+
+Not done: `npm run build`, e2e (both out of scope per the fix-round brief;
+no schema, flag, or route-shape change to re-verify).
+
+## Fix round: second independent review of the rebuild (2026-09-27)
+
+A third independent review found four more issues, all fixed on
+`claude/245-lost-generate-response`, one commit each, each with pure and/or
+real-DB/client tests that failed against the pre-fix code (verified before
+implementing):
+
+1. **`3b4eea5`** — `hardDeadlineMs` (`startedAtMs + STALE_OPTIMISTIC_MS`, 6
+   minutes) is anchored purely on the submit's own clock. A phone
+   backgrounded for LONGER than that wakes with the hard deadline already
+   behind it: the OLD "error" rule (`calledAtMs >= hardDeadlineMs ?
+   "failed" : "wait"`) failed the submit outright on the very FIRST post-wake
+   lookup, even though a lone error at that instant proves nothing — the
+   device may simply not have network back yet, and the render finishes
+   regardless (notice + words back next to an image that then lands anyway;
+   a re-tap duplicates it). Fixed: `judgeLostSubmit` gained
+   `errorStreakStartMs` — an "error" verdict now requires BOTH
+   `calledAtMs >= hardDeadlineMs` AND the CURRENT streak of consecutive
+   errors to have itself run for the full `LOST_SUBMIT_WINDOW_MS`,
+   measured from the first error in the streak; any non-error answer resets
+   it. `studio-client.tsx`'s `reconcileLostSubmit` tracks the streak as a
+   plain local variable (one loop per lost submit, so no cross-submit
+   state). A real "none" answer is unaffected (still judged against the
+   ordinary `deadlineMs`, unchanged) — it's server truth, not a network
+   blip. 9 new pure tests; one new client test (`test 16`) jumps the fake
+   clock 8 minutes ahead BEFORE the very first reconcile lookup ever runs
+   (via `vi.setSystemTime` called synchronously right after `submitText`,
+   before any microtask flush — the only way to make a call's OWN
+   `calledAtMs` already reflect a big jump without vitest's fake-timer
+   `setSystemTime` shifting a pending `setTimeout`'s REMAINING delay rather
+   than treating it as overdue, which was tried first and doesn't work for
+   this — see the scratch experiment discussed live, not committed), then
+   errors for 30s (under the window) before succeeding. `h.polledLanes` had
+   to be seeded with the real server-visible job for this test, or the
+   UNRELATED periodic poll's own `settleOptimistic` age-based ghost-drop
+   (`nowMs - entry.startedAt >= STALE_OPTIMISTIC_MS`, which fires
+   independently of this reconcile fix and would otherwise make the cell
+   vanish for a reason unrelated to the fix under test, since the mocked
+   server state was otherwise empty).
+2. **`60e2dfd`** — `prepareGeneration`'s `duplicate` branch (this call's own
+   `insertGenerationJob` hitting a primary-key violation on its own
+   client-minted id) returned `"already_queued"` straight from the row's
+   mere existence, regardless of its status — the SAME defect the pre-quota
+   replay check already guards against (`queuedResultForReplay`), through a
+   different door: the original can settle to `failed`/`cancelled` during
+   THIS call's own brief call, moments after the earlier pre-quota check
+   ran and found nothing yet. Routed through `queuedResultForReplay`: a
+   `running`/`succeeded` winner still refunds inline and returns
+   `already_queued` exactly as before; a `failed`/`cancelled` winner now
+   throws the same `"Invalid job id"` the pre-quota check and the foreign-
+   row `conflict` branch already use, so the caller's OUTER catch refunds
+   this call's unit exactly once (refunding inline too would
+   double-credit — this is why the running/succeeded branch still refunds
+   inline and returns normally instead of throwing). `queuedResultForReplay`'s
+   return type narrowed to `Extract<GenerateResult, {kind:"queued"}> | null`
+   so the caller can read `jobId`/`generationNumber`/`imageId` without a
+   runtime-only guarantee. Two new real-DB tests (failed/cancelled rival,
+   same shape as the existing "insert racing its own original" tests).
+3. **`d1787f9`** — `getGenerationJobStatus` calls from the client had no
+   timeout of their own: a fetch that never resolves stalled the reconcile
+   loop forever (no further attempts, no notice) until the UNRELATED
+   periodic poll's `settleOptimistic` age-out silently dropped the cell with
+   no explanation at all. Each lookup is now wrapped in `withTimeout`
+   (`src/lib/timeout.ts` — already used server-side; plain
+   `setTimeout`/`Promise.race`, confirmed to work fine client-side too) at a
+   new `LOST_SUBMIT_LOOKUP_TIMEOUT_MS` (10s: comfortably longer than the 3s
+   poll cadence so an ordinary round trip is never cut off, short enough
+   that a hung request costs only a few cycles). A timeout is caught and
+   treated exactly like a lookup that threw ("error"), so item 1's streak
+   rule applies to it identically. New client test (`test 17`): a lookup
+   that never resolves at all is proven to still produce a SECOND attempt
+   after the timeout, rather than stalling. **Existing `test 5` had to be
+   rewritten**: its premise (one lookup held open across the WHOLE 60s
+   ordinary deadline, via a `resolvers` array that never got auto-resolved)
+   is no longer constructible now that every call is bounded to 10s — a
+   held-open call now internally times out well before 60s regardless.
+   Rewritten with the same intent (a lookup CALLED before the deadline can't
+   fail however late it ANSWERS) using ~19 fast "none" calls to reach t≈57s,
+   then ONE call held open for 5s (well inside its own 10s budget) spanning
+   the deadline crossing at t=60s, then a fresh call after it decides.
+4. **`725bccb`** — docs only. Two additions: (a) next to the
+   limit/at_capacity concurrent-replay checks in `generateDesign`, a comment
+   naming the accepted residual gap — while the original is still inside its
+   brief call (bounded to `DESIGN_BRIEF_TIMEOUT_MS`, 45s), no
+   `image_generation` row exists yet at all, so `findJobById` returns null
+   regardless of ownership; a replay landing in this window reports
+   `"limit"`/`"at_capacity"` for a request that will actually queue
+   successfully, and its own wasted quota bump is never refunded (only the
+   `replayed` branch refunds) — accepted, not fixed. (b) the
+   `studio-client.tsx` comment that said "the test below" (production code
+   whose relationship to a test file's line order is not a contract) now
+   names the actual test by file and title.
+
+Gate on `725bccb` (final commit of this fix round): `npx vitest run` — 194
+files, 2181 tests passed (2174 baseline + 7 net new: +9 pure
+`judgeLostSubmit` tests for the streak rule minus 2 pure tests removed/
+folded during the rewrite = net +7 in `lost-submit.test.ts`; +2 real-DB
+`client-job-id` tests for item 2; +2 client tests, `test 16` and `test 17`,
+for items 1 and 3; `test 5`'s rewrite is a like-for-like replacement, no net
+count change). `npm run typecheck`: clean. `npm run lint`: 0 errors, 22
+warnings, identical set to every prior gate (all pre-existing, unrelated
+files). `npm run build`/`db:generate` not re-run this round — no schema,
+build-relevant, or route-shape change; comment-, logic-, and test-only
+within already-covered modules, same as the previous fix round's rationale.
+
+## Fix round: third independent review — count the error streak in attempts, not time (2026-09-27)
+
+**Problem.** `errorStreakStartMs` measured the error streak in WALL-CLOCK
+TIME from its first error. A device freeze inflates that for free: no
+attempts happen while the phone sleeps, but the clock keeps running
+regardless. Concretely: errors start while the tab is foregrounded
+(`errorStreakStartMs` set to that first error's `calledAtMs`), the phone
+sleeps for 8 minutes, wakes up still offline — the very first post-wake
+lookup's `calledAtMs` is already `hardDeadlineMs + LOST_SUBMIT_WINDOW_MS` or
+more past the streak's recorded start, so the OLD rule (`calledAtMs -
+errorStreakStartMs >= LOST_SUBMIT_WINDOW_MS`) fails the submit outright on
+that single lookup — even though the render finishes regardless (the exact
+#245 case, one level up: this time the false failure comes from a frozen
+device, not a lost network response). The same shape hits a lookup that was
+already in flight when the freeze hit.
+
+**Fix (Nico-approved direction).** `judgeLostSubmit` now takes
+`errorStreakCount: number` — how many CONSECUTIVE "error" lookups have
+happened, ending with (and including) this call; 0 when the last lookup was
+not an error. A new exported constant, `LOST_SUBMIT_ERROR_ATTEMPTS =
+Math.ceil(LOST_SUBMIT_WINDOW_MS / LOST_SUBMIT_LOOKUP_INTERVAL_MS)` (= 20 at
+today's constants), replaces the time-based comparison: an "error" verdict
+past `hardDeadlineMs` now fails only once `errorStreakCount >=
+LOST_SUBMIT_ERROR_ATTEMPTS`. `studio-client.tsx`'s `reconcileLostSubmit`
+tracks the count as a plain local variable (`errorStreakCount = status ===
+"error" ? errorStreakCount + 1 : 0`), same place `errorStreakStartMs` lived.
+A frozen device makes zero attempts, so sleep cannot consume any of the
+budget — only lookups the device genuinely made and that genuinely errored
+do. The "none" path (server truth) is untouched — it still fails purely off
+`calledAtMs >= deadlineMs`, no streak involved.
+
+**Comments (no code change).** (a) `hardDeadlineMs`'s docblock said the loop
+"must stop actively here rather than poll forever into the void" — no longer
+true: the attempt-based budget isn't pinned to a fixed wall-clock instant
+the way the old time-based backstop was, so the reconcile loop's own verdict
+can now land well after a poll's `settleOptimistic` has already dropped the
+overlay cell on its own unrelated age-out. Reworded: that's not a bug in
+this function — a cell that vanished early isn't the same as a submit that
+failed, and `failSubmit` still restores the words and shows the notice
+whenever the loop does decide "failed", even if nothing on screen was
+showing the cell any more by then. (b) `LOST_SUBMIT_LOOKUP_TIMEOUT_MS`'s
+docblock now notes that abandoning the promise client-side on timeout
+doesn't free anything server-side — Next's action queue
+(`runRemainingActions`) still runs one Server Function at a time, so a
+lookup that is genuinely still working on the server keeps that queue
+occupied for however long it actually takes, delaying every action queued
+behind it (including this loop's own next lookup) regardless of the
+client-side timeout. The loop stays bounded anyway because each timed-out
+lookup is simply counted as an "error" attempt like any other — no need for
+the queue to drain.
+
+**Tests.**
+- Pure (`lost-submit.test.ts`): rewrote the whole `describe("error", …)`
+  block for the count-based contract — waits before the hard deadline
+  regardless of count (even at/above the threshold); past the hard deadline,
+  a count one below the threshold waits and a count at the threshold fails;
+  a woken-from-freeze device's first post-wake error (count 1, or 0
+  mid-reset) waits exactly like a fresh streak; a reset count of 0, however
+  far past the hard deadline, cannot fail; a non-error status ("none")
+  ignores `errorStreakCount` entirely, even at/above the threshold. Verified
+  the "at the threshold fails" test genuinely fails on the pre-fix code
+  (`git stash` on just `lost-submit.ts`, old code returns `"wait"` since
+  `errorStreakStartMs` is `undefined` there and `calledAtMs - undefined` is
+  `NaN`) before restoring the fix.
+- Client (`studio-client.test.tsx`, `test 18`): a few foreground lookup
+  errors (calls 1–3, all well before `hardDeadlineMs`), then
+  `vi.setSystemTime(+8 min)` — placed AFTER those calls rather than
+  synchronously before the very first one the way `test 16` does, since
+  there IS a pending `setTimeout` (the loop's own interval wait) by this
+  point; its remaining delay is unaffected by the jump, so the very next
+  `vi.advanceTimersByTimeAsync(3000)` still has to run out that same
+  interval rather than firing early — confirmed empirically, matching the
+  ledger's earlier note that a jump can't make an already-scheduled timer
+  "overdue". That next call (call 4) is now far past `hardDeadlineMs` but
+  the streak is only 4 long: asserted NO failure notice and an empty
+  composer. Then advanced through the remaining `LOST_SUBMIT_ERROR_ATTEMPTS
+  - 4` calls (all erroring) to reach the threshold exactly at call 20:
+  asserted the failure notice appears and the words are restored verbatim.
+  `h.polledLanes` is left at its default `[]` throughout (unlike `test 16`),
+  deliberately — this test is the "the server genuinely never saw the job"
+  case, not the "it landed but the phone can't see it yet" case; keeping
+  `h.polledLanes` showing the job pending forever was tried first and
+  discovered to be self-contradictory with a "failed" outcome: the
+  `reconcileLostSubmit` safety net (`clientIdPending` check, added in an
+  earlier fix round) correctly treats a job still visibly pending in server
+  lanes as landed, never failed — as it should, since a job the server shows
+  running clearly hasn't failed. Cell-visibility assertions past the freeze
+  point were dropped for the same reason `test 16`'s docblock already flags:
+  once real time crosses `STALE_OPTIMISTIC_MS`, `settleOptimistic`'s own
+  unrelated age-out drops the overlay cell regardless of this fix, and
+  without a matching server lane to hand off to (which this test
+  deliberately doesn't provide) there's nothing to assert there — orthogonal
+  to what this test is checking (the streak-count threshold itself).
+  Verified `test 18` genuinely fails on the pre-fix code (`git stash` on
+  both `lost-submit.ts` and `studio-client.tsx`: call 4 fails immediately,
+  before even reaching the "no failure notice yet" assertion) before
+  restoring the fix. `test 5` and `test 16` both still pass unchanged.
+
+**Gate** (commit `e6e7f11`): `npx vitest run` — 194 files, 2184 tests passed
+(2181 baseline + 3 net new: +2 pure tests in the rewritten `error` describe
+block — 7 tests now vs. 5 before — and +1 client test, `test 18`).
+`npm run typecheck`: clean. `npm run lint`: 0 errors, 22 warnings, identical
+set to every prior gate (all pre-existing, unrelated files).
+`npm run build`/`db:generate` not re-run — no schema, build-relevant, or
+route-shape change; logic, comment, and test changes only, confined to
+`src/lib/lost-submit.ts` and `src/app/studio/studio-client.tsx`, both
+already fully covered.

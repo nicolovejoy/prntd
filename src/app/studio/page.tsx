@@ -16,7 +16,7 @@ import { StudioClient } from "./studio-client";
 // is a lane to keep — including one the guest just started here — so it gets
 // `isGuest` rather than the page deciding from the initial lanes alone.
 export default async function StudioPage() {
-  const { session, isGuest } = await requireStudioUser();
+  const { session, isGuest } = await requireStudioUser("/studio");
   after(() => sweepStudioForUser(session.user.id));
   const lanes = await getStudioLanesData(session.user.id);
   // One clock reading for the server render and the client's hydration

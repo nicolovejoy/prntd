@@ -22,7 +22,7 @@
  *    else still pointing at the design — no running `image_generation` row,
  *    no cart line — the conversation itself is removed (owner ruling,
  *    2026-09-09), or archived when an order references it. An image-less
- *    conversation is dead weight: unreachable from Library or the image
+ *    conversation is dead weight: unreachable from My Designs or the image
  *    detail page, and an empty lane on the Studio bench. The full six-step
  *    rule, and why each keeper is a keeper, is on `removeDesignIfNowEmpty`.
  *
@@ -292,7 +292,7 @@ export type EmptyDesignOutcome =
  * deleted outright or merely detached — either way THIS design no longer
  * has it), check whether the design now has zero images at all, and if so
  * remove the conversation (owner ruling, 2026-09-09): it is otherwise
- * unreachable from Library or the image detail page, and an empty lane on
+ * unreachable from My Designs or the image detail page, and an empty lane on
  * the Studio bench.
  *
  * Deliberately does NOT reuse `isDeletionBlocked` the way an earlier version
