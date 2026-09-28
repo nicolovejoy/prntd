@@ -147,18 +147,54 @@ export async function getImageObject(imageId: string): Promise<Buffer | null> {
   }
 }
 
-/** Fetch an object's bytes by its exact key, or null on any failure. */
-export async function getObjectByKey(key: string): Promise<Buffer | null> {
-  try {
+/** How long getObjectByKey waits for an object (request and body) by default. */
+export const R2_READ_TIMEOUT_MS = 30_000;
+
+/**
+ * Fetch an object's bytes by its exact key, or null on any failure. The
+ * request and the body read share one deadline: past it the request is
+ * aborted and this throws an Error named "TimeoutError" (the web platform's
+ * name for a timeout), so a caller can tell a slow read from a missing one.
+ */
+export async function getObjectByKey(
+  key: string,
+  timeoutMs = R2_READ_TIMEOUT_MS
+): Promise<Buffer | null> {
+  const controller = new AbortController();
+  let timedOut = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      const err = new Error(`R2 read of ${key} timed out after ${timeoutMs} ms`);
+      err.name = "TimeoutError";
+      reject(err);
+      controller.abort(err);
+    }, timeoutMs);
+  });
+  const read = (async () => {
     const result = await r2.send(
-      new GetObjectCommand({ Bucket: bucket, Key: key })
+      new GetObjectCommand({ Bucket: bucket, Key: key }),
+      { abortSignal: controller.signal }
     );
     const bytes = await result.Body?.transformToByteArray();
     return bytes ? Buffer.from(bytes) : null;
+  })();
+  // After a timeout the aborted read still settles; nothing awaits it.
+  read.catch(() => {});
+  try {
+    return await Promise.race([read, deadline]);
   } catch (err) {
-    console.error(
-      `[r2] getObjectByKey ${key}: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    const message = err instanceof Error ? err.message : String(err);
+    if (timedOut) {
+      console.error(`[r2] getObjectByKey ${key}: timed out after ${timeoutMs} ms`);
+      const timeout = new Error(`R2 read of ${key} timed out after ${timeoutMs} ms`);
+      timeout.name = "TimeoutError";
+      throw timeout;
+    }
+    console.error(`[r2] getObjectByKey ${key}: ${message}`);
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }

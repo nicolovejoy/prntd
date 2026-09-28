@@ -4,27 +4,40 @@ import { guestFunnelEnabled } from "@/lib/flags";
 import { getObjectByKey, imageKeyFromUrl } from "@/lib/r2";
 import { canUseStudio } from "@/lib/require-user";
 import {
-  MAX_EXPORT_IMAGES,
   createDesignExportStream,
   exportArchiveName,
+  exportPartCount,
+  exportPartRows,
   loadExportRows,
+  parseExportPart,
 } from "@/lib/design-export";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 /**
- * "Download all my designs": streams a zip of every image the caller owns,
- * plus manifest.json (src/lib/design-export.ts).
+ * "Download all my designs": `GET /designs/export?part=N` streams one part
+ * of the caller's images (oldest first, up to 100 images and 400 MB per
+ * part) as a zip with manifest.json (src/lib/design-export.ts). No `part`
+ * means part 1. `part` only selects a slice of the caller's own rows.
  *
  * Who may call it: the /designs page gate's predicate (canUseStudio), a real
  * account, or a guest while GUEST_FUNNEL_ENABLED is on. The proxy matcher
  * covers `/designs` exactly, not this path, so this handler is the only gate.
- * It answers 401/403 as plain text and never redirects.
+ *
+ * Answers:
+ * - 200 the zip, `Content-Disposition` naming the part when there are several
+ * - 400 `part` repeated, empty, or not a positive integer
+ * - 401 no session (before any DB read)
+ * - 403 a session the gate refuses (before any DB read)
+ * - 404 `part` past the last part
+ * Every refusal is plain text with `Cache-Control: no-store`; nothing
+ * redirects.
  *
  * A route handler outside /api by owner decision (batch-3 answer 11): the
  * download link sits next to the page it exports from. The body streams, one
- * image read at a time, so there is no Content-Length.
+ * image read at a time and none before the client reads (so a HEAD, which
+ * Next answers with GET, reads no object); there is no Content-Length.
  */
 export async function GET(request: Request) {
   const refuse = (body: string, status: number) =>
@@ -37,22 +50,28 @@ export async function GET(request: Request) {
   }
 
   const rows = await loadExportRows(db, session.user.id);
-  if (rows.length > MAX_EXPORT_IMAGES) {
-    return refuse("Too many designs to download in one file.", 413);
+  const partCount = exportPartCount(rows.length);
+  const parsed = parseExportPart(new URL(request.url).searchParams, partCount);
+  if (!parsed.ok) {
+    return parsed.status === 400
+      ? refuse("Invalid part number.", 400)
+      : refuse("No such part.", 404);
   }
 
   const now = new Date();
   const body = createDesignExportStream({
-    rows,
+    rows: exportPartRows(rows, parsed.part),
     readObject: getObjectByKey,
     keyFromUrl: imageKeyFromUrl,
     now,
+    part: parsed.part,
+    partCount,
   });
   return new Response(body, {
     status: 200,
     headers: {
       "Content-Type": "application/zip",
-      "Content-Disposition": `attachment; filename="${exportArchiveName(now)}"`,
+      "Content-Disposition": `attachment; filename="${exportArchiveName(now, parsed.part, partCount)}"`,
       "Cache-Control": "no-store",
       "X-Content-Type-Options": "nosniff",
     },

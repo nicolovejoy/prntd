@@ -2,7 +2,11 @@ import Link from "next/link";
 import { requireStudioUser } from "@/lib/require-user";
 import { getUserImageLibrary } from "@/lib/user-designs";
 import { Button, EmptyState } from "@/components/ui";
-import { ExportLink } from "./export-link";
+import {
+  EXPORT_PART_MAX_IMAGES,
+  summarizeExportParts,
+} from "@/lib/design-export";
+import { ExportControl } from "./export-link";
 import { LibraryGrid } from "./library-grid";
 import { GuestKeepLine } from "../studio/guest-keep-line";
 
@@ -21,8 +25,12 @@ import { GuestKeepLine } from "../studio/guest-keep-line";
  * links, plus the Active/All filter and select mode for bulk delete (#195,
  * #238). Per-image actions live one tap deeper, on the image detail page.
  *
- * With at least one image, the masthead row has a "Download all my designs"
- * link to /designs/export, a zip of every owned image (#12).
+ * With at least one image, the masthead row has "Download all my designs"
+ * (#12): a zip of every owned image from /designs/export, in parts of up to
+ * 100 images, oldest first. One part is a plain link; several open a panel
+ * with one link per part. The part summaries come from the library this page
+ * already loads, reversed to the export's oldest-first order (a real-DB test
+ * pins that the two orders are exact reverses), so nothing extra is fetched.
  *
  * Guests (#241) get their own images and, once there is at least one, the
  * sign-up/sign-in line. An empty library shows only its empty state: "keep
@@ -31,16 +39,30 @@ import { GuestKeepLine } from "../studio/guest-keep-line";
 export default async function DesignsPage() {
   const { session, isGuest } = await requireStudioUser("/designs");
   const images = await getUserImageLibrary(session.user.id);
+  const exportParts = summarizeExportParts([...images].reverse()).map((p) => ({
+    ...p,
+    firstCreatedAt: p.firstCreatedAt.toISOString(),
+    lastCreatedAt: p.lastCreatedAt.toISOString(),
+  }));
 
   return (
     <div className="min-h-screen flex flex-col">
       <main className="flex-1 px-4 sm:px-6 py-8 max-w-4xl mx-auto w-full">
         <div className="mb-6 flex items-center justify-between gap-3">
-          {/* Mono masthead, same class string as /orders and /shop use. */}
+          {/* Mono masthead, same type classes as /orders and /shop use (/shop
+              adds its own margin), so this row is 16 px tall like theirs. */}
           <h1 className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted">
             My Designs
           </h1>
-          {images.length > 0 && <ExportLink />}
+          {images.length > 0 && (
+            // The control is a 44 px touch target in a 16 px row: -my-3.5
+            // cancels the extra 28 px so it overhangs into the page's top
+            // padding and this row's bottom margin instead of making the row
+            // taller.
+            <div className="-my-3.5">
+              <ExportControl parts={exportParts} maxImages={EXPORT_PART_MAX_IMAGES} />
+            </div>
+          )}
         </div>
 
         {isGuest && images.length > 0 && (
