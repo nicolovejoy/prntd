@@ -10,6 +10,7 @@ import {
   createDesignExportStream,
   exportArchiveName,
   exportObjectKey,
+  MAX_EXPORT_IMAGES,
   type ExportManifest,
   type ExportRow,
 } from "@/lib/design-export";
@@ -91,6 +92,15 @@ describe("assignExportFilenames", () => {
       "2026-09-20_a_b-4.png",
     ]);
     expect(new Set(names).size).toBe(names.length);
+  });
+});
+
+describe("assignExportFilenames case", () => {
+  it("keeps names distinct when compared in lowercase", () => {
+    const names = assignExportFilenames([row("Abc"), row("abc")]);
+    expect(new Set(names.map((n) => n.toLowerCase())).size).toBe(2);
+    expect(names[0]).toBe("2026-09-20_Abc.png");
+    expect(names[1]).toBe("2026-09-20_abc-2.png");
   });
 });
 
@@ -272,6 +282,90 @@ describe("createDesignExportStream", () => {
     await reader.cancel();
     await new Promise((r) => setTimeout(r, 20));
     expect(reads).toBeLessThanOrEqual(1);
+  });
+
+  it("reads image n+1 only after image n's bytes were consumed", async () => {
+    const events: string[] = [];
+    const stream = createDesignExportStream({
+      rows: Array.from({ length: 5 }, (_, i) => row(`r${i}`)),
+      readObject: async (key) => {
+        events.push(`read:${key}`);
+        return bytesFor(key);
+      },
+      keyFromUrl,
+      now: NOW,
+    });
+    const reader = stream.getReader();
+    for (;;) {
+      const { done } = await reader.read();
+      if (done) break;
+      events.push("chunk");
+    }
+    const readIdx = events.flatMap((e, i) => (e.startsWith("read:") ? [i] : []));
+    expect(readIdx).toHaveLength(5);
+    for (let k = 1; k < readIdx.length; k++) {
+      const between = events.slice(readIdx[k - 1] + 1, readIdx[k]);
+      expect(between).toContain("chunk");
+    }
+  });
+
+  it("makes no second read while the consumer pauses after one chunk", async () => {
+    const reads: string[] = [];
+    const stream = createDesignExportStream({
+      rows: Array.from({ length: 5 }, (_, i) => row(`r${i}`)),
+      readObject: async (key) => {
+        reads.push(key);
+        return bytesFor(key);
+      },
+      keyFromUrl,
+      now: NOW,
+    });
+    const reader = stream.getReader();
+    await reader.read();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(reads).toHaveLength(1);
+    await reader.cancel();
+  });
+
+  it("stops cleanly when cancelled during an in-flight read", async () => {
+    let resolveRead!: (b: Uint8Array) => void;
+    const reads: string[] = [];
+    const unhandled: unknown[] = [];
+    const onUnhandled = (e: unknown) => unhandled.push(e);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const stream = createDesignExportStream({
+        rows: [row("a"), row("b"), row("c")],
+        readObject: (key) => {
+          reads.push(key);
+          return new Promise<Uint8Array>((r) => {
+            resolveRead = r;
+          });
+        },
+        keyFromUrl,
+        now: NOW,
+      });
+      const reader = stream.getReader();
+      const firstRead = reader.read();
+      await new Promise((r) => setTimeout(r, 10));
+      expect(reads).toHaveLength(1);
+      await reader.cancel();
+      resolveRead(bytesFor("a"));
+      await firstRead;
+      await new Promise((r) => setTimeout(r, 20));
+      expect(reads).toHaveLength(1);
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
+  it("throws a RangeError past MAX_EXPORT_IMAGES rows", () => {
+    expect(MAX_EXPORT_IMAGES).toBe(65_534);
+    const rows = Array.from({ length: MAX_EXPORT_IMAGES + 1 }, (_, i) => row(`r${i}`));
+    expect(() =>
+      createDesignExportStream({ rows, readObject: async () => null, keyFromUrl, now: NOW })
+    ).toThrow(RangeError);
   });
 
   it("makes a valid zip with only manifest.json for no rows", async () => {

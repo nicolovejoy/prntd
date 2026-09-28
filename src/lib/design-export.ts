@@ -4,7 +4,8 @@
  *
  * Images are stored in the zip uncompressed (PNGs don't shrink). fflate's
  * streaming zip writes data descriptors (sizes after the data) and has no
- * ZIP64, so an archive is limited to 4 GiB and 65,535 entries.
+ * ZIP64, so an archive is limited to 4 GiB and 65,535 entries (the images
+ * plus manifest.json); `MAX_EXPORT_IMAGES` is the image-count limit.
  *
  * Rows come from the `image` table alone; publication and order state are
  * not part of an export.
@@ -15,6 +16,9 @@ import type { db as appDb } from "@/lib/db";
 import { image as imageTable } from "@/lib/db/schema";
 
 const FILENAME_TIME_ZONE = "America/Los_Angeles";
+
+/** Most images one archive can hold: 65,535 entries minus manifest.json. */
+export const MAX_EXPORT_IMAGES = 65_534;
 
 export type ExportRow = {
   imageId: string;
@@ -73,7 +77,8 @@ function pacificDay(date: Date): string {
 /**
  * `<YYYY-MM-DD>_<id>.png` per row, parallel to `rows`. The date is the
  * created day in Pacific time; the id is restricted to `[A-Za-z0-9_-]`.
- * A name that collides with an earlier one gets `-2`, `-3`, … before `.png`.
+ * A name that collides with an earlier one, ignoring case (macOS and Windows
+ * extract case-insensitively), gets `-2`, `-3`, … before `.png`.
  */
 export function assignExportFilenames(
   rows: Pick<ExportRow, "imageId" | "createdAt">[],
@@ -82,8 +87,8 @@ export function assignExportFilenames(
   return rows.map((row) => {
     const base = `${pacificDay(row.createdAt)}_${row.imageId.replace(/[^A-Za-z0-9_-]/g, "_")}`;
     let name = `${base}.png`;
-    for (let n = 2; used.has(name); n++) name = `${base}-${n}.png`;
-    used.add(name);
+    for (let n = 2; used.has(name.toLowerCase()); n++) name = `${base}-${n}.png`;
+    used.add(name.toLowerCase());
     return name;
   });
 }
@@ -147,7 +152,8 @@ export function buildExportManifest(params: {
  * Each pull reads one object and enqueues its zip bytes before the next read,
  * so at most one image is held in memory. An object that is absent, has no
  * key, or fails to read is skipped and listed as missing in the manifest.
- * Cancelling the stream stops any further reads.
+ * Cancelling the stream stops any further reads. Throws a RangeError when
+ * there are more than `MAX_EXPORT_IMAGES` rows.
  */
 export function createDesignExportStream(params: {
   rows: ExportRow[];
@@ -156,6 +162,11 @@ export function createDesignExportStream(params: {
   now: Date;
 }): ReadableStream<Uint8Array> {
   const { rows, readObject, keyFromUrl, now } = params;
+  if (rows.length > MAX_EXPORT_IMAGES) {
+    throw new RangeError(
+      `design export: ${rows.length} images exceeds the ${MAX_EXPORT_IMAGES} limit`,
+    );
+  }
   const filenames = assignExportFilenames(rows);
   const included: boolean[] = rows.map(() => false);
 
@@ -183,6 +194,16 @@ export function createDesignExportStream(params: {
     file.mtime = mtime;
     zip.add(file);
     file.push(bytes, true);
+  };
+
+  const fail = (
+    controller: ReadableStreamDefaultController<Uint8Array>,
+    err: unknown,
+  ) => {
+    cancelled = true;
+    pending = [];
+    zip.terminate();
+    controller.error(err);
   };
 
   return new ReadableStream<Uint8Array>({
@@ -228,14 +249,14 @@ export function createDesignExportStream(params: {
             done = true;
           }
           if (zipError) {
-            controller.error(zipError);
+            fail(controller, zipError);
             return;
           }
           drain(controller);
         } while (!done && !cancelled && !enqueued);
         if (done) controller.close();
       } catch (err) {
-        controller.error(err);
+        fail(controller, err);
       }
     },
     cancel() {

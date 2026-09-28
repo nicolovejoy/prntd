@@ -155,7 +155,10 @@ export async function getObjectByKey(key: string): Promise<Buffer | null> {
     );
     const bytes = await result.Body?.transformToByteArray();
     return bytes ? Buffer.from(bytes) : null;
-  } catch {
+  } catch (err) {
+    console.error(
+      `[r2] getObjectByKey ${key}: ${err instanceof Error ? err.message : String(err)}`,
+    );
     return null;
   }
 }
