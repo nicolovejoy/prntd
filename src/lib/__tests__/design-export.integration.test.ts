@@ -119,56 +119,68 @@ describe("loadExportRows", () => {
     expect(times).toEqual([...times].sort((a, b) => a - b));
   });
 
-  it("splits 250 images into parts of 100, 100 and 50, oldest first", async () => {
-    const db = h.db as Db;
-    await makeUser(db, "other");
-    const mine = await makeDesign(db, "owner");
-    const theirs = await makeDesign(db, "other");
-    const base = Date.UTC(2026, 0, 1);
-    // Three images per second, so same-second ties rely on the rowid order.
-    const seeded = Array.from({ length: 250 }, (_, i) => ({
-      id: `own-${String(i).padStart(3, "0")}`,
-      ownerId: "owner",
-      imageUrl: `https://r2/own-${i}.png`,
-      aspectRatio: "1:1",
-      sourceDesignId: mine.id,
-      createdAt: new Date(base + Math.floor(i / 3) * 1000),
-    }));
-    // Inserted out of order: the order must come from created_at, not rowid alone.
-    const shuffled = [...seeded].sort((a, b) =>
-      a.createdAt.getTime() === b.createdAt.getTime() ? 0 : a.id < b.id ? 1 : -1
-    );
-    for (let k = 0; k < shuffled.length; k += 50) {
-      await db.insert(schema.image).values(shuffled.slice(k, k + 50));
-    }
-    await db.insert(schema.image).values(
-      Array.from({ length: 30 }, (_, i) => ({
-        id: `their-${i}`,
-        ownerId: "other",
-        imageUrl: `https://r2/their-${i}.png`,
+  it.each([
+    { total: 150, sizes: [50, 50, 50] },
+    { total: 151, sizes: [50, 50, 50, 1] },
+  ])(
+    "splits $total images into parts $sizes, oldest first, with no gaps or repeats",
+    async ({ total, sizes }) => {
+      const db = h.db as Db;
+      await makeUser(db, "other");
+      const mine = await makeDesign(db, "owner");
+      const theirs = await makeDesign(db, "other");
+      const base = Date.UTC(2026, 0, 1);
+      // Three images per second, so same-second ties rely on the rowid order.
+      const seeded = Array.from({ length: total }, (_, i) => ({
+        id: `own-${String(i).padStart(3, "0")}`,
+        ownerId: "owner",
+        imageUrl: `https://r2/own-${i}.png`,
         aspectRatio: "1:1",
-        sourceDesignId: theirs.id,
-        createdAt: new Date(base + i * 1000),
-      }))
-    );
+        sourceDesignId: mine.id,
+        createdAt: new Date(base + Math.floor(i / 3) * 1000),
+      }));
+      // Inserted newest-seconds first (stable within a second): the order must
+      // come from created_at, not rowid alone.
+      const shuffled = [...seeded].sort(
+        (a, b) => b.createdAt.getTime() - a.createdAt.getTime()
+      );
+      for (let k = 0; k < shuffled.length; k += 50) {
+        await db.insert(schema.image).values(shuffled.slice(k, k + 50));
+      }
+      await db.insert(schema.image).values(
+        Array.from({ length: 30 }, (_, i) => ({
+          id: `their-${i}`,
+          ownerId: "other",
+          imageUrl: `https://r2/their-${i}.png`,
+          aspectRatio: "1:1",
+          sourceDesignId: theirs.id,
+          createdAt: new Date(base + i * 1000),
+        }))
+      );
 
-    const rows = await loadExportRows(db, "owner");
-    const partCount = exportPartCount(rows.length);
-    expect(partCount).toBe(3);
-    const parts = [1, 2, 3].map((n) => exportPartRows(rows, n));
-    expect(parts.map((p) => p.length)).toEqual([100, 100, 50]);
+      const rows = await loadExportRows(db, "owner");
+      const partCount = exportPartCount(rows.length);
+      expect(partCount).toBe(sizes.length);
+      const parts = sizes.map((_, i) => exportPartRows(rows, i + 1));
+      expect(parts.map((p) => p.length)).toEqual(sizes);
+      expect(exportPartRows(rows, sizes.length + 1)).toEqual([]);
 
-    const union = parts.flat().map((r) => r.imageId);
-    expect(new Set(union).size).toBe(250);
-    expect(new Set(union)).toEqual(new Set(seeded.map((r) => r.id)));
-    expect(union.some((id) => id.startsWith("their-"))).toBe(false);
+      const union = parts.flat().map((r) => r.imageId);
+      expect(union).toHaveLength(total);
+      expect(new Set(union).size).toBe(total);
+      expect(new Set(union)).toEqual(new Set(seeded.map((r) => r.id)));
+      expect(union.some((id) => id.startsWith("their-"))).toBe(false);
 
-    // Oldest first within and across parts.
-    const times = parts.flat().map((r) => r.createdAt.getTime());
-    expect(times).toEqual([...times].sort((a, b) => a - b));
-    expect(parts[0][0].createdAt.getTime()).toBe(base);
-    expect(parts[2][49].createdAt.getTime()).toBe(base + 83_000);
-  });
+      // Oldest first within and across parts.
+      const times = parts.flat().map((r) => r.createdAt.getTime());
+      expect(times).toEqual([...times].sort((a, b) => a - b));
+      expect(parts[0][0].createdAt.getTime()).toBe(base);
+      const last = parts[parts.length - 1];
+      expect(last[last.length - 1].createdAt.getTime()).toBe(
+        base + Math.floor((total - 1) / 3) * 1000
+      );
+    }
+  );
 
   it("resolves a legacy row's key from its URL", async () => {
     const db = h.db as Db;

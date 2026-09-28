@@ -7,12 +7,15 @@ import { unzipSync } from "fflate";
 import {
   assignExportFilenames,
   buildExportManifest,
+  centralDirectory,
   crc32,
   createDesignExportStream,
   dosDateTime,
   EXPORT_PART_MAX_BYTES,
   EXPORT_PART_MAX_IMAGES,
+  EXPORT_PART_TIME_LIMIT_MS,
   EXPORT_REASON_SIZE_LIMIT,
+  EXPORT_REASON_TIME_LIMIT,
   EXPORT_REASON_TIMEOUT,
   EXPORT_REASON_UNREADABLE,
   exportArchiveName,
@@ -21,8 +24,10 @@ import {
   exportPartRows,
   parseExportPart,
   summarizeExportParts,
+  u32,
   type ExportManifest,
   type ExportRow,
+  type ZipEntry,
 } from "@/lib/design-export";
 
 function row(id: string, over: Partial<ExportRow> = {}): ExportRow {
@@ -162,7 +167,7 @@ describe("buildExportManifest", () => {
       filenameDateTimeZone: "America/Los_Angeles",
       part: 2,
       partCount: 3,
-      partMaxImages: 100,
+      partMaxImages: 50,
       imageCount: 2,
       includedCount: 1,
       missingCount: 1,
@@ -181,7 +186,7 @@ describe("buildExportManifest", () => {
           imageId: "b",
           filename: null,
           included: false,
-          reason: "The image file could not be read from storage.",
+          reason: "Not included: the image file could not be read from storage.",
           operation: null,
           prompt: null,
           aspectRatio: "3:4",
@@ -426,32 +431,34 @@ describe("design-export.ts schema imports", () => {
 
 describe("export parts", () => {
   it("has the documented limits", () => {
-    expect(EXPORT_PART_MAX_IMAGES).toBe(100);
-    expect(EXPORT_PART_MAX_BYTES).toBe(400 * 1024 * 1024);
+    expect(EXPORT_PART_MAX_IMAGES).toBe(50);
+    expect(EXPORT_PART_MAX_BYTES).toBe(150 * 1024 * 1024);
+    expect(EXPORT_PART_TIME_LIMIT_MS).toBe(240_000);
   });
 
-  it("counts parts of 100, at least one", () => {
+  it("counts parts of 50, at least one", () => {
     expect(exportPartCount(0)).toBe(1);
     expect(exportPartCount(1)).toBe(1);
-    expect(exportPartCount(100)).toBe(1);
-    expect(exportPartCount(101)).toBe(2);
-    expect(exportPartCount(250)).toBe(3);
+    expect(exportPartCount(50)).toBe(1);
+    expect(exportPartCount(51)).toBe(2);
+    expect(exportPartCount(150)).toBe(3);
+    expect(exportPartCount(151)).toBe(4);
   });
 
   it("slices a 1-based part", () => {
-    const rows = Array.from({ length: 250 }, (_, i) => i);
-    expect(exportPartRows(rows, 1)).toEqual(rows.slice(0, 100));
-    expect(exportPartRows(rows, 2)).toEqual(rows.slice(100, 200));
-    expect(exportPartRows(rows, 3)).toEqual(rows.slice(200, 250));
+    const rows = Array.from({ length: 120 }, (_, i) => i);
+    expect(exportPartRows(rows, 1)).toEqual(rows.slice(0, 50));
+    expect(exportPartRows(rows, 2)).toEqual(rows.slice(50, 100));
+    expect(exportPartRows(rows, 3)).toEqual(rows.slice(100, 120));
     expect(exportPartRows(rows, 4)).toEqual([]);
   });
 
   it("summarizes each part's count and date range", () => {
     const day = (n: number) => new Date(Date.UTC(2026, 0, 1) + n * 86_400_000);
-    const rows = Array.from({ length: 150 }, (_, i) => ({ createdAt: day(i) }));
+    const rows = Array.from({ length: 75 }, (_, i) => ({ createdAt: day(i) }));
     expect(summarizeExportParts(rows)).toEqual([
-      { part: 1, partCount: 2, count: 100, firstCreatedAt: day(0), lastCreatedAt: day(99) },
-      { part: 2, partCount: 2, count: 50, firstCreatedAt: day(100), lastCreatedAt: day(149) },
+      { part: 1, partCount: 2, count: 50, firstCreatedAt: day(0), lastCreatedAt: day(49) },
+      { part: 2, partCount: 2, count: 25, firstCreatedAt: day(50), lastCreatedAt: day(74) },
     ]);
     expect(summarizeExportParts([])).toEqual([]);
   });
@@ -731,7 +738,12 @@ describe("createDesignExportStream reasons and limits", () => {
         ["slow", false, EXPORT_REASON_TIMEOUT],
         ["c", true, null],
       ]);
-      expect(EXPORT_REASON_TIMEOUT).toBe("Reading the image file from storage timed out.");
+      expect(EXPORT_REASON_TIMEOUT).toBe(
+        "Not included: reading the image file from storage timed out. Downloading this part again may include it."
+      );
+      expect(EXPORT_REASON_UNREADABLE).toBe(
+        "Not included: the image file could not be read from storage."
+      );
     } finally {
       console.error = spy;
     }
@@ -763,7 +775,7 @@ describe("createDesignExportStream reasons and limits", () => {
     expect(manifest).toMatchObject({
       part: 2,
       partCount: 3,
-      partMaxImages: 100,
+      partMaxImages: 50,
       imageCount: 6,
       includedCount: 2,
       missingCount: 4,
@@ -777,7 +789,7 @@ describe("createDesignExportStream reasons and limits", () => {
       true
     );
     expect(EXPORT_REASON_SIZE_LIMIT).toBe(
-      "Left out: this file reached its 400 MB size limit. Download this image from its page in My Designs."
+      "Not included: this file reached its 150 MB limit before this image."
     );
     expect(Object.keys(unzipSync(zip)).sort()).toEqual(
       ["2026-09-20_r0.png", "2026-09-20_r1.png", "manifest.json"].sort()
@@ -811,6 +823,122 @@ describe("createDesignExportStream reasons and limits", () => {
         now: NOW,
       })
     );
-    expect(manifestOf(zip)).toMatchObject({ part: 1, partCount: 1, partMaxImages: 100 });
+    expect(manifestOf(zip)).toMatchObject({ part: 1, partCount: 1, partMaxImages: 50 });
+  });
+});
+
+describe("createDesignExportStream time limit", () => {
+  it("stops reading once the clock passes the limit, and still closes the zip", async () => {
+    let t = 1_000_000;
+    const reads: string[] = [];
+    const rows = Array.from({ length: 6 }, (_, i) => row(`r${i}`));
+    const zip = await collect(
+      createDesignExportStream({
+        rows,
+        readObject: async (key) => {
+          reads.push(key);
+          t += 100; // each read takes 100 ms of fake time
+          return bytesFor(key);
+        },
+        keyFromUrl,
+        now: NOW,
+        part: 2,
+        partCount: 3,
+        timeLimitMs: 250,
+        clock: () => t,
+      })
+    );
+    testZip(zip);
+    // Elapsed is 0, 100, 200 before reads 0-2; 300 >= 250 before read 3.
+    expect(reads).toEqual(["images/r0.png", "images/r1.png", "images/r2.png"]);
+    const manifest = manifestOf(zip);
+    expect(manifest).toMatchObject({ includedCount: 3, missingCount: 3, imageCount: 6 });
+    expect(manifest.images.map((i) => i.reason)).toEqual([
+      null,
+      null,
+      null,
+      ...Array(3).fill(EXPORT_REASON_TIME_LIMIT),
+    ]);
+    expect(manifest.images.slice(3).every((i) => !i.included && i.filename === null)).toBe(true);
+    expect(Object.keys(unzipSync(zip)).sort()).toEqual(
+      [
+        "2026-09-20_r0.png",
+        "2026-09-20_r1.png",
+        "2026-09-20_r2.png",
+        "manifest.json",
+      ].sort()
+    );
+    expect(EXPORT_REASON_TIME_LIMIT).toBe(
+      "Not included: this download reached its 240-second limit before this image. Downloading this part again on a faster connection may include it."
+    );
+  });
+
+  it("measures from construction, and reads nothing when the limit is already past", async () => {
+    let t = 0;
+    let reads = 0;
+    const stream = createDesignExportStream({
+      rows: [row("a"), row("b")],
+      readObject: async (key) => {
+        reads++;
+        return bytesFor(key);
+      },
+      keyFromUrl,
+      now: NOW,
+      timeLimitMs: 1000,
+      clock: () => t,
+    });
+    t = 1000; // the consumer arrives late
+    const zip = await collect(stream);
+    testZip(zip);
+    expect(reads).toBe(0);
+    expect(manifestOf(zip).images.map((i) => i.reason)).toEqual([
+      EXPORT_REASON_TIME_LIMIT,
+      EXPORT_REASON_TIME_LIMIT,
+    ]);
+    expect(Object.keys(unzipSync(zip))).toEqual(["manifest.json"]);
+  });
+
+  it("works with the default limit and clock", async () => {
+    const zip = await collect(
+      createDesignExportStream({
+        rows: [row("a")],
+        readObject: async (key) => bytesFor(key),
+        keyFromUrl,
+        now: NOW,
+      })
+    );
+    expect(manifestOf(zip).includedCount).toBe(1);
+  });
+});
+
+describe("ZIP64 marker values", () => {
+  const entry = (over: Partial<ZipEntry> = {}): ZipEntry => ({
+    name: new TextEncoder().encode("a.png"),
+    crc: 0,
+    size: 1,
+    date: 0,
+    time: 0,
+    offset: 0,
+    ...over,
+  });
+
+  it("refuses 0xFFFFFFFF and above in a 32-bit field, accepts one below", () => {
+    expect(u32(0xfffffffe)).toBe(0xfffffffe);
+    expect(() => u32(0xffffffff)).toThrow(RangeError);
+    expect(() => u32(0x100000000)).toThrow(RangeError);
+  });
+
+  it("refuses a central directory offset or size at the marker value", () => {
+    expect(() => centralDirectory([entry()], 0xfffffffe)).not.toThrow();
+    expect(() => centralDirectory([entry()], 0xffffffff)).toThrow(RangeError);
+    expect(() => centralDirectory([entry({ size: 0xffffffff })], 0)).toThrow(RangeError);
+    expect(() => centralDirectory([entry({ offset: 0xffffffff })], 0)).toThrow(RangeError);
+  });
+
+  it("refuses 0xFFFF entries, accepts one fewer", () => {
+    const many = (n: number) => Array.from({ length: n }, () => entry({ name: new Uint8Array() }));
+    expect(() => centralDirectory(many(0xfffe), 0)).not.toThrow();
+    expect(() => centralDirectory(many(0xffff), 0)).toThrow(RangeError);
+    expect(() => centralDirectory(many(0x10000), 0)).toThrow(RangeError);
   });
 });

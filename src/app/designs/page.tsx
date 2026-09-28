@@ -27,7 +27,7 @@ import { GuestKeepLine } from "../studio/guest-keep-line";
  *
  * With at least one image, the masthead row has "Download all my designs"
  * (#12): a zip of every owned image from /designs/export, in parts of up to
- * 100 images, oldest first. One part is a plain link; several open a panel
+ * 50 images, oldest first. One part is a plain link; several open a panel
  * with one link per part. The part summaries come from the library this page
  * already loads, reversed to the export's oldest-first order (a real-DB test
  * pins that the two orders are exact reverses), so nothing extra is fetched.

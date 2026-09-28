@@ -54,30 +54,30 @@ describe("/designs", () => {
   });
 
   it("offers parts, oldest first, from the library it already loaded", async () => {
-    // getUserImageLibrary is newest first: image 150 (newest) down to 1.
+    // getUserImageLibrary is newest first: image 75 (newest) down to 1.
     const day = (n: number) => new Date(Date.UTC(2026, 0, 1, 20) + n * 86_400_000);
     vi.mocked(getUserImageLibrary).mockResolvedValue(
-      Array.from({ length: 150 }, (_, i) => ({
-        imageId: `i${150 - i}`,
-        createdAt: day(149 - i),
+      Array.from({ length: 75 }, (_, i) => ({
+        imageId: `i${75 - i}`,
+        createdAt: day(74 - i),
       })) as never
     );
     render(await DesignsPage());
     expect(getUserImageLibrary).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "Download all my designs" }));
     expect(
-      screen.getByText("150 designs in 2 files of up to 100, oldest first.")
+      screen.getByText("75 designs in 2 files of up to 50, oldest first.")
     ).toBeInTheDocument();
     const links = screen.getAllByRole("link", { name: /^Part / });
     expect(links.map((l) => l.getAttribute("href"))).toEqual([
       "/designs/export?part=1",
       "/designs/export?part=2",
     ]);
-    // Part 1 is the oldest 100: Jan 1 – Apr 10, 2026 (Pacific).
-    expect(links[0]).toHaveTextContent("Part 1 of 2 · 100 designs");
-    expect(links[0]).toHaveTextContent("Jan 1, 2026 – Apr 10, 2026");
-    expect(links[1]).toHaveTextContent("Part 2 of 2 · 50 designs");
-    expect(links[1]).toHaveTextContent("Apr 11, 2026 – May 30, 2026");
+    // Part 1 is the oldest 50: Jan 1 – Feb 19, 2026 (Pacific).
+    expect(links[0]).toHaveTextContent("Part 1 of 2 · 50 designs");
+    expect(links[0]).toHaveTextContent("Jan 1, 2026 – Feb 19, 2026");
+    expect(links[1]).toHaveTextContent("Part 2 of 2 · 25 designs");
+    expect(links[1]).toHaveTextContent("Feb 20, 2026 – Mar 16, 2026");
   });
 
   it("keeps the masthead row as tall as the heading (16 px), like /orders", async () => {

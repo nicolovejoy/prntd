@@ -35,7 +35,7 @@ const THREE: ExportPartLink[] = [
   {
     part: 1,
     partCount: 3,
-    count: 100,
+    count: 50,
     // 2026-01-05 03:00 UTC is still Jan 4 in Pacific time.
     firstCreatedAt: "2026-01-05T03:00:00.000Z",
     lastCreatedAt: "2026-03-02T20:00:00.000Z",
@@ -43,7 +43,7 @@ const THREE: ExportPartLink[] = [
   {
     part: 2,
     partCount: 3,
-    count: 100,
+    count: 50,
     firstCreatedAt: "2026-03-03T20:00:00.000Z",
     lastCreatedAt: "2026-06-30T20:00:00.000Z",
   },
@@ -58,7 +58,7 @@ const THREE: ExportPartLink[] = [
 
 describe("ExportControl, one part", () => {
   it("is the download link itself, with no button", () => {
-    render(<ExportControl parts={ONE} maxImages={100} />);
+    render(<ExportControl parts={ONE} maxImages={50} />);
     const link = screen.getByRole("link", { name: "Download all my designs" });
     expect(link).toHaveAttribute("href", "/designs/export");
     expect(link).toHaveAttribute("download");
@@ -68,7 +68,7 @@ describe("ExportControl, one part", () => {
   it("reads as preparing after a click, ignores a second click, and resets after 8 s", () => {
     vi.useFakeTimers();
     const { seen, cleanup } = trackDefaultPrevented();
-    render(<ExportControl parts={ONE} maxImages={100} />);
+    render(<ExportControl parts={ONE} maxImages={50} />);
     const link = screen.getByRole("link", { name: "Download all my designs" });
     expect(link).not.toHaveAttribute("aria-disabled");
     expect(screen.getByRole("status")).toHaveTextContent("");
@@ -96,7 +96,7 @@ describe("ExportControl, one part", () => {
   it("clears its timer on unmount", () => {
     vi.useFakeTimers();
     const { cleanup } = trackDefaultPrevented();
-    const { unmount } = render(<ExportControl parts={ONE} maxImages={100} />);
+    const { unmount } = render(<ExportControl parts={ONE} maxImages={50} />);
     fireEvent.click(screen.getByRole("link"));
     cleanup();
     const clear = vi.spyOn(globalThis, "clearTimeout");
@@ -108,7 +108,7 @@ describe("ExportControl, one part", () => {
 
 describe("ExportControl, several parts", () => {
   it("is a closed button until tapped, then lists one link per part", () => {
-    render(<ExportControl parts={THREE} maxImages={100} />);
+    render(<ExportControl parts={THREE} maxImages={50} />);
     const button = screen.getByRole("button", { name: "Download all my designs" });
     expect(button).toHaveAttribute("type", "button");
     expect(button).toHaveAttribute("aria-expanded", "false");
@@ -120,7 +120,7 @@ describe("ExportControl, several parts", () => {
     expect(panel).toBeVisible();
     expect(panel.className).toContain("absolute");
     expect(panel.className).not.toMatch(/shadow/);
-    expect(within(panel).getByText("201 designs in 3 files of up to 100, oldest first.")).toBeInTheDocument();
+    expect(within(panel).getByText("101 designs in 3 files of up to 50, oldest first.")).toBeInTheDocument();
 
     const links = within(panel).getAllByRole("link");
     expect(links.map((l) => l.getAttribute("href"))).toEqual([
@@ -129,9 +129,9 @@ describe("ExportControl, several parts", () => {
       "/designs/export?part=3",
     ]);
     links.forEach((l) => expect(l).toHaveAttribute("download"));
-    expect(links[0]).toHaveTextContent("Part 1 of 3 · 100 designs");
+    expect(links[0]).toHaveTextContent("Part 1 of 3 · 50 designs");
     expect(links[0]).toHaveTextContent("Jan 4, 2026 – Mar 2, 2026");
-    expect(links[1]).toHaveTextContent("Part 2 of 3 · 100 designs");
+    expect(links[1]).toHaveTextContent("Part 2 of 3 · 50 designs");
     expect(links[1]).toHaveTextContent("Mar 3, 2026 – Jun 30, 2026");
     expect(links[2]).toHaveTextContent("Part 3 of 3 · 1 design");
     // A single-day part shows one date.
@@ -140,7 +140,7 @@ describe("ExportControl, several parts", () => {
   });
 
   it("closes on a second tap and on Escape", () => {
-    render(<ExportControl parts={THREE} maxImages={100} />);
+    render(<ExportControl parts={THREE} maxImages={50} />);
     const button = screen.getByRole("button", { name: "Download all my designs" });
     fireEvent.click(button);
     fireEvent.click(button);
@@ -156,9 +156,74 @@ describe("ExportControl, several parts", () => {
     expect(button).toHaveFocus();
   });
 
+  it("closes on a tap outside and returns focus to the button", () => {
+    render(
+      <div>
+        <p data-testid="elsewhere">elsewhere</p>
+        <ExportControl parts={THREE} maxImages={50} />
+      </div>
+    );
+    const button = screen.getByRole("button", { name: "Download all my designs" });
+    fireEvent.click(button);
+    expect(screen.getAllByRole("link")).toHaveLength(3);
+    fireEvent.pointerDown(screen.getByTestId("elsewhere"));
+    expect(button).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryAllByRole("link")).toHaveLength(0);
+    expect(button).toHaveFocus();
+  });
+
+  it("stays open on a tap inside the panel", () => {
+    render(<ExportControl parts={THREE} maxImages={50} />);
+    const button = screen.getByRole("button", { name: "Download all my designs" });
+    fireEvent.click(button);
+    fireEvent.pointerDown(screen.getAllByRole("link")[1]);
+    fireEvent.pointerDown(screen.getByText(/designs in 3 files/));
+    expect(button).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getAllByRole("link")).toHaveLength(3);
+  });
+
+  it("returns focus to the button on Escape and on a second tap", () => {
+    render(<ExportControl parts={THREE} maxImages={50} />);
+    const button = screen.getByRole("button", { name: "Download all my designs" });
+    fireEvent.click(button);
+    (document.activeElement as HTMLElement | null)?.blur();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(button).toHaveAttribute("aria-expanded", "false");
+    expect(button).toHaveFocus();
+
+    fireEvent.click(button);
+    (document.activeElement as HTMLElement | null)?.blur();
+    fireEvent.click(button);
+    expect(button).toHaveAttribute("aria-expanded", "false");
+    expect(button).toHaveFocus();
+  });
+
+  it("removes its document listeners when closed and when unmounted", () => {
+    const add = vi.spyOn(document, "addEventListener");
+    const remove = vi.spyOn(document, "removeEventListener");
+    const { unmount } = render(<ExportControl parts={THREE} maxImages={50} />);
+    const button = screen.getByRole("button", { name: "Download all my designs" });
+    const count = (spy: typeof add, type: string) =>
+      spy.mock.calls.filter((c) => c[0] === type).length;
+
+    fireEvent.click(button);
+    expect(count(add, "pointerdown")).toBe(1);
+    expect(count(add, "keydown")).toBe(1);
+    fireEvent.click(button);
+    expect(count(remove, "pointerdown")).toBe(1);
+    expect(count(remove, "keydown")).toBe(1);
+
+    fireEvent.click(button);
+    unmount();
+    expect(count(remove, "pointerdown")).toBe(2);
+    expect(count(remove, "keydown")).toBe(2);
+    add.mockRestore();
+    remove.mockRestore();
+  });
+
   it("gives each part link its own busy state", () => {
     vi.useFakeTimers();
-    render(<ExportControl parts={THREE} maxImages={100} />);
+    render(<ExportControl parts={THREE} maxImages={50} />);
     fireEvent.click(screen.getByRole("button", { name: "Download all my designs" }));
     const { seen, cleanup } = trackDefaultPrevented();
     const [one, two] = screen.getAllByRole("link");
@@ -166,7 +231,7 @@ describe("ExportControl, several parts", () => {
     fireEvent.click(two);
     expect(two).toHaveTextContent("Preparing download…");
     expect(two).toHaveAttribute("aria-disabled", "true");
-    expect(one).toHaveTextContent("Part 1 of 3 · 100 designs");
+    expect(one).toHaveTextContent("Part 1 of 3 · 50 designs");
     expect(one).not.toHaveAttribute("aria-disabled");
     const statuses = screen.getAllByRole("status");
     expect(statuses.map((s) => s.textContent)).toEqual(["", "Preparing download…", ""]);
@@ -179,7 +244,7 @@ describe("ExportControl, several parts", () => {
     act(() => {
       vi.advanceTimersByTime(8000);
     });
-    expect(two).toHaveTextContent("Part 2 of 3 · 100 designs");
+    expect(two).toHaveTextContent("Part 2 of 3 · 50 designs");
     expect(two).not.toHaveAttribute("aria-disabled");
     expect(one).not.toHaveAttribute("aria-disabled");
   });

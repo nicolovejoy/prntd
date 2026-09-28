@@ -206,33 +206,33 @@ describe("GET /designs/export", () => {
     await res.arrayBuffer();
   });
 
-  it("answers part 2 of a 150-image library with images 101–150, oldest first", async () => {
-    const ids = await seedMany("u1", "img", 150);
+  it("answers part 2 of a 75-image library with images 51–75, oldest first", async () => {
+    const ids = await seedMany("u1", "img", 75);
     const res = await GET(request("?part=2"));
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Disposition")).toMatch(
       /^attachment; filename="prntd-designs-\d{4}-\d{2}-\d{2}-part-2-of-2\.zip"$/,
     );
     const { files, manifest } = await readZip(res);
-    expect(manifest).toMatchObject({ part: 2, partCount: 2, imageCount: 50, includedCount: 50 });
-    expect(manifest.images.map((i: ManifestImage) => i.imageId)).toEqual(ids.slice(100));
-    expect(Object.keys(files)).toHaveLength(51);
-    expect(getObjectByKey).toHaveBeenCalledTimes(50);
-    expect(getObjectByKey).not.toHaveBeenCalledWith("images/img-100.png");
+    expect(manifest).toMatchObject({ part: 2, partCount: 2, imageCount: 25, includedCount: 25 });
+    expect(manifest.images.map((i: ManifestImage) => i.imageId)).toEqual(ids.slice(50));
+    expect(Object.keys(files)).toHaveLength(26);
+    expect(getObjectByKey).toHaveBeenCalledTimes(25);
+    expect(getObjectByKey).not.toHaveBeenCalledWith("images/img-50.png");
   });
 
   it("answers part 1 when no part is given", async () => {
-    const ids = await seedMany("u1", "img", 150);
+    const ids = await seedMany("u1", "img", 75);
     const res = await GET(request());
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Disposition")).toMatch(/-part-1-of-2\.zip"$/);
     const { manifest } = await readZip(res);
-    expect(manifest).toMatchObject({ part: 1, partCount: 2, imageCount: 100 });
-    expect(manifest.images.map((i: ManifestImage) => i.imageId)).toEqual(ids.slice(0, 100));
+    expect(manifest).toMatchObject({ part: 1, partCount: 2, imageCount: 50 });
+    expect(manifest.images.map((i: ManifestImage) => i.imageId)).toEqual(ids.slice(0, 50));
   });
 
   it("answers 400 for a malformed part and 404 past the last part, without reading R2", async () => {
-    await seedMany("u1", "img", 150);
+    await seedMany("u1", "img", 75);
     for (const q of ["?part=0", "?part=abc", "?part=1.5", "?part=", "?part=1&part=2", "?part=-1"]) {
       const res = await GET(request(q));
       expect(res.status, q).toBe(400);

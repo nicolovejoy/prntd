@@ -3,18 +3,26 @@
  * their filenames, the manifest, and the streamed zip.
  *
  * Parts: the user's images, oldest first, split into zips of at most
- * `EXPORT_PART_MAX_IMAGES` images. Oldest first means new designs made
- * between downloads only extend the last part; parts before it keep the same
- * images. Inside a part, a running byte total stops adding images at
- * `EXPORT_PART_MAX_BYTES`; the rest of that part is listed in the manifest as
- * left out, with a reason.
+ * `EXPORT_PART_MAX_IMAGES` images. Oldest first means a new design extends
+ * the last part, or starts a new part when the last one is full; parts before
+ * the last keep the same images. Deleting an image shifts every later image
+ * back by one, so a part downloaded before a deletion and a part downloaded
+ * after it can miss an image; `partCount` and the per-part image list in
+ * manifest.json show what each zip holds.
+ *
+ * Inside a part, a running byte total stops adding images at
+ * `EXPORT_PART_MAX_BYTES`, and a clock check before each read stops at
+ * `EXPORT_PART_TIME_LIMIT_MS`, so a slow client can't hold the response past
+ * the route's `maxDuration`. Either way the rest of that part is listed in the
+ * manifest as not included, with a reason, and the zip is closed.
  *
  * The zip writer is local: stored entries only (method 0, PNGs don't shrink),
  * with CRC-32 and sizes in each local header and no data descriptors (flag
  * bit 3 clear), which strict streaming readers require. Each image is fully
  * read before its entry is written, so the sizes are known up front. No ZIP64:
- * a part holds at most 101 entries and about 400 MB, far under the 65,535
- * entry and 4 GiB limits; the writer throws if either would be exceeded.
+ * a part holds at most 51 entries and about 150 MB, far under the 65,535
+ * entry and 4 GiB limits; the writer throws at 65,535 entries or at a 4 GiB
+ * offset or size, since 0xFFFF and 0xFFFFFFFF are ZIP64 marker values.
  *
  * In-zip file times are the image's created time as a Pacific wall clock
  * (DOS time has no zone), so they agree with the Pacific date in the
@@ -30,16 +38,21 @@ import { image as imageTable } from "@/lib/db/schema";
 const FILENAME_TIME_ZONE = "America/Los_Angeles";
 
 /** Most images in one part (one zip). */
-export const EXPORT_PART_MAX_IMAGES = 100;
+export const EXPORT_PART_MAX_IMAGES = 50;
 /** Most image bytes in one part; images past it are left out of that zip. */
-export const EXPORT_PART_MAX_BYTES = 400 * 1024 * 1024;
+export const EXPORT_PART_MAX_BYTES = 150 * 1024 * 1024;
+/**
+ * Longest a part's stream reads objects. The stream is back-pressured, so it
+ * lives as long as the client's download; the route's `maxDuration` is 300 s.
+ */
+export const EXPORT_PART_TIME_LIMIT_MS = 240_000;
 
 export const EXPORT_REASON_UNREADABLE =
-  "The image file could not be read from storage.";
+  "Not included: the image file could not be read from storage.";
 export const EXPORT_REASON_TIMEOUT =
-  "Reading the image file from storage timed out.";
-export const EXPORT_REASON_SIZE_LIMIT =
-  "Left out: this file reached its 400 MB size limit. Download this image from its page in My Designs.";
+  "Not included: reading the image file from storage timed out. Downloading this part again may include it.";
+export const EXPORT_REASON_SIZE_LIMIT = `Not included: this file reached its ${EXPORT_PART_MAX_BYTES / (1024 * 1024)} MB limit before this image.`;
+export const EXPORT_REASON_TIME_LIMIT = `Not included: this download reached its ${EXPORT_PART_TIME_LIMIT_MS / 1000}-second limit before this image. Downloading this part again on a faster connection may include it.`;
 
 export type ExportRow = {
   imageId: string;
@@ -287,13 +300,16 @@ export function crc32(bytes: Uint8Array): number {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
-/** A value that must fit a zip32 field; the byte guard keeps parts far below. */
-function u32(n: number): number {
-  if (n > 0xffffffff) throw new RangeError(`design export: ${n} exceeds zip32`);
+/**
+ * A value that must fit a zip32 field. 0xFFFFFFFF is the ZIP64 marker, so it
+ * is refused too; the byte guard keeps parts far below.
+ */
+export function u32(n: number): number {
+  if (n >= 0xffffffff) throw new RangeError(`design export: ${n} exceeds zip32`);
   return n;
 }
 
-type ZipEntry = {
+export type ZipEntry = {
   name: Uint8Array;
   crc: number;
   size: number;
@@ -321,8 +337,11 @@ function localHeader(e: ZipEntry): Uint8Array {
 }
 
 /** Central directory entries followed by the end-of-central-directory record. */
-function centralDirectory(entries: ZipEntry[], cdOffset: number): Uint8Array {
-  if (entries.length > 0xffff) {
+export function centralDirectory(
+  entries: ZipEntry[],
+  cdOffset: number,
+): Uint8Array {
+  if (entries.length >= 0xffff) {
     throw new RangeError(`design export: ${entries.length} entries exceeds zip32`);
   }
   const cdSize = entries.reduce((sum, e) => sum + 46 + e.name.length, 0);
@@ -370,8 +389,9 @@ function centralDirectory(entries: ZipEntry[], cdOffset: number): Uint8Array {
  * that is absent, has no key, or fails to read is listed as not included,
  * with a reason; a read that throws a `TimeoutError` gets the timeout reason.
  * Once the next image would take the part past `maxBytes`, it and every
- * remaining row are listed as left out and not read. Cancelling the stream
- * stops any further reads.
+ * remaining row are listed as not included and not read. The same happens when
+ * `clock() - start` reaches `timeLimitMs` before a read, where `start` is the
+ * clock at construction. Cancelling the stream stops any further reads.
  */
 export function createDesignExportStream(params: {
   rows: ExportRow[];
@@ -381,6 +401,8 @@ export function createDesignExportStream(params: {
   part?: number;
   partCount?: number;
   maxBytes?: number;
+  timeLimitMs?: number;
+  clock?: () => number;
 }): ReadableStream<Uint8Array> {
   const {
     rows,
@@ -390,7 +412,10 @@ export function createDesignExportStream(params: {
     part = 1,
     partCount = 1,
     maxBytes = EXPORT_PART_MAX_BYTES,
+    timeLimitMs = EXPORT_PART_TIME_LIMIT_MS,
+    clock = Date.now,
   } = params;
+  const startedAt = clock();
   const filenames = assignExportFilenames(rows);
   const reasons: (string | null)[] = rows.map(() => EXPORT_REASON_UNREADABLE);
   const entries: ZipEntry[] = [];
@@ -452,6 +477,14 @@ export function createDesignExportStream(params: {
           for (;;) {
             if (done || cancelled) return;
             if (next >= rows.length) {
+              finish(controller);
+              return;
+            }
+            if (clock() - startedAt >= timeLimitMs) {
+              for (let j = next; j < rows.length; j++) {
+                reasons[j] = EXPORT_REASON_TIME_LIMIT;
+              }
+              next = rows.length;
               finish(controller);
               return;
             }

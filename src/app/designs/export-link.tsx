@@ -129,8 +129,9 @@ function PartLink({ summary }: { summary: ExportPartLink }) {
  *
  * One part: the control is the link. More than one: a button that opens a
  * panel under it with one link per part (oldest first). The panel is
- * absolutely positioned so the masthead row never grows; Escape or a second
- * tap on the button closes it.
+ * absolutely positioned so the masthead row never grows; Escape, a tap
+ * outside the control, or a second tap on the button closes it, and focus
+ * goes back to the button.
  */
 export function ExportControl({
   parts,
@@ -142,17 +143,31 @@ export function ExportControl({
   const [open, setOpen] = useState(false);
   const panelId = useId();
   const button = useRef<HTMLButtonElement>(null);
-  const panel = useRef<HTMLDivElement>(null);
+  const root = useRef<HTMLSpanElement>(null);
+
+  const close = () => {
+    setOpen(false);
+    button.current?.focus({ preventScroll: true });
+  };
 
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       setOpen(false);
-      if (panel.current?.contains(document.activeElement)) button.current?.focus();
+      button.current?.focus({ preventScroll: true });
+    };
+    const onPointerDown = (e: PointerEvent) => {
+      if (root.current?.contains(e.target as Node)) return;
+      setOpen(false);
+      button.current?.focus({ preventScroll: true });
     };
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("pointerdown", onPointerDown);
+    };
   }, [open]);
 
   if (parts.length <= 1) {
@@ -165,19 +180,18 @@ export function ExportControl({
 
   const total = parts.reduce((sum, p) => sum + p.count, 0);
   return (
-    <span className="relative inline-flex">
+    <span ref={root} className="relative inline-flex">
       <button
         ref={button}
         type="button"
         aria-expanded={open}
         aria-controls={panelId}
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => (open ? close() : setOpen(true))}
         className={`${CONTROL} ${open ? "border-foreground text-foreground" : IDLE}`}
       >
         Download all my designs
       </button>
       <div
-        ref={panel}
         id={panelId}
         hidden={!open}
         className="absolute right-0 top-full z-10 mt-1 w-72 max-w-[calc(100vw-2rem)] rounded-md border border-foreground bg-background p-3"

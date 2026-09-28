@@ -17,8 +17,8 @@ export const maxDuration = 300;
 
 /**
  * "Download all my designs": `GET /designs/export?part=N` streams one part
- * of the caller's images (oldest first, up to 100 images and 400 MB per
- * part) as a zip with manifest.json (src/lib/design-export.ts). No `part`
+ * of the caller's images (oldest first, up to 50 images and 150 MB per
+ * part, and 240 s of reading) as a zip with manifest.json (src/lib/design-export.ts). No `part`
  * means part 1. `part` only selects a slice of the caller's own rows.
  *
  * Who may call it: the /designs page gate's predicate (canUseStudio), a real
@@ -59,6 +59,7 @@ export async function GET(request: Request) {
   }
 
   const now = new Date();
+  // The stream's time limit counts from construction, so build it last.
   const body = createDesignExportStream({
     rows: exportPartRows(rows, parsed.part),
     readObject: getObjectByKey,
