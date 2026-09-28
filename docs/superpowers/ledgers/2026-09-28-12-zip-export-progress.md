@@ -159,6 +159,35 @@ No blockers.
 Haiku re-review of `4e8b125..60f071a`: all four FIXED, no new defects;
 82 tests in `src/app/designs` pass.
 
+## Scratch-file collision check (main session request, 2026-09-28)
+
+The #253 controller shared this session's scratchpad and wrote output files
+with the same names (`t1-*.out`, `t2-*.out`). Checked:
+
+- Briefs (inputs): my briefs were `.md` files; #253's were `.txt`, so no
+  input name collided. All eight of my briefs (`t1-impl`, `t1-review`,
+  `t1-fix`, `t1-rereview`, `t2-impl`, `t2-review`, `t2-fix`,
+  `zip-t2-rereview`) still hold my text and name the `12-zip-export`
+  worktree; none mention `253-chat-quota` or chat code.
+- Accepted reviews: each output was read right after its run, and each
+  reviews only this slice and names commit ranges that exist only on this
+  branch. Task 1 review (`044517d..2652d9b`): names `design-export.ts`,
+  `r2.ts` `getObjectByKey`, the design-export tests. Task 1 re-review
+  (`2652d9b..13c04b4`): `fail()`, `MAX_EXPORT_IMAGES`, case-insensitive
+  filenames. Task 2 review (`13c04b4..4e8b125`): `export/route.ts`,
+  `export-link.tsx`, `export-route.integration.test.ts`. Task 2 re-review
+  (`4e8b125..60f071a`, already in a `zip-` file): `export-link.tsx`,
+  `export-route-limit.test.ts`. None of the four mentions chat or quota
+  files.
+- Contamination found: #253 text was appended to two implementer reports
+  (`t2-impl.out`, `t2-fix.out`) after my implementer's report, and
+  `t2-fix.out` on disk now holds #253's report. These are implementer
+  reports, not reviews, and every implementer claim was checked against the
+  diff and the controller-run gate.
+- Rerun: none needed.
+- Since then, every file of mine lives in the scratchpad's `12/`
+  subdirectory.
+
 ## Gate (controller-run, head after the ledger commit)
 
 - `npm run lint`: 0 errors (33 warnings, all pre-existing; one new warning
