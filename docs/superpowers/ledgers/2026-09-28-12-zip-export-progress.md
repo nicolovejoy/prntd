@@ -200,3 +200,14 @@ with the same names (`t1-*.out`, `t2-*.out`). Checked:
   cookie → `401`, `cache-control: no-store`, body "Sign in to download your
   designs."; `GET /designs` with no cookie still 307s to
   `/sign-in?next=%2Fdesigns`.
+
+## Whole-branch review fix round (main session's Opus review, 2026-09-28)
+
+FIX_BASE: `743772ef98409bf7e11d0c77bafe7536a1a2c9ab`. Verdict: READY AFTER
+FIXES, one fix round (F1–F7), then the main session re-reviews.
+
+The reviewer verified these as sound: authorization (no input the caller can
+tamper with), the four session cases, the image set matching My Designs
+"All", a client disconnect cancelling the stream, back-pressure end to end,
+flat memory (162 MB peak while streaming 600 MB), and the sample archive
+opening in unzip, zipinfo, ditto, Python zipfile and bsdtar.
