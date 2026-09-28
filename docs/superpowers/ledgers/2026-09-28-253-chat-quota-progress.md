@@ -1,0 +1,27 @@
+# #253 chat quota — progress ledger (2026-09-28)
+
+Plan: `docs/superpowers/plans/2026-09-28-253-chat-quota.md`. Branch
+`claude/253-chat-quota` from main `5322cfb`.
+
+## Rulings
+
+- Ruling: the chat cap is enforced whether or not `GUEST_FUNNEL_ENABLED` is on — the generation cap is a no-op with the flag off because it guards the ungated funnel, but the Anthropic cost of a chat turn exists for any session — cost if wrong: with the flag off, signed-in users are capped at 150 chat turns a day instead of unlimited.
+- Ruling: the IP dimension applies to guest turns only; signed-in turns bump and check only `chat:user:<id>` — the owner set the signed-in cap (150) above the IP cap (60), so counting signed-in turns against the IP cap would make 150 unreachable; the IP cap's stated purpose in `generation-quota.ts` is to backstop many guest sessions on one network — cost if wrong: a script with many real accounts on one IP gets 150 turns per account instead of 60 per IP.
+- Ruling: the identity bucket is checked first and the IP bucket is not bumped when the identity is already over its cap — otherwise one guest's refused turns use up the IP allowance of every other guest on the network; refused turns cost no API money either way — cost if wrong: none found; the concurrency guarantee still holds because each dimension is still a single atomic upsert.
+- Ruling: a turn whose Anthropic call throws refunds its unit (identity, plus IP for a guest), best-effort, on the day it was spent — mirrors the generation refund; a failing upstream should not eat a user's allowance — cost if wrong: a caller who can make the Anthropic call fail on purpose gets unlimited failed calls, which bill nothing.
+- Ruling: order inside `sendChatMessage` is session → owned-design check → closed check → quota → create design row → Anthropic → persist — a refused turn on a new id leaves no design row (#197's rule for generate), and a foreign or closed conversation burns no unit — cost if wrong: none; `getOrCreateDesign`'s find-then-insert race is unchanged.
+- Ruling: `src/lib/db/schema.ts`'s doc comment on `generation_usage` (lists only `user:`/`ip:`) is left as is — schema.ts is outside the fence and wave 1 must not touch it while #249 is open; the bucket formats are documented in `generation-quota.ts` — cost if wrong: a stale comment until someone edits schema.ts.
+- Ruling: refusal copy — guest: "Daily chat limit reached. Sign in to continue."; signed-in: "Daily chat limit reached. Try again tomorrow." — persona C, facts only; signing in lifts a guest's identity and IP caps under the rulings above — cost if wrong: a copy edit.
+
+## Audit of `generation_usage` readers and writers
+
+- Writers: `bump`/`unbump` in `src/lib/generation-quota.ts`, exact `bucket = ?`.
+- `failGenerationJob` (`src/lib/generation-job.ts`) → `refundGenerationQuota` with `user:`/`ip:` from the job row; called by the lazy sweep and `/api/cron/sweep-generations`. Never touches `chat:`.
+- `generateDesign` consumes/refunds generation buckets only.
+- No admin view, cron, pruning job, script or `reparentUserData` entry reads the table.
+
+## Observation, not fixed (outside the slice)
+
+- `consumeGenerationQuota` bumps and checks the IP bucket for signed-in users too, so with defaults a signed-in user is capped at 20 generations a day per IP (`IP_GEN_DAILY_CAP`), not 50 (`USER_GEN_DAILY_CAP`). `generateDesign`'s behaviour is outside the fence.
+
+## Tasks and reviews
