@@ -25,3 +25,10 @@ Plan: `docs/superpowers/plans/2026-09-28-253-chat-quota.md`. Branch
 - `consumeGenerationQuota` bumps and checks the IP bucket for signed-in users too, so with defaults a signed-in user is capped at 20 generations a day per IP (`IP_GEN_DAILY_CAP`), not 50 (`USER_GEN_DAILY_CAP`). `generateDesign`'s behaviour is outside the fence.
 
 ## Tasks and reviews
+
+### Task 1 — quota functions
+
+- Implementer (sonnet): `consumeChatQuota`, `refundChatQuota`, caps, bucket builders; new `src/lib/__tests__/chat-quota.integration.test.ts`.
+- Task review (sonnet), no blocking findings: (1) should-fix, refund-day test passed vacuously on a no-op refund; (2) should-fix, "at generation cap → chat allowed" never asserted the generation refusal and never exercised the `ip:` cap; (3) should-fix, mirror test never asserted the chat refusal; (4) minor, `refundChatQuota.day` optional though the plan made it required; (5) minor, unsupported "cheaper per call" cost claim in a comment; (6) minor, two comments read as one paragraph; (7) minor, defaults test depended on the shell env; (8) minor, IP-refused guest spends identity allowance, undocumented and untested.
+- Ruling: `day` is required on `refundChatQuota` — every caller holds the spend day; an optional day invites the midnight-crossing bug — cost if wrong: none.
+- Fix round (sonnet) applied 1–8. Scoped re-review (haiku) confirmed 4, 7, 8; controller checked 1, 2, 3, 5, 6 in the diff. 17 tests in the new file.
