@@ -97,11 +97,13 @@ type ManifestImage = { imageId: string; filename: string | null; included: boole
 const request = () => new Request("http://localhost/designs/export");
 
 describe("GET /designs/export", () => {
-  it("answers 401 with no session, without reading R2", async () => {
+  it("answers 401 with no session, without reading the DB or R2", async () => {
     currentUserId = null;
+    const selectSpy = vi.spyOn(testDb, "select");
     const res = await GET(request());
     expect(res.status).toBe(401);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(selectSpy).not.toHaveBeenCalled();
     expect(getObjectByKey).not.toHaveBeenCalled();
   });
 
@@ -120,13 +122,15 @@ describe("GET /designs/export", () => {
     );
   });
 
-  it("refuses a guest with 403 while the guest funnel is off", async () => {
+  it("refuses a guest with 403 while the guest funnel is off, without reading the DB", async () => {
     await makeGuest("guest");
     await seedImage("guest", "guest-a");
 
+    const selectSpy = vi.spyOn(testDb, "select");
     const res = await GET(request());
     expect(res.status).toBe(403);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(selectSpy).not.toHaveBeenCalled();
     expect(getObjectByKey).not.toHaveBeenCalled();
   });
 
@@ -135,8 +139,10 @@ describe("GET /designs/export", () => {
     const b = await seedImage("u1", "two");
     await seedImage("u2", "theirs");
 
+    const selectSpy = vi.spyOn(testDb, "select");
     const res = await GET(request());
     expect(res.status).toBe(200);
+    expect(selectSpy).toHaveBeenCalled();
     const { files, manifest } = await readZip(res);
     const ids = manifest.images.map((i: ManifestImage) => i.imageId);
     expect(ids.sort()).toEqual([a, b].sort());

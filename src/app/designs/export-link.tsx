@@ -39,14 +39,19 @@ export function ExportLink() {
     : "border-border text-text-muted hover:border-foreground hover:text-foreground";
 
   return (
-    <a
-      href="/designs/export"
-      download
-      onClick={onClick}
-      aria-disabled={starting ? "true" : undefined}
-      className={`inline-flex min-h-11 items-center rounded-md border px-3 text-xs transition-colors ${look}`}
-    >
-      {starting ? "Preparing download…" : "Download all my designs"}
-    </a>
+    <span>
+      <a
+        href="/designs/export"
+        download
+        onClick={onClick}
+        aria-disabled={starting ? "true" : undefined}
+        className={`inline-flex min-h-11 items-center rounded-md border px-3 text-xs transition-colors ${look}`}
+      >
+        {starting ? "Preparing download…" : "Download all my designs"}
+      </a>
+      <span role="status" aria-live="polite" className="sr-only">
+        {starting ? "Preparing download…" : ""}
+      </span>
+    </span>
   );
 }
