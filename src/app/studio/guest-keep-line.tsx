@@ -9,8 +9,8 @@ const LINK_CLASS =
   "inline-flex min-h-11 items-center text-foreground underline underline-offset-[3px] hover:no-underline sm:min-h-0";
 
 /**
- * The one line a guest sees at the top of both Studio views (#241):
- * "Sign up to keep these designs. Have an account? Sign in."
+ * The one line a guest sees at the top of the Studio bench and My Designs
+ * (#241): "Sign up to keep these designs. Have an account? Sign in."
  *
  * A guest's designs belong to the anonymous user behind this browser's
  * cookie. They survive as long as that cookie does; signing up OR signing in
@@ -20,11 +20,11 @@ const LINK_CLASS =
  * homepage composer is a guest too, sign-up would refuse their email, and on
  * a phone the header's own "Sign in" is inside the menu. Both links land on
  * /studio afterwards unless the caller passes `next`, which both carry so the
- * guest returns to the view they signed up from (the library does this).
+ * guest returns to the view they signed up from (My Designs does this).
  *
  * Rendered only when there is something to keep — the callers skip it on an
- * empty bench or library, where it would sit beside "No designs yet." — and
- * by the views themselves rather than src/app/studio/layout.tsx: whether the
+ * empty bench or My Designs, where it would sit beside "No designs yet." —
+ * and by the views themselves rather than a shared layout: whether the
  * viewer is a guest comes from the session, and a layout does not re-render
  * on navigation.
  *
@@ -32,9 +32,9 @@ const LINK_CLASS =
  * (studio-client.tsx), because on a ~375px phone it wraps to two 44px rows
  * and appears or disappears mid-session (first lane, last lane deleted) —
  * above the composer that would shove the composer down under the thumb
- * that just pressed Generate. The library puts it under the tab strip in its
- * own gutter container; it has no composer, and the line only changes there
- * on a full page render.
+ * that just pressed Generate. My Designs puts it under its own masthead
+ * (src/app/designs/page.tsx); it has no composer, and the line only changes
+ * there on a full page render.
  *
  * Each link is a 44px tap target on phones; the flex row wraps on narrow
  * screens, and the {" "} nodes keep the sentence readable as text.

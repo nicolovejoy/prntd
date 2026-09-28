@@ -49,7 +49,7 @@ export async function getUserImageLibrary(
   // The stale-job sweep that used to ride the /designs card query still rides
   // this one (durable-generation-job plan): its result is discarded, this
   // just clears any overdue row for this user the next time they open
-  // /studio/library, with no new traffic. Narrowest scope for this call site
+  // /designs, with no new traffic. Narrowest scope for this call site
   // — only the cron sweeps scope: "all".
   const [rows] = await Promise.all([
     db

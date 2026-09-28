@@ -28,8 +28,8 @@ export function UnpublishAction({ imageId }: { imageId: string }) {
     if (!ok) return;
     startTransition(async () => {
       await unpublishImage(imageId);
-      // The page is no longer public — send the owner back to their library.
-      router.push("/studio/library");
+      // The page is no longer public — send the owner back to My Designs.
+      router.push("/designs");
     });
   }
 

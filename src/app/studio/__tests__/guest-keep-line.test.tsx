@@ -1,5 +1,5 @@
 /**
- * The guest line on both Studio views (#241):
+ * The guest line on the Studio bench and My Designs (#241):
  * "Sign up to keep these designs. Have an account? Sign in."
  *
  * The pages get `isGuest` from requireStudioUser; the gate itself is pinned
@@ -42,13 +42,13 @@ vi.mock("../studio-client", () => ({
   },
 }));
 // Same for the library grid, whose bulk delete imports the auth stack.
-vi.mock("../library/library-grid", () => ({
+vi.mock("../../designs/library-grid", () => ({
   LibraryGrid: () => <div data-testid="library-grid-stub" />,
 }));
 
 const { GuestKeepLine } = await import("../guest-keep-line");
 const { default: StudioPage } = await import("../page");
-const { default: StudioLibraryPage } = await import("../library/page");
+const { default: DesignsPage } = await import("../../designs/page");
 const { getStudioLanesData } = await import("@/lib/studio");
 const { getUserImageLibrary } = await import("@/lib/user-designs");
 
@@ -100,14 +100,14 @@ describe("GuestKeepLine", () => {
   });
 
   it("carries next on both links when given one", () => {
-    render(<GuestKeepLine next="/studio/library" />);
+    render(<GuestKeepLine next="/designs" />);
     expect(screen.getByTestId("guest-sign-up")).toHaveAttribute(
       "href",
-      "/sign-up?next=%2Fstudio%2Flibrary"
+      "/sign-up?next=%2Fdesigns"
     );
     expect(screen.getByTestId("guest-sign-in")).toHaveAttribute(
       "href",
-      "/sign-in?next=%2Fstudio%2Flibrary"
+      "/sign-in?next=%2Fdesigns"
     );
   });
 
@@ -136,29 +136,29 @@ describe("/studio (bench page)", () => {
   });
 });
 
-describe("/studio/library", () => {
+describe("/designs (My Designs)", () => {
   it("shows the line to a guest with images, and reads the guest's own images", async () => {
     asGuest();
     vi.mocked(getUserImageLibrary).mockResolvedValue([ONE_IMAGE]);
-    render(await StudioLibraryPage());
+    render(await DesignsPage());
     expect(screen.getByTestId("guest-keep-line")).toBeTruthy();
     expect(screen.getByTestId("guest-sign-up")).toHaveAttribute(
       "href",
-      "/sign-up?next=%2Fstudio%2Flibrary"
+      "/sign-up?next=%2Fdesigns"
     );
     expect(getUserImageLibrary).toHaveBeenCalledWith("guest-1");
   });
 
   it("shows no line to a guest with an empty library", async () => {
     asGuest();
-    render(await StudioLibraryPage());
+    render(await DesignsPage());
     expect(screen.queryByTestId("guest-keep-line")).toBeNull();
     expect(screen.getByTestId("empty-state")).toBeTruthy();
   });
 
   it("shows no line to a real account", async () => {
     vi.mocked(getUserImageLibrary).mockResolvedValue([ONE_IMAGE]);
-    render(await StudioLibraryPage());
+    render(await DesignsPage());
     expect(screen.queryByTestId("guest-keep-line")).toBeNull();
     expect(getUserImageLibrary).toHaveBeenCalledWith("u1");
   });

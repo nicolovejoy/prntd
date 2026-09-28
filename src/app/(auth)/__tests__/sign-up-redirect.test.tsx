@@ -56,10 +56,10 @@ describe("sign-up redirect target", () => {
   });
 
   it("honors a same-origin ?next=", async () => {
-    await renderSignUp("/studio/library");
+    await renderSignUp("/designs");
     await submit();
     await waitFor(() =>
-      expect(window.location.href).toBe("/studio/library")
+      expect(window.location.href).toBe("/designs")
     );
   });
 
@@ -76,10 +76,10 @@ describe("sign-up redirect target", () => {
   });
 
   it("carries ?next= on the Sign in link, and none when absent", async () => {
-    const { unmount } = await renderSignUp("/studio/library");
+    const { unmount } = await renderSignUp("/designs");
     expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute(
       "href",
-      "/sign-in?next=%2Fstudio%2Flibrary"
+      "/sign-in?next=%2Fdesigns"
     );
     unmount();
 

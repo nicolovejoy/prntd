@@ -4,12 +4,19 @@ import Link from "next/link";
 import { useState, useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
+import { isCurrentSection } from "@/lib/nav";
 import { useHydrated } from "@/components/use-hydrated";
 import { getHeaderState } from "@/components/site-header-actions";
 import { FeedbackPanel } from "@/components/feedback-launcher";
 import { FEEDBACK_PROJECT_ID } from "@/lib/feedback/project-id";
 
 type NavLink = { href: string; label: string };
+
+// Studio and My Designs are both in the proxy's ALWAYS_PROTECTED list — a
+// visitor with no session cookie at all is bounced straight to /sign-in
+// (src/proxy.ts), so prefetching either one for a signed-out visitor fetches
+// a page nobody will see. Shop is public and keeps Link's default prefetch.
+const NO_SESSION_PREFETCH_OFF = new Set(["/studio", "/designs"]);
 
 export function SiteHeader({
   cartEnabled: showCart,
@@ -105,14 +112,17 @@ export function SiteHeader({
     Boolean(session) &&
     !(session?.user as { isAnonymous?: boolean } | undefined)?.isAnonymous;
 
-  // Nav model A (docs/ux-design-review-2026-09.md): two verbs in the bar plus
-  // an account menu. Studio is where you make; Shop is where you buy; Cart is
-  // funnel-critical so it never goes behind a tap. Everything about *you* —
-  // Orders, Admin, Feedback, which account this is, the build, signing out —
-  // is one tap into the menu.
+  // Nav model A (docs/ux-design-review-2026-09.md), as revised 2026-09-27:
+  // three verbs in the bar — Studio, My Designs, Shop — plus Cart and an
+  // account menu, at every width. Studio is where you make; My Designs is
+  // everything you have made; Shop is where you buy; Cart is funnel-critical
+  // so it never goes behind a tap. Everything about *you* — Orders, Admin,
+  // Feedback, which account this is, the build, signing out — is one tap
+  // into the menu.
   //
-  // "My Designs" is gone from the header: it is the Studio's Library tab now
-  // (src/components/studio-tabs.tsx). Organizer storefronts are retired
+  // My Designs moved back into the bar (2026-09-27): it used to be the
+  // Studio's own Library tab, reached three taps deep on a phone
+  // (hamburger → Studio → Library). Organizer storefronts are retired
   // (#191), so there is no Dashboard entry.
   //
   // Studio shows to everyone. A guest-funnel session gets its own Studio
@@ -122,6 +132,7 @@ export function SiteHeader({
   // hiding the product's main verb from everyone who has not signed up.
   const primaryLinks: NavLink[] = [
     { href: "/studio", label: "Studio" },
+    { href: "/designs", label: "My Designs" },
     { href: "/shop", label: "Shop" },
   ];
 
@@ -146,32 +157,78 @@ export function SiteHeader({
           PRNTD
         </Link>
 
-        {/* Always in the bar itself, not inside the account menu: a phone
-            user who left the Studio mid-generation has to see it without
-            opening a menu. Links to the Studio, where a running generation
-            renders as a pending cell. */}
+        {/* Full pill from sm: up, where it fits beside four bar items and the
+            wordmark. On a phone, four items plus the wordmark already fill a
+            360px bar, so there is no room for a fifth element here — the
+            Studio link itself carries the phone signal instead (the dot
+            just below). */}
         {runningJobs > 0 && (
           <Link
             href="/studio"
-            className="ml-3 mr-auto rounded-full border border-border px-2 py-0.5 text-xs text-text-muted hover:text-foreground transition-colors"
+            className="hidden sm:inline-flex ml-3 mr-auto rounded-full border border-border px-2 py-0.5 text-xs text-text-muted hover:text-foreground transition-colors"
             data-testid="running-jobs-badge"
           >
             {runningJobs === 1 ? "1 generating" : `${runningJobs} generating`}
           </Link>
         )}
 
-        <div className="flex items-center gap-4">
-          {/* The two verbs: in the bar from sm: up, inside the menu on a
-              phone, where there is no room for them beside Cart. */}
-          {primaryLinks.map((l) => (
-            <Link
-              key={l.href}
-              href={l.href}
-              className="hidden sm:inline text-sm text-text-muted hover:text-foreground transition-colors"
-            >
-              {l.label}
-            </Link>
-          ))}
+        {/* Geist 14px widths: wordmark 47px, Studio 41, My Designs 75, Shop
+            33, "Cart (12)" 53, hamburger 44 (–8 via -mr-2). At 360px there
+            are 328px inside the gutters; gap-4 needs ~349px, gap-3 ~333px,
+            gap-2 ~317px (plan: docs/superpowers/plans/2026-09-27-my-designs-nav.md).
+            Below 360px the same five items with zero gap still need ~285px,
+            which overflows a 320px phone's 288px by only ~3px with gap-2's
+            8px×4 gaps removed — gap-2 alone overflows 344px by ~5px and
+            320px by ~29px, so the gap collapses to zero rather than a
+            smaller-but-nonzero value in that band. */}
+        <div className="flex items-center gap-2 max-[359px]:gap-0 sm:gap-4">
+          {/* The three verbs, in the bar at every width now (My Designs used
+              to live only in the Studio's own Library tab). Each gets a real
+              44px tap target below sm:. Current-section styling is shared
+              with Cart just below. */}
+          {primaryLinks.map((l) => {
+            const current = isCurrentSection(pathname, l.href);
+            // undefined keeps Link's own default (viewport prefetch); false
+            // only while there is no session at all, matching the proxy's
+            // gate on these two routes (see NO_SESSION_PREFETCH_OFF above).
+            const prefetch =
+              !session && NO_SESSION_PREFETCH_OFF.has(l.href)
+                ? false
+                : undefined;
+            return (
+              <Link
+                key={l.href}
+                href={l.href}
+                prefetch={prefetch}
+                aria-current={current ? "page" : undefined}
+                className={`flex items-center min-h-11 sm:min-h-0 text-sm transition-colors ${
+                  current
+                    ? "text-foreground underline underline-offset-[3px]"
+                    : "text-text-muted hover:text-foreground"
+                }`}
+              >
+                {l.href === "/studio" && runningJobs > 0 ? (
+                  <span className="relative">
+                    {l.label}
+                    {/* Phone-only stand-in for the full badge above: a 6px
+                        ink dot (not rose — rose stays on the wordmark and
+                        Generate, Paper "One Mark") that adds no layout width,
+                        plus the count for anyone using a screen reader. */}
+                    <span
+                      aria-hidden
+                      data-testid="running-jobs-dot"
+                      className="sm:hidden absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full bg-foreground"
+                    />
+                    <span className="sr-only sm:hidden">
+                      , {runningJobs === 1 ? "1 generating" : `${runningJobs} generating`}
+                    </span>
+                  </span>
+                ) : (
+                  l.label
+                )}
+              </Link>
+            );
+          })}
 
           {/* Cart never moves into the menu: it is the funnel, and a count
               behind a tap is a count nobody sees. min-h-11 gives it a real
@@ -181,7 +238,12 @@ export function SiteHeader({
           {showCart && (
             <Link
               href="/cart"
-              className="flex items-center min-h-11 sm:min-h-0 text-sm text-text-muted hover:text-foreground transition-colors"
+              aria-current={isCurrentSection(pathname, "/cart") ? "page" : undefined}
+              className={`flex items-center min-h-11 sm:min-h-0 text-sm transition-colors ${
+                isCurrentSection(pathname, "/cart")
+                  ? "text-foreground underline underline-offset-[3px]"
+                  : "text-text-muted hover:text-foreground"
+              }`}
             >
               {cartLabel}
             </Link>
@@ -221,25 +283,14 @@ export function SiteHeader({
 
       {/* The account menu — anchored to the right edge under its trigger,
           solid raised panel so it reads over page content. Same panel at
-          every breakpoint; the two primary verbs appear inside it only on
-          phones, where the bar has no room for them. */}
+          every breakpoint; it holds only account-scoped items now, since the
+          three primary verbs live in the bar at every width. */}
       {menuOpen && (
         <div
           ref={menuRef}
           data-testid="header-menu"
           className="absolute right-2 top-full z-50 mt-1 w-64 max-w-[calc(100vw-1rem)] flex flex-col rounded-md border border-border bg-surface-raised py-1"
         >
-          {primaryLinks.map((l) => (
-            <Link
-              key={l.href}
-              href={l.href}
-              onClick={() => setMenuOpen(false)}
-              className="sm:hidden flex min-h-11 items-center justify-end px-4 text-lg text-foreground hover:bg-surface transition-colors"
-            >
-              {l.label}
-            </Link>
-          ))}
-
           {/* Which account is signed in (#126) — with two accounts the only
               other tell is whether Admin shows. */}
           {isAuthed && session?.user?.email && (

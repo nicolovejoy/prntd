@@ -1,13 +1,14 @@
 /**
- * Nav model A (docs/ux-design-review-2026-09.md): the bar is Studio · Shop ·
- * Cart plus an account menu. Orders, Admin, Feedback, the signed-in email,
- * the build date and Sign out live inside the menu; My Designs is gone from
- * the header entirely (it is the Studio's Library tab).
+ * Nav model A (docs/ux-design-review-2026-09.md): the bar is Studio · My
+ * Designs · Shop · Cart plus an account menu, at every width. Orders, Admin,
+ * Feedback, the signed-in email, the build date and Sign out live inside the
+ * menu.
  *
  * `useSession`/`getHeaderState` are mocked so the assertions are about the
  * link sets, not the round trips underneath them. Assertions carry label AND
  * destination — a label pointing at the wrong route must fail, not just a
- * wrong word.
+ * wrong word. `pathname` is controllable per test via `h.pathname` so
+ * current-section assertions can target a specific route.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, within, fireEvent, act } from "@testing-library/react";
@@ -16,9 +17,10 @@ import { SiteHeader } from "../site-header";
 const h = vi.hoisted(() => ({
   session: null as { user: { id: string; email?: string } } | null,
   headerState: { isAdmin: false, cartCount: 0, runningJobs: 0 },
+  pathname: "/",
 }));
 
-vi.mock("next/navigation", () => ({ usePathname: () => "/" }));
+vi.mock("next/navigation", () => ({ usePathname: () => h.pathname }));
 
 vi.mock("@/lib/auth-client", () => ({
   authClient: {
@@ -43,15 +45,16 @@ import { getHeaderState } from "@/components/site-header-actions";
 // there is no single fixed string to filter on, and Cart/Sign in/Sign out
 // each already have their own dedicated assertions below that check the
 // exact label per auth state, so folding them into this generic filter
-// would duplicate coverage rather than add any. Retired entries stay in the
-// set on purpose: a regression that re-adds "My Designs" or "Dashboard"
+// would duplicate coverage rather than add any. Retired entries ("Library",
+// "Dashboard") stay in the set on purpose: a regression that re-adds either
 // shows up as an extra link, not a silent pass.
 const NAV_LABELS = [
   "Studio",
+  "My Designs",
   "Shop",
   "Orders",
   "Admin",
-  "My Designs",
+  "Library",
   "Dashboard",
 ];
 
@@ -92,16 +95,18 @@ beforeEach(() => {
   vi.clearAllMocks();
   h.session = null;
   h.headerState = { isAdmin: false, cartCount: 0, runningJobs: 0 };
+  h.pathname = "/";
 });
 
 describe("SiteHeader bar (signed in)", () => {
-  it("is exactly Studio then Shop — no My Designs, no Orders, no Dashboard", async () => {
+  it("is exactly Studio, My Designs, then Shop — no Orders, no Dashboard", async () => {
     h.session = { user: { id: "u1" } };
     render(<SiteHeader cartEnabled={false} />);
     await settle();
 
     expect(linksWithin(bar())).toEqual([
       ["Studio", "/studio"],
+      ["My Designs", "/designs"],
       ["Shop", "/shop"],
     ]);
   });
@@ -118,7 +123,7 @@ describe("SiteHeader bar (signed in)", () => {
 });
 
 describe("SiteHeader account menu", () => {
-  it("holds Orders and, for an admin, Admin", async () => {
+  it("holds Orders and, for an admin, Admin — no primary verb inside", async () => {
     h.session = { user: { id: "u1", email: "a@b.test" } };
     h.headerState = { isAdmin: true, cartCount: 0, runningJobs: 0 };
     render(<SiteHeader cartEnabled={false} />);
@@ -126,10 +131,6 @@ describe("SiteHeader account menu", () => {
 
     const menu = await openMenu();
     expect(linksWithin(menu)).toEqual([
-      // Studio and Shop repeat inside the menu for phones (sm:hidden in the
-      // bar's place); the account items follow.
-      ["Studio", "/studio"],
-      ["Shop", "/shop"],
       ["Orders", "/orders"],
       ["Admin", "/admin"],
     ]);
@@ -147,7 +148,7 @@ describe("SiteHeader account menu", () => {
     expect(linksWithin(menu).map(([label]) => label)).not.toContain("Admin");
   });
 
-  it("never shows Dashboard or My Designs anywhere", async () => {
+  it("never shows Dashboard or Library anywhere", async () => {
     h.session = { user: { id: "u1" } };
     h.headerState = { isAdmin: true, cartCount: 0, runningJobs: 0 };
     render(<SiteHeader cartEnabled />);
@@ -155,18 +156,19 @@ describe("SiteHeader account menu", () => {
     await openMenu();
 
     expect(screen.queryByRole("link", { name: "Dashboard" })).toBeNull();
-    expect(screen.queryByRole("link", { name: "My Designs" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Library" })).toBeNull();
     expect(screen.queryByText("New Design")).toBeNull();
   });
 });
 
 describe("SiteHeader signed out", () => {
-  it("shows Studio, Shop and Sign in in the bar, and no Orders anywhere", async () => {
+  it("shows Studio, My Designs, Shop and Sign in in the bar, and no Orders anywhere", async () => {
     render(<SiteHeader cartEnabled={false} />);
     await settle();
 
     expect(linksWithin(bar())).toEqual([
       ["Studio", "/studio"],
+      ["My Designs", "/designs"],
       ["Shop", "/shop"],
     ]);
     expect(within(bar()).getByRole("link", { name: "Sign in" })).toBeTruthy();
@@ -207,6 +209,30 @@ describe("SiteHeader phone tap targets (44px rule)", () => {
     expect(cart.className).toContain("min-h-11");
   });
 
+  // Same honesty note as above: jsdom resolves no layout, so this checks the
+  // gap utility token, not a measured width. Below 359px, Studio + My
+  // Designs + Shop + "Cart (12)" + the hamburger no longer fit a 320px phone
+  // at gap-2's 8px spacing (see the comment above the group div) — the gap
+  // collapses to zero in that band only, so a two-digit cart count still
+  // fits without the bar's tap targets losing their 44px height.
+  it("collapses the bar's item gap below 359px so a 320px phone fits", async () => {
+    h.session = { user: { id: "u1" } };
+    h.headerState = { isAdmin: false, cartCount: 12, runningJobs: 0 };
+    render(<SiteHeader cartEnabled />);
+    await settle();
+
+    const studio = within(bar()).getByRole("link", { name: "Studio" });
+    const group = studio.parentElement as HTMLElement;
+    const tokens = group.className.split(/\s+/).filter(Boolean);
+    expect(tokens).toContain("gap-2");
+    expect(tokens).toContain("max-[359px]:gap-0");
+    expect(tokens).toContain("sm:gap-4");
+
+    // The tap targets themselves are unaffected by the gap change.
+    const cart = within(bar()).getByRole("link", { name: "Cart (12)" });
+    expect(cart.className).toContain("min-h-11");
+  });
+
   it("gives the account-menu trigger a 44px-square class on phones", async () => {
     render(<SiteHeader cartEnabled={false} />);
     await settle();
@@ -218,14 +244,12 @@ describe("SiteHeader phone tap targets (44px rule)", () => {
 });
 
 describe("SiteHeader responsive split (bar vs menu)", () => {
-  // Studio/Shop/Sign-in each render twice: a bar copy meant for sm: and up
-  // (hidden sm:inline) and a menu copy meant for phones only (sm:hidden).
-  // Swap those two classes on a future edit and a phone user sees a verb
-  // twice, or not at all — and every other test in this file still passes,
-  // because they check bar/menu *presence*, not which breakpoint a copy is
-  // visible at. jsdom resolves no CSS, so this only proves the right class
-  // token sits on the right copy, not that it renders the right layout at
-  // either width — same honesty as the 44px tap-target tests above.
+  // Sign in still renders twice: a bar copy meant for sm: and up (hidden
+  // sm:inline) and a menu copy meant for phones only (sm:hidden). Swap those
+  // two classes on a future edit and a phone user sees it twice, or not at
+  // all. jsdom resolves no CSS, so this only proves the right class token
+  // sits on the right copy, not that it renders the right layout at either
+  // width — same honesty as the 44px tap-target tests above.
   //
   // Token equality (not substring) on purpose: "sm:hidden" contains the
   // substring "hidden", so a substring check on "hidden" would still pass
@@ -234,28 +258,128 @@ describe("SiteHeader responsive split (bar vs menu)", () => {
     return el.className.split(/\s+/).filter(Boolean);
   }
 
-  it("gives the bar's Studio/Shop/Sign-in copies hidden sm:inline, not sm:hidden", async () => {
+  it("gives the bar's Sign-in copy hidden sm:inline, not sm:hidden", async () => {
     render(<SiteHeader cartEnabled={false} />);
     await settle();
 
-    for (const label of ["Studio", "Shop", "Sign in"]) {
-      const tokens = classTokens(within(bar()).getByRole("link", { name: label }));
-      expect(tokens).toContain("hidden");
-      expect(tokens).toContain("sm:inline");
-      expect(tokens).not.toContain("sm:hidden");
-    }
+    const tokens = classTokens(within(bar()).getByRole("link", { name: "Sign in" }));
+    expect(tokens).toContain("hidden");
+    expect(tokens).toContain("sm:inline");
+    expect(tokens).not.toContain("sm:hidden");
   });
 
-  it("gives the menu's Studio/Shop/Sign-in copies sm:hidden, not hidden sm:inline", async () => {
+  it("gives the menu's Sign-in copy sm:hidden, not hidden sm:inline", async () => {
     render(<SiteHeader cartEnabled={false} />);
     await settle();
 
     const menu = await openMenu();
-    for (const label of ["Studio", "Shop", "Sign in"]) {
-      const tokens = classTokens(within(menu).getByRole("link", { name: label }));
-      expect(tokens).toContain("sm:hidden");
+    const tokens = classTokens(within(menu).getByRole("link", { name: "Sign in" }));
+    expect(tokens).toContain("sm:hidden");
+    expect(tokens).not.toContain("hidden");
+    expect(tokens).not.toContain("sm:inline");
+  });
+
+  it("keeps Studio, My Designs and Shop in the bar at every width (no hidden class)", async () => {
+    render(<SiteHeader cartEnabled={false} />);
+    await settle();
+
+    for (const label of ["Studio", "My Designs", "Shop"]) {
+      const tokens = classTokens(within(bar()).getByRole("link", { name: label }));
       expect(tokens).not.toContain("hidden");
-      expect(tokens).not.toContain("sm:inline");
+      expect(tokens).not.toContain("sm:hidden");
     }
+  });
+});
+
+describe("SiteHeader current-section styling", () => {
+  it("marks exactly one bar link aria-current for /designs", async () => {
+    h.pathname = "/designs";
+    render(<SiteHeader cartEnabled />);
+    await settle();
+
+    const current = within(bar())
+      .getAllByRole("link")
+      .filter((a) => a.getAttribute("aria-current") === "page");
+    expect(current.map((a) => a.textContent)).toEqual(["My Designs"]);
+  });
+
+  it("marks exactly one bar link aria-current for each of /studio, /shop, /cart", async () => {
+    for (const [path, label] of [
+      ["/studio", "Studio"],
+      ["/shop", "Shop"],
+      ["/cart", "Cart"],
+    ] as const) {
+      h.pathname = path;
+      const { unmount } = render(<SiteHeader cartEnabled />);
+      await settle();
+
+      const current = within(bar())
+        .getAllByRole("link")
+        .filter((a) => a.getAttribute("aria-current") === "page");
+      expect(current.map((a) => a.textContent)).toEqual([label]);
+      unmount();
+    }
+  });
+
+  it("marks no bar link current on /design or /", async () => {
+    for (const path of ["/design", "/"]) {
+      h.pathname = path;
+      const { unmount } = render(<SiteHeader cartEnabled />);
+      await settle();
+
+      const current = within(bar())
+        .getAllByRole("link")
+        .filter((a) => a.getAttribute("aria-current") === "page");
+      expect(current).toEqual([]);
+      unmount();
+    }
+  });
+});
+
+describe("SiteHeader running-jobs phone dot", () => {
+  it("shows the dot and sr-only text on the Studio link when jobs are running", async () => {
+    h.session = { user: { id: "u1" } };
+    h.headerState = { isAdmin: false, cartCount: 0, runningJobs: 2 };
+    render(<SiteHeader cartEnabled={false} />);
+    await settle();
+
+    expect(screen.getByTestId("running-jobs-dot")).toBeTruthy();
+    const studioLink = within(bar()).getByRole("link", { name: /Studio/ });
+    expect(within(studioLink).getByText(/2 generating/)).toBeTruthy();
+    expect(studioLink.textContent).toContain(", 2 generating");
+  });
+
+  it("anchors the dot to a positioned wrapper around the Studio text, not the link directly", async () => {
+    h.session = { user: { id: "u1" } };
+    h.headerState = { isAdmin: false, cartCount: 0, runningJobs: 2 };
+    render(<SiteHeader cartEnabled={false} />);
+    await settle();
+
+    const dot = screen.getByTestId("running-jobs-dot");
+    const wrapper = dot.parentElement;
+    expect(wrapper?.textContent?.startsWith("Studio")).toBe(true);
+    expect(wrapper?.className.split(/\s+/)).toContain("relative");
+
+    const studioLink = within(bar()).getByRole("link", { name: /Studio/ });
+    expect(dot.parentElement).not.toBe(studioLink);
+  });
+
+  it("omits the dot when no jobs are running", async () => {
+    render(<SiteHeader cartEnabled={false} />);
+    await settle();
+
+    expect(screen.queryByTestId("running-jobs-dot")).toBeNull();
+  });
+
+  it("keeps the full badge's href even though it is hidden on phones", async () => {
+    h.session = { user: { id: "u1" } };
+    h.headerState = { isAdmin: false, cartCount: 0, runningJobs: 2 };
+    render(<SiteHeader cartEnabled={false} />);
+    await settle();
+
+    const badge = await screen.findByTestId("running-jobs-badge");
+    expect(badge.getAttribute("href")).toBe("/studio");
+    expect(badge.className.split(/\s+/)).toContain("hidden");
+    expect(badge.className.split(/\s+/)).toContain("sm:inline-flex");
   });
 });

@@ -323,7 +323,7 @@ export const STUDIO_ARCHIVE_LIMIT = 100;
 /**
  * Closed conversations for one user, newest-closed first. Backed the
  * dedicated /studio/archive list page until it was dropped 2026-09-09
- * (Library's Active/All filter, #238, and the image detail page's "Open
+ * (My Designs' Active/All filter, #238, and the image detail page's "Open
  * conversation" cover the same ground); its only reader now is
  * `studio-archive.integration.test.ts`'s oracle for the archive round trip.
  * Auth lives at the caller, as with getStudioLanesData.
