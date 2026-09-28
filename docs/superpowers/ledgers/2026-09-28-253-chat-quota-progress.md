@@ -51,3 +51,7 @@ Plan: `docs/superpowers/plans/2026-09-28-253-chat-quota.md`. Branch
 - `npm run db:generate`: "No schema changes, nothing to migrate".
 
 Whole-branch review: run by the main session, not by this controller.
+
+## Whole-branch review fix round (main session's Opus review: READY AFTER FIXES)
+
+FIX_BASE: `37db9b1e43fba73319821a3d15733448c9269189`
