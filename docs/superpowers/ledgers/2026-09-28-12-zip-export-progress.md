@@ -211,3 +211,135 @@ tamper with), the four session cases, the image set matching My Designs
 "All", a client disconnect cancelling the stream, back-pressure end to end,
 flat memory (162 MB peak while streaming 600 MB), and the sample archive
 opening in unzip, zipinfo, ditto, Python zipfile and bsdtar.
+
+### Controller verdicts, recorded as rulings
+
+14. Ruling (F1, controller): export in parts of at most 100 images
+   (`EXPORT_PART_MAX_IMAGES`), `/designs/export?part=N`, with a 400 MB
+   running-byte guard per part (`EXPORT_PART_MAX_BYTES`) that stops adding
+   images, closes the zip properly and lists the rest as not included with a
+   reason — a back-pressured stream lives as long as the client's download
+   takes, so the phone's bandwidth (not R2) sets the duration; one long
+   archive past `maxDuration` is cut mid-entry with no central directory and
+   fails the same way on every retry — cost if wrong: a large library needs
+   several taps instead of one.
+15. Ruling (F1, mine): parts are ordered oldest first (`created_at asc,
+   rowid asc`), not newest first like the grid — the controller asked for
+   "the same stable order as today"; both orders are deterministic and cover
+   a static library exactly once, but oldest first also keeps parts
+   1..k-1 unchanged when the user makes new designs between downloading
+   parts (newest first shifts every part by one and duplicates an image
+   across parts) — cost if wrong: flip one `orderBy`; the part panel says
+   "oldest first". Flagged to the main session.
+16. Ruling (F1): part errors are 400 (malformed, empty, repeated `part`) and
+   404 (a number past the last part); `part` only selects a slice of the
+   caller's own rows — cost if wrong: none found.
+17. Ruling (F1): the 413 branch and `MAX_EXPORT_IMAGES` are removed — a part
+   holds at most 100 entries plus the manifest and stays under 400 MB, so
+   neither the 65,535-entry nor the 4 GiB limit is reachable; the writer
+   keeps a free assertion that no offset or size passes 0xFFFFFFFF.
+   Supersedes ruling 10.
+18. Ruling (F2): the zip writer is a small stored-only writer in
+   `design-export.ts` (local headers carry CRC-32 and sizes, flag bit 3
+   clear; central directory; end record; table CRC-32) instead of fflate's
+   streaming `Zip` (always writes data descriptors) or `yazl` (writes sizes
+   up front for buffers, but adds a Node-stream bridge and back-pressure
+   plumbing around entries) — each image is already fully buffered, so its
+   CRC and size are known before its header; the format needed is about 100
+   lines — cost if wrong: a writer bug corrupts archives; covered by
+   `unzip -tq`, a local-header parser test, fflate `unzipSync` read-back in
+   tests, and a sample checked with zipinfo, ditto and Python zipfile.
+   fflate moves to devDependencies as the tests' independent reader.
+   Supersedes ruling 2.
+19. Ruling (F3): `getObjectByKey` gets a 30 s deadline
+   (`R2_READ_TIMEOUT_MS`) covering the request and the body read; a timeout
+   throws `TimeoutError` and the image is listed as not included, "timed
+   out" — cost if wrong: an image slower than 30 s from R2 is left out of
+   the zip, named in the manifest.
+20. Ruling (F4): the stream uses `highWaterMark: 0`, so nothing is read from
+   R2 until the response body is consumed; a HEAD (Next runs GET for it)
+   costs the session check and one DB query, no R2 read.
+21. Ruling (F5): in-zip modification times are the image's
+   America/Los_Angeles wall time, computed from Intl parts (not the
+   server's local getters), with no UTC extended-timestamp field — matches
+   the Pacific date in each filename — cost if wrong: a user outside
+   Pacific time sees file times in Pacific time; the manifest has the exact
+   UTC instant.
+22. Ruling (F6): the control keeps its 44 px touch target with negative
+   vertical margins so the masthead row stays 16 px, the same as /orders
+   and /shop; the multi-part list is an absolutely positioned panel.
+
+### Corrections to earlier rulings
+
+- Ruling 8 corrected: the ceiling is set by the client's bandwidth, not R2
+  latency. With back-pressure the function runs until the client has
+  downloaded the body, so 300 s covers about 750 MB at 20 Mbps and less on
+  a slow phone link. Parts (ruling 14) keep each download to at most 100
+  images and 400 MB.
+- Ruling 11 corrected: its premise was wrong. Before F4 the stream pulled
+  once at construction, so the first R2 read started before the response
+  left and headers went out after it. After F4 (`highWaterMark: 0`) no read
+  happens before the body is consumed. The fixed 8 s busy window stays per
+  link: a `download` anchor still gives the page no signal when the download
+  starts or ends, and the window only guards against an accidental double
+  tap.
+
+### Parked (controller), not built
+
+- P1: no server-side limit on repeat exports (ruling 5 stands). The cost is
+  Vercel data transfer as well as R2 reads. A Vercel Firewall rate-limit
+  rule on `/designs/export` needs no code; that is production configuration
+  and the owner's decision, raised by the main session.
+- P2: the R2-staging fallback (build the zip into R2 under a short-lived
+  key, return a link) stays written up above, not built.
+
+### Fix commit
+
+`ef430c4` (one `claude -p --model opus` implementer, all of F1–F7; opus
+because of the hand-written zip writer). No file outside the fence. The
+413 test file `export-route-limit.test.ts` is removed with the branch it
+tested (ruling 17).
+
+23. Ruling (F1 labels, as built): one part → the masthead control is the
+   download link "Download all my designs". Several parts → a button with
+   the same label opens a panel: header line "{total} designs in {M} files
+   of up to 100, oldest first."; per part a 44 px link, line 1
+   "Part {N} of {M} · {count} designs" ("1 design" when one), line 2 the
+   part's Pacific date range "Jan 4, 2026 – Mar 2, 2026" (one date when the
+   part is a single day); busy text "Preparing download…"; Escape or a
+   second tap closes the panel. Archive names
+   `prntd-designs-<date>.zip` / `prntd-designs-<date>-part-N-of-M.zip`.
+   Size-limit reason: "Left out: this file reached its 400 MB size limit.
+   Download this image from its page in My Designs." — cost if wrong: copy
+   only.
+24. Ruling: the page passes `EXPORT_PART_MAX_IMAGES` to the client control
+   as a prop — importing it from `design-export.ts` in a client file would
+   pull drizzle into the client bundle — cost if wrong: none.
+25. Ruling: the h1 comment says "same type classes" as /orders and /shop, not
+   "same class string" — /shop's h1 also carries its own `mb-8` — cost if
+   wrong: none.
+
+Next and HEAD: the docs list HEAD as supported; the installed source
+(`next/dist/server/route-modules/app-route/helpers/auto-implement-methods.js`)
+sets `HEAD = GET` when no HEAD is exported. A route test issues HEAD and an
+unread GET and asserts no R2 read.
+
+### Gate after the fix (controller-run on `ef430c4` + ledger)
+
+- `npm run lint`: 0 errors, 33 warnings (all pre-existing)
+- `npm run typecheck`: clean
+- `npx vitest run`: 204 files, 2435 tests, all pass
+- `npm run build` (CI dummy env): passes; `/designs/export` is ƒ
+- `npm run db:generate`: "No schema changes, nothing to migrate"
+- Sample archive (part 2 of 3; a 6 MiB, a 1,234 B and a 99 B entry, one
+  missing object), written by `createDesignExportStream` from a throwaway
+  script in the scratchpad:
+  - `unzip -t`: "No errors detected".
+  - `zipinfo -v`: all four entries stored, "extended local header: no",
+    DOS times 2026 Mar 8 01:59:58 (09:59:58Z, PST), 2026 Nov 1 01:30:00
+    (09:30Z, PST after fall-back), 2026 Sep 28 12:00:00 (19:00Z, PDT).
+  - `ditto -x -k`: extracts the three PNGs and manifest.json.
+  - Python `zipfile`: `testzip()` None, every `flag_bits` 0,
+    `compress_type` 0, sizes match.
+  - The manifest names part 2 of 3 and lists the missing image with "The
+    image file could not be read from storage."
