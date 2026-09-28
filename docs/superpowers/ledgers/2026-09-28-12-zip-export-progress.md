@@ -351,3 +351,104 @@ findings addressed; one Important gap (G1) and five minor (G2–G6). The
 re-reviewer checked the hand-written writer against APPNOTE and five readers
 with byte-identical extraction, and judged oldest first the better order;
 both stand.
+
+### Controller verdicts, recorded as rulings
+
+26. Ruling (G1, controller): three guards keep a part inside
+   `maxDuration = 300` — `EXPORT_PART_MAX_IMAGES` 100 → 50,
+   `EXPORT_PART_MAX_BYTES` 400 MB → 150 MB, and a new elapsed-time guard
+   (`EXPORT_PART_TIME_LIMIT_MS = 240_000`, measured from stream
+   construction, injectable clock) that stops adding images, closes the zip
+   properly and lists the rest with a reason — with back-pressure the
+   function lives as long as the download, so 400 MB at 5 Mbps (~640 s) or
+   many 30 s R2 timeouts would still cut a part mid-entry with no central
+   directory. The 400 MB figure (ruling 14) was wrong — cost if wrong: more
+   parts (more taps) for a large library, and on a very slow link a part may
+   close early with images listed as left out; downloading that part again
+   on a faster connection includes them.
+27. Ruling (G2): reason texts say what happened and name only actions that
+   exist (downloading the same part again); no reason points at the image
+   detail page, which has no download control. Numbers are built from
+   their constants — cost if wrong: copy only.
+28. Ruling (G3): the writer refuses 0xFFFF entries and 0xFFFFFFFF in any
+   offset or size field (`>=`), since those are ZIP64 marker values —
+   cost if wrong: none; parts are far below both.
+29. Ruling (G4): a time-zone test pins `TZ=Asia/Tokyo` at runtime and fails
+   against the old local-getter behaviour (evidence below).
+30. Ruling (G6): the part panel closes on an outside tap, Escape, or a
+   second tap of the button, and focus returns to the button.
+
+Correction to ruling 15 (G5): new designs extend the last part, or start a
+new part when the last one is full; parts before the last keep their
+images. Deletions are not covered: deleting an image shifts every later
+image back by one, so a part downloaded before a deletion and one downloaded
+after it can miss an image. The manifest's `partCount` and per-part image
+list show what each zip holds.
+
+### Parked (controller), not built
+
+- P3: part links go stale when the library changes after the page loads (a
+  one-part link on a library that has since grown past the limit returns
+  part 1 of 2; after deletions a last-part link gets a plain-text 404). The
+  manifest reports `partCount`.
+- P4: cancelling the download does not abort an R2 read already in flight
+  (up to 30 s); the stream stops after it settles.
+- P5: the Task 1 findings above (item 5 and ruling 10) describe
+  `MAX_EXPORT_IMAGES` and a 413. Both are superseded by ruling 17 and are
+  left as written.
+
+### Fix commit
+
+`c292d6b` (one `claude -p --model sonnet` implementer, G1–G6). No file
+outside the fence. `u32`, `centralDirectory` and `ZipEntry` are exported
+from `design-export.ts` so the G3 boundary tests can reach them.
+
+31. Ruling (G2 texts, as built):
+   - unreadable: "Not included: the image file could not be read from
+     storage."
+   - timed-out read: "Not included: reading the image file from storage
+     timed out. Downloading this part again may include it."
+   - size limit: "Not included: this file reached its 150 MB limit before
+     this image."
+   - time limit: "Not included: this download reached its 240-second limit
+     before this image. Downloading this part again on a faster connection
+     may include it."
+   The size and time numbers come from `EXPORT_PART_MAX_BYTES` and
+   `EXPORT_PART_TIME_LIMIT_MS`. The timed-out-read text has no number
+   (`R2_READ_TIMEOUT_MS` lives in `r2.ts`, which `design-export.ts` does not
+   import).
+32. Labels as built (ruling 23 with the new part size): button or link
+   "Download all my designs"; panel header "{total} designs in {M} files of
+   up to 50, oldest first."; part link "Part {N} of {M} · {count} designs"
+   plus the part's Pacific date range; busy "Preparing download…".
+
+G4 evidence. `src/lib/__tests__/design-export-tz.test.ts` pins
+`TZ=Asia/Tokyo` and first asserts that the zone took effect. The
+implementer, then the controller independently, swapped `dosDateTime` for
+the pre-fix local-getter version (`getFullYear` … `getSeconds`) and ran the
+test. It fails:
+
+    - "2026-09-27 20:00:00",  + "2026-09-28 12:00:00",
+    - "2026-01-14 19:00:00",  + "2026-01-15 12:00:00",
+    - "2026-03-08 03:00:00",  + "2026-03-08 19:00:00",
+    - "2026-09-27 20:00:00",  + "2026-09-28 12:00:00",
+
+The file was restored byte-for-byte from a copy; the test passes again and
+`git status` shows no source change.
+
+### Gate after the fix (controller-run on `c292d6b` + ledger)
+
+- `npm run lint`: 0 errors, 33 warnings (all pre-existing)
+- `npm run typecheck`: clean
+- `npx vitest run`: 205 files, 2447 tests, all pass
+- `npm run build` (CI dummy env): passes; `/designs/export` is ƒ
+- `npm run db:generate`: "No schema changes, nothing to migrate"
+- Sample archives from `createDesignExportStream` (throwaway script in the
+  scratchpad): (a) part 2 of 3 with 6 MiB / 1,234 B / 99 B entries and one
+  missing object; (b) the same rows with a clock that passes 240 s after
+  two reads. Both: `unzip -t` "No errors detected"; `zipinfo -v` every
+  entry "extended local header: no", DOS times 2026 Mar 8 01:59:58,
+  Nov 1 01:30:00, Sep 28 12:00:00 (Pacific); `ditto -x -k` extracts every
+  entry; Python `zipfile` `testzip()` None, flag bits {0}. In (b) the
+  manifest lists 2 included and 2 with the time-limit reason, and the zip
+  holds 2 PNGs plus manifest.json.
