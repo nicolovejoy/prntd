@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, vi } from "vitest";
 
-const getObjectByKey = vi.fn(async (_key: string) => Buffer.from("x"));
+const getObjectByKey = vi.fn(async (key: string) => Buffer.from(key));
 
 vi.mock("@/lib/db", () => ({ db: {} }));
 vi.mock("@/lib/auth", () => ({
