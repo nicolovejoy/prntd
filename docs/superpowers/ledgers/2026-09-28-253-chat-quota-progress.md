@@ -1,0 +1,71 @@
+# #253 chat quota — progress ledger (2026-09-28)
+
+Plan: `docs/superpowers/plans/2026-09-28-253-chat-quota.md`. Branch
+`claude/253-chat-quota` from main `5322cfb`.
+
+## Rulings
+
+- Ruling: the chat cap is enforced whether or not `GUEST_FUNNEL_ENABLED` is on — the generation cap is a no-op with the flag off because it guards the ungated funnel, but the Anthropic cost of a chat turn exists for any session — cost if wrong: with the flag off, signed-in users are capped at 150 chat turns a day instead of unlimited.
+- Ruling: the IP dimension applies to guest turns only; signed-in turns bump and check only `chat:user:<id>` — the owner set the signed-in cap (150) above the IP cap (60), so counting signed-in turns against the IP cap would make 150 unreachable; the IP cap's stated purpose in `generation-quota.ts` is to backstop many guest sessions on one network — cost if wrong: a script with many real accounts on one IP gets 150 turns per account instead of 60 per IP.
+- Ruling: the identity bucket is checked first and the IP bucket is not bumped when the identity is already over its cap — otherwise one guest's refused turns use up the IP allowance of every other guest on the network; refused turns cost no API money either way — cost if wrong: none found; the concurrency guarantee still holds because each dimension is still a single atomic upsert.
+- Ruling: a turn whose Anthropic call throws refunds its unit (identity, plus IP for a guest), best-effort, on the day it was spent — mirrors the generation refund; a failing upstream should not eat a user's allowance — cost if wrong: a caller who can make the Anthropic call fail on purpose gets unlimited failed calls, which bill nothing.
+- Ruling: order inside `sendChatMessage` is session → owned-design check → closed check → quota → create design row → Anthropic → persist — a refused turn on a new id leaves no design row (#197's rule for generate), and a foreign or closed conversation burns no unit — cost if wrong: none; `getOrCreateDesign`'s find-then-insert race is unchanged.
+- Ruling: `src/lib/db/schema.ts`'s doc comment on `generation_usage` (lists only `user:`/`ip:`) is left as is — schema.ts is outside the fence and wave 1 must not touch it while #249 is open; the bucket formats are documented in `generation-quota.ts` — cost if wrong: a stale comment until someone edits schema.ts.
+- Ruling: refusal copy — guest: "Daily chat limit reached. Sign in to continue."; signed-in: "Daily chat limit reached. Try again tomorrow." — persona C, facts only; signing in lifts a guest's identity and IP caps under the rulings above — cost if wrong: a copy edit.
+
+## Audit of `generation_usage` readers and writers
+
+- Writers: `bump`/`unbump` in `src/lib/generation-quota.ts`, exact `bucket = ?`.
+- `failGenerationJob` (`src/lib/generation-job.ts`) → `refundGenerationQuota` with `user:`/`ip:` from the job row; called by the lazy sweep and `/api/cron/sweep-generations`. Never touches `chat:`.
+- `generateDesign` consumes/refunds generation buckets only.
+- No admin view, cron, pruning job, script or `reparentUserData` entry reads the table.
+
+## Observation, not fixed (outside the slice)
+
+- `consumeGenerationQuota` bumps and checks the IP bucket for signed-in users too, so with defaults a signed-in user is capped at 20 generations a day per IP (`IP_GEN_DAILY_CAP`), not 50 (`USER_GEN_DAILY_CAP`). `generateDesign`'s behaviour is outside the fence.
+
+## Tasks and reviews
+
+### Task 1 — quota functions
+
+- Implementer (sonnet): `consumeChatQuota`, `refundChatQuota`, caps, bucket builders; new `src/lib/__tests__/chat-quota.integration.test.ts`.
+- Task review (sonnet), no blocking findings: (1) should-fix, refund-day test passed vacuously on a no-op refund; (2) should-fix, "at generation cap → chat allowed" never asserted the generation refusal and never exercised the `ip:` cap; (3) should-fix, mirror test never asserted the chat refusal; (4) minor, `refundChatQuota.day` optional though the plan made it required; (5) minor, unsupported "cheaper per call" cost claim in a comment; (6) minor, two comments read as one paragraph; (7) minor, defaults test depended on the shell env; (8) minor, IP-refused guest spends identity allowance, undocumented and untested.
+- Ruling: `day` is required on `refundChatQuota` — every caller holds the spend day; an optional day invites the midnight-crossing bug — cost if wrong: none.
+- Fix round (sonnet) applied 1–8. Scoped re-review (haiku) confirmed 4, 7, 8; controller checked 1, 2, 3, 5, 6 in the diff. 17 tests in the new file.
+
+### Task 2 — `sendChatMessage`, client, env template
+
+- Implementer (sonnet): `ChatResult` union, ruling-5 order, refund on failure, refusal copy, `handleSend` limit branch, env template lines, new `src/app/design/__tests__/chat-quota.integration.test.ts`. It passes `db` explicitly to `consumeChatQuota`/`refundChatQuota` (the module's lazy `import("./db")` loaded the unmocked DB module under two concurrent first calls in vitest; `generateDesign` passes `db` to its job helpers for the same reason).
+- Task review (sonnet), no blocking findings: (1) should-fix, the refund also fired when a persistence write failed after Claude had answered and been billed; (2) should-fix, no test for a failure on the new-id path; (3) should-fix, action-level concurrency covered only the identity bucket; (4) minor, IP-refusal test did not assert no chat/design rows, and the flag-off case was untested at the action level; (5) minor, split imports from `@/lib/ai`; (6) minor, the refused user's optimistic bubble stays on screen and vanishes on reload; (7) minor, no ledger line for the client test.
+- Ruling: refund only for failures before or during `chatAboutDesign` (design create, context reads, the Claude call); after Claude answers, a persistence failure propagates with no refund — the call was billed, and a refunded turn whose user row persisted would be inconsistent — cost if wrong: a user whose DB write fails loses one unit of 24/150.
+- Ruling (finding 6): the limit path keeps the user's unpersisted bubble and shows the refusal as an unpersisted assistant bubble; both vanish on reload — same as the generate `limit` path today — cost if wrong: a copy/UX tweak.
+- Ruling (finding 7): no client test for `handleSend`'s limit branch — `design-client.tsx` has no test harness and building one is outside the slice; the branch is four lines and the server contract it depends on is covered by the action tests — cost if wrong: a client regression on the limit branch goes uncaught until the smoke.
+- Fix round (sonnet) applied 1–5. Scoped re-review (haiku) marked all resolved, no new defects. The first haiku re-review ran against a clobbered prompt (the sibling slice-3 controller writes the same scratchpad file names); it was rerun from a slice-specific path.
+
+## Gate (run by the controller, 2026-09-28)
+
+- `npm run lint`: 0 errors (33 warnings, all pre-existing, none in changed files).
+- `npm run typecheck`: clean.
+- `npx vitest run`: 201 files, 2406 tests passed (new: 17 in `src/lib/__tests__/chat-quota.integration.test.ts`, 17 in `src/app/design/__tests__/chat-quota.integration.test.ts`).
+- `npm run build` with the CI dummy env: exit 0.
+- `npm run db:generate`: "No schema changes, nothing to migrate".
+
+Whole-branch review: run by the main session, not by this controller.
+
+## Whole-branch review fix round (main session's Opus review: READY AFTER FIXES)
+
+FIX_BASE: `37db9b1e43fba73319821a3d15733448c9269189`
+
+One sonnet fix implementer applied F1–F6; no controller re-review (the main session runs the scoped re-review).
+
+- Ruling (F1, supersedes ruling 2 above): every chat turn with an IP bumps `chat:ip:<addr>`; guests are refused over `IP_CHAT_DAILY_CAP` (60), signed-in users over new `USER_IP_CHAT_DAILY_CAP` (300); identity checked first, an identity refusal does not bump the IP bucket; `refundChatQuota` refunds `chat:ip:` for any caller with an IP (its `isAnonymous` parameter was dropped) — sign-up has no email verification, so throwaway accounts on one IP had no ceiling — cost if wrong: a busy shared IP (office, campus) with many signed-in users is refused after 300 turns a day, and signed-in turns count toward the guest ceiling of 60 on that IP. Owner to be told it is a judgment call.
+- Ruling (F2): a `userMessage` over 4,000 characters (`CHAT_MESSAGE_MAX_CHARS`; no existing limit in the codebase) returns `{kind:"too_long", message:"Message too long. Limit is 4,000 characters."}` before auth, quota or any write; a non-string throws "Invalid message"; the client shows any non-reply result as the unpersisted bubble — cost if wrong: a pasted long brief is refused and must be shortened.
+- Ruling (F2, history): the history sent to the model was unbounded (`getDesignMessages` returns every row; `buildMessages` in `src/lib/ai.ts` only merges consecutive roles). `sendChatMessage` now sends the latest 40 rows (`CHAT_HISTORY_MAX_MESSAGES`), dropping a leading assistant row so the context starts on a user turn; stored rows unchanged — cost if wrong: in very long threads the model forgets turns older than 40.
+- Ruling (F3): isolation tests now seed the `user:`/`ip:` buckets above the chat caps and assert on `chat:` rows; the refund-isolation test consumes generation twice first. Mutation proof: with `chatUserBucket`/`chatIpBucket` temporarily returning `user:`/`ip:` in the working copy, 29 tests failed, including all three named isolation tests ("a user at the generation identity cap is still allowed chat", "a guest on an IP at the generation IP cap is still allowed chat", action-level "generation at cap does not refuse sendChatMessage") and the refund-isolation test; the file was restored from a copy and re-checked — cost if wrong: none.
+- Ruling (F4, out-of-fence change, approved): `src/lib/ai.ts` `chatAboutDesign` takes the first `text` block via `find` and falls back to `""`, so an empty content array reaches the parse fallback instead of throwing after billing; test in `src/lib/__tests__/ai.test.ts` — cost if wrong: an empty model response is stored as an empty assistant turn instead of refunded.
+- Ruling (F5): new exported `parseDailyCap(raw, fallback)` applied to all seven caps; unset, empty or whitespace, non-finite and negative values use the default; a finite value >= 0 is used as given, so 0 is a deliberate kill switch that refuses every call — cost if wrong: someone setting 0 expecting "unlimited" blocks the feature.
+- Ruling (F6): signed-in refusal copy is "Daily chat limit reached. Try again later." (buckets reset at 00:00 UTC); an IP refusal uses the same copy as the identity refusal for that caller type — cost if wrong: a copy edit.
+- Parked P1: stale `generation_usage` comment in `src/lib/db/schema.ts` stays until #249 merges; main session carries the follow-up.
+- Parked P2: the refusal renders as an assistant bubble and the guest copy has no sign-in link, same as the generate-limit path; main session flags it to the owner.
+
+Gate after the fix round: lint 0 errors (33 pre-existing warnings); typecheck clean; `npx vitest run` 201 files, 2424 tests passed; build with the CI dummy env exit 0; `db:generate` "No schema changes".
