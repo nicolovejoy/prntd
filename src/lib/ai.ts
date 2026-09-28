@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { ChatMessage } from "./db/schema";
 import type { DesignImage } from "./design-images";
 import { parseDesignSpec, type DesignSpec } from "./design-spec";
+import { DESIGN_BRIEF_TIMEOUT_MS } from "./lost-submit";
 import {
   imageGalleryLine,
   imageHistoryNote,
@@ -499,12 +500,19 @@ export async function constructDesignBrief(
 ): Promise<DesignBrief> {
   const { messages, galleryContext } = buildMessages(chatHistory, images, userMessage);
 
-  const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: 1500,
-    system: DESIGN_BRIEF_SYSTEM_PROMPT + galleryContext,
-    messages,
-  });
+  const response = await anthropic.messages.create(
+    {
+      model: "claude-sonnet-4-6",
+      max_tokens: 1500,
+      system: DESIGN_BRIEF_SYSTEM_PROMPT + galleryContext,
+      messages,
+    },
+    // Bounds the only slow step before generateDesign writes its job row
+    // (#245): the Studio's lost-submit reconcile window is finite only
+    // because this call can't hang past it (the SDK default is 10 minutes
+    // across 3 retries, with no bound of its own).
+    { signal: AbortSignal.timeout(DESIGN_BRIEF_TIMEOUT_MS) }
+  );
 
   let text = response.content?.[0]?.type === "text" ? response.content[0].text : "";
   if (!text) {

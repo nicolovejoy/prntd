@@ -30,7 +30,17 @@ import {
   isAtGenerationCap,
   isPollHalted,
   nextPollDelayMs,
+  STALE_OPTIMISTIC_MS,
 } from "@/lib/generation-poll";
+import {
+  isServerActionError,
+  judgeLostSubmit,
+  LOST_SUBMIT_LOOKUP_INTERVAL_MS,
+  LOST_SUBMIT_LOOKUP_TIMEOUT_MS,
+  LOST_SUBMIT_WINDOW_MS,
+  type LostSubmitLookup,
+} from "@/lib/lost-submit";
+import { withTimeout } from "@/lib/timeout";
 import {
   applyOptimistic,
   bulkDeleteConsequence,
@@ -43,7 +53,7 @@ import {
 } from "@/lib/studio-view";
 import type { OptimisticEntry } from "@/lib/studio-view";
 import type { StudioLane } from "@/lib/studio";
-import { deleteConversations, getStudioLanes } from "./actions";
+import { deleteConversations, getGenerationJobStatus, getStudioLanes } from "./actions";
 import { GuestKeepLine } from "./guest-keep-line";
 
 /**
@@ -79,6 +89,33 @@ import { GuestKeepLine } from "./guest-keep-line";
  * then retires the entries server truth can account for (settleOptimistic).
  * The cap counts only the entries the server cannot see yet, and Cancel waits
  * for the real jobId.
+ *
+ * A lost Generate response (#245): `generateDesign` can accept a request,
+ * write its job row, and start the render, while the response itself never
+ * reaches this tab (a transport failure — prod's `net::ERR_NETWORK_CHANGED`).
+ * The old catch treated every throw as a genuine refusal, which duplicated
+ * the design on retry. Each submit now mints its own job id up front
+ * (`clientJobId`, sent as `generateDesign`'s `jobId`) so a lost response can
+ * be told apart from a real failure: an error with a string `digest` is
+ * React's Flight client marking an actual server-side throw (#204, an
+ * anchored lane closed underneath the tap) and fails at once; anything else
+ * starts a reconcile loop that looks the exact id up
+ * (`getGenerationJobStatus`) until it lands, fails, is cancelled, or a 60s
+ * window (`LOST_SUBMIT_WINDOW_MS`, comfortably past the 45s brief bound
+ * behind it) runs out. See `src/lib/lost-submit.ts` for the pure rules this
+ * leans on, in particular why only a lookup CALLED after the deadline may
+ * report failure — and, distinctly, why a lookup that ERRORS past the
+ * deadline (the phone briefly has no network, not the server saying "no such
+ * row") must not: it waits instead for a second, later backstop
+ * (`STALE_OPTIMISTIC_MS` after the submit) before giving up — and even once
+ * that backstop is behind it, only a run of `LOST_SUBMIT_ERROR_ATTEMPTS`
+ * CONSECUTIVE errors counts as failure (third review, 2026-09-27; measured in
+ * attempts, not elapsed time — a wall-clock streak lets a device freeze
+ * inflate it for free, since sleep makes no attempts but the clock still
+ * runs): a backstop anchored purely on the submit's own clock can already be
+ * behind a device woken from a long background freeze, so its very first
+ * post-wake lookup must get the same grace a fresh submit gets, not an
+ * instant verdict.
  *
  * The anchor lives OUTSIDE the lane state on purpose: a poll refresh replaces
  * `lanes` wholesale with server truth, and the anchor (plus the draft text)
@@ -168,6 +205,22 @@ export function StudioClient({
 
   const polling = useRef(false);
   const pollStartedAt = useRef<number | null>(null);
+  // Mirrors `lanes` for the async reconcile loop below, which must read
+  // current server state, not the closure it started with.
+  const lanesRef = useRef(lanes);
+  useEffect(() => {
+    lanesRef.current = lanes;
+  }, [lanes]);
+  // Guards every lost-submit reconcile loop (#245): each loop checks this
+  // before touching state, so an unmount stops it without a stray setState
+  // and StrictMode's mount → unmount → remount still works.
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
   // The composer panel is the only place `notice` renders, and it now sits
   // at the top of the page — but the control that SETS a notice (Close,
   // Delete, bulk delete, a refused submit) can be lanes below the fold. On a
@@ -453,6 +506,131 @@ export function StudioClient({
     composerPanelRef.current?.scrollIntoView({ block: "nearest" });
   }
 
+  // The shared "this submit genuinely failed" path (#245): a digest throw
+  // (#204), an offline fast-fail, and a reconcile loop's own "failed"
+  // verdict all land here. Drops the cell, shows the notice, gives the words
+  // back only if the box is still empty (a later draft must never be
+  // clobbered), and reconciles once so a closed lane actually leaves.
+  function failSubmit(localId: string, trimmed: string) {
+    setOptimistic((entries) => entries.filter((e) => e.localId !== localId));
+    setNotice(GENERATE_FAILED_COPY);
+    setText((t) => t || trimmed);
+    void pollOnce();
+  }
+
+  // One lost submit's reconcile loop (#245 Design §Client 4): looks its own
+  // clientJobId up on LOST_SUBMIT_LOOKUP_INTERVAL_MS cadence, starting
+  // immediately, until judgeLostSubmit calls it. Independent of pollOnce and
+  // of every other lost submit's own loop — each looks up only its own id.
+  //
+  // `hardDeadlineMs` (independent review, item 1) is the backstop for a
+  // lookup that keeps ERRORING past `deadlineMs` — never trusted as proof of
+  // absence the way a real "none" answer is, so it can only fail this submit
+  // once STALE_OPTIMISTIC_MS has passed since the submit itself (see
+  // judgeLostSubmit's docs).
+  async function reconcileLostSubmit(
+    localId: string,
+    clientJobId: string,
+    deadlineMs: number,
+    hardDeadlineMs: number,
+    trimmed: string
+  ) {
+    // Tracks the current run of CONSECUTIVE "error" lookups for
+    // judgeLostSubmit's errorStreakCount (third review, 2026-09-27): 0 when
+    // the last lookup was NOT an error (a real answer resets it), else the
+    // number of errors in a row ending with the most recent lookup. Counted
+    // in attempts, not elapsed time, so a device that makes zero attempts
+    // while asleep can't have the budget consumed by the sleep itself. Local
+    // to this submit's own loop — each lost submit reconciles independently.
+    let errorStreakCount = 0;
+    for (;;) {
+      if (!mountedRef.current) return;
+      const calledAtMs = Date.now();
+      let status: LostSubmitLookup;
+      try {
+        // A plain Server Function call with no timeout of its own: a
+        // genuinely hung request (not just a fast network error) would
+        // otherwise stall this loop forever (second independent review,
+        // item 3). Treated exactly like a lookup that threw.
+        status = (
+          await withTimeout(
+            "lost-submit lookup",
+            LOST_SUBMIT_LOOKUP_TIMEOUT_MS,
+            () => getGenerationJobStatus(clientJobId)
+          )
+        ).status;
+      } catch {
+        status = "error";
+      }
+      if (!mountedRef.current) return;
+      errorStreakCount = status === "error" ? errorStreakCount + 1 : 0;
+      const verdict = judgeLostSubmit({
+        status,
+        calledAtMs,
+        deadlineMs,
+        hardDeadlineMs,
+        errorStreakCount,
+      });
+      if (verdict === "landed") {
+        // Exactly what a queued response does: the cell now has a real job
+        // behind it, and the next poll that lists it retires the overlay.
+        setOptimistic((entries) =>
+          entries.map((e) =>
+            e.localId === localId
+              ? { ...e, jobId: clientJobId, jobIdKnownAtMs: Date.now() }
+              : e
+          )
+        );
+        void pollOnce();
+        return;
+      }
+      if (verdict === "failed") {
+        // A "failed" verdict from "none" (at deadlineMs) or "error" (at
+        // hardDeadlineMs) is a timeout call, not server proof — a poll may
+        // already list this id as pending, and that is positive evidence the
+        // submit landed even if lookups keep failing or coming back empty.
+        // The net only recognises a PENDING cell: a lane's finished cells
+        // (StudioCell) carry no job id at all, so a submit whose job already
+        // succeeded and left `pending` can't be recognised this way — that
+        // case is instead caught by the lookup itself eventually answering
+        // "succeeded" (which is exactly what
+        // src/app/studio/__tests__/studio-client.test.tsx's "test 12b:
+        // lookups keep erroring past the deadline, then one succeeds"
+        // exercises). A genuine status "failed" is authoritative and always
+        // fails here regardless.
+        if (status !== "failed") {
+          const clientIdPending = lanesRef.current.some((lane) =>
+            lane.pending.some((job) => job.jobId === clientJobId)
+          );
+          if (clientIdPending) {
+            setOptimistic((entries) =>
+              entries.map((e) =>
+                e.localId === localId
+                  ? { ...e, jobId: clientJobId, jobIdKnownAtMs: Date.now() }
+                  : e
+              )
+            );
+            void pollOnce();
+            return;
+          }
+        }
+        failSubmit(localId, trimmed);
+        return;
+      }
+      if (verdict === "cancelled") {
+        // Deliberate: the only way to cancel is the user's own Cancel, and a
+        // cancelled queued job today just leaves — no notice, words not
+        // given back.
+        setOptimistic((entries) => entries.filter((e) => e.localId !== localId));
+        void pollOnce();
+        return;
+      }
+      await new Promise((resolve) =>
+        setTimeout(resolve, LOST_SUBMIT_LOOKUP_INTERVAL_MS)
+      );
+    }
+  }
+
   async function submit() {
     const trimmed = text.trim();
     // Only the cap blocks — an in-flight submit does not: firing the next
@@ -472,6 +650,21 @@ export function StudioClient({
     // lane below the composer panel — which is off-screen on a phone if the
     // user had scrolled down (see the `reveal` nudge-into-view below).
     const localId = crypto.randomUUID();
+    // Minted here, not by the server (#245): lets a lost response be
+    // reconciled by looking this exact id up, whatever `generateDesign`
+    // itself returns or throws.
+    const clientJobId = crypto.randomUUID();
+    // The submit's own clock reading — the optimistic entry's age (and so
+    // settleOptimistic's STALE_OPTIMISTIC_MS cutoff) is measured from it, and
+    // a lost response's reconcile loop uses the same instant as the start of
+    // ITS hard backstop (below), so the two "give up" points move together.
+    const startedAtMs = Date.now();
+    // `navigator.onLine` is trusted only in its `false` direction — `true`
+    // proves nothing. Captured now so the catch can compare against the
+    // reading at failure time (Design §Client 3): only offline at both
+    // moments means the fetch was refused on the device.
+    const offlineAtSubmit =
+      typeof navigator !== "undefined" && navigator.onLine === false;
     if (!submitAnchor) setRevealDesignId(targetDesignId);
     setOptimistic((entries) => [
       ...entries,
@@ -479,17 +672,17 @@ export function StudioClient({
         localId,
         designId: targetDesignId,
         anchorImageId: submitAnchor?.imageId ?? null,
-        startedAt: new Date(),
+        startedAt: new Date(startedAtMs),
         jobId: null,
+        clientJobId,
         prompt: trimmed,
       },
     ]);
     try {
-      const result = await generateDesign(
-        targetDesignId,
-        trimmed,
-        submitAnchor ? { anchorImageId: submitAnchor.imageId } : {}
-      );
+      const result = await generateDesign(targetDesignId, trimmed, {
+        ...(submitAnchor ? { anchorImageId: submitAnchor.imageId } : {}),
+        jobId: clientJobId,
+      });
       if (result.kind === "queued") {
         // Now the cell has a real job behind it: Cancel appears, and the next
         // poll that lists the job retires the overlay entry.
@@ -511,17 +704,41 @@ export function StudioClient({
         // Give the words back if the box is still empty — the turn didn't run.
         setText((t) => t || trimmed);
       }
-    } catch {
-      setOptimistic((entries) => entries.filter((e) => e.localId !== localId));
-      setNotice(GENERATE_FAILED_COPY);
-      setText((t) => t || trimmed);
-      // A thrown assertConversationOpen is the shape this takes (#204): the
-      // lane closed — e.g. the after() idle-archive sweep — between this
-      // tab's last read and the tap. Reconcile now so the closed lane
-      // actually leaves (and, via the anchor effect above, clears an anchor
-      // that pointed into it) instead of sitting there as a dead end until
-      // something else pokes the surface.
-      void pollOnce();
+    } catch (err) {
+      // A digest means React's Flight client rebuilt this from an actual
+      // server-side throw (#204: e.g. an anchored lane closed underneath the
+      // tap) — that submit never queued, so there is nothing to reconcile.
+      if (isServerActionError(err)) {
+        failSubmit(localId, trimmed);
+        return;
+      }
+      // The fetch was refused on the device at both ends of the call: no
+      // request reached the server, so there is no job row to find.
+      if (
+        offlineAtSubmit &&
+        typeof navigator !== "undefined" &&
+        navigator.onLine === false
+      ) {
+        failSubmit(localId, trimmed);
+        return;
+      }
+      // Otherwise the response is lost, not necessarily the request: keep
+      // the cell exactly where it is (no notice, no words back) and find out
+      // what actually happened. deadlineMs is anchored on THIS CATCH, same as
+      // before (Design §Client 4: the server started the request no later
+      // than here). hardDeadlineMs (item 1) is anchored on the SUBMIT itself
+      // (startedAtMs) rather than the catch — it exists to bound an
+      // ERRORING lookup, which can recur for as long as the device stays
+      // offline, and STALE_OPTIMISTIC_MS is defined as time since the
+      // overlay entry's own startedAt (settleOptimistic), so anchoring both
+      // on the same instant keeps them the same "give up" moment.
+      void reconcileLostSubmit(
+        localId,
+        clientJobId,
+        Date.now() + LOST_SUBMIT_WINDOW_MS,
+        startedAtMs + STALE_OPTIMISTIC_MS,
+        trimmed
+      );
     }
   }
 

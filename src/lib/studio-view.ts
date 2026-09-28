@@ -106,8 +106,10 @@ export function bulkDeleteSkipNotice(
  * instant Generate is pressed, not after the next poll's round trip.
  *
  * `jobId` starts null (the action hasn't returned yet) and is set to the
- * real image_generation id once `generateDesign` resolves with
- * `{kind:"queued"}`. `anchorImageId` is carried for callers that need to
+ * real image_generation id either once `generateDesign` resolves with
+ * `{kind:"queued"}`, or once a lost submit's reconcile (#245) finds its row
+ * — in that second case `jobId` is set to `clientJobId`, the id this submit
+ * sent. `anchorImageId` is carried for callers that need to
  * tell an anchored append apart from a fresh conversation, though
  * applyOptimistic itself derives that from server lanes rather than
  * trusting a snapshot flag, since a flag captured at submit time could go
@@ -119,6 +121,16 @@ export type OptimisticEntry = {
   anchorImageId: string | null;
   startedAt: Date;
   jobId: string | null;
+  /**
+   * The id minted client-side and sent as `generateDesign`'s `jobId` option
+   * (#245) — the server's `image_generation` row uses it verbatim, so once a
+   * lane's pending list carries this id, that IS this submit's job, even if
+   * `generateDesign`'s own response never made it back (a lost response) and
+   * `jobId` above is still null. Undefined for callers that don't mint one
+   * (there are none left in the Studio itself, but the type stays optional so
+   * an entry built without it behaves exactly as before).
+   */
+  clientJobId?: string;
   /**
    * The trimmed composer text this submit fired with (#203). Every submit
    * has one, so the field is required. It stands in for the lane's title
@@ -234,8 +246,8 @@ export function applyOptimistic(
  *   the server ever accounts for lives that long, so what's left is the
  *   client's own ghost, and it would otherwise hold a cap slot and keep the
  *   poll loop alive forever.
- * - `jobId: null` (the generateDesign call hasn't returned yet) — kept; the
- *   server has nothing to say about it yet.
+ * - `jobId: null` (the generateDesign call hasn't returned, or its response
+ *   was lost) — kept, unless its `clientJobId` is pending (below).
  * - a known `jobId` found in some lane's `pending` — dropped; the server
  *   is now rendering the real cell, so the overlay would duplicate it. True
  *   of any snapshot, however old: seeing the row is positive evidence.
@@ -245,6 +257,11 @@ export function applyOptimistic(
  *   Then the absence is server truth: the job finished or was cancelled. A
  *   snapshot fetched before the row was written is simply blind to it, and
  *   acting on that silence deletes a live cell and stops the poll loop.
+ * - a `jobId: null` entry whose `clientJobId` (#245) shows up in some lane's
+ *   pending — dropped; a lost-submit reconcile is still in flight, but the
+ *   server's own cell (rendered under the same id) has already arrived, so
+ *   the overlay would duplicate it. Checked after the stale-window rule
+ *   above, same as every other rule here.
  * - anything else — kept; the row isn't visible yet.
  *
  * `snapshotStartedAtMs` defaults to now (a caller with no fetch timing gets
@@ -259,7 +276,13 @@ export function settleOptimistic(
   const snapshotStartedAtMs = options.snapshotStartedAtMs ?? nowMs;
   return entries.filter((entry) => {
     if (nowMs - entry.startedAt.getTime() >= STALE_OPTIMISTIC_MS) return false;
-    if (entry.jobId === null) return true;
+    if (entry.jobId === null) {
+      if (entry.clientJobId == null) return true;
+      const clientIdPending = lanes.some((lane) =>
+        lane.pending.some((job) => job.jobId === entry.clientJobId)
+      );
+      return !clientIdPending;
+    }
     const visiblyPending = lanes.some((lane) =>
       lane.pending.some((job) => job.jobId === entry.jobId)
     );
@@ -276,17 +299,20 @@ export function settleOptimistic(
  * How many optimistic entries are not yet visible in server lanes' pending
  * lists — the count to add to the server's own pending count for the
  * generation cap (`isAtGenerationCap`), so a cell that has already landed
- * in server lanes isn't counted twice. An entry with `jobId: null` is
- * always unseen (the server can't show it before the action returns).
+ * in server lanes isn't counted twice. An entry with `jobId: null` and no
+ * `clientJobId` is always unseen (the server can't show it before the action
+ * returns). An entry with `jobId: null` but a `clientJobId` (#245, a lost
+ * submit still being reconciled) is seen once that id shows up as pending —
+ * the server is already rendering its cell, so the overlay must not also
+ * count toward the cap.
  */
 export function unseenOptimisticCount(
   lanes: StudioLane[],
   entries: OptimisticEntry[]
 ): number {
   return entries.filter((entry) => {
-    if (entry.jobId === null) return true;
-    return !lanes.some((lane) =>
-      lane.pending.some((job) => job.jobId === entry.jobId)
-    );
+    const id = entry.jobId ?? entry.clientJobId;
+    if (id == null) return true;
+    return !lanes.some((lane) => lane.pending.some((job) => job.jobId === id));
   }).length;
 }

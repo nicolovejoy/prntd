@@ -299,6 +299,28 @@ describe("unseenOptimisticCount", () => {
   it("is zero when there are no entries", () => {
     expect(unseenOptimisticCount([], [])).toBe(0);
   });
+
+  it("counts an unconfirmed entry (#245) as seen once its clientJobId is pending", () => {
+    const lanes = [
+      lane({
+        designId: "design-1",
+        pending: [{ jobId: "client-9", generationNumber: 1, startedAt: new Date() }],
+      }),
+    ];
+    const entries = [entry({ designId: "design-1", jobId: null, clientJobId: "client-9" })];
+    expect(unseenOptimisticCount(lanes, entries)).toBe(0);
+  });
+
+  it("still counts an unconfirmed entry as unseen when a different id is pending", () => {
+    const lanes = [
+      lane({
+        designId: "design-1",
+        pending: [{ jobId: "someone-elses-job", generationNumber: 1, startedAt: new Date() }],
+      }),
+    ];
+    const entries = [entry({ designId: "design-1", jobId: null, clientJobId: "client-9" })];
+    expect(unseenOptimisticCount(lanes, entries)).toBe(1);
+  });
 });
 
 describe("applyOptimistic ordering of synthetic lanes", () => {
@@ -380,6 +402,43 @@ describe("settleOptimistic against a stale snapshot (#187 review)", () => {
       { snapshotStartedAtMs: knownAt - 500, nowMs: knownAt + 1000 }
     );
     expect(kept).toHaveLength(0);
+  });
+
+  it("drops an unconfirmed entry (#245) once its clientJobId shows up as pending", () => {
+    const lanes = [
+      lane({
+        designId: "design-1",
+        pending: [{ jobId: "client-9", generationNumber: 1, startedAt: new Date() }],
+      }),
+    ];
+    const kept = settleOptimistic(lanes, [
+      entry({ designId: "design-1", jobId: null, clientJobId: "client-9" }),
+    ]);
+    expect(kept).toHaveLength(0);
+  });
+
+  it("keeps an unconfirmed entry when a DIFFERENT id is pending in the same lane", () => {
+    const lanes = [
+      lane({
+        designId: "design-1",
+        pending: [{ jobId: "someone-elses-job", generationNumber: 1, startedAt: new Date() }],
+      }),
+    ];
+    const kept = settleOptimistic(lanes, [
+      entry({ designId: "design-1", jobId: null, clientJobId: "client-9" }),
+    ]);
+    expect(kept).toHaveLength(1);
+  });
+
+  it("keeps an entry with no clientJobId exactly as before, regardless of lanes", () => {
+    const lanes = [
+      lane({
+        designId: "design-1",
+        pending: [{ jobId: "some-job", generationNumber: 1, startedAt: new Date() }],
+      }),
+    ];
+    const kept = settleOptimistic(lanes, [entry({ designId: "design-1", jobId: null })]);
+    expect(kept).toHaveLength(1);
   });
 
   it("drops an entry older than the client's stale window, jobId or not", () => {
