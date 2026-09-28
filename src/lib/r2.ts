@@ -146,3 +146,16 @@ export async function getImageObject(imageId: string): Promise<Buffer | null> {
     return null;
   }
 }
+
+/** Fetch an object's bytes by its exact key, or null on any failure. */
+export async function getObjectByKey(key: string): Promise<Buffer | null> {
+  try {
+    const result = await r2.send(
+      new GetObjectCommand({ Bucket: bucket, Key: key })
+    );
+    const bytes = await result.Body?.transformToByteArray();
+    return bytes ? Buffer.from(bytes) : null;
+  } catch {
+    return null;
+  }
+}
