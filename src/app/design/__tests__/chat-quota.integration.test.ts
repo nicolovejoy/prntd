@@ -1,6 +1,6 @@
 /**
  * #253: `sendChatMessage` counts each turn against a daily chat cap (per
- * identity, plus per IP for guests) before the Claude call. A refused turn
+ * identity, plus per IP for everyone) before the Claude call. A refused turn
  * makes no Anthropic call and writes no chat row, no design row and no
  * `updated_at`; a turn whose Anthropic call throws gives its unit back.
  *
@@ -18,7 +18,9 @@ import {
   GUEST_CHAT_DAILY_CAP,
   USER_CHAT_DAILY_CAP,
   IP_CHAT_DAILY_CAP,
-  USER_GEN_DAILY_CAP,
+  USER_IP_CHAT_DAILY_CAP,
+  CHAT_MESSAGE_MAX_CHARS,
+  CHAT_HISTORY_MAX_MESSAGES,
 } from "@/lib/generation-quota";
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
@@ -106,7 +108,8 @@ const getSessionMock = (await import("@/lib/auth")).auth.api
   .getSession as unknown as Mock;
 
 const GUEST_COPY = "Daily chat limit reached. Sign in to continue.";
-const USER_COPY = "Daily chat limit reached. Try again tomorrow.";
+const USER_COPY = "Daily chat limit reached. Try again later.";
+const TOO_LONG_COPY = "Message too long. Limit is 4,000 characters.";
 const IP = "203.0.113.7";
 
 // Literal prefixes on purpose: the test pins the stored bucket format.
@@ -255,6 +258,117 @@ describe("IP cap", () => {
     const allowed = await sendChatMessage(userDesign.id, "hello");
     expect(allowed.kind).toBe("reply");
     expect(chatMock).toHaveBeenCalledTimes(1);
+    // Two refused guest turns and the signed-in turn each bumped the IP bucket.
+    expect(await usageCount(chatIpBucket(IP))).toBe(IP_CHAT_DAILY_CAP + 3);
+  });
+
+  it("refuses a signed-in user over the signed-in IP cap with the signed-in copy", async () => {
+    await makeUser(testDb, "u1");
+    const design = await makeDesign(testDb, "u1");
+    await seedUsage(chatIpBucket(IP), USER_IP_CHAT_DAILY_CAP);
+    actAs("u1", { ip: IP });
+
+    const result = await sendChatMessage(design.id, "hello");
+
+    expect(result).toEqual({ kind: "limit", message: USER_COPY });
+    expect(chatMock).not.toHaveBeenCalled();
+    expect(await chatRows(design.id)).toHaveLength(0);
+
+    // A guest on the same IP is refused too (over the lower guest IP cap).
+    await makeUser(testDb, "g1");
+    const guestDesign = await makeDesign(testDb, "g1");
+    actAs("g1", { anonymous: true, ip: IP });
+    const guest = await sendChatMessage(guestDesign.id, "hello");
+    expect(guest).toEqual({ kind: "limit", message: GUEST_COPY });
+    expect(chatMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("message validation", () => {
+  it("rejects a message over the limit before any quota spend or row write", async () => {
+    await makeUser(testDb, "u1");
+    actAs("u1", { ip: IP });
+    const newDesignId = crypto.randomUUID();
+
+    const result = await sendChatMessage(
+      newDesignId,
+      "x".repeat(CHAT_MESSAGE_MAX_CHARS + 1)
+    );
+
+    expect(result).toEqual({ kind: "too_long", message: TOO_LONG_COPY });
+    expect(chatMock).not.toHaveBeenCalled();
+    expect(await chatBucketRows()).toHaveLength(0);
+    expect(await chatRows(newDesignId)).toHaveLength(0);
+    expect(await designRows(newDesignId)).toHaveLength(0);
+  });
+
+  it("accepts a message of exactly the limit", async () => {
+    await makeUser(testDb, "u1");
+    const design = await makeDesign(testDb, "u1");
+
+    const result = await sendChatMessage(design.id, "x".repeat(CHAT_MESSAGE_MAX_CHARS));
+
+    expect(result.kind).toBe("reply");
+    expect(chatMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("throws on a non-string message", async () => {
+    await makeUser(testDb, "u1");
+    const design = await makeDesign(testDb, "u1");
+
+    await expect(
+      sendChatMessage(design.id, 42 as unknown as string)
+    ).rejects.toThrow("Invalid message");
+    expect(chatMock).not.toHaveBeenCalled();
+    expect(await chatBucketRows()).toHaveLength(0);
+  });
+});
+
+describe("history window", () => {
+  it("sends the latest 40 messages, in order, starting on a user turn", async () => {
+    await makeUser(testDb, "u1");
+    const design = await makeDesign(testDb, "u1");
+    const base = Date.UTC(2026, 0, 1);
+    // Index 0 is an assistant row, so index 10 (the first of the latest 40) is
+    // an assistant row too and gets dropped; odd indexes are user rows.
+    await testDb.insert(schema.chatMessage).values(
+      Array.from({ length: 50 }, (_, i) => ({
+        designId: design.id,
+        role: (i % 2 === 0 ? "assistant" : "user") as "assistant" | "user",
+        content: `m${i}`,
+        createdAt: new Date(base + i * 1000),
+      }))
+    );
+
+    await sendChatMessage(design.id, "hello");
+
+    const history = chatMock.mock.calls[0][1] as Array<{ role: string; content: string }>;
+    expect(history).toHaveLength(CHAT_HISTORY_MAX_MESSAGES - 1);
+    expect(history[0].role).toBe("user");
+    expect(history.map((m) => m.content)).toEqual(
+      Array.from({ length: 39 }, (_, i) => `m${i + 11}`)
+    );
+  });
+
+  it("keeps all 40 when the window already starts on a user turn", async () => {
+    await makeUser(testDb, "u1");
+    const design = await makeDesign(testDb, "u1");
+    const base = Date.UTC(2026, 0, 1);
+    await testDb.insert(schema.chatMessage).values(
+      Array.from({ length: 50 }, (_, i) => ({
+        designId: design.id,
+        role: (i % 2 === 0 ? "user" : "assistant") as "assistant" | "user",
+        content: `m${i}`,
+        createdAt: new Date(base + i * 1000),
+      }))
+    );
+
+    await sendChatMessage(design.id, "hello");
+
+    const history = chatMock.mock.calls[0][1] as Array<{ role: string; content: string }>;
+    expect(history).toHaveLength(CHAT_HISTORY_MAX_MESSAGES);
+    expect(history[0].content).toBe("m10");
+    expect(history[0].role).toBe("user");
   });
 });
 
@@ -308,6 +422,18 @@ describe("Anthropic throws", () => {
     await expect(sendChatMessage(design.id, "hello")).rejects.toThrow("upstream down");
 
     expect(await usageCount(chatUserBucket("g1"))).toBe(0);
+    expect(await usageCount(chatIpBucket(IP))).toBe(0);
+  });
+
+  it("refunds a signed-in user's identity and IP units", async () => {
+    await makeUser(testDb, "u1");
+    const design = await makeDesign(testDb, "u1");
+    actAs("u1", { ip: IP });
+    chatMock.mockRejectedValueOnce(new Error("upstream down"));
+
+    await expect(sendChatMessage(design.id, "hello")).rejects.toThrow("upstream down");
+
+    expect(await usageCount(chatUserBucket("u1"))).toBe(0);
     expect(await usageCount(chatIpBucket(IP))).toBe(0);
   });
 
@@ -414,6 +540,29 @@ describe("concurrency", () => {
     expect(results.map((r) => r.kind).sort()).toEqual(["limit", "reply"]);
     expect(chatMock).toHaveBeenCalledTimes(1);
   });
+
+  it("two signed-in turns on one IP at the signed-in IP cap - 1 give one reply and one limit", async () => {
+    await makeUser(testDb, "u1");
+    await makeUser(testDb, "u2");
+    const d1 = await makeDesign(testDb, "u1");
+    const d2 = await makeDesign(testDb, "u2");
+    await seedUsage(chatIpBucket(IP), USER_IP_CHAT_DAILY_CAP - 1);
+
+    h.ip = IP;
+    for (const id of ["u1", "u2"]) {
+      getSessionMock.mockImplementationOnce(async () => ({
+        user: { id, isAnonymous: false },
+      }));
+    }
+
+    const results = await Promise.all([
+      sendChatMessage(d1.id, "one"),
+      sendChatMessage(d2.id, "two"),
+    ]);
+
+    expect(results.map((r) => r.kind).sort()).toEqual(["limit", "reply"]);
+    expect(chatMock).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("chat and generation caps are independent", () => {
@@ -429,7 +578,11 @@ describe("chat and generation caps are independent", () => {
 
   it("generation at cap does not refuse sendChatMessage", async () => {
     await makeUser(testDb, "u1");
-    await seedUsage("user:u1", USER_GEN_DAILY_CAP);
+    actAs("u1", { ip: IP });
+    // Generation counters at the CHAT caps (above the generation caps), so a
+    // chat path that read the generation buckets would refuse.
+    await seedUsage("user:u1", USER_CHAT_DAILY_CAP);
+    await seedUsage(`ip:${IP}`, USER_IP_CHAT_DAILY_CAP);
     const design = await makeDesign(testDb, "u1");
 
     // The seed really does block generation.
@@ -438,5 +591,7 @@ describe("chat and generation caps are independent", () => {
 
     const result = await sendChatMessage(design.id, "hello");
     expect(result.kind).toBe("reply");
+    expect(await usageCount(chatUserBucket("u1"))).toBe(1);
+    expect(await usageCount(chatIpBucket(IP))).toBe(1);
   });
 });

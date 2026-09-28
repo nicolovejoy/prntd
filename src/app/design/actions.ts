@@ -10,6 +10,8 @@ import {
   consumeChatQuota,
   refundChatQuota,
   dayKeyUTC,
+  CHAT_MESSAGE_MAX_CHARS,
+  CHAT_HISTORY_MAX_MESSAGES,
 } from "@/lib/generation-quota";
 import {
   insertGenerationJob,
@@ -140,19 +142,26 @@ export type ChatResult =
       readyToGenerate: boolean;
       options: ChatOption[];
     }
-  | { kind: "limit"; message: string };
+  | { kind: "limit"; message: string }
+  | { kind: "too_long"; message: string };
 
 /** Copy shown when a chat turn is blocked by the daily cap (#253). */
 function chatLimitMessage(isAnonymous: boolean): string {
   return isAnonymous
     ? "Daily chat limit reached. Sign in to continue."
-    : "Daily chat limit reached. Try again tomorrow.";
+    : "Daily chat limit reached. Try again later.";
 }
 
 export async function sendChatMessage(
   designId: string,
   userMessage: string
 ): Promise<ChatResult> {
+  if (typeof userMessage !== "string") throw new Error("Invalid message");
+  // Before auth, quota and any row write: an oversized message costs nothing.
+  if (userMessage.length > CHAT_MESSAGE_MAX_CHARS) {
+    return { kind: "too_long", message: "Message too long. Limit is 4,000 characters." };
+  }
+
   const hdrs = await headers();
   const session = await auth.api.getSession({ headers: hdrs });
   if (!session) throw new Error("Unauthorized");
@@ -182,7 +191,12 @@ export async function sendChatMessage(
   let aiResponse: Awaited<ReturnType<typeof chatAboutDesign>>;
   try {
     if (!found) await getOrCreateDesign(designId, userId);
-    const messages = await getDesignMessages(designId);
+    const allMessages = await getDesignMessages(designId);
+    // Only the latest window goes to the model; stored rows are unchanged.
+    // The context must start on a user turn, so a leading assistant message
+    // is dropped.
+    const messages = allMessages.slice(-CHAT_HISTORY_MAX_MESSAGES);
+    if (messages[0]?.role === "assistant") messages.shift();
     const images = await getDesignImagesForAIContext(designId);
 
     aiResponse = await chatAboutDesign(userMessage, messages, images);
@@ -191,7 +205,7 @@ export async function sendChatMessage(
     // Best-effort: a refund failure is logged and never masks the original
     // error.
     try {
-      await refundChatQuota({ userId, isAnonymous, ip, day, db });
+      await refundChatQuota({ userId, ip, day, db });
     } catch (refundErr) {
       console.error("[chat] quota refund failed", refundErr);
     }

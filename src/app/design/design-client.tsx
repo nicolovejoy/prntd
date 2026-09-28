@@ -496,9 +496,10 @@ function DesignPageInner({ initialThreadPromise, canPublish }: Props) {
     try {
       await ensureGuestSession();
       const result = await sendChatMessage(designId.current, userMessage);
-      if (result.kind === "limit") {
-        // Refused before any design row or chat row was written: not
-        // persisted, Close/Reopen must not render, readiness stays as it was.
+      if (result.kind !== "reply") {
+        // Refused (daily cap or over-length) before any design row or chat
+        // row was written: not persisted, Close/Reopen must not render,
+        // readiness stays as it was.
         setMessages((prev) => [
           ...prev,
           makeOptimisticMessage("assistant", result.message),

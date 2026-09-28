@@ -16,8 +16,8 @@ import {
   GUEST_CHAT_DAILY_CAP,
   USER_CHAT_DAILY_CAP,
   IP_CHAT_DAILY_CAP,
-  GUEST_GEN_DAILY_CAP,
-  IP_GEN_DAILY_CAP,
+  USER_IP_CHAT_DAILY_CAP,
+  parseDailyCap,
 } from "@/lib/generation-quota";
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
@@ -48,16 +48,22 @@ describe("consumeChatQuota — DB path", () => {
     delete process.env.GUEST_FUNNEL_ENABLED;
   });
 
-  it("defaults to 24/150/60 when the env vars are unset", async () => {
-    const keys = ["GUEST_CHAT_DAILY_CAP", "USER_CHAT_DAILY_CAP", "IP_CHAT_DAILY_CAP"] as const;
+  const CHAT_KEYS = [
+    "GUEST_CHAT_DAILY_CAP",
+    "USER_CHAT_DAILY_CAP",
+    "IP_CHAT_DAILY_CAP",
+    "USER_IP_CHAT_DAILY_CAP",
+  ] as const;
+
+  async function withEnv(value: string | undefined, keys: readonly string[]) {
     const saved = keys.map((k) => process.env[k]);
-    keys.forEach((k) => delete process.env[k]);
+    keys.forEach((k) => {
+      if (value === undefined) delete process.env[k];
+      else process.env[k] = value;
+    });
     try {
       vi.resetModules();
-      const mod = await import("@/lib/generation-quota");
-      expect(mod.GUEST_CHAT_DAILY_CAP).toBe(24);
-      expect(mod.USER_CHAT_DAILY_CAP).toBe(150);
-      expect(mod.IP_CHAT_DAILY_CAP).toBe(60);
+      return await import("@/lib/generation-quota");
     } finally {
       keys.forEach((k, i) => {
         const v = saved[i];
@@ -66,6 +72,33 @@ describe("consumeChatQuota — DB path", () => {
       });
       vi.resetModules();
     }
+  }
+
+  it("defaults to 24/150/60/300 when the env vars are unset", async () => {
+    const mod = await withEnv(undefined, CHAT_KEYS);
+    expect(mod.GUEST_CHAT_DAILY_CAP).toBe(24);
+    expect(mod.USER_CHAT_DAILY_CAP).toBe(150);
+    expect(mod.IP_CHAT_DAILY_CAP).toBe(60);
+    expect(mod.USER_IP_CHAT_DAILY_CAP).toBe(300);
+  });
+
+  it("falls back to the defaults when the chat env vars are garbage", async () => {
+    const mod = await withEnv("abc", CHAT_KEYS);
+    expect(mod.GUEST_CHAT_DAILY_CAP).toBe(24);
+    expect(mod.USER_CHAT_DAILY_CAP).toBe(150);
+    expect(mod.IP_CHAT_DAILY_CAP).toBe(60);
+    expect(mod.USER_IP_CHAT_DAILY_CAP).toBe(300);
+  });
+
+  it("falls back to the defaults when the generation env vars are garbage", async () => {
+    const mod = await withEnv("abc", [
+      "GUEST_GEN_DAILY_CAP",
+      "USER_GEN_DAILY_CAP",
+      "IP_GEN_DAILY_CAP",
+    ]);
+    expect(mod.GUEST_GEN_DAILY_CAP).toBe(8);
+    expect(mod.USER_GEN_DAILY_CAP).toBe(50);
+    expect(mod.IP_GEN_DAILY_CAP).toBe(20);
   });
 
   it("allows a guest through the cap and refuses with reason identity past it", async () => {
@@ -90,7 +123,7 @@ describe("consumeChatQuota — DB path", () => {
     expect(last).toEqual({ allowed: false, reason: "identity" });
   });
 
-  it("allows a signed-in user through the larger cap, refuses past it, and writes no chat:ip: row", async () => {
+  it("allows a signed-in user through the larger cap, refuses past it, and bumps chat:ip: only while under the identity cap", async () => {
     let last;
     for (let i = 0; i < USER_CHAT_DAILY_CAP; i++) {
       last = await consumeChatQuota({
@@ -110,7 +143,47 @@ describe("consumeChatQuota — DB path", () => {
       db: testDb,
     });
     expect(last).toEqual({ allowed: false, reason: "identity" });
-    expect(await countFor(testDb, "chat:ip:9.9.9.2")).toBeNull();
+    // The identity refusal did not bump the IP bucket.
+    expect(await countFor(testDb, "chat:ip:9.9.9.2")).toBe(USER_CHAT_DAILY_CAP);
+  });
+
+  it("bumps chat:ip: for a signed-in turn", async () => {
+    await consumeChatQuota({ userId: "real-ip", isAnonymous: false, ip: "9.9.9.20", now: NOW, db: testDb });
+    await consumeChatQuota({ userId: "real-ip", isAnonymous: false, ip: "9.9.9.20", now: NOW, db: testDb });
+    expect(await countFor(testDb, "chat:ip:9.9.9.20")).toBe(2);
+  });
+
+  it("refuses a signed-in turn over USER_IP_CHAT_DAILY_CAP while a guest on that IP is refused over IP_CHAT_DAILY_CAP", async () => {
+    // Fill the IP with signed-in turns from distinct accounts (each under the
+    // identity cap) up to the signed-in IP cap.
+    for (let i = 0; i < USER_IP_CHAT_DAILY_CAP; i++) {
+      const r = await consumeChatQuota({
+        userId: `real-fill-${i}`,
+        isAnonymous: false,
+        ip: "9.9.9.21",
+        now: NOW,
+        db: testDb,
+      });
+      expect(r).toEqual({ allowed: true });
+    }
+    expect(
+      await consumeChatQuota({ userId: "real-over", isAnonymous: false, ip: "9.9.9.21", now: NOW, db: testDb })
+    ).toEqual({ allowed: false, reason: "ip" });
+    // The same IP is far over the guest IP cap too.
+    expect(
+      await consumeChatQuota({ userId: "guest-over", isAnonymous: true, ip: "9.9.9.21", now: NOW, db: testDb })
+    ).toEqual({ allowed: false, reason: "ip" });
+
+    // A signed-in turn between the two caps is allowed; a guest is not.
+    for (let i = 0; i < IP_CHAT_DAILY_CAP + 1; i++) {
+      await consumeChatQuota({ userId: `real-mid-${i}`, isAnonymous: false, ip: "9.9.9.22", now: NOW, db: testDb });
+    }
+    expect(
+      await consumeChatQuota({ userId: "real-mid-x", isAnonymous: false, ip: "9.9.9.22", now: NOW, db: testDb })
+    ).toEqual({ allowed: true });
+    expect(
+      await consumeChatQuota({ userId: "guest-mid", isAnonymous: true, ip: "9.9.9.22", now: NOW, db: testDb })
+    ).toEqual({ allowed: false, reason: "ip" });
   });
 
   it("caps the IP across multiple guest identities, and a signed-in user on that IP is unaffected", async () => {
@@ -239,6 +312,45 @@ describe("consumeChatQuota — DB path", () => {
     const allowedCount = [a, b].filter((r) => r.allowed).length;
     expect(allowedCount).toBe(1);
   });
+
+  it("admits exactly one of two concurrent signed-in calls at the signed-in IP cap - 1", async () => {
+    for (let i = 0; i < USER_IP_CHAT_DAILY_CAP - 1; i++) {
+      await consumeChatQuota({
+        userId: `real-ip-race-${i}`,
+        isAnonymous: false,
+        ip: "9.9.9.23",
+        now: NOW,
+        db: testDb,
+      });
+    }
+    const [a, b] = await Promise.all([
+      consumeChatQuota({ userId: "real-ip-race-a", isAnonymous: false, ip: "9.9.9.23", now: NOW, db: testDb }),
+      consumeChatQuota({ userId: "real-ip-race-b", isAnonymous: false, ip: "9.9.9.23", now: NOW, db: testDb }),
+    ]);
+    const allowedCount = [a, b].filter((r) => r.allowed).length;
+    expect(allowedCount).toBe(1);
+  });
+});
+
+describe("parseDailyCap", () => {
+  it("uses the fallback for unset, empty and whitespace-only values", () => {
+    expect(parseDailyCap(undefined, 7)).toBe(7);
+    expect(parseDailyCap("", 7)).toBe(7);
+    expect(parseDailyCap("   ", 7)).toBe(7);
+  });
+
+  it("uses the fallback for non-numeric, non-finite and negative values", () => {
+    expect(parseDailyCap("abc", 7)).toBe(7);
+    expect(parseDailyCap("NaN", 7)).toBe(7);
+    expect(parseDailyCap("Infinity", 7)).toBe(7);
+    expect(parseDailyCap("-1", 7)).toBe(7);
+  });
+
+  it("uses a finite value >= 0 as given, 0 included", () => {
+    expect(parseDailyCap("12", 7)).toBe(12);
+    expect(parseDailyCap("0", 7)).toBe(0);
+    expect(parseDailyCap("2.5", 7)).toBe(2.5);
+  });
 });
 
 describe("chat vs generation bucket isolation", () => {
@@ -250,17 +362,23 @@ describe("chat vs generation bucket isolation", () => {
     delete process.env.GUEST_FUNNEL_ENABLED;
   });
 
+  // Seeds a generation-family counter directly, so it can sit above the chat
+  // cap: an isolation test whose generation counter is below the chat cap
+  // passes even if chat wrongly reads the generation bucket.
+  async function seedGenBucket(bucket: string, count: number) {
+    await testDb.insert(schema.generationUsage).values({ bucket, day: DAY, count });
+  }
+
   it("a user at the generation identity cap is still allowed chat", async () => {
-    let gen;
-    for (let i = 0; i < GUEST_GEN_DAILY_CAP + 1; i++) {
-      gen = await consumeGenerationQuota({
-        userId: "u1",
-        isAnonymous: true,
-        ip: "9.9.9.6",
-        now: NOW,
-        db: testDb,
-      });
-    }
+    await seedGenBucket("user:u1", GUEST_CHAT_DAILY_CAP + 10);
+    await seedGenBucket("ip:9.9.9.6", IP_CHAT_DAILY_CAP + 10);
+    const gen = await consumeGenerationQuota({
+      userId: "u1",
+      isAnonymous: true,
+      ip: "9.9.9.6",
+      now: NOW,
+      db: testDb,
+    });
     expect(gen).toEqual({ allowed: false, reason: "identity" });
     const chatRes = await consumeChatQuota({
       userId: "u1",
@@ -270,20 +388,19 @@ describe("chat vs generation bucket isolation", () => {
       db: testDb,
     });
     expect(chatRes).toEqual({ allowed: true });
+    expect(await countFor(testDb, "chat:user:u1")).toBe(1);
+    expect(await countFor(testDb, "chat:ip:9.9.9.6")).toBe(1);
   });
 
   it("a guest on an IP at the generation IP cap is still allowed chat", async () => {
-    // Three guests on one IP, each under the identity cap, so the IP cap decides.
-    let gen;
-    for (let i = 0; i < IP_GEN_DAILY_CAP + 1; i++) {
-      gen = await consumeGenerationQuota({
-        userId: `ipg-${i % 3}`,
-        isAnonymous: true,
-        ip: "9.9.9.13",
-        now: NOW,
-        db: testDb,
-      });
-    }
+    await seedGenBucket("ip:9.9.9.13", IP_CHAT_DAILY_CAP + 10);
+    const gen = await consumeGenerationQuota({
+      userId: "ipg-0",
+      isAnonymous: true,
+      ip: "9.9.9.13",
+      now: NOW,
+      db: testDb,
+    });
     expect(gen).toEqual({ allowed: false, reason: "ip" });
     const chatRes = await consumeChatQuota({
       userId: "ipg-0",
@@ -293,6 +410,8 @@ describe("chat vs generation bucket isolation", () => {
       db: testDb,
     });
     expect(chatRes).toEqual({ allowed: true });
+    expect(await countFor(testDb, "chat:user:ipg-0")).toBe(1);
+    expect(await countFor(testDb, "chat:ip:9.9.9.13")).toBe(1);
   });
 
   it("a user at the chat cap is still allowed generation", async () => {
@@ -337,15 +456,24 @@ describe("chat vs generation bucket isolation", () => {
 
   it("refundGenerationQuota leaves chat: rows untouched and refundChatQuota leaves user:/ip: rows untouched", async () => {
     await consumeChatQuota({ userId: "u4", isAnonymous: true, ip: "9.9.9.9", now: NOW, db: testDb });
-    await consumeGenerationQuota({ userId: "u4", isAnonymous: true, ip: "9.9.9.9", now: NOW, db: testDb });
+    // Twice, so the generation buckets sit above 0 when the chat refund runs.
+    for (let i = 0; i < 2; i++) {
+      await consumeGenerationQuota({ userId: "u4", isAnonymous: true, ip: "9.9.9.9", now: NOW, db: testDb });
+    }
+    expect(await countFor(testDb, "user:u4")).toBe(2);
+    expect(await countFor(testDb, "ip:9.9.9.9")).toBe(2);
 
     await refundGenerationQuota({ userId: "u4", ip: "9.9.9.9", now: NOW, db: testDb });
     expect(await countFor(testDb, "chat:user:u4")).toBe(1);
     expect(await countFor(testDb, "chat:ip:9.9.9.9")).toBe(1);
+    expect(await countFor(testDb, "user:u4")).toBe(1);
+    expect(await countFor(testDb, "ip:9.9.9.9")).toBe(1);
 
-    await refundChatQuota({ userId: "u4", isAnonymous: true, ip: "9.9.9.9", day: DAY, db: testDb });
-    expect(await countFor(testDb, "user:u4")).toBe(0);
-    expect(await countFor(testDb, "ip:9.9.9.9")).toBe(0);
+    await refundChatQuota({ userId: "u4", ip: "9.9.9.9", day: DAY, db: testDb });
+    expect(await countFor(testDb, "chat:user:u4")).toBe(0);
+    expect(await countFor(testDb, "chat:ip:9.9.9.9")).toBe(0);
+    expect(await countFor(testDb, "user:u4")).toBe(1);
+    expect(await countFor(testDb, "ip:9.9.9.9")).toBe(1);
   });
 });
 
@@ -356,20 +484,27 @@ describe("refundChatQuota — DB path", () => {
 
   it("decrements the identity and IP buckets a chat turn consumed, floored at 0", async () => {
     await consumeChatQuota({ userId: "u5", isAnonymous: true, ip: "9.9.9.10", now: NOW, db: testDb });
-    await refundChatQuota({ userId: "u5", isAnonymous: true, ip: "9.9.9.10", day: DAY, db: testDb });
+    await refundChatQuota({ userId: "u5", ip: "9.9.9.10", day: DAY, db: testDb });
     expect(await countFor(testDb, "chat:user:u5")).toBe(0);
     expect(await countFor(testDb, "chat:ip:9.9.9.10")).toBe(0);
 
-    await refundChatQuota({ userId: "u5", isAnonymous: true, ip: "9.9.9.10", day: DAY, db: testDb });
+    await refundChatQuota({ userId: "u5", ip: "9.9.9.10", day: DAY, db: testDb });
     expect(await countFor(testDb, "chat:user:u5")).toBe(0);
     expect(await countFor(testDb, "chat:ip:9.9.9.10")).toBe(0);
   });
 
-  it("only touches the identity bucket for a signed-in user", async () => {
+  it("refunds the IP bucket for a signed-in user too", async () => {
     await consumeChatQuota({ userId: "u6", isAnonymous: false, ip: "9.9.9.11", now: NOW, db: testDb });
-    await refundChatQuota({ userId: "u6", isAnonymous: false, ip: "9.9.9.11", day: DAY, db: testDb });
+    expect(await countFor(testDb, "chat:ip:9.9.9.11")).toBe(1);
+    await refundChatQuota({ userId: "u6", ip: "9.9.9.11", day: DAY, db: testDb });
     expect(await countFor(testDb, "chat:user:u6")).toBe(0);
-    expect(await countFor(testDb, "chat:ip:9.9.9.11")).toBeNull();
+    expect(await countFor(testDb, "chat:ip:9.9.9.11")).toBe(0);
+  });
+
+  it("skips the IP bucket when no IP is present", async () => {
+    await consumeChatQuota({ userId: "u8", isAnonymous: false, ip: null, now: NOW, db: testDb });
+    await refundChatQuota({ userId: "u8", ip: null, day: DAY, db: testDb });
+    expect(await countFor(testDb, "chat:user:u8")).toBe(0);
   });
 
   it("targets the passed day, not now", async () => {
@@ -378,7 +513,7 @@ describe("refundChatQuota — DB path", () => {
     const base = { userId: "u7", isAnonymous: true, ip: "9.9.9.12", db: testDb };
     await consumeChatQuota({ ...base, now: NOW });
     await consumeChatQuota({ ...base, now: otherNow });
-    await refundChatQuota({ ...base, day: otherDay });
+    await refundChatQuota({ userId: base.userId, ip: base.ip, db: base.db, day: otherDay });
     expect(await countFor(testDb, "chat:user:u7", otherDay)).toBe(0);
     expect(await countFor(testDb, "chat:ip:9.9.9.12", otherDay)).toBe(0);
     expect(await countFor(testDb, "chat:user:u7", DAY)).toBe(1);
