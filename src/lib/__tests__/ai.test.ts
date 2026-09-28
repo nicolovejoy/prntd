@@ -57,6 +57,18 @@ describe("chatAboutDesign", () => {
     expect(mockCreate).toHaveBeenCalledOnce();
   });
 
+  it("does not throw on an empty content array", async () => {
+    const mockCreate = await getMockCreate();
+    mockCreate.mockResolvedValue({ content: [] });
+
+    const { chatAboutDesign } = await import("../ai");
+    const result = await chatAboutDesign("anything", [], []);
+
+    expect(result.message).toBe("");
+    expect(result.readyToGenerate).toBe(false);
+    expect(result.options).toEqual([]);
+  });
+
   it("merges consecutive same-role messages", async () => {
     const mockCreate = await getMockCreate();
     mockCreate.mockResolvedValue({

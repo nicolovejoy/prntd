@@ -300,8 +300,10 @@ export async function chatAboutDesign(
     messages,
   });
 
-  let text =
-    response.content[0].type === "text" ? response.content[0].text : "";
+  // An empty content array (or one with no text block) reads as "" and flows
+  // into the parse fallback below rather than throwing after the call is billed.
+  const textBlock = response.content.find((block) => block.type === "text");
+  let text = textBlock && textBlock.type === "text" ? textBlock.text : "";
 
   // Strip markdown code fences if present, then parse the JSON envelope.
   // Parse failure (or a non-boolean flag) degrades safely: show the raw

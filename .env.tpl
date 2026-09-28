@@ -85,5 +85,12 @@ MULTI_PLACEMENT_ENABLED=true
 # GUEST_GEN_DAILY_CAP=8
 # USER_GEN_DAILY_CAP=50
 # IP_GEN_DAILY_CAP=20
+# Daily chat-turn caps (one Claude call per turn). Every turn counts against its
+# IP: guests against IP_CHAT_DAILY_CAP, signed-in users against USER_IP_CHAT_DAILY_CAP.
+# A bad value (non-numeric, negative) falls back to the default; 0 refuses every turn.
+# GUEST_CHAT_DAILY_CAP=24
+# USER_CHAT_DAILY_CAP=150
+# IP_CHAT_DAILY_CAP=60
+# USER_IP_CHAT_DAILY_CAP=300
 # Short-circuit Printful submission so local orders never reach fulfilment.
 # PRINTFUL_DRY_RUN=true
