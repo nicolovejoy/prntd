@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireStudioUser } from "@/lib/require-user";
 import { getUserImageLibrary } from "@/lib/user-designs";
 import { Button, EmptyState } from "@/components/ui";
+import { ExportLink } from "./export-link";
 import { LibraryGrid } from "./library-grid";
 import { GuestKeepLine } from "../studio/guest-keep-line";
 
@@ -20,6 +21,9 @@ import { GuestKeepLine } from "../studio/guest-keep-line";
  * links, plus the Active/All filter and select mode for bulk delete (#195,
  * #238). Per-image actions live one tap deeper, on the image detail page.
  *
+ * With at least one image, the masthead row has a "Download all my designs"
+ * link to /designs/export, a zip of every owned image (#12).
+ *
  * Guests (#241) get their own images and, once there is at least one, the
  * sign-up/sign-in line. An empty library shows only its empty state: "keep
  * these designs" beside "No designs yet." reads wrong.
@@ -31,11 +35,12 @@ export default async function DesignsPage() {
   return (
     <div className="min-h-screen flex flex-col">
       <main className="flex-1 px-4 sm:px-6 py-8 max-w-4xl mx-auto w-full">
-        <div className="mb-6">
+        <div className="mb-6 flex items-center justify-between gap-3">
           {/* Mono masthead, same class string as /orders and /shop use. */}
           <h1 className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted">
             My Designs
           </h1>
+          {images.length > 0 && <ExportLink />}
         </div>
 
         {isGuest && images.length > 0 && (

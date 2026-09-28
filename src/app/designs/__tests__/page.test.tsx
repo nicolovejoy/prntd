@@ -41,4 +41,21 @@ describe("/designs", () => {
       "/studio"
     );
   });
+
+  it("offers the zip download when there are images", async () => {
+    vi.mocked(getUserImageLibrary).mockResolvedValue([
+      { imageId: "i1" },
+    ] as never);
+    render(await DesignsPage());
+    const link = screen.getByRole("link", { name: "Download all my designs" });
+    expect(link).toHaveAttribute("href", "/designs/export");
+    expect(link).toHaveAttribute("download");
+  });
+
+  it("has no download link in the empty state", async () => {
+    render(await DesignsPage());
+    expect(
+      screen.queryByRole("link", { name: "Download all my designs" })
+    ).not.toBeInTheDocument();
+  });
 });
