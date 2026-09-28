@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { safeNextPath, withNext } from "../safe-next";
 
 describe("safeNextPath", () => {
-  it.each(["/cart", "/d/abc?x=1#h", "/design?id=abc", "/studio/library"])(
+  it.each(["/cart", "/d/abc?x=1#h", "/design?id=abc", "/designs"])(
     "accepts %s unchanged",
     (path) => {
       expect(safeNextPath(path)).toBe(path);
@@ -49,8 +49,8 @@ describe("safeNextPath", () => {
 
 describe("withNext", () => {
   it("appends an encoded next for a safe path", () => {
-    expect(withNext("/sign-up", "/studio/library")).toBe(
-      "/sign-up?next=%2Fstudio%2Flibrary"
+    expect(withNext("/sign-up", "/designs")).toBe(
+      "/sign-up?next=%2Fdesigns"
     );
     expect(withNext("/sign-in", "/d/a?x=1#h")).toBe(
       "/sign-in?next=%2Fd%2Fa%3Fx%3D1%23h"

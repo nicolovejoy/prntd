@@ -334,7 +334,7 @@ function LibraryCell({
   }
 
   return (
-    <Link href={`/d/${img.imageId}?from=/studio/library`} className="group block">
+    <Link href={`/d/${img.imageId}?from=/designs`} className="group block">
       {tile}
     </Link>
   );

@@ -14,7 +14,7 @@ import { UnpublishAction } from "../unpublish-action";
 describe("UnpublishAction", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("confirms before un-publishing, then sends the owner to their library", async () => {
+  it("confirms before un-publishing, then sends the owner to My Designs", async () => {
     render(<UnpublishAction imageId="img-1" />);
     fireEvent.click(screen.getByRole("button", { name: "Un-publish" }));
     // The confirm sheet, not window.confirm (#200).
@@ -27,7 +27,7 @@ describe("UnpublishAction", () => {
     // role query — the trigger and the confirm share the label "Un-publish".
     fireEvent.click(screen.getByTestId("confirm-sheet-confirm"));
     await waitFor(() => expect(unpublishImage).toHaveBeenCalledWith("img-1"));
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/studio/library"));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/designs"));
   });
 
   it("does nothing when the confirm is dismissed", async () => {

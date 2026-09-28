@@ -58,5 +58,5 @@ export async function openConversation(designId: string): Promise<void> {
   // A reopened lane belongs back on the bench, and its images may now belong
   // in the Active filter on My Designs.
   revalidatePath("/studio");
-  revalidatePath("/studio/library");
+  revalidatePath("/designs");
 }

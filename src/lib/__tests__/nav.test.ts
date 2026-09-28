@@ -1,5 +1,27 @@
 import { describe, it, expect } from "vitest";
-import { breadcrumbTrail, upTarget, HOME } from "@/lib/nav";
+import { breadcrumbTrail, isCurrentSection, upTarget, HOME } from "@/lib/nav";
+
+describe("isCurrentSection", () => {
+  it("matches the href exactly", () => {
+    expect(isCurrentSection("/studio", "/studio")).toBe(true);
+  });
+
+  it("matches a path nested under the href", () => {
+    expect(isCurrentSection("/studio/x", "/studio")).toBe(true);
+  });
+
+  it("does not treat /designs as current for /design", () => {
+    expect(isCurrentSection("/designs", "/design")).toBe(false);
+  });
+
+  it("does not treat /design as current for /designs", () => {
+    expect(isCurrentSection("/design", "/designs")).toBe(false);
+  });
+
+  it("does not match an unrelated path", () => {
+    expect(isCurrentSection("/shop", "/studio")).toBe(false);
+  });
+});
 
 describe("breadcrumbTrail", () => {
   it("returns no ancestors at the root", () => {
@@ -7,7 +29,7 @@ describe("breadcrumbTrail", () => {
   });
 
   it("places top-level hubs directly under Home", () => {
-    for (const hub of ["/shop", "/studio", "/studio/library", "/orders", "/admin"]) {
+    for (const hub of ["/shop", "/studio", "/designs", "/orders", "/admin"]) {
       expect(breadcrumbTrail(hub)).toEqual([HOME]);
     }
   });
@@ -45,9 +67,9 @@ describe("breadcrumbTrail", () => {
   });
 
   it("uses the recorded origin as the detail page's parent", () => {
-    expect(breadcrumbTrail("/d/img1", { from: "/studio/library" }).at(-1)).toEqual({
+    expect(breadcrumbTrail("/d/img1", { from: "/designs" }).at(-1)).toEqual({
       label: "My Designs",
-      href: "/studio/library",
+      href: "/designs",
     });
     expect(breadcrumbTrail("/d/img1", { from: "/orders" }).at(-1)).toEqual({
       label: "Orders",
@@ -59,12 +81,12 @@ describe("breadcrumbTrail", () => {
     });
   });
 
-  it("still resolves the retired origins /designs and /prints", () => {
+  it("still resolves the retired origins /studio/library and /prints", () => {
     // Links shared before nav model A carry the old markers; they must not
     // fall through to the Shop default.
-    expect(breadcrumbTrail("/d/img1", { from: "/designs" }).at(-1)).toEqual({
+    expect(breadcrumbTrail("/d/img1", { from: "/studio/library" }).at(-1)).toEqual({
       label: "My Designs",
-      href: "/studio/library",
+      href: "/designs",
     });
     expect(breadcrumbTrail("/d/img1", { from: "/prints" }).at(-1)).toEqual({
       label: "Shop",

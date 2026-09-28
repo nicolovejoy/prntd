@@ -7,7 +7,7 @@
  * the design's ownership actually moves, the anon user row is actually gone
  * (better-auth 1.6 only logs a failed delete, so a stranded anon user would
  * otherwise be invisible here), and the claimed design shows up in the new
- * account's own Studio library.
+ * account's own My Designs.
  */
 import { test, expect } from "@playwright/test";
 import { waitForSessionCookie } from "./helpers/session";
@@ -73,10 +73,10 @@ test("signing up after using the app as a guest claims the guest's design", asyn
       false
     );
 
-    // The claimed design shows up in the new account's own library, not just
+    // The claimed design shows up in the new account's own My Designs, not just
     // in the database.
-    await page.goto("/studio/library");
-    await expect(page).toHaveURL(/\/studio\/library$/);
+    await page.goto("/designs");
+    await expect(page).toHaveURL(/\/designs$/);
     await expect(page.getByTestId("library-tile")).toHaveCount(1);
   } finally {
     await cleanupDesigns(seeded);

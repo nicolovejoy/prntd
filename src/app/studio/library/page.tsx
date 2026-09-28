@@ -1,56 +1,16 @@
-import Link from "next/link";
-import { requireStudioUser } from "@/lib/require-user";
-import { getUserImageLibrary } from "@/lib/user-designs";
-import { Button, EmptyState } from "@/components/ui";
-import { LibraryGrid } from "./library-grid";
-import { GuestKeepLine } from "../guest-keep-line";
+import { permanentRedirect } from "next/navigation";
+import { pathWithSearch } from "@/lib/redirect-path";
 
 /**
- * Library — every image this user has made (studio-plan slice 5). Moved here
- * from /designs by nav model A: the bench holds the conversations you are
- * working on, this holds what came out of them, and they are two views of one
- * Studio rather than two top-level destinations.
- *
- * The heading and the tab strip come from src/app/studio/layout.tsx.
- *
- * A server component. The grid (LibraryGrid) is the client island: tiles are
- * links, plus the Active/All filter and select mode for bulk delete (#195,
- * #238). Per-image actions live one tap deeper, on the image detail page.
- *
- * Guests (#241) get their own images and, once there is at least one, the
- * sign-up/sign-in line, like the bench. An empty library shows only its
- * empty state: "keep these designs" beside "No designs yet." reads wrong.
+ * /studio/library moved to /designs (2026-09-27, revising nav model A): My
+ * Designs is a top-level destination now, not a Studio view. A permanent
+ * (308) redirect carries the query string so bookmarks, shared links and
+ * `?from=` markers keep working.
  */
-export default async function StudioLibraryPage() {
-  const { session, isGuest } = await requireStudioUser();
-  const images = await getUserImageLibrary(session.user.id);
-
-  return (
-    <>
-      {isGuest && images.length > 0 && (
-        // The views' own gutters and max width, so the line sits flush with
-        // the tab strip above it; main keeps its 24px top gap below.
-        <div className="px-4 sm:px-6 pt-4 max-w-4xl mx-auto w-full">
-          <GuestKeepLine next="/studio/library" />
-        </div>
-      )}
-      {/* 24px under the tab strip, the bench's default 24px. The layout
-          contributes nothing below the strip, so each view owns this
-          number; they used to disagree (24 / 32 / 32). */}
-      <main className="px-4 sm:px-6 pt-6 pb-8 max-w-4xl mx-auto w-full">
-        {images.length === 0 ? (
-          <EmptyState
-            message="No designs yet."
-            action={
-              <Link href="/studio">
-                <Button>Go to Bench</Button>
-              </Link>
-            }
-          />
-        ) : (
-          <LibraryGrid images={images} />
-        )}
-      </main>
-    </>
-  );
+export default async function StudioLibraryPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}): Promise<never> {
+  permanentRedirect(pathWithSearch("/designs", await searchParams));
 }
