@@ -75,8 +75,9 @@ Local `npm run build` needs env. Use CI's dummy block (copy it from `ci.yml`'s `
 
 ```
 /                       → Landing: composer-first hero + Shop feed below
-/studio                 → Studio bench: composer on top, one lane per conversation (sign-in gated today; #241 opens it to guests)
-/studio/library         → My Designs: every owned image, Active/All filter
+/studio                 → Studio bench: composer on top, one lane per conversation (guests with a session allowed while GUEST_FUNNEL_ENABLED; #248)
+/designs                → My Designs (top nav): every owned image, Active/All filter (guests too; #258)
+/checkout?session=      → Stripe Embedded Checkout for image-detail-page buys; 404 unless EMBEDDED_CHECKOUT_ENABLED (#250)
 /design?id=             → One conversation thread (older make surface; still reachable)
 /preview?id=            → Design on a shirt: product, size, color, front + back, buy or add to cart
 /d/[imageId]            → Image detail page: public for published images, owner view for private ones; buy, add to cart, start a new design from it
@@ -92,11 +93,11 @@ Local `npm run build` needs env. Use CI's dummy block (copy it from `ci.yml`'s `
 /api/webhooks/stripe, /api/webhooks/printful, /api/cron/retry-fulfillment, /api/cron/sweep-generations, /api/health
 ```
 
-Redirect-only: `/designs` → `/studio/library`, `/studio/archive` → `/studio/library`, `/prints` → `/shop` (308s), `/order` → `/preview`. Retired but still in the tree until composition slice 5 merges: `/dashboard/**`, `/shop/[slug]/**` (organizer storefronts; `STORES_ENABLED` removed from Vercel, so they 404).
+Redirect-only: `/studio/library` → `/designs`, `/studio/archive` → `/designs`, `/prints` → `/shop` (308s), `/order` → `/preview`. Retired but still in the tree until composition slice 5 merges: `/dashboard/**`, `/shop/[slug]/**` (organizer storefronts; `STORES_ENABLED` removed from Vercel, so they 404).
 
 Say "image detail page", not "/d", when talking to Nico.
 
-Auth: `src/middleware.ts` checks the session cookie; `requireRealUser` guards server-rendered personal pages; anonymous guests are real `user` rows (Better-Auth anonymous plugin) that `onLinkAccount` re-parents on sign-in/up via `reparentUserData` (every user-owned table must be listed there — its integration test seeds one row per table and is the checklist). `/admin` is gated by `isAdminUser()`: `ADMIN_EMAIL` is Nico's gmail; his me.com account is a regular user.
+Auth: `src/proxy.ts` (Next 16's renamed middleware, Node runtime) checks the session cookie; `requireRealUser` guards server-rendered personal pages; anonymous guests are real `user` rows (Better-Auth anonymous plugin) that `onLinkAccount` re-parents on sign-in/up via `reparentUserData` (every user-owned table must be listed there — its integration test seeds one row per table and is the checklist). `/admin` is gated by `isAdminUser()`: `ADMIN_EMAIL` is Nico's gmail; his me.com account is a regular user.
 
 ### Core loop
 
@@ -127,7 +128,7 @@ Price = `baseCost × 1.5` per size, plus a separate flat shipping line (`FLAT_SH
 - **Ideogram:** $0.03 per generate, $0.20 per edit (`costFor()`; the edit price is secondhand, check it against a bill). No transparency support in v4's text endpoints; only `generate-transparent` and `/v1/edit` have it.
 - **R2:** every generated image is kept (`images/{imageId}.png`; legacy `designs/{designId}/{n}.png` keys stay). Mockup keys come from `src/lib/mockup-cache.ts`, the single builder for both the R2 key and the DB cache key.
 - **Printful:** product catalog in `src/lib/products.ts`; mockups; order submission; status webhooks (redeliveries at the target status return 200 `ignored`). `PRINTFUL_AUTO_CONFIRM` defaults ON. Printful's field constraints are invisible to mocks; the nightly contract check is the only test that sees them.
-- **Stripe:** hosted checkout, webhooks, admin refunds. Radar goes to $0.05/transaction after 2027-01-22 — switch to Radar Lite or decide by January.
+- **Stripe:** hosted checkout, webhooks, admin refunds. Embedded checkout (`ui_mode: "embedded"`, `/checkout`) exists behind `EMBEDDED_CHECKOUT_ENABLED` (off; needs `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` and a phone test — see #250). Radar goes to $0.05/transaction after 2027-01-22 — switch to Radar Lite or decide by January.
 
 ### Conventions
 
@@ -171,23 +172,18 @@ REPLICATE_API_TOKEN                        # ops scripts only
 
 Vercel env changes apply only to new deployments. A flag a Playwright spec needs must be set in CI's e2e env, and in Vercel's Preview scope to test on a preview deploy.
 
-## Current state (2026-09-25)
+## Current state (2026-09-27)
 
-- **Prod** is at `fe7f515` (2026-09-10). Nightly Stripe e2e and prod-smoke are green.
-- **In flight — the 2026-09-25 batch, all six PRs open with CI green; Nico merges.** Plan of record `docs/superpowers/plans/2026-09-25-batch.md`; roadmap page https://claude.ai/artifact/WzPgkzJUzMYdAX156Z4Nfr (republish with `url` from a new session). Merge order and what each needs:
-  1. #244 — this CLAUDE.md split + batch plan (docs only).
-  2. #246 — React #418 fix (header renders session only after hydration; Studio clock; Pacific dates). Merge BEFORE #248.
-  3. #247 — #138 slice 3, front/back swap on the image detail page; order emails lead with the pinned front; checkout refuses a back on a blank with no back area.
-  4. #248 — #241 guests in Studio/Library. Conflicts with #246 in `studio/page.tsx` + `studio-client.tsx`: after #246 merges, Claude merges main into `claude/241-guest-studio`, resolves, re-gates, pushes.
-  5. #250 — #135 slice 2, embedded checkout behind `EMBEDDED_CHECKOUT_ENABLED` (off → mergeable anytime). Flip needs `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` + the flag in Preview scope and the phone test in the PR body; live `client_secret`-on-retrieve is unverified until then. Conflicts with #249 only in `.env.tpl` / `flags.ts` (trivial).
-  6. #249 — HELD: composition slice 5, migration `0014_thin_pride.sql` (replaces closed #201). Runbook in the PR body: pre-check → rehearse on `prntd-0014-rehearsal` → backup → migrate prod → verify = merge gate → merge → preview AFTER merge → dev. Correction comment on the PR: a guest whose sign-up failed in the window signs IN.
-  Every merged PR has one prod smoke in its body. Whenever main moves, the still-open PRs need main merged in (Claude's job).
-- **Batch lesson:** subagents launched with the Agent tool can't launch their own agents, so each builder reviewed its own work; every PR then got an independent Opus review from the main session, and every one of those reviews found real defects (wrong email hero after a swap, empty-cart dead end, returning-user sign-in, the migrate-order trace, the Feedback button over Stripe's form). Keep the independent pass.
-- **Open issues:** #245 (lost Generate response reads as failure → duplicate), #251 (`createStripeCheckoutForOrder` exported from a "use server" file), #188 (Paper look — slice 4 focused stage needs Nico's call; slice 8 leftovers), #135 (slices 3–4), #235 (app icon + link-preview mark), #139 (light/dark shirt filter), #127 (phone speed check), #14 (full Printful colors), #12 (zip export), #4 (charity, paused). #241 and #138 close when #248 / #247 merge. Closed 2026-09-25: #45, #6, #17, #112, PR #201.
-- **Unrun smoke:** #242 + #243 in one pass — signed in, generate one image in a new conversation at https://prntd.org/studio, open it, Delete; PASS = the sheet names the conversation, confirming lands on /studio, and the lane is gone.
+- **Prod** is main after #259 (`c8244f6`) plus this PR. Batch 2 merged today: #254 (security bump: Next.js 16.3.6, Better Auth 1.6, Drizzle 0.45.3; adds `reparent-user-schema-coverage.test.ts`, which fails when a table with a user FK is missing from `reparentUserData`), #255 (`middleware.ts` → `src/proxy.ts`, runs on Node), #256 (sign-in open-redirect fix; admin pages print Pacific dates; guest publish points to sign-up; sign-up honours `next`; running-jobs badge counts guests), #257 (#251: `createStripeCheckoutForOrder` → `src/lib/order-checkout.ts`, `prefetchProductMockups` → `src/lib/mockup-prefetch.ts`; `server-action-exports.test.ts` pins the exports of four "use server" files and bans those helpers from every one; owner check in `addToCart`). Shared-conventions block committed to `AGENTS.md`.
+- **Also merged 2026-09-27:** #258 (My Designs in the top nav at `/designs`; `/studio/library` and `/studio/archive` 308 there; the proxy's sign-in redirect carries `?next=`), #259 (#245: client-minted job id, so a lost Generate response no longer reads as failed). Whenever main moves, Claude merges main into the still-open PRs, `npm ci`, re-gates, pushes.
+- **HELD: #249** — composition slice 5, migration `0014_thin_pride.sql` (drops `store`, `product_offering`, `order.store_id`, `product.store_id`, `product.design_id`; `listing` → `image_publication`). Nico runs the migrate-first runbook in the PR body (pre-check → rehearse on `prntd-0014-rehearsal` → backup → migrate prod → verify = merge gate → merge → preview after → dev); correction comment on the PR: a guest whose sign-up failed in the window signs IN. Main is kept merged in; the 2026-09-27 PR comment lists what those merges changed (store dropped from the reparent coverage list, `storeId` removal ported to `order-checkout.ts`, `shop/actions.ts` pin removed). Migration SQL unchanged.
+- **Smokes owed by Nico, one per message:** the prod smoke in each merged PR body (#254, #255, #256, #257, #258, #259), plus #246 (#418 on Slow 4G reloads), #247 (swap), #250 (hosted checkout still opens, flag off) and the old #242/#243 delete smoke.
+- **Embedded checkout switch-on:** set `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` (pk_test) + `EMBEDDED_CHECKOUT_ENABLED=true` in Vercel Preview, redeploy, phone test per #250. Live `client_secret`-on-retrieve is unverified until then. Then #135 slices 3–4.
+- **Batch lesson:** subagents launched with the Agent tool can't launch their own agents. Controllers should run implementers/reviewers as `claude -p` subprocesses, and the main session runs an independent Opus whole-branch review of every branch before its PR — every batch-1 review found real defects. Build the combined tree of all open branches + main locally before merges; it catches semantic conflicts `git merge-tree` can't. Batch 2 showed the same thing after merge: new guard tests from one PR (#254's reparent coverage, #257's export pins, #254's `guest-claim` e2e) failed on other open branches (#249, #258) with no textual conflict.
+- **Open issues:** #253 (`sendChatMessage` makes a Sonnet call for any session, guests included, with no quota), #188 (Paper look — slice 4 focused stage needs Nico's call; slice 8 leftovers), #135 (slices 3–4), #235 (app icon + link-preview mark), #139 (light/dark shirt filter), #127 (phone speed check), #14 (full Printful colors), #12 (zip export), #4 (charity, paused). Closed 2026-09-27: #251, #245.
 - **Backups:** `prntd-backup-20260908` (safe to delete).
-- **Watch items:** anonymous back-mockup renders append to the seller's `design.mockup_urls` (~230 KB/design; revisit at 10× the Shop); the admin Refund button has never run on a real Printful cancel; fulfillment recovery can persist `submitted` with no COGS when Printful omits `costs.total` (loud log, book it by hand); leftmost `x-forwarded-for` feeds the IP quota.
-- **Deferred:** `middleware.ts` → `proxy.ts` (Next 16 deprecation; after #248 merges); the prompt-quality eval harness (`docs/async-generation-and-edit-plan.md` slice 4); follow-ups noted in PR bodies (admin pages still print UTC days; "Sign in to publish" wording for guests; the running-jobs badge doesn't count guests; hosted fallback when Stripe.js is blocked).
+- **Watch items:** anonymous mockup renders (front and back) append to the seller's `design.mockup_urls` (~230 KB/design; revisit at 10× the Shop); the admin Refund button has never run on a real Printful cancel; fulfillment recovery can persist `submitted` with no COGS when Printful omits `costs.total` (loud log, book it by hand); leftmost `x-forwarded-for` feeds the IP quota.
+- **Deferred:** the prompt-quality eval harness (`docs/async-generation-and-edit-plan.md` slice 4); hosted-checkout fallback when Stripe.js is blocked (#250 ledger).
 
 ## Standing rules
 
