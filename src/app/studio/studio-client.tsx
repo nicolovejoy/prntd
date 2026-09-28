@@ -832,7 +832,7 @@ export function StudioClient({
       {confirmSheet}
       <main
         className={`flex-1 px-4 sm:px-6 max-w-4xl mx-auto w-full ${
-          selectMode ? "pb-40" : "pb-8"
+          selectMode ? "pt-6 pb-40" : "pb-8"
         }`}
       >
         {selectMode ? null : (

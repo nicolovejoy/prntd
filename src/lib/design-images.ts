@@ -49,8 +49,8 @@ const RENDER_SEQ_DESC = sql`placement_render.rowid desc`;
  * `UPDATE ... RETURNING`, returning the reserved numbers ascending.
  *
  * Since the slice-4 writer cutover this is purely the display counter
- * (/designs cards show "N generations"; the action responses echo the
- * number). R2 keys are id-keyed (`images/{imageId}.png`, minted before
+ * (the old /designs card grid, retired, showed "N generations"; the action
+ * responses still echo the number). R2 keys are id-keyed (`images/{imageId}.png`, minted before
  * upload) and no longer derive from it — kept atomic anyway so concurrent
  * generates don't undercount. Gaps from failed generations are harmless.
  */
@@ -691,7 +691,8 @@ export async function getDesignPlacementRenders(
 
 /**
  * Resolve the display image URL for a design — the URL surfaced on
- * /designs cards, /orders rows, the design hydration on /design, etc.
+ * /orders rows, the design hydration on /design, etc. (the old /designs
+ * card grid also used this; that grid is retired).
  *
  * Resolution: design.primary_image_id → its image URL. Fallback: the
  * most recent source image (product_id IS NULL). Null when neither.
@@ -707,8 +708,9 @@ export async function getDesignDisplayImageUrl(
 }
 
 /**
- * Batch version of getDesignDisplayImageUrl — for list pages (/designs,
- * /orders, /admin) that would otherwise N+1 the design_image table.
+ * Batch version of getDesignDisplayImageUrl — for list pages (/orders,
+ * /admin; also the old /designs card grid, retired) that would otherwise
+ * N+1 the design_image table.
  * One query for primary lookups, one for latest-source fallbacks.
  */
 export async function resolveDesignDisplayImageUrls(

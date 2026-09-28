@@ -41,14 +41,15 @@ function query(
  * origin in ?from so "up" returns there; shared links with no origin fall
  * back to the Shop, the public storefront.
  *
- * The retired markers /designs and /prints still resolve — links carrying
- * them were shared before nav model A and outlive the route move.
+ * The retired marker /prints, and /studio/library (My Designs' address
+ * before nav model A moved it to /designs), still resolve — links carrying
+ * them were shared before the move and outlive it.
  */
 function detailParent(from: string | undefined): Crumb {
   switch (from) {
-    case "/studio/library":
     case "/designs":
-      return { label: "My Designs", href: "/studio/library" };
+    case "/studio/library":
+      return { label: "My Designs", href: "/designs" };
     case "/orders":
       return { label: "Orders", href: "/orders" };
     case "/shop":
@@ -80,7 +81,7 @@ export function breadcrumbTrail(
   if (
     pathname === "/shop" ||
     pathname === "/studio" ||
-    pathname === "/studio/library" ||
+    pathname === "/designs" ||
     pathname === "/orders" ||
     pathname === "/admin"
   ) {
@@ -88,7 +89,7 @@ export function breadcrumbTrail(
   }
 
   if (pathname === "/cart") return [HOME];
-  // The thread and the preview hang off the Studio bench, not the library:
+  // The thread and the preview hang off the Studio bench, not My Designs:
   // the bench is where a conversation you are still working on lives.
   if (pathname === "/design") return [HOME, studio];
   if (pathname === "/preview") return [HOME, studio, designStep];
@@ -107,6 +108,16 @@ export function breadcrumbTrail(
     return [HOME, { label: "Admin", href: "/admin" }];
 
   return [];
+}
+
+/**
+ * Whether `pathname` sits inside the section rooted at `href` — an exact
+ * match, or a path under it. Used by the header bar to underline the current
+ * primary link; a prefix match alone would be wrong (`/design` must not
+ * light up `/designs`, nor the reverse).
+ */
+export function isCurrentSection(pathname: string, href: string): boolean {
+  return pathname === href || pathname.startsWith(href + "/");
 }
 
 /** The immediate parent — Escape target and mobile back chip — or null at the root. */

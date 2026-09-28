@@ -305,21 +305,24 @@ differ.
 
 **Places**
 
-- **Studio** — `/studio` (Bench · Library, nav model A,
-  `docs/ux-design-review-2026-09.md`). Where designs are made (Bench) and
-  organized (Library). One conversation thread lives one level in, at
-  `/design`. A third view, Archive, existed until 2026-09-09 — dropped as
-  redundant once Library's Active/All filter (#238) already surfaced every
-  archived image; `/studio/archive` now 308s to `/studio/library`.
-  Guests use it too (#241): while `GUEST_FUNNEL_ENABLED` is on, an
-  anonymous guest-funnel session sees its own Bench and Library plus one
-  line, "Sign up to keep these designs. Have an account? Sign in." (two
-  links, `/sign-up` and `/sign-in`; either one from the same window moves
-  the guest's work to the account). On the Bench it sits under the
-  composer, never above it (it wraps to two rows on a phone and comes and
-  goes mid-session, so above would move the composer); in the Library it
-  sits under the tab strip. Hidden on an empty Bench or Library. A visitor
-  with no session at all is sent to sign-in.
+- **Studio** — `/studio`, a single view: the bench, where designs are made.
+  There is no tab strip inside it any more. One conversation thread lives
+  one level in, at `/design`. My Designs (see Shelf, below) used to be the
+  Studio's own Library tab; it moved out to its own top-level route on
+  2026-09-27, revising nav model A (`docs/ux-design-review-2026-09.md`),
+  reachable from the header bar instead of a tab. `/studio/archive` and
+  `/studio/library` both 308 to `/designs` now, carrying the query string.
+  Guests use the Studio too (#241): while `GUEST_FUNNEL_ENABLED` is on, an
+  anonymous guest-funnel session sees its own bench and its own My Designs
+  (an empty state when it has no designs yet); once it has at least one
+  design, both the bench and My Designs show one line, "Sign up to keep
+  these designs. Have an account? Sign in." (two links, `/sign-up` and
+  `/sign-in`; either one from the same window moves the guest's work to the
+  account). On the bench it sits under the composer, never above it (it
+  wraps to two rows on a phone and comes and goes mid-session, so above
+  would move the composer); on My Designs it sits under the masthead.
+  Hidden on an empty bench or My Designs. A visitor with no session at all
+  is sent to sign-in.
 - **Shop** — `/shop`, the community storefront (renamed from "Fresh
   Prints" 2026-07-19). Organizer stores were also shops (`/shop/[slug]`,
   each a self-contained storefront) — retired 2026-09-05 (#191):
@@ -328,11 +331,12 @@ differ.
   composition slice 5 (held, PR #201) drops the underlying tables. No
   replacement — organizer storefronts are retired outright, not replaced.
 - **Funnel** — Studio → Preview → Order → Confirm. Linear, breadcrumbed.
-- **Shelf** — the personal library of owned work: `/studio/library` (every
-  owned image) and `/orders`. Library's Active/All filter (#238) is what
-  surfaces idle conversations (Model B `closed`/#181-swept threads) now that
-  the dedicated `/studio/archive` view is gone (2026-09-09, 308 to
-  `/studio/library`) — so Shelf is glossed as library, not archive.
+- **Shelf** — the personal library of owned work: `/designs` (My Designs,
+  every owned image) and `/orders`. My Designs' Active/All filter (#238) is
+  what surfaces idle conversations (Model B `closed`/#181-swept threads) now
+  that the dedicated `/studio/archive` view is gone (2026-09-09; that route
+  and `/studio/library` both 308 to `/designs` today) — so Shelf is glossed
+  as library, not archive.
 - **Counter** — `/admin`. Back of shop.
 - **Dashboard** — `/dashboard`. Where organizers ran their shops. Retired
   2026-09-05 (#191): the file still exists but has no live entry point (see
@@ -534,7 +538,7 @@ were added since, mostly by the #218 alert sweep:
   constants live in `src/lib/action-copy.ts` (#218).
 - **EmptyState** (`empty-state.tsx`) — the one shared "nothing here yet"
   block (optional mono label, one line of muted copy, one action), used on
-  the Studio bench, Library, Shop, Cart, and Orders. `/design`'s own
+  the Studio bench, My Designs, Shop, Cart, and Orders. `/design`'s own
   empty-conversation views do not use it — see Gaps, item 3.
 - **QuickReply** (`quick-reply.tsx`) — tappable chat-option chips rendered
   under an assistant message; a tap submits `value` as the next turn.
@@ -592,7 +596,7 @@ Remaining:
    images exist but no message has been sent yet. Neither uses the shared
    `EmptyState` primitive (`src/components/ui/empty-state.tsx`, added since
    the original draft); that primitive unified the OTHER hand-rolled empty
-   states across the app (Studio bench, Library, Shop, Cart, Orders), but
+   states across the app (Studio bench, My Designs, Shop, Cart, Orders), but
    `/design`'s two were never among them and both still render
    on a live path — this is not near-dead code. (Vocabulary correction: this
    gap's original wording said "in the Studio" — "Studio" now names
@@ -645,11 +649,14 @@ and covered by Part 1's samples.
 
 ### Global chrome (`app/layout.tsx`)
 
-1. **SiteHeader** (`components/site-header.tsx`) — logo; nav model A: two
-   verbs live in the bar, Studio and Shop ("My Designs" is gone from the
-   header — it is the Studio's Library tab now, not a nav link); Cart (flag
-   `CART_ENABLED`) always in the bar, never behind a tap; sign-in/out.
-   Everything about the viewer — signed-in email, Orders, Admin
+1. **SiteHeader** (`components/site-header.tsx`) — logo; nav model A: three
+   verbs live in the bar at every width — Studio, My Designs, Shop — plus
+   Cart (flag `CART_ENABLED`, never behind a tap) and sign-in/out. My
+   Designs moved back into the bar 2026-09-27; it used to be the Studio's
+   own Library tab, three taps deep on a phone. The running-jobs indicator is
+   its own pill beside the wordmark from `sm:` up; below that there's no room
+   for a fifth bar element, so a small dot rides on the Studio link itself
+   instead. Everything about the viewer — signed-in email, Orders, Admin
    (`isAdminUser()`), Feedback, the build-date stamp, Sign out — is one tap
    into the account menu (hamburger on phone; "Account" text at `sm:` and
    up). Organizer storefronts are retired (#191), so there is no Dashboard
@@ -657,14 +664,17 @@ and covered by Part 1's samples.
 2. **Running-jobs badge** — "N generating" pill in the bar itself, not the
    account menu, so a phone user who left the Studio mid-generation sees it
    without opening a menu; links to `/studio`, where the job renders as a
-   pending cell.
+   pending cell. The full pill only fits from `sm:` up, beside the three bar
+   items and the wordmark; below that there is no room for a fifth element,
+   so the Studio link itself carries a small ink dot instead (plus the count
+   in a screen-reader-only string).
 3. **Breadcrumbs** (`components/breadcrumbs.tsx`) — desktop: full trail;
    phone: single `← Parent` chip. Escape navigates up.
 4. **FeedbackLauncher** (`components/feedback-launcher.tsx`) — fixed
    bottom-right FAB, opens the feedback panel; hidden on funnel routes
-   (`/design`, `/preview`, `/order`, `/cart`, `/studio`, `/d` —
-   `src/lib/funnel-routes.ts`), where the header's own "Feedback" menu item
-   opens the same panel instead.
+   (`/design`, `/preview`, `/order`, `/cart`, `/studio`, `/designs`, `/d`,
+   `/checkout` — `src/lib/funnel-routes.ts`), where the header's own
+   "Feedback" menu item opens the same panel instead.
 5. Build-date stamp — lives inside the account menu, not separate header
    chrome; visible at any breakpoint once the menu is open, not desktop-only.
 
@@ -867,15 +877,18 @@ and manage the conversation it came from (#136 slice 1).
 5. Breadcrumb (parent from `?from`; hidden on phone in favor of the floating
    back arrow).
 
-### `/designs` Shelf (`app/designs/page.tsx`)
+### `/designs` My Designs Shelf (`app/designs/page.tsx`)
 
-Retired (nav model A, `docs/ux-design-review-2026-09.md`): a permanent (308)
-redirect to `/studio/library`, so every bookmark and `?from=/designs` marker
-keeps working. My Designs is now a flat grid of every owned image, newest
-first, with select-mode bulk delete
-(`src/app/studio/library/library-grid.tsx`) — each cell opens the image
-detail page, which is where publish, order, delete, and "start a new design
-from this" now all live (#184, #200).
+Top-level destination, revising nav model A (`docs/ux-design-review-2026-09.md`),
+reached from the header bar. `/studio/library` and `/studio/archive` both
+308 here now, carrying the query string, so every old bookmark and
+`?from=/studio/library` marker keeps working. A mono `My Designs` masthead,
+a guest keep-line under it once a guest has at least one design, then a flat
+grid of every owned image, newest first, with an Active/All filter and
+select-mode bulk delete (`src/app/designs/library-grid.tsx`) — each cell
+opens the image detail page, which is where publish, order, delete, and
+"start a new design from this" now all live (#184, #200). Empty state: "No
+designs yet." + a "Go to Studio" action.
 
 ### `/orders` Shelf (`app/orders/page.tsx`)
 
@@ -887,8 +900,8 @@ Job: check where my shirt is.
    pill), per-line thumbnail on shirt color, name/ID, price, size/color,
    front+back + ×qty markers, date, **Track shipment** link, designer
    attribution when bought from someone else.
-3. **Filter tabs** — bottom-border indicator, mirrors the Studio tab strip
-   (`studio-tabs.tsx`), Active (N) / Canceled (N) / All (N).
+3. **Filter tabs** — bottom-border indicator on the selected tab, Active (N)
+   / Canceled (N) / All (N).
 4. Empty states; the no-orders one offers "Make your first design" →
    `/studio`. (The header's New Design button was removed in #232.)
    `/orders` stays behind `requireRealUser` — a guest session has no orders.

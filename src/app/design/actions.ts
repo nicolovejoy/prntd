@@ -1127,7 +1127,7 @@ export async function deleteDesignImage(designId: string, imageId: string) {
   // One batch, including the primary_image_id move when this image was the
   // thread's primary — no follow-up write to fail after the rows are gone.
   const { designRemoved } = await executeImageDeletion(db, plan);
-  revalidatePath("/studio/library");
+  revalidatePath("/designs");
   if (designRemoved === "deleted" || designRemoved === "archived") {
     revalidatePath("/studio");
   }
@@ -1193,7 +1193,7 @@ export async function setPrimaryImage(designId: string, imageId: string) {
     .set({ primaryImageId: imageId, updatedAt: new Date() })
     .where(eq(designTable.id, designId));
 
-  revalidatePath("/studio/library");
+  revalidatePath("/designs");
   revalidatePath(`/d/${imageId}`);
 }
 

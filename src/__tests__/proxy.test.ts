@@ -50,15 +50,32 @@ describe("proxy — a visitor with no session (guest funnel on)", () => {
     expect(redirectTarget(proxy(request("/design")))).toBeNull();
   });
 
-  it("sends /studio and /studio/library to /sign-in", () => {
+  it("sends /studio, /studio/library and /designs to /sign-in", () => {
     expect(redirectTarget(proxy(request("/studio")))).toBe("/sign-in");
     expect(redirectTarget(proxy(request("/studio/library")))).toBe(
       "/sign-in"
     );
+    expect(redirectTarget(proxy(request("/designs")))).toBe("/sign-in");
   });
 
   it("sends /orders to /sign-in", () => {
     expect(redirectTarget(proxy(request("/orders")))).toBe("/sign-in");
+  });
+
+  it("carries the intended destination as ?next= for /designs", () => {
+    const res = proxy(request("/designs"));
+    const location = res.headers.get("location");
+    expect(location).not.toBeNull();
+    const next = new URL(location as string).searchParams.get("next");
+    expect(next).toBe("/designs");
+  });
+
+  it("carries the intended destination with its query string for /orders", () => {
+    const res = proxy(request("/orders?tab=all"));
+    const location = res.headers.get("location");
+    expect(location).not.toBeNull();
+    const next = new URL(location as string).searchParams.get("next");
+    expect(next).toBe("/orders?tab=all");
   });
 });
 
@@ -67,6 +84,14 @@ describe("proxy — a visitor with a session cookie", () => {
     process.env.GUEST_FUNNEL_ENABLED = "true";
     const res = proxy(
       request("/studio", "better-auth.session_token=tok.sig")
+    );
+    expect(redirectTarget(res)).toBeNull();
+  });
+
+  it("passes /designs with a cookie too", () => {
+    process.env.GUEST_FUNNEL_ENABLED = "true";
+    const res = proxy(
+      request("/designs", "better-auth.session_token=tok.sig")
     );
     expect(redirectTarget(res)).toBeNull();
   });
