@@ -99,6 +99,18 @@ describe("GuestKeepLine", () => {
     );
   });
 
+  it("carries next on both links when given one", () => {
+    render(<GuestKeepLine next="/studio/library" />);
+    expect(screen.getByTestId("guest-sign-up")).toHaveAttribute(
+      "href",
+      "/sign-up?next=%2Fstudio%2Flibrary"
+    );
+    expect(screen.getByTestId("guest-sign-in")).toHaveAttribute(
+      "href",
+      "/sign-in?next=%2Fstudio%2Flibrary"
+    );
+  });
+
   it("gives both links a 44px tap target on phones, underlined", () => {
     render(<GuestKeepLine />);
     for (const id of ["guest-sign-up", "guest-sign-in"]) {
@@ -130,6 +142,10 @@ describe("/studio/library", () => {
     vi.mocked(getUserImageLibrary).mockResolvedValue([ONE_IMAGE]);
     render(await StudioLibraryPage());
     expect(screen.getByTestId("guest-keep-line")).toBeTruthy();
+    expect(screen.getByTestId("guest-sign-up")).toHaveAttribute(
+      "href",
+      "/sign-up?next=%2Fstudio%2Flibrary"
+    );
     expect(getUserImageLibrary).toHaveBeenCalledWith("guest-1");
   });
 

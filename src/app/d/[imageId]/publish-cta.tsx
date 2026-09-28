@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { PublishModal } from "@/components/publish-modal";
+import { GuestPublishPrompt } from "@/components/guest-publish-prompt";
 
 /**
  * Publish affordance for an owner's unpublished image on `/d/[imageId]`
@@ -14,7 +14,8 @@ import { PublishModal } from "@/components/publish-modal";
  * anonymous session is a real Better-Auth user row and would otherwise pass
  * an owner check here — publishImage rejects it server-side too, but the
  * button shouldn't invite the click). When false, the modal never opens;
- * a sign-in link explains why instead.
+ * a sign-up / sign-in prompt (GuestPublishPrompt) explains why instead,
+ * returning the guest to this page afterwards.
  */
 export function PublishCta({
   imageId,
@@ -28,14 +29,7 @@ export function PublishCta({
   const [open, setOpen] = useState(false);
 
   if (!canPublish) {
-    return (
-      <Link
-        href={`/sign-in?next=${encodeURIComponent(`/d/${imageId}`)}`}
-        className="inline-flex min-h-11 items-center text-sm text-text-muted underline underline-offset-[3px] hover:no-underline sm:min-h-0"
-      >
-        Sign in to publish
-      </Link>
-    );
+    return <GuestPublishPrompt next={`/d/${imageId}`} />;
   }
 
   return (

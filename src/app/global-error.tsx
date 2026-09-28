@@ -26,11 +26,13 @@ import { ERROR_BOUNDARY_TITLE, ERROR_BOUNDARY_RETRY } from "@/lib/action-copy";
  */
 export default function GlobalError({
   error,
-  unstable_retry,
+  retry,
   reset,
 }: {
   error: Error & { digest?: string };
-  unstable_retry?: () => void;
+  // See src/app/error.tsx for why `retry` is preferred and `reset` is kept
+  // only as a fallback.
+  retry?: () => void;
   reset?: () => void;
 }) {
   useEffect(() => {
@@ -50,7 +52,7 @@ export default function GlobalError({
             </h1>
             <button
               type="button"
-              onClick={() => (unstable_retry ?? reset)?.()}
+              onClick={() => (retry ?? reset)?.()}
               className="min-h-11 rounded-md border border-foreground bg-transparent px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-surface-well"
             >
               {ERROR_BOUNDARY_RETRY}

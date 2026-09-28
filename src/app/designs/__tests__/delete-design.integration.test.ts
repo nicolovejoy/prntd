@@ -27,9 +27,6 @@ vi.mock("@/lib/db", () => ({
 vi.mock("next/headers", () => ({ headers: async () => new Headers() }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 vi.mock("next/server", () => ({ after: () => {} }));
-vi.mock("@/app/preview/actions", () => ({
-  prefetchProductMockups: vi.fn(async () => {}),
-}));
 vi.mock("@/lib/auth", () => ({
   auth: {
     api: {

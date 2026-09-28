@@ -30,7 +30,7 @@ vi.mock("@/lib/auth", () => ({
 
 vi.mock("next/headers", () => ({ headers: async () => new Headers() }));
 
-// d/actions.ts imports createStripeCheckoutForOrder from order/actions.ts,
+// d/actions.ts imports createStripeCheckoutForOrder from lib/order-checkout.ts,
 // which imports @/lib/stripe — that constructs a real Stripe client from
 // STRIPE_SECRET_KEY at module load, which isn't set under vitest. Mocked the
 // same way buy-published-design.integration.test.ts does.

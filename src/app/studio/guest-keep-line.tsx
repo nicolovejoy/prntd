@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { withNext } from "@/lib/safe-next";
 
 export const GUEST_SIGN_UP_COPY = "Sign up to keep these designs.";
 export const GUEST_SIGN_IN_PROMPT = "Have an account?";
@@ -17,8 +18,9 @@ const LINK_CLASS =
  * onLinkAccount). Both links are here because a guest is not always new: an
  * account holder whose session expired and who started again from the
  * homepage composer is a guest too, sign-up would refuse their email, and on
- * a phone the header's own "Sign in" is inside the menu. Both sign-up and
- * sign-in land on /studio afterwards.
+ * a phone the header's own "Sign in" is inside the menu. Both links land on
+ * /studio afterwards unless the caller passes `next`, which both carry so the
+ * guest returns to the view they signed up from (the library does this).
  *
  * Rendered only when there is something to keep — the callers skip it on an
  * empty bench or library, where it would sit beside "No designs yet." — and
@@ -37,17 +39,31 @@ const LINK_CLASS =
  * Each link is a 44px tap target on phones; the flex row wraps on narrow
  * screens, and the {" "} nodes keep the sentence readable as text.
  */
-export function GuestKeepLine({ className = "" }: { className?: string }) {
+export function GuestKeepLine({
+  className = "",
+  next,
+}: {
+  className?: string;
+  next?: string;
+}) {
   return (
     <p
       data-testid="guest-keep-line"
       className={`flex flex-wrap items-center gap-x-1.5 text-sm ${className}`}
     >
-      <Link href="/sign-up" data-testid="guest-sign-up" className={LINK_CLASS}>
+      <Link
+        href={withNext("/sign-up", next)}
+        data-testid="guest-sign-up"
+        className={LINK_CLASS}
+      >
         {GUEST_SIGN_UP_COPY}
       </Link>{" "}
       <span className="text-text-muted">{GUEST_SIGN_IN_PROMPT}</span>{" "}
-      <Link href="/sign-in" data-testid="guest-sign-in" className={LINK_CLASS}>
+      <Link
+        href={withNext("/sign-in", next)}
+        data-testid="guest-sign-in"
+        className={LINK_CLASS}
+      >
         {GUEST_SIGN_IN_COPY}
       </Link>
     </p>

@@ -62,7 +62,11 @@ export const auth = betterAuth({
     // user row so the design/preview/order surface works without sign-in. The
     // gate moves to checkout. onLinkAccount re-parents the guest's rows to the
     // real account on sign-in/up — it runs BEFORE the plugin deletes the anon
-    // user (better-auth 1.5.6 after-hook order), so the FK re-pointing is safe.
+    // user (better-auth 1.6 after-hook order), so the FK re-pointing is safe.
+    // If onLinkAccount throws, sign-in/up fails. If the anon-user delete that
+    // follows fails (e.g. an FK from a table reparentUserData missed), 1.6
+    // only logs "Failed to clean up anonymous user during post-link cleanup"
+    // and the sign-in succeeds, leaving the anon row behind.
     anonymous({
       // One atomic batch (#37) — see reparentUserData for the why.
       onLinkAccount: async ({ anonymousUser, newUser }) => {
