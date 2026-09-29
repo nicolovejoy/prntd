@@ -12,6 +12,7 @@ const PAPER = "#f8f5ef";
  */
 export default function manifest(): MetadataRoute.Manifest {
   return {
+    id: "/",
     name: "PRNTD",
     short_name: "PRNTD",
     start_url: "/",

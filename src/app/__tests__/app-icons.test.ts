@@ -13,6 +13,7 @@ describe("manifest", () => {
   const m = manifest();
 
   it("names the app and uses the Paper colours", () => {
+    expect(m.id).toBe("/");
     expect(m.name).toBe("PRNTD");
     expect(m.short_name).toBe("PRNTD");
     expect(m.start_url).toBe("/");
@@ -45,14 +46,29 @@ describe("app icon files", () => {
     expect([meta.width, meta.height]).toEqual([180, 180]);
   });
 
-  it("apple-icon.png has no transparent pixels (iOS would fill them black)", async () => {
-    const { data, info } = await sharp(path.join(APP, "apple-icon.png"))
+  it.each([
+    path.join(APP, "apple-icon.png"),
+    path.join(PUBLIC, "icons/icon-192.png"),
+    path.join(PUBLIC, "icons/icon-512.png"),
+    path.join(PUBLIC, "icons/icon-maskable-512.png"),
+  ])("%s has no transparent pixels (launchers fill them)", async (file) => {
+    const { data, info } = await sharp(file)
       .ensureAlpha()
       .raw()
       .toBuffer({ resolveWithObject: true });
     for (let i = info.channels - 1; i < data.length; i += info.channels) {
       if (data[i] !== 255) throw new Error(`transparent pixel at byte ${i}`);
     }
+  });
+
+  it("apple-icon.png matches icon.svg rendered at 180 (rasters regenerated with the master)", async () => {
+    const render = async (input: Buffer | string) =>
+      sharp(input).resize(180, 180).removeAlpha().raw().toBuffer();
+    const fromSvg = await render(readFileSync(path.join(APP, "icon.svg")));
+    const committed = await render(path.join(APP, "apple-icon.png"));
+    let maxDiff = 0;
+    for (let i = 0; i < fromSvg.length; i++) maxDiff = Math.max(maxDiff, Math.abs(fromSvg[i] - committed[i]));
+    expect(maxDiff).toBeLessThanOrEqual(8);
   });
 
   it("maskable icon keeps the mark inside the 80% safe-zone circle", async () => {
