@@ -27,6 +27,8 @@ export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title,
   description,
+  // Home-screen label on iOS; the icon itself is app/apple-icon.png (#235).
+  appleWebApp: { title: "PRNTD" },
   openGraph: {
     type: "website",
     siteName: "PRNTD",
