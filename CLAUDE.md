@@ -77,7 +77,7 @@ Local `npm run build` needs env. Use CI's dummy block (copy it from `ci.yml`'s `
 /                       → Landing: composer-first hero + Shop feed below
 /studio                 → Studio bench: composer on top, one lane per conversation (guests with a session allowed while GUEST_FUNNEL_ENABLED; #248)
 /designs                → My Designs (top nav): every owned image, Active/All filter (guests too; #258)
-/checkout?session=      → Stripe Embedded Checkout for image-detail-page buys; 404 unless EMBEDDED_CHECKOUT_ENABLED (#250)
+/checkout?session=      → Stripe Embedded Checkout for image-detail-page buys and, behind PREVIEW_EMBEDDED_CHECKOUT_ENABLED, /preview buys; 404 unless either switch is on (#250, #135)
 /design?id=             → One conversation thread (older make surface; still reachable)
 /preview?id=            → Design on a shirt: product, size, color, front + back, buy or add to cart
 /d/[imageId]            → Image detail page: public for published images, owner view for private ones; buy, add to cart, start a new design from it
@@ -166,6 +166,8 @@ OWNER_EMAIL                                # new-order alert recipient (defaults
 CRON_SECRET                                # Bearer token for /api/cron/* (Production scope)
 GUEST_FUNNEL_ENABLED, CART_ENABLED, MULTI_PLACEMENT_ENABLED   # all ON in prod
 USER_GEN_DAILY_CAP, GUEST_GEN_DAILY_CAP, IP_GEN_DAILY_CAP     # generation quota overrides
+EMBEDDED_CHECKOUT_ENABLED, PREVIEW_EMBEDDED_CHECKOUT_ENABLED  # embedded checkout per buy surface (image detail page, /preview); image detail page's ON in prod, /preview's off
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY         # pk_ matching STRIPE_SECRET_KEY's mode; without it either switch fails closed to hosted
 NEXT_PUBLIC_FEEDBACK_PROJECT_ID            # feedback widget target
 REPLICATE_API_TOKEN                        # ops scripts only
 ```

@@ -82,6 +82,9 @@ STORES_ENABLED=true
 # NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY above or it fails closed to hosted
 # checkout. Default off.
 # EMBEDDED_CHECKOUT_ENABLED=true
+# Same for purchases started on /preview (separate switch; needs the same
+# publishable key). Default off.
+# PREVIEW_EMBEDDED_CHECKOUT_ENABLED=true
 # Daily generation caps guarding the ungated funnel. Defaults apply if unset.
 # GUEST_GEN_DAILY_CAP=8
 # USER_GEN_DAILY_CAP=50

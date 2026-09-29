@@ -49,3 +49,24 @@ export function storesEnabled(): boolean {
 export function embeddedCheckoutFlag(): boolean {
   return process.env.EMBEDDED_CHECKOUT_ENABLED === "true";
 }
+
+/**
+ * Embedded checkout for /preview (#135 slice 3): the raw on/off switch for
+ * purchases started on /preview, separate from `embeddedCheckoutFlag()` so
+ * each buy surface is switched on independently. Like that one, this says
+ * nothing about the key pair; callers that create a session use
+ * `previewEmbeddedCheckoutConfig()` (src/lib/embedded-checkout.ts), which
+ * fails closed to hosted checkout. Default off.
+ */
+export function previewEmbeddedCheckoutFlag(): boolean {
+  return process.env.PREVIEW_EMBEDDED_CHECKOUT_ENABLED === "true";
+}
+
+/**
+ * Whether the /checkout page and the confirm page's open-session branch
+ * exist: true when either buy surface is switched on. A session created on
+ * one surface stays reachable while only the other switch is on.
+ */
+export function embeddedCheckoutPageFlag(): boolean {
+  return embeddedCheckoutFlag() || previewEmbeddedCheckoutFlag();
+}

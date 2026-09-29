@@ -3,9 +3,10 @@ name: Stripe E2E (nightly)
 # The one real-money-path test (e2e/stripe-money-path.spec.ts, docs/stripe-e2e.md)
 # only ever ran when someone remembered `npm run e2e:stripe` locally (#104).
 # This gives it a nightly run + a manual trigger, entirely separate from PR CI:
-# it pays through Stripe's real hosted test checkout and depends on Stripe's
-# live checkout DOM (three layout fixes needed on the first live run,
-# 2026-07-21), so it is deliberately NOT wired into the pull_request/push
+# it pays through Stripe's real test checkout (the cart through the hosted
+# page, /preview through Embedded Checkout on our /checkout page) and depends
+# on Stripe's live checkout DOM (three layout fixes needed on the first live
+# run, 2026-07-21), so it is deliberately NOT wired into the pull_request/push
 # `check`/`e2e` jobs in ci.yml — that would add third-party flake to every PR.
 
 on:
@@ -36,6 +37,13 @@ jobs:
       # scripts/e2e-stripe.sh), but a missing/misconfigured secret must fail
       # loud, not silently self-skip and report green.
       STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+      # /preview purchases open Embedded Checkout on our own /checkout page.
+      # The publishable key is a repo variable, not a secret (it ships to
+      # browsers). It is inlined at `next build`, and must belong to the same
+      # Stripe test account as STRIPE_SECRET_KEY: otherwise checkout fails
+      # closed to the hosted page and the /preview test fails loud.
+      PREVIEW_EMBEDDED_CHECKOUT_ENABLED: "true"
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ vars.STRIPE_TEST_PUBLISHABLE_KEY }}
       # Fake vendor creds for SDK constructors that run at module-eval time
       # during `next build` / at server boot. The spec never exercises real
       # Anthropic/Replicate/Printful/R2 calls (Printful stays dry-run;

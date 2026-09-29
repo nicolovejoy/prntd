@@ -5,8 +5,8 @@ import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
 import { getColorHex } from "@/lib/blanks";
 import { appErrorLogLine, shapeAppError } from "@/lib/app-error";
-import { embeddedCheckoutFlag } from "@/lib/flags";
-import { embeddedCheckoutConfig } from "@/lib/embedded-checkout";
+import { embeddedCheckoutPageFlag } from "@/lib/flags";
+import { embeddedCheckoutPageConfig } from "@/lib/embedded-checkout";
 import {
   getCheckoutSessionState,
   resolveConfirmView,
@@ -25,7 +25,8 @@ type Search = Promise<Record<string, string | string[] | undefined>>;
  * `STALE_PENDING_MS`), so the "View orders" link below can briefly not show
  * an order that was just paid here.
  *
- * #135 slice 2: when `EMBEDDED_CHECKOUT_ENABLED` is on and the order is still
+ * #135 slices 2-3: when `EMBEDDED_CHECKOUT_ENABLED` or
+ * `PREVIEW_EMBEDDED_CHECKOUT_ENABLED` is on and the order is still
  * `pending`, this page makes one extra Stripe read (`getCheckoutSessionState`)
  * to tell apart a genuine webhook lag (session `complete`, renders as
  * confirmed) from a session that's still `open` — reachable with embedded
@@ -99,12 +100,12 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Sear
   }
 
   let view: ConfirmView = { kind: "confirmed" };
-  if (sessionId && embeddedCheckoutFlag() && order.status === "pending") {
+  if (sessionId && embeddedCheckoutPageFlag() && order.status === "pending") {
     const stripeState = await getCheckoutSessionState(sessionId);
     view = resolveConfirmView({
       orderStatus: order.status,
       stripe: stripeState,
-      embeddedEnabled: embeddedCheckoutConfig().enabled,
+      embeddedEnabled: embeddedCheckoutPageConfig().enabled,
       sessionId,
     });
   }
