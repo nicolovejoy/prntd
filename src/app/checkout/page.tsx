@@ -27,9 +27,9 @@ const SESSION_ID_RE = /^cs_(test|live)_[A-Za-z0-9]+$/;
  * Stripe Embedded Checkout, mounted on our own origin (#135 slices 2-3).
  * Serves both buy surfaces, the image detail page (EMBEDDED_CHECKOUT_ENABLED)
  * and /preview (PREVIEW_EMBEDDED_CHECKOUT_ENABLED), and 404s unless either
- * is on. Never renders a price of its own — Stripe's embedded form is the one place that
- * shows line items, shipping and the total, since a promo code applied
- * inside it would make a number of ours go stale instantly.
+ * is on. Never renders a price of its own — Stripe's embedded form is the
+ * one place that shows line items, shipping and the total, since a promo
+ * code applied inside it would make a number of ours go stale instantly.
  */
 export default async function CheckoutPage({
   searchParams,

@@ -128,7 +128,7 @@ Price = `baseCost × 1.5` per size, plus a separate flat shipping line (`FLAT_SH
 - **Ideogram:** $0.03 per generate, $0.20 per edit (`costFor()`; the edit price is secondhand, check it against a bill). No transparency support in v4's text endpoints; only `generate-transparent` and `/v1/edit` have it.
 - **R2:** every generated image is kept (`images/{imageId}.png`; legacy `designs/{designId}/{n}.png` keys stay). Mockup keys come from `src/lib/mockup-cache.ts`, the single builder for both the R2 key and the DB cache key.
 - **Printful:** product catalog in `src/lib/products.ts`; mockups; order submission; status webhooks (redeliveries at the target status return 200 `ignored`). `PRINTFUL_AUTO_CONFIRM` defaults ON. Printful's field constraints are invisible to mocks; the nightly contract check is the only test that sees them.
-- **Stripe:** hosted checkout, webhooks, admin refunds. Embedded checkout (`ui_mode: "embedded"`, `/checkout`) exists behind `EMBEDDED_CHECKOUT_ENABLED` (off; needs `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` and a phone test — see #250). Radar goes to $0.05/transaction after 2027-01-22 — switch to Radar Lite or decide by January.
+- **Stripe:** hosted checkout, webhooks, admin refunds. Embedded checkout (`ui_mode: "embedded"`, `/checkout`) has one switch per buy surface: `EMBEDDED_CHECKOUT_ENABLED` (image detail page, #250) and `PREVIEW_EMBEDDED_CHECKOUT_ENABLED` (`/preview`, #135 slice 3); both need `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` in the secret key's mode or fail closed to hosted. The cart stays hosted. Radar goes to $0.05/transaction after 2027-01-22 — switch to Radar Lite or decide by January.
 
 ### Conventions
 
