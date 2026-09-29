@@ -43,3 +43,22 @@ Branch claude/135-preview-embedded (base origin/main ca8c294). Controller: batch
   209 files / 2527 tests, db:generate "No schema changes", build with CI dummy env exit 0 on b1c0810 (/checkout and
   /order/confirm dynamic; ceacb3f is comment/docs only).
 - Not run: npm run e2e:stripe (needs sk_test + Stripe CLI). One calibration run expected (nightly or Nico).
+
+## Fix round (main session's Opus whole-branch + money-path reviews)
+- Rulings: (1) clear design.mockupUrls wherever an existing design's primary moves: setPrimaryImage (no-op early
+  return when the image is already primary) and the delete path's primary move; closes #264. Fence extended to
+  src/app/design/actions.ts and src/lib/delete-image.ts plus tests. (2) /order/confirm reads Stripe for any pending
+  order with a session id, switches or not. (3) stale docblocks (flags.ts, embedded-checkout.ts,
+  checkout-session-status.ts, ReviewBlock). (4) docs/stripe-e2e.md embedded section. (5) nightly coverage comment,
+  spec timeout message names the pk/sk account mismatch.
+- Accepted as-is by the main session: resumeHref on /order/confirm lacks &from= (Back goes to /shop); the e2e does not
+  compare the sale amount to totalPrice.
+- Implementer (sonnet) → 953a6b9. Tests: set-primary-image (cache cleared, /checkout loader null, email falls back to
+  artwork; same-primary keeps cache), delete-images (primary delete clears, non-primary keeps), confirm page with both
+  switches off (open hosted → resume to Stripe url; open embedded → no resume; complete → confirmed; paid → no call).
+- Scoped re-review (sonnet): ready; 3 Minor. Fixed: ReviewBlock docblock overstated "cleared" (in-flight render can
+  write back). Accepted: Stripe read failure still fails open to "Order confirmed." (pre-existing, documented) and adds
+  up to 3 s to hosted confirm on a slow Stripe; setPrimaryImage same-primary check reads before the update (harmless
+  no-op on a race); in-flight render write-back race (pre-existing, same on the generate path).
+- Gate (controller, 953a6b9): lint 0 errors / 33 warnings, typecheck clean, 209 files / 2532 tests,
+  db:generate "No schema changes", build with CI dummy env exit 0.
