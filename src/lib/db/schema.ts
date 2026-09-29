@@ -314,11 +314,12 @@ export const ledgerEntry = sqliteTable(
 );
 
 /**
- * Per-day generation counters for the guest-funnel abuse guard (#26 A3).
- * One row per (bucket, day): bucket is "user:<id>" (the anon or real user) or
- * "ip:<addr>". Incremented before each Ideogram/Anthropic generation; over the
- * daily cap → the action returns a "sign in to keep designing" message with no
- * API spend. Ephemeral accounting, not financial — safe to prune old days.
+ * Per-day (UTC) quota counters for generation and chat (#26 A3, #253, #263).
+ * One row per (bucket, day): bucket is "user:<id>" (the anon or real user),
+ * "ip:<addr>", or the same with a "chat:" prefix. Incremented before each
+ * Ideogram/Anthropic call; over a cap the action returns a refusal with no API
+ * spend (guests are told to sign in, signed-in users to try again later).
+ * Ephemeral accounting, not financial — safe to prune old days.
  */
 export const generationUsage = sqliteTable(
   "generation_usage",

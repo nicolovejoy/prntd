@@ -8,8 +8,8 @@
  * Guest funnel (#26): when on, the design → preview → order surface is open to
  * signed-out visitors (a Better-Auth anonymous session is minted client-side on
  * entry); the sign-in gate moves to the purchase point. When off, those routes
- * stay behind the proxy auth check, exactly as before. Default off — flip
- * GUEST_FUNNEL_ENABLED=true once the abuse cap (A3) is in place.
+ * stay behind the proxy auth check, exactly as before. Default off. The daily
+ * generation and chat caps (generation-quota.ts) apply whether or not it is on.
  */
 export function guestFunnelEnabled(): boolean {
   return process.env.GUEST_FUNNEL_ENABLED === "true";

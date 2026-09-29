@@ -165,7 +165,7 @@ ADMIN_EMAIL                                # gates /admin; matched with ===
 OWNER_EMAIL                                # new-order alert recipient (defaults to nico@prntd.org)
 CRON_SECRET                                # Bearer token for /api/cron/* (Production scope)
 GUEST_FUNNEL_ENABLED, CART_ENABLED, MULTI_PLACEMENT_ENABLED   # all ON in prod
-USER_GEN_DAILY_CAP, GUEST_GEN_DAILY_CAP, IP_GEN_DAILY_CAP     # generation quota overrides
+USER_GEN_DAILY_CAP, GUEST_GEN_DAILY_CAP, IP_GEN_DAILY_CAP, USER_IP_GEN_DAILY_CAP   # generation quota overrides
 EMBEDDED_CHECKOUT_ENABLED, PREVIEW_EMBEDDED_CHECKOUT_ENABLED  # embedded checkout per buy surface (image detail page, /preview); image detail page's ON in prod, /preview's off
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY         # pk_ matching STRIPE_SECRET_KEY's mode; without it either switch fails closed to hosted
 NEXT_PUBLIC_FEEDBACK_PROJECT_ID            # feedback widget target

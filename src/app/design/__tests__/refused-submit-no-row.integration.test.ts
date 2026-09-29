@@ -84,8 +84,9 @@ vi.mock("@/lib/generators/registry", () => {
 
 // Partially mocked so the "concurrent double-submit" test can inject a rival
 // insert exactly between this call's advisory capacity check and its own
-// design-row insert — see that test for why (a genuine Promise.all race is
-// not reachable here once GUEST_FUNNEL_ENABLED is on).
+// design-row insert — see that test for why (a genuine Promise.all race was
+// not reachable here while consumeGenerationQuota fell back to its own db
+// import).
 vi.mock("@/lib/generation-job", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/generation-job")>();
   return { ...actual, countRunningJobsForUser: vi.fn(actual.countRunningJobsForUser) };
@@ -216,8 +217,12 @@ describe("concurrent double-submit on a fresh id (fix round 1)", () => {
     await seedUser();
     const designId = crypto.randomUUID();
 
-    // SIMULATED, not true Promise.all concurrency — true concurrency is not
-    // reachable in this harness once GUEST_FUNNEL_ENABLED is on. Root cause,
+    // SIMULATED, not true Promise.all concurrency. (#263 note: generateDesign
+    // now passes its db to consumeGenerationQuota, so the fallback import
+    // described below is no longer on this path; the simulation is kept
+    // because it pins the exact interleaving.) Original reasoning: true
+    // concurrency was not reachable in this harness once GUEST_FUNNEL_ENABLED
+    // was on. Root cause,
     // confirmed with a minimal two-line repro (`Promise.all([import("@/lib/db"),
     // import("@/lib/db")])` against this same "@/lib/db" mock, in isolation,
     // no generateDesign involved): consumeGenerationQuota's own fallback
