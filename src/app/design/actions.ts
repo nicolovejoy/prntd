@@ -127,11 +127,22 @@ function clientIp(hdrs: Headers): string | null {
   return hdrs.get("x-forwarded-for")?.split(",")[0]?.trim() || null;
 }
 
-/** Copy shown when a generation is blocked by the daily cap (#26 A3). */
-function generationLimitMessage(reason: "identity" | "ip" | undefined): string {
+/**
+ * Copy shown when a generation is blocked by the daily cap (#26 A3). Guests are
+ * pointed at sign-in; signed-in users have nothing to sign in to (#263).
+ */
+function generationLimitMessage(
+  reason: "identity" | "ip" | undefined,
+  isAnonymous: boolean
+): string {
+  if (isAnonymous) {
+    return reason === "ip"
+      ? "This network has hit today's free design limit. Sign in to keep designing."
+      : "You've reached today's free design limit. Sign in to keep designing.";
+  }
   return reason === "ip"
-    ? "This network has hit today's free design limit. Sign in to keep designing."
-    : "You've reached today's free design limit. Sign in to keep designing.";
+    ? "This network has hit today's design limit. Try again tomorrow."
+    : "You've reached today's design limit. Try again tomorrow.";
 }
 
 /** What a chat turn resolved to: Claude's reply, or a daily-cap refusal. */
@@ -367,17 +378,20 @@ export async function generateDesign(
   const dayKey = dayKeyUTC(now);
 
   // Abuse guard (#26 A3): count this generation against the daily caps before
-  // any paid model call. Over the cap → nudge to sign in, no API spend.
+  // any paid model call. Over the cap → no API spend; guests are nudged to
+  // sign in, signed-in users to try again tomorrow.
+  const isAnonymous = isAnonymousUser(session.user);
   const quota = await consumeGenerationQuota({
     userId,
-    isAnonymous: isAnonymousUser(session.user),
+    isAnonymous,
     ip,
     now,
+    db,
   });
   if (!quota.allowed) {
     // A concurrent replay of this exact client id can consume quota itself
-    // (the counter bumps even on a blocked attempt) and, for a user near the
-    // cap, land here even though the OTHER execution of this same request
+    // (the identity counter bumps even on a blocked attempt) and, for a user
+    // near the cap, land here even though the OTHER execution of this same request
     // has already reached insertGenerationJob (#245 rebuild review, item 2).
     // Reporting "limit" to this call would tell the client it hit its daily
     // cap while the design it actually asked for is queued and rendering.
@@ -390,7 +404,14 @@ export async function generateDesign(
         designId
       );
       if (replayed) {
-        await refundGenerationQuota({ userId, ip, day: dayKey }).catch((e) =>
+        // An identity refusal returned before the IP bucket was bumped, so
+        // refunding it would decrement someone else's count. An IP refusal
+        // bumped both.
+        await refundGenerationQuota({
+          userId,
+          ip: quota.reason === "identity" ? null : ip,
+          day: dayKey,
+        }).catch((e) =>
           console.error("refundGenerationQuota failed:", e)
         );
         return replayed;
@@ -404,7 +425,10 @@ export async function generateDesign(
     // request that is actually going to queue successfully, and its own
     // wasted quota bump is never refunded (only the `replayed` branch
     // refunds). Same gap applies to the advisory capacity check below.
-    return { kind: "limit", message: generationLimitMessage(quota.reason) };
+    return {
+      kind: "limit",
+      message: generationLimitMessage(quota.reason, isAnonymous),
+    };
   }
 
   // ADVISORY capacity check, before anything is written. Refusing here avoids

@@ -165,7 +165,7 @@ ADMIN_EMAIL                                # gates /admin; matched with ===
 OWNER_EMAIL                                # new-order alert recipient (defaults to nico@prntd.org)
 CRON_SECRET                                # Bearer token for /api/cron/* (Production scope)
 GUEST_FUNNEL_ENABLED, CART_ENABLED, MULTI_PLACEMENT_ENABLED   # all ON in prod
-USER_GEN_DAILY_CAP, GUEST_GEN_DAILY_CAP, IP_GEN_DAILY_CAP     # generation quota overrides
+USER_GEN_DAILY_CAP, GUEST_GEN_DAILY_CAP, IP_GEN_DAILY_CAP, USER_IP_GEN_DAILY_CAP   # generation quota overrides
 NEXT_PUBLIC_FEEDBACK_PROJECT_ID            # feedback widget target
 REPLICATE_API_TOKEN                        # ops scripts only
 ```
