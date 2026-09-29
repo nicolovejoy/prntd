@@ -102,7 +102,10 @@ async function embeddedStripeRoot(page: Page): Promise<FrameLocator> {
     await page.waitForTimeout(500);
   }
   throw new Error(
-    "no Stripe embedded-checkout iframe with an email field within 60s"
+    "no Stripe embedded-checkout iframe with an email field within 60s. " +
+      "Likely causes: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY is from a different " +
+      "Stripe account than STRIPE_SECRET_KEY (the form never mounts), or the " +
+      "iframe selectors in embeddedStripeRoot need calibrating."
   );
 }
 

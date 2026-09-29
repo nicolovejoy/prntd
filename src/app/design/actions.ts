@@ -1247,7 +1247,7 @@ export async function reopenConversation(designId: string) {
  * deliberately isn't applied.
  */
 export async function setPrimaryImage(designId: string, imageId: string) {
-  await requireOwnedDesign(designId);
+  const design = await requireOwnedDesign(designId);
 
   // The image must actually belong to this conversation — either a generation
   // of its own or a seed it was started from. Without this an owner could
@@ -1264,9 +1264,15 @@ export async function setPrimaryImage(designId: string, imageId: string) {
     .limit(1);
   if (!link) throw new Error("Image is not part of this design");
 
+  // Already primary: nothing changes, so the mockup cache stays valid.
+  if (design.primaryImageId === imageId) return;
+
+  // mockup_urls holds a front mockup under a key with no source image id;
+  // readers treat it as a render of the current primary, so it goes when the
+  // primary moves.
   await db
     .update(designTable)
-    .set({ primaryImageId: imageId, updatedAt: new Date() })
+    .set({ primaryImageId: imageId, mockupUrls: null, updatedAt: new Date() })
     .where(eq(designTable.id, designId));
 
   revalidatePath("/designs");

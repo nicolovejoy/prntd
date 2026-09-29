@@ -42,6 +42,9 @@ jobs:
       # browsers). It is inlined at `next build`, and must belong to the same
       # Stripe test account as STRIPE_SECRET_KEY: otherwise checkout fails
       # closed to the hosted page and the /preview test fails loud.
+      # Forcing the switch on means the nightly no longer covers hosted
+      # checkout from /preview, which is production's path while the switch is
+      # off; the cart test still covers hosted checkout.
       PREVIEW_EMBEDDED_CHECKOUT_ENABLED: "true"
       NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ vars.STRIPE_TEST_PUBLISHABLE_KEY }}
       # Fake vendor creds for SDK constructors that run at module-eval time

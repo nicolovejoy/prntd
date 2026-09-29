@@ -23,9 +23,11 @@ export type EmbeddedCheckoutResolution =
 
 /**
  * Resolve whether embedded checkout can actually be used. `flag` is the raw
- * env string — callers pass `process.env.EMBEDDED_CHECKOUT_ENABLED` (or the
- * `embeddedCheckoutFlag()` boolean's underlying string) so this stays a pure
- * function of its inputs, testable without touching `process.env`.
+ * env string, so this stays a pure function of its inputs, testable without
+ * touching `process.env`. Three wrappers read the env: `embeddedCheckoutConfig()`
+ * (EMBEDDED_CHECKOUT_ENABLED), `previewEmbeddedCheckoutConfig()`
+ * (PREVIEW_EMBEDDED_CHECKOUT_ENABLED) and `embeddedCheckoutPageConfig()`
+ * (either switch).
  */
 export function resolveEmbeddedCheckoutConfig(params: {
   flag: string | undefined;
