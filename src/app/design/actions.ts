@@ -141,8 +141,8 @@ function generationLimitMessage(
       : "You've reached today's free design limit. Sign in to keep designing.";
   }
   return reason === "ip"
-    ? "This network has hit today's design limit. Try again tomorrow."
-    : "You've reached today's design limit. Try again tomorrow.";
+    ? "This network has hit today's design limit. Try again later."
+    : "You've reached today's design limit. Try again later.";
 }
 
 /** What a chat turn resolved to: Claude's reply, or a daily-cap refusal. */

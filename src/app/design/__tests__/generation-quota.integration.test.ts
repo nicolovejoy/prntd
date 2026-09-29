@@ -118,8 +118,8 @@ const GUEST_IP_COPY =
   "This network has hit today's free design limit. Sign in to keep designing.";
 const GUEST_IDENTITY_COPY =
   "You've reached today's free design limit. Sign in to keep designing.";
-const USER_IP_COPY = "This network has hit today's design limit. Try again tomorrow.";
-const USER_IDENTITY_COPY = "You've reached today's design limit. Try again tomorrow.";
+const USER_IP_COPY = "This network has hit today's design limit. Try again later.";
+const USER_IDENTITY_COPY = "You've reached today's design limit. Try again later.";
 
 const today = () => dayKeyUTC(new Date());
 
