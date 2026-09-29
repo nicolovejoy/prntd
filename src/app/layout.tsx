@@ -28,7 +28,9 @@ export const metadata: Metadata = {
   title,
   description,
   // Home-screen label on iOS; the icon itself is app/apple-icon.png (#235).
-  appleWebApp: { title: "PRNTD" },
+  // capable: false keeps Next from also emitting mobile-web-app-capable;
+  // display mode comes from manifest.ts.
+  appleWebApp: { title: "PRNTD", capable: false },
   openGraph: {
     type: "website",
     siteName: "PRNTD",

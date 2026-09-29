@@ -85,6 +85,20 @@ describe("app icon files", () => {
     expect(sizes).toEqual([16, 32, 48]);
   });
 
+  it("favicon.ico entries are PNGs that decode at their stated size", async () => {
+    const buf = readFileSync(path.join(APP, "favicon.ico"));
+    const count = buf.readUInt16LE(4);
+    for (let i = 0; i < count; i++) {
+      const o = 6 + i * 16;
+      const size = buf.readUInt8(o);
+      const len = buf.readUInt32LE(o + 8);
+      const offset = buf.readUInt32LE(o + 12);
+      expect(offset + len).toBeLessThanOrEqual(buf.length);
+      const meta = await sharp(buf.subarray(offset, offset + len)).metadata();
+      expect([meta.format, meta.width, meta.height]).toEqual(["png", size, size]);
+    }
+  });
+
   it("icon.svg is outlined: shapes only, no text or font references", () => {
     const svg = readFileSync(path.join(APP, "icon.svg"), "utf8");
     expect(svg).not.toMatch(/<text|<tspan|font-family|font-weight|@font-face|<style|<image|href=/i);

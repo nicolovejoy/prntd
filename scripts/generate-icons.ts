@@ -25,6 +25,7 @@
  */
 import { writeFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import opentype from "opentype.js";
 import sharp from "sharp";
 
@@ -33,6 +34,9 @@ const ROOT = path.resolve(__dirname, "..");
 // Pinned: Google Fonts css2?family=Geist:wght@900, truetype response.
 const FONT_URL =
   "https://fonts.gstatic.com/s/geist/v5/gyBhhwUxId8gMGYQMKR3pzfaWI_RNeQ4nQ.ttf";
+// SHA-256 of that file as downloaded 2026-09-29. A mismatch means Google
+// re-served different bytes, which would change the letter outlines.
+const FONT_SHA256 = "33eafb809140b258737f1163b649580d4ebc3c17231d6ec409288192747c0be8";
 
 // Paper tokens (src/app/globals.css).
 const PAPER = "#f8f5ef";
@@ -55,7 +59,10 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 async function loadFont(): Promise<opentype.Font> {
   const res = await fetch(FONT_URL);
   if (!res.ok) throw new Error(`font download failed: ${res.status}`);
-  const font = opentype.parse(await res.arrayBuffer());
+  const bytes = await res.arrayBuffer();
+  const sha = createHash("sha256").update(Buffer.from(bytes)).digest("hex");
+  if (sha !== FONT_SHA256) throw new Error(`font bytes changed: sha256 ${sha}`);
+  const font = opentype.parse(bytes);
   const weight = font.tables.os2?.usWeightClass;
   if (weight !== 900) throw new Error(`expected Geist weight 900, got ${weight}`);
   return font;
