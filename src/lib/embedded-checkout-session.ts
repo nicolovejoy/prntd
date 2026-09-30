@@ -19,7 +19,7 @@ import {
   design as designTable,
 } from "@/lib/db/schema";
 import { stripe } from "@/lib/stripe";
-import { embeddedCheckoutConfig } from "@/lib/embedded-checkout";
+import { embeddedCheckoutPageConfig } from "@/lib/embedded-checkout";
 import {
   STRIPE_SESSION_READ_TIMEOUT_MS,
   describeStripeError,
@@ -85,27 +85,42 @@ async function loadCheckoutSummary(
   const designIds = [...new Set(lines.map((l) => l.designId))];
   const designRows = designIds.length
     ? await db
-        .select({ id: designTable.id, mockupUrls: designTable.mockupUrls })
+        .select({
+          id: designTable.id,
+          mockupUrls: designTable.mockupUrls,
+          primaryImageId: designTable.primaryImageId,
+        })
         .from(designTable)
         .where(inArray(designTable.id, designIds))
     : [];
-  const mockupUrlsByDesignId = new Map(
-    designRows.map((d) => [d.id, d.mockupUrls ?? {}])
-  );
+  const designById = new Map(designRows.map((d) => [d.id, d]));
 
   return lines.map((line, i) => {
     const frontImageId = line.placements.front ?? null;
     const colorHex = getColorHex(line.blankId, line.color);
-    const cachedMockups = mockupUrlsByDesignId.get(line.designId) ?? {};
-    const cacheKey = frontImageId
-      ? mockupCacheKey({
-          productId: line.blankId,
-          placementId: "front",
-          sourceImageId: frontImageId,
-          colorName: line.color,
-          scaleKey: 100,
-        })
-      : null;
+    const design = designById.get(line.designId);
+    const cachedMockups = design?.mockupUrls ?? {};
+    const keyParts = {
+      productId: line.blankId,
+      placementId: "front",
+      colorName: line.color,
+      scaleKey: 100,
+    };
+    // The image detail page and a pinned front cache under a key that carries
+    // the source image id. /preview and the mockup prefetch cache the default
+    // front, the design's primary image, under a key with no source segment.
+    // That entry is this line's artwork only when the line's front is the
+    // design's current primary image; for any other front it may show
+    // different artwork, so it is not used.
+    const sourceKeyed = frontImageId
+      ? cachedMockups[
+          mockupCacheKey({ ...keyParts, sourceImageId: frontImageId })
+        ]
+      : undefined;
+    const sourceLess =
+      frontImageId && frontImageId === design?.primaryImageId
+        ? cachedMockups[mockupCacheKey(keyParts)]
+        : undefined;
     return {
       productName: getBlank(line.blankId)?.name ?? null,
       color: line.color,
@@ -114,7 +129,7 @@ async function loadCheckoutSummary(
       frontImageUrl: identities[i].imageUrl,
       backImageUrl: identities[i].backImageUrl,
       colorHex,
-      mockupUrl: cacheKey ? cachedMockups[cacheKey] ?? null : null,
+      mockupUrl: sourceKeyed ?? sourceLess ?? null,
     };
   });
 }
@@ -142,7 +157,7 @@ export async function loadEmbeddedCheckout(params: {
     return { kind: "expired" };
   }
 
-  const config = embeddedCheckoutConfig();
+  const config = embeddedCheckoutPageConfig();
   if (!config.enabled) {
     return { kind: "unavailable" };
   }

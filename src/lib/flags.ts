@@ -42,10 +42,34 @@ export function storesEnabled(): boolean {
  * Checkout on our own /checkout page instead of the hosted Stripe page. This
  * is only "the flag is on" — it says nothing about whether a usable
  * publishable/secret key pair is configured. Callers that actually create or
- * mount an embedded session must use `embeddedCheckoutConfig()`
- * (src/lib/embedded-checkout.ts), which also validates the keys and fails
- * closed to hosted checkout when they're missing or mismatched. Default off.
+ * mount an embedded session use the config resolvers in
+ * src/lib/embedded-checkout.ts, which also validate the keys and fail closed
+ * to hosted checkout when they're missing or mismatched: creating on the
+ * image detail page uses `embeddedCheckoutConfig()`, creating on /preview uses
+ * `previewEmbeddedCheckoutConfig()`, and mounting (/checkout, its loader, the
+ * confirm page's resume link) uses `embeddedCheckoutPageConfig()`. Default off.
  */
 export function embeddedCheckoutFlag(): boolean {
   return process.env.EMBEDDED_CHECKOUT_ENABLED === "true";
+}
+
+/**
+ * Embedded checkout for /preview (#135 slice 3): the raw on/off switch for
+ * purchases started on /preview, separate from `embeddedCheckoutFlag()` so
+ * each buy surface is switched on independently. Like that one, this says
+ * nothing about the key pair; callers that create a session use
+ * `previewEmbeddedCheckoutConfig()` (src/lib/embedded-checkout.ts), which
+ * fails closed to hosted checkout. Default off.
+ */
+export function previewEmbeddedCheckoutFlag(): boolean {
+  return process.env.PREVIEW_EMBEDDED_CHECKOUT_ENABLED === "true";
+}
+
+/**
+ * Whether the /checkout page and the confirm page's open-session branch
+ * exist: true when either buy surface is switched on. A session created on
+ * one surface stays reachable while only the other switch is on.
+ */
+export function embeddedCheckoutPageFlag(): boolean {
+  return embeddedCheckoutFlag() || previewEmbeddedCheckoutFlag();
 }

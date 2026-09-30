@@ -18,6 +18,11 @@ import {
   resolveImagesByIds,
 } from "@/lib/design-images";
 import { assertUsablePlacementImage } from "@/lib/back-sources";
+import { previewEmbeddedCheckoutFlag } from "@/lib/flags";
+import {
+  previewEmbeddedCheckoutConfig,
+  resolveReturnOrigin,
+} from "@/lib/embedded-checkout";
 
 /**
  * Client-facing price for a design/product/size/back combination (/preview).
@@ -137,6 +142,22 @@ export async function createCheckoutSession(params: {
     ? { front: pinnedImageId, ...(backImageId ? { back: backImageId } : {}) }
     : null;
 
+  // Back to /preview with the same picks. Relative for the embedded /checkout
+  // page's back link; the hosted cancel_url prefixes the app origin.
+  const previewPath = `/preview?id=${params.designId}&size=${encodeURIComponent(params.size)}&color=${encodeURIComponent(params.color)}&product=${resolvedProductId}${frontImageId ? `&front=${frontImageId}` : ""}${backImageId ? `&back=${backImageId}` : ""}`;
+
+  // #135 slice 3: mount on our own /checkout instead of Stripe's hosted page
+  // when PREVIEW_EMBEDDED_CHECKOUT_ENABLED is on and a usable key pair is
+  // configured. Flag on but config disabled is a key problem, not a
+  // deliberate off-switch: log the reason (never the key) and fall back to
+  // hosted.
+  const embedded = previewEmbeddedCheckoutConfig();
+  if (previewEmbeddedCheckoutFlag() && !embedded.enabled) {
+    console.error(
+      `embedded checkout disabled: ${embedded.reason} — using hosted checkout`
+    );
+  }
+
   return createStripeCheckoutForOrder({
     userId: session.user.id,
     designId: params.designId,
@@ -146,6 +167,17 @@ export async function createCheckoutSession(params: {
     itemPrice: pricing.total,
     placements,
     checkoutImageUrl,
-    cancelUrl: `${process.env.NEXT_PUBLIC_APP_URL}/preview?id=${params.designId}&size=${encodeURIComponent(params.size)}&color=${encodeURIComponent(params.color)}&product=${resolvedProductId}${frontImageId ? `&front=${frontImageId}` : ""}${backImageId ? `&back=${backImageId}` : ""}`,
+    cancelUrl: `${process.env.NEXT_PUBLIC_APP_URL}${previewPath}`,
+    ...(embedded.enabled
+      ? {
+          embedded: {
+            backPath: previewPath,
+            returnOrigin: resolveReturnOrigin(
+              (await headers()).get("origin"),
+              process.env.NEXT_PUBLIC_APP_URL!
+            ),
+          },
+        }
+      : {}),
   });
 }

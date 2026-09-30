@@ -82,6 +82,9 @@ STORES_ENABLED=true
 # NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY above or it fails closed to hosted
 # checkout. Default off.
 # EMBEDDED_CHECKOUT_ENABLED=true
+# Same for purchases started on /preview (separate switch; needs the same
+# publishable key). Default off.
+# PREVIEW_EMBEDDED_CHECKOUT_ENABLED=true
 # Daily generation caps. Defaults apply if unset. Every generation counts
 # against its IP: guests against IP_GEN_DAILY_CAP, signed-in users against
 # USER_IP_GEN_DAILY_CAP.

@@ -514,7 +514,13 @@ export async function executeImageDeletion(
       ? [
           db
             .update(designTable)
-            .set({ primaryImageId: newPrimaryId, updatedAt: new Date() })
+            // The source-less front mockup in mockup_urls is a render of the
+            // current primary, so it is stale once the primary moves.
+            .set({
+              primaryImageId: newPrimaryId,
+              mockupUrls: null,
+              updatedAt: new Date(),
+            })
             .where(eq(designTable.id, designId)),
         ]
       : []),
