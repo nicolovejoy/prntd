@@ -81,10 +81,16 @@ MULTI_PLACEMENT_ENABLED=true
 # NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY above or it fails closed to hosted
 # checkout. Default off.
 # EMBEDDED_CHECKOUT_ENABLED=true
-# Daily generation caps guarding the ungated funnel. Defaults apply if unset.
+# Same for purchases started on /preview (separate switch; needs the same
+# publishable key). Default off.
+# PREVIEW_EMBEDDED_CHECKOUT_ENABLED=true
+# Daily generation caps. Defaults apply if unset. Every generation counts
+# against its IP: guests against IP_GEN_DAILY_CAP, signed-in users against
+# USER_IP_GEN_DAILY_CAP.
 # GUEST_GEN_DAILY_CAP=8
 # USER_GEN_DAILY_CAP=50
 # IP_GEN_DAILY_CAP=20
+# USER_IP_GEN_DAILY_CAP=100
 # Daily chat-turn caps (one Claude call per turn). Every turn counts against its
 # IP: guests against IP_CHAT_DAILY_CAP, signed-in users against USER_IP_CHAT_DAILY_CAP.
 # A bad value (non-numeric, negative) falls back to the default; 0 refuses every turn.

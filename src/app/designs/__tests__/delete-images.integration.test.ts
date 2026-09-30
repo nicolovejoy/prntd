@@ -410,6 +410,47 @@ describe("deleteImages — thread state", () => {
     expect(row?.primaryImageId).toBe(older);
   });
 
+  it("clears the mockup cache when the primary moves, keeps it when it does not", async () => {
+    const cache = { "v2:bella-canvas-3001:front:Black:100": "https://r2/m.jpg" };
+    const seed = async (primary: "older" | "newest") => {
+      const d = await makeDesign(testDb, "u1");
+      const older = await makeSourceImage(testDb, {
+        designId: d.id,
+        ownerId: "u1",
+        imageUrl: `https://r2/images/${d.id}-one.png`,
+        createdAt: new Date(1000),
+      });
+      const newest = await makeSourceImage(testDb, {
+        designId: d.id,
+        ownerId: "u1",
+        imageUrl: `https://r2/images/${d.id}-two.png`,
+        createdAt: new Date(2000),
+      });
+      await testDb
+        .update(schema.design)
+        .set({
+          primaryImageId: primary === "older" ? older : newest,
+          mockupUrls: cache,
+        })
+        .where(eq(schema.design.id, d.id));
+      return { d, older, newest };
+    };
+    const read = (id: string) =>
+      testDb.query.design.findFirst({ where: eq(schema.design.id, id) });
+
+    // Deleting the primary moves it and drops the source-less front mockup.
+    const a = await seed("newest");
+    await deleteImages([a.newest]);
+    expect((await read(a.d.id))?.primaryImageId).toBe(a.older);
+    expect((await read(a.d.id))?.mockupUrls).toBeNull();
+
+    // Deleting a non-primary leaves the primary and the cache alone.
+    const b = await seed("newest");
+    await deleteImages([b.older]);
+    expect((await read(b.d.id))?.primaryImageId).toBe(b.newest);
+    expect((await read(b.d.id))?.mockupUrls).toEqual(cache);
+  });
+
   it("reports deleted and skipped from one call", async () => {
     const d = await makeDesign(testDb, "u1");
     const free = await makeSourceImage(testDb, {

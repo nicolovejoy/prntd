@@ -55,6 +55,13 @@ describe("consumeChatQuota — DB path", () => {
     "USER_IP_CHAT_DAILY_CAP",
   ] as const;
 
+  const GEN_KEYS = [
+    "GUEST_GEN_DAILY_CAP",
+    "USER_GEN_DAILY_CAP",
+    "IP_GEN_DAILY_CAP",
+    "USER_IP_GEN_DAILY_CAP",
+  ] as const;
+
   async function withEnv(value: string | undefined, keys: readonly string[]) {
     const saved = keys.map((k) => process.env[k]);
     keys.forEach((k) => {
@@ -90,15 +97,20 @@ describe("consumeChatQuota — DB path", () => {
     expect(mod.USER_IP_CHAT_DAILY_CAP).toBe(300);
   });
 
-  it("falls back to the defaults when the generation env vars are garbage", async () => {
-    const mod = await withEnv("abc", [
-      "GUEST_GEN_DAILY_CAP",
-      "USER_GEN_DAILY_CAP",
-      "IP_GEN_DAILY_CAP",
-    ]);
+  it("defaults the generation caps to 8/50/20/100 when the env vars are unset", async () => {
+    const mod = await withEnv(undefined, GEN_KEYS);
     expect(mod.GUEST_GEN_DAILY_CAP).toBe(8);
     expect(mod.USER_GEN_DAILY_CAP).toBe(50);
     expect(mod.IP_GEN_DAILY_CAP).toBe(20);
+    expect(mod.USER_IP_GEN_DAILY_CAP).toBe(100);
+  });
+
+  it("falls back to the defaults when the generation env vars are garbage", async () => {
+    const mod = await withEnv("abc", GEN_KEYS);
+    expect(mod.GUEST_GEN_DAILY_CAP).toBe(8);
+    expect(mod.USER_GEN_DAILY_CAP).toBe(50);
+    expect(mod.IP_GEN_DAILY_CAP).toBe(20);
+    expect(mod.USER_IP_GEN_DAILY_CAP).toBe(100);
   });
 
   it("allows a guest through the cap and refuses with reason identity past it", async () => {

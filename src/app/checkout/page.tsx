@@ -3,7 +3,7 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { auth, isAnonymousUser } from "@/lib/auth";
-import { embeddedCheckoutFlag } from "@/lib/flags";
+import { embeddedCheckoutPageFlag } from "@/lib/flags";
 import { embeddedCheckoutPath, safeCheckoutReturnPath } from "@/lib/embedded-checkout";
 import {
   loadEmbeddedCheckout,
@@ -24,10 +24,12 @@ type Search = Promise<Record<string, string | string[] | undefined>>;
 const SESSION_ID_RE = /^cs_(test|live)_[A-Za-z0-9]+$/;
 
 /**
- * Stripe Embedded Checkout, mounted on our own origin (#135 slice 2). Never
- * renders a price of its own — Stripe's embedded form is the one place that
- * shows line items, shipping and the total, since a promo code applied
- * inside it would make a number of ours go stale instantly.
+ * Stripe Embedded Checkout, mounted on our own origin (#135 slices 2-3).
+ * Serves both buy surfaces, the image detail page (EMBEDDED_CHECKOUT_ENABLED)
+ * and /preview (PREVIEW_EMBEDDED_CHECKOUT_ENABLED), and 404s unless either
+ * is on. Never renders a price of its own — Stripe's embedded form is the
+ * one place that shows line items, shipping and the total, since a promo
+ * code applied inside it would make a number of ours go stale instantly.
  */
 export default async function CheckoutPage({
   searchParams,
@@ -43,7 +45,7 @@ export default async function CheckoutPage({
   // could never un-404, since a static page ignores request-time env reads.
   const params = await searchParams;
 
-  if (!embeddedCheckoutFlag()) notFound();
+  if (!embeddedCheckoutPageFlag()) notFound();
   const rawSession = params.session;
   const sessionId = typeof rawSession === "string" ? rawSession : null;
   if (!sessionId || !SESSION_ID_RE.test(sessionId)) notFound();
@@ -162,11 +164,14 @@ function StatusScreen({
 }
 
 /**
- * The review block: what's about to be paid for, no prices. Mockup when one
- * is already cached for this exact (product, color, front image) — the same
- * cache `getListingMockup`/`/preview` write to — else the artwork centered on
- * a flat panel of the shirt color, so the box is never empty even before any
- * mockup has ever been rendered for this combination.
+ * The review block: what's about to be paid for, no prices. The image comes
+ * from the first of these that exists (`loadCheckoutSummary`): the front
+ * mockup keyed by the pinned front image (scale 100); else the design's
+ * source-less front mockup, used only when the pinned front is the design's
+ * current primary (the entry /preview and the prefetch write; every
+ * primary move clears it, though a render already in flight can write it
+ * back afterwards); else the artwork centered on a flat panel of
+ * the shirt color, so the box is never empty.
  */
 function ReviewBlock({ summary }: { summary: CheckoutLineSummary[] }) {
   return (

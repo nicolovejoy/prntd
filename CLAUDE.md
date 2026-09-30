@@ -77,7 +77,7 @@ Local `npm run build` needs env. Use CI's dummy block (copy it from `ci.yml`'s `
 /                       → Landing: composer-first hero + Shop feed below
 /studio                 → Studio bench: composer on top, one lane per conversation (guests with a session allowed while GUEST_FUNNEL_ENABLED; #248)
 /designs                → My Designs (top nav): every owned image, Active/All filter (guests too; #258)
-/checkout?session=      → Stripe Embedded Checkout for image-detail-page buys; 404 unless EMBEDDED_CHECKOUT_ENABLED (#250)
+/checkout?session=      → Stripe Embedded Checkout for image-detail-page buys and, behind PREVIEW_EMBEDDED_CHECKOUT_ENABLED, /preview buys; 404 unless either switch is on (#250, #135)
 /design?id=             → One conversation thread (older make surface; still reachable)
 /preview?id=            → Design on a shirt: product, size, color, front + back, buy or add to cart
 /d/[imageId]            → Image detail page: public for published images, owner view for private ones; buy, add to cart, start a new design from it
@@ -128,7 +128,7 @@ Price = `baseCost × 1.5` per size, plus a separate flat shipping line (`FLAT_SH
 - **Ideogram:** $0.03 per generate, $0.20 per edit (`costFor()`; the edit price is secondhand, check it against a bill). No transparency support in v4's text endpoints; only `generate-transparent` and `/v1/edit` have it.
 - **R2:** every generated image is kept (`images/{imageId}.png`; legacy `designs/{designId}/{n}.png` keys stay). Mockup keys come from `src/lib/mockup-cache.ts`, the single builder for both the R2 key and the DB cache key.
 - **Printful:** product catalog in `src/lib/products.ts`; mockups; order submission; status webhooks (redeliveries at the target status return 200 `ignored`). `PRINTFUL_AUTO_CONFIRM` defaults ON. Printful's field constraints are invisible to mocks; the nightly contract check is the only test that sees them.
-- **Stripe:** hosted checkout, webhooks, admin refunds. Embedded checkout (`ui_mode: "embedded"`, `/checkout`) exists behind `EMBEDDED_CHECKOUT_ENABLED` (off; needs `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` and a phone test — see #250). Radar goes to $0.05/transaction after 2027-01-22 — switch to Radar Lite or decide by January.
+- **Stripe:** hosted checkout, webhooks, admin refunds. Embedded checkout (`ui_mode: "embedded"`, `/checkout`) has one switch per buy surface: `EMBEDDED_CHECKOUT_ENABLED` (image detail page, #250) and `PREVIEW_EMBEDDED_CHECKOUT_ENABLED` (`/preview`, #135 slice 3); both need `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` in the secret key's mode or fail closed to hosted. The cart stays hosted. Radar goes to $0.05/transaction after 2027-01-22 — switch to Radar Lite or decide by January.
 
 ### Conventions
 
@@ -165,7 +165,9 @@ ADMIN_EMAIL                                # gates /admin; matched with ===
 OWNER_EMAIL                                # new-order alert recipient (defaults to nico@prntd.org)
 CRON_SECRET                                # Bearer token for /api/cron/* (Production scope)
 GUEST_FUNNEL_ENABLED, CART_ENABLED, MULTI_PLACEMENT_ENABLED   # all ON in prod
-USER_GEN_DAILY_CAP, GUEST_GEN_DAILY_CAP, IP_GEN_DAILY_CAP     # generation quota overrides
+USER_GEN_DAILY_CAP, GUEST_GEN_DAILY_CAP, IP_GEN_DAILY_CAP, USER_IP_GEN_DAILY_CAP   # generation quota overrides
+EMBEDDED_CHECKOUT_ENABLED, PREVIEW_EMBEDDED_CHECKOUT_ENABLED  # embedded checkout per buy surface (image detail page, /preview); image detail page's ON in prod, /preview's off
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY         # pk_ matching STRIPE_SECRET_KEY's mode; without it either switch fails closed to hosted
 NEXT_PUBLIC_FEEDBACK_PROJECT_ID            # feedback widget target
 REPLICATE_API_TOKEN                        # ops scripts only
 ```

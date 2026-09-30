@@ -94,6 +94,202 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+/**
+ * An order shaped like one created from /preview: the line's front is pinned
+ * to `frontOf`'s image (the design's primary, or a non-primary image).
+ */
+async function seedPreviewOrder(
+  db: Db,
+  opts: {
+    userId: string;
+    stripeSessionId: string;
+    front: "primary" | "other";
+    mockupUrls: (ids: { primaryId: string; otherId: string }) => Record<string, string>;
+  }
+) {
+  await makeUser(db, opts.userId);
+  const design = await makeDesign(db, opts.userId);
+  const primaryId = await makeSourceImage(db, {
+    designId: design.id,
+    ownerId: opts.userId,
+    imageUrl: "https://img.example/primary.png",
+  });
+  const otherId = await makeSourceImage(db, {
+    designId: design.id,
+    ownerId: opts.userId,
+    imageUrl: "https://img.example/other.png",
+  });
+  await db
+    .update(schema.design)
+    .set({
+      primaryImageId: primaryId,
+      mockupUrls: opts.mockupUrls({ primaryId, otherId }),
+    })
+    .where(eq(schema.design.id, design.id));
+  const [order] = await db
+    .insert(schema.order)
+    .values({
+      userId: opts.userId,
+      designId: design.id,
+      stripeSessionId: opts.stripeSessionId,
+      status: "pending",
+      totalPrice: 24.12,
+    })
+    .returning();
+  await db.insert(schema.orderItem).values({
+    orderId: order.id,
+    designId: design.id,
+    productId: "bella-canvas-3001",
+    size: "M",
+    color: "Black",
+    placements: { front: opts.front === "primary" ? primaryId : otherId },
+    quantity: 1,
+    itemPrice: 19.43,
+  });
+}
+
+const OPEN_EMBEDDED = {
+  status: "open",
+  ui_mode: "embedded",
+  client_secret: "cs_secret_preview",
+  url: null,
+};
+
+const SOURCE_LESS_KEY = mockupCacheKey({
+  productId: "bella-canvas-3001",
+  placementId: "front",
+  colorName: "Black",
+  scaleKey: 100,
+});
+
+describe("loadEmbeddedCheckout for /preview orders (#135 slice 3)", () => {
+  beforeEach(() => {
+    vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", undefined);
+    vi.stubEnv("PREVIEW_EMBEDDED_CHECKOUT_ENABLED", "true");
+  });
+
+  it("only the preview flag on + valid keys: the loader proceeds to ready", async () => {
+    const db = h.db as Db;
+    await seedPreviewOrder(db, {
+      userId: "buyer",
+      stripeSessionId: "cs_test_p1",
+      front: "primary",
+      mockupUrls: () => ({}),
+    });
+    h.retrieve.mockResolvedValue(OPEN_EMBEDDED);
+
+    const result = await loadEmbeddedCheckout({
+      sessionId: "cs_test_p1",
+      viewerId: "buyer",
+    });
+
+    expect(result.kind).toBe("ready");
+  });
+
+  it("only the preview flag on + missing key: unavailable, no Stripe call", async () => {
+    vi.stubEnv("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", undefined);
+    const db = h.db as Db;
+    await seedPreviewOrder(db, {
+      userId: "buyer",
+      stripeSessionId: "cs_test_p1b",
+      front: "primary",
+      mockupUrls: () => ({}),
+    });
+
+    const result = await loadEmbeddedCheckout({
+      sessionId: "cs_test_p1b",
+      viewerId: "buyer",
+    });
+
+    expect(result).toEqual({ kind: "unavailable" });
+    expect(h.retrieve).not.toHaveBeenCalled();
+  });
+
+  it("front is the design's primary image: the source-less /preview mockup is used", async () => {
+    const db = h.db as Db;
+    await seedPreviewOrder(db, {
+      userId: "buyer",
+      stripeSessionId: "cs_test_p2",
+      front: "primary",
+      mockupUrls: () => ({ [SOURCE_LESS_KEY]: "https://r2.example/default-front.jpg" }),
+    });
+    h.retrieve.mockResolvedValue(OPEN_EMBEDDED);
+
+    const result = await loadEmbeddedCheckout({
+      sessionId: "cs_test_p2",
+      viewerId: "buyer",
+    });
+
+    if (result.kind !== "ready") throw new Error(`expected ready, got ${result.kind}`);
+    expect(result.summary[0].mockupUrl).toBe("https://r2.example/default-front.jpg");
+  });
+
+  it("pinned non-primary front with only the source-less entry: null, never the primary's mockup", async () => {
+    const db = h.db as Db;
+    await seedPreviewOrder(db, {
+      userId: "buyer",
+      stripeSessionId: "cs_test_p3",
+      front: "other",
+      mockupUrls: () => ({ [SOURCE_LESS_KEY]: "https://r2.example/default-front.jpg" }),
+    });
+    h.retrieve.mockResolvedValue(OPEN_EMBEDDED);
+
+    const result = await loadEmbeddedCheckout({
+      sessionId: "cs_test_p3",
+      viewerId: "buyer",
+    });
+
+    if (result.kind !== "ready") throw new Error(`expected ready, got ${result.kind}`);
+    expect(result.summary[0].mockupUrl).toBeNull();
+  });
+
+  it("the source-keyed entry wins when both exist", async () => {
+    const db = h.db as Db;
+    await seedPreviewOrder(db, {
+      userId: "buyer",
+      stripeSessionId: "cs_test_p4",
+      front: "primary",
+      mockupUrls: ({ primaryId }) => ({
+        [SOURCE_LESS_KEY]: "https://r2.example/default-front.jpg",
+        [mockupCacheKey({
+          productId: "bella-canvas-3001",
+          placementId: "front",
+          sourceImageId: primaryId,
+          colorName: "Black",
+          scaleKey: 100,
+        })]: "https://r2.example/source-keyed.jpg",
+      }),
+    });
+    h.retrieve.mockResolvedValue(OPEN_EMBEDDED);
+
+    const result = await loadEmbeddedCheckout({
+      sessionId: "cs_test_p4",
+      viewerId: "buyer",
+    });
+
+    if (result.kind !== "ready") throw new Error(`expected ready, got ${result.kind}`);
+    expect(result.summary[0].mockupUrl).toBe("https://r2.example/source-keyed.jpg");
+  });
+
+  it("a non-owner viewer of a /preview-created order gets not-found, no Stripe call", async () => {
+    const db = h.db as Db;
+    await seedPreviewOrder(db, {
+      userId: "buyer",
+      stripeSessionId: "cs_test_p5",
+      front: "primary",
+      mockupUrls: () => ({}),
+    });
+
+    const result = await loadEmbeddedCheckout({
+      sessionId: "cs_test_p5",
+      viewerId: "someone-else",
+    });
+
+    expect(result).toEqual({ kind: "not-found" });
+    expect(h.retrieve).not.toHaveBeenCalled();
+  });
+});
+
 describe("loadEmbeddedCheckout (#135 slice 2)", () => {
   it("no order for the session: not-found, no Stripe call", async () => {
     const db = h.db as Db;

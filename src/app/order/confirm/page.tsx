@@ -5,8 +5,7 @@ import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
 import { getColorHex } from "@/lib/blanks";
 import { appErrorLogLine, shapeAppError } from "@/lib/app-error";
-import { embeddedCheckoutFlag } from "@/lib/flags";
-import { embeddedCheckoutConfig } from "@/lib/embedded-checkout";
+import { embeddedCheckoutPageConfig } from "@/lib/embedded-checkout";
 import {
   getCheckoutSessionState,
   resolveConfirmView,
@@ -25,15 +24,16 @@ type Search = Promise<Record<string, string | string[] | undefined>>;
  * `STALE_PENDING_MS`), so the "View orders" link below can briefly not show
  * an order that was just paid here.
  *
- * #135 slice 2: when `EMBEDDED_CHECKOUT_ENABLED` is on and the order is still
- * `pending`, this page makes one extra Stripe read (`getCheckoutSessionState`)
+ * #135 slices 2-3: when the order is still `pending` and the URL carries a
+ * session id, this page makes one extra Stripe read (`getCheckoutSessionState`)
  * to tell apart a genuine webhook lag (session `complete`, renders as
  * confirmed) from a session that's still `open` — reachable with embedded
  * checkout when Stripe redirects here without a completed payment (e.g. the
  * buyer backed out of a redirect-based payment method) or when the URL is
- * opened directly — or one that's `expired`. Flag off, or the order isn't
- * `pending`, means zero Stripe calls — the page stays the plain DB read it
- * always was.
+ * opened directly — or one that's `expired`. The read does not depend on the
+ * embedded switches: a switch rolled back mid-checkout must never render
+ * "Order confirmed." for an open, unpaid session. A non-`pending` order means
+ * zero Stripe calls — the page stays the plain DB read it always was.
  */
 export default async function ConfirmPage({ searchParams }: { searchParams: Search }) {
   const raw = (await searchParams).session_id;
@@ -99,12 +99,14 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Sear
   }
 
   let view: ConfirmView = { kind: "confirmed" };
-  if (sessionId && embeddedCheckoutFlag() && order.status === "pending") {
+  // Not gated on the embedded switches; see the docblock. `embeddedEnabled`
+  // below only decides whether an open session offers a resume link.
+  if (sessionId && order.status === "pending") {
     const stripeState = await getCheckoutSessionState(sessionId);
     view = resolveConfirmView({
       orderStatus: order.status,
       stripe: stripeState,
-      embeddedEnabled: embeddedCheckoutConfig().enabled,
+      embeddedEnabled: embeddedCheckoutPageConfig().enabled,
       sessionId,
     });
   }

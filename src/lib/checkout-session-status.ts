@@ -14,8 +14,8 @@
  * an action endpoint. `resolveConfirmView` is pure so the branching is
  * unit-testable without touching Stripe.
  *
- * With the embedded flag on, most `/order/confirm` visits land here before
- * the webhook has marked the order paid (buyers usually beat it), so this
+ * Most `/order/confirm` visits land here before the webhook has marked the
+ * order paid (buyers usually beat it), whichever checkout they used, so this
  * read sits on the critical path of the receipt page. Bounded to
  * `STRIPE_SESSION_READ_TIMEOUT_MS` (well under the SDK's own 80s/2-retry
  * default) so a slow Stripe can't hang the page, and every failure is logged

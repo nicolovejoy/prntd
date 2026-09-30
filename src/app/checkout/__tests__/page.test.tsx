@@ -77,6 +77,27 @@ describe("CheckoutPage", () => {
     expect(h.loadEmbeddedCheckout).not.toHaveBeenCalled();
   });
 
+  it("404s when both the image-detail and preview flags are off", async () => {
+    vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", undefined);
+    vi.stubEnv("PREVIEW_EMBEDDED_CHECKOUT_ENABLED", undefined);
+
+    await expect(
+      renderCheckout({ session: VALID_SESSION })
+    ).rejects.toThrow("NEXT_NOT_FOUND");
+    expect(h.loadEmbeddedCheckout).not.toHaveBeenCalled();
+  });
+
+  it("does not 404 when only the preview flag is on", async () => {
+    vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", undefined);
+    vi.stubEnv("PREVIEW_EMBEDDED_CHECKOUT_ENABLED", "true");
+    h.loadEmbeddedCheckout.mockResolvedValue({ kind: "expired" });
+
+    render(await renderCheckout({ session: VALID_SESSION, from: "/preview?id=d1" }));
+
+    expect(h.loadEmbeddedCheckout).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("This checkout expired.")).toBeInTheDocument();
+  });
+
   it("awaits searchParams before checking the flag, so the page is dynamic even on the flag-off branch", async () => {
     vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", "false");
     let thenCalled = false;
