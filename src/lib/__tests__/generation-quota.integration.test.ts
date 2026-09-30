@@ -1,9 +1,9 @@
 /**
- * DB-path coverage for the generation quota (#40 item c). The pure decision
- * (quotaDecision) and day bucketing are unit-tested in generation-quota.test.ts;
- * this exercises the real upsert increment, the identity+IP double-bump, the
- * anon-vs-signed-in caps, the flag short-circuit, and the WP2 refund helper —
- * all against a real in-memory libSQL (the #28 pattern).
+ * DB-path coverage for the generation quota (#40 item c, #263). Day bucketing
+ * is unit-tested in generation-quota.test.ts; this exercises the real upsert
+ * increment, the identity-then-IP bumping order, the guest vs signed-in caps on
+ * both buckets, enforcement with the guest-funnel flag unset, and the refund
+ * helper, all against a real in-memory libSQL (the #28 pattern).
  *
  * consumeGenerationQuota / refundGenerationQuota accept an explicit `db`, so no
  * module mocking is needed here.
@@ -16,6 +16,8 @@ import {
   consumeGenerationQuota,
   refundGenerationQuota,
   GUEST_GEN_DAILY_CAP,
+  IP_GEN_DAILY_CAP,
+  USER_IP_GEN_DAILY_CAP,
 } from "@/lib/generation-quota";
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
@@ -37,6 +39,10 @@ async function countFor(db: Db, bucket: string): Promise<number | null> {
   return row?.c ?? null;
 }
 
+async function seedIp(ip: string, count: number) {
+  await testDb.insert(schema.generationUsage).values({ bucket: `ip:${ip}`, day: DAY, count });
+}
+
 describe("consumeGenerationQuota — DB path", () => {
   beforeEach(async () => {
     testDb = await createTestDb();
@@ -46,18 +52,20 @@ describe("consumeGenerationQuota — DB path", () => {
     delete process.env.GUEST_FUNNEL_ENABLED;
   });
 
-  it("no-ops (always allowed, writes nothing) when the funnel flag is off", async () => {
+  it("is enforced with the funnel flag unset", async () => {
     delete process.env.GUEST_FUNNEL_ENABLED;
-    const res = await consumeGenerationQuota({
-      userId: "u1",
-      isAnonymous: true,
-      ip: "1.2.3.4",
-      now: NOW,
-      db: testDb,
-    });
-    expect(res).toEqual({ allowed: true });
-    expect(await countFor(testDb, "user:u1")).toBeNull();
-    expect(await countFor(testDb, "ip:1.2.3.4")).toBeNull();
+    let last;
+    for (let i = 0; i < GUEST_GEN_DAILY_CAP + 1; i++) {
+      last = await consumeGenerationQuota({
+        userId: "u1",
+        isAnonymous: true,
+        ip: "1.2.3.4",
+        now: NOW,
+        db: testDb,
+      });
+    }
+    expect(last).toEqual({ allowed: false, reason: "identity" });
+    expect(await countFor(testDb, "user:u1")).toBe(GUEST_GEN_DAILY_CAP + 1);
   });
 
   it("upsert-increments the identity and IP buckets on each call", async () => {
@@ -117,6 +125,78 @@ describe("consumeGenerationQuota — DB path", () => {
     }
     expect(signedIn).toEqual({ allowed: true });
   });
+
+  it("lets a signed-in user through an IP bucket already past IP_GEN_DAILY_CAP", async () => {
+    await seedIp("5.5.5.1", IP_GEN_DAILY_CAP + 5);
+    const res = await consumeGenerationQuota({
+      userId: "real-1",
+      isAnonymous: false,
+      ip: "5.5.5.1",
+      now: NOW,
+      db: testDb,
+    });
+    expect(res).toEqual({ allowed: true });
+    expect(await countFor(testDb, "ip:5.5.5.1")).toBe(IP_GEN_DAILY_CAP + 6);
+  });
+
+  it("refuses a signed-in user with reason ip once the bucket passes USER_IP_GEN_DAILY_CAP", async () => {
+    await seedIp("5.5.5.2", USER_IP_GEN_DAILY_CAP);
+    const res = await consumeGenerationQuota({
+      userId: "real-2",
+      isAnonymous: false,
+      ip: "5.5.5.2",
+      now: NOW,
+      db: testDb,
+    });
+    expect(res).toEqual({ allowed: false, reason: "ip" });
+    // The identity bucket was bumped before the IP check refused.
+    expect(await countFor(testDb, "user:real-2")).toBe(1);
+  });
+
+  it("still refuses a guest on that address at IP_GEN_DAILY_CAP + 1", async () => {
+    await seedIp("5.5.5.3", IP_GEN_DAILY_CAP);
+    const res = await consumeGenerationQuota({
+      userId: "guest-1",
+      isAnonymous: true,
+      ip: "5.5.5.3",
+      now: NOW,
+      db: testDb,
+    });
+    expect(res).toEqual({ allowed: false, reason: "ip" });
+  });
+
+  it("does not bump the ip: bucket when the identity bucket refuses", async () => {
+    await seedIp("5.5.5.4", 3);
+    for (let i = 0; i < GUEST_GEN_DAILY_CAP; i++) {
+      await consumeGenerationQuota({
+        userId: "guest-cap",
+        isAnonymous: true,
+        ip: "5.5.5.4",
+        now: NOW,
+        db: testDb,
+      });
+    }
+    const before = await countFor(testDb, "ip:5.5.5.4");
+    expect(before).toBe(3 + GUEST_GEN_DAILY_CAP);
+    const res = await consumeGenerationQuota({
+      userId: "guest-cap",
+      isAnonymous: true,
+      ip: "5.5.5.4",
+      now: NOW,
+      db: testDb,
+    });
+    expect(res).toEqual({ allowed: false, reason: "identity" });
+    expect(await countFor(testDb, "ip:5.5.5.4")).toBe(before);
+  });
+
+  it("admits exactly one of two concurrent signed-in calls at the signed-in IP cap - 1", async () => {
+    await seedIp("5.5.5.5", USER_IP_GEN_DAILY_CAP - 1);
+    const [a, b] = await Promise.all([
+      consumeGenerationQuota({ userId: "race-a", isAnonymous: false, ip: "5.5.5.5", now: NOW, db: testDb }),
+      consumeGenerationQuota({ userId: "race-b", isAnonymous: false, ip: "5.5.5.5", now: NOW, db: testDb }),
+    ]);
+    expect([a, b].filter((r) => r.allowed)).toHaveLength(1);
+  });
 });
 
 describe("refundGenerationQuota — DB path (#40 WP2)", () => {
@@ -143,6 +223,20 @@ describe("refundGenerationQuota — DB path (#40 WP2)", () => {
     expect(await countFor(testDb, "ip:1.2.3.4")).toBe(2);
   });
 
+  it("restores both buckets after an admitted generation", async () => {
+    const res = await consumeGenerationQuota({
+      userId: "u9",
+      isAnonymous: false,
+      ip: "1.2.3.9",
+      now: NOW,
+      db: testDb,
+    });
+    expect(res).toEqual({ allowed: true });
+    await refundGenerationQuota({ userId: "u9", ip: "1.2.3.9", now: NOW, db: testDb });
+    expect(await countFor(testDb, "user:u9")).toBe(0);
+    expect(await countFor(testDb, "ip:1.2.3.9")).toBe(0);
+  });
+
   it("floors at 0 and never goes negative", async () => {
     await consumeGenerationQuota({
       userId: "u1",
@@ -156,10 +250,11 @@ describe("refundGenerationQuota — DB path (#40 WP2)", () => {
     expect(await countFor(testDb, "user:u1")).toBe(0);
   });
 
-  it("no-ops when the funnel flag is off", async () => {
+  it("refunds with the funnel flag unset", async () => {
     delete process.env.GUEST_FUNNEL_ENABLED;
-    // Nothing to refund and no throw — a signed-in path never wants side effects.
+    await consumeGenerationQuota({ userId: "u1", isAnonymous: true, ip: "1.2.3.4", now: NOW, db: testDb });
     await refundGenerationQuota({ userId: "u1", ip: "1.2.3.4", now: NOW, db: testDb });
-    expect(await countFor(testDb, "user:u1")).toBeNull();
+    expect(await countFor(testDb, "user:u1")).toBe(0);
+    expect(await countFor(testDb, "ip:1.2.3.4")).toBe(0);
   });
 });

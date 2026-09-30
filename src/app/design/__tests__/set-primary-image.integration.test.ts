@@ -7,7 +7,7 @@
  *
  * Auth is mocked; the database is real.
  */
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { createTestDb } from "@/lib/__tests__/test-db";
 import { makeUser, makeDesign, makeSourceImage } from "@/lib/__tests__/factories";
@@ -16,7 +16,10 @@ import * as schema from "@/lib/db/schema";
 type Db = Awaited<ReturnType<typeof createTestDb>>;
 let testDb: Db;
 
-const h = vi.hoisted(() => ({ userId: "owner" as string | null }));
+const h = vi.hoisted(() => ({
+  userId: "owner" as string | null,
+  retrieve: vi.fn(),
+}));
 
 vi.mock("@/lib/db", () => ({
   get db() {
@@ -46,11 +49,21 @@ vi.mock("@/lib/r2", () => ({
 }));
 // d/actions.ts pulls in the checkout path, which constructs Stripe at import.
 vi.mock("@/lib/stripe", () => ({
-  stripe: { checkout: { sessions: { create: vi.fn() } } },
+  stripe: {
+    checkout: {
+      sessions: {
+        create: vi.fn(),
+        retrieve: (...a: unknown[]) => h.retrieve(...a),
+      },
+    },
+  },
 }));
 
 const { setPrimaryImage } = await import("@/app/design/actions");
 const { getConversationImages } = await import("@/app/d/actions");
+const { loadEmbeddedCheckout } = await import("@/lib/embedded-checkout-session");
+const { resolveOrderEmailImages } = await import("@/lib/email-images");
+const { mockupCacheKey } = await import("@/lib/mockup-cache");
 
 async function seedThread() {
   await makeUser(testDb, "owner");
@@ -145,6 +158,107 @@ describe("setPrimaryImage", () => {
     await setPrimaryImage(designId, first);
 
     expect(await primaryOf(designId)).toBe(first);
+  });
+});
+
+describe("setPrimaryImage and the mockup cache (#264)", () => {
+  // A front mockup with no source image id is a render of the current primary.
+  const SOURCE_LESS_KEY = mockupCacheKey({
+    productId: "bella-canvas-3001",
+    placementId: "front",
+    colorName: "Black",
+    scaleKey: 100,
+  });
+  const CACHE = { [SOURCE_LESS_KEY]: "https://r2.example/render-of-second.jpg" };
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  async function cacheOf(designId: string) {
+    const [row] = await testDb
+      .select({ mockupUrls: schema.design.mockupUrls })
+      .from(schema.design)
+      .where(eq(schema.design.id, designId));
+    return row.mockupUrls;
+  }
+
+  async function seedCached() {
+    const seeded = await seedThread();
+    await testDb
+      .update(schema.design)
+      .set({ mockupUrls: CACHE })
+      .where(eq(schema.design.id, seeded.designId));
+    return seeded;
+  }
+
+  it("moving the primary clears the cache; checkout and email don't show the old render", async () => {
+    const { designId, first } = await seedCached();
+    // An order pinned to `first`, which is about to become the primary.
+    const [order] = await testDb
+      .insert(schema.order)
+      .values({
+        userId: "owner",
+        designId,
+        stripeSessionId: "cs_test_264",
+        status: "pending",
+        totalPrice: 24.12,
+      })
+      .returning();
+    await testDb.insert(schema.orderItem).values({
+      orderId: order.id,
+      designId,
+      productId: "bella-canvas-3001",
+      size: "M",
+      color: "Black",
+      placements: { front: first },
+      quantity: 1,
+      itemPrice: 19.43,
+    });
+    vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", "true");
+    vi.stubEnv("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", "pk_test_abc123");
+    vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_abc123");
+    h.retrieve.mockResolvedValue({
+      status: "open",
+      ui_mode: "embedded",
+      client_secret: "cs_secret",
+      url: null,
+    });
+
+    await setPrimaryImage(designId, first);
+
+    expect(await primaryOf(designId)).toBe(first);
+    expect(await cacheOf(designId)).toBeNull();
+
+    const result = await loadEmbeddedCheckout({
+      sessionId: "cs_test_264",
+      viewerId: "owner",
+    });
+    if (result.kind !== "ready") throw new Error(`expected ready, got ${result.kind}`);
+    expect(result.summary[0].mockupUrl).toBeNull();
+
+    const images = resolveOrderEmailImages({
+      productId: "bella-canvas-3001",
+      color: "Black",
+      placements: { front: first },
+      mockupUrls: await cacheOf(designId),
+      primaryImageId: first,
+      frontArtworkUrl: "https://r2/1.png",
+      backArtworkUrl: null,
+      backdropHex: "#ffffff",
+    });
+    expect(images).toEqual([
+      { label: "Front", url: "https://r2/1.png", backdrop: "#ffffff" },
+    ]);
+  });
+
+  it("setting the same primary again leaves the cache intact", async () => {
+    const { designId, second } = await seedCached();
+
+    await setPrimaryImage(designId, second);
+
+    expect(await primaryOf(designId)).toBe(second);
+    expect(await cacheOf(designId)).toEqual(CACHE);
   });
 });
 

@@ -1,13 +1,19 @@
 # Stripe test-mode e2e
 
-One spec — `e2e/stripe-money-path.spec.ts` — that pays through real Stripe
-test mode: seed a design, `/preview`, pick size, Order, fill Stripe's hosted
-checkout (4242 test card), land on `/order/confirm`, then assert the order row
-reaches `submitted` (dry-run Printful) with `sale` + `stripe_fee` ledger rows.
+One spec file — `e2e/stripe-money-path.spec.ts` — with two tests that pay
+through real Stripe test mode (4242 test card), land on `/order/confirm`, then
+assert the order row reaches `submitted` (dry-run Printful) with `sale` +
+`stripe_fee` ledger rows:
+
+- The cart test adds two designs to the cart and pays on Stripe's hosted
+  checkout page (the cart stays hosted).
+- The `/preview` test seeds a design, picks size, Orders, and pays through
+  embedded checkout on our `/checkout` page when
+  `PREVIEW_EMBEDDED_CHECKOUT_ENABLED=true`, or on the hosted page otherwise.
 
 This is the test class that would have caught the 2026-07-19 external_id
 incident's siblings: real vendor constraints (Stripe here) that mocks can't
-see. Keep it at exactly one spec. Printful stays dry-run inside the spec; the
+see. Keep it to these two tests. Printful stays dry-run inside the spec; the
 Printful side is covered separately by the contract check below.
 
 ## Prerequisites
@@ -37,7 +43,7 @@ What the script (`scripts/e2e-stripe.sh`) does:
    `PRINTFUL_DRY_RUN=true` (also forced in `playwright.config.ts` — no local
    e2e can place a real Printful order), a dummy `RESEND_API_KEY` (no real
    order emails), and `E2E_STRIPE=1`.
-4. Runs the spec on the mobile project only — one payment per run.
+4. Runs the spec on the mobile project only — two payments per run.
 
 The spec self-cleans: its order + `order_item` + ledger rows, seeded design,
 and throwaway account are deleted from the dev DB afterward.
@@ -55,8 +61,13 @@ deployment under test) and when `STRIPE_SECRET_KEY` isn't `sk_test_…`.
 `.github/workflows/stripe-e2e.yml` runs this spec on a schedule (nightly) and
 via manual `workflow_dispatch`. It is intentionally **not** wired into
 `pull_request`/`push` — it moves real (test-mode) money through Stripe's
-actual hosted checkout DOM, which is third-party flake every PR shouldn't
+actual checkout DOM, which is third-party flake every PR shouldn't
 have to eat.
+
+It moves money through two Stripe surfaces: hosted checkout DOM (the cart
+test) and the embedded checkout iframe on `/checkout` (the `/preview` test).
+Forcing the embedded switch on means the nightly no longer covers hosted
+checkout from `/preview`, which is production's path while the switch is off.
 
 The workflow installs the Stripe CLI, branches an ephemeral Turso DB off
 `prntd-preview` (same mechanism as the per-PR e2e job, #31/#108 — named so it
@@ -72,6 +83,22 @@ Repo secrets required: `STRIPE_SECRET_KEY` (test-mode), `TURSO_API_TOKEN`
 (already added for #108), and `PRINTFUL_API_KEY` (for the contract check
 below). On failure the job files/comments on a GitHub issue labeled
 `stripe-e2e-nightly` so a red run isn't silent.
+
+## Embedded checkout (/preview)
+
+The nightly sets `PREVIEW_EMBEDDED_CHECKOUT_ENABLED=true` and
+`NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` from the repo variable
+`STRIPE_TEST_PUBLISHABLE_KEY` (a variable, not a secret). The key must come
+from the same Stripe account and test mode as the `STRIPE_SECRET_KEY` secret,
+or checkout fails closed to hosted and the `/preview` test fails.
+
+The publishable key is inlined at build. A local run needs both variables set
+in the local env file before the build that `npm run e2e:stripe` triggers, and
+port 3100 free so no stale build is reused.
+
+The iframe and field selectors were written without a live run, so the first
+run is a calibration run: update the candidates in `embeddedStripeRoot` and
+`completeStripeCheckout` in `e2e/stripe-money-path.spec.ts`.
 
 ## Printful contract check
 
@@ -125,3 +152,8 @@ API; the nightly run is the only live exercise.
 - Stripe's checkout DOM changes without notice. The spec resolves each field
   through candidate locators (`#cardNumber`, placeholder, label); if a fill
   fails, update the candidates in `completeStripeCheckout`.
+- The `/preview` test times out waiting for the embedded form, or lands on
+  Stripe's hosted page: the publishable key is missing, or from a different
+  Stripe account or mode than `STRIPE_SECRET_KEY`, so checkout failed closed
+  to hosted. Otherwise the iframe selectors in `embeddedStripeRoot` need
+  calibrating.
