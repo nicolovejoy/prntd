@@ -446,4 +446,21 @@ describe("/preview sends the shown front to checkout and cart (#269)", () => {
       "img-primary"
     );
   });
+
+  it("does not load the back-source groups on arrival when front is the primary", async () => {
+    vi.mocked(getBackDesignSources).mockReset();
+    vi.mocked(getBackDesignSources).mockResolvedValue({ groups: [] });
+    params = new URLSearchParams(`${SIZED}&front=img-primary`);
+    render(<PreviewPage />);
+    await waitFor(() => expect(mockupCallsFor("front")).toHaveLength(1));
+    expect(getBackDesignSources).not.toHaveBeenCalled();
+  });
+
+  it("loads them for a real pin, to resolve its thumbnail", async () => {
+    vi.mocked(getBackDesignSources).mockReset();
+    vi.mocked(getBackDesignSources).mockResolvedValue({ groups: [] });
+    params = new URLSearchParams(`${SIZED}&front=img-other`);
+    render(<PreviewPage />);
+    await waitFor(() => expect(getBackDesignSources).toHaveBeenCalled());
+  });
 });

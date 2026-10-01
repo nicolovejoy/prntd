@@ -96,7 +96,9 @@ export async function generateMockup(
   placementId: string = "front",
   /** Source image the placement render was anchored on (#25). Required for a
    * non-front placement so the mockup matches the picked source and the cache
-   * key doesn't collide across back choices. Front leaves it undefined. */
+   * key doesn't collide across back choices. /preview also passes its front
+   * (#269); the server folds a front equal to the current primary into the
+   * default front. */
   sourceImageId?: string
 ): Promise<{ mockupUrl: string }> {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -108,18 +110,11 @@ export async function generateMockup(
   if (!found || found.userId !== session.user.id)
     throw new Error("Unauthorized");
 
-  // /preview names the front it is showing on every request (#269), so the
-  // server never resolves "current primary" mid-visit. A front source equal to
-  // the design's current primary IS the default front: drop it here so the
-  // cache key, the R2 key and prefetched entries are exactly the no-source
-  // ones. A different source stays explicit and takes the pinned path. This is
-  // the one place that rule lives; renderAndCacheMockup is shared with /d,
-  // whose source-keyed front entries must not change.
-  const explicitSource =
-    placementId === "front" && sourceImageId === found.primaryImageId
-      ? undefined
-      : sourceImageId;
-
+  // /preview names the front it is showing on every request (#269).
+  // `foldPrimaryFront` has renderAndCacheMockup treat a front source equal to
+  // the design's primary (as that call reads it) as the default front, so the
+  // cache key, R2 key and prefetched entries are the no-source ones. Other
+  // callers, e.g. the /d buy page, don't pass it and keep their source keys.
   // Render-and-cache body is shared with getListingMockup (/d, #135 slice 1);
   // this action's only job is the owner gate above.
   return renderAndCacheMockup({
@@ -128,7 +123,8 @@ export async function generateMockup(
     colorName,
     scale,
     placementId,
-    sourceImageId: explicitSource,
+    sourceImageId,
+    foldPrimaryFront: true,
     userId: session.user.id,
   });
 }

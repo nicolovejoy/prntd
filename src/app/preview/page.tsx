@@ -225,7 +225,10 @@ function PreviewPageInner() {
   // nothing resolves "the primary" later than this page did. `frontPinned`
   // only decides the client mockup cache key shape.
   const effectiveFrontId = frontImageId ?? primaryImageId;
-  const frontPinned = !!frontImageId && frontImageId !== primaryImageId;
+  // Only once the design has loaded: before that the primary is unknown and
+  // every front in the URL would look like a pin.
+  const frontPinned =
+    !!frontImageId && primaryImageId !== null && frontImageId !== primaryImageId;
   // The source picker renders in place of the hero while open for a side.
   const showSourcePicker = pickerTarget !== null;
   const pickingFor: Side = pickerTarget ?? "back";

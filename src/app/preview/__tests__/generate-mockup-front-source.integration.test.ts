@@ -31,7 +31,7 @@ vi.mock("next/headers", () => ({ headers: async () => new Headers() }));
 vi.mock("next/server", () => ({ after: (fn: () => void) => fn }));
 
 const printful = vi.hoisted(() => ({
-  createMockupTask: vi.fn(async (..._args: unknown[]) => "task-key"),
+  createMockupTask: vi.fn(async () => "task-key"),
   pollMockupTask: vi.fn(async () => [
     { mockupUrl: "https://printful.example/temp.jpg", variantIds: [1] },
   ]),
@@ -40,7 +40,7 @@ vi.mock("@/lib/printful", () => printful);
 
 const r2 = vi.hoisted(() => ({
   uploadMockupImage: vi.fn(
-    async (..._args: unknown[]) => "https://r2.example/mockup.jpg"
+    async () => "https://r2.example/mockup.jpg"
   ),
   uploadImageObject: vi.fn(async () => "https://r2.example/x.png"),
 }));
@@ -106,7 +106,7 @@ describe("generateMockup front source", () => {
   it("a source equal to the current primary is the default front: default key, default R2 parts, shared with no-source calls", async () => {
     await generateMockup(designId, "Black", PRODUCT, 1, "front", p1);
     expect(Object.keys(await mockupUrls())).toEqual([defaultKey()]);
-    const parts = r2.uploadMockupImage.mock.calls[0][2] as {
+    const parts = (r2.uploadMockupImage.mock.calls[0] as unknown[])[2] as {
       sourceImageId?: string;
     };
     expect(parts.sourceImageId).toBeUndefined();
@@ -118,7 +118,7 @@ describe("generateMockup front source", () => {
 
   it("a source that differs from the primary renders that image under the pinned key", async () => {
     await generateMockup(designId, "Black", PRODUCT, 1, "front", p2);
-    expect(printful.createMockupTask.mock.calls[0][2]).toBe(
+    expect((printful.createMockupTask.mock.calls[0] as unknown[])[2]).toBe(
       "https://img.example/p2.png"
     );
     expect(Object.keys(await mockupUrls())).toEqual([
@@ -140,10 +140,18 @@ describe("generateMockup front source", () => {
 
     await generateMockup(designId, "Black", PRODUCT, 1, "front", p1);
 
-    expect(printful.createMockupTask.mock.calls[0][2]).toBe(
+    expect((printful.createMockupTask.mock.calls[0] as unknown[])[2]).toBe(
       "https://img.example/p1.png"
     );
-    // Not stored as the default front, which now belongs to p2.
-    expect(Object.keys(await mockupUrls())).not.toContain(defaultKey());
+    // Stored under p1's own key, not the default front, which now belongs to p2.
+    expect(Object.keys(await mockupUrls())).toEqual([
+      mockupCacheKey({
+        productId: PRODUCT,
+        placementId: "front",
+        sourceImageId: p1,
+        colorName: "Black",
+        scaleKey: 100,
+      }),
+    ]);
   });
 });

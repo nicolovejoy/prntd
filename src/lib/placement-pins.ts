@@ -13,11 +13,10 @@ export type PlacementPins = {
 };
 
 /**
- * Normalize a front pick: choosing the design's primary image is the
- * default, not a pin. Everything downstream (URL param, checkout `front`,
- * mockup source threading) keys off "pin present", so collapsing
- * picked-the-primary to null keeps the common case on the exact code path
- * and cache keys in use before the picker existed.
+ * Normalize a front pick: choosing the primary image the page loaded is "no
+ * pin" (null) in client state. That decides only the client's mockup cache
+ * key shape and whether the pin's thumbnail needs loading; the front on
+ * screen is still sent to the server and kept in the URL (#269).
  */
 export function normalizeFrontPin(
   pickedId: string,
