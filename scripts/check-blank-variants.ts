@@ -7,7 +7,9 @@
  * Reports, per product:
  *   - MISSING: a variant id Printful no longer lists (discontinued or removed),
  *     or one whose colour/size no longer matches the entry in blanks.ts.
- *   - out of stock (warning only): listed, but not in_stock for the US. These
+ *   - out of stock (warning only): listed, but its availability_status has no US in_stock entry (the
+ *     same rule docs/products.md uses to pick new colours; the top-level
+ *     in_stock flag is not region-specific). These
  *     are usually temporary, so they do not change the exit code.
  *
  * Exits 1 if anything is MISSING or mismatched.

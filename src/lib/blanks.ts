@@ -105,7 +105,8 @@ export type Blank = {
   sizeLabel?: string;
   colors: BlankColor[];
   /**
-   * Names of the colours `prefetchProductMockups` warms when /preview loads.
+   * Names of the colours `prefetchProductMockups` warms when /preview first loads a design with no cached mockups for the product
+   * (see ensureMockupsPrefetched), not on every load.
    * Omit to prefetch every colour. Set it when the colour list is long: the
    * prefetch is one bulk Printful task (180 s poll window; a timeout caches
    * nothing) plus one R2 object and one design.mockup_urls entry per colour.

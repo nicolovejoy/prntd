@@ -89,6 +89,7 @@ export function ColorPicker({
             }`}
             style={{ backgroundColor: c.value }}
             title={c.name}
+            aria-label={c.name}
           />
         ))}
       </div>

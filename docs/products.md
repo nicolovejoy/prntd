@@ -98,12 +98,12 @@ Compare the script's `colors:` and `variants:` output to what's in `blanks.ts` f
 
 Colour rules (decision 8, 2026-09-28):
 
-- **Only add a color that has a variant for every size the product sells**, each in stock for the US (`in_stock` true and a `US` entry with status `in_stock` in `availability_status`). A color missing a size, or out of stock in one, is skipped. Printful's response has no discontinued flag; a variant that disappears from the response is how discontinuation shows up (the checker below reports it).
+- **Only add a color that has a variant for every size the product sells**, available in the US: the variant's `availability_status` has a `US` entry with status `in_stock` (the top-level `in_stock` flag is not region-specific and is not used). A color missing a size, or out of stock in one, is skipped. Printful's response has no discontinued flag; a variant that disappears from the response is how discontinuation shows up (the checker below reports it, and uses the same US rule for its out-of-stock warnings).
 - Hex comes from Printful's `color_code`; `color_code2` (heathers) is ignored.
 - Order in the file does not matter: `BLANKS` sorts each shirt's `colors` light to dark (`sortLightToDark`: relative luminance, name as tiebreak), so every picker and list reads the same order. `colors[0]` is the default in several places and is White for every shirt.
 - `BACKGROUND_PALETTE` (the publish backdrop list) is a pinned literal of 25 colors, not derived from the Classic Tee. New shirt colors do not appear in it; `blanks-colors.test.ts` fails if it changes.
 - New colors use the product's existing `baseCost` / `retailPrice`. If Printful prices a color differently for a size we sell, don't add it without deciding the price.
-- `prefetchProductMockups` sends one bulk Printful mockup task per `/preview` load, for the colors in the blank's `prefetchColors` (all colors when unset). The Classic Tee lists its original 25 so the task stays that size. A new color is not prefetched unless you add it to `prefetchColors`; it renders on demand when picked. Keep White (the default) in the list.
+- `prefetchProductMockups` sends one bulk Printful mockup task, for the colors in the blank's `prefetchColors` (all colors when unset). The Classic Tee lists its original 25 so the task stays that size. A new color is not prefetched unless you add it to `prefetchColors`; it renders on demand when picked. Keep White (the default) in the list. `ensureMockupsPrefetched` runs it from `/preview` only when the design has no current-version mockup entry yet for that product, so it fires once per design and product, not on every load.
 
 Check that every variant id in `blanks.ts` is still listed by Printful (read-only; exits 1 on any missing or mismatched id, out-of-stock is only a warning):
 

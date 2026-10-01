@@ -18,7 +18,8 @@ import {
  * on demand through renderAndCacheMockup when picked.
  * Scheduled via after() by `ensureMockupsPrefetched`
  * (src/app/preview/actions.ts), which /preview calls on page load after
- * checking that the viewer owns the design. Printful mockup tasks are free;
+ * checking that the viewer owns the design, and which skips the call when the
+ * design already has a current-version mockup entry for the product. Printful mockup tasks are free;
  * only wall time costs.
  *
  * Issues a single multi-variant Printful task instead of one task per

@@ -106,6 +106,12 @@ describe("ColorPicker", () => {
     expect(swatches[0].parentElement!.className).toContain("flex-wrap");
   });
 
+  it("gives each swatch an aria-label with the colour name", () => {
+    render(<ColorPicker colors={COLORS} value="Black" onChange={() => {}} />);
+    expect(screen.getByRole("button", { name: "White" })).toHaveAttribute("aria-label", "White");
+    expect(screen.getByRole("button", { name: "Black" })).toHaveAttribute("aria-label", "Black");
+  });
+
   it("names each swatch for assistive tech and marks the selected one", () => {
     render(<ColorPicker colors={COLORS} value="Black" onChange={() => {}} />);
     expect(screen.getByRole("button", { name: "Black" })).toHaveAttribute("aria-pressed", "true");
