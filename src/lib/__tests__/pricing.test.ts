@@ -159,6 +159,19 @@ function exactPriceCents(cost: number, mult: number): bigint {
 describe("priceFromCost", () => {
   const multipliers = [MARGIN_MULTIPLIER, 1.4, 1.3];
 
+  // priceFromCost rounds the multiplier and each cost to hundredths before
+  // multiplying, so a third decimal on either would be dropped silently.
+  it("is only fed two-decimal inputs: the multiplier and every base cost", () => {
+    const hasTwoDecimals = (n: number) =>
+      Math.abs(n * 100 - Math.round(n * 100)) < 1e-9;
+    expect(hasTwoDecimals(MARGIN_MULTIPLIER)).toBe(true);
+    for (const blank of BLANKS) {
+      for (const cost of Object.values(blank.baseCost)) {
+        expect(hasTwoDecimals(cost)).toBe(true);
+      }
+    }
+  });
+
   it("matches an exact calculation for every blank and size without a retailPrice", () => {
     for (const p of BLANKS) {
       for (const size of p.sizes) {
