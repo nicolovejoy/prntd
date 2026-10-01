@@ -135,13 +135,18 @@ export default function CartPage() {
         {cart && cart.items.length > 0 && (
           <>
             <ul className="border-t border-border">
-              {cart.items.map((item) => (
+              {cart.items.map((item) => {
+                // Two thumbnails would squeeze the text column at 390px
+                // (358 - 2x64 - 3x16 gaps - ~60 price = ~122px), so a
+                // two-sided line uses 56px ones (~138px).
+                const thumb = item.backImageUrl ? "w-14 h-14" : "w-16 h-16";
+                return (
                 <li
                   key={item.id}
                   data-testid="cart-line-item"
                   className="border-b border-border flex items-center gap-4 py-4"
                 >
-                  <div className="w-16 h-16 shrink-0 bg-surface-well border border-border overflow-hidden">
+                  <div className={`${thumb} shrink-0 bg-surface-well border border-border overflow-hidden`}>
                     {item.imageUrl && (
                       // alt="" is deliberate: the visible product name beside
                       // this thumbnail is the row's label, so a non-empty alt
@@ -154,6 +159,21 @@ export default function CartPage() {
                       />
                     )}
                   </div>
+                  {item.backImageUrl && (
+                    <div
+                      data-testid="cart-line-back"
+                      className={`${thumb} shrink-0 bg-surface-well border border-border overflow-hidden`}
+                    >
+                      {/* alt="" for the same reason as the front: the text
+                          beside it ("front + back") is the label. */}
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={item.backImageUrl}
+                        alt=""
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                  )}
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium truncate">{item.productName}</p>
                     <p className="text-sm text-text-muted">
@@ -175,7 +195,8 @@ export default function CartPage() {
                     </button>
                   </div>
                 </li>
-              ))}
+                );
+              })}
             </ul>
 
             <div className="space-y-2 text-sm mt-4">

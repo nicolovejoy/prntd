@@ -59,6 +59,8 @@ export type CartLine = {
   quantity: number;
   unitPrice: number;
   imageUrl: string | null;
+  /** The back design's artwork, when the line has one (#282). */
+  backImageUrl: string | null;
 };
 
 export type CartView = {
@@ -273,8 +275,10 @@ export async function getCart(): Promise<CartView> {
   // not the design's current display image — they can differ, and the pin is
   // what gets printed. /preview lines pin the primary, so this is a no-op
   // for them.
-  const pinnedFrontById = await resolveImagesByIds(
-    rows.map((r) => r.placements?.front).filter((v): v is string => Boolean(v))
+  const pinnedById = await resolveImagesByIds(
+    rows
+      .flatMap((r) => [r.placements?.front, r.placements?.back])
+      .filter((v): v is string => Boolean(v))
   );
 
   const items: CartLine[] = [];
@@ -283,7 +287,7 @@ export async function getCart(): Promise<CartView> {
     if (!product) continue; // discontinued / unknown — drop from view
     const hasBack = !!r.placements?.back;
     const pinnedFront = r.placements?.front
-      ? pinnedFrontById.get(r.placements.front)?.imageUrl ?? null
+      ? pinnedById.get(r.placements.front)?.imageUrl ?? null
       : null;
     const unitPrice = computePrice(0, r.productId, r.size, { back: hasBack }).total;
     items.push({
@@ -298,6 +302,9 @@ export async function getCart(): Promise<CartView> {
       quantity: r.quantity,
       unitPrice,
       imageUrl: pinnedFront ?? imageMap.get(r.designId) ?? null,
+      backImageUrl: r.placements?.back
+        ? pinnedById.get(r.placements.back)?.imageUrl ?? null
+        : null,
     });
   }
 
