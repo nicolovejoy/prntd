@@ -733,8 +733,8 @@ correction: this is one conversation thread, not "Studio" — Studio now names
    auto-open after generation.
 5. **Empty state** — centered composer ("Describe a design"), chips always
    visible with no reveal delay (#214), 3 example prompts.
-6. **Lightbox** (`app/design/image-lightbox.tsx`) — per-image actions: Make
-   Products (promotes that image), New design from this (fresh start,
+6. **Lightbox** (`app/design/image-lightbox.tsx`) — per-image actions: Order
+   (promotes that image), New design from this (fresh start,
    #149), Publish, Delete/Remove. Adopt generator is gone with the
    multi-generator removal (#56).
 7. **PublishModal** (`components/publish-modal.tsx`) — title + full

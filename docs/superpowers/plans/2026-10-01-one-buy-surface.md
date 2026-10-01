@@ -349,7 +349,7 @@ Asked for by Nico on 2026-10-01 after the #280 smoke: on the buy surface, after 
 - Modify: `src/app/preview/page.tsx` (desktop CTA stack near `:1205-1223`, mobile sticky bar near `:1307-1337`), `src/app/d/[imageId]/buy-panel.tsx` (the `cta` block, both branches)
 - Test: `src/app/preview/__tests__/preview-sides.test.tsx`, `src/app/d/[imageId]/__tests__/buy-panel.test.tsx`
 
-Behaviour (the default; confirm with Nico when the slice starts, since he asked for the button and not for where it goes):
+Behaviour (Nico confirmed this default on 2026-10-01 when the slice started):
 
 - `/preview`: Cancel is a link to the page's parent, the last entry of `breadcrumbTrail("/preview", { id, product })` (the same target the breadcrumb's up link uses), not `router.back()`, which leaves the site on a deep link.
 - Image detail panel: Cancel collapses the panel (`setExpanded(false)`), so the hero returns to the artwork. After slice 2 it also clears the pick params from the address bar (`withBuyPagePicks(search, { order: false, product: null, size: null, color: null, back: null, swap: false })`).
@@ -365,7 +365,7 @@ Behaviour (the default; confirm with Nico when the slice starts, since he asked 
 
 - [ ] Full gate, `npm run e2e`, whole-branch review, PR "Order pipeline small fixes: Size above Colour, no slider, Order label, no total before size, cart shows the back (#278, #282)".
 - [ ] Rebase or merge #274 afterwards: its open question 1 (swatches above Size) is answered by task 1.1.
-- Not a code task: Nico turns `PREVIEW_EMBEDDED_CHECKOUT_ENABLED` on in Production once the scheduled nightly Stripe e2e is green. It stops mattering after slice 4.
+- `PREVIEW_EMBEDDED_CHECKOUT_ENABLED` stays off in Production (Nico, 2026-10-01): `/preview` becomes a redirect in slice 4, so the flip is not worth making.
 
 Smoke for Nico (after merge, on a phone):
 1. Open https://prntd.org/studio, tap any design image, tap **Order**.
