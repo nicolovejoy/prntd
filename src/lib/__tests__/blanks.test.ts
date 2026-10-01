@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { priceFromCost } from "../pricing";
 import {
   getBlank,
   getBlankOrThrow,
@@ -182,7 +183,7 @@ describe("BLANKS", () => {
       for (const size of p.sizes) {
         const cost = getBaseCost(p, size);
         const retail = getRetailPrice(p, size);
-        const price = retail ?? Math.ceil(cost * 1.5 * 100) / 100;
+        const price = retail ?? priceFromCost(cost);
         expect(price).toBeGreaterThanOrEqual(cost);
       }
     }

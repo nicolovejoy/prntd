@@ -8,6 +8,23 @@ import {
 export const MARGIN_MULTIPLIER = 1.5;
 
 /**
+ * Customer item price from a base cost: cost × multiplier, rounded up to the
+ * cent only when the exact product has a fraction of a cent. Done in integer
+ * cents and hundredths, because a float `ceil(cost * 1.5 * 100)` turns exact
+ * results like 17.80 × 1.5 = 26.70 into 26.71. Exact for any two-decimal cost
+ * and two-decimal multiplier.
+ */
+export function priceFromCost(
+  baseCost: number,
+  multiplier: number = MARGIN_MULTIPLIER
+): number {
+  const cents = Math.round(baseCost * 100);
+  const hundredths = Math.round(multiplier * 100);
+  // cents × hundredths is in ten-thousandths of a dollar; ceil-divide by 100.
+  return Math.floor((cents * hundredths + 99) / 100) / 100;
+}
+
+/**
  * Stripe processing fee — 2.9% + $0.30 on the full charge (item + shipping).
  * Lives here (the pure, db-free pricing module) as the single source of truth;
  * `ledger.ts` re-exports it so the `@/lib/ledger` import path keeps working.
@@ -124,7 +141,7 @@ export function computePrice(
   const product = getBlankOrThrow(productId);
   const baseCost = getBaseCost(product, size);
   const retail = getRetailPrice(product, size);
-  const front = retail ?? Math.ceil(baseCost * MARGIN_MULTIPLIER * 100) / 100;
+  const front = retail ?? priceFromCost(baseCost);
   // Back upcharge adds to the product line (so promos discount it). Rounded to
   // the cent to stay aligned with the front computation.
   const total =
