@@ -476,3 +476,12 @@ describe("/preview option order (#278)", () => {
     ).toBeTruthy();
   });
 });
+
+it("offers no design-size control (#278)", async () => {
+  params = new URLSearchParams(NO_BACK);
+  generateMockup.mockRejectedValue(new Error("printful down"));
+  render(<PreviewPage />);
+  await screen.findByText("Retry preview");
+  expect(screen.queryByText("Design size")).not.toBeInTheDocument();
+  expect(screen.queryByRole("slider")).not.toBeInTheDocument();
+});

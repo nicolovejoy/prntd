@@ -77,6 +77,10 @@ function setSides<T>(sides: Side[], value: T) {
   };
 }
 
+// Mockups and prints are always full size: there is no scale control, and no
+// scale reaches checkout or fulfillment (#278).
+const SCALE = 1.0;
+
 export default function PreviewPage() {
   return (
     <Suspense>
@@ -158,7 +162,6 @@ function PreviewPageInner() {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [zoomed, setZoomed] = useState(false);
   const [panOrigin, setPanOrigin] = useState({ x: 50, y: 50 });
-  const [scale, setScale] = useState(1.0);
 
   // Multi-placement (#25). Off-by-default flag keeps the back UI dark in
   // prod; when off, no back is ever shown so the whole flow is the
@@ -195,7 +198,7 @@ function PreviewPageInner() {
   const mockupCache = useRef<Map<string, string>>(new Map());
   // Latest-wins tokens (#71), one per side: every selection tap supersedes
   // the in-flight mockup fetches it affects, so a stale Printful response —
-  // whatever field it was for (color, product, back pick, scale) — can never
+  // whatever field it was for (color, product, back pick) — can never
   // overwrite the newer selection's state. Replaces per-field ref
   // comparisons, which missed A→B→A sequences. Per side because both sides
   // fetch on this page (#167): with one shared token the back's begin()
@@ -515,7 +518,7 @@ function PreviewPageInner() {
       side === "back"
         ? backImageId ?? undefined
         : effectiveFrontId ?? undefined;
-    const scaleKey = Math.round(scale * 100);
+    const scaleKey = Math.round(SCALE * 100);
     // Client cache key: the default front (no source segment) means the
     // primary this page loaded, which is what design.mockupUrls held at load
     // and what a front equal to it is. Only a pin that differs from it gets a
@@ -545,7 +548,7 @@ function PreviewPageInner() {
         designId,
         colorName,
         productId,
-        scale,
+        SCALE,
         side,
         sourceImageId
       );
@@ -903,7 +906,7 @@ function PreviewPageInner() {
         display={sideDisplay(side)}
         colorHex={colorHex}
         alt={sideAlt(side)}
-        artworkWidthPct={Math.round(scale * 62)}
+        artworkWidthPct={Math.round(SCALE * 62)}
         pendingLabel={sidePendingLabel(side)}
         onMockupLoad={(url) => setLoadedMockupUrl((l) => ({ ...l, [side]: url }))}
         error={sideError(side)}
@@ -1014,7 +1017,7 @@ function PreviewPageInner() {
                 display={sideDisplay(layout.hero)}
                 colorHex={colorHex}
                 alt={sideAlt(layout.hero)}
-                artworkWidthPct={Math.round(scale * 62)}
+                artworkWidthPct={Math.round(SCALE * 62)}
                 pendingLabel={sidePendingLabel(layout.hero)}
                 onMockupLoad={(url) =>
                   setLoadedMockupUrl((l) => ({ ...l, [layout.hero]: url }))
@@ -1032,24 +1035,6 @@ function PreviewPageInner() {
                 <div className="w-64 md:w-80 mt-3 flex">{renderTile()}</div>
               )}
             </>
-          )}
-
-          {/* Scale slider — keyed off the hero side */}
-          {!showSourcePicker && !mockupLoading[layout.hero] && !heroMockup && (
-            <div className="w-full max-w-xs mt-4">
-              <div className="flex items-center justify-between text-xs text-text-muted mb-1">
-                <span>Design size</span>
-                <span>{Math.round(scale * 100)}%</span>
-              </div>
-              <input
-                type="range"
-                min={30}
-                max={100}
-                value={Math.round(scale * 100)}
-                onChange={(e) => setScale(Number(e.target.value) / 100)}
-                className="w-full h-2 accent-accent"
-              />
-            </div>
           )}
         </div>
 
