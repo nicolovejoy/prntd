@@ -67,6 +67,7 @@ vi.mock("../actions", () => ({
 }));
 
 import PreviewPage from "../page";
+import { breadcrumbTrail } from "@/lib/nav";
 import { getBackDesignSources } from "../actions";
 import { createCheckoutSession } from "../../order/actions";
 import { addToCart, isCartEnabled } from "../../cart/actions";
@@ -484,4 +485,19 @@ it("offers no design-size control (#278)", async () => {
   await screen.findByText("Retry preview");
   expect(screen.queryByText("Design size")).not.toBeInTheDocument();
   expect(screen.queryByRole("slider")).not.toBeInTheDocument();
+});
+
+describe("/preview Cancel (#278)", () => {
+  it("links to the breadcrumb parent under Order and Add to cart", async () => {
+    params = new URLSearchParams(NO_BACK);
+    render(<PreviewPage />);
+    const links = await screen.findAllByRole("link", { name: "Cancel" });
+    expect(links.length).toBeGreaterThan(0);
+    const trail = breadcrumbTrail("/preview", {
+      id: "d1",
+      product: "bella-canvas-3001",
+    });
+    const parent = trail[trail.length - 1];
+    for (const l of links) expect(l.getAttribute("href")).toBe(parent.href);
+  });
 });

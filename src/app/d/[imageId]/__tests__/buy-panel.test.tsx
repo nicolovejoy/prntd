@@ -102,6 +102,24 @@ describe("BuyPanel price (#278)", () => {
   });
 });
 
+describe("BuyPanel Cancel (#278)", () => {
+  it("collapses the panel back to the Order button", () => {
+    render(<BuyPanel imageId="img-1" isLoggedIn />);
+    expand();
+    fireEvent.click(screen.getByRole("button", { name: "M" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Cancel" })[0]);
+    expect(screen.getByTestId("order-expand")).toBeInTheDocument();
+    expect(screen.queryByText("Size")).not.toBeInTheDocument();
+  });
+
+  it("signed-out: the gate has a Cancel that collapses too", () => {
+    render(<BuyPanel imageId="img-1" isLoggedIn={false} />);
+    expand();
+    fireEvent.click(screen.getAllByRole("button", { name: "Cancel" })[0]);
+    expect(screen.getByTestId("order-expand")).toBeInTheDocument();
+  });
+});
+
 describe("BuyPanel size gate (#60)", () => {
   it("starts with no size selected and the CTA disabled", () => {
     render(<BuyPanel imageId="img-1" isLoggedIn />);

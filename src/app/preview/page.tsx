@@ -934,13 +934,26 @@ function PreviewPageInner() {
     ? sourceUrls[backImageId] ?? lastArtwork.back
     : null;
 
+  const trail = breadcrumbTrail("/preview", {
+    id: designId ?? undefined,
+    product: productId,
+  });
+  // Cancel goes where the breadcrumb's up link goes; router.back() would
+  // leave the site on a deep link (#278).
+  const cancelHref = trail[trail.length - 1]?.href ?? "/studio";
+  const cancelLink = (
+    <Link
+      href={cancelHref}
+      className="min-h-11 flex items-center justify-center text-sm underline text-text-muted"
+    >
+      Cancel
+    </Link>
+  );
+
   return (
-    <div className="min-h-screen flex flex-col items-center py-6 md:py-12 px-4 pb-40 md:pb-12">
+    <div className="min-h-screen flex flex-col items-center py-6 md:py-12 px-4 pb-60 md:pb-12">
       <Breadcrumbs
-        trail={breadcrumbTrail("/preview", {
-          id: designId ?? undefined,
-          product: productId,
-        })}
+        trail={trail}
         current="Preview"
         className="w-full max-w-2xl mb-8"
       />
@@ -1206,6 +1219,7 @@ function PreviewPageInner() {
               {addingToCart ? "Adding…" : "Add to cart"}
             </Button>
           )}
+          <div className="hidden md:block">{cancelLink}</div>
           <div className="text-center">
             <Link
               href={`/design?id=${designId}`}
@@ -1319,6 +1333,7 @@ function PreviewPageInner() {
             {addingToCart ? "Adding…" : "Add to cart"}
           </Button>
         )}
+        {cancelLink}
       </div>
     </div>
   );

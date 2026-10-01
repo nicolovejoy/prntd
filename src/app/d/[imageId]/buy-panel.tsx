@@ -318,6 +318,18 @@ export function BuyPanel({
     </Button>
   ) : null;
 
+  // A text link, not a third button; collapses the panel back to the artwork
+  // (#278). Never disabled.
+  const cancelButton = (
+    <button
+      type="button"
+      onClick={() => setExpanded(false)}
+      className="w-full min-h-11 text-sm underline text-text-muted"
+    >
+      Cancel
+    </button>
+  );
+
   const cta = isLoggedIn ? (
     <div className="space-y-1.5">
       {!size && (
@@ -336,6 +348,7 @@ export function BuyPanel({
             : "Order"}
       </Button>
       {addToCartButton}
+      {cancelButton}
       {notice && <InlineNotice message={notice} className="text-center" />}
     </div>
   ) : (
@@ -349,6 +362,7 @@ export function BuyPanel({
         </Button>
       </Link>
       {addToCartButton}
+      {cancelButton}
       {notice && <InlineNotice message={notice} className="text-center" />}
     </div>
   );
