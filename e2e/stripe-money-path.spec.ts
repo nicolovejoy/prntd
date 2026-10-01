@@ -162,18 +162,33 @@ async function completeStripeCheckout(root: StripeRoot, email: string) {
   // Every click is bounded: an unbounded click on this accordion hung until
   // the test timeout once (actionability retried forever on a target that
   // never stabilized).
+  //
+  // Since 2026-09-30 Stripe renders the "Pay with card" control as a
+  // zero-size click overlay on the Card row, so a visibility check skips
+  // it. The Card row itself (`card-accordion-item`) is visible and opens the
+  // accordion; the overlay button stays as a forced-click fallback.
   const cardNumber = root
     .locator("#cardNumber")
     .or(root.getByPlaceholder("1234 1234 1234 1234"));
-  const cardExpanders = [
-    root.getByRole("radio", { name: /^Card$/ }),
-    root.getByRole("listitem").filter({ hasText: /^Card\b/ }),
-    root.getByRole("button", { name: /pay with card/i }),
+  const cardExpanders: { target: Locator; requireVisible: boolean }[] = [
+    { target: root.getByTestId("card-accordion-item"), requireVisible: true },
+    { target: root.getByRole("radio", { name: /^Card$/ }), requireVisible: true },
+    {
+      target: root.getByRole("listitem").filter({ hasText: /^Card\b/ }),
+      requireVisible: true,
+    },
+    {
+      target: root.getByRole("button", { name: /pay with card/i }),
+      requireVisible: false,
+    },
   ];
-  for (const expander of cardExpanders) {
+  for (const { target: expander, requireVisible } of cardExpanders) {
     if (await cardNumber.first().isVisible().catch(() => false)) break;
     const target = expander.first();
-    if (!(await target.isVisible().catch(() => false))) continue;
+    if (requireVisible && !(await target.isVisible().catch(() => false))) {
+      continue;
+    }
+    if ((await target.count().catch(() => 0)) === 0) continue;
     const clicked = await target
       .click({ timeout: 5_000 })
       .then(() => true)
