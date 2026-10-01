@@ -108,6 +108,18 @@ export async function generateMockup(
   if (!found || found.userId !== session.user.id)
     throw new Error("Unauthorized");
 
+  // /preview names the front it is showing on every request (#269), so the
+  // server never resolves "current primary" mid-visit. A front source equal to
+  // the design's current primary IS the default front: drop it here so the
+  // cache key, the R2 key and prefetched entries are exactly the no-source
+  // ones. A different source stays explicit and takes the pinned path. This is
+  // the one place that rule lives; renderAndCacheMockup is shared with /d,
+  // whose source-keyed front entries must not change.
+  const explicitSource =
+    placementId === "front" && sourceImageId === found.primaryImageId
+      ? undefined
+      : sourceImageId;
+
   // Render-and-cache body is shared with getListingMockup (/d, #135 slice 1);
   // this action's only job is the owner gate above.
   return renderAndCacheMockup({
@@ -116,7 +128,7 @@ export async function generateMockup(
     colorName,
     scale,
     placementId,
-    sourceImageId,
+    sourceImageId: explicitSource,
     userId: session.user.id,
   });
 }

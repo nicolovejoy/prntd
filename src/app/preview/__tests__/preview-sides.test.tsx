@@ -363,20 +363,83 @@ describe("/preview sends the shown front to checkout and cart (#269)", () => {
     expect(vi.mocked(addToCart).mock.calls[1][0].front).toBe("img-other");
   });
 
-  it("keeps sending the shown image after the server's primary moves on", async () => {
-    // getDesign answered "img-primary" at load. A job landing later changes
-    // the server's primary, but this page never re-reads it: what the buyer
-    // was shown is what is sent, not what the server would resolve at
-    // checkout time.
-    const { getDesign } = await import("../../design/actions");
+  // The page loaded with primary img-primary. Later the server's primary
+  // moves (a generation lands); the page never re-reads it, so what it must
+  // do is name its own front on every request instead of letting the server
+  // resolve "current primary" on its behalf.
+  function frontRenderSources() {
+    return getOrCreatePlacementRender.mock.calls
+      .filter((c) => (c[2] ?? "front") === "front")
+      .map((c) => c[3]);
+  }
+
+  it("names the loaded front on every front render and mockup request, after colour and product changes", async () => {
     params = new URLSearchParams(SIZED);
     render(<PreviewPage />);
-    await waitFor(() => expect(getOrCreatePlacementRender).toHaveBeenCalled());
+    await waitFor(() => expect(mockupCallsFor("front")).toHaveLength(1));
+
+    const { ACTIVE_BLANKS } = await import("@/lib/blanks");
+    // Colour change.
+    fireEvent.click(screen.getAllByTitle("White")[0]);
+    await waitFor(() => expect(mockupCallsFor("front")).toHaveLength(2));
+    // Product change.
+    const other = ACTIVE_BLANKS.find((b) => b.id !== "bella-canvas-3001")!;
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(other.name) }));
+    await waitFor(() => expect(mockupCallsFor("front").length).toBeGreaterThan(2));
+
+    expect(frontRenderSources().length).toBeGreaterThan(1);
+    for (const src of frontRenderSources()) expect(src).toBe("img-primary");
+    for (const c of mockupCallsFor("front")) expect(c[5]).toBe("img-primary");
+
+    await clickBuy("Order");
+    await waitFor(() => expect(createCheckoutSession).toHaveBeenCalled());
+    expect(vi.mocked(createCheckoutSession).mock.calls[0][0].front).toBe(
+      "img-primary"
+    );
+  });
+
+  it("a retried front render still names the loaded front", async () => {
+    params = new URLSearchParams(SIZED);
+    getOrCreatePlacementRender.mockRejectedValueOnce(new Error("ideogram down"));
+    render(<PreviewPage />);
+    const retry = await screen.findByRole("button", { name: "Try again" });
+    fireEvent.click(retry);
+    await waitFor(() => expect(frontRenderSources().length).toBeGreaterThan(1));
+    for (const src of frontRenderSources()) expect(src).toBe("img-primary");
+  });
+
+  it("add to cart sends the loaded front after a colour change", async () => {
+    vi.mocked(isCartEnabled).mockResolvedValue(true);
+    params = new URLSearchParams(SIZED);
+    render(<PreviewPage />);
+    await waitFor(() => expect(mockupCallsFor("front")).toHaveLength(1));
+    fireEvent.click(screen.getAllByTitle("White")[0]);
+    await waitFor(() => expect(mockupCallsFor("front")).toHaveLength(2));
+    await clickBuy("Add to cart");
+    await waitFor(() => expect(addToCart).toHaveBeenCalled());
+    expect(vi.mocked(addToCart).mock.calls[0][0].front).toBe("img-primary");
+  });
+
+  it("keeps the front in the URL even when it is the primary, so a sign-in round trip returns to it", async () => {
+    params = new URLSearchParams(SIZED);
+    render(<PreviewPage />);
+    await waitFor(() =>
+      expect(window.location.search).toContain("front=img-primary")
+    );
+  });
+
+  it("a return with front=<old primary> after the primary moved shows and sends the old one", async () => {
+    const { getDesign } = await import("../../design/actions");
     vi.mocked(getDesign).mockResolvedValue({
       primaryImageId: "img-newer",
       backgroundColor: null,
       mockupUrls: null,
     } as never);
+    params = new URLSearchParams(`${SIZED}&front=img-primary`);
+    render(<PreviewPage />);
+    await waitFor(() => expect(mockupCallsFor("front")).toHaveLength(1));
+    expect(frontRenderSources()).toEqual(["img-primary"]);
+    expect(mockupCallsFor("front")[0][5]).toBe("img-primary");
     await clickBuy("Order");
     await waitFor(() => expect(createCheckoutSession).toHaveBeenCalled());
     expect(vi.mocked(createCheckoutSession).mock.calls[0][0].front).toBe(

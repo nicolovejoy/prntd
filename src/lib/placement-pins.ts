@@ -1,9 +1,9 @@
 /**
  * Pure helpers for the per-purchase placement pins on the buy surfaces
- * (#138). The front pin is client state on /preview: null means "the
- * design's primary image" — the default that keeps URLs, cancel links and
- * checkout payloads byte-identical to the pre-#138 shape (open question 4:
- * a `front` param means "not the default").
+ * (#138). The front pin is client state on /preview: null means "the front
+ * is the primary this page loaded". That is a client-side shorthand only
+ * (#269): the page still sends and URL-syncs the front it is showing, so a
+ * later change of the conversation's primary can't change what is ordered.
  */
 
 export type PlacementPins = {
@@ -101,4 +101,17 @@ export function buyPagePlacements(params: {
  */
 export function previewOrderHref(designId: string, frontImageId: string): string {
   return `/preview?id=${designId}&front=${frontImageId}`;
+}
+
+/**
+ * `search` (a query string, with or without the leading "?") with `front`
+ * set to the front image on screen. Used for the sign-in return path, which
+ * must come back to the same shirt even if the conversation's primary moved
+ * meanwhile. A null front (the design hasn't loaded) leaves the query alone.
+ */
+export function withFront(search: string, frontImageId: string | null): string {
+  if (!frontImageId) return search;
+  const params = new URLSearchParams(search);
+  params.set("front", frontImageId);
+  return `?${params.toString()}`;
 }
