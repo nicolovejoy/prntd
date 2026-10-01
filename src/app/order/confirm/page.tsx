@@ -122,8 +122,9 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Sear
     view.kind === "failed"
   ) {
     // "Payment still processing" is the owner's wording (Nico, 2026-10-01);
-    // a copy sweep must not change it. "failed" reuses the incomplete copy:
-    // the session is complete and cannot be resumed, so no resume link.
+    // a copy sweep must not change it. He approved both supporting lines the
+    // same day. "failed" reuses the incomplete heading: the session is
+    // complete and cannot be resumed, so no resume link.
     const heading =
       view.kind === "processing"
         ? "Payment still processing"
@@ -134,8 +135,8 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Sear
       view.kind === "processing"
         ? "Your order will be placed once the payment clears."
         : view.kind === "failed"
-          ? // Provisional wording, 2026-10-01, pending the owner's ruling.
-            // "Nothing was charged." is not true for every delayed method.
+          ? // Not "Nothing was charged.": that is not true for every delayed
+            // method (a bank debit can be taken and then returned).
             "The payment didn't go through."
           : "Nothing was charged.";
     return (
