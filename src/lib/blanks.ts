@@ -104,6 +104,15 @@ export type Blank = {
   /** Label for the size selector. Defaults to "Size" if omitted. */
   sizeLabel?: string;
   colors: BlankColor[];
+  /**
+   * Names of the colours `prefetchProductMockups` warms when /preview loads.
+   * Omit to prefetch every colour. Set it when the colour list is long: the
+   * prefetch is one bulk Printful task (180 s poll window; a timeout caches
+   * nothing) plus one R2 object and one design.mockup_urls entry per colour.
+   * Colours outside the list render on demand when picked. Must include the
+   * default colour (White). Independent of BACKGROUND_PALETTE.
+   */
+  prefetchColors?: string[];
   variants: Record<string, Record<string, number>>; // color → size → variantId
   /**
    * Print regions on this product. First entry is the default ("front").
@@ -250,6 +259,33 @@ const BLANK_DEFINITIONS: Blank[] = [
       { name: "Turquoise", value: "#54d9eb" },
       { name: "Vintage Black", value: "#151515" },
       { name: "Yellow", value: "#ffd667" },
+    ],
+    prefetchColors: [
+      "White",
+      "Vintage White",
+      "Soft Cream",
+      "Heather Dust",
+      "Natural",
+      "Tan",
+      "Pebble",
+      "Athletic Heather",
+      "Dark Grey",
+      "Black",
+      "Red",
+      "Maroon",
+      "Burnt Orange",
+      "Orange",
+      "Mustard",
+      "Pink",
+      "Mauve",
+      "Team Purple",
+      "Sage",
+      "Forest",
+      "Kelly",
+      "Aqua",
+      "Baby Blue",
+      "True Royal",
+      "Navy",
     ],
     variants: {
       White: { S: 4011, M: 4012, L: 4013, XL: 4014, "2XL": 4015 },

@@ -103,7 +103,7 @@ Colour rules (decision 8, 2026-09-28):
 - Order in the file does not matter: `BLANKS` sorts each shirt's `colors` light to dark (`sortLightToDark`: relative luminance, name as tiebreak), so every picker and list reads the same order. `colors[0]` is the default in several places and is White for every shirt.
 - `BACKGROUND_PALETTE` (the publish backdrop list) is a pinned literal of 25 colors, not derived from the Classic Tee. New shirt colors do not appear in it; `blanks-colors.test.ts` fails if it changes.
 - New colors use the product's existing `baseCost` / `retailPrice`. If Printful prices a color differently for a size we sell, don't add it without deciding the price.
-- Every added color is one more variant in the single bulk mockup task `prefetchProductMockups` sends per `/preview` load.
+- `prefetchProductMockups` sends one bulk Printful mockup task per `/preview` load, for the colors in the blank's `prefetchColors` (all colors when unset). The Classic Tee lists its original 25 so the task stays that size. A new color is not prefetched unless you add it to `prefetchColors`; it renders on demand when picked. Keep White (the default) in the list.
 
 Check that every variant id in `blanks.ts` is still listed by Printful (read-only; exits 1 on any missing or mismatched id, out-of-stock is only a warning):
 
@@ -114,7 +114,7 @@ npx tsx scripts/check-blank-variants.ts
 ### 3. Verify
 
 - `/preview` should show the new color swatches.
-- Click each new color — first render is on-demand (Printful mockup task) and takes a few seconds; subsequent renders are cached. The `ensureMockupsPrefetched` hook on `/preview` will warm the cache for new colors over the next minute.
+- Click each new color — first render is on-demand (Printful mockup task) and takes a few seconds; subsequent renders are cached. New colors outside `prefetchColors` are not warmed by the `/preview` prefetch (`ensureMockupsPrefetched`), so expect that wait on every first pick per design.
 - Place a test order against a new color to confirm fulfillment works end-to-end.
 
 ### 4. Updating prices, placements, or other fields
