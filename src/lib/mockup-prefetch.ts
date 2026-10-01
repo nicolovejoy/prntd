@@ -11,10 +11,15 @@ import {
 } from "@/lib/design-images";
 
 /**
- * Pre-fetch Printful mockups for every color of a product, best-effort.
+ * Pre-fetch Printful mockups for a product's prefetch colors, best-effort:
+ * `prefetchColors` when the blank sets it, otherwise every color. The Classic
+ * Tee lists 25 of its colors so the bulk task stays at that size (wall time
+ * against the poll window, R2 objects, mockup_urls growth); the rest render
+ * on demand through renderAndCacheMockup when picked.
  * Scheduled via after() by `ensureMockupsPrefetched`
  * (src/app/preview/actions.ts), which /preview calls on page load after
- * checking that the viewer owns the design. Printful mockup tasks are free;
+ * checking that the viewer owns the design, and which skips the call when the
+ * design already has a current-version mockup entry for the product. Printful mockup tasks are free;
  * only wall time costs.
  *
  * Issues a single multi-variant Printful task instead of one task per
@@ -71,7 +76,11 @@ export async function prefetchProductMockups(
     // Build the (color, variantId) list. Use size "M" for apparel, first
     // available variant for products without an "M" (e.g. phone cases).
     const variantToColor = new Map<number, string>();
+    const prefetchNames = product.prefetchColors
+      ? new Set(product.prefetchColors)
+      : null;
     for (const color of product.colors) {
+      if (prefetchNames && !prefetchNames.has(color.name)) continue;
       const sizeMap = product.variants[color.name];
       const variantId =
         sizeMap?.["M"] ?? (sizeMap ? Object.values(sizeMap)[0] : undefined);
