@@ -141,60 +141,60 @@ export default function CartPage() {
                 // two-sided line uses 56px ones (~138px).
                 const thumb = item.backImageUrl ? "w-14 h-14" : "w-16 h-16";
                 return (
-                <li
-                  key={item.id}
-                  data-testid="cart-line-item"
-                  className="border-b border-border flex items-center gap-4 py-4"
-                >
-                  <div className={`${thumb} shrink-0 bg-surface-well border border-border overflow-hidden`}>
-                    {item.imageUrl && (
-                      // alt="" is deliberate: the visible product name beside
-                      // this thumbnail is the row's label, so a non-empty alt
-                      // would have a screen reader announce it twice per line.
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={item.imageUrl}
-                        alt=""
-                        className="w-full h-full object-contain"
-                      />
-                    )}
-                  </div>
-                  {item.backImageUrl && (
-                    <div
-                      data-testid="cart-line-back"
-                      className={`${thumb} shrink-0 bg-surface-well border border-border overflow-hidden`}
-                    >
-                      {/* alt="" for the same reason as the front: the text
-                          beside it ("front + back") is the label. */}
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={item.backImageUrl}
-                        alt=""
-                        className="w-full h-full object-contain"
-                      />
+                  <li
+                    key={item.id}
+                    data-testid="cart-line-item"
+                    className="border-b border-border flex items-center gap-4 py-4"
+                  >
+                    <div className={`${thumb} shrink-0 bg-surface-well border border-border overflow-hidden`}>
+                      {item.imageUrl && (
+                        // alt="" is deliberate: the visible product name beside
+                        // this thumbnail is the row's label, so a non-empty alt
+                        // would have a screen reader announce it twice per line.
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={item.imageUrl}
+                          alt=""
+                          className="w-full h-full object-contain"
+                        />
+                      )}
                     </div>
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{item.productName}</p>
-                    <p className="text-sm text-text-muted">
-                      {item.color} / {item.size}
-                      {item.hasBack ? " · front + back" : ""}
-                      {item.quantity > 1 ? ` · ×${item.quantity}` : ""}
-                    </p>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <p className="font-mono text-sm">
-                      ${(item.unitPrice * item.quantity).toFixed(2)}
-                    </p>
-                    <button
-                      onClick={() => handleRemove(item.id)}
-                      disabled={removing === item.id}
-                      className="min-h-11 inline-flex items-center text-xs text-text-muted underline underline-offset-[3px] hover:text-foreground disabled:no-underline disabled:text-text-faint transition-colors"
-                    >
-                      {removing === item.id ? "Removing…" : "Remove"}
-                    </button>
-                  </div>
-                </li>
+                    {item.backImageUrl && (
+                      <div
+                        data-testid="cart-line-back"
+                        className={`${thumb} shrink-0 bg-surface-well border border-border overflow-hidden`}
+                      >
+                        {/* alt="" for the same reason as the front: the text
+                            beside it ("front + back") is the label. */}
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={item.backImageUrl}
+                          alt=""
+                          className="w-full h-full object-contain"
+                        />
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{item.productName}</p>
+                      <p className="text-sm text-text-muted">
+                        {item.color} / {item.size}
+                        {item.hasBack ? " · front + back" : ""}
+                        {item.quantity > 1 ? ` · ×${item.quantity}` : ""}
+                      </p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="font-mono text-sm">
+                        ${(item.unitPrice * item.quantity).toFixed(2)}
+                      </p>
+                      <button
+                        onClick={() => handleRemove(item.id)}
+                        disabled={removing === item.id}
+                        className="min-h-11 inline-flex items-center text-xs text-text-muted underline underline-offset-[3px] hover:text-foreground disabled:no-underline disabled:text-text-faint transition-colors"
+                      >
+                        {removing === item.id ? "Removing…" : "Remove"}
+                      </button>
+                    </div>
+                  </li>
                 );
               })}
             </ul>
