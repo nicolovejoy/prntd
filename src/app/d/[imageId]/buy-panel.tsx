@@ -234,16 +234,17 @@ export function BuyPanel({
     }
   }
 
-  // Price display before a size is picked uses the base size — S–XL share a
-  // price; a 2XL pick updates it live. The Design line stays the front-only
-  // price; a picked back design adds its own +$8 line.
-  const sizeForPrice = size ?? sizes[0] ?? "M";
-  const frontPrice = computePrice(0, productId, sizeForPrice).total;
-  // A swap moves images between sides; a back exists either way, so it
-  // never moves the price.
-  const { shipping, total } = computeOrderTotal(
-    computePrice(0, productId, sizeForPrice, { back: !!sides.back }).total
-  );
+  // No number before a size is picked (owner rule, 2026-09-08): the total
+  // depends on it. The Design line stays the front-only price; a picked back
+  // design adds its own line. A swap never moves the price.
+  const priced = size
+    ? {
+        front: computePrice(0, productId, size).total,
+        ...computeOrderTotal(
+          computePrice(0, productId, size, { back: !!sides.back }).total
+        ),
+      }
+    : null;
   // The front travels only when it isn't this page's image — the common
   // request stays byte-identical to the pre-swap shape.
   const frontOverride =
@@ -328,7 +329,11 @@ export function BuyPanel({
         size="lg"
         className="w-full"
       >
-        {loading ? "Redirecting…" : `Order — $${total.toFixed(2)}`}
+        {loading
+          ? "Redirecting…"
+          : priced
+            ? `Order — $${priced.total.toFixed(2)}`
+            : "Order"}
       </Button>
       {addToCartButton}
       {notice && <InlineNotice message={notice} className="text-center" />}
@@ -526,29 +531,31 @@ export function BuyPanel({
         </div>
       )}
 
-      <div className="border-t border-border pt-4">
-        <p className={`${MONO_LABEL} mb-2`}>Price</p>
-        <div className="space-y-2 text-sm">
-          <div className="flex justify-between">
-            <span className="text-text-muted">Design</span>
-            <span>${frontPrice.toFixed(2)}</span>
-          </div>
-          {back && (
+      {priced && (
+        <div className="border-t border-border pt-4">
+          <p className={`${MONO_LABEL} mb-2`}>Price</p>
+          <div className="space-y-2 text-sm">
             <div className="flex justify-between">
-              <span className="text-text-muted">Back design</span>
-              <span>+${BACK_PLACEMENT_UPCHARGE.toFixed(2)}</span>
+              <span className="text-text-muted">Design</span>
+              <span>${priced.front.toFixed(2)}</span>
             </div>
-          )}
-          <div className="flex justify-between">
-            <span className="text-text-muted">Shipping</span>
-            <span>${shipping.toFixed(2)}</span>
-          </div>
-          <div className="flex justify-between font-medium border-t border-border pt-2">
-            <span>Total</span>
-            <span>${total.toFixed(2)}</span>
+            {back && (
+              <div className="flex justify-between">
+                <span className="text-text-muted">Back design</span>
+                <span>+${BACK_PLACEMENT_UPCHARGE.toFixed(2)}</span>
+              </div>
+            )}
+            <div className="flex justify-between">
+              <span className="text-text-muted">Shipping</span>
+              <span>${priced.shipping.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between font-medium border-t border-border pt-2">
+              <span>Total</span>
+              <span>${priced.total.toFixed(2)}</span>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Desktop: CTA sits inline below the price breakdown. */}
       <div className="hidden md:block">{cta}</div>

@@ -36,8 +36,9 @@ function expand() {
 }
 
 function buyButton() {
-  // Rendered twice (desktop inline + mobile sticky); both share state.
-  return screen.getAllByRole("button", { name: /Order — \$/ })[0];
+  // Rendered twice (desktop inline + mobile sticky); both share state. No
+  // total in the label until a size is picked (#278).
+  return screen.getAllByRole("button", { name: /^Order( — \$.+)?$/ })[0];
 }
 
 describe("BuyPanel progressive disclosure (#128)", () => {
@@ -71,7 +72,7 @@ describe("BuyPanel progressive disclosure (#128)", () => {
     );
     expand();
     expect(screen.getAllByText("Choose a size").length).toBeGreaterThan(0);
-    expect(screen.getByText("Total")).toBeInTheDocument();
+    expect(screen.getByText("Size")).toBeInTheDocument();
     // The expand toggle is gone; the remix action stays available.
     expect(screen.queryByTestId("order-expand")).not.toBeInTheDocument();
     expect(
@@ -84,8 +85,20 @@ describe("BuyPanel progressive disclosure (#128)", () => {
     expand();
     expect(screen.getAllByText("Sign in to buy").length).toBeGreaterThan(0);
     expect(
-      screen.queryByRole("button", { name: /Order — \$/ })
+      screen.queryByRole("button", { name: /^Order( — \$.+)?$/ })
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("BuyPanel price (#278)", () => {
+  it("shows no total until a size is picked", () => {
+    render(<BuyPanel imageId="img-1" isLoggedIn />);
+    expand();
+    expect(screen.queryByText("Total")).not.toBeInTheDocument();
+    expect(screen.queryByText(/\$\d/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "M" }));
+    expect(screen.getByText("Total")).toBeInTheDocument();
+    expect(buyButton()).toHaveTextContent(/Order — \$\d/);
   });
 });
 
@@ -216,13 +229,14 @@ describe("BuyPanel back design (#25 on /d)", () => {
   it("picking a source adds the +$8 line and updates the total", async () => {
     render(<BuyPanel imageId="img-1" isLoggedIn backEnabled />);
     expand();
+    // The price block only exists once a size is picked (#278).
+    fireEvent.click(screen.getByRole("button", { name: "M" }));
     await pickBack();
 
     // Both the picked row and the price line label it.
     expect(screen.getAllByText("Back design").length).toBeGreaterThan(0);
     expect(screen.getByText("+$8.00")).toBeInTheDocument();
     // $19.43 front + $8.00 back + $4.69 shipping.
-    fireEvent.click(screen.getByRole("button", { name: "M" }));
     expect(
       screen.getAllByRole("button", { name: "Order — $32.12" }).length
     ).toBeGreaterThan(0);
@@ -343,7 +357,7 @@ describe("BuyPanel back pick reporting + handle (#167)", () => {
 });
 
 describe("BuyPanel Paper pass (#188)", () => {
-  it("expanded: still renders the size picker, the total and Add to cart", () => {
+  it("expanded: still renders the size picker, the total after a pick, and Add to cart", () => {
     render(<BuyPanel imageId="img-1" isLoggedIn cartEnabled />);
     expand();
     // The money surface survives the re-skin: a size gate, a computed total,
@@ -351,18 +365,22 @@ describe("BuyPanel Paper pass (#188)", () => {
     // this page, so this is the guard for the panel's own rendering.
     const blank = getBlankOrThrow("bella-canvas-3001");
     expect(screen.getByRole("button", { name: blank.sizes[0] })).toBeInTheDocument();
-    expect(screen.getByText("Total")).toBeInTheDocument();
     // Rendered twice (desktop inline + mobile sticky bar), like every other
     // add-to-cart assertion in this file — same reason buyButton() above
     // takes index [0].
     expect(screen.getAllByTestId("add-to-cart")[0]).toBeInTheDocument();
     // Size gate still closed until a pick.
     expect(screen.getAllByTestId("add-to-cart")[0]).toBeDisabled();
+    // The total appears with the pick, not before (#278).
+    expect(screen.queryByText("Total")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: blank.sizes[0] }));
+    expect(screen.getByText("Total")).toBeInTheDocument();
   });
 
   it("expanded: labels the sections it owns in mono caps", () => {
     render(<BuyPanel imageId="img-1" isLoggedIn backEnabled />);
     expand();
+    fireEvent.click(screen.getByRole("button", { name: "M" }));
     expect(screen.getByText("Product")).toBeInTheDocument();
     // The back section became "Front & back" when it gained the Front row
     // and the swap (#138 slice 3).
