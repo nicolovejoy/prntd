@@ -1082,6 +1082,7 @@ function PreviewPageInner() {
             </div>
           </div>
 
+          <SizePicker sizes={sizes} value={size} onChange={setSize} label={sizeLabel} />
           <ColorPicker
             colors={colors}
             value={colorName}
@@ -1095,7 +1096,6 @@ function PreviewPageInner() {
                 : undefined
             }
           />
-          <SizePicker sizes={sizes} value={size} onChange={setSize} label={sizeLabel} />
 
           {/* Placements (#138, §6): the two printed sides as peer rows. The
               Front row is always offered — changing the front is not a

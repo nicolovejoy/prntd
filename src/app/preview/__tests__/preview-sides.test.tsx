@@ -464,3 +464,15 @@ describe("/preview sends the shown front to checkout and cart (#269)", () => {
     await waitFor(() => expect(getBackDesignSources).toHaveBeenCalled());
   });
 });
+
+describe("/preview option order (#278)", () => {
+  it("renders Size above Colour", async () => {
+    params = new URLSearchParams(NO_BACK);
+    render(<PreviewPage />);
+    const size = await screen.findByText("Size");
+    const colour = screen.getByText(/^Color — /);
+    expect(
+      size.compareDocumentPosition(colour) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+});
