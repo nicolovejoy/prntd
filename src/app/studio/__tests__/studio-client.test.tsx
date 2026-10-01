@@ -2396,6 +2396,13 @@ describe("the anchor clears after an accepted Generate (2026-10-01)", () => {
     return settle;
   }
 
+  /** Types into the box without submitting. */
+  function submitTextNoSubmit(value: string) {
+    fireEvent.change(screen.getByTestId("studio-composer"), {
+      target: { value },
+    });
+  }
+
   const queued = {
     kind: "queued",
     jobId: "job-new",
@@ -2484,6 +2491,86 @@ describe("the anchor clears after an accepted Generate (2026-10-01)", () => {
     expect(screen.getByTestId("anchor-chip").textContent).toContain("second lane");
   });
 
+  describe("two submits from one anchor", () => {
+    function setup() {
+      h.polledLanes = [lane({ cells: [cell("img-1")] })];
+      const settles: Array<(r: unknown) => void> = [deferGenerate(), deferGenerate()];
+      render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+      anchorCell(0);
+      submitText("first idea");
+      submitText("second idea");
+      return settles;
+    }
+    const refused = {
+      kind: "limit",
+      message: "You've reached today's free design limit. Sign in to keep designing.",
+    };
+    const composer = () => screen.getByTestId("studio-composer") as HTMLInputElement;
+
+    it("A accepted, then B refused: B's words come back with the anchor", async () => {
+      const [a, b] = setup();
+      await act(async () => {
+        a(queued);
+      });
+      await act(async () => {
+        b(refused);
+      });
+      expect(composer().value).toBe("second idea");
+      expect(screen.getByTestId("anchor-chip")).toBeTruthy();
+    });
+
+    it("B refused, then A accepted: the anchor B's words came back with survives", async () => {
+      const [a, b] = setup();
+      await act(async () => {
+        b(refused);
+      });
+      await act(async () => {
+        a(queued);
+      });
+      expect(composer().value).toBe("second idea");
+      expect(screen.getByTestId("anchor-chip")).toBeTruthy();
+    });
+
+    it("a refusal whose words are not restored (new text in the box) leaves the anchor cleared", async () => {
+      const [a, b] = setup();
+      submitTextNoSubmit("third idea");
+      await act(async () => {
+        a(queued);
+      });
+      await act(async () => {
+        b(refused);
+      });
+      expect(composer().value).toBe("third idea");
+      expect(screen.queryByTestId("anchor-chip")).toBeNull();
+    });
+  });
+
+  it("a refusal after the user anchored a different image keeps the newer anchor", async () => {
+    h.polledLanes = [
+      lane({ cells: [cell("img-1")] }),
+      lane({ designId: "design-2", title: "second lane", cells: [cell("img-2")] }),
+    ];
+    const settle = deferGenerate();
+    render(
+      <StudioClient
+        initialLanes={[
+          lane({ cells: [cell("img-1")] }),
+          lane({ designId: "design-2", title: "second lane", cells: [cell("img-2")] }),
+        ]}
+      />
+    );
+    anchorCell(0);
+    submitText("make it blue");
+    anchorCell(1);
+    await act(async () => {
+      settle({ kind: "limit", message: "Over the limit." });
+    });
+    expect(
+      (screen.getByTestId("studio-composer") as HTMLInputElement).value
+    ).toBe("make it blue");
+    expect(screen.getByTestId("anchor-chip").textContent).toContain("second lane");
+  });
+
   it("clears the anchor when a lost response is reconciled as run", async () => {
     vi.useFakeTimers();
     try {
@@ -2504,6 +2591,70 @@ describe("the anchor clears after an accepted Generate (2026-10-01)", () => {
 
       expect(screen.queryByTestId("anchor-chip")).toBeNull();
     } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clears the anchor when the lookup says cancelled", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(generateDesign).mockImplementationOnce(
+        () => Promise.reject(new TypeError("Failed to fetch")) as never
+      );
+      vi.mocked(getGenerationJobStatus).mockResolvedValueOnce({ status: "cancelled" });
+      h.polledLanes = [lane({ cells: [cell("img-1")] })];
+
+      render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+      anchorCell(0);
+      submitText("make it blue");
+      expect(screen.getByTestId("anchor-chip")).toBeTruthy();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      expect(screen.queryByTestId("anchor-chip")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clears the anchor when lookups keep erroring but a poll lists the client job id at the backstop", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.spyOn(crypto, "randomUUID")
+        .mockReturnValueOnce("local-a1" as never)
+        .mockReturnValueOnce("job-a1" as never);
+      vi.mocked(generateDesign).mockImplementationOnce(
+        () => Promise.reject(new TypeError("Failed to fetch")) as never
+      );
+      vi.mocked(getGenerationJobStatus).mockRejectedValue(new Error("network"));
+      h.polledLanes = [lane({ cells: [cell("img-1")] })];
+
+      render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+      anchorCell(0);
+      submitText("make it blue");
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      h.polledLanes = [
+        lane({ cells: [cell("img-1")], pending: [pendingJob("job-a1", 0)] }),
+      ];
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(screen.getByTestId("anchor-chip")).toBeTruthy();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(65_000 + 5 * 60_000);
+      });
+
+      expect(screen.getByTestId("studio-pending-cell")).toBeTruthy();
+      expect(screen.queryByText(/Something went wrong/)).toBeNull();
+      expect(screen.queryByTestId("anchor-chip")).toBeNull();
+    } finally {
+      vi.restoreAllMocks();
       vi.useRealTimers();
     }
   });

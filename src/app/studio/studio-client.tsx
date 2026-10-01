@@ -214,6 +214,14 @@ export function StudioClient({
   useEffect(() => {
     lanesRef.current = lanes;
   }, [lanes]);
+  // Mirrors `text` so a failed submit can tell, from an async callback and
+  // without reading state inside an updater (StrictMode runs updaters twice),
+  // whether its words really went back into the box. giveBack and submit
+  // write it directly too, so two settles in one tick see each other.
+  const textRef = useRef(text);
+  useEffect(() => {
+    textRef.current = text;
+  }, [text]);
   // Guards every lost-submit reconcile loop (#245): each loop checks this
   // before touching state, so an unmount stops it without a stray setState
   // and StrictMode's mount → unmount → remount still works.
@@ -514,11 +522,38 @@ export function StudioClient({
   // verdict all land here. Drops the cell, shows the notice, gives the words
   // back only if the box is still empty (a later draft must never be
   // clobbered), and reconciles once so a closed lane actually leaves.
-  function failSubmit(localId: string, trimmed: string) {
+  function failSubmit(
+    localId: string,
+    trimmed: string,
+    submitAnchor: Anchor | null
+  ) {
     setOptimistic((entries) => entries.filter((e) => e.localId !== localId));
     setNotice(GENERATE_FAILED_COPY);
-    setText((t) => t || trimmed);
+    giveBack(trimmed, submitAnchor);
     void pollOnce();
+  }
+
+  // A submit that did not run hands its words back to the box only if the box
+  // is empty, and hands its anchor back with them, only then, so a retry is
+  // the same edit. Not restored when: the user has typed something else (the
+  // words stay theirs, the anchor stays as it is); a different anchor is set
+  // (it wins); the anchored image has left the surface (the lanes effect
+  // would clear it again). The restored anchor is a fresh object, so an
+  // earlier sibling submit from the same anchor, accepted later, can't
+  // clear it by reference in spendAnchor.
+  function giveBack(trimmed: string, submitAnchor: Anchor | null) {
+    if (textRef.current !== "") return;
+    textRef.current = trimmed;
+    setText(trimmed);
+    if (
+      !submitAnchor ||
+      !lanesRef.current.some((l) =>
+        l.cells.some((c) => c.imageId === submitAnchor.imageId)
+      )
+    ) {
+      return;
+    }
+    setAnchor((a) => (a === null || a === submitAnchor ? { ...submitAnchor } : a));
   }
 
   // Clears the anchor a submit was sent with, once its turn is known to have
@@ -628,7 +663,7 @@ export function StudioClient({
             return;
           }
         }
-        failSubmit(localId, trimmed);
+        failSubmit(localId, trimmed, submitAnchor);
         return;
       }
       if (verdict === "cancelled") {
@@ -653,6 +688,7 @@ export function StudioClient({
     // so the box clears now and each submit runs concurrently up to the cap.
     if (!trimmed || atCap) return;
     const submitAnchor = anchor;
+    textRef.current = "";
     setText("");
     setNotice(null);
     // No anchor → a fresh conversation: generateDesign creates the design row
@@ -717,15 +753,16 @@ export function StudioClient({
         // The turn didn't run, so the cell it promised has to go.
         setOptimistic((entries) => entries.filter((e) => e.localId !== localId));
         setNotice(result.message);
-        // Give the words back if the box is still empty — the turn didn't run.
-        setText((t) => t || trimmed);
+        // Give the words (and the anchor) back if the box is still empty —
+        // the turn didn't run.
+        giveBack(trimmed, submitAnchor);
       }
     } catch (err) {
       // A digest means React's Flight client rebuilt this from an actual
       // server-side throw (#204: e.g. an anchored lane closed underneath the
       // tap) — that submit never queued, so there is nothing to reconcile.
       if (isServerActionError(err)) {
-        failSubmit(localId, trimmed);
+        failSubmit(localId, trimmed, submitAnchor);
         return;
       }
       // The fetch was refused on the device at both ends of the call: no
@@ -735,7 +772,7 @@ export function StudioClient({
         typeof navigator !== "undefined" &&
         navigator.onLine === false
       ) {
-        failSubmit(localId, trimmed);
+        failSubmit(localId, trimmed, submitAnchor);
         return;
       }
       // Otherwise the response is lost, not necessarily the request: keep
