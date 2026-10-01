@@ -9,8 +9,7 @@
  *
  * Auth stays with the two callers; this only resolves the source image,
  * renders via Printful, uploads to R2, and persists the result on
- * `design.mockupUrls`. Byte-identical to the pre-extraction `generateMockup`
- * body.
+ * `design.mockupUrls`.
  */
 import { db } from "@/lib/db";
 import { design as designTable } from "@/lib/db/schema";
