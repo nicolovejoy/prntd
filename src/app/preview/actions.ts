@@ -96,7 +96,9 @@ export async function generateMockup(
   placementId: string = "front",
   /** Source image the placement render was anchored on (#25). Required for a
    * non-front placement so the mockup matches the picked source and the cache
-   * key doesn't collide across back choices. Front leaves it undefined. */
+   * key doesn't collide across back choices. /preview also passes its front
+   * (#269); the server folds a front equal to the current primary into the
+   * default front. */
   sourceImageId?: string
 ): Promise<{ mockupUrl: string }> {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -108,6 +110,11 @@ export async function generateMockup(
   if (!found || found.userId !== session.user.id)
     throw new Error("Unauthorized");
 
+  // /preview names the front it is showing on every request (#269).
+  // `foldPrimaryFront` has renderAndCacheMockup treat a front source equal to
+  // the design's primary (as that call reads it) as the default front, so the
+  // cache key, R2 key and prefetched entries are the no-source ones. Other
+  // callers, e.g. the /d buy page, don't pass it and keep their source keys.
   // Render-and-cache body is shared with getListingMockup (/d, #135 slice 1);
   // this action's only job is the owner gate above.
   return renderAndCacheMockup({
@@ -117,6 +124,7 @@ export async function generateMockup(
     scale,
     placementId,
     sourceImageId,
+    foldPrimaryFront: true,
     userId: session.user.id,
   });
 }

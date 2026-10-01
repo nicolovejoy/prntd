@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { priceFromCost } from "../pricing";
 import {
   getBlank,
   getBlankOrThrow,
@@ -46,29 +47,29 @@ describe("getBlankOrThrow", () => {
 describe("getBaseCost", () => {
   it("returns the real per-size cost for the Classic Tee", () => {
     const product = getBlankOrThrow("bella-canvas-3001");
-    expect(getBaseCost(product, "M")).toBe(11.69);
-    expect(getBaseCost(product, "2XL")).toBe(13.69);
+    expect(getBaseCost(product, "M")).toBe(11.92);
+    expect(getBaseCost(product, "2XL")).toBe(13.92);
   });
 
   it("falls back to the wildcard default for unlisted sizes", () => {
     const product = getBlankOrThrow("clear-case-iphone");
-    expect(getBaseCost(product, "iPhone 15")).toBe(9.38); // "*" default
-    expect(getBaseCost(product, "iPhone 14")).toBe(10.95); // explicit override
+    expect(getBaseCost(product, "iPhone 15")).toBe(9.57); // "*" default
+    expect(getBaseCost(product, "iPhone 14")).toBe(11.17); // explicit override
   });
 
   it("returns size-specific cost for per-size pricing", () => {
     const product = getBlankOrThrow("cotton-heritage-mc1087");
-    expect(getBaseCost(product, "M")).toBe(17.45);
-    expect(getBaseCost(product, "2XL")).toBe(19.45);
-    expect(getBaseCost(product, "3XL")).toBe(21.45);
+    expect(getBaseCost(product, "M")).toBe(17.8);
+    expect(getBaseCost(product, "2XL")).toBe(19.8);
+    expect(getBaseCost(product, "3XL")).toBe(21.8);
   });
 
   it("falls back to wildcard for unlisted size", () => {
     const product = getBlankOrThrow("clear-case-iphone");
-    // iPhone SE not in explicit pricing → falls to "*" at 9.38
-    expect(getBaseCost(product, "iPhone SE")).toBe(9.38);
+    // iPhone SE not in explicit pricing → falls to "*" at 9.57
+    expect(getBaseCost(product, "iPhone SE")).toBe(9.57);
     // iPhone 14 has explicit pricing
-    expect(getBaseCost(product, "iPhone 14")).toBe(10.95);
+    expect(getBaseCost(product, "iPhone 14")).toBe(11.17);
   });
 });
 
@@ -182,7 +183,7 @@ describe("BLANKS", () => {
       for (const size of p.sizes) {
         const cost = getBaseCost(p, size);
         const retail = getRetailPrice(p, size);
-        const price = retail ?? Math.ceil(cost * 1.5 * 100) / 100;
+        const price = retail ?? priceFromCost(cost);
         expect(price).toBeGreaterThanOrEqual(cost);
       }
     }

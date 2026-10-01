@@ -254,4 +254,111 @@ describe("renderAndCacheMockup", () => {
     ).rejects.toThrow("No design image");
     expect(printful.createMockupTask).not.toHaveBeenCalled();
   });
+
+  describe("primary moves during the render", () => {
+    async function setup() {
+      const db = h.db as Db;
+      await makeUser(db, "seller");
+      const design = await makeDesign(db, "seller");
+      const p1 = await makeSourceImage(db, {
+        designId: design.id,
+        ownerId: "seller",
+        imageUrl: "https://img.example/p1.png",
+      });
+      const p2 = await makeSourceImage(db, {
+        designId: design.id,
+        ownerId: "seller",
+        imageUrl: "https://img.example/p2.png",
+      });
+      await db
+        .update(schema.design)
+        .set({ primaryImageId: p1 })
+        .where(eq(schema.design.id, design.id));
+      // A generation claims the primary (and clears the cache, as
+      // design/actions.ts does) while Printful is still rendering.
+      printful.pollMockupTask.mockImplementationOnce(async () => {
+        await db
+          .update(schema.design)
+          .set({ primaryImageId: p2, mockupUrls: null })
+          .where(eq(schema.design.id, design.id));
+        return [{ mockupUrl: "https://printful.example/temp.jpg", variantIds: [1] }];
+      });
+      return { db, designId: design.id, p1, p2 };
+    }
+    const read = async (db: Db, id: string) =>
+      (await db.select().from(schema.design).where(eq(schema.design.id, id)))[0]
+        .mockupUrls ?? {};
+
+    it("does not write the old primary's render under the default key; stores it under its own source key and still returns it", async () => {
+      const { db, designId, p1 } = await setup();
+      const result = await renderAndCacheMockup({
+        designId,
+        productId: "bella-canvas-3001",
+        colorName: "Black",
+        scale: 1.0,
+        placementId: "front",
+        userId: null,
+      });
+      expect(result.mockupUrl).toBe("https://r2.example/mockup.jpg");
+      const urls = await read(db, designId);
+      expect(urls["v2:bella-canvas-3001:front:Black:100"]).toBeUndefined();
+      expect(urls[`v2:bella-canvas-3001:front:${p1}:Black:100`]).toBe(
+        "https://r2.example/mockup.jpg"
+      );
+    });
+  });
+
+  describe("foldPrimaryFront (the /preview opt-in)", () => {
+    async function twoImages() {
+      const db = h.db as Db;
+      await makeUser(db, "seller");
+      const design = await makeDesign(db, "seller");
+      const p1 = await makeSourceImage(db, {
+        designId: design.id,
+        ownerId: "seller",
+        imageUrl: "https://img.example/p1.png",
+      });
+      const p2 = await makeSourceImage(db, {
+        designId: design.id,
+        ownerId: "seller",
+        imageUrl: "https://img.example/p2.png",
+      });
+      await db
+        .update(schema.design)
+        .set({ primaryImageId: p1 })
+        .where(eq(schema.design.id, design.id));
+      return { db, designId: design.id, p1, p2 };
+    }
+    const base = {
+      productId: "bella-canvas-3001",
+      colorName: "Black",
+      scale: 1.0,
+      placementId: "front",
+      userId: "seller",
+    };
+
+    it("a source equal to the row's primary uses the default key; a different one the pinned key", async () => {
+      const { db, designId, p1, p2 } = await twoImages();
+      await renderAndCacheMockup({ ...base, designId, sourceImageId: p1, foldPrimaryFront: true });
+      await renderAndCacheMockup({ ...base, designId, sourceImageId: p2, foldPrimaryFront: true });
+      const urls = Object.keys(
+        (await db.select().from(schema.design).where(eq(schema.design.id, designId)))[0]
+          .mockupUrls ?? {}
+      ).sort();
+      expect(urls).toEqual(
+        [
+          "v2:bella-canvas-3001:front:Black:100",
+          `v2:bella-canvas-3001:front:${p2}:Black:100`,
+        ].sort()
+      );
+    });
+
+    it("without the option, a source equal to the primary keeps its source key (the /d path)", async () => {
+      const { db, designId, p1 } = await twoImages();
+      await renderAndCacheMockup({ ...base, designId, sourceImageId: p1 });
+      const urls = (await db.select().from(schema.design).where(eq(schema.design.id, designId)))[0]
+        .mockupUrls ?? {};
+      expect(Object.keys(urls)).toEqual([`v2:bella-canvas-3001:front:${p1}:Black:100`]);
+    });
+  });
 });

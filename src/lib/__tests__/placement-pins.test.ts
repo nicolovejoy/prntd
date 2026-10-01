@@ -4,6 +4,8 @@ import {
   swapPlacementPins,
   resolveBuyPageFront,
   buyPagePlacements,
+  previewOrderHref,
+  withFront,
 } from "../placement-pins";
 
 describe("normalizeFrontPin", () => {
@@ -135,5 +137,25 @@ describe("buyPagePlacements (#138 slice 3)", () => {
       front: added,
       back: page,
     });
+  });
+});
+
+describe("previewOrderHref", () => {
+  it("always names the front image, primary or not", () => {
+    expect(previewOrderHref("design-1", "img-9")).toBe(
+      "/preview?id=design-1&front=img-9"
+    );
+  });
+});
+
+describe("withFront", () => {
+  it("adds the front to a query that lacks it, keeping the rest", () => {
+    expect(withFront("?id=d1&size=M", "img-1")).toBe("?id=d1&size=M&front=img-1");
+  });
+  it("replaces an existing front", () => {
+    expect(withFront("?id=d1&front=old", "img-1")).toBe("?id=d1&front=img-1");
+  });
+  it("leaves the query alone when no front is known yet", () => {
+    expect(withFront("?id=d1", null)).toBe("?id=d1");
   });
 });

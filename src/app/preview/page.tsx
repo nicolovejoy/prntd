@@ -45,7 +45,11 @@ import {
   mockupCacheKey,
   mockupCachePlacementPrefix,
 } from "@/lib/mockup-cache";
-import { normalizeFrontPin, swapPlacementPins } from "@/lib/placement-pins";
+import {
+  normalizeFrontPin,
+  swapPlacementPins,
+  withFront,
+} from "@/lib/placement-pins";
 
 // Discriminated union: the placement render is the single source of
 // truth for what a side shows. Drives both the design image and the
@@ -171,9 +175,9 @@ function PreviewPageInner() {
   const [backImageId, setBackImageId] = useState<string | null>(() =>
     searchParams.get("back")
   );
-  // Front pin (#138): null = the design's primary image, the default that
-  // keeps URLs and checkout payloads byte-identical to the pre-picker shape.
-  // Captured from the URL once, same as `back`.
+  // Front pin (#138): null = the front is the primary this page loaded (it is
+  // then reported as `effectiveFrontId`). Captured from the URL once, same as
+  // `back`.
   const [frontImageId, setFrontImageId] = useState<string | null>(() =>
     searchParams.get("front")
   );
@@ -216,11 +220,15 @@ function PreviewPageInner() {
   const twoSided = layout.tile.kind === "side";
   const heroMockup = mockups[layout.hero];
   // What's on the front right now, and whether it's an explicit non-default
-  // pin (#138). Only a differing pin travels — into the URL, the checkout
-  // payload, and the mockup cache key — so the primary-front common case
-  // stays byte-identical to the pre-picker flow.
+  // pin (#138). The front on screen always travels — into the URL, every
+  // render and mockup request, and the checkout and cart payloads (#269) — so
+  // nothing resolves "the primary" later than this page did. `frontPinned`
+  // only decides the client mockup cache key shape.
   const effectiveFrontId = frontImageId ?? primaryImageId;
-  const frontPinned = !!frontImageId && frontImageId !== primaryImageId;
+  // Only once the design has loaded: before that the primary is unknown and
+  // every front in the URL would look like a pin.
+  const frontPinned =
+    !!frontImageId && primaryImageId !== null && frontImageId !== primaryImageId;
   // The source picker renders in place of the hero while open for a side.
   const showSourcePicker = pickerTarget !== null;
   const pickingFor: Side = pickerTarget ?? "back";
@@ -371,15 +379,16 @@ function PreviewPageInner() {
     params.set("product", productId);
     if (backImageId) params.set("back", backImageId);
     else params.delete("back");
-    // `front` only when it differs from the primary (#138 open question 4) —
-    // a front param means "not the default".
-    if (frontPinned) params.set("front", frontImageId!);
-    else params.delete("front");
+    // Always the front on screen, even when it is the primary (#269): the
+    // primary can move while this page is open (a generation lands), and a
+    // reload, sign-in return or Stripe back would otherwise open whatever the
+    // primary is by then. Not written until the design has loaded.
+    if (effectiveFrontId) params.set("front", effectiveFrontId);
     const next = `${window.location.pathname}?${params.toString()}`;
     if (next === `${window.location.pathname}${window.location.search}`) return;
     // Keep the existing history state rather than clearing it to null.
     window.history.replaceState(window.history.state, "", next);
-  }, [size, colorName, productId, backImageId, frontImageId, frontPinned]);
+  }, [size, colorName, productId, backImageId, effectiveFrontId]);
 
   // Run one side's placement render: mark it loading, apply the result unless
   // the effect that started it has since been cleaned up. Returns the cleanup.
@@ -441,21 +450,23 @@ function PreviewPageInner() {
   useEffect(() => {
     if (!designId || !hasPrimary) return;
     const id = designId;
-    // Front passes its pin as the source only when it differs from the
-    // primary (#138, §5 cache-key rule) — the default front stays on the
-    // no-source path and every warm cache entry stays valid.
+    // Always names the front on screen, primary or pinned (#269): left to the
+    // server, the unpinned front renders whatever the primary is NOW, which a
+    // generation landing mid-visit can have moved off the image this page
+    // loaded and will send to checkout. The server treats a source equal to
+    // the current primary as the default front, so warm cache entries stay
+    // valid.
+    const front = effectiveFrontId;
+    if (!front) return;
     return runPlacementRender("front", () =>
-      frontPinned
-        ? getOrCreatePlacementRender(id, productId, "front", frontImageId!)
-        : getOrCreatePlacementRender(id, productId)
+      getOrCreatePlacementRender(id, productId, "front", front)
     );
   }, [
     designId,
     productId,
     hasPrimary,
     renderNonce.front,
-    frontImageId,
-    frontPinned,
+    effectiveFrontId,
     runPlacementRender,
   ]);
 
@@ -497,22 +508,23 @@ function PreviewPageInner() {
     const token = req.begin();
 
     // Placements render from their picked source; thread it through so the
-    // mockup matches the pick and the cache key doesn't collide (#25). Front
-    // sends its pin only when it differs from the primary (#138, §5) so the
-    // default front keeps today's key shape and every warm entry stays valid.
+    // mockup matches the pick and the cache key doesn't collide (#25). The
+    // front always names the image on screen (#269); the server folds a front
+    // source equal to its current primary back into the default key.
     const sourceImageId =
       side === "back"
         ? backImageId ?? undefined
-        : frontPinned
-          ? frontImageId!
-          : undefined;
+        : effectiveFrontId ?? undefined;
     const scaleKey = Math.round(scale * 100);
-    // Shared builder keeps this in lockstep with the server's cache key —
-    // entries warmed from design.mockupUrls only hit when formats match.
+    // Client cache key: the default front (no source segment) means the
+    // primary this page loaded, which is what design.mockupUrls held at load
+    // and what a front equal to it is. Only a pin that differs from it gets a
+    // source segment, mirroring the server's key for that image.
     const cacheKey = mockupCacheKey({
       productId,
       placementId: side,
-      sourceImageId,
+      sourceImageId:
+        side === "back" ? sourceImageId : frontPinned ? frontImageId! : undefined,
       colorName,
       scaleKey,
     });
@@ -750,15 +762,18 @@ function PreviewPageInner() {
         size,
         color: colorName,
         productId,
-        // The front pin travels only when it differs from the primary —
-        // absent, the server resolves the primary as it always has (#138).
-        ...(frontPinned ? { front: frontImageId! } : {}),
+        // The front on screen, even when it is the primary loaded on mount:
+        // left to the server, it would resolve the primary at checkout time,
+        // which a generation landing meanwhile can have moved (#269).
+        ...(effectiveFrontId ? { front: effectiveFrontId } : {}),
         ...(backActive ? { back: backImageId! } : {}),
       });
       // Guest hit the purchase gate — send them to sign-in and back. After
       // sign-in the anonymous plugin re-parents this design to their account.
       if (needsAuth) {
-        const next = window.location.pathname + window.location.search;
+        const next =
+          window.location.pathname +
+          withFront(window.location.search, effectiveFrontId ?? null);
         window.location.href = `/sign-in?next=${encodeURIComponent(next)}`;
         return;
       }
@@ -778,7 +793,7 @@ function PreviewPageInner() {
         size,
         color: colorName,
         productId,
-        ...(frontPinned ? { front: frontImageId! } : {}),
+        ...(effectiveFrontId ? { front: effectiveFrontId } : {}),
         ...(backActive ? { back: backImageId! } : {}),
       });
       // Hard navigation, not router.push (#101). Next's server-action reducer
