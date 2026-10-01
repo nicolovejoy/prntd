@@ -317,7 +317,7 @@ describe("loadEmbeddedCheckout (#135 slice 2)", () => {
     expect(h.retrieve).not.toHaveBeenCalled();
   });
 
-  it("a paid order: paid, no Stripe call", async () => {
+  it("a paid order: complete, no Stripe call", async () => {
     const db = h.db as Db;
     await seedOrder(db, {
       userId: "buyer",
@@ -330,7 +330,7 @@ describe("loadEmbeddedCheckout (#135 slice 2)", () => {
       viewerId: "buyer",
     });
 
-    expect(result).toEqual({ kind: "paid" });
+    expect(result).toEqual({ kind: "complete" });
     expect(h.retrieve).not.toHaveBeenCalled();
   });
 
@@ -508,7 +508,7 @@ describe("loadEmbeddedCheckout (#135 slice 2)", () => {
     });
   });
 
-  it("Stripe says complete: paid", async () => {
+  it("Stripe says complete: complete", async () => {
     const db = h.db as Db;
     await seedOrder(db, { userId: "buyer", stripeSessionId: "cs_test_9" });
     h.retrieve.mockResolvedValue({ status: "complete" });
@@ -518,7 +518,20 @@ describe("loadEmbeddedCheckout (#135 slice 2)", () => {
       viewerId: "buyer",
     });
 
-    expect(result).toEqual({ kind: "paid" });
+    expect(result).toEqual({ kind: "complete" });
+  });
+
+  it("Stripe says complete but unpaid (delayed method): complete, so /checkout hands off to /order/confirm", async () => {
+    const db = h.db as Db;
+    await seedOrder(db, { userId: "buyer", stripeSessionId: "cs_test_9u" });
+    h.retrieve.mockResolvedValue({ status: "complete", payment_status: "unpaid" });
+
+    const result = await loadEmbeddedCheckout({
+      sessionId: "cs_test_9u",
+      viewerId: "buyer",
+    });
+
+    expect(result).toEqual({ kind: "complete" });
   });
 
   it("Stripe says expired: expired", async () => {

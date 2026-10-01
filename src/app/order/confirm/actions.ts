@@ -53,6 +53,7 @@ export async function getOrderBySession(stripeSessionId: string) {
   return {
     id: found.id,
     status: found.status,
+    abandoned: found.abandonedAt != null,
     totalPrice: found.totalPrice,
     lines,
   };

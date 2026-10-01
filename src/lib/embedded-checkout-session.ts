@@ -47,7 +47,10 @@ export type CheckoutLineSummary = {
 
 export type EmbeddedCheckoutResult =
   | { kind: "not-found" }
-  | { kind: "paid" }
+  /** The buyer is done with Stripe: the order is no longer pending, or the
+   * session is `complete` (paid, or a delayed payment still settling).
+   * /checkout sends them to /order/confirm, which tells those apart. */
+  | { kind: "complete" }
   | { kind: "expired" }
   | { kind: "hosted"; url: string }
   | { kind: "unavailable" }
@@ -151,8 +154,13 @@ export async function loadEmbeddedCheckout(params: {
   }
 
   if (found.status !== "pending") {
-    return { kind: "paid" };
+    return { kind: "complete" };
   }
+  // Known mismatch: an order abandoned by a failed delayed payment (session
+  // `complete`, `abandoned_at` set) also lands here, so /checkout says "This
+  // checkout expired. Nothing was charged." where /order/confirm says the
+  // payment failed. Telling them apart needs a Stripe read or a new column,
+  // and this check deliberately runs before any Stripe call.
   if (found.abandonedAt) {
     return { kind: "expired" };
   }
@@ -174,7 +182,7 @@ export async function loadEmbeddedCheckout(params: {
     return { kind: "unavailable" };
   }
 
-  if (session.status === "complete") return { kind: "paid" };
+  if (session.status === "complete") return { kind: "complete" };
   if (session.status === "expired") return { kind: "expired" };
   if (session.status !== "open") return { kind: "unavailable" };
 

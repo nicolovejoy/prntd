@@ -17,17 +17,20 @@ type Search = Promise<Record<string, string | string[] | undefined>>;
 /**
  * The order row (and its stripeSessionId) is written before the Stripe
  * session is created, so by the time Stripe sends them back here the row
- * already exists — there is no race with the webhook to guard against, and
- * this page never renders a field the webhook writes (ruling P3). That is
- * what lets this be a plain awaited server read with no retry/poll island.
+ * already exists — there is no race with the webhook to guard against for the
+ * receipt, which renders no field the webhook writes (ruling P3). The one
+ * webhook-written field it does read is `abandoned` (set when a delayed
+ * payment fails), and the processing → failed change is a race with the
+ * webhook: the page does not poll, so the buyer sees it on the next load.
+ * That keeps this a plain awaited server read with no retry/poll island.
  * `/orders` hides young pending rows (src/lib/user-orders.ts,
  * `STALE_PENDING_MS`), so the "View orders" link below can briefly not show
  * an order that was just paid here.
  *
  * #135 slices 2-3: when the order is still `pending` and the URL carries a
  * session id, this page makes one extra Stripe read (`getCheckoutSessionState`)
- * to tell apart a genuine webhook lag (session `complete`, renders as
- * confirmed) from a session that's still `open` — reachable with embedded
+ * to tell apart a genuine webhook lag (session `complete` and paid, renders
+ * as confirmed; `complete` but `unpaid` is a delayed payment, #272) from a session that's still `open` — reachable with embedded
  * checkout when Stripe redirects here without a completed payment (e.g. the
  * buyer backed out of a redirect-based payment method) or when the URL is
  * opened directly — or one that's `expired`. The read does not depend on the
@@ -105,15 +108,37 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Sear
     const stripeState = await getCheckoutSessionState(sessionId);
     view = resolveConfirmView({
       orderStatus: order.status,
+      abandoned: order.abandoned,
       stripe: stripeState,
       embeddedEnabled: embeddedCheckoutPageConfig().enabled,
       sessionId,
     });
   }
 
-  if (view.kind === "incomplete" || view.kind === "expired") {
+  if (
+    view.kind === "incomplete" ||
+    view.kind === "expired" ||
+    view.kind === "processing" ||
+    view.kind === "failed"
+  ) {
+    // "Payment still processing" is the owner's wording (Nico, 2026-10-01);
+    // a copy sweep must not change it. He approved both supporting lines the
+    // same day. "failed" reuses the incomplete heading: the session is
+    // complete and cannot be resumed, so no resume link.
     const heading =
-      view.kind === "incomplete" ? "Payment not completed." : "This checkout expired.";
+      view.kind === "processing"
+        ? "Payment still processing"
+        : view.kind === "expired"
+          ? "This checkout expired."
+          : "Payment not completed.";
+    const body =
+      view.kind === "processing"
+        ? "Your order will be placed once the payment clears."
+        : view.kind === "failed"
+          ? // Not "Nothing was charged.": that is not true for every delayed
+            // method (a bank debit can be taken and then returned).
+            "The payment didn't go through."
+          : "Nothing was charged.";
     return (
       <div className="min-h-screen flex flex-col px-4">
         <Breadcrumbs
@@ -126,7 +151,7 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Sear
             <h1 className="font-mono text-[13px] leading-5 tracking-[0.08em] uppercase">
               {heading}
             </h1>
-            <p className="text-text-muted">Nothing was charged.</p>
+            <p className="text-text-muted">{body}</p>
             <div className="flex flex-col gap-3">
               {view.kind === "incomplete" && view.resumeHref && (
                 <Link href={view.resumeHref}>
