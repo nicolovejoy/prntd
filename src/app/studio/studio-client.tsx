@@ -1555,6 +1555,7 @@ function Lane({
                 <Button
                   type="button"
                   variant="secondary"
+                  className="min-h-11"
                   data-testid="lightbox-edit"
                   onClick={() => {
                     const shown = lane.cells[lightboxIndex];
@@ -1565,9 +1566,27 @@ function Lane({
                   Edit this one
                 </Button>
               )}
+              {/* Straight to /preview (#269), skipping the image detail page.
+                  The shown image rides as `front` unless it is the
+                  conversation's primary, which /preview uses by default.
+                  /preview bounces a conversation with no primary image to
+                  /design, so no Order for such a lane. */}
+              {!selectMode && lane.cells.some((c) => c.isPrimary) && (
+                <Link
+                  href={`/preview?id=${lane.designId}${
+                    lane.cells[lightboxIndex].isPrimary
+                      ? ""
+                      : `&front=${lane.cells[lightboxIndex].imageId}`
+                  }`}
+                  data-testid="lightbox-order"
+                  className="inline-flex min-h-11 items-center rounded-md border border-foreground px-4 text-sm font-medium text-foreground transition-colors hover:bg-surface-well"
+                >
+                  Order
+                </Link>
+              )}
               <Link
                 href={`/d/${lane.cells[lightboxIndex].imageId}`}
-                className="self-center text-sm underline text-text-muted hover:text-foreground"
+                className="inline-flex min-h-11 items-center text-sm underline text-text-muted hover:text-foreground"
               >
                 Open
               </Link>
