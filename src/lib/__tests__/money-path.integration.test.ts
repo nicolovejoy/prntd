@@ -83,6 +83,7 @@ function makeSession(
   return {
     id: "cs_test_123",
     metadata: { orderId, designId },
+    paymentStatus: "paid",
     paymentIntentId: "pi_123",
     amountTotal: 2412,
     amountSubtotal: 1943,

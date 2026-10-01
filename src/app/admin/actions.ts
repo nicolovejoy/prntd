@@ -32,7 +32,10 @@ import { assertTransition, canArchiveOrder } from "@/lib/order-state";
 import { summarizeLedger } from "@/lib/ledger";
 import { ORDER_CLASSIFICATIONS, type OrderClassification } from "@/lib/order-classification";
 import { stripe } from "@/lib/stripe";
-import { handleStripeCheckoutCompleted } from "@/lib/webhook-handlers";
+import {
+  handleStripeCheckoutCompleted,
+  type CheckoutCompletedAction,
+} from "@/lib/webhook-handlers";
 import { submitOrderFulfillment } from "@/lib/order-fulfillment";
 import { toStripeSessionData } from "@/lib/stripe-session";
 import { resolveOrderLines } from "@/lib/order-lines";
@@ -125,7 +128,7 @@ export async function retryPrintfulSubmission(orderId: string) {
 }
 
 export type RecoverPendingOrderResult =
-  | { ok: true; action: "skipped" | "paid" | "submitted" | "paid_printful_failed" }
+  | { ok: true; action: CheckoutCompletedAction }
   | { ok: false; reason: string };
 
 export async function recoverPendingOrder(
