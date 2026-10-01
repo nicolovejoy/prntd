@@ -90,6 +90,7 @@ function fakeFullSession(
   return {
     id: "cs_123",
     metadata: { orderId: "order-1", designId: "design-1" },
+    payment_status: "paid",
     payment_intent: "pi_1",
     amount_total: 2412,
     amount_subtotal: 1943,
@@ -196,6 +197,52 @@ describe("Stripe webhook route — event routing", () => {
     const res = await POST(signedRequest(eventBody("checkout.session.completed")));
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: "Missing metadata" });
+    expect(handlerMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("Stripe webhook route — delayed payment events (#266)", () => {
+  it("runs the claim handler on checkout.session.async_payment_succeeded and sends emails", async () => {
+    vi.spyOn(stripe.checkout.sessions, "retrieve").mockResolvedValue(
+      fakeFullSession() as never
+    );
+    handlerMock.mockResolvedValue({ action: "submitted" });
+
+    const res = await POST(
+      signedRequest(eventBody("checkout.session.async_payment_succeeded"))
+    );
+
+    expect(res.status).toBe(200);
+    expect(handlerMock).toHaveBeenCalledTimes(1);
+    expect(handlerMock.mock.calls[0][0]).toMatchObject({ paymentStatus: "paid" });
+    expect(emailsMock).toHaveBeenCalledWith("order-1", expect.anything());
+  });
+
+  it("passes payment_status through and sends no emails while the order awaits payment", async () => {
+    vi.spyOn(stripe.checkout.sessions, "retrieve").mockResolvedValue(
+      fakeFullSession({ payment_status: "unpaid" }) as never
+    );
+    handlerMock.mockResolvedValue({ action: "awaiting_payment" });
+
+    const res = await POST(signedRequest(eventBody("checkout.session.completed")));
+
+    expect(res.status).toBe(200);
+    expect(handlerMock.mock.calls[0][0]).toMatchObject({ paymentStatus: "unpaid" });
+    expect(emailsMock).not.toHaveBeenCalled();
+  });
+
+  it("marks the order abandoned on checkout.session.async_payment_failed", async () => {
+    expiredHandlerMock.mockResolvedValue({ action: "abandoned" });
+    const res = await POST(
+      signedRequest(
+        eventBody("checkout.session.async_payment_failed", {
+          id: "cs_123",
+          metadata: { orderId: "order-1" },
+        })
+      )
+    );
+    expect(res.status).toBe(200);
+    expect(expiredHandlerMock).toHaveBeenCalledWith("order-1", expect.anything());
     expect(handlerMock).not.toHaveBeenCalled();
   });
 });

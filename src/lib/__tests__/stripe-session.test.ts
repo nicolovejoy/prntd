@@ -12,6 +12,7 @@ function makeFullSession(overrides: Record<string, unknown> = {}) {
   return {
     id: "cs_test_123",
     metadata: { orderId: "order-1", designId: "design-1" },
+    payment_status: "paid",
     payment_intent: "pi_123",
     amount_total: 2412,
     amount_subtotal: 1943,
@@ -42,6 +43,7 @@ describe("toStripeSessionData", () => {
     expect(data).toEqual({
       id: "cs_test_123",
       metadata: { orderId: "order-1", designId: "design-1" },
+      paymentStatus: "paid",
       paymentIntentId: "pi_123",
       amountTotal: 2412,
       amountSubtotal: 1943,

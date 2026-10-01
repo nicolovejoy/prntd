@@ -54,6 +54,7 @@ export async function toStripeSessionData(
   return {
     id: fullSession.id,
     metadata: { orderId, designId },
+    paymentStatus: fullSession.payment_status,
     paymentIntentId,
     amountTotal: fullSession.amount_total,
     amountSubtotal: fullSession.amount_subtotal,

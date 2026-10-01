@@ -8,6 +8,7 @@ import type { StripeSessionData } from "../webhook-handlers";
 const sessionData: StripeSessionData = {
   id: "cs_test_recover",
   metadata: { orderId: "order-stuck", designId: "design-1" },
+  paymentStatus: "paid",
   paymentIntentId: "pi_recover",
   amountTotal: 3000,
   discount: null,
@@ -102,6 +103,20 @@ describe("recoverPendingOrderCore", () => {
       recoverPendingOrderCore("order-stuck", deps)
     ).rejects.toThrow(/not paid/);
     expect(deps.runCheckoutHandler).not.toHaveBeenCalled();
+  });
+
+  it("treats no_payment_required as settled, matching the webhook handler", async () => {
+    const deps = createDeps({
+      fetchSessionData: vi.fn().mockResolvedValue({
+        paymentStatus: "no_payment_required",
+        sessionData: { ...sessionData, paymentStatus: "no_payment_required" },
+      }),
+    });
+
+    const result = await recoverPendingOrderCore("order-stuck", deps);
+
+    expect(result.action).toBe("submitted");
+    expect(deps.runCheckoutHandler).toHaveBeenCalledTimes(1);
   });
 
   it("returns skipped without sending emails when handler reports skipped", async () => {

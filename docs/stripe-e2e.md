@@ -37,7 +37,9 @@ What the script (`scripts/e2e-stripe.sh`) does:
    and exports it as `STRIPE_WEBHOOK_SECRET` — the compiled server verifies
    the forwarded event with it (process env beats `.env.local`).
 2. Spawns `stripe listen --forward-to localhost:3100/api/webhooks/stripe`
-   (only `checkout.session.completed`), killed on exit.
+   (only the four `checkout.session.*` events the handler acts on:
+   `completed`, `expired`, `async_payment_succeeded`,
+   `async_payment_failed`), killed on exit.
 3. Exports `NEXT_PUBLIC_APP_URL=http://localhost:3100` so Stripe's
    success/cancel redirects land back on the server under test,
    `PRINTFUL_DRY_RUN=true` (also forced in `playwright.config.ts` — no local
