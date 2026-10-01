@@ -14,6 +14,7 @@ import {
 } from "react";
 import type { RefObject } from "react";
 import { Button, EmptyState, useConfirm } from "@/components/ui";
+import { previewOrderHref } from "@/lib/placement-pins";
 import { ImageLightbox, type LightboxImage } from "@/app/design/image-lightbox";
 import {
   cancelGeneration,
@@ -1567,18 +1568,18 @@ function Lane({
                 </Button>
               )}
               {/* Straight to /preview (#269), skipping the image detail page.
-                  The shown image rides as `front` unless it is the
-                  conversation's primary, which /preview uses by default.
+                  The shown image always rides as `front`, primary or not,
+                  so a later primary change can't swap what gets ordered.
                   /preview bounces a conversation with no primary image to
                   /design, so no Order for such a lane. */}
               {!selectMode && lane.cells.some((c) => c.isPrimary) && (
                 <Link
-                  href={`/preview?id=${lane.designId}${
-                    lane.cells[lightboxIndex].isPrimary
-                      ? ""
-                      : `&front=${lane.cells[lightboxIndex].imageId}`
-                  }`}
+                  href={previewOrderHref(
+                    lane.designId,
+                    lane.cells[lightboxIndex].imageId
+                  )}
                   data-testid="lightbox-order"
+                  // Mirrors Button's primary variant (src/components/ui/button.tsx); it is a link, so it can't use Button.
                   className="inline-flex min-h-11 items-center rounded-md border border-foreground px-4 text-sm font-medium text-foreground transition-colors hover:bg-surface-well"
                 >
                   Order

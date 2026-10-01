@@ -91,3 +91,14 @@ export function buyPagePlacements(params: {
   if (!added) return { front: page, back: null };
   return swapped ? { front: added, back: page } : { front: page, back: added };
 }
+
+/**
+ * Link into /preview for one image of a conversation, with that image named
+ * as the front. Always carries `front`, even when the image is the
+ * conversation's current primary: the primary can move (a generation lands,
+ * another tab) between this tap and checkout, and a link that leaves the
+ * front implicit would then order a different image than the one tapped.
+ */
+export function previewOrderHref(designId: string, frontImageId: string): string {
+  return `/preview?id=${designId}&front=${frontImageId}`;
+}

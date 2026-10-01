@@ -68,6 +68,8 @@ vi.mock("../actions", () => ({
 
 import PreviewPage from "../page";
 import { getBackDesignSources } from "../actions";
+import { createCheckoutSession } from "../../order/actions";
+import { addToCart, isCartEnabled } from "../../cart/actions";
 
 const WITH_BACK = "id=d1&product=bella-canvas-3001&color=Black&back=img-back";
 const NO_BACK = "id=d1&product=bella-canvas-3001&color=Black";
@@ -297,5 +299,88 @@ describe("/preview sides (#167)", () => {
     expect(screen.getByTestId("add-back-tile")).toBeInTheDocument();
     // No back was picked, so nothing was fetched for it.
     expect(mockupCallsFor("back")).toHaveLength(0);
+  });
+});
+
+describe("/preview sends the shown front to checkout and cart (#269)", () => {
+  const SIZED = "id=d1&product=bella-canvas-3001&color=Black&size=M";
+
+  async function clickBuy(name: "Order" | "Add to cart") {
+    // The desktop CTA and the mobile sticky bar both render; either calls
+    // the same handler.
+    await waitFor(() =>
+      expect(screen.getAllByRole("button", { name }).length).toBeGreaterThan(0)
+    );
+    fireEvent.click(screen.getAllByRole("button", { name })[0]);
+  }
+
+  beforeEach(() => {
+    vi.mocked(createCheckoutSession).mockReset();
+    vi.mocked(createCheckoutSession).mockResolvedValue({
+      url: null,
+      needsAuth: false,
+    } as never);
+    vi.mocked(addToCart).mockReset();
+    vi.mocked(addToCart).mockResolvedValue({ ok: true, count: 1 } as never);
+  });
+
+  it("checkout carries the primary as front when the front is the primary", async () => {
+    params = new URLSearchParams(SIZED);
+    render(<PreviewPage />);
+    await waitFor(() => expect(getOrCreatePlacementRender).toHaveBeenCalled());
+    await clickBuy("Order");
+    await waitFor(() => expect(createCheckoutSession).toHaveBeenCalled());
+    expect(vi.mocked(createCheckoutSession).mock.calls[0][0].front).toBe(
+      "img-primary"
+    );
+  });
+
+  it("checkout carries the pinned front when it differs from the primary", async () => {
+    params = new URLSearchParams(`${SIZED}&front=img-other`);
+    render(<PreviewPage />);
+    await waitFor(() => expect(getOrCreatePlacementRender).toHaveBeenCalled());
+    await clickBuy("Order");
+    await waitFor(() => expect(createCheckoutSession).toHaveBeenCalled());
+    expect(vi.mocked(createCheckoutSession).mock.calls[0][0].front).toBe(
+      "img-other"
+    );
+  });
+
+  it("add to cart carries the shown front in both cases", async () => {
+    vi.mocked(isCartEnabled).mockResolvedValue(true);
+    params = new URLSearchParams(SIZED);
+    const first = render(<PreviewPage />);
+    await waitFor(() => expect(getOrCreatePlacementRender).toHaveBeenCalled());
+    await clickBuy("Add to cart");
+    await waitFor(() => expect(addToCart).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(addToCart).mock.calls[0][0].front).toBe("img-primary");
+    first.unmount();
+
+    params = new URLSearchParams(`${SIZED}&front=img-other`);
+    render(<PreviewPage />);
+    await clickBuy("Add to cart");
+    await waitFor(() => expect(addToCart).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(addToCart).mock.calls[1][0].front).toBe("img-other");
+  });
+
+  it("keeps sending the shown image after the server's primary moves on", async () => {
+    // getDesign answered "img-primary" at load. A job landing later changes
+    // the server's primary, but this page never re-reads it: what the buyer
+    // was shown is what is sent, not what the server would resolve at
+    // checkout time.
+    const { getDesign } = await import("../../design/actions");
+    params = new URLSearchParams(SIZED);
+    render(<PreviewPage />);
+    await waitFor(() => expect(getOrCreatePlacementRender).toHaveBeenCalled());
+    vi.mocked(getDesign).mockResolvedValue({
+      primaryImageId: "img-newer",
+      backgroundColor: null,
+      mockupUrls: null,
+    } as never);
+    await clickBuy("Order");
+    await waitFor(() => expect(createCheckoutSession).toHaveBeenCalled());
+    expect(vi.mocked(createCheckoutSession).mock.calls[0][0].front).toBe(
+      "img-primary"
+    );
   });
 });

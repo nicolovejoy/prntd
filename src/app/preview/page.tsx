@@ -750,9 +750,10 @@ function PreviewPageInner() {
         size,
         color: colorName,
         productId,
-        // The front pin travels only when it differs from the primary —
-        // absent, the server resolves the primary as it always has (#138).
-        ...(frontPinned ? { front: frontImageId! } : {}),
+        // The front on screen, even when it is the primary loaded on mount:
+        // left to the server, it would resolve the primary at checkout time,
+        // which a generation landing meanwhile can have moved (#269).
+        ...(effectiveFrontId ? { front: effectiveFrontId } : {}),
         ...(backActive ? { back: backImageId! } : {}),
       });
       // Guest hit the purchase gate — send them to sign-in and back. After
@@ -778,7 +779,7 @@ function PreviewPageInner() {
         size,
         color: colorName,
         productId,
-        ...(frontPinned ? { front: frontImageId! } : {}),
+        ...(effectiveFrontId ? { front: effectiveFrontId } : {}),
         ...(backActive ? { back: backImageId! } : {}),
       });
       // Hard navigation, not router.push (#101). Next's server-action reducer
