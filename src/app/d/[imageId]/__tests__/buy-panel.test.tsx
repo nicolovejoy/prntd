@@ -112,6 +112,31 @@ describe("BuyPanel Cancel (#278)", () => {
     expect(screen.queryByText("Size")).not.toBeInTheDocument();
   });
 
+  it("moves focus to the Order button that re-expands the panel", () => {
+    render(<BuyPanel imageId="img-1" isLoggedIn />);
+    expand();
+    fireEvent.click(screen.getAllByRole("button", { name: "Cancel" })[0]);
+    expect(screen.getByTestId("order-expand")).toHaveFocus();
+  });
+
+  it("closes an open back picker, so re-expanding does not reopen it", () => {
+    render(<BuyPanel imageId="img-1" isLoggedIn backEnabled />);
+    expand();
+    fireEvent.click(screen.getByText(/Add a back design/));
+    expect(
+      screen.getByText("Pick an image to print on the back.")
+    ).toBeInTheDocument();
+    // Last Cancel is the sticky-bar copy of the panel's; the picker's own
+    // sits earlier in the stack.
+    const cancels = screen.getAllByRole("button", { name: "Cancel" });
+    fireEvent.click(cancels[cancels.length - 1]);
+    expect(screen.getByTestId("order-expand")).toBeInTheDocument();
+    expand();
+    expect(
+      screen.queryByText("Pick an image to print on the back.")
+    ).not.toBeInTheDocument();
+  });
+
   it("signed-out: the gate has a Cancel that collapses too", () => {
     render(<BuyPanel imageId="img-1" isLoggedIn={false} />);
     expand();

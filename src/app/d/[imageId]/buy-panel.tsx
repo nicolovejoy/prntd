@@ -3,6 +3,7 @@
 import {
   useEffect,
   useImperativeHandle,
+  useRef,
   useState,
   type ReactNode,
   type Ref,
@@ -43,7 +44,8 @@ export type BuyPanelHandle = {
  * CTAs under the image — "Order" (no price: the total depends on options
  * not yet picked) and the remix action passed in as
  * `startAction`. Tapping Order expands the picker stack in place
- * (product/size/color/back-design/price); buy stays gated on size only.
+ * (product/size/color/back-design, and price once a size is picked); buy
+ * stays gated on size only. Cancel under the CTAs collapses it again.
  * With a back picked the buyer can swap the two sides (#138 slice 3): the
  * picked image goes on the front and this page's image on the back. That is
  * the only front change this page offers (no front picker, §1 of
@@ -165,6 +167,16 @@ export function BuyPanel({
   // and its groups (null until first fetched — one fetch per page view).
   const [back, setBack] = useState<BackPick | null>(null);
   const [backPickerOpen, setBackPickerOpen] = useState(false);
+  // Cancel unmounts the focused button; hand focus to the control that
+  // re-expands the panel instead of dropping it on <body> (#278 review).
+  const expandButton = useRef<HTMLButtonElement>(null);
+  const refocusExpand = useRef(false);
+  useEffect(() => {
+    if (!expanded && refocusExpand.current) {
+      refocusExpand.current = false;
+      expandButton.current?.focus();
+    }
+  }, [expanded]);
   const [backGroups, setBackGroups] = useState<BackSourceGroup[] | null>(null);
   // Swap (#138 slice 3): the pick on the front, this page's image on the
   // back. Only meaningful with a pick; picking or removing one resets it.
@@ -323,8 +335,12 @@ export function BuyPanel({
   const cancelButton = (
     <button
       type="button"
-      onClick={() => setExpanded(false)}
-      className="w-full min-h-11 text-sm underline text-text-muted"
+      onClick={() => {
+        setBackPickerOpen(false);
+        refocusExpand.current = true;
+        setExpanded(false);
+      }}
+      className="w-full min-h-11 text-sm underline text-text-muted hover:text-foreground"
     >
       Cancel
     </button>
@@ -375,6 +391,7 @@ export function BuyPanel({
           className="w-full"
           onClick={() => setExpanded(true)}
           aria-expanded={false}
+          ref={expandButton}
           data-testid="order-expand"
         >
           Order

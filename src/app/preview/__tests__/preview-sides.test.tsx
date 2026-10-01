@@ -492,12 +492,25 @@ describe("/preview Cancel (#278)", () => {
     params = new URLSearchParams(NO_BACK);
     render(<PreviewPage />);
     const links = await screen.findAllByRole("link", { name: "Cancel" });
-    expect(links.length).toBeGreaterThan(0);
+    // Desktop stack + phone sticky bar.
+    expect(links).toHaveLength(2);
     const trail = breadcrumbTrail("/preview", {
       id: "d1",
       product: "bella-canvas-3001",
     });
     const parent = trail[trail.length - 1];
     for (const l of links) expect(l.getAttribute("href")).toBe(parent.href);
+  });
+
+  it("the sticky bar's Cancel is hidden while the source picker is open", async () => {
+    params = new URLSearchParams(NO_BACK);
+    render(<PreviewPage />);
+    fireEvent.click(await screen.findByTestId("add-back-tile"));
+    await screen.findByText("Pick an image to print on the back.");
+    // Only the desktop stack's link remains (hidden below md); the sticky
+    // bar's is gone so the picker's own Cancel is the only one on a phone.
+    expect(screen.getAllByRole("link", { name: "Cancel" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(await screen.findAllByRole("link", { name: "Cancel" })).toHaveLength(2);
   });
 });

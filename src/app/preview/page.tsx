@@ -944,7 +944,7 @@ function PreviewPageInner() {
   const cancelLink = (
     <Link
       href={cancelHref}
-      className="min-h-11 flex items-center justify-center text-sm underline text-text-muted"
+      className="min-h-11 flex items-center justify-center text-sm underline text-text-muted hover:text-foreground"
     >
       Cancel
     </Link>
@@ -1333,7 +1333,9 @@ function PreviewPageInner() {
             {addingToCart ? "Adding…" : "Add to cart"}
           </Button>
         )}
-        {cancelLink}
+        {/* The picker has its own Cancel; two with opposite scope would
+            send a buyer leaving the picker off the page (#278 review). */}
+        {!showSourcePicker && cancelLink}
       </div>
     </div>
   );

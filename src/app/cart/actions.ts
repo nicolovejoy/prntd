@@ -271,7 +271,8 @@ export async function getCart(): Promise<CartView> {
   const imageMap = await resolveDesignDisplayImageUrls(
     rows.map((r) => r.designId)
   );
-  // A line with a pinned front (the /d path, #146) shows the pinned image,
+  // Pinned fronts and backs resolve in one call. A line with a pinned front
+  // (the image detail page path, #146) shows the pinned image,
   // not the design's current display image — they can differ, and the pin is
   // what gets printed. /preview lines pin the primary, so this is a no-op
   // for them.

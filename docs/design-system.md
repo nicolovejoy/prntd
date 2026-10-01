@@ -603,7 +603,7 @@ Remaining:
    `/studio`, not `/design`; fixed here.) Persona-independent cleanup, but
    the surviving copy is persona-dependent (see Part 1 samples).
 4. **"Selected image" is load-bearing but nearly invisible** — a 2px border
-   decides what Make Products ships to /preview. Persona-independent problem;
+   decides what Order ships to /preview. Persona-independent problem;
    B's ink accent gives it a free fix, A/C need a heavier white treatment
    (thicker ring + dimmed siblings). **Incident, 2026-09-06:** the Paper
    slice-1 rollout's `.bg-checkerboard` alias briefly made this worse than
@@ -723,13 +723,13 @@ correction: this is one conversation thread, not "Studio" — Studio now names
 3. **Desktop Stage** (`app/design/design-stage.tsx`, `hidden md:flex`) — the
    Rail's replacement (#151; see Part 2 Vocabulary, Stage/Rail): current
    image at full size, a generations strip beneath it (numbered thumbnails,
-   selection border), product-versions section, **Make Products →** pinned
+   selection border), product-versions section, **Order →** pinned
    at the bottom (the funnel exit). No dark/light backdrop toggle — dropped
    with the Rail; art shows on the house paper well.
 4. **Mobile strip + drawer** (`mobile-gallery-strip.tsx` docked above the
    composer + `mobile-gallery-drawer.tsx`) — replaced the numbered gallery
    FAB (#89); a thumbnail strip with an "All" tile opens the full drawer
-   (`ImageGallery`, product versions + Make Products live there); no
+   (`ImageGallery`, product versions + Order live there); no
    auto-open after generation.
 5. **Empty state** — centered composer ("Describe a design"), chips always
    visible with no reveal delay (#214), 3 example prompts.
@@ -772,8 +772,7 @@ separate funnel exit to `/order` any more.
    `MULTI_PLACEMENT_ENABLED` + a back-capable product); "Change"/"Swap"
    open a source picker that replaces the Stage while choosing either side,
    with a Cancel to back out.
-7. **Design size slider** — 30–100% print-area scale.
-8. "Refine design" link back to `/design`; breadcrumb.
+7. "Refine design" link back to `/design`; breadcrumb.
 
 ### `/order` (`app/order/page.tsx`)
 

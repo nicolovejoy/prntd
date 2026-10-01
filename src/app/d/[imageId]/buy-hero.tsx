@@ -343,7 +343,7 @@ export function BuyHero({
           <div className="space-y-2">
             {/* Fixed-height hero (a /preview convention) so the instant-layer
                 → mockup crossfade never reflows the page — only the one-time
-                collapsed → expanded swap does, which already reveals the
+                collapsed ↔ expanded swap does, which already reveals the
                 picker stack below. No onSelect: this page has no lightbox
                 (#157 is separate). */}
             <SideMockup
