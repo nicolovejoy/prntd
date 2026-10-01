@@ -2,9 +2,11 @@
  * Does a PNG carry transparency? Reads the IHDR colour type (byte 25) and,
  * for the colour types that CAN'T carry a per-pixel alpha channel, scans for
  * a tRNS chunk — palette (and, rarely, grayscale/RGB) PNGs express
- * transparency that way. Used by the compose flow's DTG knockout warning and
- * the legacy-alpha backfill script; both only need a prefix of the file, so
- * `probeImageAlpha` does a ranged fetch.
+ * transparency that way. Written for the organizer compose flow's DTG knockout
+ * warning (deleted with the storefronts, #201 — so `probeImageAlpha` has no
+ * production caller today; it stays for `validatePlacementFit`'s next caller)
+ * and the legacy-alpha backfill script. Both only need a prefix of the file,
+ * so `probeImageAlpha` does a ranged fetch.
  */
 
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];

@@ -99,6 +99,13 @@
       "when": 1788900841733,
       "tag": "0013_omniscient_talkback",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1790352515937,
+      "tag": "0014_thin_pride",
+      "breakpoints": true
     }
   ]
 }

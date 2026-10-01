@@ -81,3 +81,15 @@ the PR body (backup → migrate → verify).
 Use superpowers:subagent-driven-development to execute (one implementer per
 task, task review after each, whole-branch review at the end). Ledger lives
 in `.superpowers/sdd/<plan-basename>/progress.md`.
+
+## Status
+
+Built as PR #201 (`cloud/composition-slice-5-drops`, migration 0013), which
+fell 57 main commits behind and was rebuilt on current main on 2026-09-25 as
+`claude/201-composition-drops-v2` with the migration renumbered to 0014 (0013
+went to #234's `order.abandoned_at`). The rebuild's plan and ledger:
+`docs/superpowers/plans/2026-09-25-201-composition-drops-v2.md`,
+`docs/superpowers/ledgers/2026-09-25-201-composition-drops-v2-progress.md`.
+The old branch's ledger (every review finding and ruling from the original
+build, migration numbers as they were then) was copied over verbatim:
+`docs/superpowers/ledgers/2026-09-05-composition-slice-5-drops-progress.md`.

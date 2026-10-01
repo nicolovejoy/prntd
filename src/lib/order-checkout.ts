@@ -13,10 +13,8 @@ import { resolveOrderVariant } from "@/lib/blanks";
 
 /**
  * Shared order-creation + Stripe-checkout step for the single-item purchase
- * flows: design-your-own (`createCheckoutSession`, order/actions.ts),
- * buy-existing (`buyPublishedDesign`, d/actions.ts) and organizer
- * storefronts (`buyStoreProduct`, shop/actions.ts; retired, flag off). The
- * cart builds its own session in `checkoutCart`. Inserts the order row,
+ * flows: design-your-own (`createCheckoutSession`, order/actions.ts) and
+ * buy-existing (`buyPublishedDesign`, d/actions.ts). The cart builds its own session in `checkoutCart`. Inserts the order row,
  * creates the Stripe session with `buildCheckoutSessionParams`, persists
  * the session id, and returns the redirect URL. Callers own auth, pricing, image-pinning
  * and the cancel URL; this owns the parts that would otherwise drift.
@@ -34,11 +32,9 @@ export async function createStripeCheckoutForOrder(params: {
   placements: Record<string, string> | null;
   checkoutImageUrl: string | null;
   cancelUrl: string;
-  /** Composition attribution. `storeId` is the organizer storefront (null for
-   * a PRNTD Shop sale); `storeProductId` is the `product` row bought — the
-   * organizer's sellable, or the published image's mirror composition. Both
-   * null for design-your-own. See the schema comment on `order`. */
-  storeId?: string | null;
+  /** Composition attribution: the `product` row bought — the published
+   * image's Shop composition. Null for design-your-own. See the schema
+   * comment on `order`. */
   storeProductId?: string | null;
   /** Present only when the caller has resolved its embedded config
    * (`embeddedCheckoutConfig()` for the image detail page,
@@ -83,7 +79,6 @@ export async function createStripeCheckoutForOrder(params: {
       totalPrice: total,
       itemPrice: item,
       shippingPrice: shipping,
-      storeId: params.storeId ?? null,
       storeProductId: params.storeProductId ?? null,
     }),
     db.insert(orderItemTable).values({

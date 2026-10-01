@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
 import * as writes from "@/lib/model-b-writes";
-import { r2KeyFromUrl } from "@/lib/model-b-writes";
+import { r2KeyFromUrl, compositionFrontImageId } from "@/lib/model-b-writes";
 
 const source = readFileSync(
   fileURLToPath(new URL("../model-b-writes.ts", import.meta.url)),
@@ -37,5 +37,14 @@ describe("image write layer immutability", () => {
       "designs/d/1.png"
     );
     expect(r2KeyFromUrl("not a url")).toBeNull();
+  });
+
+  it("compositionFrontImageId is the front slot, and nothing else", () => {
+    expect(compositionFrontImageId({ front: "a" })).toBe("a");
+    expect(compositionFrontImageId({ front: "a", back: "b" })).toBe("a");
+    expect(compositionFrontImageId({ back: "b" })).toBeNull();
+    expect(compositionFrontImageId({})).toBeNull();
+    expect(compositionFrontImageId(null)).toBeNull();
+    expect(compositionFrontImageId(undefined)).toBeNull();
   });
 });

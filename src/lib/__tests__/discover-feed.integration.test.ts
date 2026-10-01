@@ -187,8 +187,9 @@ describe("getPublishedFeed (real DB)", () => {
 
   it("carries the mirror product's blank id, null when the buyer picks", async () => {
     // Every Shop mirror is written with blank_id NULL (model-b-writes.ts), so
-    // the null case is the production path; the fixed case is what composition
-    // slice 5+ will start writing.
+    // the null case is the production path; the fixed case is what a later
+    // composition UI (a shirt with a fixed garment) would write — nothing
+    // writes it yet, slice 5 included.
     await makeUser(testDb, "nico");
     await publishImage("nico", { publishedMinutesAgo: 1 });
 

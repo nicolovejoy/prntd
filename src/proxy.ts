@@ -18,7 +18,7 @@ import { NextRequest, NextResponse } from "next/server";
 //
 // "/designs" is My Designs' own address now, not a redirect — it needs its
 // own listing here just like "/studio". "/shop" is deliberately absent — the
-// community feed is public, and so is the mothballed organizer /shop/[slug].
+// community feed is public.
 const ALWAYS_PROTECTED = ["/designs", "/orders", "/admin", "/studio"];
 // The design → preview → order funnel. Opened to signed-out visitors when
 // GUEST_FUNNEL_ENABLED (#26) — a guest gets an anonymous session client-side
