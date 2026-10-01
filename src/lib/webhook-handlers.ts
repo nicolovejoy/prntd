@@ -210,12 +210,14 @@ export async function handleStripeCheckoutCompleted(
 
 /**
  * `checkout.session.expired` (#231) and `checkout.session.async_payment_failed`
- * (#266) both end here: neither can apply to a paid order. Stripe fires this when a Checkout
- * Session's `expires_at` (see `CHECKOUT_SESSION_TTL_SECONDS` in checkout.ts)
- * passes with no completed payment. It never
- * fires for a session that did complete, but the order row could already be
- * anything by the time this arrives (paid via a race, already abandoned by
- * a prior delivery, or gone) — so the marking is a conditional UPDATE, same
+ * (#266) both end here. Stripe fires `expired` when a Checkout Session's
+ * `expires_at` (see `CHECKOUT_SESSION_TTL_SECONDS` in checkout.ts) passes
+ * with no completed payment; it never fires for a session that did complete.
+ * `async_payment_failed` fires for a session that completed with a delayed
+ * payment method whose payment then failed, so its order was left pending by
+ * the `payment_status` gate above. Either way the order row could already be
+ * anything by the time the event arrives (paid via a race, already abandoned
+ * by a prior delivery, or gone) — so the marking is a conditional UPDATE, same
  * shape as the paid-claim in `handleStripeCheckoutCompleted`: only a
  * still-`pending`, not-yet-abandoned order is touched, and `rowsAffected`
  * tells us whether this call did that or found nothing to do.
