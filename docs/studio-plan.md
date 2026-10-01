@@ -179,8 +179,8 @@ mode — the next instruction lands somewhere nobody chose.
 > **Reversed 2026-10-01 (Nico).** The anchor now clears after each accepted
 > Generate (including one reconciled as run after a lost response). He typed a
 > new idea after an edit and its image landed in the old lane. A refused turn
-> keeps the anchor along with the words; a newer anchor set while a request is
-> in flight survives. Several edits from one image now means choosing Edit
+> gets its words back with the anchor state it was sent with (chip or none),
+> replacing any anchor set while the request was in flight. Several edits from one image now means choosing Edit
 > this one again each time.
 
 **A lane opens scrolled to its newest image.** Lanes wider than the phone

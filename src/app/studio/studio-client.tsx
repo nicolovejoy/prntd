@@ -69,7 +69,8 @@ import { GuestKeepLine } from "./guest-keep-line";
  * then edits exactly that image. Dismissing the chip clears the anchor and
  * the same box starts a NEW conversation; so does an accepted Generate, which
  * spends the anchor (Nico, 2026-10-01: a new idea typed after an edit landed
- * in the old lane). A refused turn keeps it, with the words, for a retry.
+ * in the old lane). A refused turn hands its words back with the anchor
+ * state it was sent with (chip or none), for a retry of the same thing.
  * Decisions settled (plan, slice 3 + the #236 follow-up): the composer sits
  * at the top of the bench (Paper mock, #188 slice 3), the anchor never
  * advances to a result on its own, a lane opens scrolled to its newest
@@ -520,8 +521,9 @@ export function StudioClient({
   // The shared "this submit genuinely failed" path (#245): a digest throw
   // (#204), an offline fast-fail, and a reconcile loop's own "failed"
   // verdict all land here. Drops the cell, shows the notice, gives the words
-  // back only if the box is still empty (a later draft must never be
-  // clobbered), and reconciles once so a closed lane actually leaves.
+  // (and their anchor state) back only if the box is still empty (a later
+  // draft must never be clobbered), and reconciles once so a closed lane
+  // actually leaves.
   function failSubmit(
     localId: string,
     trimmed: string,
@@ -534,26 +536,25 @@ export function StudioClient({
   }
 
   // A submit that did not run hands its words back to the box only if the box
-  // is empty, and hands its anchor back with them, only then, so a retry is
-  // the same edit. Not restored when: the user has typed something else (the
-  // words stay theirs, the anchor stays as it is); a different anchor is set
-  // (it wins); the anchored image has left the surface (the lanes effect
-  // would clear it again). The restored anchor is a fresh object, so an
-  // earlier sibling submit from the same anchor, accepted later, can't
-  // clear it by reference in spendAnchor.
+  // is empty, and the composer goes back to what was submitted: the words and
+  // the anchor state that submit carried, replacing whatever anchor is current
+  // (spent by a sibling, dismissed, or a different image set meanwhile). So
+  // the chip and placeholder always describe where the words in the box will
+  // go. Anchor X whose image is still on the surface comes back as a fresh
+  // copy (an earlier sibling submit accepted later can't spend it by
+  // reference in spendAnchor); X gone from the surface, or no anchor at all,
+  // gives none (a restored anchor on a vanished image would sit until the next
+  // lanes change). If the box already has new text, the anchor isn't touched.
   function giveBack(trimmed: string, submitAnchor: Anchor | null) {
     if (textRef.current !== "") return;
     textRef.current = trimmed;
     setText(trimmed);
-    if (
-      !submitAnchor ||
-      !lanesRef.current.some((l) =>
+    const onSurface =
+      submitAnchor !== null &&
+      lanesRef.current.some((l) =>
         l.cells.some((c) => c.imageId === submitAnchor.imageId)
-      )
-    ) {
-      return;
-    }
-    setAnchor((a) => (a === null || a === submitAnchor ? { ...submitAnchor } : a));
+      );
+    setAnchor(onSurface ? { ...submitAnchor } : null);
   }
 
   // Clears the anchor a submit was sent with, once its turn is known to have

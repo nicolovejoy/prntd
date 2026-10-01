@@ -2545,30 +2545,143 @@ describe("the anchor clears after an accepted Generate (2026-10-01)", () => {
     });
   });
 
-  it("a refusal after the user anchored a different image keeps the newer anchor", async () => {
-    h.polledLanes = [
+  describe("words and anchor go back together", () => {
+    const composer = () => screen.getByTestId("studio-composer") as HTMLInputElement;
+    const refused = { kind: "limit", message: "Over the limit." };
+    const twoLanes = () => [
       lane({ cells: [cell("img-1")] }),
       lane({ designId: "design-2", title: "second lane", cells: [cell("img-2")] }),
     ];
-    const settle = deferGenerate();
-    render(
-      <StudioClient
-        initialLanes={[
-          lane({ cells: [cell("img-1")] }),
-          lane({ designId: "design-2", title: "second lane", cells: [cell("img-2")] }),
-        ]}
-      />
-    );
-    anchorCell(0);
-    submitText("make it blue");
-    anchorCell(1);
-    await act(async () => {
-      settle({ kind: "limit", message: "Over the limit." });
+
+    function deferReject() {
+      let reject!: (e: unknown) => void;
+      const pending = new Promise((_, r) => {
+        reject = r;
+      });
+      vi.mocked(generateDesign).mockReturnValueOnce(pending as never);
+      return reject;
+    }
+
+    it("anchored submit refused after the user anchored a different image: words and the submitted anchor come back", async () => {
+      h.polledLanes = twoLanes();
+      const settle = deferGenerate();
+      render(<StudioClient initialLanes={twoLanes()} />);
+      anchorCell(0);
+      submitText("make it blue");
+      anchorCell(1);
+      await act(async () => {
+        settle(refused);
+      });
+      expect(composer().value).toBe("make it blue");
+      expect(screen.getByTestId("anchor-chip").textContent).toContain(
+        "geometric wolf head"
+      );
     });
-    expect(
-      (screen.getByTestId("studio-composer") as HTMLInputElement).value
-    ).toBe("make it blue");
-    expect(screen.getByTestId("anchor-chip").textContent).toContain("second lane");
+
+    it("unanchored submit refused after the user anchored an image: words back, no chip, retry starts a new lane", async () => {
+      h.polledLanes = [lane({ cells: [cell("img-1")] })];
+      const settle = deferGenerate();
+      render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+      submitText("new idea");
+      anchorCell(0);
+      expect(screen.getByTestId("anchor-chip")).toBeTruthy();
+      await act(async () => {
+        settle(refused);
+      });
+      expect(composer().value).toBe("new idea");
+      expect(screen.queryByTestId("anchor-chip")).toBeNull();
+
+      fireEvent.submit(composer().closest("form")!);
+      await waitFor(() => expect(generateDesign).toHaveBeenCalledTimes(2));
+      const [designId, , opts] = vi.mocked(generateDesign).mock.calls[1];
+      expect(designId).not.toBe("design-1");
+      expect(opts).toEqual({ jobId: expect.any(String) });
+    });
+
+    it("anchored submit refused after the user dismissed the chip: words and chip come back", async () => {
+      h.polledLanes = [lane({ cells: [cell("img-1")] })];
+      const settle = deferGenerate();
+      render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+      anchorCell(0);
+      submitText("make it blue");
+      fireEvent.click(screen.getByLabelText("Clear anchor"));
+      expect(screen.queryByTestId("anchor-chip")).toBeNull();
+      await act(async () => {
+        settle(refused);
+      });
+      expect(composer().value).toBe("make it blue");
+      expect(screen.getByTestId("anchor-chip")).toBeTruthy();
+    });
+
+    it("anchored submit refused after its image left the surface: words back, no chip", async () => {
+      h.polledLanes = [lane({ cells: [cell("img-1")] })];
+      const settle = deferGenerate();
+      render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+      anchorCell(0);
+      submitText("make it blue");
+      h.polledLanes = []; // the conversation closed elsewhere
+      fireEvent(window, new Event("focus"));
+      await waitFor(() => expect(screen.queryByTestId("anchor-chip")).toBeNull());
+      await act(async () => {
+        settle(refused);
+      });
+      expect(composer().value).toBe("make it blue");
+      expect(screen.queryByTestId("anchor-chip")).toBeNull();
+    });
+
+    it("server-action throw: words and anchor come back", async () => {
+      h.polledLanes = [lane({ cells: [cell("img-1")] })];
+      const reject = deferReject();
+      render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+      anchorCell(0);
+      submitText("make it blue");
+      fireEvent.click(screen.getByLabelText("Clear anchor"));
+      await act(async () => {
+        reject(Object.assign(new Error("masked"), { digest: "abc" }));
+      });
+      expect(composer().value).toBe("make it blue");
+      expect(screen.getByTestId("anchor-chip")).toBeTruthy();
+    });
+
+    it("offline fast-fail: words and anchor come back", async () => {
+      h.polledLanes = [lane({ cells: [cell("img-1")] })];
+      const onLineSpy = vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+      try {
+        const reject = deferReject();
+        render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+        anchorCell(0);
+        submitText("make it blue");
+        fireEvent.click(screen.getByLabelText("Clear anchor"));
+        await act(async () => {
+          reject(new TypeError("Failed to fetch"));
+        });
+        expect(composer().value).toBe("make it blue");
+        expect(screen.getByTestId("anchor-chip")).toBeTruthy();
+      } finally {
+        onLineSpy.mockRestore();
+      }
+    });
+
+    it("reconcile 'failed' verdict: words and anchor come back", async () => {
+      vi.useFakeTimers();
+      try {
+        h.polledLanes = [lane({ cells: [cell("img-1")] })];
+        const reject = deferReject();
+        vi.mocked(getGenerationJobStatus).mockResolvedValue({ status: "failed" });
+        render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+        anchorCell(0);
+        submitText("make it blue");
+        fireEvent.click(screen.getByLabelText("Clear anchor"));
+        await act(async () => {
+          reject(new TypeError("Failed to fetch"));
+          await vi.advanceTimersByTimeAsync(0);
+        });
+        expect(composer().value).toBe("make it blue");
+        expect(screen.getByTestId("anchor-chip")).toBeTruthy();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   it("clears the anchor when a lost response is reconciled as run", async () => {
