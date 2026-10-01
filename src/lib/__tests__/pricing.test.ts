@@ -6,6 +6,7 @@ import {
   estimateShipping,
   FLAT_SHIPPING_USD,
   MARGIN_MULTIPLIER,
+  calculateStripeFee,
   priceFromCost,
   BACK_PLACEMENT_UPCHARGE,
 } from "../pricing";
@@ -48,19 +49,20 @@ describe("computePrice", () => {
   it("prices off base cost × margin for products without a fixed retail price", () => {
     const result = computePrice(0, "cotton-heritage-mc1087", "M");
     expect(result.baseCost).toBe(17.8);
-    expect(result.total).toBe(26.7);
+    // 17.80 × 1.4 = 24.92
+    expect(result.total).toBe(24.92);
   });
 
   it("rounds the base-cost path up to the nearest cent", () => {
-    // cotton-heritage M: 17.80 × 1.5 = 26.70 exactly. A float ceil gives 26.71
-    // (17.8 × 1.5 × 100 = 2670.0000000000005), so this pins the exact value.
-    expect(computePrice(0, "cotton-heritage-mc1087", "M").total).toBe(26.7);
+    // women's relaxed M: 13.96 × 1.4 = 19.544 → 19.55
+    expect(computePrice(0, "bella-canvas-6400", "M").total).toBe(19.55);
   });
 
   it("uses size-specific base cost for products with per-size pricing", () => {
     const result = computePrice(0, "cotton-heritage-mc1087", "2XL");
     expect(result.baseCost).toBe(19.8);
-    expect(result.total).toBe(29.7);
+    // 19.80 × 1.4 = 27.72
+    expect(result.total).toBe(27.72);
   });
 
   it("adds flat shipping on top of the product price as the grand total", () => {
@@ -157,7 +159,7 @@ function exactPriceCents(cost: number, mult: number): bigint {
 }
 
 describe("priceFromCost", () => {
-  const multipliers = [MARGIN_MULTIPLIER, 1.4, 1.3];
+  const multipliers = [MARGIN_MULTIPLIER, 1.5, 1.4, 1.3];
 
   // priceFromCost rounds the multiplier and each cost to hundredths before
   // multiplying, so a third decimal on either would be dropped silently.
@@ -198,10 +200,14 @@ describe("priceFromCost", () => {
   });
 
   it("does not add a cent for float noise (costs that exposed the artifact)", () => {
-    expect(priceFromCost(17.8)).toBe(26.7);
-    expect(priceFromCost(19.8)).toBe(29.7);
-    expect(priceFromCost(21.8)).toBe(32.7);
-    expect(priceFromCost(23.8)).toBe(35.7);
+    // At 1.5, a float ceil gave 26.71 for 17.80 (17.8 × 1.5 × 100 =
+    // 2670.0000000000005); the exact products are below.
+    expect(priceFromCost(17.8, 1.5)).toBe(26.7);
+    expect(priceFromCost(19.8, 1.5)).toBe(29.7);
+    expect(priceFromCost(21.8, 1.5)).toBe(32.7);
+    expect(priceFromCost(23.8, 1.5)).toBe(35.7);
+    expect(priceFromCost(17.8)).toBe(24.92);
+    expect(priceFromCost(19.8)).toBe(27.72);
     expect(priceFromCost(17.8, 1.4)).toBe(24.92);
     expect(priceFromCost(17.8, 1.3)).toBe(23.14);
   });
@@ -214,14 +220,30 @@ describe("priceFromCost", () => {
       [9.38, 14.07], [10.95, 16.43], [11.69, 17.54], [13.69, 20.54],
     ];
     for (const [cost, price] of before) {
-      expect(priceFromCost(cost), String(cost)).toBe(price);
+      expect(priceFromCost(cost, 1.5), String(cost)).toBe(price);
     }
   });
 
   it("rounds a genuine fraction of a cent up", () => {
-    expect(priceFromCost(9.57)).toBe(14.36); // 14.355
-    expect(priceFromCost(11.17)).toBe(16.76); // 16.755
-    expect(priceFromCost(17.45)).toBe(26.18); // 26.175
+    expect(priceFromCost(9.57, 1.5)).toBe(14.36); // 14.355
+    expect(priceFromCost(11.17, 1.5)).toBe(16.76); // 16.755
+    expect(priceFromCost(17.45, 1.5)).toBe(26.18); // 26.175
+    expect(priceFromCost(9.57)).toBe(13.4); // 13.398 at 1.4
+    expect(priceFromCost(13.96)).toBe(19.55); // 19.544 at 1.4
+  });
+
+  it("sells no size below base cost plus the Stripe fee on the item", () => {
+    // Before shipping: item price − Stripe fee on that price must cover cost.
+    for (const p of BLANKS) {
+      for (const size of p.sizes) {
+        const price = computePrice(0, p.id, size).total;
+        const cost = getBaseCost(p, size);
+        expect(
+          price,
+          `${p.id} ${size}`
+        ).toBeGreaterThanOrEqual(cost + calculateStripeFee(price));
+      }
+    }
   });
 });
 

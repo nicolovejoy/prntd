@@ -5,14 +5,14 @@ import {
   DEFAULT_BLANK_ID,
 } from "./blanks";
 
-export const MARGIN_MULTIPLIER = 1.5;
+export const MARGIN_MULTIPLIER = 1.4; // Nico, 2026-10-01
 
 /**
  * Customer item price from a base cost: cost × multiplier, rounded up to the
  * cent only when the exact product has a fraction of a cent. Done in integer
  * cents and hundredths, because a float `ceil(cost * 1.5 * 100)` turns exact
- * results like 17.80 × 1.5 = 26.70 into 26.71. Exact for any two-decimal cost
- * and two-decimal multiplier.
+ * results like 17.80 × 1.5 = 26.70 into 26.71 (the multiplier was 1.5 then).
+ * Exact for any two-decimal cost and two-decimal multiplier.
  */
 export function priceFromCost(
   baseCost: number,
