@@ -156,6 +156,11 @@ export async function loadEmbeddedCheckout(params: {
   if (found.status !== "pending") {
     return { kind: "complete" };
   }
+  // Known mismatch: an order abandoned by a failed delayed payment (session
+  // `complete`, `abandoned_at` set) also lands here, so /checkout says "This
+  // checkout expired. Nothing was charged." where /order/confirm says the
+  // payment failed. Telling them apart needs a Stripe read or a new column,
+  // and this check deliberately runs before any Stripe call.
   if (found.abandonedAt) {
     return { kind: "expired" };
   }

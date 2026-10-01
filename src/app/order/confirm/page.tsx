@@ -17,9 +17,12 @@ type Search = Promise<Record<string, string | string[] | undefined>>;
 /**
  * The order row (and its stripeSessionId) is written before the Stripe
  * session is created, so by the time Stripe sends them back here the row
- * already exists — there is no race with the webhook to guard against, and
- * this page never renders a field the webhook writes (ruling P3). That is
- * what lets this be a plain awaited server read with no retry/poll island.
+ * already exists — there is no race with the webhook to guard against for the
+ * receipt, which renders no field the webhook writes (ruling P3). The one
+ * webhook-written field it does read is `abandoned` (set when a delayed
+ * payment fails), and the processing → failed change is a race with the
+ * webhook: the page does not poll, so the buyer sees it on the next load.
+ * That keeps this a plain awaited server read with no retry/poll island.
  * `/orders` hides young pending rows (src/lib/user-orders.ts,
  * `STALE_PENDING_MS`), so the "View orders" link below can briefly not show
  * an order that was just paid here.
@@ -130,7 +133,11 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Sear
     const body =
       view.kind === "processing"
         ? "Your order will be placed once the payment clears."
-        : "Nothing was charged.";
+        : view.kind === "failed"
+          ? // Provisional wording, 2026-10-01, pending the owner's ruling.
+            // "Nothing was charged." is not true for every delayed method.
+            "The payment didn't go through."
+          : "Nothing was charged.";
     return (
       <div className="min-h-screen flex flex-col px-4">
         <Breadcrumbs

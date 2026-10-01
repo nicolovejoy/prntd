@@ -363,6 +363,19 @@ describe("ConfirmPage", () => {
       expect(screen.queryByText("Order confirmed.")).not.toBeInTheDocument();
       expect(screen.queryByText("Total paid")).not.toBeInTheDocument();
       expect(screen.queryByText(/\$\d/)).not.toBeInTheDocument();
+      expect(
+        screen.getByText("Your order will be placed once the payment clears.")
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Return to checkout" })).not.toBeInTheDocument();
+    });
+
+    it("treats an unknown payment_status like unpaid", async () => {
+      getOrderBySession.mockResolvedValue(PENDING);
+      getCheckoutSessionState.mockResolvedValue(complete("requires_review"));
+
+      await renderConfirm({ session_id: "cs_1" });
+
+      expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Payment still processing");
     });
 
     it("shows the not-completed state, not confirmed or processing, once the async payment failed", async () => {
@@ -371,7 +384,12 @@ describe("ConfirmPage", () => {
 
       await renderConfirm({ session_id: "cs_1" });
 
-      expect(screen.getByText("Payment not completed.")).toBeInTheDocument();
+      expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Payment not completed.");
+      expect(screen.getByText("The payment didn't go through.")).toBeInTheDocument();
+      expect(screen.queryByText("Nothing was charged.")).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Return to checkout" })).not.toBeInTheDocument();
+      expect(screen.queryByText("Total paid")).not.toBeInTheDocument();
+      expect(screen.queryByText(/\$\d/)).not.toBeInTheDocument();
       expect(screen.queryByText("Order confirmed.")).not.toBeInTheDocument();
       expect(screen.queryByText("Payment still processing")).not.toBeInTheDocument();
     });

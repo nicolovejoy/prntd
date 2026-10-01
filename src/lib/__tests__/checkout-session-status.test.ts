@@ -212,7 +212,7 @@ describe("getCheckoutSessionState payment_status", () => {
 describe("resolveConfirmView exhaustive matrix", () => {
   const orderStatuses = ["pending", "paid", "submitted", "shipped", "delivered", "canceled"];
   const sessionStatuses = ["open", "complete", "expired", null] as const;
-  const paymentStatuses = ["paid", "unpaid", "no_payment_required", null] as const;
+  const paymentStatuses = ["paid", "unpaid", "no_payment_required", "requires_review", null] as const;
 
   // The behaviour on main, before payment_status existed: confirmed unless a
   // pending order had an open or expired session (or the read succeeded with
@@ -237,7 +237,11 @@ describe("resolveConfirmView exhaustive matrix", () => {
                 abandoned,
                 stripe: read ? { status: s, paymentStatus: ps, uiMode: "embedded", url: null } : null,
               });
-              const unpaidComplete = orderStatus === "pending" && read && s === "complete" && ps === "unpaid";
+              // Intentional difference from main: a complete session whose payment_status
+              // is anything but paid / no_payment_required / absent (fail closed).
+              const unpaidComplete =
+                orderStatus === "pending" && read && s === "complete" &&
+                ps !== null && ps !== "paid" && ps !== "no_payment_required";
               if (unpaidComplete) {
                 expect(view.kind).toBe(abandoned ? "failed" : "processing");
               } else {
