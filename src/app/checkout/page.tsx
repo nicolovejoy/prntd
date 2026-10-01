@@ -70,7 +70,7 @@ export default async function CheckoutPage({
   });
 
   if (result.kind === "not-found") notFound();
-  if (result.kind === "paid") {
+  if (result.kind === "complete") {
     redirect(`/order/confirm?session_id=${encodeURIComponent(sessionId)}`);
   }
   if (result.kind === "hosted") redirect(result.url);

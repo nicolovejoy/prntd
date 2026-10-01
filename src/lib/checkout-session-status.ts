@@ -46,6 +46,11 @@ export function describeStripeError(err: unknown): string {
 
 export type CheckoutSessionState = {
   status: "open" | "complete" | "expired" | null;
+  /** `unpaid` on a `complete` session is a delayed-notification method
+   * (bank debit, some Klarna flows) whose money hasn't arrived — and, if it
+   * fails later, stays `complete`/`unpaid`. `null` is a missing field, read
+   * like an unknown state, not like `unpaid`. */
+  paymentStatus: "paid" | "unpaid" | "no_payment_required" | null;
   uiMode: string | null;
   url: string | null;
 };
@@ -63,6 +68,7 @@ export async function getCheckoutSessionState(
     );
     return {
       status: session.status,
+      paymentStatus: session.payment_status ?? null,
       uiMode: session.ui_mode,
       url: session.url,
     };
@@ -75,17 +81,24 @@ export async function getCheckoutSessionState(
 export type ConfirmView =
   | { kind: "confirmed" }
   | { kind: "incomplete"; resumeHref: string | null }
-  | { kind: "expired" };
+  | { kind: "expired" }
+  /** Session `complete` but the payment hasn't cleared; order still pending. */
+  | { kind: "processing" }
+  /** Same, but the async payment failed (webhook set `abandoned_at`). */
+  | { kind: "failed" };
 
 /**
- * Pure. Only a `pending` order with an `open` or `expired` Stripe session is
- * anything other than "confirmed" — a paid/submitted/shipped/etc. order, a Stripe read
- * that failed, or a `complete` session all render the normal receipt (the
- * failure case matches today's behaviour: we don't know the session's state,
- * so we don't tell the buyer anything alarming was charged or not charged).
+ * Pure. Only a `pending` order is anything other than "confirmed" — a
+ * paid/submitted/shipped/etc. order and a Stripe read that failed render the
+ * normal receipt (the failure case matches today's behaviour: we don't know
+ * the session's state, so we don't tell the buyer anything alarming was
+ * charged or not charged). For a pending order: `open` and `expired` as
+ * above; `complete` is confirmed unless `payment_status` is `unpaid`, which
+ * is "processing", or "failed" once the webhook has abandoned the order.
  */
 export function resolveConfirmView(params: {
   orderStatus: string;
+  abandoned: boolean;
   stripe: CheckoutSessionState | null;
   embeddedEnabled: boolean;
   sessionId: string;
@@ -94,7 +107,10 @@ export function resolveConfirmView(params: {
 
   const stripeState = params.stripe;
   if (stripeState === null) return { kind: "confirmed" };
-  if (stripeState.status === "complete") return { kind: "confirmed" };
+  if (stripeState.status === "complete") {
+    if (stripeState.paymentStatus !== "unpaid") return { kind: "confirmed" };
+    return { kind: params.abandoned ? "failed" : "processing" };
+  }
   if (stripeState.status === "expired") return { kind: "expired" };
 
   if (stripeState.status === "open") {
