@@ -107,6 +107,7 @@ describe("maker-CTA hrefs (#241: /studio everywhere but the empty cart)", () => 
           quantity: 1,
           unitPrice: 19.43,
           imageUrl: null,
+          backImageUrl: null,
         },
       ],
       itemSubtotal: 19.43,

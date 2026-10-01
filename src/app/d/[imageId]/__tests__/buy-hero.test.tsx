@@ -118,7 +118,7 @@ describe("BuyHero (#167)", () => {
     expect(backMock).not.toHaveBeenCalled();
     // The meta block and the panel are still in place around the hero.
     expect(screen.getByText("meta")).toBeInTheDocument();
-    expect(screen.getByText("Total")).toBeInTheDocument();
+    expect(screen.getByText("Size")).toBeInTheDocument();
   });
 
   it("the side label pill shows only once a back is picked (two panels on screen)", async () => {
