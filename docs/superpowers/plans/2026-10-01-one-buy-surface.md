@@ -87,7 +87,7 @@ Modified, by slice:
 
 # Slice 1 — small fixes
 
-Branch `claude/278-small-fixes`. No money-path change. Five tasks, each its own commit.
+Branch `claude/278-small-fixes`. No money-path change. Six tasks, each its own commit.
 
 ### Task 1.1: `/preview` puts Size above Colour
 
@@ -340,6 +340,26 @@ Check the row at 390px: two 64px thumbnails, the 16px gaps, the text column and 
 
 - [ ] **Step 5: Run** `npx vitest run src/app/cart && npm run typecheck`. Expected: PASS. Any other fixture that builds a `CartLine` fails typecheck until it gains `backImageUrl`; fix each.
 - [ ] **Step 6: Commit** — `git commit -am "Cart: show the back design on a two-sided line (#282)"`
+
+### Task 1.6: a Cancel under Order and Add to cart
+
+Asked for by Nico on 2026-10-01 after the #280 smoke: on the buy surface, after Order and Add to cart, add a Cancel.
+
+**Files:**
+- Modify: `src/app/preview/page.tsx` (desktop CTA stack near `:1205-1223`, mobile sticky bar near `:1307-1337`), `src/app/d/[imageId]/buy-panel.tsx` (the `cta` block, both branches)
+- Test: `src/app/preview/__tests__/preview-sides.test.tsx`, `src/app/d/[imageId]/__tests__/buy-panel.test.tsx`
+
+Behaviour (the default; confirm with Nico when the slice starts, since he asked for the button and not for where it goes):
+
+- `/preview`: Cancel is a link to the page's parent, the last entry of `breadcrumbTrail("/preview", { id, product })` (the same target the breadcrumb's up link uses), not `router.back()`, which leaves the site on a deep link.
+- Image detail panel: Cancel collapses the panel (`setExpanded(false)`), so the hero returns to the artwork. After slice 2 it also clears the pick params from the address bar (`withBuyPagePicks(search, { order: false, product: null, size: null, color: null, back: null, swap: false })`).
+- Third in the stack, under Order and Add to cart, in the desktop stack and the phone sticky bar. A text link, not a third full-width button: `min-h-11`, `text-sm underline text-text-muted`, centred. It is never disabled.
+
+- [ ] **Step 1: Failing tests.** `/preview`: `await screen.findAllByRole("link", { name: "Cancel" })` has at least one entry and its `href` is the breadcrumb parent's. Note the source picker already has a "Cancel" **button**; query by role `link` so the two do not collide. Panel: expanded, click the Cancel button (`getAllByRole("button", { name: "Cancel" })[0]`; the back picker's own Cancel only renders while that picker is open), then `screen.getByTestId("order-expand")` is back and no size picker is shown; the signed-out branch has it too.
+- [ ] **Step 2: Run both files.** Expected: FAIL.
+- [ ] **Step 3: Implement** as above. On `/preview` the sticky bar grows by one 44px row: raise the page's bottom padding (`pb-40`) to match, and check at 390px that the bar does not cover the last control.
+- [ ] **Step 4: Run** `npx vitest run src/app/preview "src/app/d/[imageId]" && npm run typecheck`. Expected: PASS.
+- [ ] **Step 5: Commit** — `"Buy surfaces: Cancel under Order and Add to cart (#278)"`
 
 ### Slice 1 close
 
