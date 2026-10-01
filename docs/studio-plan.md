@@ -176,6 +176,13 @@ fan out from one starting image ("try it three ways"); to build on a result
 instead, the user taps it. An anchor that moves on its own is the failure
 mode — the next instruction lands somewhere nobody chose.
 
+> **Reversed 2026-10-01 (Nico).** The anchor now clears after each accepted
+> Generate (including one reconciled as run after a lost response). He typed a
+> new idea after an edit and its image landed in the old lane. A refused turn
+> keeps the anchor along with the words; a newer anchor set while a request is
+> in flight survives. Several edits from one image now means choosing Edit
+> this one again each time.
+
 **A lane opens scrolled to its newest image.** Lanes wider than the phone
 scroll horizontally; the latest result is what the user came back for, so it
 is what they land on, with earlier versions one swipe left.
@@ -323,6 +330,9 @@ skipped by an agent at least once here: `npm run lint`, `npm run typecheck`,
 >
 > The anchor must survive a poll refresh landing mid-typing. That is the
 > failure mode most worth a test.
+>
+> (2026-10-01: the "anchor stays where the user put it" decision was reversed;
+> an accepted Generate now clears the anchor. See Slice 3 above.)
 >
 > (2026-09-09: cell tap now opens the lightbox; anchoring is the lightbox's
 > "Edit this one")

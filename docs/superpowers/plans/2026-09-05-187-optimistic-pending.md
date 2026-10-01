@@ -72,7 +72,7 @@ After: `submit()` inserts an **optimistic pending cell** immediately.
   it — same markup as a server pending cell so nothing jumps.
 - Select mode: a lane with an optimistic pending cell is not selectable,
   same rule as server pending (`selectableIds`).
-- The anchor stays put after submit (slice 3 rule) — unchanged.
+- The anchor stays put after submit (slice 3 rule) — unchanged. (Reversed 2026-10-01: an accepted Generate now clears the anchor; see `docs/studio-plan.md`.)
 
 ## Tasks
 

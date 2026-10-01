@@ -67,11 +67,13 @@ import { GuestKeepLine } from "./guest-keep-line";
  * one" action inside it, not a side effect of looking. Once anchored, the
  * composer carries a chip with a crop of the anchored image, and Generate
  * then edits exactly that image. Dismissing the chip clears the anchor and
- * the same box starts a NEW conversation. Four decisions are settled (plan,
- * slice 3 + the #236 follow-up): the composer sits at the top of the bench
- * (Paper mock, #188 slice 3), the anchor never advances to a result on its
- * own, a lane opens scrolled to its newest image, and opening the lightbox
- * never anchors on its own either.
+ * the same box starts a NEW conversation; so does an accepted Generate, which
+ * spends the anchor (Nico, 2026-10-01: a new idea typed after an edit landed
+ * in the old lane). A refused turn keeps it, with the words, for a retry.
+ * Decisions settled (plan, slice 3 + the #236 follow-up): the composer sits
+ * at the top of the bench (Paper mock, #188 slice 3), the anchor never
+ * advances to a result on its own, a lane opens scrolled to its newest
+ * image, and opening the lightbox never anchors on its own either.
  *
  * Polling: while any lane has a pending cell, the whole read model is
  * re-fetched on the generation-poll schedule (fast, then slow). One request
@@ -119,8 +121,9 @@ import { GuestKeepLine } from "./guest-keep-line";
  *
  * The anchor lives OUTSIDE the lane state on purpose: a poll refresh replaces
  * `lanes` wholesale with server truth, and the anchor (plus the draft text)
- * must survive that landing mid-typing. It's cleared only when its image
- * genuinely leaves the surface (the conversation closed or was deleted).
+ * must survive that landing mid-typing. It's cleared by the chip's own
+ * control, by an accepted Generate, and when its image genuinely leaves the
+ * surface (the conversation closed or was deleted).
  *
  * Select mode (#189): "Select" lives inside each lane's ⋯ overflow (Paper
  * bench, #188 slice 3 — there is no page-level control) and turns every lane
@@ -518,6 +521,14 @@ export function StudioClient({
     void pollOnce();
   }
 
+  // Clears the anchor a submit was sent with, once its turn is known to have
+  // been accepted. Compared by reference: an anchor the user set while the
+  // request was in flight is a different object and stays.
+  function spendAnchor(submitted: Anchor | null) {
+    if (!submitted) return;
+    setAnchor((a) => (a === submitted ? null : a));
+  }
+
   // One lost submit's reconcile loop (#245 Design §Client 4): looks its own
   // clientJobId up on LOST_SUBMIT_LOOKUP_INTERVAL_MS cadence, starting
   // immediately, until judgeLostSubmit calls it. Independent of pollOnce and
@@ -533,7 +544,8 @@ export function StudioClient({
     clientJobId: string,
     deadlineMs: number,
     hardDeadlineMs: number,
-    trimmed: string
+    trimmed: string,
+    submitAnchor: Anchor | null
   ) {
     // Tracks the current run of CONSECUTIVE "error" lookups for
     // judgeLostSubmit's errorStreakCount (third review, 2026-09-27): 0 when
@@ -581,6 +593,7 @@ export function StudioClient({
               : e
           )
         );
+        spendAnchor(submitAnchor);
         void pollOnce();
         return;
       }
@@ -610,6 +623,7 @@ export function StudioClient({
                   : e
               )
             );
+            spendAnchor(submitAnchor);
             void pollOnce();
             return;
           }
@@ -620,8 +634,9 @@ export function StudioClient({
       if (verdict === "cancelled") {
         // Deliberate: the only way to cancel is the user's own Cancel, and a
         // cancelled queued job today just leaves — no notice, words not
-        // given back.
+        // given back. The turn was accepted, so the anchor is spent too.
         setOptimistic((entries) => entries.filter((e) => e.localId !== localId));
+        spendAnchor(submitAnchor);
         void pollOnce();
         return;
       }
@@ -693,9 +708,10 @@ export function StudioClient({
               : e
           )
         );
-        // The anchor deliberately stays put (plan, slice 3): successive
-        // instructions fan out from the image the user chose; building on a
-        // result means tapping it.
+        // An accepted turn spends the anchor (Nico, 2026-10-01): the next
+        // idea typed here starts a new lane, not another edit in this one.
+        // Building on the result means tapping it and choosing Edit this one.
+        spendAnchor(submitAnchor);
         await pollOnce();
       } else {
         // The turn didn't run, so the cell it promised has to go.
@@ -737,7 +753,8 @@ export function StudioClient({
         clientJobId,
         Date.now() + LOST_SUBMIT_WINDOW_MS,
         startedAtMs + STALE_OPTIMISTIC_MS,
-        trimmed
+        trimmed,
+        submitAnchor
       );
     }
   }
