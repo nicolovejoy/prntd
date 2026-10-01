@@ -85,7 +85,8 @@ export type Blank = {
   discontinued?: boolean;
   printfulProductId: number;
   /**
-   * Real Printful base cost by size (the per-size DTG price). Use "*" as
+   * Printful's list price by size (the per-size DTG price; last read from the
+   * public catalogue 2026-10-01). Use "*" as
    * default for all sizes. Drives the customer price only when `retailPrice`
    * is absent (price = baseCost × MARGIN_MULTIPLIER). NOT the COGS source —
    * actual COGS is read back from Printful's invoice post-submission
@@ -130,12 +131,13 @@ export const BLANKS: Blank[] = [
     description: "Unisex classic fit",
     type: "shirt",
     printfulProductId: 71,
-    // True Printful per-size cost (S–XL $11.69, 2XL $13.69). Was a flat
-    // $12.95 estimate; corrected for honest margin reporting. COGS still
-    // comes from Printful's invoice, so this is display-input only.
-    baseCost: { S: 11.69, M: 11.69, L: 11.69, XL: 11.69, "2XL": 13.69 },
+    // Printful list price per size (S–XL $11.92, 2XL $13.92), read from the
+    // public catalogue 2026-10-01. COGS still comes from Printful's invoice,
+    // so this is display-input only.
+    baseCost: { S: 11.92, M: 11.92, L: 11.92, XL: 11.92, "2XL": 13.92 },
     // Flat floor + 2XL upcharge (Nico, 2026-06-06): keep $19.43 on the common
-    // S–XL sizes (no price cut), add the real $2.00 cost delta on 2XL.
+    // S–XL sizes (no price cut), add the real $2.00 cost delta on 2XL. Fixed
+    // by owner decision; not re-derived when baseCost moves.
     retailPrice: { "*": 19.43, "2XL": 21.43 },
     sizes: ["S", "M", "L", "XL", "2XL"],
     colors: [
@@ -229,8 +231,8 @@ export const BLANKS: Blank[] = [
     type: "shirt",
     printfulProductId: 917,
     baseCost: {
-      S: 17.45, M: 17.45, L: 17.45, XL: 17.45,
-      "2XL": 19.45, "3XL": 21.45, "4XL": 23.45,
+      S: 17.80, M: 17.80, L: 17.80, XL: 17.80,
+      "2XL": 19.80, "3XL": 21.80, "4XL": 23.80,
     },
     sizes: ["S", "M", "L", "XL", "2XL", "3XL", "4XL"],
     colors: [
@@ -284,7 +286,7 @@ export const BLANKS: Blank[] = [
     type: "shirt",
     printfulProductId: 360,
     baseCost: {
-      S: 13.69, M: 13.69, L: 13.69, XL: 13.69, "2XL": 15.69, "3XL": 17.69,
+      S: 13.96, M: 13.96, L: 13.96, XL: 13.96, "2XL": 15.96, "3XL": 17.96,
     },
     sizes: ["S", "M", "L", "XL", "2XL", "3XL"],
     colors: [
@@ -373,9 +375,9 @@ export const BLANKS: Blank[] = [
     printfulProductId: 181,
     sizeLabel: "Model",
     baseCost: {
-      "*": 9.38,
-      "iPhone 14": 10.95, "iPhone 14 Plus": 10.95,
-      "iPhone 14 Pro": 10.95, "iPhone 14 Pro Max": 10.95,
+      "*": 9.57,
+      "iPhone 14": 11.17, "iPhone 14 Plus": 11.17,
+      "iPhone 14 Pro": 11.17, "iPhone 14 Pro Max": 11.17,
     },
     sizes: [
       "iPhone 17 Pro Max", "iPhone 17 Pro", "iPhone 17 Air", "iPhone 17",

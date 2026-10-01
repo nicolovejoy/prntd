@@ -35,7 +35,13 @@ export async function POST(request: NextRequest) {
 
   console.log(`Stripe webhook received: ${event.type} (${event.id})`);
 
-  if (event.type === "checkout.session.completed") {
+  // async_payment_succeeded runs the same path as a settled `completed`: a
+  // delayed-notification method completes the session unpaid, and the handler
+  // leaves the order pending until the session reads paid (#266).
+  if (
+    event.type === "checkout.session.completed" ||
+    event.type === "checkout.session.async_payment_succeeded"
+  ) {
     const session = event.data.object;
     const fullSession = await stripe.checkout.sessions.retrieve(session.id, {
       expand: ["total_details.breakdown.discounts.discount"],
@@ -76,7 +82,12 @@ export async function POST(request: NextRequest) {
       console.error(`Stripe event ${event.id}: handler error:`, err);
       return NextResponse.json({ error: "Processing failed" }, { status: 400 });
     }
-  } else if (event.type === "checkout.session.expired") {
+  } else if (
+    event.type === "checkout.session.expired" ||
+    event.type === "checkout.session.async_payment_failed"
+  ) {
+    // async_payment_failed marks the order abandoned the same way expiry does
+    // (#266); the conditional UPDATE leaves a paid order alone.
     // No `stripe.checkout.sessions.retrieve` needed — metadata is on the
     // event object itself. Never a 4xx: an unknown/non-pending order or a
     // missing orderId are all "nothing to do" and get a clean 200 (repeated
@@ -85,7 +96,7 @@ export async function POST(request: NextRequest) {
     // event rather than losing the abandoned mark permanently.
     const orderId = event.data.object.metadata?.orderId;
     if (!orderId) {
-      console.log(`Stripe event ${event.id}: checkout.session.expired with no orderId`);
+      console.log(`Stripe event ${event.id}: ${event.type} with no orderId`);
       return NextResponse.json({ received: true, ignored: "no orderId" });
     }
 

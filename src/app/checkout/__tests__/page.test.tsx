@@ -156,8 +156,8 @@ describe("CheckoutPage", () => {
     );
   });
 
-  it("redirects to /order/confirm when the loader says paid", async () => {
-    h.loadEmbeddedCheckout.mockResolvedValue({ kind: "paid" });
+  it("redirects to /order/confirm when the loader says complete", async () => {
+    h.loadEmbeddedCheckout.mockResolvedValue({ kind: "complete" });
 
     await expect(renderCheckout({ session: VALID_SESSION })).rejects.toThrow(
       `NEXT_REDIRECT:/order/confirm?session_id=${encodeURIComponent(VALID_SESSION)}`

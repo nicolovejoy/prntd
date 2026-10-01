@@ -56,11 +56,12 @@ export async function createCheckoutSession(params: {
   size: string;
   color: string;
   productId?: string;
-  /** Source image id to print on the FRONT (#138). Optional: the front has
-   * always resolved from the design's primary image, and still does when this
-   * is absent, so existing links and the Stripe cancel round-trip are
-   * unchanged. Guarded exactly like `back` — a front pin grants no reach a
-   * back pin didn't already have. */
+  /** Source image id to print on the FRONT (#138). /preview always sends the
+   * front it is showing (#269), so the order is the image the buyer saw even
+   * if the design's primary has since moved. When absent (older links), the
+   * front resolves from the design's primary at checkout time. Guarded
+   * exactly like `back` — a front pin grants no reach a back pin didn't
+   * already have. */
   front?: string;
   /** Source design_image id to print on the back (#25). Honored only when
    * MULTI_PLACEMENT_ENABLED; ignored otherwise (defense in depth). */

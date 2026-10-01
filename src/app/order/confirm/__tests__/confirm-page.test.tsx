@@ -342,4 +342,74 @@ describe("ConfirmPage", () => {
 
     expect(screen.getByText("Order confirmed.")).toBeInTheDocument();
   });
+  describe("delayed payment (#272)", () => {
+    const PENDING = { ...FRONT_ONLY_ORDER, status: "pending", abandoned: false };
+    const complete = (paymentStatus: string) => ({
+      status: "complete",
+      paymentStatus,
+      uiMode: "hosted",
+      url: null,
+    });
+
+    it("shows Payment still processing for a pending order on a complete, unpaid session", async () => {
+      getOrderBySession.mockResolvedValue(PENDING);
+      getCheckoutSessionState.mockResolvedValue(complete("unpaid"));
+
+      await renderConfirm({ session_id: "cs_1" });
+
+      const heading = screen.getByRole("heading", { level: 1 });
+      expect(heading.textContent).toBe("Payment still processing");
+      expect(heading.className).toContain("font-mono");
+      expect(screen.queryByText("Order confirmed.")).not.toBeInTheDocument();
+      expect(screen.queryByText("Total paid")).not.toBeInTheDocument();
+      expect(screen.queryByText(/\$\d/)).not.toBeInTheDocument();
+      expect(
+        screen.getByText("Your order will be placed once the payment clears.")
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Return to checkout" })).not.toBeInTheDocument();
+    });
+
+    it("treats an unknown payment_status like unpaid", async () => {
+      getOrderBySession.mockResolvedValue(PENDING);
+      getCheckoutSessionState.mockResolvedValue(complete("requires_review"));
+
+      await renderConfirm({ session_id: "cs_1" });
+
+      expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Payment still processing");
+    });
+
+    it("shows the not-completed state, not confirmed or processing, once the async payment failed", async () => {
+      getOrderBySession.mockResolvedValue({ ...PENDING, abandoned: true });
+      getCheckoutSessionState.mockResolvedValue(complete("unpaid"));
+
+      await renderConfirm({ session_id: "cs_1" });
+
+      expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Payment not completed.");
+      expect(screen.getByText("The payment didn't go through.")).toBeInTheDocument();
+      expect(screen.queryByText("Nothing was charged.")).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Return to checkout" })).not.toBeInTheDocument();
+      expect(screen.queryByText("Total paid")).not.toBeInTheDocument();
+      expect(screen.queryByText(/\$\d/)).not.toBeInTheDocument();
+      expect(screen.queryByText("Order confirmed.")).not.toBeInTheDocument();
+      expect(screen.queryByText("Payment still processing")).not.toBeInTheDocument();
+    });
+
+    it("shows Order confirmed. for a pending order on a complete, paid session", async () => {
+      getOrderBySession.mockResolvedValue(PENDING);
+      getCheckoutSessionState.mockResolvedValue(complete("paid"));
+
+      await renderConfirm({ session_id: "cs_1" });
+
+      expect(screen.getByText("Order confirmed.")).toBeInTheDocument();
+    });
+
+    it("shows Order confirmed. once the webhook has claimed the order, with no Stripe read", async () => {
+      getOrderBySession.mockResolvedValue({ ...FRONT_ONLY_ORDER, abandoned: false });
+
+      await renderConfirm({ session_id: "cs_1" });
+
+      expect(getCheckoutSessionState).not.toHaveBeenCalled();
+      expect(screen.getByText("Order confirmed.")).toBeInTheDocument();
+    });
+  });
 });

@@ -981,9 +981,10 @@ async function runGenerationJob(params: GenerationJobParams): Promise<void> {
     // excluded: the within-thread parent chain is between outputs — a seeded
     // thread's first generation records parent null + seed lineage (slice 3 §5).
     // An edit that anchored on a specific OUTPUT records that output as its
-    // parent (studio slice 3 — "try it three ways" fans out from one image, so
-    // "latest output" would chain the fan into a line); seed anchors and
-    // from-scratch generates keep the latest-output fallback.
+    // parent (studio slice 3 — choosing "Edit this one" on an older image edits
+    // from that image, so "latest output" would record the wrong parent);
+    // seed anchors and from-scratch generates keep the latest-output
+    // fallback.
     const outputs = images.filter((img) => img.role !== "seed");
     const anchorOutput = params.anchorImageId
       ? outputs.find((img) => img.id === params.anchorImageId)

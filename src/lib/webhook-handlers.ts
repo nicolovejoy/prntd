@@ -24,6 +24,9 @@ export type WebhookDeps = FulfillmentDeps;
 export type StripeSessionData = {
   id: string;
   metadata: { orderId: string; designId: string };
+  // Stripe's session.payment_status. Required so a caller can't forget it:
+  // only "paid" and "no_payment_required" let the handler claim the order.
+  paymentStatus: "paid" | "unpaid" | "no_payment_required";
   paymentIntentId: string | null;
   amountTotal: number | null; // cents — actual amount charged after discounts
   // cents — Stripe's authoritative breakdown. amountSubtotal = product line
@@ -56,11 +59,37 @@ export type PrintfulWebhookPayload = {
   };
 };
 
+export type CheckoutCompletedAction =
+  | "skipped"
+  | "awaiting_payment"
+  | "paid"
+  | "submitted"
+  | "paid_printful_failed";
+
+/** True when Stripe has the money (or none is owed), so the order may be claimed. */
+export function isSettledPaymentStatus(
+  status: StripeSessionData["paymentStatus"]
+): boolean {
+  return status === "paid" || status === "no_payment_required";
+}
+
+/**
+ * Claims, books and fulfils an order for a settled Checkout Session. Serves
+ * checkout.session.completed and checkout.session.async_payment_succeeded
+ * (#266): a delayed-notification method completes the session unpaid and
+ * settles later, so an unpaid session returns `awaiting_payment` with the
+ * order left pending and untouched. The conditional claim below makes a
+ * later settled delivery, a redelivery, or a recovery replay idempotent.
+ */
 export async function handleStripeCheckoutCompleted(
   session: StripeSessionData,
   deps: WebhookDeps
-): Promise<{ action: "skipped" | "paid" | "submitted" | "paid_printful_failed" }> {
+): Promise<{ action: CheckoutCompletedAction }> {
   const { orderId } = session.metadata;
+
+  if (!isSettledPaymentStatus(session.paymentStatus)) {
+    return { action: "awaiting_payment" };
+  }
 
   const foundOrder = await deps.db.query.order.findFirst({
     where: eq(orderTable.id, orderId),
@@ -180,12 +209,15 @@ export async function handleStripeCheckoutCompleted(
 }
 
 /**
- * `checkout.session.expired` (#231): Stripe fires this when a Checkout
- * Session's `expires_at` (see `CHECKOUT_SESSION_TTL_SECONDS` in checkout.ts)
- * passes with no completed payment. It never
- * fires for a session that did complete, but the order row could already be
- * anything by the time this arrives (paid via a race, already abandoned by
- * a prior delivery, or gone) — so the marking is a conditional UPDATE, same
+ * `checkout.session.expired` (#231) and `checkout.session.async_payment_failed`
+ * (#266) both end here. Stripe fires `expired` when a Checkout Session's
+ * `expires_at` (see `CHECKOUT_SESSION_TTL_SECONDS` in checkout.ts) passes
+ * with no completed payment; it never fires for a session that did complete.
+ * `async_payment_failed` fires for a session that completed with a delayed
+ * payment method whose payment then failed, so its order was left pending by
+ * the `payment_status` gate above. Either way the order row could already be
+ * anything by the time the event arrives (paid via a race, already abandoned
+ * by a prior delivery, or gone) — so the marking is a conditional UPDATE, same
  * shape as the paid-claim in `handleStripeCheckoutCompleted`: only a
  * still-`pending`, not-yet-abandoned order is touched, and `rowsAffected`
  * tells us whether this call did that or found nothing to do.

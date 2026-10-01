@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { design as designTable } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { createMockupTask, pollMockupTask } from "@/lib/printful";
 import { getBlank, getPlacement, DEFAULT_BLANK_ID } from "@/lib/blanks";
 import { uploadMockupImage } from "@/lib/r2";
@@ -138,13 +138,32 @@ export async function prefetchProductMockups(
     // overwrite a few keys we'd have populated — acceptable.
     const fresh = await db.query.design.findFirst({
       where: eq(designTable.id, designId),
-      columns: { mockupUrls: true },
+      columns: { mockupUrls: true, primaryImageId: true },
     });
+    // These are default-front (source-less) entries for the primary read at
+    // the start. A generation that claimed the primary meanwhile also cleared
+    // mockup_urls; writing now would file the old image's renders as the new
+    // primary's.
+    if ((fresh?.primaryImageId ?? null) !== (found.primaryImageId ?? null)) {
+      console.log(
+        `prefetchProductMockups: design=${designId} primary changed during render, not cached`
+      );
+      return;
+    }
     const merged = { ...(fresh?.mockupUrls ?? {}), ...newEntries };
+    // Conditional on that primary, in one statement, so a commit between the
+    // read and this write is a no-op.
     await db
       .update(designTable)
       .set({ mockupUrls: merged, updatedAt: new Date() })
-      .where(eq(designTable.id, designId));
+      .where(
+        and(
+          eq(designTable.id, designId),
+          fresh?.primaryImageId
+            ? eq(designTable.primaryImageId, fresh.primaryImageId)
+            : isNull(designTable.primaryImageId)
+        )
+      );
 
     console.log(
       `prefetchProductMockups: design=${designId} product=${productId} cached=${Object.keys(newEntries).length}/${variantToColor.size} elapsed=${Date.now() - startedAt}ms`

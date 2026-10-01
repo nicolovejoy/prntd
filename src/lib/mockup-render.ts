@@ -9,12 +9,11 @@
  *
  * Auth stays with the two callers; this only resolves the source image,
  * renders via Printful, uploads to R2, and persists the result on
- * `design.mockupUrls`. Byte-identical to the pre-extraction `generateMockup`
- * body.
+ * `design.mockupUrls`.
  */
 import { db } from "@/lib/db";
 import { design as designTable } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { createMockupTask, pollMockupTask } from "@/lib/printful";
 import { getBlankOrThrow, getPlacement } from "@/lib/blanks";
 import { uploadMockupImage } from "@/lib/r2";
@@ -42,6 +41,12 @@ export type RenderMockupParams = {
    * non-owner branch (published && !hidden) covers that case, since both
    * callers already checked visibility before reaching here. */
   userId: string | null;
+  /** /preview only (`generateMockup`): treat a front source equal to the
+   * design's primary AT THIS READ as the default front (source-less cache key
+   * and R2 key). Off for every other caller, whose source-keyed front entries
+   * (the /d buy page) must keep their keys. Decided here, from the row this
+   * call reads, so it can't disagree with the anchor resolved below. */
+  foldPrimaryFront?: boolean;
 };
 
 export async function renderAndCacheMockup(
@@ -63,13 +68,22 @@ export async function renderAndCacheMockup(
   // source pick so two back choices don't collide on one key (#25 2.1). The
   // shared builder version-bumps the format (#102) so pre-fix entries — whose
   // URLs point at collided R2 objects — never satisfy a lookup again.
+  const keySourceId =
+    params.foldPrimaryFront &&
+    placementId === "front" &&
+    sourceImageId === found.primaryImageId
+      ? undefined
+      : sourceImageId;
   const cacheKey = mockupCacheKey({
     productId,
     placementId,
-    sourceImageId,
+    sourceImageId: keySourceId,
     colorName,
     scaleKey,
   });
+  // The image this render prints: the explicit source, else the primary read
+  // above. The write-back below holds the cache to it.
+  const renderedImageId = sourceImageId ?? found.primaryImageId ?? null;
   const cached = found.mockupUrls?.[cacheKey];
   if (cached) return { mockupUrl: cached };
 
@@ -153,7 +167,7 @@ export async function renderAndCacheMockup(
   const r2Url = await uploadMockupImage(designId, buffer, {
     productId,
     placementId: placement.id,
-    sourceImageId,
+    sourceImageId: keySourceId,
     colorName,
     scaleKey,
   });
@@ -161,13 +175,41 @@ export async function renderAndCacheMockup(
   // Re-read before update to avoid clobbering concurrent preloads
   const fresh = await db.query.design.findFirst({
     where: eq(designTable.id, designId),
-    columns: { mockupUrls: true },
+    columns: { mockupUrls: true, primaryImageId: true },
   });
-  const updatedMockups = { ...(fresh?.mockupUrls ?? {}), [cacheKey]: r2Url };
+  // A generation claiming the primary clears mockup_urls. A default
+  // (source-less) entry means "the primary's render", so it may only be
+  // written while the primary is still the image rendered; otherwise store it
+  // under the source-keyed form, which is exactly the key a pinned request
+  // for that image reads.
+  const storeKey =
+    keySourceId === undefined &&
+    renderedImageId &&
+    fresh?.primaryImageId !== renderedImageId
+      ? mockupCacheKey({
+          productId,
+          placementId,
+          sourceImageId: renderedImageId,
+          colorName,
+          scaleKey,
+        })
+      : cacheKey;
+  const updatedMockups = { ...(fresh?.mockupUrls ?? {}), [storeKey]: r2Url };
+  // Conditional on the primary still being the one just read, in one
+  // statement: a generation committing between the read and this write makes
+  // it a no-op instead of resurrecting stale entries over its clear. The URL
+  // is returned either way.
   await db
     .update(designTable)
     .set({ mockupUrls: updatedMockups, updatedAt: new Date() })
-    .where(eq(designTable.id, designId));
+    .where(
+      and(
+        eq(designTable.id, designId),
+        fresh?.primaryImageId
+          ? eq(designTable.primaryImageId, fresh.primaryImageId)
+          : isNull(designTable.primaryImageId)
+      )
+    );
 
   return { mockupUrl: r2Url };
 }

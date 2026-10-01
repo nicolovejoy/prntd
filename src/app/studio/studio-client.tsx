@@ -14,6 +14,7 @@ import {
 } from "react";
 import type { RefObject } from "react";
 import { Button, EmptyState, useConfirm } from "@/components/ui";
+import { previewOrderHref } from "@/lib/placement-pins";
 import { ImageLightbox, type LightboxImage } from "@/app/design/image-lightbox";
 import {
   cancelGeneration,
@@ -67,11 +68,14 @@ import { GuestKeepLine } from "./guest-keep-line";
  * one" action inside it, not a side effect of looking. Once anchored, the
  * composer carries a chip with a crop of the anchored image, and Generate
  * then edits exactly that image. Dismissing the chip clears the anchor and
- * the same box starts a NEW conversation. Four decisions are settled (plan,
- * slice 3 + the #236 follow-up): the composer sits at the top of the bench
- * (Paper mock, #188 slice 3), the anchor never advances to a result on its
- * own, a lane opens scrolled to its newest image, and opening the lightbox
- * never anchors on its own either.
+ * the same box starts a NEW conversation; so does an accepted Generate, which
+ * spends the anchor (Nico, 2026-10-01: a new idea typed after an edit landed
+ * in the old lane). A refused turn hands its words back with the anchor
+ * state it was sent with (chip or none), for a retry of the same thing.
+ * Decisions settled (plan, slice 3 + the #236 follow-up): the composer sits
+ * at the top of the bench (Paper mock, #188 slice 3), the anchor never
+ * advances to a result on its own, a lane opens scrolled to its newest
+ * image, and opening the lightbox never anchors on its own either.
  *
  * Polling: while any lane has a pending cell, the whole read model is
  * re-fetched on the generation-poll schedule (fast, then slow). One request
@@ -119,8 +123,9 @@ import { GuestKeepLine } from "./guest-keep-line";
  *
  * The anchor lives OUTSIDE the lane state on purpose: a poll refresh replaces
  * `lanes` wholesale with server truth, and the anchor (plus the draft text)
- * must survive that landing mid-typing. It's cleared only when its image
- * genuinely leaves the surface (the conversation closed or was deleted).
+ * must survive that landing mid-typing. It's cleared by the chip's own
+ * control, by an accepted Generate, and when its image genuinely leaves the
+ * surface (the conversation closed or was deleted).
  *
  * Select mode (#189): "Select" lives inside each lane's ⋯ overflow (Paper
  * bench, #188 slice 3 — there is no page-level control) and turns every lane
@@ -211,6 +216,14 @@ export function StudioClient({
   useEffect(() => {
     lanesRef.current = lanes;
   }, [lanes]);
+  // Mirrors `text` so a failed submit can tell, from an async callback and
+  // without reading state inside an updater (StrictMode runs updaters twice),
+  // whether its words really went back into the box. giveBack and submit
+  // write it directly too, so two settles in one tick see each other.
+  const textRef = useRef(text);
+  useEffect(() => {
+    textRef.current = text;
+  }, [text]);
   // Guards every lost-submit reconcile loop (#245): each loop checks this
   // before touching state, so an unmount stops it without a stray setState
   // and StrictMode's mount → unmount → remount still works.
@@ -509,13 +522,48 @@ export function StudioClient({
   // The shared "this submit genuinely failed" path (#245): a digest throw
   // (#204), an offline fast-fail, and a reconcile loop's own "failed"
   // verdict all land here. Drops the cell, shows the notice, gives the words
-  // back only if the box is still empty (a later draft must never be
-  // clobbered), and reconciles once so a closed lane actually leaves.
-  function failSubmit(localId: string, trimmed: string) {
+  // (and their anchor state) back only if the box is still empty (a later
+  // draft must never be clobbered), and reconciles once so a closed lane
+  // actually leaves.
+  function failSubmit(
+    localId: string,
+    trimmed: string,
+    submitAnchor: Anchor | null
+  ) {
     setOptimistic((entries) => entries.filter((e) => e.localId !== localId));
     setNotice(GENERATE_FAILED_COPY);
-    setText((t) => t || trimmed);
+    giveBack(trimmed, submitAnchor);
     void pollOnce();
+  }
+
+  // A submit that did not run hands its words back to the box only if the box
+  // is empty, and the composer goes back to what was submitted: the words and
+  // the anchor state that submit carried, replacing whatever anchor is current
+  // (spent by a sibling, dismissed, or a different image set meanwhile). So
+  // the chip and placeholder always describe where the words in the box will
+  // go. Anchor X whose image is still on the surface comes back as a fresh
+  // copy (an earlier sibling submit accepted later can't spend it by
+  // reference in spendAnchor); X gone from the surface, or no anchor at all,
+  // gives none (a restored anchor on a vanished image would sit until the next
+  // lanes change). If the box already has new text, the anchor isn't touched.
+  function giveBack(trimmed: string, submitAnchor: Anchor | null) {
+    if (textRef.current !== "") return;
+    textRef.current = trimmed;
+    setText(trimmed);
+    const onSurface =
+      submitAnchor !== null &&
+      lanesRef.current.some((l) =>
+        l.cells.some((c) => c.imageId === submitAnchor.imageId)
+      );
+    setAnchor(onSurface ? { ...submitAnchor } : null);
+  }
+
+  // Clears the anchor a submit was sent with, once its turn is known to have
+  // been accepted. Compared by reference: an anchor the user set while the
+  // request was in flight is a different object and stays.
+  function spendAnchor(submitted: Anchor | null) {
+    if (!submitted) return;
+    setAnchor((a) => (a === submitted ? null : a));
   }
 
   // One lost submit's reconcile loop (#245 Design §Client 4): looks its own
@@ -533,7 +581,8 @@ export function StudioClient({
     clientJobId: string,
     deadlineMs: number,
     hardDeadlineMs: number,
-    trimmed: string
+    trimmed: string,
+    submitAnchor: Anchor | null
   ) {
     // Tracks the current run of CONSECUTIVE "error" lookups for
     // judgeLostSubmit's errorStreakCount (third review, 2026-09-27): 0 when
@@ -581,6 +630,7 @@ export function StudioClient({
               : e
           )
         );
+        spendAnchor(submitAnchor);
         void pollOnce();
         return;
       }
@@ -610,18 +660,20 @@ export function StudioClient({
                   : e
               )
             );
+            spendAnchor(submitAnchor);
             void pollOnce();
             return;
           }
         }
-        failSubmit(localId, trimmed);
+        failSubmit(localId, trimmed, submitAnchor);
         return;
       }
       if (verdict === "cancelled") {
         // Deliberate: the only way to cancel is the user's own Cancel, and a
         // cancelled queued job today just leaves — no notice, words not
-        // given back.
+        // given back. The turn was accepted, so the anchor is spent too.
         setOptimistic((entries) => entries.filter((e) => e.localId !== localId));
+        spendAnchor(submitAnchor);
         void pollOnce();
         return;
       }
@@ -638,6 +690,7 @@ export function StudioClient({
     // so the box clears now and each submit runs concurrently up to the cap.
     if (!trimmed || atCap) return;
     const submitAnchor = anchor;
+    textRef.current = "";
     setText("");
     setNotice(null);
     // No anchor → a fresh conversation: generateDesign creates the design row
@@ -693,23 +746,25 @@ export function StudioClient({
               : e
           )
         );
-        // The anchor deliberately stays put (plan, slice 3): successive
-        // instructions fan out from the image the user chose; building on a
-        // result means tapping it.
+        // An accepted turn spends the anchor (Nico, 2026-10-01): the next
+        // idea typed here starts a new lane, not another edit in this one.
+        // Building on the result means tapping it and choosing Edit this one.
+        spendAnchor(submitAnchor);
         await pollOnce();
       } else {
         // The turn didn't run, so the cell it promised has to go.
         setOptimistic((entries) => entries.filter((e) => e.localId !== localId));
         setNotice(result.message);
-        // Give the words back if the box is still empty — the turn didn't run.
-        setText((t) => t || trimmed);
+        // Give the words (and the anchor) back if the box is still empty —
+        // the turn didn't run.
+        giveBack(trimmed, submitAnchor);
       }
     } catch (err) {
       // A digest means React's Flight client rebuilt this from an actual
       // server-side throw (#204: e.g. an anchored lane closed underneath the
       // tap) — that submit never queued, so there is nothing to reconcile.
       if (isServerActionError(err)) {
-        failSubmit(localId, trimmed);
+        failSubmit(localId, trimmed, submitAnchor);
         return;
       }
       // The fetch was refused on the device at both ends of the call: no
@@ -719,7 +774,7 @@ export function StudioClient({
         typeof navigator !== "undefined" &&
         navigator.onLine === false
       ) {
-        failSubmit(localId, trimmed);
+        failSubmit(localId, trimmed, submitAnchor);
         return;
       }
       // Otherwise the response is lost, not necessarily the request: keep
@@ -737,7 +792,8 @@ export function StudioClient({
         clientJobId,
         Date.now() + LOST_SUBMIT_WINDOW_MS,
         startedAtMs + STALE_OPTIMISTIC_MS,
-        trimmed
+        trimmed,
+        submitAnchor
       );
     }
   }
@@ -1555,6 +1611,7 @@ function Lane({
                 <Button
                   type="button"
                   variant="secondary"
+                  className="min-h-11"
                   data-testid="lightbox-edit"
                   onClick={() => {
                     const shown = lane.cells[lightboxIndex];
@@ -1565,9 +1622,27 @@ function Lane({
                   Edit this one
                 </Button>
               )}
+              {/* Straight to /preview (#269), skipping the image detail page.
+                  The shown image always rides as `front`, primary or not,
+                  so a later primary change can't swap what gets ordered.
+                  /preview bounces a conversation with no primary image to
+                  /design, so no Order for such a lane. */}
+              {!selectMode && lane.cells.some((c) => c.isPrimary) && (
+                <Link
+                  href={previewOrderHref(
+                    lane.designId,
+                    lane.cells[lightboxIndex].imageId
+                  )}
+                  data-testid="lightbox-order"
+                  // Mirrors Button's primary variant (src/components/ui/button.tsx); it is a link, so it can't use Button.
+                  className="inline-flex min-h-11 items-center rounded-md border border-foreground px-4 text-sm font-medium text-foreground transition-colors hover:bg-surface-well"
+                >
+                  Order
+                </Link>
+              )}
               <Link
                 href={`/d/${lane.cells[lightboxIndex].imageId}`}
-                className="self-center text-sm underline text-text-muted hover:text-foreground"
+                className="inline-flex min-h-11 items-center text-sm underline text-text-muted hover:text-foreground"
               >
                 Open
               </Link>

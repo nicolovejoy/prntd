@@ -68,6 +68,8 @@ vi.mock("../actions", () => ({
 
 import PreviewPage from "../page";
 import { getBackDesignSources } from "../actions";
+import { createCheckoutSession } from "../../order/actions";
+import { addToCart, isCartEnabled } from "../../cart/actions";
 
 const WITH_BACK = "id=d1&product=bella-canvas-3001&color=Black&back=img-back";
 const NO_BACK = "id=d1&product=bella-canvas-3001&color=Black";
@@ -297,5 +299,168 @@ describe("/preview sides (#167)", () => {
     expect(screen.getByTestId("add-back-tile")).toBeInTheDocument();
     // No back was picked, so nothing was fetched for it.
     expect(mockupCallsFor("back")).toHaveLength(0);
+  });
+});
+
+describe("/preview sends the shown front to checkout and cart (#269)", () => {
+  const SIZED = "id=d1&product=bella-canvas-3001&color=Black&size=M";
+
+  async function clickBuy(name: "Order" | "Add to cart") {
+    // The desktop CTA and the mobile sticky bar both render; either calls
+    // the same handler.
+    await waitFor(() =>
+      expect(screen.getAllByRole("button", { name }).length).toBeGreaterThan(0)
+    );
+    fireEvent.click(screen.getAllByRole("button", { name })[0]);
+  }
+
+  beforeEach(() => {
+    vi.mocked(createCheckoutSession).mockReset();
+    vi.mocked(createCheckoutSession).mockResolvedValue({
+      url: null,
+      needsAuth: false,
+    } as never);
+    vi.mocked(addToCart).mockReset();
+    vi.mocked(addToCart).mockResolvedValue({ ok: true, count: 1 } as never);
+  });
+
+  it("checkout carries the primary as front when the front is the primary", async () => {
+    params = new URLSearchParams(SIZED);
+    render(<PreviewPage />);
+    await waitFor(() => expect(getOrCreatePlacementRender).toHaveBeenCalled());
+    await clickBuy("Order");
+    await waitFor(() => expect(createCheckoutSession).toHaveBeenCalled());
+    expect(vi.mocked(createCheckoutSession).mock.calls[0][0].front).toBe(
+      "img-primary"
+    );
+  });
+
+  it("checkout carries the pinned front when it differs from the primary", async () => {
+    params = new URLSearchParams(`${SIZED}&front=img-other`);
+    render(<PreviewPage />);
+    await waitFor(() => expect(getOrCreatePlacementRender).toHaveBeenCalled());
+    await clickBuy("Order");
+    await waitFor(() => expect(createCheckoutSession).toHaveBeenCalled());
+    expect(vi.mocked(createCheckoutSession).mock.calls[0][0].front).toBe(
+      "img-other"
+    );
+  });
+
+  it("add to cart carries the shown front in both cases", async () => {
+    vi.mocked(isCartEnabled).mockResolvedValue(true);
+    params = new URLSearchParams(SIZED);
+    const first = render(<PreviewPage />);
+    await waitFor(() => expect(getOrCreatePlacementRender).toHaveBeenCalled());
+    await clickBuy("Add to cart");
+    await waitFor(() => expect(addToCart).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(addToCart).mock.calls[0][0].front).toBe("img-primary");
+    first.unmount();
+
+    params = new URLSearchParams(`${SIZED}&front=img-other`);
+    render(<PreviewPage />);
+    await clickBuy("Add to cart");
+    await waitFor(() => expect(addToCart).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(addToCart).mock.calls[1][0].front).toBe("img-other");
+  });
+
+  // The page loaded with primary img-primary. Later the server's primary
+  // moves (a generation lands); the page never re-reads it, so what it must
+  // do is name its own front on every request instead of letting the server
+  // resolve "current primary" on its behalf.
+  function frontRenderSources() {
+    return getOrCreatePlacementRender.mock.calls
+      .filter((c) => (c[2] ?? "front") === "front")
+      .map((c) => c[3]);
+  }
+
+  it("names the loaded front on every front render and mockup request, after colour and product changes", async () => {
+    params = new URLSearchParams(SIZED);
+    render(<PreviewPage />);
+    await waitFor(() => expect(mockupCallsFor("front")).toHaveLength(1));
+
+    const { ACTIVE_BLANKS } = await import("@/lib/blanks");
+    // Colour change.
+    fireEvent.click(screen.getAllByTitle("White")[0]);
+    await waitFor(() => expect(mockupCallsFor("front")).toHaveLength(2));
+    // Product change.
+    const other = ACTIVE_BLANKS.find((b) => b.id !== "bella-canvas-3001")!;
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(other.name) }));
+    await waitFor(() => expect(mockupCallsFor("front").length).toBeGreaterThan(2));
+
+    expect(frontRenderSources().length).toBeGreaterThan(1);
+    for (const src of frontRenderSources()) expect(src).toBe("img-primary");
+    for (const c of mockupCallsFor("front")) expect(c[5]).toBe("img-primary");
+
+    await clickBuy("Order");
+    await waitFor(() => expect(createCheckoutSession).toHaveBeenCalled());
+    expect(vi.mocked(createCheckoutSession).mock.calls[0][0].front).toBe(
+      "img-primary"
+    );
+  });
+
+  it("a retried front render still names the loaded front", async () => {
+    params = new URLSearchParams(SIZED);
+    getOrCreatePlacementRender.mockRejectedValueOnce(new Error("ideogram down"));
+    render(<PreviewPage />);
+    const retry = await screen.findByRole("button", { name: "Try again" });
+    fireEvent.click(retry);
+    await waitFor(() => expect(frontRenderSources().length).toBeGreaterThan(1));
+    for (const src of frontRenderSources()) expect(src).toBe("img-primary");
+  });
+
+  it("add to cart sends the loaded front after a colour change", async () => {
+    vi.mocked(isCartEnabled).mockResolvedValue(true);
+    params = new URLSearchParams(SIZED);
+    render(<PreviewPage />);
+    await waitFor(() => expect(mockupCallsFor("front")).toHaveLength(1));
+    fireEvent.click(screen.getAllByTitle("White")[0]);
+    await waitFor(() => expect(mockupCallsFor("front")).toHaveLength(2));
+    await clickBuy("Add to cart");
+    await waitFor(() => expect(addToCart).toHaveBeenCalled());
+    expect(vi.mocked(addToCart).mock.calls[0][0].front).toBe("img-primary");
+  });
+
+  it("keeps the front in the URL even when it is the primary, so a sign-in round trip returns to it", async () => {
+    params = new URLSearchParams(SIZED);
+    render(<PreviewPage />);
+    await waitFor(() =>
+      expect(window.location.search).toContain("front=img-primary")
+    );
+  });
+
+  it("a return with front=<old primary> after the primary moved shows and sends the old one", async () => {
+    const { getDesign } = await import("../../design/actions");
+    vi.mocked(getDesign).mockResolvedValue({
+      primaryImageId: "img-newer",
+      backgroundColor: null,
+      mockupUrls: null,
+    } as never);
+    params = new URLSearchParams(`${SIZED}&front=img-primary`);
+    render(<PreviewPage />);
+    await waitFor(() => expect(mockupCallsFor("front")).toHaveLength(1));
+    expect(frontRenderSources()).toEqual(["img-primary"]);
+    expect(mockupCallsFor("front")[0][5]).toBe("img-primary");
+    await clickBuy("Order");
+    await waitFor(() => expect(createCheckoutSession).toHaveBeenCalled());
+    expect(vi.mocked(createCheckoutSession).mock.calls[0][0].front).toBe(
+      "img-primary"
+    );
+  });
+
+  it("does not load the back-source groups on arrival when front is the primary", async () => {
+    vi.mocked(getBackDesignSources).mockReset();
+    vi.mocked(getBackDesignSources).mockResolvedValue({ groups: [] });
+    params = new URLSearchParams(`${SIZED}&front=img-primary`);
+    render(<PreviewPage />);
+    await waitFor(() => expect(mockupCallsFor("front")).toHaveLength(1));
+    expect(getBackDesignSources).not.toHaveBeenCalled();
+  });
+
+  it("loads them for a real pin, to resolve its thumbnail", async () => {
+    vi.mocked(getBackDesignSources).mockReset();
+    vi.mocked(getBackDesignSources).mockResolvedValue({ groups: [] });
+    params = new URLSearchParams(`${SIZED}&front=img-other`);
+    render(<PreviewPage />);
+    await waitFor(() => expect(getBackDesignSources).toHaveBeenCalled());
   });
 });

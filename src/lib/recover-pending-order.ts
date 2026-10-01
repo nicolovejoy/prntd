@@ -1,4 +1,8 @@
-import type { StripeSessionData } from "@/lib/webhook-handlers";
+import {
+  isSettledPaymentStatus,
+  type CheckoutCompletedAction,
+  type StripeSessionData,
+} from "@/lib/webhook-handlers";
 
 type LoadedOrder = {
   id: string;
@@ -7,12 +11,12 @@ type LoadedOrder = {
 };
 
 type FetchedSession = {
-  paymentStatus: string; // Stripe's session.payment_status: "paid" | "unpaid" | "no_payment_required"
+  paymentStatus: StripeSessionData["paymentStatus"]; // Stripe's session.payment_status
   sessionData: StripeSessionData;
 };
 
 type HandlerResult = {
-  action: "skipped" | "paid" | "submitted" | "paid_printful_failed";
+  action: CheckoutCompletedAction;
 };
 
 export type RecoverDeps = {
@@ -53,7 +57,7 @@ export async function recoverPendingOrderCore(
     order.stripeSessionId
   );
 
-  if (paymentStatus !== "paid") {
+  if (!isSettledPaymentStatus(paymentStatus)) {
     throw new Error(
       `Stripe session ${order.stripeSessionId} is not paid (payment_status: ${paymentStatus})`
     );
