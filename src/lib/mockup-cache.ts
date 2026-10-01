@@ -20,7 +20,8 @@ const MOCKUP_CACHE_VERSION = "v2";
 export type MockupKeyParts = {
   productId: string;
   placementId: string;
-  /** Source image the placement was rendered from — non-front only. */
+  /** Source image the placement was rendered from. Omitted for the default
+   * front (the design's primary); set for the back and for a pinned front. */
   sourceImageId?: string | null;
   colorName: string;
   /** Scale as an integer percentage, e.g. 100 for 1.0. */

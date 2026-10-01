@@ -238,6 +238,50 @@ describe("cells (Paper bench)", () => {
     expect(openLink.getAttribute("href")).toBe("/d/img-2");
   });
 
+  it("the lightbox row offers Order to /preview with the shown image as the front", () => {
+    render(
+      <StudioClient
+        initialLanes={[
+          lane({
+            designId: "design-1",
+            cells: [cell("img-1", { isPrimary: true }), cell("img-2")],
+          }),
+        ]}
+      />
+    );
+
+    // Non-primary image: pinned as the front.
+    fireEvent.click(screen.getAllByTestId("studio-cell")[1]);
+    let lightbox = screen.getByTestId("image-lightbox");
+    expect(
+      within(lightbox).getByRole("link", { name: "Order" }).getAttribute("href")
+    ).toBe("/preview?id=design-1&front=img-2");
+    // The rest of the row is intact.
+    expect(within(lightbox).getByTestId("lightbox-edit")).toBeTruthy();
+    expect(within(lightbox).getByRole("link", { name: "Open" })).toBeTruthy();
+
+    // Primary image: front is still named, so a later primary change on the
+    // server can't swap what gets ordered.
+    fireEvent.click(within(lightbox).getByLabelText("Previous image"));
+    lightbox = screen.getByTestId("image-lightbox");
+    expect(
+      within(lightbox).getByRole("link", { name: "Order" }).getAttribute("href")
+    ).toBe("/preview?id=design-1&front=img-1");
+  });
+
+  it("no Order in the lightbox when the lane has no primary image (/preview would bounce it)", () => {
+    render(
+      <StudioClient
+        initialLanes={[lane({ designId: "design-1", cells: [cell("img-1")] })]}
+      />
+    );
+    fireEvent.click(screen.getByTestId("studio-cell"));
+    const lightbox = screen.getByTestId("image-lightbox");
+    expect(within(lightbox).queryByRole("link", { name: "Order" })).toBeNull();
+    expect(within(lightbox).getByTestId("lightbox-edit")).toBeTruthy();
+    expect(within(lightbox).getByRole("link", { name: "Open" })).toBeTruthy();
+  });
+
   it("a cell tap alone does not anchor — anchoring is the lightbox's own action", () => {
     render(
       <StudioClient
@@ -684,6 +728,7 @@ describe("select mode (#189)", () => {
     fireEvent.click(screen.getByTestId("select-mode"));
 
     expect(screen.queryByTestId("image-lightbox")).toBeNull();
+    expect(screen.queryByTestId("lightbox-order")).toBeNull();
   });
 
   it("Select swaps the composer for the bar and shows a checkbox per lane", () => {

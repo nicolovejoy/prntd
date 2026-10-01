@@ -80,13 +80,14 @@ async function currentUserId(): Promise<string | null> {
  *
  * Two entry shapes, one per surface:
  *  - `designId` (/preview): requires the caller own the design (#251, same
- *    check as createCheckoutSession) — this entry trusts the design's CURRENT
- *    primary image as the front, so without the check any design id (public
- *    on any published image via getImagePage's sourceDesignId) could cart a
- *    stranger's private artwork. The front placement resolves from the
- *    design's pinned primary image, unless `front` names an explicit pick
- *    (#138) — guarded the same way `back` is, so a front pin grants no reach
- *    a back pin didn't already have. A cross-owner add must go through
+ *    check as createCheckoutSession) — without `front` this entry trusts the
+ *    design's CURRENT primary image as the front, so without the check any
+ *    design id (public on any published image via getImagePage's
+ *    sourceDesignId) could cart a stranger's private artwork. /preview always
+ *    sends `front` (#269), the image it is showing; the primary is only the
+ *    fallback when `front` is absent. A `front` is guarded the same way
+ *    `back` is (#138), so a front pin grants no reach a back pin didn't
+ *    already have. A cross-owner add must go through
  *    `frontImageId` instead.
  *  - `frontImageId` (/d, #146): the image detail page's image. The front
  *    placement is pinned to that EXACT image, mirroring buyPublishedDesign —

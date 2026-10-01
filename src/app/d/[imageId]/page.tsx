@@ -17,6 +17,7 @@ import { BuyHero } from "./buy-hero";
 import { StartFromImage } from "./start-from-image";
 import { ConversationImages } from "./conversation-images";
 import { OwnerActions } from "./owner-actions";
+import { previewOrderHref } from "@/lib/placement-pins";
 
 type Params = Promise<{ imageId: string }>;
 type Search = Promise<{ from?: string }>;
@@ -153,7 +154,7 @@ export default async function PublishedImagePage({
                     remove-now-empty-conversation rule), and /preview needs a
                     live design row to render. */}
                 {img.sourceDesignId && img.hasSourceConversation && (
-                  <Link href={`/preview?id=${img.sourceDesignId}`}>
+                  <Link href={previewOrderHref(img.sourceDesignId, img.imageId)}>
                     <Button>Order</Button>
                   </Link>
                 )}
