@@ -1,10 +1,11 @@
 /**
  * Discover variant IDs, sizes, prices, and colors for any Printful product.
  *
- * Run with: npx tsx --env-file=.env.local scripts/fetch-variants.ts <productId>
- * Example:  npx tsx --env-file=.env.local scripts/fetch-variants.ts 71
+ * Run with: npx tsx scripts/fetch-variants.ts <productId>
+ * Example:  npx tsx scripts/fetch-variants.ts 71
  *
- * Requires PRINTFUL_API_KEY env var.
+ * Printful's /products/{id} endpoint is public. PRINTFUL_API_KEY is sent as a
+ * Bearer token when set and omitted otherwise.
  *
  * Output is structured for copy-paste into src/lib/blanks.ts:
  *   - The "colors" array (name + hex from Printful)
@@ -20,7 +21,9 @@ const PRINTFUL_API = "https://api.printful.com";
 async function printfulFetch(path: string) {
   const res = await fetch(`${PRINTFUL_API}${path}`, {
     headers: {
-      Authorization: `Bearer ${process.env.PRINTFUL_API_KEY}`,
+      ...(process.env.PRINTFUL_API_KEY
+        ? { Authorization: `Bearer ${process.env.PRINTFUL_API_KEY}` }
+        : {}),
       "Content-Type": "application/json",
     },
   });
@@ -74,7 +77,7 @@ async function main() {
   }
 
   // Colors array — copy into BLANKS[].colors
-  console.log("=== colors (copy into products.ts) ===");
+  console.log("=== colors (copy into blanks.ts) ===");
   console.log("colors: [");
   for (const [color, sizes] of Object.entries(byColor)) {
     const hex = sizes[0]?.color_code ?? "#cccccc";
@@ -83,7 +86,7 @@ async function main() {
   console.log("],");
 
   // Variants map — copy into BLANKS[].variants
-  console.log("\n=== variants (copy into products.ts) ===");
+  console.log("\n=== variants (copy into blanks.ts) ===");
   console.log("variants: {");
   for (const [color, sizes] of Object.entries(byColor)) {
     const entries = sizes
