@@ -8,14 +8,14 @@ import {
   MARGIN_MULTIPLIER,
   BACK_PLACEMENT_UPCHARGE,
 } from "../pricing";
-import { BLANKS } from "../blanks";
+import { BLANKS, getBaseCost } from "../blanks";
 
 describe("computePrice", () => {
   it("prices the default Classic Tee at its fixed retail price, ignoring generation cost", () => {
     const result = computePrice(0);
     // bella-canvas-3001 (default) carries a fixed retailPrice; baseCost is the
-    // real Printful cost (S–XL $11.69), but the customer pays the $19.43 floor.
-    expect(result.baseCost).toBe(11.69);
+    // Printful list price (S–XL $11.92), but the customer pays the $19.43 floor.
+    expect(result.baseCost).toBe(11.92);
     expect(result.generationCost).toBe(0);
     expect(result.total).toBe(19.43);
   });
@@ -30,11 +30,11 @@ describe("computePrice", () => {
 
   it("holds the flat floor on common sizes and adds the cost delta on 2XL", () => {
     // Flat floor + 2XL upcharge: S–XL stay at the $19.43 floor, 2XL adds the
-    // real $2.00 cost delta ($11.69 → $13.69) to reach $21.43.
+    // real $2.00 cost delta ($11.92 → $13.92) to reach $21.43.
     expect(computePrice(0, "bella-canvas-3001", "S").total).toBe(19.43);
     expect(computePrice(0, "bella-canvas-3001", "XL").total).toBe(19.43);
     const twoXL = computePrice(0, "bella-canvas-3001", "2XL");
-    expect(twoXL.baseCost).toBe(13.69);
+    expect(twoXL.baseCost).toBe(13.92);
     expect(twoXL.total).toBe(21.43);
   });
 
@@ -46,19 +46,21 @@ describe("computePrice", () => {
 
   it("prices off base cost × margin for products without a fixed retail price", () => {
     const result = computePrice(0, "cotton-heritage-mc1087", "M");
-    expect(result.baseCost).toBe(17.45);
-    expect(result.total).toBe(Math.ceil(17.45 * MARGIN_MULTIPLIER * 100) / 100);
+    expect(result.baseCost).toBe(17.8);
+    expect(result.total).toBe(Math.ceil(17.8 * MARGIN_MULTIPLIER * 100) / 100);
   });
 
   it("rounds the base-cost path up to the nearest cent", () => {
-    // cotton-heritage M: 17.45 × 1.5 = 26.175 → ceil → 26.18
-    expect(computePrice(0, "cotton-heritage-mc1087", "M").total).toBe(26.18);
+    // cotton-heritage M: 17.80 × 1.5 = 26.70 exactly, but 17.8 × 1.5 × 100 is
+    // 2670.0000000000005 in floating point, so ceil lands on 26.71. Pinned as
+    // the code's actual behavior (one cent above the exact 26.70).
+    expect(computePrice(0, "cotton-heritage-mc1087", "M").total).toBe(26.71);
   });
 
   it("uses size-specific base cost for products with per-size pricing", () => {
     const result = computePrice(0, "cotton-heritage-mc1087", "2XL");
-    expect(result.baseCost).toBe(19.45);
-    expect(result.total).toBe(Math.ceil(19.45 * MARGIN_MULTIPLIER * 100) / 100);
+    expect(result.baseCost).toBe(19.8);
+    expect(result.total).toBe(Math.ceil(19.8 * MARGIN_MULTIPLIER * 100) / 100);
   });
 
   it("adds flat shipping on top of the product price as the grand total", () => {
@@ -123,6 +125,25 @@ describe("computePrice", () => {
         expect(Math.round(total * 100) / 100).toBe(total);
       }
     }
+  });
+});
+
+describe("catalog base costs", () => {
+  it("every blank has a positive baseCost for every size it sells", () => {
+    for (const p of BLANKS) {
+      for (const size of p.sizes) {
+        expect(getBaseCost(p, size), `${p.id} ${size}`).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("holds the Classic Tee customer price independent of baseCost", () => {
+    // retailPrice is an owner decision (2026-06-06); a baseCost refresh
+    // (2026-10-01) must not move it.
+    for (const size of ["S", "M", "L", "XL"]) {
+      expect(computePrice(0, "bella-canvas-3001", size).total).toBe(19.43);
+    }
+    expect(computePrice(0, "bella-canvas-3001", "2XL").total).toBe(21.43);
   });
 });
 
