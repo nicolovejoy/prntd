@@ -52,7 +52,9 @@ export function SizePicker({
 }
 
 /**
- * Color swatches. Renders nothing when the product has a single color, so
+ * Color swatches, wrapped, in the order given (the catalog lists them light
+ * to dark; see sortLightToDark in blanks.ts). 44px targets at phone width.
+ * Renders nothing when the product has a single color, so
  * callers can drop it in unconditionally. `note` renders as small muted text
  * under the swatches — used to label a non-obvious default (e.g. the
  * designer-pinned color on the buy page, #60).
@@ -79,7 +81,8 @@ export function ColorPicker({
           <button
             key={c.name}
             onClick={() => onChange(c.name)}
-            className={`w-10 h-10 md:w-8 md:h-8 rounded-full border-2 transition-colors ${
+            aria-pressed={value === c.name}
+            className={`w-11 h-11 md:w-8 md:h-8 rounded-full border-2 transition-colors ${
               value === c.name
                 ? "border-accent ring-2 ring-offset-1 ring-accent ring-offset-background"
                 : "border-border"

@@ -2,7 +2,7 @@
  * Product catalog — config-driven definitions for all products.
  *
  * To add a new product:
- * 1. Run the variant discovery script to get Printful variant IDs
+ * 1. Run the variant discovery script (scripts/fetch-variants.ts) to get Printful variant IDs
  * 2. Add a new entry to BLANKS below
  * 3. That's it — preview, order, and checkout flows pick it up automatically
  */
@@ -123,7 +123,35 @@ export type Blank = {
   printArea: { width: number; height: number };
 };
 
-export const BLANKS: Blank[] = [
+/**
+ * Relative luminance (WCAG) of a #rrggbb hex, 0 (black) to 1 (white).
+ */
+export function relativeLuminance(hex: string): number {
+  const n = parseInt(hex.slice(1), 16);
+  const channel = (v: number) => {
+    const s = v / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  const r = channel((n >> 16) & 0xff);
+  const g = channel((n >> 8) & 0xff);
+  const b = channel(n & 0xff);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/**
+ * Light to dark by relative luminance; equal luminance falls back to name so
+ * the order is the same on every run. Applied to every shirt's `colors` below,
+ * so each picker and list reads the catalog already ordered.
+ */
+export function sortLightToDark(colors: BlankColor[]): BlankColor[] {
+  return [...colors].sort(
+    (a, b) =>
+      relativeLuminance(b.value) - relativeLuminance(a.value) ||
+      a.name.localeCompare(b.name)
+  );
+}
+
+const BLANK_DEFINITIONS: Blank[] = [
   {
     id: "bella-canvas-3001",
     name: "Classic Tee",
@@ -164,6 +192,64 @@ export const BLANKS: Blank[] = [
       { name: "Baby Blue", value: "#c7d7ef" },
       { name: "True Royal", value: "#01408d" },
       { name: "Navy", value: "#212642" },
+      { name: "Army", value: "#5f5849" },
+      { name: "Ash", value: "#f0f1ea" },
+      { name: "Asphalt", value: "#52514f" },
+      { name: "Autumn", value: "#c85313" },
+      { name: "Berry", value: "#c02773" },
+      { name: "Black Heather", value: "#0b0b0b" },
+      { name: "Brown", value: "#322622" },
+      { name: "Cardinal", value: "#890c1e" },
+      { name: "Charity Pink", value: "#ff6284" },
+      { name: "Dark Grey Heather", value: "#3e3c3d" },
+      { name: "Gold", value: "#ff9e00" },
+      { name: "Heather Aqua", value: "#27a8c8" },
+      { name: "Heather Autumn", value: "#d5743f" },
+      { name: "Heather Brown", value: "#6a513a" },
+      { name: "Heather Carolina Blue", value: "#abc3ef" },
+      { name: "Heather Clay", value: "#994836" },
+      { name: "Heather Columbia Blue", value: "#7d95e8" },
+      { name: "Heather Deep Teal", value: "#447085" },
+      { name: "Heather Emerald", value: "#1e2c1c" },
+      { name: "Heather Forest", value: "#425040" },
+      { name: "Heather Grass Green", value: "#477749" },
+      { name: "Heather Ice Blue", value: "#e8fdff" },
+      { name: "Heather Kelly", value: "#00a263" },
+      { name: "Heather Mauve", value: "#b2736f" },
+      { name: "Heather Midnight Navy", value: "#302d4b" },
+      { name: "Heather Mint", value: "#b2ebcf" },
+      { name: "Heather Natural", value: "#f9e9cf" },
+      { name: "Heather Navy", value: "#303643" },
+      { name: "Heather Olive", value: "#5c5531" },
+      { name: "Heather Orange", value: "#ff6f4e" },
+      { name: "Heather Orchid", value: "#c2878e" },
+      { name: "Heather Prism Dusty Blue", value: "#a5c8bc" },
+      { name: "Heather Prism Ice Blue", value: "#c3e2e3" },
+      { name: "Heather Prism Lilac", value: "#deafcd" },
+      { name: "Heather Prism Mint", value: "#aad5b9" },
+      { name: "Heather Raspberry", value: "#d23d62" },
+      { name: "Heather Red", value: "#ed5359" },
+      { name: "Heather Slate", value: "#4c626e" },
+      { name: "Heather Team Purple", value: "#b680c1" },
+      { name: "Heather True Royal", value: "#536ba7" },
+      { name: "Heather Yellow Gold", value: "#ffb834" },
+      { name: "Leaf", value: "#5c9346" },
+      { name: "Light Blue", value: "#cfd5e1" },
+      { name: "Lilac", value: "#efbbe3" },
+      { name: "Military Green", value: "#4d4c36" },
+      { name: "Mint", value: "#a5f4bd" },
+      { name: "Ocean Blue", value: "#a9dff6" },
+      { name: "Olive", value: "#5b642f" },
+      { name: "Oxblood Black", value: "#2c1013" },
+      { name: "Silver", value: "#e3e3dd" },
+      { name: "Soft Pink", value: "#ffd8e1" },
+      { name: "Solid White Blend", value: "#fcfcfc" },
+      { name: "Steel Blue", value: "#668ea7" },
+      { name: "Teal", value: "#00e3cf" },
+      { name: "Toast", value: "#cf8d4c" },
+      { name: "Turquoise", value: "#54d9eb" },
+      { name: "Vintage Black", value: "#151515" },
+      { name: "Yellow", value: "#ffd667" },
     ],
     variants: {
       White: { S: 4011, M: 4012, L: 4013, XL: 4014, "2XL": 4015 },
@@ -191,6 +277,64 @@ export const BLANKS: Blank[] = [
       "Baby Blue": { S: 4036, M: 4037, L: 4038, XL: 4039, "2XL": 4040 },
       "True Royal": { S: 4171, M: 4172, L: 4173, XL: 4174, "2XL": 4175 },
       Navy: { S: 4111, M: 4112, L: 4113, XL: 4114, "2XL": 4115 },
+      Army: { S: 8440, M: 8441, L: 8442, XL: 8443, "2XL": 8444 },
+      Ash: { S: 4026, M: 4027, L: 4028, XL: 4029, "2XL": 4030 },
+      Asphalt: { S: 4031, M: 4032, L: 4033, XL: 4034, "2XL": 4035 },
+      Autumn: { S: 10384, M: 10385, L: 10386, XL: 10387, "2XL": 10388 },
+      Berry: { S: 4041, M: 4042, L: 4043, XL: 4044, "2XL": 4045 },
+      "Black Heather": { S: 8923, M: 8924, L: 8925, XL: 8926, "2XL": 8927 },
+      Brown: { S: 4046, M: 4047, L: 4048, XL: 4049, "2XL": 4050 },
+      Cardinal: { S: 4061, M: 4062, L: 4063, XL: 4064, "2XL": 4065 },
+      "Charity Pink": { S: 21570, M: 21571, L: 21572, XL: 21573, "2XL": 21574 },
+      "Dark Grey Heather": { S: 8460, M: 8461, L: 8462, XL: 8463, "2XL": 8464 },
+      Gold: { S: 4081, M: 4082, L: 4083, XL: 4084, "2XL": 4085 },
+      "Heather Aqua": { S: 22023, M: 22024, L: 22025, XL: 22026, "2XL": 22027 },
+      "Heather Autumn": { S: 24359, M: 24360, L: 24361, XL: 24362, "2XL": 24363 },
+      "Heather Brown": { S: 24331, M: 24332, L: 24333, XL: 24334, "2XL": 24335 },
+      "Heather Carolina Blue": { S: 24310, M: 24311, L: 24312, XL: 24313, "2XL": 24314 },
+      "Heather Clay": { S: 22032, M: 22033, L: 22034, XL: 22035, "2XL": 22036 },
+      "Heather Columbia Blue": { S: 21586, M: 21587, L: 21588, XL: 21589, "2XL": 21590 },
+      "Heather Deep Teal": { S: 8481, M: 8482, L: 8483, XL: 8484, "2XL": 8485 },
+      "Heather Emerald": { S: 24338, M: 24339, L: 24340, XL: 24341, "2XL": 24342 },
+      "Heather Forest": { S: 8488, M: 8489, L: 8490, XL: 8491, "2XL": 8492 },
+      "Heather Grass Green": { S: 24345, M: 24346, L: 24347, XL: 24348, "2XL": 24349 },
+      "Heather Ice Blue": { S: 21310, M: 21311, L: 21312, XL: 21313, "2XL": 21314 },
+      "Heather Kelly": { S: 18643, M: 18644, L: 18645, XL: 18646, "2XL": 18647 },
+      "Heather Mauve": { S: 18635, M: 18636, L: 18637, XL: 18638, "2XL": 18639 },
+      "Heather Midnight Navy": { S: 8495, M: 8496, L: 8497, XL: 8498, "2XL": 8499 },
+      "Heather Mint": { S: 8502, M: 8503, L: 8504, XL: 8505, "2XL": 8506 },
+      "Heather Natural": { S: 24366, M: 24367, L: 24368, XL: 24369, "2XL": 24370 },
+      "Heather Navy": { S: 8509, M: 8510, L: 8511, XL: 8512, "2XL": 8513 },
+      "Heather Olive": { S: 21302, M: 21303, L: 21304, XL: 21305, "2XL": 21306 },
+      "Heather Orange": { S: 8516, M: 8517, L: 8518, XL: 8519, "2XL": 8520 },
+      "Heather Orchid": { S: 10352, M: 10353, L: 10354, XL: 10355, "2XL": 10356 },
+      "Heather Prism Dusty Blue": { S: 9388, M: 9389, L: 9390, XL: 9391, "2XL": 9392 },
+      "Heather Prism Ice Blue": { S: 9360, M: 9361, L: 9362, XL: 9363, "2XL": 9364 },
+      "Heather Prism Lilac": { S: 9374, M: 9375, L: 9376, XL: 9377, "2XL": 9378 },
+      "Heather Prism Mint": { S: 9381, M: 9382, L: 9383, XL: 9384, "2XL": 9385 },
+      "Heather Raspberry": { S: 8523, M: 8524, L: 8525, XL: 8526, "2XL": 8527 },
+      "Heather Red": { S: 20681, M: 20679, L: 20677, XL: 20675, "2XL": 20673 },
+      "Heather Slate": { S: 18619, M: 18620, L: 18621, XL: 18622, "2XL": 18623 },
+      "Heather Team Purple": { S: 21602, M: 21603, L: 21604, XL: 21605, "2XL": 21606 },
+      "Heather True Royal": { S: 8530, M: 8531, L: 8532, XL: 8533, "2XL": 8534 },
+      "Heather Yellow Gold": { S: 24373, M: 24374, L: 24375, XL: 24376, "2XL": 24377 },
+      Leaf: { S: 4091, M: 4092, L: 4093, XL: 4094, "2XL": 4095 },
+      "Light Blue": { S: 4096, M: 4097, L: 4098, XL: 4099, "2XL": 4100 },
+      Lilac: { S: 10368, M: 10369, L: 10370, XL: 10371, "2XL": 10372 },
+      "Military Green": { S: 17203, M: 17204, L: 17205, XL: 17206, "2XL": 17209 },
+      Mint: { S: 22041, M: 22042, L: 22043, XL: 22044, "2XL": 22045 },
+      "Ocean Blue": { S: 4116, M: 4117, L: 4118, XL: 4119, "2XL": 4120 },
+      Olive: { S: 4121, M: 4122, L: 4123, XL: 4124, "2XL": 4125 },
+      "Oxblood Black": { S: 9740, M: 9741, L: 9742, XL: 9743, "2XL": 9744 },
+      Silver: { S: 4146, M: 4147, L: 4148, XL: 4149, "2XL": 4150 },
+      "Soft Pink": { S: 20680, M: 20678, L: 20676, XL: 20674, "2XL": 20672 },
+      "Solid White Blend": { S: 24352, M: 24353, L: 24354, XL: 24355, "2XL": 24356 },
+      "Steel Blue": { S: 4161, M: 4162, L: 4163, XL: 4164, "2XL": 4165 },
+      Teal: { S: 22059, M: 22060, L: 22061, XL: 22062, "2XL": 22063 },
+      Toast: { S: 14690, M: 14691, L: 14692, XL: 14693, "2XL": 14694 },
+      Turquoise: { S: 4176, M: 4177, L: 4178, XL: 4179, "2XL": 4180 },
+      "Vintage Black": { S: 21594, M: 21595, L: 21596, XL: 21597, "2XL": 21598 },
+      Yellow: { S: 4181, M: 4182, L: 4183, XL: 4184, "2XL": 4185 },
     },
     placements: [
       {
@@ -289,27 +433,27 @@ export const BLANKS: Blank[] = [
     sizes: ["S", "M", "L", "XL", "2XL", "3XL"],
     colors: [
       { name: "White", value: "#ffffff" },
-      { name: "Black", value: "#0c0c0c" },
-      { name: "Natural", value: "#fef1d1" },
-      { name: "Vintage White", value: "#fcf4e8" },
-      { name: "Athletic Heather", value: "#c8c8c8" },
-      { name: "Dark Grey Heather", value: "#4a4a4a" },
-      { name: "Navy", value: "#1c2340" },
-      { name: "Maroon", value: "#5c1a2a" },
-      { name: "Forest Green", value: "#2d4a2e" },
-      { name: "Military Green", value: "#5e6e4a" },
-      { name: "Sage", value: "#9eab96" },
-      { name: "Leaf", value: "#5b8c3e" },
-      { name: "Mauve", value: "#c9a0b0" },
-      { name: "Heather Mauve", value: "#b98da0" },
-      { name: "Pink", value: "#f4c2c2" },
-      { name: "Light Violet", value: "#c5a3cf" },
-      { name: "Heather Blue Lagoon", value: "#5a9eaf" },
-      { name: "Heather Deep Teal", value: "#3a6e6e" },
-      { name: "Heather Navy", value: "#3a4a6e" },
-      { name: "Heather True Royal", value: "#4169aa" },
-      { name: "Heather Red", value: "#b84a4a" },
-      { name: "Heather Stone", value: "#b8aa96" },
+      { name: "Black", value: "#171717" },
+      { name: "Natural", value: "#fff7e9" },
+      { name: "Vintage White", value: "#fdfcf3" },
+      { name: "Athletic Heather", value: "#b7b7b7" },
+      { name: "Dark Grey Heather", value: "#323232" },
+      { name: "Navy", value: "#161324" },
+      { name: "Maroon", value: "#5f192a" },
+      { name: "Forest Green", value: "#243f2f" },
+      { name: "Military Green", value: "#68664d" },
+      { name: "Sage", value: "#aab89a" },
+      { name: "Leaf", value: "#84a357" },
+      { name: "Mauve", value: "#ba756c" },
+      { name: "Heather Mauve", value: "#b97b7e" },
+      { name: "Pink", value: "#fec4ce" },
+      { name: "Light Violet", value: "#e1c4cf" },
+      { name: "Heather Blue Lagoon", value: "#8eb9bd" },
+      { name: "Heather Deep Teal", value: "#4a7486" },
+      { name: "Heather Navy", value: "#545361" },
+      { name: "Heather True Royal", value: "#6a72cc" },
+      { name: "Heather Red", value: "#f5575c" },
+      { name: "Heather Stone", value: "#c6b7a7" },
     ],
     variants: {
       White: { S: 10252, M: 10253, L: 10254, XL: 10255, "2XL": 10256, "3XL": 10257 },
@@ -415,6 +559,10 @@ export const BLANKS: Blank[] = [
   },
 ];
 
+export const BLANKS: Blank[] = BLANK_DEFINITIONS.map((b) =>
+  b.type === "shirt" ? { ...b, colors: sortLightToDark(b.colors) } : b
+);
+
 export const DEFAULT_BLANK_ID = "bella-canvas-3001";
 
 /** Customer-facing catalog — excludes discontinued products. */
@@ -504,12 +652,38 @@ export function getColorHex(productId: string | null | undefined, colorName: str
 
 /**
  * Color palette offered as the storefront backdrop for published designs.
- * The default product (Classic Tee) carries the broadest set — light and
- * dark shirts — so we source the picker from it. Color names here resolve
- * via getColorHex(DEFAULT_BLANK_ID, name).
+ * Pinned to the Classic Tee's original 25 colours (owner ruling, 2026-09-28):
+ * published designs store a name from this list, so it does not follow
+ * additions to the shirt catalog. Hex values must match the Classic Tee's, as
+ * names resolve via getColorHex(DEFAULT_BLANK_ID, name) (test-enforced).
  */
-export const BACKGROUND_PALETTE: BlankColor[] =
-  getBlankOrThrow(DEFAULT_BLANK_ID).colors;
+export const BACKGROUND_PALETTE: BlankColor[] = [
+  { name: "White", value: "#ffffff" },
+  { name: "Vintage White", value: "#fcf4e8" },
+  { name: "Soft Cream", value: "#e7d4c0" },
+  { name: "Heather Dust", value: "#e5d9c9" },
+  { name: "Natural", value: "#fef1d1" },
+  { name: "Tan", value: "#ddb792" },
+  { name: "Pebble", value: "#9a8479" },
+  { name: "Athletic Heather", value: "#cececc" },
+  { name: "Dark Grey", value: "#2A2929" },
+  { name: "Black", value: "#0c0c0c" },
+  { name: "Red", value: "#d0071e" },
+  { name: "Maroon", value: "#721d37" },
+  { name: "Burnt Orange", value: "#ed8043" },
+  { name: "Orange", value: "#ff6f32" },
+  { name: "Mustard", value: "#eda027" },
+  { name: "Pink", value: "#fdbfc7" },
+  { name: "Mauve", value: "#bf6e6e" },
+  { name: "Team Purple", value: "#230f46" },
+  { name: "Sage", value: "#9eab96" },
+  { name: "Forest", value: "#223e25" },
+  { name: "Kelly", value: "#1a9462" },
+  { name: "Aqua", value: "#008db5" },
+  { name: "Baby Blue", value: "#c7d7ef" },
+  { name: "True Royal", value: "#01408d" },
+  { name: "Navy", value: "#212642" },
+];
 
 /**
  * Backdrop color published designs get when the owner didn't pick one.
