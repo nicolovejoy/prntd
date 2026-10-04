@@ -18,6 +18,7 @@ import * as schema from "@/lib/db/schema";
 import { makeUser, makeDesign, makeSourceImage } from "@/lib/__tests__/factories";
 import { buildCheckoutSessionParams } from "@/lib/checkout";
 import { resolveOrderVariant } from "@/lib/blanks";
+import { buyPageHref } from "@/lib/buy-page-picks";
 
 const h = vi.hoisted(() => ({
   db: null as unknown,
@@ -93,6 +94,16 @@ async function seed(db: Db) {
 
 const OPTS = { productId: "bella-canvas-3001", size: "M", color: "Black" };
 
+/** Where a buyer who backs out lands (#278): the page, panel open on the same shirt. */
+function returnPath(imageId: string): string {
+  return buyPageHref(imageId, {
+    order: true,
+    product: OPTS.productId,
+    size: OPTS.size,
+    color: OPTS.color,
+  });
+}
+
 /**
  * The expected Stripe params for the hosted (non-embedded) path, computed
  * from the real builder against whatever the order row actually persisted —
@@ -161,7 +172,7 @@ describe("buyPublishedDesign embedded-checkout gating (#135)", () => {
     const expected = await expectedHostedParams(
       db,
       "https://img.example/listing.png",
-      `http://localhost:3000/d/${ids.listingId}`
+      `http://localhost:3000${returnPath(ids.listingId)}`
     );
     expect(params).toEqual({ ...expected, expires_at: expect.any(Number) });
   });
@@ -185,7 +196,7 @@ describe("buyPublishedDesign embedded-checkout gating (#135)", () => {
     );
     expect(params).not.toHaveProperty("success_url");
     expect(params).not.toHaveProperty("cancel_url");
-    expect(url).toBe(`/checkout?session=cs_test_1&from=%2Fd%2F${ids.listingId}`);
+    expect(url).toBe(`/checkout?session=cs_test_1&from=${encodeURIComponent(returnPath(ids.listingId))}`);
   });
 
   it("in both modes, the order + order_item rows exist before Stripe is called, and stripeSessionId is persisted after", async () => {
@@ -243,7 +254,7 @@ describe("buyPublishedDesign embedded-checkout gating (#135)", () => {
     const expected = await expectedHostedParams(
       db,
       "https://img.example/listing.png",
-      `http://localhost:3000/d/${ids.listingId}`
+      `http://localhost:3000${returnPath(ids.listingId)}`
     );
     expect(params).toEqual({ ...expected, expires_at: expect.any(Number) });
     expect(errSpy).toHaveBeenCalledWith(
@@ -269,7 +280,7 @@ describe("buyPublishedDesign embedded-checkout gating (#135)", () => {
     const expected = await expectedHostedParams(
       db,
       "https://img.example/listing.png",
-      `http://localhost:3000/d/${ids.listingId}`
+      `http://localhost:3000${returnPath(ids.listingId)}`
     );
     expect(params).toEqual({ ...expected, expires_at: expect.any(Number) });
     expect(errSpy).toHaveBeenCalledWith(
@@ -324,7 +335,7 @@ describe("buyPublishedDesign embedded-checkout gating (#135)", () => {
     const expected = await expectedHostedParams(
       db,
       "https://img.example/listing.png",
-      `http://localhost:3000/d/${ids.listingId}`
+      `http://localhost:3000${returnPath(ids.listingId)}`
     );
     expect(params).toEqual({ ...expected, expires_at: expect.any(Number) });
   });

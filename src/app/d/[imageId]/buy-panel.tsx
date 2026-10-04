@@ -329,6 +329,20 @@ export function BuyPanel({
   const frontOverride =
     sides.front.id !== imageId ? sides.front.id : undefined;
 
+  // Sign-in returns to this page with the same shirt open (#278). Built from
+  // state, not from the address bar, so it is right even before the first
+  // URL sync has run.
+  const signInHref = `/sign-in?next=${encodeURIComponent(
+    buyPageHref(imageId, {
+      order: true,
+      product: productId,
+      size,
+      color,
+      back: back?.id ?? null,
+      swap: swapped && !!back,
+    })
+  )}`;
+
   async function handleBuy() {
     if (!size) return;
     navigatingAway.current = true;
@@ -344,7 +358,7 @@ export function BuyPanel({
         ...(frontOverride ? { frontImageId: frontOverride } : {}),
       });
       if (needsAuth) {
-        window.location.href = `/sign-in?next=/d/${imageId}`;
+        window.location.href = signInHref;
         return;
       }
       if (url) window.location.href = url;
@@ -443,7 +457,7 @@ export function BuyPanel({
       {cartEnabled && !size && (
         <p className="text-sm text-text-muted text-center">Choose a size</p>
       )}
-      <Link href={`/sign-in?next=/d/${imageId}`} className="block">
+      <Link href={signInHref} className="block">
         <Button size="lg" className="w-full">
           Sign in to buy
         </Button>

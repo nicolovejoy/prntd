@@ -839,3 +839,67 @@ describe("BuyPanel picks in the URL (#278)", () => {
     expect(new URLSearchParams(window.location.search).get("back")).toBeNull();
   });
 });
+
+describe("BuyPanel sign-in return (#278)", () => {
+  function nextOf(href: string) {
+    return new URL(href, "http://x.invalid").searchParams.get("next")!;
+  }
+
+  beforeEach(() => window.history.replaceState(null, "", "/d/img-1"));
+
+  it("Sign in to buy carries the picks through sign-in", () => {
+    render(<BuyPanel imageId="img-1" isLoggedIn={false} />);
+    expand();
+    fireEvent.click(screen.getByRole("button", { name: "L" }));
+    const href = screen
+      .getAllByRole("link", { name: "Sign in to buy" })[0]
+      .getAttribute("href")!;
+    const next = nextOf(href);
+    expect(next.startsWith("/d/img-1?")).toBe(true);
+    const picks = new URL(next, "http://x.invalid").searchParams;
+    expect(picks.get("order")).toBe("1");
+    expect(picks.get("size")).toBe("L");
+  });
+
+  it("a signed-in Order that the server answers with needsAuth sends the same return path", async () => {
+    vi.mocked(buyPublishedDesign).mockResolvedValueOnce({
+      url: null,
+      needsAuth: true,
+    });
+    const hrefSet = vi.fn();
+    const original = window.location;
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        get pathname() {
+          return original.pathname;
+        },
+        get search() {
+          return original.search;
+        },
+        set href(value: string) {
+          hrefSet(value);
+        },
+      },
+    });
+    try {
+      render(<BuyPanel imageId="img-1" isLoggedIn />);
+      expand();
+      fireEvent.click(screen.getByRole("button", { name: "L" }));
+      await act(async () => {
+        fireEvent.click(buyButton());
+      });
+      expect(hrefSet).toHaveBeenCalledTimes(1);
+      const next = nextOf(hrefSet.mock.calls[0][0]);
+      const picks = new URL(next, "http://x.invalid").searchParams;
+      expect(next.startsWith("/d/img-1?")).toBe(true);
+      expect(picks.get("order")).toBe("1");
+      expect(picks.get("size")).toBe("L");
+    } finally {
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        value: original,
+      });
+    }
+  });
+});
