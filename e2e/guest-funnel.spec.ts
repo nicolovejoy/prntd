@@ -13,7 +13,9 @@ import { test, expect } from "@playwright/test";
 import { waitForSessionCookie } from "./helpers/session";
 import {
   cleanupDesigns,
+  cleanupUser,
   seedDesign,
+  seedPublishedImage,
   userIdForSessionCookie,
 } from "./helpers/db";
 
@@ -91,5 +93,67 @@ test("a guest with an anonymous session reaches their own Studio, not /orders", 
     await expect(page).toHaveURL(/sign-in/);
   } finally {
     await cleanupDesigns(seeded);
+  }
+});
+
+test("a guest's size and colour on the image detail page survive Sign in to buy and sign-up (#278)", async ({
+  page,
+}, testInfo) => {
+  const key = `guest-buy-picks-${Date.now()}-${testInfo.project.name}`;
+  let seededDesign = "";
+  let sellerId = "";
+  let claimedUserId = "";
+
+  try {
+    const seeded = await seedPublishedImage(key, `Buy picks ${key}`);
+    seededDesign = seeded.designId;
+    sellerId = seeded.sellerId;
+    const imagePath = `/d/${seeded.imageId}`;
+
+    // A guest session, minted the way a first-time visitor gets one.
+    await page.goto("/design");
+    await waitForSessionCookie(page);
+
+    await page.goto(imagePath);
+    await page.getByTestId("order-expand").click();
+    await page.getByRole("button", { name: "L", exact: true }).click();
+    // A colour that is not the default (White), so the check below can tell
+    // the link's pick from the default.
+    await page.getByTitle("Black", { exact: true }).click();
+    await expect(page).toHaveURL(/[?&]size=L(&|$)/);
+    await expect(page).toHaveURL(/[?&]color=Black(&|$)/);
+
+    // Sign in to buy -> sign-in page -> its Sign up link, which carries next.
+    await page.getByRole("link", { name: "Sign in to buy" }).click();
+    await expect(page).toHaveURL(/\/sign-in\?next=/);
+    await page.getByRole("link", { name: "Sign up", exact: true }).click();
+    await expect(page).toHaveURL(/\/sign-up\?next=/);
+    await page.getByPlaceholder("Name").fill("E2E Buyer");
+    await page.getByPlaceholder("Email").fill(`e2e-buyer-${key}@prntd.test`);
+    await page.getByPlaceholder("Password").fill("e2e-password-123");
+    await page.getByRole("button", { name: /Sign up/ }).click();
+
+    // Back on the same image, panel open, size and colour kept.
+    await expect(
+      page,
+      "sign-up did not return to the image detail page"
+    ).toHaveURL(new RegExp(`${imagePath}\\?`), { timeout: 30_000 });
+    await expect(page.getByTestId("order-expand")).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "L", exact: true })
+    ).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByText("Color \u2014 Black")).toBeVisible();
+    // Signed in now: one tap on Order is available (not tapped here; the
+    // Stripe specs cover checkout).
+    await expect(
+      page.getByRole("button", { name: /^Order \u2014 \$\d/ })
+    ).toBeEnabled();
+
+    const cookie = await waitForSessionCookie(page);
+    claimedUserId = await userIdForSessionCookie(cookie);
+  } finally {
+    if (seededDesign) await cleanupDesigns([seededDesign]);
+    if (sellerId) await cleanupUser(sellerId);
+    if (claimedUserId) await cleanupUser(claimedUserId);
   }
 });
