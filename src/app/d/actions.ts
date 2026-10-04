@@ -335,6 +335,41 @@ export async function getBuyPageBackSources(
 }
 
 /**
+ * The back design a link carries (`?back=<imageId>`, #278), resolved for the
+ * viewer: `{ id, imageUrl }` when they could have picked it themselves, or
+ * `null`. Same gates, same order, as `getBuyPageBackSources` plus the check
+ * `buyPublishedDesign` runs on the back (`assertUsablePlacementImage`), so a
+ * link can never put an image on the panel that checkout would refuse. Never
+ * throws for an unusable id: a stale or forged link just opens the panel
+ * without a back.
+ */
+export async function resolveInitialBack(
+  pageImageId: string,
+  backImageId: string
+): Promise<{ id: string; imageUrl: string } | null> {
+  if (!multiPlacementEnabled()) return null;
+
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session || isAnonymousUser(session.user)) return null;
+
+  const image = await getDesignImageWithOwner(pageImageId);
+  if (!image || !image.designId || !canBuyPublishedImage(image)) return null;
+
+  try {
+    await assertUsablePlacementImage(
+      backImageId,
+      image.designId,
+      session.user.id
+    );
+  } catch {
+    return null;
+  }
+
+  const resolved = (await resolveImagesByIds([backImageId])).get(backImageId);
+  return resolved ? { id: backImageId, imageUrl: resolved.imageUrl } : null;
+}
+
+/**
  * Front-placement Printful mockup for the image detail page's Order-expand
  * hero (#135 slice 1). Visibility-gated like the page itself
  * (`canViewImagePage`: published && !hidden, or the owner) — deliberately
