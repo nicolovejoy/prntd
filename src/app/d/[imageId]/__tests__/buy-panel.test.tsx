@@ -794,6 +794,30 @@ describe("BuyPanel picks in the URL (#278)", () => {
     expect(window.location.search).toBe("?from=%2Fshop");
   });
 
+  it("a collapsed mount leaves the URL exactly as it is (browser Back to an entry that held picks)", () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/d/img-1?from=%2Fshop&product=bella-canvas-3001&size=L&color=Black"
+    );
+    render(<BuyPanel imageId="img-1" isLoggedIn />);
+    expect(window.location.search).toBe(
+      "?from=%2Fshop&product=bella-canvas-3001&size=L&color=Black"
+    );
+  });
+
+  it("Cancel keeps `from` and `line` while it removes the picks", () => {
+    window.history.replaceState(null, "", "/d/img-1?from=%2Fshop&line=line-1");
+    render(<BuyPanel imageId="img-1" isLoggedIn />);
+    expand();
+    fireEvent.click(screen.getByRole("button", { name: "M" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Cancel" })[0]);
+    const params = new URLSearchParams(window.location.search);
+    expect(params.get("from")).toBe("/shop");
+    expect(params.get("line")).toBe("line-1");
+    expect([...params.keys()].sort()).toEqual(["from", "line"]);
+  });
+
   it("Cancel takes the picks back out of the address bar and keeps `from`", () => {
     render(<BuyPanel imageId="img-1" isLoggedIn />);
     expand();

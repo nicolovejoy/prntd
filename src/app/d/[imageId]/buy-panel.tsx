@@ -256,38 +256,50 @@ export function BuyPanel({
   // state change must not rewrite history after that (#101).
   const navigatingAway = useRef(false);
 
-  // Keep the picks in the address bar (#278). replaceState, not
-  // router.replace: a router.replace next to a server-action call gets
-  // cancelled. Nothing is added while collapsed, so a browsing visitor's URL
-  // stays the bare page; Cancel takes the picks back out, so a reload does
-  // not reopen a panel the buyer closed.
+  // Keep the picks in the address bar while the panel is open (#278).
+  // replaceState, not router.replace: a router.replace next to a server-action
+  // call gets cancelled. Nothing is written while collapsed, so a browsing
+  // visitor's URL stays the bare page, and a collapsed mount leaves the URL
+  // exactly as it found it.
+  //
+  // Limit: replaceState is not seen by Next's router, which keeps its own URL
+  // for this entry. A later `router.refresh()` on this page (the owner
+  // renaming the title, for one) can put the address bar back to the URL the
+  // page was loaded with, without the picks. The panel's state is unaffected.
   useEffect(() => {
-    if (navigatingAway.current) return;
+    if (!expanded || navigatingAway.current) return;
     const next =
       window.location.pathname +
-      withBuyPagePicks(
-        window.location.search,
-        expanded
-          ? {
-              order: true,
-              product: productId,
-              size,
-              color,
-              back: back?.id ?? null,
-              swap: swapped && !!back,
-            }
-          : {
-              order: false,
-              product: null,
-              size: null,
-              color: null,
-              back: null,
-              swap: false,
-            }
-      );
+      withBuyPagePicks(window.location.search, {
+        order: true,
+        product: productId,
+        size,
+        color,
+        back: back?.id ?? null,
+        swap: swapped && !!back,
+      });
     if (next === window.location.pathname + window.location.search) return;
     window.history.replaceState(window.history.state, "", next);
   }, [expanded, productId, size, color, back, swapped]);
+
+  // Cancel (the buyer closing the panel) takes the picks back out, so a reload
+  // does not reopen a panel they closed. `from` and `line` stay. This runs
+  // from the click, not from the sync effect: only that transition removes
+  // picks, never a mount.
+  function removePicksFromUrl() {
+    const next =
+      window.location.pathname +
+      withBuyPagePicks(window.location.search, {
+        order: false,
+        product: null,
+        size: null,
+        color: null,
+        back: null,
+        swap: false,
+      });
+    if (next === window.location.pathname + window.location.search) return;
+    window.history.replaceState(window.history.state, "", next);
+  }
 
   function openBackPicker() {
     setBackPickerOpen(true);
@@ -432,6 +444,7 @@ export function BuyPanel({
         setBackPickerOpen(false);
         refocusExpand.current = true;
         setExpanded(false);
+        removePicksFromUrl();
       }}
       className="w-full min-h-11 text-sm underline text-text-muted hover:text-foreground"
     >
