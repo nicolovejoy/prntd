@@ -840,6 +840,37 @@ describe("BuyPanel picks in the URL (#278)", () => {
     expect(window.location.search).toBe(before);
   });
 
+  it("a page restored from the back/forward cache is usable again and syncs the URL (#278)", async () => {
+    // The label changes while the Order is in flight, so find it either way.
+    const orderButton = () =>
+      screen.getAllByRole("button", { name: /^(Order( — \$.+)?|Redirecting…)$/ })[0];
+    render(<BuyPanel imageId="img-1" isLoggedIn />);
+    expand();
+    fireEvent.click(screen.getByRole("button", { name: "M" }));
+    vi.mocked(buyPublishedDesign).mockImplementationOnce(
+      () => new Promise(() => {})
+    );
+    await act(async () => {
+      fireEvent.click(buyButton());
+    });
+    expect(orderButton()).toHaveTextContent("Redirecting…");
+    expect(orderButton()).toBeDisabled();
+
+    // A pageshow that is not a bfcache restore changes nothing.
+    act(() => {
+      window.dispatchEvent(Object.assign(new Event("pageshow"), { persisted: false }));
+    });
+    expect(orderButton()).toBeDisabled();
+
+    act(() => {
+      window.dispatchEvent(Object.assign(new Event("pageshow"), { persisted: true }));
+    });
+    expect(orderButton()).toBeEnabled();
+    expect(orderButton()).not.toHaveTextContent("Redirecting…");
+    fireEvent.click(screen.getByRole("button", { name: "L" }));
+    expect(new URLSearchParams(window.location.search).get("size")).toBe("L");
+  });
+
   it("starts with the link's back design, swapped", () => {
     render(
       <BuyPanel

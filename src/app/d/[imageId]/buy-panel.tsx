@@ -282,6 +282,21 @@ export function BuyPanel({
     window.history.replaceState(window.history.state, "", next);
   }, [expanded, productId, size, color, back, swapped]);
 
+  // Back from hosted Stripe can restore this page from the back/forward cache
+  // with its state as it was when the buyer left: the button on "Redirecting…"
+  // and the URL sync switched off. A persisted pageshow means exactly that, so
+  // hand the panel back.
+  useEffect(() => {
+    function onPageShow(event: PageTransitionEvent) {
+      if (!event.persisted) return;
+      navigatingAway.current = false;
+      setLoading(false);
+      setAddingToCart(false);
+    }
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, []);
+
   // Cancel (the buyer closing the panel) takes the picks back out, so a reload
   // does not reopen a panel they closed. `from` and `line` stay. This runs
   // from the click, not from the sync effect: only that transition removes
