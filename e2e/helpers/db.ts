@@ -104,31 +104,40 @@ export async function seedPublishedImage(
 ): Promise<{ designId: string; imageId: string; sellerId: string }> {
   const c = db();
   const sellerId = `e2e-seller-${key}`;
-  await c.execute({
-    sql: `INSERT INTO user (id, email, name, email_verified, is_anonymous, created_at, updated_at)
-          VALUES (?, ?, 'E2E Seller', 0, 0, unixepoch(), unixepoch())
-          ON CONFLICT(id) DO NOTHING`,
-    args: [sellerId, `${sellerId}@prntd.test`],
-  });
-  const designId = await seedDesign(sellerId, key);
+  const designId = `e2e-${key}`;
   const imageId = `e2e-${key}-img`;
-  await c.execute({
-    sql: `INSERT INTO listing (image_id, published_at, is_hidden, title, created_at)
-          VALUES (?, unixepoch(), 0, ?, unixepoch())
-          ON CONFLICT(image_id) DO NOTHING`,
-    args: [imageId, title],
-  });
-  await c.execute({
-    sql: `INSERT INTO product (id, owner_id, store_id, design_id, blank_id, placements, price, status, position, title, listed_at, created_at, updated_at)
-          VALUES (?, ?, NULL, NULL, NULL, ?, NULL, 'listed', 0, ?, unixepoch(), unixepoch(), unixepoch())
-          ON CONFLICT(id) DO NOTHING`,
-    args: [
-      `e2e-${key}-mirror`,
-      sellerId,
-      JSON.stringify({ front: imageId }),
-      title,
-    ],
-  });
+  try {
+    await c.execute({
+      sql: `INSERT INTO user (id, email, name, email_verified, is_anonymous, created_at, updated_at)
+            VALUES (?, ?, 'E2E Seller', 0, 0, unixepoch(), unixepoch())
+            ON CONFLICT(id) DO NOTHING`,
+      args: [sellerId, `${sellerId}@prntd.test`],
+    });
+    await seedDesign(sellerId, key);
+    await c.execute({
+      sql: `INSERT INTO listing (image_id, published_at, is_hidden, title, created_at)
+            VALUES (?, unixepoch(), 0, ?, unixepoch())
+            ON CONFLICT(image_id) DO NOTHING`,
+      args: [imageId, title],
+    });
+    await c.execute({
+      sql: `INSERT INTO product (id, owner_id, store_id, design_id, blank_id, placements, price, status, position, title, listed_at, created_at, updated_at)
+            VALUES (?, ?, NULL, NULL, NULL, ?, NULL, 'listed', 0, ?, unixepoch(), unixepoch(), unixepoch())
+            ON CONFLICT(id) DO NOTHING`,
+      args: [
+        `e2e-${key}-mirror`,
+        sellerId,
+        JSON.stringify({ front: imageId }),
+        title,
+      ],
+    });
+  } catch (err) {
+    // The caller never receives the ids, so its `finally` cannot clean up a
+    // half-seeded set: do it here, then rethrow.
+    await cleanupDesigns([designId]).catch(() => {});
+    await cleanupUser(sellerId).catch(() => {});
+    throw err;
+  }
   return { designId, imageId, sellerId };
 }
 

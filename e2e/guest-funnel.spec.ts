@@ -102,6 +102,7 @@ test("a guest's size and colour on the image detail page survive Sign in to buy 
   const key = `guest-buy-picks-${Date.now()}-${testInfo.project.name}`;
   let seededDesign = "";
   let sellerId = "";
+  let anonUserId = "";
   let claimedUserId = "";
 
   try {
@@ -112,7 +113,7 @@ test("a guest's size and colour on the image detail page survive Sign in to buy 
 
     // A guest session, minted the way a first-time visitor gets one.
     await page.goto("/design");
-    await waitForSessionCookie(page);
+    anonUserId = await userIdForSessionCookie(await waitForSessionCookie(page));
 
     await page.goto(imagePath);
     await page.getByTestId("order-expand").click();
@@ -133,6 +134,20 @@ test("a guest's size and colour on the image detail page survive Sign in to buy 
     await page.getByPlaceholder("Password").fill("e2e-password-123");
     await page.getByRole("button", { name: /Sign up/ }).click();
 
+    // Read the new account's id as soon as it exists, before any assertion
+    // that could fail, so the cleanup below always knows it (the claim mints
+    // a new session for a different user than the guest's).
+    await expect
+      .poll(
+        async () => {
+          const cookie = await waitForSessionCookie(page);
+          claimedUserId = await userIdForSessionCookie(cookie);
+          return claimedUserId;
+        },
+        { timeout: 30_000 }
+      )
+      .not.toBe(anonUserId);
+
     // Back on the same image, panel open, size and colour kept.
     await expect(
       page,
@@ -148,12 +163,13 @@ test("a guest's size and colour on the image detail page survive Sign in to buy 
     await expect(
       page.getByRole("button", { name: /^Order \u2014 \$\d/ })
     ).toBeEnabled();
-
-    const cookie = await waitForSessionCookie(page);
-    claimedUserId = await userIdForSessionCookie(cookie);
   } finally {
+    // Designs first (the mirror product FKs the seller), then every account
+    // the run made. The guest row is normally already gone after a claim;
+    // cleanupUser on a missing row deletes nothing.
     if (seededDesign) await cleanupDesigns([seededDesign]);
     if (sellerId) await cleanupUser(sellerId);
     if (claimedUserId) await cleanupUser(claimedUserId);
+    if (anonUserId) await cleanupUser(anonUserId);
   }
 });
