@@ -213,9 +213,10 @@ export default async function PublishedImagePage({
                 backLabel={up?.label}
                 isLoggedIn={isLoggedIn}
                 remembered={remembered}
-                // Back affordance is signed-in only (back selection would be
-                // lost through the sign-in redirect anyway) and flag-gated;
-                // the server action re-checks both.
+                // Back affordance is signed-in only (the picker lists the
+                // viewer's own designs, and a link's `back` is resolved only
+                // for a signed-in viewer) and flag-gated; the server action
+                // re-checks both.
                 backEnabled={isLoggedIn && multiPlacementEnabled()}
                 // Add to cart mirrors /preview's gating: flag + size picked,
                 // no auth gate (guests have carts; checkout gates sign-in,

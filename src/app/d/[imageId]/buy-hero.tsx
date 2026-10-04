@@ -54,11 +54,13 @@ const EMPTY_SLOT: SideSlot = {
  * `children` so its JSX stays authored in the server page), and
  * `PublishedImageView` also serves the owner's backdrop-picker mode, so buy
  * logic doesn't belong there. `BuyPanel` stays the single source of truth
- * for its own expanded/product/color/back/swap state; this wrapper just
- * mirrors it (via BuyPanel's report effects) to know what to render mockups
- * for, and stays mounted as one instance across the collapsed → expanded
- * hero change (same position in both returned trees) so BuyPanel's internal
- * state (size, back design, swap, expanded) survives it.
+ * for its own expanded/product/color/back/swap state. This wrapper starts
+ * from the same values (it replays the panel's precedence over the link's
+ * `initialPicks`, so a link that opens expanded fetches the right mockup on
+ * the first render) and then follows the panel through its report effects, to
+ * know what to render mockups for. It stays mounted as one instance across
+ * the collapsed → expanded hero change (same position in both returned trees)
+ * so BuyPanel's internal state (size, back design, swap, expanded) survives it.
  *
  * Collapsed: renders `PublishedImageView` unchanged — artwork on its pinned
  * backdrop, no mockup fetch, page stays cheap for browsers. Expanded: the

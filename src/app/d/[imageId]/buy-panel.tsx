@@ -153,8 +153,9 @@ export function BuyPanel({
       }).size
   );
   // The pinned backdrop color IS defaulted (the design is displayed on it),
-  // but labeled below so it's not a silent pick. A color the link chose is
-  // the buyer's own pick, not the designer's.
+  // but labeled below so it's not a silent pick. A color the link names wins
+  // over the pinned one; the note shows whenever the selected color equals the
+  // pinned one, however it got selected.
   const [color, setColor] = useState<string>(
     () =>
       resolveDefaultColor({
