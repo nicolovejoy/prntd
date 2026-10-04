@@ -136,12 +136,18 @@ test("a guest's size and colour on the image detail page survive Sign in to buy 
 
     // Read the new account's id as soon as it exists, before any assertion
     // that could fail, so the cleanup below always knows it (the claim mints
-    // a new session for a different user than the guest's).
+    // a new session for a different user than the guest's). Mid-claim the
+    // browser can still hold the guest's cookie after its session row is
+    // deleted, so a missing row means "not yet", not a failure.
     await expect
       .poll(
         async () => {
           const cookie = await waitForSessionCookie(page);
-          claimedUserId = await userIdForSessionCookie(cookie);
+          try {
+            claimedUserId = await userIdForSessionCookie(cookie);
+          } catch {
+            return anonUserId;
+          }
           return claimedUserId;
         },
         { timeout: 30_000 }
