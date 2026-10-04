@@ -12,7 +12,13 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import type Stripe from "stripe";
 import { createTestDb } from "@/lib/__tests__/test-db";
 import { makeUser, makeDesign, makeSourceImage } from "@/lib/__tests__/factories";
-import { buyPageHref } from "@/lib/buy-page-picks";
+import {
+  buyPageHref,
+  parseBuyPagePicks,
+  backToResolve,
+  buildInitialPicks,
+} from "@/lib/buy-page-picks";
+import { buyPagePlacements } from "@/lib/placement-pins";
 
 const h = vi.hoisted(() => ({
   db: null as unknown,
@@ -50,7 +56,7 @@ vi.mock("@/lib/stripe", () => ({
   },
 }));
 
-import { buyPublishedDesign } from "@/app/d/actions";
+import { buyPublishedDesign, resolveInitialBack } from "@/app/d/actions";
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
 
@@ -173,5 +179,81 @@ describe("buyPublishedDesign return paths (#278)", () => {
     const cancel = new URL(h.sessionParams[0].cancel_url as string);
     expect(cancel.searchParams.has("back")).toBe(false);
     expect(cancel.searchParams.has("swap")).toBe(false);
+  });
+});
+
+describe("the return path reopens the order that was created (#278)", () => {
+  /**
+   * Place the order, then do what the image detail page does with the link
+   * Stripe sends the buyer back to: parse it, resolve the back for the viewer,
+   * build the panel's starting picks, and derive the two sides the panel will
+   * show. Those must be the placements the order was created with.
+   */
+  async function reopenedSides(imageId: string) {
+    const cancel = new URL(h.sessionParams[0].cancel_url as string);
+    const picks = parseBuyPagePicks(Object.fromEntries(cancel.searchParams));
+    const backId = backToResolve(picks, {
+      published: true,
+      loggedIn: true,
+      multiPlacement: true,
+    });
+    const initialBack = backId ? await resolveInitialBack(imageId, backId) : null;
+    const initial = buildInitialPicks(picks, initialBack, imageId);
+    const sides = buyPagePlacements({
+      page: { id: imageId, imageUrl: "" },
+      added: initial.back,
+      swapped: initial.swapped,
+    });
+    return {
+      front: sides.front.id,
+      ...(sides.back ? { back: sides.back.id } : {}),
+    };
+  }
+
+  async function orderedPlacements() {
+    const lines = await (h.db as Db).query.orderItem.findMany();
+    expect(lines).toHaveLength(1);
+    return lines[0].placements;
+  }
+
+  it("an unswapped order with a back", async () => {
+    const ids = await seed(h.db as Db);
+    await buyPublishedDesign({
+      imageId: ids.listingId,
+      backImageId: ids.otherShopId,
+      ...OPTS,
+    });
+    expect(await reopenedSides(ids.listingId)).toEqual(await orderedPlacements());
+  });
+
+  it("a swapped order", async () => {
+    const ids = await seed(h.db as Db);
+    await buyPublishedDesign({
+      imageId: ids.listingId,
+      frontImageId: ids.otherShopId,
+      backImageId: ids.listingId,
+      ...OPTS,
+    });
+    const ordered = await orderedPlacements();
+    expect(ordered).toEqual({ front: ids.otherShopId, back: ids.listingId });
+    expect(await reopenedSides(ids.listingId)).toEqual(ordered);
+  });
+
+  it("the page image as its own back", async () => {
+    const ids = await seed(h.db as Db);
+    await buyPublishedDesign({
+      imageId: ids.listingId,
+      backImageId: ids.listingId,
+      ...OPTS,
+    });
+    const ordered = await orderedPlacements();
+    expect(ordered).toEqual({ front: ids.listingId, back: ids.listingId });
+    expect(await reopenedSides(ids.listingId)).toEqual(ordered);
+  });
+
+  it("an order with no back", async () => {
+    const ids = await seed(h.db as Db);
+    await buyPublishedDesign({ imageId: ids.listingId, ...OPTS });
+    expect(await reopenedSides(ids.listingId)).toEqual(await orderedPlacements());
   });
 });

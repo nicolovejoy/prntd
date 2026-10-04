@@ -4,6 +4,8 @@ import {
   parseBuyPagePicks,
   buyPageHref,
   withBuyPagePicks,
+  backToResolve,
+  buildInitialPicks,
 } from "@/lib/buy-page-picks";
 
 const blank = getBlankOrThrow(DEFAULT_BLANK_ID);
@@ -117,5 +119,54 @@ describe("withBuyPagePicks", () => {
 
   it("returns an empty string when nothing is left", () => {
     expect(withBuyPagePicks("?size=S", { size: null })).toBe("");
+  });
+});
+
+describe("backToResolve", () => {
+  const picks = parseBuyPagePicks({ order: "1", back: "img-b" });
+  const open = { published: true, loggedIn: true, multiPlacement: true };
+
+  it("asks for the link's back when every gate is open", () => {
+    expect(backToResolve(picks, open)).toBe("img-b");
+  });
+
+  it("asks for nothing when any gate is closed or the link has no back", () => {
+    expect(backToResolve(picks, { ...open, published: false })).toBeNull();
+    expect(backToResolve(picks, { ...open, loggedIn: false })).toBeNull();
+    expect(backToResolve(picks, { ...open, multiPlacement: false })).toBeNull();
+    expect(backToResolve(parseBuyPagePicks({ order: "1" }), open)).toBeNull();
+  });
+});
+
+describe("buildInitialPicks", () => {
+  const back = { id: "img-b", imageUrl: "https://img.example/b.png" };
+
+  it("carries the parsed picks and the resolved back", () => {
+    const picks = parseBuyPagePicks({
+      order: "1", product: blank.id, size: blank.sizes[0],
+      color: blank.colors[0].name, back: "img-b",
+    });
+    expect(buildInitialPicks(picks, back, "img-1")).toEqual({
+      expanded: true, productId: blank.id, size: blank.sizes[0],
+      color: blank.colors[0].name, back, swapped: false,
+    });
+  });
+
+  it("swapped needs a resolved back that is not the page's own image", () => {
+    const swapLink = parseBuyPagePicks({ back: "img-b", swap: "1" });
+    expect(buildInitialPicks(swapLink, back, "img-1").swapped).toBe(true);
+    // The server refused the back: no back, so no swap.
+    expect(buildInitialPicks(swapLink, null, "img-1")).toMatchObject({
+      back: null, swapped: false,
+    });
+    // The page image as its own back: nothing to swap.
+    const own = { id: "img-1", imageUrl: "https://img.example/1.png" };
+    expect(
+      buildInitialPicks(parseBuyPagePicks({ back: "img-1", swap: "1" }), own, "img-1").swapped
+    ).toBe(false);
+  });
+
+  it("a collapsed link starts collapsed", () => {
+    expect(buildInitialPicks(parseBuyPagePicks({}), null, "img-1").expanded).toBe(false);
   });
 });

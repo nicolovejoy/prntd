@@ -22,7 +22,11 @@ import { StartFromImage } from "./start-from-image";
 import { ConversationImages } from "./conversation-images";
 import { OwnerActions } from "./owner-actions";
 import { previewOrderHref } from "@/lib/placement-pins";
-import { parseBuyPagePicks } from "@/lib/buy-page-picks";
+import {
+  backToResolve,
+  buildInitialPicks,
+  parseBuyPagePicks,
+} from "@/lib/buy-page-picks";
 
 type Params = Promise<{ imageId: string }>;
 type Search = Promise<Record<string, string | string[] | undefined>>;
@@ -94,18 +98,13 @@ export default async function PublishedImagePage({
   // here, and the back image is checked against what this viewer may print.
   // Each invalid pick is dropped on its own.
   const picks = parseBuyPagePicks(sp);
-  const initialBack =
-    isPublished && isLoggedIn && multiPlacementEnabled() && picks.back
-      ? await resolveInitialBack(imageId, picks.back)
-      : null;
-  const initialPicks = {
-    expanded: picks.order,
-    productId: picks.product,
-    size: picks.size,
-    color: picks.color,
-    back: initialBack,
-    swapped: picks.swap && !!initialBack && initialBack.id !== imageId,
-  };
+  const backId = backToResolve(picks, {
+    published: isPublished,
+    loggedIn: isLoggedIn,
+    multiPlacement: multiPlacementEnabled(),
+  });
+  const initialBack = backId ? await resolveInitialBack(imageId, backId) : null;
+  const initialPicks = buildInitialPicks(picks, initialBack, imageId);
 
   const trail = breadcrumbTrail(`/d/${imageId}`, { from });
   const up = trail.length > 0 ? trail[trail.length - 1] : null;

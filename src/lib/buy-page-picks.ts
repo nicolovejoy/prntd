@@ -10,6 +10,7 @@
  * made here. No DB access.
  */
 import { ACTIVE_BLANKS } from "@/lib/blanks";
+import type { PlacementPick } from "@/lib/placement-pins";
 
 export type BuyPagePicks = {
   order: boolean;
@@ -109,4 +110,51 @@ export function withBuyPagePicks(
   setPicks(kept, { ...current, ...picks });
   const qs = kept.toString();
   return qs ? `?${qs}` : "";
+}
+
+/** What the page hands `BuyHero` / `BuyPanel` as `initialPicks`. */
+export type BuyPanelInitialPicks = {
+  expanded: boolean;
+  productId: string | null;
+  size: string | null;
+  color: string | null;
+  back: PlacementPick | null;
+  swapped: boolean;
+};
+
+/**
+ * The back image id the page should ask the server to resolve, or null when
+ * the link's `back` must not even be looked up: the image is not published,
+ * the viewer is not a signed-in real user, back designs are off, or the link
+ * has none. The server (`resolveInitialBack`) re-checks all of it; this keeps
+ * the lookup from running for a viewer who could never use the answer.
+ */
+export function backToResolve(
+  picks: BuyPagePicks,
+  gate: { published: boolean; loggedIn: boolean; multiPlacement: boolean }
+): string | null {
+  return gate.published && gate.loggedIn && gate.multiPlacement
+    ? picks.back
+    : null;
+}
+
+/**
+ * The panel's starting picks from the parsed link and the server's answer on
+ * the back (`null` when it was not asked, or refused). `swapped` needs a back
+ * that resolved and is not the page's own image (swapping an image with itself
+ * changes nothing).
+ */
+export function buildInitialPicks(
+  picks: BuyPagePicks,
+  initialBack: PlacementPick | null,
+  pageImageId: string
+): BuyPanelInitialPicks {
+  return {
+    expanded: picks.order,
+    productId: picks.product,
+    size: picks.size,
+    color: picks.color,
+    back: initialBack,
+    swapped: picks.swap && !!initialBack && initialBack.id !== pageImageId,
+  };
 }
