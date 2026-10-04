@@ -765,6 +765,18 @@ describe("BuyPanel picks in the URL (#278)", () => {
     expect(screen.getByRole("button", { name: "XL" })).toHaveAttribute("aria-pressed", "true");
   });
 
+  it("a link size only the remembered product offers is kept (no product in the link)", () => {
+    render(
+      <BuyPanel
+        imageId="img-1"
+        isLoggedIn
+        remembered={{ blankId: BOX, size: null }}
+        initialPicks={{ ...NONE, expanded: true, size: "3XL" }}
+      />
+    );
+    expect(screen.getByRole("button", { name: "3XL" })).toHaveAttribute("aria-pressed", "true");
+  });
+
   it("writes each pick to the address bar and keeps `from`", () => {
     render(<BuyPanel imageId="img-1" isLoggedIn />);
     expand();

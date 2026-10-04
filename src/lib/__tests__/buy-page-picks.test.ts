@@ -37,6 +37,26 @@ describe("parseBuyPagePicks", () => {
     expect(picks.color).toBe(blank.colors[0].name);
   });
 
+  it("with no product, keeps a size and colour that some active blank offers", () => {
+    // 3XL is not a Classic Tee size; the Box Tee has it. The panel decides
+    // against whichever product wins (link, remembered or default).
+    const only3xl = ACTIVE_BLANKS.find(
+      (b) => b.sizes.includes("3XL") && b.id !== DEFAULT_BLANK_ID
+    )!;
+    expect(blank.sizes).not.toContain("3XL");
+    expect(parseBuyPagePicks({ size: "3XL" }).size).toBe("3XL");
+    const exclusive = only3xl.colors.find(
+      (c) => !blank.colors.some((d) => d.name === c.name)
+    )!;
+    expect(parseBuyPagePicks({ color: exclusive.name }).color).toBe(exclusive.name);
+    // Still nothing for a size no active blank offers.
+    expect(parseBuyPagePicks({ size: "9XL" }).size).toBeNull();
+  });
+
+  it("with a named product, a size only another blank offers is dropped", () => {
+    expect(parseBuyPagePicks({ product: blank.id, size: "3XL" }).size).toBeNull();
+  });
+
   it("drops a size the product does not offer, keeps the rest", () => {
     const picks = parseBuyPagePicks({ product: blank.id, size: "9XL", color: blank.colors[0].name });
     expect(picks).toMatchObject({ product: blank.id, size: null, color: blank.colors[0].name });

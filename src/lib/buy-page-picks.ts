@@ -9,7 +9,7 @@
  * printed for this viewer is a server decision (`resolveInitialBack`), not
  * made here. No DB access.
  */
-import { ACTIVE_BLANKS, DEFAULT_BLANK_ID, getBlankOrThrow } from "@/lib/blanks";
+import { ACTIVE_BLANKS } from "@/lib/blanks";
 
 export type BuyPagePicks = {
   order: boolean;
@@ -40,18 +40,24 @@ function id(search: Search, key: string): string | null {
 export function parseBuyPagePicks(search: Search): BuyPagePicks {
   const urlProduct = first(search, "product");
   const blank = ACTIVE_BLANKS.find((b) => b.id === urlProduct);
-  // Size and colour validate against the product the link names, or the
-  // default blank when it names none (or a discontinued one). The panel
-  // re-validates against a remembered product if that wins.
-  const palette = blank ?? getBlankOrThrow(DEFAULT_BLANK_ID);
+  // Size and colour validate against the product the link names. With no
+  // product (or a discontinued one) the winner is not known here: it may be
+  // the viewer's remembered product, which only the panel can see. So a pick
+  // is kept when ANY active blank offers it, and the panel re-validates it
+  // against the product that wins (`resolveProductAndSize`,
+  // `resolveDefaultColor`).
+  const candidates = blank ? [blank] : ACTIVE_BLANKS;
   const size = first(search, "size");
   const color = first(search, "color");
   const back = id(search, "back");
   return {
     order: first(search, "order") === "1",
     product: blank ? blank.id : null,
-    size: size && palette.sizes.includes(size) ? size : null,
-    color: color && palette.colors.some((c) => c.name === color) ? color : null,
+    size: size && candidates.some((b) => b.sizes.includes(size)) ? size : null,
+    color:
+      color && candidates.some((b) => b.colors.some((c) => c.name === color))
+        ? color
+        : null,
     back,
     swap: !!back && first(search, "swap") === "1",
     line: id(search, "line"),
