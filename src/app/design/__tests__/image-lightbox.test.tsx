@@ -212,7 +212,7 @@ describe("ImageLightbox actions row", () => {
     renderLightbox();
     expect(screen.queryByTestId("lightbox-actions")).toBeNull();
     for (const name of [
-      "Make Products",
+      "Order",
       "Publish",
       "Delete",
       "Remove",
@@ -235,7 +235,7 @@ describe("ImageLightbox actions row", () => {
   it("with the /design callback set, every button renders", () => {
     renderLightbox(fullCallbacks());
     for (const name of [
-      "Make Products",
+      "Order",
       "New design from this",
       "Publish",
       "Delete",
@@ -252,7 +252,7 @@ describe("ImageLightbox actions row", () => {
         .getAllByRole("button")
         .map((b) => b.textContent)
     ).toEqual(["Delete"]);
-    for (const name of ["Make Products", "New design from this", "Publish"]) {
+    for (const name of ["Order", "New design from this", "Publish"]) {
       expect(screen.queryByRole("button", { name })).toBeNull();
     }
   });
@@ -279,17 +279,17 @@ describe("ImageLightbox actions row", () => {
         .map((b) => b.textContent)
     ).toEqual([
       "Use this one",
-      "Make Products",
+      "Order",
       "New design from this",
       "Publish",
       "Delete",
     ]);
   });
 
-  it("Make Products passes the image url; Delete passes the id", () => {
+  it("Order passes the image url; Delete passes the id", () => {
     const cbs = fullCallbacks();
     renderLightbox(cbs);
-    fireEvent.click(screen.getByRole("button", { name: "Make Products" }));
+    fireEvent.click(screen.getByRole("button", { name: "Order" }));
     expect(cbs.onMakeProducts).toHaveBeenCalledWith("https://img.example/b.png");
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
     expect(cbs.onDelete).toHaveBeenCalledWith("img-b");

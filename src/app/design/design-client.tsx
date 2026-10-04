@@ -748,8 +748,8 @@ function DesignPageInner({ initialThreadPromise, canPublish }: Props) {
   }
 
   // Stage thumbnail tap (#147): promote the image to the design's primary and
-  // lead with it. Same semantics as the lightbox's "make products for this
-  // image" minus the navigation — so the hero, /preview, and the My Designs
+  // lead with it. Same semantics as the lightbox's "Order" for this
+  // image minus the navigation — so the hero, /preview, and the My Designs
   // card thumbnail never disagree about which image the design is.
   async function handleSelectImage(imageUrl: string) {
     setSelectedImage(imageUrl);

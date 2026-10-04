@@ -67,6 +67,7 @@ vi.mock("../actions", () => ({
 }));
 
 import PreviewPage from "../page";
+import { breadcrumbTrail } from "@/lib/nav";
 import { getBackDesignSources } from "../actions";
 import { createCheckoutSession } from "../../order/actions";
 import { addToCart, isCartEnabled } from "../../cart/actions";
@@ -462,5 +463,54 @@ describe("/preview sends the shown front to checkout and cart (#269)", () => {
     params = new URLSearchParams(`${SIZED}&front=img-other`);
     render(<PreviewPage />);
     await waitFor(() => expect(getBackDesignSources).toHaveBeenCalled());
+  });
+});
+
+describe("/preview option order (#278)", () => {
+  it("renders Size above Colour", async () => {
+    params = new URLSearchParams(NO_BACK);
+    render(<PreviewPage />);
+    const size = await screen.findByText("Size");
+    const colour = screen.getByText(/^Color — /);
+    expect(
+      size.compareDocumentPosition(colour) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+});
+
+it("offers no design-size control (#278)", async () => {
+  params = new URLSearchParams(NO_BACK);
+  generateMockup.mockRejectedValue(new Error("printful down"));
+  render(<PreviewPage />);
+  await screen.findByText("Retry preview");
+  expect(screen.queryByText("Design size")).not.toBeInTheDocument();
+  expect(screen.queryByRole("slider")).not.toBeInTheDocument();
+});
+
+describe("/preview Cancel (#278)", () => {
+  it("links to the breadcrumb parent under Order and Add to cart", async () => {
+    params = new URLSearchParams(NO_BACK);
+    render(<PreviewPage />);
+    const links = await screen.findAllByRole("link", { name: "Cancel" });
+    // Desktop stack + phone sticky bar.
+    expect(links).toHaveLength(2);
+    const trail = breadcrumbTrail("/preview", {
+      id: "d1",
+      product: "bella-canvas-3001",
+    });
+    const parent = trail[trail.length - 1];
+    for (const l of links) expect(l.getAttribute("href")).toBe(parent.href);
+  });
+
+  it("the sticky bar's Cancel is hidden while the source picker is open", async () => {
+    params = new URLSearchParams(NO_BACK);
+    render(<PreviewPage />);
+    fireEvent.click(await screen.findByTestId("add-back-tile"));
+    await screen.findByText("Pick an image to print on the back.");
+    // Only the desktop stack's link remains (hidden below md); the sticky
+    // bar's is gone so the picker's own Cancel is the only one on a phone.
+    expect(screen.getAllByRole("link", { name: "Cancel" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(await screen.findAllByRole("link", { name: "Cancel" })).toHaveLength(2);
   });
 });
