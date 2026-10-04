@@ -873,6 +873,67 @@ describe("BuyPanel sign-in return (#278)", () => {
     expect(picks.get("size")).toBe("L");
   });
 
+  function signInPicks() {
+    const href = screen
+      .getAllByRole("link", { name: "Sign in to buy" })[0]
+      .getAttribute("href")!;
+    return new URL(nextOf(href), "http://x.invalid").searchParams;
+  }
+
+  it("untouched product and size: the link carries no product, so a remembered product wins after sign-in", () => {
+    render(<BuyPanel imageId="img-1" isLoggedIn={false} />);
+    expand();
+    const picks = signInPicks();
+    expect(picks.get("order")).toBe("1");
+    expect(picks.get("color")).toBeTruthy();
+    expect(picks.has("product")).toBe(false);
+    expect(picks.has("size")).toBe(false);
+  });
+
+  it("a size the buyer picked carries the product it was picked on", () => {
+    render(<BuyPanel imageId="img-1" isLoggedIn={false} />);
+    expand();
+    fireEvent.click(screen.getByRole("button", { name: "L" }));
+    const picks = signInPicks();
+    expect(picks.get("size")).toBe("L");
+    expect(picks.get("product")).toBe("bella-canvas-3001");
+  });
+
+  it("a product the buyer changed to is carried", () => {
+    render(<BuyPanel imageId="img-1" isLoggedIn={false} />);
+    expand();
+    fireEvent.click(screen.getByRole("button", { name: "Box Tee" }));
+    expect(signInPicks().get("product")).toBe(BOX);
+  });
+
+  it("a product that came from the link is carried", () => {
+    render(
+      <BuyPanel
+        imageId="img-1"
+        isLoggedIn={false}
+        initialPicks={{
+          expanded: true, productId: BOX, size: null, color: null, back: null, swapped: false,
+        }}
+      />
+    );
+    expect(signInPicks().get("product")).toBe(BOX);
+  });
+
+  it("a link size with no link product is carried without a product", () => {
+    render(
+      <BuyPanel
+        imageId="img-1"
+        isLoggedIn={false}
+        initialPicks={{
+          expanded: true, productId: null, size: "L", color: null, back: null, swapped: false,
+        }}
+      />
+    );
+    const picks = signInPicks();
+    expect(picks.get("size")).toBe("L");
+    expect(picks.has("product")).toBe(false);
+  });
+
   it("a signed-in Order that the server answers with needsAuth sends the same return path", async () => {
     vi.mocked(buyPublishedDesign).mockResolvedValueOnce({
       url: null,

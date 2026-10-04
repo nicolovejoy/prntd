@@ -167,6 +167,12 @@ export function BuyPanel({
     !!preferredColor &&
     color === preferredColor &&
     colors.some((c) => c.name === preferredColor);
+  // Whether the buyer chose a garment: the link named one, they switched
+  // product, or they picked a size (which is a pick on this garment). Only
+  // then does the sign-in link carry `product`; otherwise the product is the
+  // static default and a returning customer's remembered one should win
+  // after sign-in.
+  const [productChosen, setProductChosen] = useState(!!initialPicks?.productId);
   const [loading, setLoading] = useState(false);
   const [addingToCart, setAddingToCart] = useState(false);
   // One line under the CTAs when Order or Add to cart fails. The thrown
@@ -301,6 +307,7 @@ export function BuyPanel({
     const next = getBlank(id);
     if (!next) return;
     setProductId(id);
+    setProductChosen(true);
     if (size && !next.sizes.includes(size)) setSize(null);
     if (!next.colors.some((c) => c.name === color)) {
       setColor(
@@ -331,11 +338,12 @@ export function BuyPanel({
 
   // Sign-in returns to this page with the same shirt open (#278). Built from
   // state, not from the address bar, so it is right even before the first
-  // URL sync has run.
+  // URL sync has run. `product` is left out until the buyer has chosen a
+  // garment (see `productChosen`).
   const signInHref = `/sign-in?next=${encodeURIComponent(
     buyPageHref(imageId, {
       order: true,
-      product: productId,
+      product: productChosen ? productId : null,
       size,
       color,
       back: back?.id ?? null,
@@ -512,7 +520,10 @@ export function BuyPanel({
       <SizePicker
         sizes={sizes}
         value={size}
-        onChange={setSize}
+        onChange={(s) => {
+          setSize(s);
+          setProductChosen(true);
+        }}
         label={product?.sizeLabel ?? "Size"}
       />
       <ColorPicker
