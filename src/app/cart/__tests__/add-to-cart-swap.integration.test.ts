@@ -192,6 +192,8 @@ describe("addToCart swap on the frontImageId entry (#138 slice 3)", () => {
     expect(view.items[0].unitPrice).toBeCloseTo(front + BACK_PLACEMENT_UPCHARGE, 2);
     expect(view.items[0].hasBack).toBe(true);
     expect(view.items[0].imageUrl).toBe("https://img.example/other-shop.png");
+    // The back is the page image after a swap (#282): the cart shows it too.
+    expect(view.items[0].backImageUrl).toBe("https://img.example/listing.png");
   });
 
   it("survives checkoutCart into order_item placements, and the Stripe line shows the new front", async () => {

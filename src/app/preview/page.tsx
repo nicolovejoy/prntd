@@ -77,6 +77,10 @@ function setSides<T>(sides: Side[], value: T) {
   };
 }
 
+// Mockups and prints are always full size: there is no scale control, and no
+// scale reaches checkout or fulfillment (#278).
+const SCALE = 1.0;
+
 export default function PreviewPage() {
   return (
     <Suspense>
@@ -158,7 +162,6 @@ function PreviewPageInner() {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [zoomed, setZoomed] = useState(false);
   const [panOrigin, setPanOrigin] = useState({ x: 50, y: 50 });
-  const [scale, setScale] = useState(1.0);
 
   // Multi-placement (#25). Off-by-default flag keeps the back UI dark in
   // prod; when off, no back is ever shown so the whole flow is the
@@ -195,7 +198,7 @@ function PreviewPageInner() {
   const mockupCache = useRef<Map<string, string>>(new Map());
   // Latest-wins tokens (#71), one per side: every selection tap supersedes
   // the in-flight mockup fetches it affects, so a stale Printful response —
-  // whatever field it was for (color, product, back pick, scale) — can never
+  // whatever field it was for (color, product, back pick) — can never
   // overwrite the newer selection's state. Replaces per-field ref
   // comparisons, which missed A→B→A sequences. Per side because both sides
   // fetch on this page (#167): with one shared token the back's begin()
@@ -515,7 +518,7 @@ function PreviewPageInner() {
       side === "back"
         ? backImageId ?? undefined
         : effectiveFrontId ?? undefined;
-    const scaleKey = Math.round(scale * 100);
+    const scaleKey = Math.round(SCALE * 100);
     // Client cache key: the default front (no source segment) means the
     // primary this page loaded, which is what design.mockupUrls held at load
     // and what a front equal to it is. Only a pin that differs from it gets a
@@ -545,7 +548,7 @@ function PreviewPageInner() {
         designId,
         colorName,
         productId,
-        scale,
+        SCALE,
         side,
         sourceImageId
       );
@@ -903,7 +906,7 @@ function PreviewPageInner() {
         display={sideDisplay(side)}
         colorHex={colorHex}
         alt={sideAlt(side)}
-        artworkWidthPct={Math.round(scale * 62)}
+        artworkWidthPct={Math.round(SCALE * 62)}
         pendingLabel={sidePendingLabel(side)}
         onMockupLoad={(url) => setLoadedMockupUrl((l) => ({ ...l, [side]: url }))}
         error={sideError(side)}
@@ -931,13 +934,26 @@ function PreviewPageInner() {
     ? sourceUrls[backImageId] ?? lastArtwork.back
     : null;
 
+  const trail = breadcrumbTrail("/preview", {
+    id: designId ?? undefined,
+    product: productId,
+  });
+  // Cancel goes where the breadcrumb's up link goes; router.back() would
+  // leave the site on a deep link (#278).
+  const cancelHref = trail[trail.length - 1]?.href ?? "/studio";
+  const cancelLink = (
+    <Link
+      href={cancelHref}
+      className="min-h-11 flex items-center justify-center text-sm underline text-text-muted hover:text-foreground"
+    >
+      Cancel
+    </Link>
+  );
+
   return (
-    <div className="min-h-screen flex flex-col items-center py-6 md:py-12 px-4 pb-40 md:pb-12">
+    <div className="min-h-screen flex flex-col items-center py-6 md:py-12 px-4 pb-60 md:pb-12">
       <Breadcrumbs
-        trail={breadcrumbTrail("/preview", {
-          id: designId ?? undefined,
-          product: productId,
-        })}
+        trail={trail}
         current="Preview"
         className="w-full max-w-2xl mb-8"
       />
@@ -1014,7 +1030,7 @@ function PreviewPageInner() {
                 display={sideDisplay(layout.hero)}
                 colorHex={colorHex}
                 alt={sideAlt(layout.hero)}
-                artworkWidthPct={Math.round(scale * 62)}
+                artworkWidthPct={Math.round(SCALE * 62)}
                 pendingLabel={sidePendingLabel(layout.hero)}
                 onMockupLoad={(url) =>
                   setLoadedMockupUrl((l) => ({ ...l, [layout.hero]: url }))
@@ -1032,24 +1048,6 @@ function PreviewPageInner() {
                 <div className="w-64 md:w-80 mt-3 flex">{renderTile()}</div>
               )}
             </>
-          )}
-
-          {/* Scale slider — keyed off the hero side */}
-          {!showSourcePicker && !mockupLoading[layout.hero] && !heroMockup && (
-            <div className="w-full max-w-xs mt-4">
-              <div className="flex items-center justify-between text-xs text-text-muted mb-1">
-                <span>Design size</span>
-                <span>{Math.round(scale * 100)}%</span>
-              </div>
-              <input
-                type="range"
-                min={30}
-                max={100}
-                value={Math.round(scale * 100)}
-                onChange={(e) => setScale(Number(e.target.value) / 100)}
-                className="w-full h-2 accent-accent"
-              />
-            </div>
           )}
         </div>
 
@@ -1082,6 +1080,7 @@ function PreviewPageInner() {
             </div>
           </div>
 
+          <SizePicker sizes={sizes} value={size} onChange={setSize} label={sizeLabel} />
           <ColorPicker
             colors={colors}
             value={colorName}
@@ -1095,7 +1094,6 @@ function PreviewPageInner() {
                 : undefined
             }
           />
-          <SizePicker sizes={sizes} value={size} onChange={setSize} label={sizeLabel} />
 
           {/* Placements (#138, §6): the two printed sides as peer rows. The
               Front row is always offered — changing the front is not a
@@ -1221,6 +1219,7 @@ function PreviewPageInner() {
               {addingToCart ? "Adding…" : "Add to cart"}
             </Button>
           )}
+          <div className="hidden md:block">{cancelLink}</div>
           <div className="text-center">
             <Link
               href={`/design?id=${designId}`}
@@ -1334,6 +1333,9 @@ function PreviewPageInner() {
             {addingToCart ? "Adding…" : "Add to cart"}
           </Button>
         )}
+        {/* The picker has its own Cancel; two with opposite scope would
+            send a buyer leaving the picker off the page (#278 review). */}
+        {!showSourcePicker && cancelLink}
       </div>
     </div>
   );

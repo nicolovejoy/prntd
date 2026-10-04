@@ -198,7 +198,7 @@ export function ImageLightbox({
             {actions}
             {onMakeProducts && (
               <Button onClick={() => onMakeProducts(image.url)}>
-                Make Products
+                Order
               </Button>
             )}
             {onStartFrom && (
