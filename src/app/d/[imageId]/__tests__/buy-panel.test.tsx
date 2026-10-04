@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createRef } from "react";
 import { render, screen, fireEvent, act, within } from "@testing-library/react";
 import { getBlankOrThrow } from "@/lib/blanks";
@@ -730,5 +730,112 @@ describe("BuyPanel failure notices", () => {
     await screen.findAllByText(CHECKOUT_FAILED);
     fireEvent.click(buyButton());
     expect(screen.queryByText(CHECKOUT_FAILED)).not.toBeInTheDocument();
+  });
+});
+
+describe("BuyPanel picks in the URL (#278)", () => {
+  const classic = getBlankOrThrow("bella-canvas-3001");
+  const NONE = { expanded: false, productId: null, size: null, color: null, back: null, swapped: false };
+
+  beforeEach(() => window.history.replaceState(null, "", "/d/img-1?from=%2Fshop"));
+
+  it("opens expanded with the link's product, size and colour", () => {
+    render(
+      <BuyPanel
+        imageId="img-1"
+        isLoggedIn
+        initialPicks={{ ...NONE, expanded: true, productId: classic.id, size: "L", color: "Black" }}
+      />
+    );
+    expect(screen.queryByTestId("order-expand")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "L" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("Color — Black")).toBeInTheDocument();
+    expect(buyButton()).toBeEnabled();
+  });
+
+  it("the link beats the remembered defaults", () => {
+    render(
+      <BuyPanel
+        imageId="img-1"
+        isLoggedIn
+        remembered={{ blankId: classic.id, size: "S" }}
+        initialPicks={{ ...NONE, expanded: true, size: "XL" }}
+      />
+    );
+    expect(screen.getByRole("button", { name: "XL" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("writes each pick to the address bar and keeps `from`", () => {
+    render(<BuyPanel imageId="img-1" isLoggedIn />);
+    expand();
+    fireEvent.click(screen.getByRole("button", { name: "M" }));
+    const params = new URLSearchParams(window.location.search);
+    expect(params.get("from")).toBe("/shop");
+    expect(params.get("order")).toBe("1");
+    expect(params.get("size")).toBe("M");
+    expect(params.get("product")).toBe(classic.id);
+    expect(params.get("color")).toBeTruthy();
+  });
+
+  it("writes nothing while collapsed", () => {
+    render(<BuyPanel imageId="img-1" isLoggedIn />);
+    expect(window.location.search).toBe("?from=%2Fshop");
+  });
+
+  it("Cancel takes the picks back out of the address bar and keeps `from`", () => {
+    render(<BuyPanel imageId="img-1" isLoggedIn />);
+    expand();
+    fireEvent.click(screen.getByRole("button", { name: "M" }));
+    expect(new URLSearchParams(window.location.search).get("order")).toBe("1");
+    fireEvent.click(screen.getAllByRole("button", { name: "Cancel" })[0]);
+    expect(window.location.search).toBe("?from=%2Fshop");
+  });
+
+  it("writes nothing once Order has started a navigation away", async () => {
+    render(<BuyPanel imageId="img-1" isLoggedIn />);
+    expand();
+    fireEvent.click(screen.getByRole("button", { name: "M" }));
+    vi.mocked(buyPublishedDesign).mockImplementationOnce(
+      () => new Promise(() => {})
+    );
+    fireEvent.click(buyButton());
+    const before = window.location.search;
+    fireEvent.click(screen.getByRole("button", { name: "L" }));
+    expect(window.location.search).toBe(before);
+  });
+
+  it("starts with the link's back design, swapped", () => {
+    render(
+      <BuyPanel
+        imageId="img-1"
+        imageUrl="https://img.example/page.png"
+        isLoggedIn
+        backEnabled
+        initialPicks={{
+          ...NONE,
+          expanded: true,
+          back: { id: "back-1", imageUrl: "https://img.example/back-1.png" },
+          swapped: true,
+        }}
+      />
+    );
+    const front = within(screen.getByTestId("side-row-front")).getByAltText("Front design");
+    expect(front).toHaveAttribute("src", "https://img.example/back-1.png");
+  });
+
+  it("ignores a link's back when back designs are not enabled for this viewer", () => {
+    render(
+      <BuyPanel
+        imageId="img-1"
+        isLoggedIn={false}
+        initialPicks={{
+          ...NONE,
+          expanded: true,
+          back: { id: "back-1", imageUrl: "https://img.example/back-1.png" },
+        }}
+      />
+    );
+    expect(screen.queryByTestId("side-row-back")).not.toBeInTheDocument();
+    expect(new URLSearchParams(window.location.search).get("back")).toBeNull();
   });
 });

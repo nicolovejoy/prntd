@@ -11,7 +11,7 @@ import {
 import Link from "next/link";
 import { Button, InlineNotice } from "@/components/ui";
 import { SizePicker, ColorPicker } from "@/components/product-options";
-import { ACTIVE_BLANKS, DEFAULT_BLANK_ID, getBlank } from "@/lib/blanks";
+import { ACTIVE_BLANKS, getBlank } from "@/lib/blanks";
 import {
   computePrice,
   computeOrderTotal,
@@ -19,8 +19,10 @@ import {
 } from "@/lib/pricing";
 import {
   resolveDefaultColor,
+  resolveProductAndSize,
   type PurchaseDefaults,
 } from "@/lib/purchase-defaults";
+import { buyPageHref, withBuyPagePicks } from "@/lib/buy-page-picks";
 import type { BackSourceGroup } from "@/lib/back-sources";
 import { ensureGuestSession } from "@/lib/ensure-guest-session";
 import { buyPagePlacements, type PlacementPick } from "@/lib/placement-pins";
@@ -65,6 +67,7 @@ export function BuyPanel({
   backEnabled = false,
   cartEnabled = false,
   startAction,
+  initialPicks,
   onExpandedChange,
   onProductChange,
   onColorChange,
@@ -94,6 +97,18 @@ export function BuyPanel({
   /** Peer CTA rendered next to Order while collapsed and kept below the
    * stack once expanded (the StartFromImage remix action). */
   startAction?: ReactNode;
+  /** Picks carried by the link (#278): the panel starts from them and keeps
+   * the address bar in step, so a reload, the sign-in detour and a return
+   * from Stripe all come back to the same shirt. Precedence: link >
+   * remembered > static. */
+  initialPicks?: {
+    expanded: boolean;
+    productId: string | null;
+    size: string | null;
+    color: string | null;
+    back: BackPick | null;
+    swapped: boolean;
+  };
   /** Mirrors this panel's expanded/product/color state up to a wrapper
    * (#135 slice 1: the Order-expand hero swap needs to know what to render
    * a mockup for). This panel stays the source of truth for its own state —
@@ -112,35 +127,46 @@ export function BuyPanel({
 }) {
   // Progressive disclosure (#128): the picker stack stays hidden until the
   // visitor taps Order.
-  const [expanded, setExpanded] = useState(false);
-  // Remembered product wins over the static default (#44). No URL params on
-  // this surface, so precedence is remembered > static.
+  const [expanded, setExpanded] = useState(initialPicks?.expanded ?? false);
+  // Precedence is link > remembered (#44) > static default (#278).
   const [productId, setProductId] = useState(
-    () => (remembered && getBlank(remembered.blankId) ? remembered.blankId : DEFAULT_BLANK_ID)
+    () =>
+      resolveProductAndSize({
+        urlProduct: initialPicks?.productId ?? null,
+        urlSize: initialPicks?.size ?? null,
+        remembered: remembered ?? null,
+      }).productId
   );
   const product = getBlank(productId);
   const sizes = product?.sizes ?? [];
   const colors = product?.colors ?? [];
 
-  // No silent size (#60): a remembered size pre-selects a *visible* chip the
-  // buyer can change; with nothing remembered the CTA stays disabled until a
+  // No silent size (#60): a link's or remembered size pre-selects a *visible*
+  // chip the buyer can change; with neither the CTA stays disabled until a
   // pick.
-  const [size, setSize] = useState<string | null>(() => {
-    const s = remembered?.size;
-    return s && (getBlank(productId)?.sizes ?? []).includes(s) ? s : null;
-  });
+  const [size, setSize] = useState<string | null>(
+    () =>
+      resolveProductAndSize({
+        urlProduct: initialPicks?.productId ?? null,
+        urlSize: initialPicks?.size ?? null,
+        remembered: remembered ?? null,
+      }).size
+  );
   // The pinned backdrop color IS defaulted (the design is displayed on it),
-  // but labeled below so it's not a silent pick.
-  const pinnedColorApplied =
-    !!preferredColor && colors.some((c) => c.name === preferredColor);
+  // but labeled below so it's not a silent pick. A color the link chose is
+  // the buyer's own pick, not the designer's.
   const [color, setColor] = useState<string>(
     () =>
       resolveDefaultColor({
-        urlColor: null,
+        urlColor: initialPicks?.color ?? null,
         pinnedColor: preferredColor ?? null,
         palette: colors,
       }).color
   );
+  const pinnedColorApplied =
+    !!preferredColor &&
+    color === preferredColor &&
+    colors.some((c) => c.name === preferredColor);
   const [loading, setLoading] = useState(false);
   const [addingToCart, setAddingToCart] = useState(false);
   // One line under the CTAs when Order or Add to cart fails. The thrown
@@ -165,7 +191,9 @@ export function BuyPanel({
 
   // Back design (#25 on /d): picked source image, the picker's open state,
   // and its groups (null until first fetched — one fetch per page view).
-  const [back, setBack] = useState<BackPick | null>(null);
+  const [back, setBack] = useState<BackPick | null>(
+    () => (backEnabled ? (initialPicks?.back ?? null) : null)
+  );
   const [backPickerOpen, setBackPickerOpen] = useState(false);
   // Cancel unmounts the focused button; hand focus to the control that
   // re-expands the panel instead of dropping it on <body> (#278 review).
@@ -180,7 +208,9 @@ export function BuyPanel({
   const [backGroups, setBackGroups] = useState<BackSourceGroup[] | null>(null);
   // Swap (#138 slice 3): the pick on the front, this page's image on the
   // back. Only meaningful with a pick; picking or removing one resets it.
-  const [swapped, setSwapped] = useState(false);
+  const [swapped, setSwapped] = useState(
+    () => backEnabled && !!initialPicks?.back && !!initialPicks.swapped
+  );
   const sides = buyPagePlacements({
     page: { id: imageId, imageUrl: imageUrl ?? "" },
     added: back,
@@ -215,6 +245,43 @@ export function BuyPanel({
     onFrontChange?.(sides.front);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sides.front.id]);
+
+  // Set the moment a navigation away starts (checkout, add to cart): a late
+  // state change must not rewrite history after that (#101).
+  const navigatingAway = useRef(false);
+
+  // Keep the picks in the address bar (#278). replaceState, not
+  // router.replace: a router.replace next to a server-action call gets
+  // cancelled. Nothing is added while collapsed, so a browsing visitor's URL
+  // stays the bare page; Cancel takes the picks back out, so a reload does
+  // not reopen a panel the buyer closed.
+  useEffect(() => {
+    if (navigatingAway.current) return;
+    const next =
+      window.location.pathname +
+      withBuyPagePicks(
+        window.location.search,
+        expanded
+          ? {
+              order: true,
+              product: productId,
+              size,
+              color,
+              back: back?.id ?? null,
+              swap: swapped && !!back,
+            }
+          : {
+              order: false,
+              product: null,
+              size: null,
+              color: null,
+              back: null,
+              swap: false,
+            }
+      );
+    if (next === window.location.pathname + window.location.search) return;
+    window.history.replaceState(window.history.state, "", next);
+  }, [expanded, productId, size, color, back, swapped]);
 
   function openBackPicker() {
     setBackPickerOpen(true);
@@ -264,6 +331,7 @@ export function BuyPanel({
 
   async function handleBuy() {
     if (!size) return;
+    navigatingAway.current = true;
     setLoading(true);
     setNotice(null);
     try {
@@ -281,6 +349,7 @@ export function BuyPanel({
       }
       if (url) window.location.href = url;
     } catch {
+      navigatingAway.current = false;
       setNotice(CHECKOUT_FAILED);
       setLoading(false);
     }
@@ -288,6 +357,7 @@ export function BuyPanel({
 
   async function handleAddToCart() {
     if (!size) return;
+    navigatingAway.current = true;
     setAddingToCart(true);
     setNotice(null);
     try {
@@ -310,6 +380,7 @@ export function BuyPanel({
       // (not router.push — see preview/page.tsx handleAddToCart).
       window.location.href = "/cart";
     } catch {
+      navigatingAway.current = false;
       setNotice(ADD_TO_CART_FAILED);
       setAddingToCart(false);
     }
