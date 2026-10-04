@@ -139,7 +139,7 @@ export function DesignStage({
                 size="sm"
                 data-testid="stage-make-products"
               >
-                Make Products &rarr;
+                Order &rarr;
               </Button>
             </div>
           )}

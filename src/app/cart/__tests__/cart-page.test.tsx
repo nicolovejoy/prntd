@@ -37,6 +37,7 @@ const ONE_ITEM: CartView = {
       quantity: 1,
       unitPrice: 19.43,
       imageUrl: null,
+      backImageUrl: null,
     },
   ],
   itemSubtotal: 19.43,
@@ -161,5 +162,31 @@ describe("CartPage row shape (Paper)", () => {
       await screen.findByRole("button", { name: "Add another design" })
     );
     expect(push).toHaveBeenCalledWith("/studio");
+  });
+
+  it("shows the back design beside the front on a two-sided line (#282)", async () => {
+    getCart.mockResolvedValue({
+      ...ONE_ITEM,
+      items: [
+        {
+          ...ONE_ITEM.items[0],
+          hasBack: true,
+          imageUrl: "https://example.com/front.png",
+          backImageUrl: "https://example.com/back.png",
+        },
+      ],
+    });
+    render(<CartPage />);
+    const back = await screen.findByTestId("cart-line-back");
+    expect(back.querySelector("img")?.getAttribute("src")).toBe(
+      "https://example.com/back.png"
+    );
+  });
+
+  it("shows one thumbnail on a front-only line", async () => {
+    getCart.mockResolvedValue(ONE_ITEM_WITH_IMAGE);
+    render(<CartPage />);
+    await screen.findByTestId("cart-line-item");
+    expect(screen.queryByTestId("cart-line-back")).not.toBeInTheDocument();
   });
 });

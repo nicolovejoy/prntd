@@ -3,6 +3,7 @@
 import {
   useEffect,
   useImperativeHandle,
+  useRef,
   useState,
   type ReactNode,
   type Ref,
@@ -43,7 +44,8 @@ export type BuyPanelHandle = {
  * CTAs under the image — "Order" (no price: the total depends on options
  * not yet picked) and the remix action passed in as
  * `startAction`. Tapping Order expands the picker stack in place
- * (product/size/color/back-design/price); buy stays gated on size only.
+ * (product/size/color/back-design, and price once a size is picked); buy
+ * stays gated on size only. Cancel under the CTAs collapses it again.
  * With a back picked the buyer can swap the two sides (#138 slice 3): the
  * picked image goes on the front and this page's image on the back. That is
  * the only front change this page offers (no front picker, §1 of
@@ -165,6 +167,16 @@ export function BuyPanel({
   // and its groups (null until first fetched — one fetch per page view).
   const [back, setBack] = useState<BackPick | null>(null);
   const [backPickerOpen, setBackPickerOpen] = useState(false);
+  // Cancel unmounts the focused button; hand focus to the control that
+  // re-expands the panel instead of dropping it on <body> (#278 review).
+  const expandButton = useRef<HTMLButtonElement>(null);
+  const refocusExpand = useRef(false);
+  useEffect(() => {
+    if (!expanded && refocusExpand.current) {
+      refocusExpand.current = false;
+      expandButton.current?.focus();
+    }
+  }, [expanded]);
   const [backGroups, setBackGroups] = useState<BackSourceGroup[] | null>(null);
   // Swap (#138 slice 3): the pick on the front, this page's image on the
   // back. Only meaningful with a pick; picking or removing one resets it.
@@ -234,16 +246,17 @@ export function BuyPanel({
     }
   }
 
-  // Price display before a size is picked uses the base size — S–XL share a
-  // price; a 2XL pick updates it live. The Design line stays the front-only
-  // price; a picked back design adds its own +$8 line.
-  const sizeForPrice = size ?? sizes[0] ?? "M";
-  const frontPrice = computePrice(0, productId, sizeForPrice).total;
-  // A swap moves images between sides; a back exists either way, so it
-  // never moves the price.
-  const { shipping, total } = computeOrderTotal(
-    computePrice(0, productId, sizeForPrice, { back: !!sides.back }).total
-  );
+  // No number before a size is picked (owner rule, 2026-09-08): the total
+  // depends on it. The Design line stays the front-only price; a picked back
+  // design adds its own line. A swap never moves the price.
+  const priced = size
+    ? {
+        front: computePrice(0, productId, size).total,
+        ...computeOrderTotal(
+          computePrice(0, productId, size, { back: !!sides.back }).total
+        ),
+      }
+    : null;
   // The front travels only when it isn't this page's image — the common
   // request stays byte-identical to the pre-swap shape.
   const frontOverride =
@@ -317,6 +330,22 @@ export function BuyPanel({
     </Button>
   ) : null;
 
+  // A text link, not a third button; collapses the panel back to the artwork
+  // (#278). Never disabled.
+  const cancelButton = (
+    <button
+      type="button"
+      onClick={() => {
+        setBackPickerOpen(false);
+        refocusExpand.current = true;
+        setExpanded(false);
+      }}
+      className="w-full min-h-11 text-sm underline text-text-muted hover:text-foreground"
+    >
+      Cancel
+    </button>
+  );
+
   const cta = isLoggedIn ? (
     <div className="space-y-1.5">
       {!size && (
@@ -328,9 +357,14 @@ export function BuyPanel({
         size="lg"
         className="w-full"
       >
-        {loading ? "Redirecting…" : `Order — $${total.toFixed(2)}`}
+        {loading
+          ? "Redirecting…"
+          : priced
+            ? `Order — $${priced.total.toFixed(2)}`
+            : "Order"}
       </Button>
       {addToCartButton}
+      {cancelButton}
       {notice && <InlineNotice message={notice} className="text-center" />}
     </div>
   ) : (
@@ -344,6 +378,7 @@ export function BuyPanel({
         </Button>
       </Link>
       {addToCartButton}
+      {cancelButton}
       {notice && <InlineNotice message={notice} className="text-center" />}
     </div>
   );
@@ -356,6 +391,7 @@ export function BuyPanel({
           className="w-full"
           onClick={() => setExpanded(true)}
           aria-expanded={false}
+          ref={expandButton}
           data-testid="order-expand"
         >
           Order
@@ -526,29 +562,31 @@ export function BuyPanel({
         </div>
       )}
 
-      <div className="border-t border-border pt-4">
-        <p className={`${MONO_LABEL} mb-2`}>Price</p>
-        <div className="space-y-2 text-sm">
-          <div className="flex justify-between">
-            <span className="text-text-muted">Design</span>
-            <span>${frontPrice.toFixed(2)}</span>
-          </div>
-          {back && (
+      {priced && (
+        <div className="border-t border-border pt-4">
+          <p className={`${MONO_LABEL} mb-2`}>Price</p>
+          <div className="space-y-2 text-sm">
             <div className="flex justify-between">
-              <span className="text-text-muted">Back design</span>
-              <span>+${BACK_PLACEMENT_UPCHARGE.toFixed(2)}</span>
+              <span className="text-text-muted">Design</span>
+              <span>${priced.front.toFixed(2)}</span>
             </div>
-          )}
-          <div className="flex justify-between">
-            <span className="text-text-muted">Shipping</span>
-            <span>${shipping.toFixed(2)}</span>
-          </div>
-          <div className="flex justify-between font-medium border-t border-border pt-2">
-            <span>Total</span>
-            <span>${total.toFixed(2)}</span>
+            {back && (
+              <div className="flex justify-between">
+                <span className="text-text-muted">Back design</span>
+                <span>+${BACK_PLACEMENT_UPCHARGE.toFixed(2)}</span>
+              </div>
+            )}
+            <div className="flex justify-between">
+              <span className="text-text-muted">Shipping</span>
+              <span>${priced.shipping.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between font-medium border-t border-border pt-2">
+              <span>Total</span>
+              <span>${priced.total.toFixed(2)}</span>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Desktop: CTA sits inline below the price breakdown. */}
       <div className="hidden md:block">{cta}</div>

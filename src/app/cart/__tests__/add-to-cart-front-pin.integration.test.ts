@@ -234,6 +234,7 @@ describe("addToCart with frontImageId (#146)", () => {
     const view = await getCart();
     expect(view.items).toHaveLength(1);
     expect(view.items[0].imageUrl).toBe("https://img.example/listing.png");
+    expect(view.items[0].backImageUrl).toBeNull();
   });
 
   it("survives checkoutCart into order_item placements (what Printful prints)", async () => {

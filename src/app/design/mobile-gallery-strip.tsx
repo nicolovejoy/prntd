@@ -5,7 +5,7 @@ import type { DesignImage, ProductVersionGroup } from "@/lib/design-images";
 // Mobile-only strip docked above the composer: real thumbnails of the
 // generated previews (newest first, selected one highlighted), horizontally
 // scrollable. Tapping a thumbnail opens the lightbox; the "All" tile opens
-// the full gallery drawer (product versions + Make Products live there).
+// the full gallery drawer (product versions + Order live there).
 // Replaces the numbered FAB, which floated over content and didn't read as
 // "your previews".
 export function MobileGalleryStrip({

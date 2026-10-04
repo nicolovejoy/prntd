@@ -122,7 +122,7 @@ export function ImageGallery({
             className="w-full"
             size="sm"
           >
-            Make Products &rarr;
+            Order &rarr;
           </Button>
         </div>
       )}
