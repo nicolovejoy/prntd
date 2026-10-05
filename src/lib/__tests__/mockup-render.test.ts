@@ -239,8 +239,8 @@ describe("renderAndCacheMockup", () => {
     });
 
     // The rejected source never falls back to the display image — an
-    // explicit-but-unusable pick throws "No design image" rather than
-    // silently rendering something else.
+    // explicit-but-unusable pick throws rather than silently rendering
+    // something else.
     await expect(
       renderAndCacheMockup({
         designId: design.id,
@@ -251,7 +251,7 @@ describe("renderAndCacheMockup", () => {
         sourceImageId: privateSourceId,
         userId: "stranger",
       })
-    ).rejects.toThrow("No design image");
+    ).rejects.toThrow("Source image is not available");
     expect(printful.createMockupTask).not.toHaveBeenCalled();
   });
 
@@ -400,7 +400,7 @@ describe("renderAndCacheMockup: an explicit source that is a render (second fix 
         sourceImageId: ids.renderId,
         userId: "owner",
       })
-    ).rejects.toThrow("No design image");
+    ).rejects.toThrow("Source image is not available");
     expect(printful.createMockupTask).not.toHaveBeenCalled();
   });
 

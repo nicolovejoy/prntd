@@ -165,9 +165,12 @@ export function canBuyImage(params: {
  * or renders a placement: `createCheckoutSession`, `addToCart`,
  * `buyPublishedDesign`, `getListingMockup` / `getListingBackMockup`,
  * `resolveInitialBack`, `cartLineStillValid`, and (through
- * `placementSourceUsable`) `renderAndCacheMockup` and
- * `getOrCreatePlacementRender`, so a forged image id can't get a private or
- * hidden image printed and the pickers' reach and the guard agree. This
+ * `placementSourceUsable`) `getOrCreatePlacementRender` and
+ * `renderAndCacheMockup`. The latter judges every explicit source before its
+ * cached-mockup and cached-render lookups, so a source cached while it was
+ * usable is refused once it is not. A forged image id can't get a private or
+ * hidden image printed or mocked up, and the pickers' reach and the guard
+ * agree. This
  * function judges ONE resolved image; a `placement_render` pin is also judged
  * by the image it was rendered from (`placementSourceUsable`,
  * src/lib/back-sources.ts), because a render alone looks unpublished, not

@@ -37,9 +37,8 @@ export type RenderMockupParams = {
    * non-front placement so the mockup matches the picked source and the
    * cache key doesn't collide across back choices. */
   sourceImageId?: string;
-  /** Requesting user, for the cross-design placement-source guard exercised
-   * when an explicit source has no placement-render row yet (a fresh /
-   * cross-design pick). Null for a signed-out visitor to a published image's
+  /** Requesting user, for the placement-source guard run on every explicit
+   * source before any cached mockup or placement render is served. Null for a signed-out visitor to a published image's
    * page, who reaches only published, not-hidden sources through the guard
    * (`canUseAsPlacementSource`, which refuses a hidden image for everyone).
    * The callers have already gated the PAGE image (ownership for `/preview`,
@@ -65,6 +64,21 @@ export async function renderAndCacheMockup(
     where: eq(designTable.id, designId),
   });
   if (!found) throw new Error("Design not found");
+
+  // An explicit source is judged before anything is served for it. A cached
+  // mockup URL and a cached placement render both answer without looking at
+  // the source image again, so without this check a source that was cached
+  // while it was published (or the caller's own) would keep rendering after
+  // it was unpublished or admin-hidden. Every caller passes its own `userId`,
+  // and every caller's source is either the caller's own image or a published,
+  // visible one, so a legitimate request clears this on every call.
+  let source: Awaited<ReturnType<typeof getDesignImageWithOwner>> = null;
+  if (sourceImageId) {
+    source = await getDesignImageWithOwner(sourceImageId);
+    if (!source || !(await placementSourceUsable(source, designId, userId ?? ""))) {
+      throw new Error("Source image is not available for this design");
+    }
+  }
 
   // Clamp scale to valid range
   const clampedScale = Math.max(0.3, Math.min(1.0, params.scale));
@@ -120,13 +134,10 @@ export async function renderAndCacheMockup(
     sourceImageId ?? found.primaryImageId ?? undefined
   );
   let sourceImageUrl = placementRender?.imageUrl ?? null;
-  if (!sourceImageUrl && sourceImageId) {
-    // Explicit source pick — may live on another design (#72). Same guard as
-    // getOrCreatePlacementRender so an arbitrary id can't be mocked up.
-    const source = await getDesignImageWithOwner(sourceImageId);
-    if (source && (await placementSourceUsable(source, designId, userId ?? ""))) {
-      sourceImageUrl = source.imageUrl;
-    }
+  if (!sourceImageUrl && source) {
+    // Explicit source pick — may live on another design (#72). Already held to
+    // placementSourceUsable above, before any cache could answer.
+    sourceImageUrl = source.imageUrl;
   } else if (!sourceImageUrl) {
     sourceImageUrl = await getDesignDisplayImageUrl(designId);
   }
