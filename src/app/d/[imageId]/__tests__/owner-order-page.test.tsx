@@ -314,6 +314,23 @@ describe("the back arrow's fallback origin (fix G)", () => {
     expect(arrow()).toHaveAttribute("href", "/shop");
   });
 
+  it.each(["", "//evil.example", "/d/img-1"])(
+    "a private image with from=%j falls back to My Designs",
+    async (from) => {
+      await renderPage({ from });
+      expect(arrow()).toHaveAccessibleName("Back to My Designs");
+    }
+  );
+
+  it.each(["", "//evil.example", "/d/img-1"])(
+    "a published image with from=%j falls back to the Shop",
+    async (from) => {
+      h.image = imagePage({ publishedAt: new Date(), title: "Fox", backgroundColor: "Black" });
+      await renderPage({ from });
+      expect(arrow()).toHaveAccessibleName("Back to Shop");
+    }
+  );
+
   it("an explicit `from` on a private image is kept", async () => {
     await renderPage({ from: "/orders" });
     expect(arrow()).toHaveAccessibleName("Back to Orders");
