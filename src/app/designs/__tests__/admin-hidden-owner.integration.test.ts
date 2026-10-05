@@ -10,7 +10,6 @@
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { and, eq, isNull } from "drizzle-orm";
-import type Stripe from "stripe";
 import { createTestDb } from "@/lib/__tests__/test-db";
 import { makeUser, makeDesign, makeSourceImage } from "@/lib/__tests__/factories";
 import * as schema from "@/lib/db/schema";
@@ -43,7 +42,7 @@ vi.mock("@/lib/stripe", () => ({
   stripe: {
     checkout: {
       sessions: {
-        create: vi.fn(async (_p: Stripe.Checkout.SessionCreateParams) => {
+        create: vi.fn(async () => {
           h.stripeCalls += 1;
           return { id: "cs_test_hide", url: "https://checkout.stripe.example/x" };
         }),
