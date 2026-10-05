@@ -32,6 +32,8 @@ import { estimateOrderCosts } from "@/lib/printful";
 import { stripe } from "@/lib/stripe";
 import { buildCartCheckoutSessionParams } from "@/lib/checkout";
 import { cartEnabled } from "@/lib/flags";
+import { cartLineStillValid } from "@/lib/cart-line-check";
+import { CART_LINE_UNAVAILABLE } from "@/lib/action-copy";
 
 /** Whether the cart UI (nav link, Add-to-cart) should show. Client-readable. */
 export async function isCartEnabled(): Promise<boolean> {
@@ -63,6 +65,10 @@ export type CartLine = {
   imageUrl: string | null;
   /** The back design's artwork, when the line has one (#282). */
   backImageUrl: string | null;
+  /** The line would not be accepted if added now (an image it pins is no
+   * longer something this user may order or print): the cart marks it and
+   * checkout refuses until it is removed. */
+  unavailable: boolean;
 };
 
 export type CartView = {
@@ -311,6 +317,10 @@ export async function getCart(): Promise<CartView> {
       backImageUrl: r.placements?.back
         ? pinnedById.get(r.placements.back)?.imageUrl ?? null
         : null,
+      unavailable: !(await cartLineStillValid(
+        { designId: r.designId, placements: r.placements ?? null },
+        userId
+      )),
     });
   }
 
@@ -328,11 +338,14 @@ export async function getCart(): Promise<CartView> {
  * gate lives here: anonymous guests get { needsAuth } and sign in first (the
  * cart re-parents to them on sign-in, so it survives). Writes the order +
  * order_item rows and charges N product lines + one bundled shipping line;
- * the cart itself is cleared by the webhook on payment (#38).
+ * the cart itself is cleared by the webhook on payment (#38). Every line is
+ * re-checked first (`cartLineStillValid`); any stale line refuses the whole
+ * checkout with `{ error }` and writes nothing.
  */
 export async function checkoutCart(): Promise<{
   url: string | null;
   needsAuth?: boolean;
+  error?: string;
 }> {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session || isAnonymousUser(session.user)) {
@@ -342,6 +355,16 @@ export async function checkoutCart(): Promise<{
 
   const view = await getCart();
   if (view.items.length === 0) return { url: null };
+
+  // Every line is re-checked as if it were added now (getCart marks each one):
+  // a line validated at add time can have gone stale since (the owner
+  // unpublished the image, an admin hid it). One stale line refuses the whole
+  // checkout before anything is written; the cart is left as it is so the
+  // buyer can remove the line. Returned as data, not thrown, so the message
+  // survives production's masking of server-action errors.
+  if (view.items.some((i) => i.unavailable)) {
+    return { url: null, error: CART_LINE_UNAVAILABLE };
+  }
 
   // Order-level row: money + linkage only (Phase 1c). designId mirrors the
   // first line as header linkage; what was bought lives in order_item.

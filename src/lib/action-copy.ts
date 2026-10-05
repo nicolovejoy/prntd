@@ -93,3 +93,14 @@ export const adminCannotRefund = (reason: string) => `Cannot refund: ${reason}`;
 export const ERROR_BOUNDARY_TITLE = "Something went wrong loading this page.";
 export const ERROR_BOUNDARY_RETRY = "Try again";
 export const ERROR_BOUNDARY_HOME = "Go to the home page";
+
+// --- cart ---
+
+/** checkoutCart refused: a line's image is no longer something this buyer may
+ * order or print. Returned as data (`{ error }`), so it survives production's
+ * masking of thrown server-action errors. */
+export const CART_LINE_UNAVAILABLE =
+  "A design in your cart is no longer available. Remove it to continue.";
+
+/** The label on the cart line that failed that check. */
+export const CART_LINE_UNAVAILABLE_LABEL = "No longer available";

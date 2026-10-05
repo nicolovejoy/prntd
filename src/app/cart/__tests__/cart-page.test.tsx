@@ -9,12 +9,14 @@ import type { CartView } from "../actions";
 import CartPage from "../page";
 
 const getCart = vi.fn();
+const removeCartItem = vi.fn();
+const checkoutCart = vi.fn();
 const push = vi.fn();
 
 vi.mock("../actions", () => ({
   getCart: (...args: unknown[]) => getCart(...args),
-  removeCartItem: vi.fn(),
-  checkoutCart: vi.fn(),
+  removeCartItem: (...args: unknown[]) => removeCartItem(...args),
+  checkoutCart: (...args: unknown[]) => checkoutCart(...args),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -38,6 +40,7 @@ const ONE_ITEM: CartView = {
       unitPrice: 19.43,
       imageUrl: null,
       backImageUrl: null,
+      unavailable: false,
     },
   ],
   itemSubtotal: 19.43,
@@ -53,6 +56,8 @@ const ONE_ITEM_WITH_IMAGE: CartView = {
 };
 
 beforeEach(() => {
+  removeCartItem.mockReset();
+  checkoutCart.mockReset();
   getCart.mockReset();
   push.mockReset();
 });
@@ -188,5 +193,58 @@ describe("CartPage row shape (Paper)", () => {
     render(<CartPage />);
     await screen.findByTestId("cart-line-item");
     expect(screen.queryByTestId("cart-line-back")).not.toBeInTheDocument();
+  });
+});
+
+describe("CartPage unavailable lines (one buy surface, slice 3)", () => {
+  const STALE: CartView = {
+    ...ONE_ITEM,
+    items: [{ ...ONE_ITEM.items[0], unavailable: true }],
+  };
+
+  it("labels a line that is no longer available, and not a good one", async () => {
+    getCart.mockResolvedValue({
+      ...ONE_ITEM,
+      items: [
+        { ...ONE_ITEM.items[0], id: "good" },
+        { ...ONE_ITEM.items[0], id: "bad", unavailable: true },
+      ],
+    });
+    render(<CartPage />);
+    const labels = await screen.findAllByTestId("cart-line-unavailable");
+    expect(labels).toHaveLength(1);
+    expect(labels[0]).toHaveTextContent("No longer available");
+    expect(screen.getAllByTestId("cart-line-item")).toHaveLength(2);
+  });
+
+  it("shows no label for a valid line", async () => {
+    getCart.mockResolvedValue(ONE_ITEM);
+    render(<CartPage />);
+    await screen.findByTestId("cart-line-item");
+    expect(screen.queryByTestId("cart-line-unavailable")).not.toBeInTheDocument();
+  });
+
+  it("Remove keeps working on a flagged line", async () => {
+    getCart.mockResolvedValueOnce(STALE).mockResolvedValue(EMPTY);
+    removeCartItem.mockResolvedValue(undefined);
+    render(<CartPage />);
+    await screen.findByTestId("cart-line-unavailable");
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(removeCartItem).toHaveBeenCalledWith("line-1"));
+    expect(await screen.findByText("Your cart is empty.")).toBeInTheDocument();
+  });
+
+  it("a refused checkout shows the plain message and does not navigate", async () => {
+    getCart.mockResolvedValue(STALE);
+    checkoutCart.mockResolvedValue({
+      url: null,
+      error: "A design in your cart is no longer available. Remove it to continue.",
+    });
+    render(<CartPage />);
+    await screen.findByTestId("cart-line-unavailable");
+    fireEvent.click(screen.getByRole("button", { name: /^Checkout/ }));
+    expect(await screen.findByTestId("cart-checkout-error")).toHaveTextContent(
+      "A design in your cart is no longer available. Remove it to continue."
+    );
   });
 });
