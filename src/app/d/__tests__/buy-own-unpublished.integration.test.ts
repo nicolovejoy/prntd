@@ -57,7 +57,11 @@ vi.mock("@/lib/stripe", () => ({
   },
 }));
 
-import { buyPublishedDesign } from "@/app/d/actions";
+import {
+  buyPublishedDesign,
+  getBuyPageBackSources,
+  getImagePage,
+} from "@/app/d/actions";
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
 
@@ -487,5 +491,109 @@ describe("a published image still books its Shop composition", () => {
       buyPublishedDesign({ imageId: ids.publishedId, ...OPTS })
     ).rejects.toThrow("no composition");
     await expectNothingWritten(db);
+  });
+});
+
+describe("getBuyPageBackSources for an unpublished image", () => {
+  it("gives the owner the groups, This design included", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+
+    const { groups } = await getBuyPageBackSources(ids.privateId);
+    const thisDesign = groups.find((g) => g.id === "this-design");
+    expect(thisDesign).toBeTruthy();
+    expect(thisDesign!.images.map((i) => i.id)).toContain(ids.secondPrivateId);
+  });
+
+  it("gives a signed-in non-owner nothing", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    h.session = { user: { id: "stranger", isAnonymous: false } };
+
+    expect(await getBuyPageBackSources(ids.privateId)).toEqual({ groups: [] });
+  });
+
+  it("gives an anonymous owner and a signed-out viewer nothing", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+
+    h.session = { user: { id: "owner", isAnonymous: true } };
+    expect(await getBuyPageBackSources(ids.privateId)).toEqual({ groups: [] });
+    h.session = null;
+    expect(await getBuyPageBackSources(ids.privateId)).toEqual({ groups: [] });
+  });
+
+  it("gives nothing for a placement render id or an image with no live conversation", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    const [render] = await db
+      .insert(schema.placementRender)
+      .values({
+        designId: ids.conversationId,
+        sourceImageId: ids.privateId,
+        blankId: OPTS.productId,
+        placementId: "back",
+        imageUrl: "https://img.example/render.png",
+        aspectRatio: "1:1",
+      })
+      .returning();
+    expect(await getBuyPageBackSources(render.id)).toEqual({ groups: [] });
+
+    await db
+      .update(schema.image)
+      .set({ sourceDesignId: "deleted-design" })
+      .where(eq(schema.image.id, ids.privateId));
+    expect(await getBuyPageBackSources(ids.privateId)).toEqual({ groups: [] });
+  });
+});
+
+describe("getImagePage canOrder", () => {
+  it("is true for the owner of an unpublished image with a live conversation", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    expect((await getImagePage(ids.privateId))?.canOrder).toBe(true);
+  });
+
+  it("is true for an anonymous owner (the panel then asks them to sign in)", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    h.session = { user: { id: "owner", isAnonymous: true } };
+    expect((await getImagePage(ids.privateId))?.canOrder).toBe(true);
+  });
+
+  it("is false when the owner's image has no live conversation", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    await db
+      .update(schema.image)
+      .set({ sourceDesignId: "deleted-design" })
+      .where(eq(schema.image.id, ids.privateId));
+    expect((await getImagePage(ids.privateId))?.canOrder).toBe(false);
+  });
+
+  it("is false when the image names another user's conversation", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    await db
+      .update(schema.image)
+      .set({ sourceDesignId: ids.strangersConversationId })
+      .where(eq(schema.image.id, ids.privateId));
+    expect((await getImagePage(ids.privateId))?.canOrder).toBe(false);
+  });
+
+  it("does not exist for a stranger or a signed-out viewer: the page 404s", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    h.session = { user: { id: "stranger", isAnonymous: false } };
+    expect(await getImagePage(ids.privateId)).toBeNull();
+    h.session = null;
+    expect(await getImagePage(ids.privateId)).toBeNull();
+  });
+
+  it("is true for a published image, whoever views it", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    h.session = null;
+    expect((await getImagePage(ids.publishedId))?.canOrder).toBe(true);
   });
 });

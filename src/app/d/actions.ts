@@ -17,7 +17,6 @@ import {
   mirrorPublishedAt,
 } from "@/lib/composition-reads";
 import {
-  getDesignImageWithOwner,
   getDesignSourceImages,
   resolveImagesByIds,
 } from "@/lib/design-images";
@@ -43,7 +42,6 @@ import {
 } from "@/lib/back-sources";
 import { resolveBuyableImage } from "@/lib/buyable-image";
 import {
-  canBuyPublishedImage,
   canViewImagePage,
   buildForkChain,
   type ForkChainEntry,
@@ -102,6 +100,15 @@ export type ImagePage = Omit<PublishedImage, "publishedAt"> & {
    * through (slice 5).
    */
   sourceConversationArchived: boolean;
+  /**
+   * The viewer may order this image from the page: true for a published,
+   * visible image (the Shop sells it; `buyPublishedDesign` re-checks), and for
+   * an unpublished one only when it is the viewer's own with a live
+   * conversation of theirs (`resolveBuyableImage`, the gate every buy action
+   * uses). An anonymous owner counts: the panel then asks them to sign in.
+   * False means the page shows no Order.
+   */
+  canOrder: boolean;
 };
 
 /**
@@ -247,6 +254,13 @@ export async function getImagePage(
   // parent so admin moderation also breaks the public chain.
   const forkChain = await buildForkChain(r.forkedFromImageId, fetchForkChainRow);
 
+  // Published: the Shop sells it, no further lookup on this public page.
+  // Unpublished: only the owner gets here (canViewImagePage), and they can
+  // order it only through a live conversation of theirs.
+  const canOrder =
+    publishedAt !== null ||
+    (await resolveBuyableImage(imageId, viewerId)).ok;
+
   return {
     imageId: r.imageId,
     imageUrl: r.imageUrl,
@@ -261,6 +275,7 @@ export async function getImagePage(
     hasSourceConversation: r.sourceDesignRowId !== null,
     sourceConversationArchived:
       r.sourceClosedAt !== null || r.sourceStatus === "archived",
+    canOrder,
     forkChain,
   };
 }
@@ -309,12 +324,15 @@ export async function getConversationImages(
 }
 
 /**
- * Source groups for the /d back-design picker. Same shape as /preview's
- * getBackDesignSources, scoped for a buyer who usually doesn't own the
- * image's source design: My Designs + Shop, with This design only for the
- * owner (getBuyPageBackSourceGroups). Empty when the flag is off or the
- * viewer isn't a signed-in, non-anonymous user — the buy page hides the
- * back affordance for both, this is the server backstop.
+ * Source groups for the image detail page's back-design picker. Same shape as
+ * /preview's getBackDesignSources, scoped for a buyer who usually doesn't own
+ * the image's source design: My Designs + Shop, with This design only for the
+ * owner (getBuyPageBackSourceGroups). Empty when the flag is off, when the
+ * viewer isn't a signed-in, non-anonymous user, or when they may not order
+ * this image (`resolveBuyableImage`, the gate `buyPublishedDesign` uses, so
+ * the owner's own unpublished image gets groups and nobody else's does) — the
+ * buy page hides the back affordance for the first two, this is the server
+ * backstop.
  */
 export async function getBuyPageBackSources(
   imageId: string
@@ -324,13 +342,11 @@ export async function getBuyPageBackSources(
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session || isAnonymousUser(session.user)) return { groups: [] };
 
-  const image = await getDesignImageWithOwner(imageId);
-  if (!image || !image.designId || !canBuyPublishedImage(image)) {
-    return { groups: [] };
-  }
+  const buyable = await resolveBuyableImage(imageId, session.user.id);
+  if (!buyable.ok) return { groups: [] };
 
   const groups = await getBuyPageBackSourceGroups({
-    designId: image.designId,
+    designId: buyable.designId,
     viewerId: session.user.id,
   });
   return { groups };
@@ -339,11 +355,12 @@ export async function getBuyPageBackSources(
 /**
  * The back design a link carries (`?back=<imageId>`, #278), resolved for the
  * viewer: `{ id, imageUrl }` when they could have picked it themselves, or
- * `null`. Same gates, same order, as `getBuyPageBackSources` plus the check
- * `buyPublishedDesign` runs on the back (`assertUsablePlacementImage`), so a
- * link can never put an image on the panel that checkout would refuse. Never
- * throws for an unusable id: a stale or forged link just opens the panel
- * without a back.
+ * `null`. Same gates, same order, as `getBuyPageBackSources` (including
+ * `resolveBuyableImage` on the page image, so a link to someone else's
+ * unpublished image resolves nothing) plus the check `buyPublishedDesign` runs
+ * on the back (`assertUsablePlacementImage`), so a link can never put an image
+ * on the panel that checkout would refuse. Never throws for an unusable id: a
+ * stale or forged link just opens the panel without a back.
  */
 export async function resolveInitialBack(
   pageImageId: string,
@@ -354,13 +371,13 @@ export async function resolveInitialBack(
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session || isAnonymousUser(session.user)) return null;
 
-  const image = await getDesignImageWithOwner(pageImageId);
-  if (!image || !image.designId || !canBuyPublishedImage(image)) return null;
+  const buyable = await resolveBuyableImage(pageImageId, session.user.id);
+  if (!buyable.ok) return null;
 
   try {
     await assertUsablePlacementImage(
       backImageId,
-      image.designId,
+      buyable.designId,
       session.user.id
     );
   } catch {
@@ -373,10 +390,11 @@ export async function resolveInitialBack(
 
 /**
  * Front-placement Printful mockup for the image detail page's Order-expand
- * hero (#135 slice 1). Visibility-gated like the page itself
- * (`canViewImagePage`: published && !hidden, or the owner) — deliberately
- * NOT ownership-gated, unlike `generateMockup` (`/preview`), because any
- * visitor who can see the buy page must be able to see the mockup.
+ * hero (#135 slice 1). Gated like the buy itself (`resolveBuyableImage`:
+ * published && !hidden for anyone, or the owner's own unpublished image
+ * through a live conversation of theirs) — deliberately NOT ownership-gated
+ * for published images, unlike `generateMockup` (`/preview`), because any
+ * visitor who can see the Shop buy page must be able to see the mockup.
  *
  * `sourceImageId` is `imageId` itself: the order pins
  * `placements.front = imageId` (see `buyPublishedDesign` below), which may
@@ -401,18 +419,16 @@ export async function getListingMockup(params: {
   const session = await auth.api.getSession({ headers: await headers() });
   const viewerId = session?.user.id ?? null;
 
-  const image = await getDesignImageWithOwner(params.imageId);
-  if (!image || !image.designId) throw new Error("Image not found");
-
-  if (
-    !canViewImagePage({
-      image: { publishedAt: image.publishedAt, isHidden: image.isHidden },
-      imageOwnerId: image.ownerId,
-      userId: viewerId,
-    })
-  ) {
-    throw new Error("Unauthorized");
+  // The same gate as the buy itself (`resolveBuyableImage`): any visitor for a
+  // published, visible image; otherwise only its owner, through a live
+  // conversation of theirs. A placement render is never a page image.
+  const buyable = await resolveBuyableImage(params.imageId, viewerId);
+  if (!buyable.ok) {
+    throw new Error(
+      buyable.reason === "not-found" ? "Image not found" : "Unauthorized"
+    );
   }
+  const designId = buyable.designId;
 
   const sourceImageId = params.frontImageId ?? params.imageId;
   if (sourceImageId !== params.imageId) {
@@ -420,19 +436,19 @@ export async function getListingMockup(params: {
       throw new Error("Back designs are not enabled");
     }
     // Same bar as the back pick in getListingBackMockup: the viewer's own
-    // image or a published, not-hidden one. The order's design is the
-    // SELLER's, which the guard gives no weight; an empty userId is a
+    // image or a published, not-hidden one. The guard gives the order's
+    // design no weight (a Shop buyer's is the SELLER's); an empty userId is a
     // signed-out viewer and matches no owner.
     await assertUsablePlacementImage(
       sourceImageId,
-      image.designId,
+      designId,
       viewerId ?? "",
       "front"
     );
   }
 
   return renderAndCacheMockup({
-    designId: image.designId,
+    designId,
     productId: params.productId,
     colorName: params.colorName,
     scale: 1.0,
@@ -451,11 +467,12 @@ export async function getListingMockup(params: {
  *
  *  1. `MULTI_PLACEMENT_ENABLED` — the buy CTA ignores a back without it, so
  *     the mockup must too.
- *  2. The page image exists and has a design (the render is cached on that
- *     design's `mockupUrls`, like every other mockup).
- *  3. `canViewImagePage` for the page image — the same visibility rule the
- *     page and the front mockup use; no ownership gate, since any visitor
- *     who can see the buy page must be able to see its preview.
+ *  2. The page image is an `image` row with a design (the render is cached on
+ *     that design's `mockupUrls`, like every other mockup).
+ *  3. `resolveBuyableImage` for the page image — the same gate the buy and the
+ *     front mockup use: any visitor for a published, visible image, otherwise
+ *     only its owner through a live conversation of theirs. A visitor who can
+ *     see the Shop buy page must be able to see its preview.
  *  4. `canUseAsPlacementSource` for the back pick, via the checkout guard
  *     `assertUsablePlacementImage` — the same bar `buyPublishedDesign` holds
  *     the pick to, so the preview and the purchase agree on what may print.
@@ -484,30 +501,21 @@ export async function getListingBackMockup(params: {
   const session = await auth.api.getSession({ headers: await headers() });
   const viewerId = session?.user.id ?? null;
 
-  const image = await getDesignImageWithOwner(params.imageId);
-  if (!image || !image.designId) throw new Error("Image not found");
-
-  if (
-    !canViewImagePage({
-      image: { publishedAt: image.publishedAt, isHidden: image.isHidden },
-      imageOwnerId: image.ownerId,
-      userId: viewerId,
-    })
-  ) {
-    throw new Error("Unauthorized");
+  const buyable = await resolveBuyableImage(params.imageId, viewerId);
+  if (!buyable.ok) {
+    throw new Error(
+      buyable.reason === "not-found" ? "Image not found" : "Unauthorized"
+    );
   }
+  const designId = buyable.designId;
 
-  // The order's design is the SELLER's here, which the guard gives no weight
-  // (see canUseAsPlacementSource) — the back must be the viewer's own or
+  // The guard gives the order's design no weight (see canUseAsPlacementSource;
+  // a Shop buyer's is the SELLER's) — the back must be the viewer's own or
   // published. An empty userId is a signed-out viewer: it matches no owner.
-  await assertUsablePlacementImage(
-    params.backImageId,
-    image.designId,
-    viewerId ?? ""
-  );
+  await assertUsablePlacementImage(params.backImageId, designId, viewerId ?? "");
 
   return renderAndCacheMockup({
-    designId: image.designId,
+    designId,
     productId: params.productId,
     colorName: params.colorName,
     scale: 1.0,

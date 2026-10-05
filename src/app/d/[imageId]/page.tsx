@@ -99,7 +99,7 @@ export default async function PublishedImagePage({
   // Each invalid pick is dropped on its own.
   const picks = parseBuyPagePicks(sp);
   const backId = backToResolve(picks, {
-    published: isPublished,
+    buyable: img.canOrder,
     loggedIn: isLoggedIn,
     multiPlacement: multiPlacementEnabled(),
   });
