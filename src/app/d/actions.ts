@@ -41,6 +41,7 @@ import {
   getBuyPageBackSourceGroups,
   type BackSourceGroup,
 } from "@/lib/back-sources";
+import { resolveBuyableImage } from "@/lib/buyable-image";
 import {
   canBuyPublishedImage,
   canViewImagePage,
@@ -517,25 +518,38 @@ export async function getListingBackMockup(params: {
 }
 
 /**
- * Buy-existing path: a logged-in user purchases a published image from
- * `/d/[imageId]` without designing one. Account-gated by decision (orders
- * must tie to an account so they're trackable in /orders) — the auth check
- * and userId resolution are isolated here so a future guest swap is a few
- * lines.
+ * The image detail page's Order: a logged-in user buys the image on the page.
+ * Two kinds of image reach it, decided once by `resolveBuyableImage`:
+ *
+ *  - Published and not hidden (the Shop path): any signed-in real user, its
+ *    owner included. The order's designId is the image's source design, the
+ *    SELLER's conversation, NOT a new design, because the buyer isn't creating
+ *    one. The order records the image's mirror composition
+ *    (`storeProductId`, `requireMirrorProduct`), so a Shop sale is attributed.
+ *  - Unpublished: only its owner, and only when the image's conversation still
+ *    exists and is theirs (the check `/preview` made). The order's designId is
+ *    that conversation and no composition is recorded, as for every
+ *    design-your-own order.
+ *
+ * Anything else throws before a row or a Stripe call is made. Account-gated by
+ * decision (orders must tie to an account so they're trackable in /orders): a
+ * guest, an anonymous owner included, gets `needsAuth`, and signs in first.
+ * The auth check and userId resolution are isolated here so a future guest
+ * swap is a few lines.
  *
  * The order is pinned to the exact image bought (`placements.front =
- * imageId`, or `placements.back` after a swap — below) so the webhook prints
- * that image regardless of later regenerations of its source design. Price is `computePrice(0, …)` — the
- * buyer didn't incur generation cost; the designer's is internal-only and
- * never billed anyway. The order's designId is the image's source design,
- * NOT a new design — the buyer isn't creating one.
+ * imageId`, or `placements.back` after a swap, below) so the webhook prints
+ * that image regardless of later regenerations of its source design. Price is
+ * `computePrice(0, …)`: the buyer didn't incur generation cost, and the
+ * designer's is internal-only and never billed anyway.
  *
  * Swap (#138 slice 3): with a back picked, the buyer may exchange the two
  * sides, which sends `frontImageId` = the picked image and `backImageId` =
  * this page's image. That is the ONLY front change this page allows
  * (`resolveBuyPageFront`): the page image stays printed, because the order's
- * designId and storeProductId both name it. The override clears the same
- * guard as the back, and the price is unchanged — a back exists either way.
+ * designId (and, on a Shop sale, storeProductId) name it. The override clears
+ * the same guard as the back, and the price is unchanged: a back exists either
+ * way.
  */
 export async function buyPublishedDesign(params: {
   imageId: string;
@@ -559,17 +573,24 @@ export async function buyPublishedDesign(params: {
     return { url: null, needsAuth: true };
   }
 
-  const image = await getDesignImageWithOwner(params.imageId);
-  if (!image || !image.designId) throw new Error("Image not found");
-
-  if (!canBuyPublishedImage(image)) {
-    throw new Error("Image is not available to buy");
+  // The one gate (src/lib/buyable-image.ts): an `image` row the buyer may
+  // order, and whether it is a Shop sale (published) or the owner's own
+  // unpublished work. A refusal throws here, before anything is written.
+  const buyable = await resolveBuyableImage(params.imageId, session.user.id);
+  if (!buyable.ok) {
+    throw new Error(
+      buyable.reason === "not-found"
+        ? "Image not found"
+        : "Image is not available to buy"
+    );
   }
+  const { image, designId, published } = buyable;
 
-  // Note the order's designId is the SELLER's design here, so the guard's
-  // thread argument gives a cross-owner buyer no extra reach (see
-  // canUseAsPlacementSource) — the back image must be the buyer's own or
-  // published.
+  // On a Shop sale the order's designId is the SELLER's design, so the
+  // guard's thread argument gives a cross-owner buyer no extra reach (see
+  // canUseAsPlacementSource); on the owner's own unpublished image it is their
+  // own conversation. Either way the back image must be the buyer's own or
+  // published: the guard never grants a thread on its own.
   const backImageId = multiPlacementEnabled()
     ? params.backImageId ?? null
     : null;
@@ -583,7 +604,7 @@ export async function buyPublishedDesign(params: {
     if (blank && !productSupportsPlacement(blank, "back")) {
       throw new Error("This product has no back print area");
     }
-    await assertUsablePlacementImage(backImageId, image.designId, session.user.id);
+    await assertUsablePlacementImage(backImageId, designId, session.user.id);
   }
 
   // Front: this page's image unless the buyer swapped (#138 slice 3). The
@@ -599,7 +620,7 @@ export async function buyPublishedDesign(params: {
   if (frontSwapped) {
     await assertUsablePlacementImage(
       frontImageId,
-      image.designId,
+      designId,
       session.user.id,
       "front"
     );
@@ -624,14 +645,19 @@ export async function buyPublishedDesign(params: {
     swap: frontSwapped,
   });
 
-  // Composition slice 4: a Shop purchase now records the composition it
-  // bought. Every published image has a mirror product (publish writes one;
-  // the slice-1 backfill converted the pre-existing listings), and the
-  // sellable surfaces already read it — so a missing mirror means the image
-  // shouldn't have been buyable at all. Fail loudly rather than book an order
-  // with no composition. `storeId` stays null: this is the PRNTD Shop, not an
-  // organizer storefront (buyStoreProduct owns that path).
-  const storeProductId = await requireMirrorProduct(db, params.imageId);
+  // Composition slice 4: a Shop purchase records the composition it bought.
+  // Every published image has a mirror product (publish writes one; the
+  // slice-1 backfill converted the pre-existing listings), and the sellable
+  // surfaces already read it — so a missing mirror means the image shouldn't
+  // have been buyable at all. Fail loudly rather than book an order with no
+  // composition. `storeId` stays null: this is the PRNTD Shop, not an
+  // organizer storefront (buyStoreProduct owns that path). The owner's own
+  // unpublished image has no composition and books none, like every
+  // design-your-own order (`/preview`); it is never given a mirror lookup, so
+  // a stale draft mirror left by an unpublish cannot attach itself.
+  const storeProductId = published
+    ? await requireMirrorProduct(db, params.imageId)
+    : null;
 
   // #135 slice 2: mount on our own /checkout instead of Stripe's hosted page
   // when a usable key pair is configured. `embeddedCheckoutFlag()` on but the
@@ -647,7 +673,7 @@ export async function buyPublishedDesign(params: {
 
   return createStripeCheckoutForOrder({
     userId: session.user.id,
-    designId: image.designId,
+    designId,
     productId: resolvedProductId,
     size: params.size,
     color: params.color,

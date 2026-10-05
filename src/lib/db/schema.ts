@@ -114,7 +114,8 @@ export const order = sqliteTable("order", {
   //     published image's mirror composition.
   // So a payout/proceeds query must key organizer revenue off `storeId`,
   // NEVER off `storeProductId` alone — that would sweep in every Shop sale.
-  // Both stay null for design-your-own orders (/preview, /order, cart).
+  // Both stay null for design-your-own orders (/preview, /order, cart) and for
+  // the owner's own unpublished image ordered from the image detail page.
   storeId: text("store_id").references(() => store.id),
   storeProductId: text("store_product_id").references(() => product.id),
   displayName: text("display_name"),

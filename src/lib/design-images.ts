@@ -411,15 +411,26 @@ export async function getDesignImageById(id: string): Promise<ImageRow | null> {
   };
 }
 
+/** What `getDesignImageWithOwner` returns: an `ImageRow` plus the fields the
+ * placement-source and buy guards read. */
+export type ImageWithOwner = ImageRow & {
+  isHidden: boolean;
+  ownerId: string;
+  /** Which table the id resolved in. A `render` (placement_render) is a cached
+   * per-placement raster, never a page image or a thing a buyer picks. */
+  kind: "image" | "render";
+};
+
 /**
  * Fetch an image plus the fields the placement-source guard needs: publish /
  * moderation state (from `listing`) and the owner (#72). `image.ownerId` is
  * denormalized, so the artifact path no longer joins `design`; renders still
- * do, since only their conversation carries an owner.
+ * do, since only their conversation carries an owner. `kind` says which table
+ * answered.
  */
 export async function getDesignImageWithOwner(
   id: string
-): Promise<(ImageRow & { isHidden: boolean; ownerId: string }) | null> {
+): Promise<ImageWithOwner | null> {
   const [artifact] = await db
     .select({
       id: imageTable.id,
@@ -456,6 +467,7 @@ export async function getDesignImageWithOwner(
       publishedAt: artifact.publishedAt,
       isHidden: artifact.isHidden ?? false,
       ownerId: artifact.ownerId,
+      kind: "image",
     };
   }
 
@@ -483,6 +495,7 @@ export async function getDesignImageWithOwner(
     publishedAt: null,
     isHidden: false,
     ownerId: render.ownerId,
+    kind: "render",
   };
 }
 
