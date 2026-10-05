@@ -483,13 +483,16 @@ test.describe("stripe money path", { tag: "@stripe" }, () => {
       await page.goto(
         `/d/${imageId}?order=1&product=${PRODUCT}&color=Black&size=M`
       );
+      // The "Total" row exists only once the panel is expanded and a size is
+      // picked, i.e. after hydration (the /preview test waits for it too), so
+      // an early click can't land before the handler is attached.
+      await expect(page.getByText("Total")).toBeVisible({ timeout: 30_000 });
       // The size is picked by the link, so the button carries the total:
       // "Order — $<total>" in the purchase controls and the sticky bar; role
       // queries skip whichever is hidden.
-      await page
-        .getByRole("button", { name: /^Order/ })
-        .first()
-        .click({ timeout: 30_000 });
+      const orderButton = page.getByRole("button", { name: /^Order/ }).first();
+      await expect(orderButton).toBeEnabled({ timeout: 30_000 });
+      await orderButton.click({ timeout: 30_000 });
 
       // Waiting on either URL and then asserting turns a fail-closed fallback
       // to the hosted page into a red run.

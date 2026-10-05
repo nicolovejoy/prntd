@@ -115,8 +115,9 @@ The iframe and field selectors were written without a live run, so the first
 run is a calibration run: update the candidates in `embeddedStripeRoot` and
 `completeStripeCheckout` in `e2e/stripe-money-path.spec.ts`. The image detail
 page test has not been run either: besides those, its guesses are that the
-link's picks leave the Order button labelled `Order — $<total>` and clickable
-as the first `/^Order/` button, and that `/checkout` shows
+link's picks leave a `Total` row on screen (the wait for hydration) and the
+Order button labelled `Order — $<total>` and clickable as the first `/^Order/`
+button, and that `/checkout` shows
 `checkout-preview` for it as it does for `/preview`.
 
 ## Pull request e2e
