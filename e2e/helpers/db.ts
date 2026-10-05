@@ -91,12 +91,11 @@ export async function seedDesign(
 
 /**
  * Seed a PUBLISHED image owned by a throwaway seller account: the seller user,
- * a design and image (`seedDesign`), the `listing` visibility row, and the
- * Shop mirror `product` row the image detail page and the buy action read
- * (placements `{front: <imageId>}`, store_id and design_id NULL, status
- * listed). Lets a spec open a public image without a real generation or
- * publish. Clean up with `cleanupDesigns([designId])` (which also removes the
- * listing and the unordered mirror), then `cleanupUser(sellerId)`.
+ * a design and image (`seedDesign`), the `image_publication` visibility row,
+ * and the Shop mirror `product` row the image detail page and the buy action
+ * read (placements `{front: <imageId>}`, status listed). Lets a spec open a
+ * public image without a real generation or publish. Clean up with `cleanupDesigns([designId])` (which also removes the
+ * publication row and the unordered mirror), then `cleanupUser(sellerId)`.
  */
 export async function seedPublishedImage(
   key: string,
@@ -115,14 +114,14 @@ export async function seedPublishedImage(
     });
     await seedDesign(sellerId, key);
     await c.execute({
-      sql: `INSERT INTO listing (image_id, published_at, is_hidden, title, created_at)
-            VALUES (?, unixepoch(), 0, ?, unixepoch())
+      sql: `INSERT INTO image_publication (image_id, published_at, is_hidden, created_at)
+            VALUES (?, unixepoch(), 0, unixepoch())
             ON CONFLICT(image_id) DO NOTHING`,
-      args: [imageId, title],
+      args: [imageId],
     });
     await c.execute({
-      sql: `INSERT INTO product (id, owner_id, store_id, design_id, blank_id, placements, price, status, position, title, listed_at, created_at, updated_at)
-            VALUES (?, ?, NULL, NULL, NULL, ?, NULL, 'listed', 0, ?, unixepoch(), unixepoch(), unixepoch())
+      sql: `INSERT INTO product (id, owner_id, blank_id, placements, price, status, position, title, listed_at, created_at, updated_at)
+            VALUES (?, ?, NULL, ?, NULL, 'listed', 0, ?, unixepoch(), unixepoch(), unixepoch())
             ON CONFLICT(id) DO NOTHING`,
       args: [
         `e2e-${key}-mirror`,
