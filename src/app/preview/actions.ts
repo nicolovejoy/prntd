@@ -24,9 +24,9 @@ import {
   findPlacementRender,
   getDesignImageWithOwner,
 } from "@/lib/design-images";
-import { canUseAsPlacementSource } from "@/lib/design-publish";
 import {
   getBackSourceGroups,
+  placementSourceUsable,
   type BackSourceGroup,
 } from "@/lib/back-sources";
 import { resolveLastPurchaseDefaults } from "@/lib/last-purchase";
@@ -175,14 +175,7 @@ export async function getOrCreatePlacementRender(
   if (!primary) throw new Error("Source image row missing");
   // Cross-design sources are allowed for the origins the back picker offers
   // (own designs, published Shop images) — anything else is rejected (#72).
-  if (
-    !canUseAsPlacementSource({
-      image: primary,
-      imageOwnerId: primary.ownerId,
-      orderDesignId: designId,
-      userId: session.user.id,
-    })
-  ) {
+  if (!(await placementSourceUsable(primary, designId, session.user.id))) {
     throw new Error("Source image is not available for this design");
   }
 

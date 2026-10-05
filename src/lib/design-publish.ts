@@ -164,9 +164,14 @@ export function canBuyImage(params: {
  * Checked through `assertUsablePlacementImage` at every choke point that pins
  * or renders a placement: `createCheckoutSession`, `addToCart`,
  * `buyPublishedDesign`, `getListingMockup` / `getListingBackMockup`,
- * `resolveInitialBack`, and (directly) `renderAndCacheMockup` and
+ * `resolveInitialBack`, `cartLineStillValid`, and (through
+ * `placementSourceUsable`) `renderAndCacheMockup` and
  * `getOrCreatePlacementRender`, so a forged image id can't get a private or
- * hidden image printed and the pickers' reach and the guard agree.
+ * hidden image printed and the pickers' reach and the guard agree. This
+ * function judges ONE resolved image; a `placement_render` pin is also judged
+ * by the image it was rendered from (`placementSourceUsable`,
+ * src/lib/back-sources.ts), because a render alone looks unpublished, not
+ * hidden and owned by its conversation's owner.
  */
 export function canUseAsPlacementSource(params: {
   /** Publish state only — Model B keeps it in `listing`, and the guard has

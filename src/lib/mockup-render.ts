@@ -25,7 +25,7 @@ import {
   getDesignImageWithOwner,
   getDesignDisplayImageUrl,
 } from "@/lib/design-images";
-import { canUseAsPlacementSource } from "@/lib/design-publish";
+import { placementSourceUsable } from "@/lib/back-sources";
 
 export type RenderMockupParams = {
   designId: string;
@@ -124,15 +124,7 @@ export async function renderAndCacheMockup(
     // Explicit source pick — may live on another design (#72). Same guard as
     // getOrCreatePlacementRender so an arbitrary id can't be mocked up.
     const source = await getDesignImageWithOwner(sourceImageId);
-    if (
-      source &&
-      canUseAsPlacementSource({
-        image: source,
-        imageOwnerId: source.ownerId,
-        orderDesignId: designId,
-        userId: userId ?? "",
-      })
-    ) {
+    if (source && (await placementSourceUsable(source, designId, userId ?? ""))) {
       sourceImageUrl = source.imageUrl;
     }
   } else if (!sourceImageUrl) {

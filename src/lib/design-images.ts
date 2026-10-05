@@ -419,6 +419,10 @@ export type ImageWithOwner = ImageRow & {
   /** Which table the id resolved in. A `render` (placement_render) is a cached
    * per-placement raster, never a page image or a thing a buyer picks. */
   kind: "image" | "render";
+  /** For a `render`: the image it was rendered from (`placement_render.
+   * source_image_id`), which is what a pin of the render is judged by. Null
+   * for an `image`, and for a legacy render with no recorded source. */
+  sourceImageId: string | null;
 };
 
 /**
@@ -468,6 +472,7 @@ export async function getDesignImageWithOwner(
       isHidden: artifact.isHidden ?? false,
       ownerId: artifact.ownerId,
       kind: "image",
+      sourceImageId: null,
     };
   }
 
@@ -477,6 +482,7 @@ export async function getDesignImageWithOwner(
       designId: placementRenderTable.designId,
       imageUrl: placementRenderTable.imageUrl,
       aspectRatio: placementRenderTable.aspectRatio,
+      sourceImageId: placementRenderTable.sourceImageId,
       ownerId: designTable.userId,
     })
     .from(placementRenderTable)
@@ -496,6 +502,7 @@ export async function getDesignImageWithOwner(
     isHidden: false,
     ownerId: render.ownerId,
     kind: "render",
+    sourceImageId: render.sourceImageId,
   };
 }
 

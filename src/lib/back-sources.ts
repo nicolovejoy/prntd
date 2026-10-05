@@ -23,6 +23,7 @@ import {
   getDesignSourceImages,
   getDesignImageWithOwner,
   resolveImagesByIds,
+  type ImageWithOwner,
 } from "@/lib/design-images";
 import {
   dedupeFeedByDesign,
@@ -53,19 +54,72 @@ export async function assertUsablePlacementImage(
   placement: "front" | "back" = "back"
 ): Promise<void> {
   const image = await getDesignImageWithOwner(imageId);
-  if (
-    !image ||
-    !canUseAsPlacementSource({
-      image,
-      imageOwnerId: image.ownerId,
-      orderDesignId: designId,
-      userId,
-    })
-  ) {
+  if (!image || !(await placementSourceUsable(image, designId, userId))) {
     throw new Error(
       `${placement === "front" ? "Front" : "Back"} image is not available`
     );
   }
+}
+
+/** How many render-of-a-render hops are followed before a pin is refused. */
+const MAX_RENDER_HOPS = 5;
+
+/**
+ * Whether a resolved image may be used as a placement source by `userId`:
+ * `canUseAsPlacementSource` for the image, and for a `placement_render` ALSO
+ * for the image it was rendered from, down the chain (second fix round). A
+ * render resolves as unpublished and not hidden, owned by its conversation's
+ * owner, so on its own it would pass on ownership even after the image it
+ * renders went hidden or private. It is refused when its source is hidden,
+ * is neither the user's own nor currently published and visible, no longer
+ * exists, or was never recorded (a legacy render with no source can't be
+ * judged), and when the chain is longer than MAX_RENDER_HOPS or loops.
+ *
+ * Every pin check funnels through here (`assertUsablePlacementImage`,
+ * `getOrCreatePlacementRender`, `renderAndCacheMockup`'s explicit-source
+ * fallback). Orders that already pin a render are not re-judged.
+ */
+export async function placementSourceUsable(
+  image: ImageWithOwner,
+  orderDesignId: string,
+  userId: string
+): Promise<boolean> {
+  let current = image;
+  const seen = new Set<string>();
+  for (let hop = 0; ; hop++) {
+    if (
+      !canUseAsPlacementSource({
+        image: current,
+        imageOwnerId: current.ownerId,
+        orderDesignId,
+        userId,
+      })
+    ) {
+      return false;
+    }
+    if (current.kind !== "render") return true;
+    if (hop >= MAX_RENDER_HOPS || seen.has(current.id)) return false;
+    seen.add(current.id);
+    if (!current.sourceImageId) return false;
+    const source = await getDesignImageWithOwner(current.sourceImageId);
+    if (!source) return false;
+    current = source;
+  }
+}
+
+/**
+ * Whether an image, or the source it is a render of, is admin-hidden. Used for
+ * the implicit primary, where only a hide is refused (see
+ * `assertPrimaryNotHidden`).
+ */
+async function hiddenThroughSources(image: ImageWithOwner): Promise<boolean> {
+  let current: ImageWithOwner | null = image;
+  for (let hop = 0; current && hop <= MAX_RENDER_HOPS; hop++) {
+    if (current.isHidden) return true;
+    if (current.kind !== "render" || !current.sourceImageId) return false;
+    current = await getDesignImageWithOwner(current.sourceImageId);
+  }
+  return false;
 }
 
 /**
@@ -79,7 +133,9 @@ export async function assertUsablePlacementImage(
  */
 export async function assertPrimaryNotHidden(imageId: string): Promise<void> {
   const image = await getDesignImageWithOwner(imageId);
-  if (image?.isHidden) throw new Error("Front image is not available");
+  if (image && (await hiddenThroughSources(image))) {
+    throw new Error("Front image is not available");
+  }
 }
 
 export type BackSourceImage = {
