@@ -19,11 +19,10 @@ import {
 import { computePrice, computeCartTotal, estimateShipping } from "@/lib/pricing";
 import { multiPlacementEnabled } from "@/lib/blanks";
 import {
-  getDesignImageWithOwner,
   resolveDesignDisplayImageUrls,
   resolveImagesByIds,
 } from "@/lib/design-images";
-import { canUseAsPlacementSource } from "@/lib/design-publish";
+import { resolveBuyableImage } from "@/lib/buyable-image";
 import { assertUsablePlacementImage } from "@/lib/back-sources";
 import { resolveBuyPageFront } from "@/lib/placement-pins";
 import { estimateOrderCosts } from "@/lib/printful";
@@ -96,9 +95,12 @@ async function currentUserId(): Promise<string | null> {
  *    the design's primary can change after the add, and the buyer must get
  *    the image they tapped, not the seller's current display image. The
  *    line's designId is derived from the image server-side (never trusted
- *    from the client), and the image must pass canUseAsPlacementSource: the
- *    buyer owns it, or it's published and not admin-hidden. A forged
- *    private/hidden image id throws. `front` on this entry is the page's swap
+ *    from the client), and the image must pass `resolveBuyableImage`, the
+ *    gate buyPublishedDesign uses: published and not admin-hidden for anyone,
+ *    or the buyer's own unpublished image with a live conversation of theirs.
+ *    A forged private, hidden or placement-render id throws. An anonymous
+ *    guest may cart their own image (guests have carts; checkout gates
+ *    sign-in). `front` on this entry is the page's swap
  *    (#138 slice 3), under the same rule as buyPublishedDesign: another
  *    image may take the front only when `back` is the page image, and it
  *    clears the same guard as the back.
@@ -144,22 +146,18 @@ export async function addToCart(params: {
   // Set on the /d path only: the page image, which a swap moves to the back.
   let pageImageId: string | null = null;
   if (params.frontImageId) {
-    // /d path: pin the exact image. Same guard chain as buyPublishedDesign —
-    // resolve the image with its owner, derive the line's designId from it,
-    // and reject anything the buyer may not print.
-    const image = await getDesignImageWithOwner(params.frontImageId);
-    if (!image || !image.designId) throw new Error("Image not found");
-    if (
-      !canUseAsPlacementSource({
-        image,
-        imageOwnerId: image.ownerId,
-        orderDesignId: image.designId,
-        userId,
-      })
-    ) {
-      throw new Error("Image is not available");
+    // /d path: pin the exact image. Same gate as buyPublishedDesign — derive
+    // the line's designId from the image and reject anything the buyer may
+    // not order from the page (see resolveBuyableImage).
+    const buyable = await resolveBuyableImage(params.frontImageId, userId);
+    if (!buyable.ok) {
+      throw new Error(
+        buyable.reason === "not-found"
+          ? "Image not found"
+          : "Image is not available"
+      );
     }
-    designId = image.designId;
+    designId = buyable.designId;
     frontId = params.frontImageId;
     pageImageId = params.frontImageId;
   } else {
@@ -195,10 +193,11 @@ export async function addToCart(params: {
     if (!productSupportsPlacement(product, "back")) {
       throw new Error("This product has no back print area");
     }
-    // Same choke-point guard as createCheckoutSession (#72): only this
-    // thread's images, the user's own designs, or published Shop images. On a
-    // /d add designId is the SELLER's design; the guard deliberately gives
-    // that no weight (see canUseAsPlacementSource).
+    // Same choke-point guard as createCheckoutSession (#72): the user's own
+    // images or published Shop images. On a /d add of a published image
+    // designId is the SELLER's design, and of the user's own unpublished image
+    // their own; the guard deliberately gives either no weight (see
+    // canUseAsPlacementSource).
     await assertUsablePlacementImage(backId, designId, userId);
   }
   if (pageImageId) {
