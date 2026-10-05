@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createRef } from "react";
 import { render, screen, fireEvent, act, within } from "@testing-library/react";
 import { getBlankOrThrow } from "@/lib/blanks";
@@ -730,5 +730,304 @@ describe("BuyPanel failure notices", () => {
     await screen.findAllByText(CHECKOUT_FAILED);
     fireEvent.click(buyButton());
     expect(screen.queryByText(CHECKOUT_FAILED)).not.toBeInTheDocument();
+  });
+});
+
+describe("BuyPanel picks in the URL (#278)", () => {
+  const classic = getBlankOrThrow("bella-canvas-3001");
+  const NONE = { expanded: false, productId: null, size: null, color: null, back: null, swapped: false };
+
+  beforeEach(() => window.history.replaceState(null, "", "/d/img-1?from=%2Fshop"));
+
+  it("opens expanded with the link's product, size and colour", () => {
+    render(
+      <BuyPanel
+        imageId="img-1"
+        isLoggedIn
+        initialPicks={{ ...NONE, expanded: true, productId: classic.id, size: "L", color: "Black" }}
+      />
+    );
+    expect(screen.queryByTestId("order-expand")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "L" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("Color — Black")).toBeInTheDocument();
+    expect(buyButton()).toBeEnabled();
+  });
+
+  it("the link beats the remembered defaults", () => {
+    render(
+      <BuyPanel
+        imageId="img-1"
+        isLoggedIn
+        remembered={{ blankId: classic.id, size: "S" }}
+        initialPicks={{ ...NONE, expanded: true, size: "XL" }}
+      />
+    );
+    expect(screen.getByRole("button", { name: "XL" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("a link size only the remembered product offers is kept (no product in the link)", () => {
+    render(
+      <BuyPanel
+        imageId="img-1"
+        isLoggedIn
+        remembered={{ blankId: BOX, size: null }}
+        initialPicks={{ ...NONE, expanded: true, size: "3XL" }}
+      />
+    );
+    expect(screen.getByRole("button", { name: "3XL" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("writes each pick to the address bar and keeps `from`", () => {
+    render(<BuyPanel imageId="img-1" isLoggedIn />);
+    expand();
+    fireEvent.click(screen.getByRole("button", { name: "M" }));
+    const params = new URLSearchParams(window.location.search);
+    expect(params.get("from")).toBe("/shop");
+    expect(params.get("order")).toBe("1");
+    expect(params.get("size")).toBe("M");
+    expect(params.get("product")).toBe(classic.id);
+    expect(params.get("color")).toBeTruthy();
+  });
+
+  it("writes nothing while collapsed", () => {
+    render(<BuyPanel imageId="img-1" isLoggedIn />);
+    expect(window.location.search).toBe("?from=%2Fshop");
+  });
+
+  it("a collapsed mount leaves the URL exactly as it is (browser Back to an entry that held picks)", () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/d/img-1?from=%2Fshop&product=bella-canvas-3001&size=L&color=Black"
+    );
+    render(<BuyPanel imageId="img-1" isLoggedIn />);
+    expect(window.location.search).toBe(
+      "?from=%2Fshop&product=bella-canvas-3001&size=L&color=Black"
+    );
+  });
+
+  it("Cancel keeps `from` and `line` while it removes the picks", () => {
+    window.history.replaceState(null, "", "/d/img-1?from=%2Fshop&line=line-1");
+    render(<BuyPanel imageId="img-1" isLoggedIn />);
+    expand();
+    fireEvent.click(screen.getByRole("button", { name: "M" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Cancel" })[0]);
+    const params = new URLSearchParams(window.location.search);
+    expect(params.get("from")).toBe("/shop");
+    expect(params.get("line")).toBe("line-1");
+    expect([...params.keys()].sort()).toEqual(["from", "line"]);
+  });
+
+  it("Cancel takes the picks back out of the address bar and keeps `from`", () => {
+    render(<BuyPanel imageId="img-1" isLoggedIn />);
+    expand();
+    fireEvent.click(screen.getByRole("button", { name: "M" }));
+    expect(new URLSearchParams(window.location.search).get("order")).toBe("1");
+    fireEvent.click(screen.getAllByRole("button", { name: "Cancel" })[0]);
+    expect(window.location.search).toBe("?from=%2Fshop");
+  });
+
+  it("writes nothing once Order has started a navigation away", async () => {
+    render(<BuyPanel imageId="img-1" isLoggedIn />);
+    expand();
+    fireEvent.click(screen.getByRole("button", { name: "M" }));
+    vi.mocked(buyPublishedDesign).mockImplementationOnce(
+      () => new Promise(() => {})
+    );
+    fireEvent.click(buyButton());
+    const before = window.location.search;
+    fireEvent.click(screen.getByRole("button", { name: "L" }));
+    expect(window.location.search).toBe(before);
+  });
+
+  it("a page restored from the back/forward cache is usable again and syncs the URL (#278)", async () => {
+    // The label changes while the Order is in flight, so find it either way.
+    const orderButton = () =>
+      screen.getAllByRole("button", { name: /^(Order( — \$.+)?|Redirecting…)$/ })[0];
+    render(<BuyPanel imageId="img-1" isLoggedIn />);
+    expand();
+    fireEvent.click(screen.getByRole("button", { name: "M" }));
+    vi.mocked(buyPublishedDesign).mockImplementationOnce(
+      () => new Promise(() => {})
+    );
+    await act(async () => {
+      fireEvent.click(buyButton());
+    });
+    expect(orderButton()).toHaveTextContent("Redirecting…");
+    expect(orderButton()).toBeDisabled();
+
+    // A pageshow that is not a bfcache restore changes nothing.
+    act(() => {
+      window.dispatchEvent(Object.assign(new Event("pageshow"), { persisted: false }));
+    });
+    expect(orderButton()).toBeDisabled();
+
+    act(() => {
+      window.dispatchEvent(Object.assign(new Event("pageshow"), { persisted: true }));
+    });
+    expect(orderButton()).toBeEnabled();
+    expect(orderButton()).not.toHaveTextContent("Redirecting…");
+    fireEvent.click(screen.getByRole("button", { name: "L" }));
+    expect(new URLSearchParams(window.location.search).get("size")).toBe("L");
+  });
+
+  it("starts with the link's back design, swapped", () => {
+    render(
+      <BuyPanel
+        imageId="img-1"
+        imageUrl="https://img.example/page.png"
+        isLoggedIn
+        backEnabled
+        initialPicks={{
+          ...NONE,
+          expanded: true,
+          back: { id: "back-1", imageUrl: "https://img.example/back-1.png" },
+          swapped: true,
+        }}
+      />
+    );
+    const front = within(screen.getByTestId("side-row-front")).getByAltText("Front design");
+    expect(front).toHaveAttribute("src", "https://img.example/back-1.png");
+  });
+
+  it("ignores a link's back when back designs are not enabled for this viewer", () => {
+    render(
+      <BuyPanel
+        imageId="img-1"
+        isLoggedIn={false}
+        initialPicks={{
+          ...NONE,
+          expanded: true,
+          back: { id: "back-1", imageUrl: "https://img.example/back-1.png" },
+        }}
+      />
+    );
+    expect(screen.queryByTestId("side-row-back")).not.toBeInTheDocument();
+    expect(new URLSearchParams(window.location.search).get("back")).toBeNull();
+  });
+});
+
+describe("BuyPanel sign-in return (#278)", () => {
+  function nextOf(href: string) {
+    return new URL(href, "http://x.invalid").searchParams.get("next")!;
+  }
+
+  beforeEach(() => window.history.replaceState(null, "", "/d/img-1"));
+
+  it("Sign in to buy carries the picks through sign-in", () => {
+    render(<BuyPanel imageId="img-1" isLoggedIn={false} />);
+    expand();
+    fireEvent.click(screen.getByRole("button", { name: "L" }));
+    const href = screen
+      .getAllByRole("link", { name: "Sign in to buy" })[0]
+      .getAttribute("href")!;
+    const next = nextOf(href);
+    expect(next.startsWith("/d/img-1?")).toBe(true);
+    const picks = new URL(next, "http://x.invalid").searchParams;
+    expect(picks.get("order")).toBe("1");
+    expect(picks.get("size")).toBe("L");
+  });
+
+  function signInPicks() {
+    const href = screen
+      .getAllByRole("link", { name: "Sign in to buy" })[0]
+      .getAttribute("href")!;
+    return new URL(nextOf(href), "http://x.invalid").searchParams;
+  }
+
+  it("untouched product and size: the link carries no product, so a remembered product wins after sign-in", () => {
+    render(<BuyPanel imageId="img-1" isLoggedIn={false} />);
+    expand();
+    const picks = signInPicks();
+    expect(picks.get("order")).toBe("1");
+    expect(picks.get("color")).toBeTruthy();
+    expect(picks.has("product")).toBe(false);
+    expect(picks.has("size")).toBe(false);
+  });
+
+  it("a size the buyer picked carries the product it was picked on", () => {
+    render(<BuyPanel imageId="img-1" isLoggedIn={false} />);
+    expand();
+    fireEvent.click(screen.getByRole("button", { name: "L" }));
+    const picks = signInPicks();
+    expect(picks.get("size")).toBe("L");
+    expect(picks.get("product")).toBe("bella-canvas-3001");
+  });
+
+  it("a product the buyer changed to is carried", () => {
+    render(<BuyPanel imageId="img-1" isLoggedIn={false} />);
+    expand();
+    fireEvent.click(screen.getByRole("button", { name: "Box Tee" }));
+    expect(signInPicks().get("product")).toBe(BOX);
+  });
+
+  it("a product that came from the link is carried", () => {
+    render(
+      <BuyPanel
+        imageId="img-1"
+        isLoggedIn={false}
+        initialPicks={{
+          expanded: true, productId: BOX, size: null, color: null, back: null, swapped: false,
+        }}
+      />
+    );
+    expect(signInPicks().get("product")).toBe(BOX);
+  });
+
+  it("a link size with no link product is carried without a product", () => {
+    render(
+      <BuyPanel
+        imageId="img-1"
+        isLoggedIn={false}
+        initialPicks={{
+          expanded: true, productId: null, size: "L", color: null, back: null, swapped: false,
+        }}
+      />
+    );
+    const picks = signInPicks();
+    expect(picks.get("size")).toBe("L");
+    expect(picks.has("product")).toBe(false);
+  });
+
+  it("a signed-in Order that the server answers with needsAuth sends the same return path", async () => {
+    vi.mocked(buyPublishedDesign).mockResolvedValueOnce({
+      url: null,
+      needsAuth: true,
+    });
+    const hrefSet = vi.fn();
+    const original = window.location;
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        get pathname() {
+          return original.pathname;
+        },
+        get search() {
+          return original.search;
+        },
+        set href(value: string) {
+          hrefSet(value);
+        },
+      },
+    });
+    try {
+      render(<BuyPanel imageId="img-1" isLoggedIn />);
+      expand();
+      fireEvent.click(screen.getByRole("button", { name: "L" }));
+      await act(async () => {
+        fireEvent.click(buyButton());
+      });
+      expect(hrefSet).toHaveBeenCalledTimes(1);
+      const next = nextOf(hrefSet.mock.calls[0][0]);
+      const picks = new URL(next, "http://x.invalid").searchParams;
+      expect(next.startsWith("/d/img-1?")).toBe(true);
+      expect(picks.get("order")).toBe("1");
+      expect(picks.get("size")).toBe("L");
+    } finally {
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        value: original,
+      });
+    }
   });
 });

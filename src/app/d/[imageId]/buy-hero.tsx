@@ -6,11 +6,7 @@ import { getListingMockup, getListingBackMockup } from "../actions";
 import { PublishedImageView } from "./published-image-view";
 import { BuyPanel, type BackPick, type BuyPanelHandle } from "./buy-panel";
 import { SideMockup } from "@/components/side-mockup";
-import {
-  getBlank,
-  DEFAULT_BLANK_ID,
-  productSupportsPlacement,
-} from "@/lib/blanks";
+import { getBlank, productSupportsPlacement } from "@/lib/blanks";
 import {
   resolveHeroDisplay,
   sidesLayout,
@@ -18,7 +14,12 @@ import {
 } from "@/lib/instant-preview";
 import { createLatestWins } from "@/lib/latest-wins";
 import { BACK_PLACEMENT_UPCHARGE } from "@/lib/pricing";
-import type { PurchaseDefaults } from "@/lib/purchase-defaults";
+import {
+  resolveDefaultColor,
+  resolveProductAndSize,
+  type PurchaseDefaults,
+} from "@/lib/purchase-defaults";
+import { buyPagePlacements } from "@/lib/placement-pins";
 
 /**
  * One side's mockup fetch state. `key` names the selection (product, color,
@@ -53,11 +54,13 @@ const EMPTY_SLOT: SideSlot = {
  * `children` so its JSX stays authored in the server page), and
  * `PublishedImageView` also serves the owner's backdrop-picker mode, so buy
  * logic doesn't belong there. `BuyPanel` stays the single source of truth
- * for its own expanded/product/color/back/swap state; this wrapper just
- * mirrors it (via BuyPanel's report effects) to know what to render mockups
- * for, and stays mounted as one instance across the collapsed → expanded
- * hero change (same position in both returned trees) so BuyPanel's internal
- * state (size, back design, swap, expanded) survives it.
+ * for its own expanded/product/color/back/swap state. This wrapper starts
+ * from the same values (it replays the panel's precedence over the link's
+ * `initialPicks`, so a link that opens expanded fetches the right mockup on
+ * the first render) and then follows the panel through its report effects, to
+ * know what to render mockups for. It stays mounted as one instance across
+ * the collapsed → expanded hero change (same position in both returned trees)
+ * so BuyPanel's internal state (size, back design, swap, expanded) survives it.
  *
  * Collapsed: renders `PublishedImageView` unchanged — artwork on its pinned
  * backdrop, no mockup fetch, page stays cheap for browsers. Expanded: the
@@ -91,6 +94,7 @@ export function BuyHero({
   backEnabled,
   cartEnabled,
   startAction,
+  initialPicks,
   backHref,
   backLabel,
   children,
@@ -105,6 +109,17 @@ export function BuyHero({
   backEnabled?: boolean;
   cartEnabled?: boolean;
   startAction?: ReactNode;
+  /** Picks carried by the link (#278), forwarded to `BuyPanel`. The hero
+   * seeds its own mirror of them so a link that opens expanded requests the
+   * right mockup on the first render instead of the default one first. */
+  initialPicks?: {
+    expanded: boolean;
+    productId: string | null;
+    size: string | null;
+    color: string | null;
+    back: BackPick | null;
+    swapped: boolean;
+  };
   /** Mobile-only floating back arrow (breadcrumbTrail's `up`), rendered over
    * the hero exactly as it was in page.tsx before the wrapper existed. */
   backHref?: string;
@@ -113,14 +128,35 @@ export function BuyHero({
    * `BuyPanel`, matching the page's original visual order. */
   children?: ReactNode;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const [productId, setProductId] = useState(DEFAULT_BLANK_ID);
-  const [colorName, setColorName] = useState(
-    initialBackgroundColor ?? "White"
+  // The initial values replay BuyPanel's own precedence (link > remembered >
+  // static; link > pinned backdrop > White) so the hero's first fetch is for
+  // the shirt the panel starts on. The panel's report effects keep them in
+  // line afterwards.
+  const [expanded, setExpanded] = useState(initialPicks?.expanded ?? false);
+  const [productId, setProductId] = useState(
+    () =>
+      resolveProductAndSize({
+        urlProduct: initialPicks?.productId ?? null,
+        urlSize: initialPicks?.size ?? null,
+        remembered: remembered ?? null,
+      }).productId
   );
-  const [back, setBack] = useState<BackPick | null>(null);
+  const [colorName, setColorName] = useState(
+    () =>
+      resolveDefaultColor({
+        urlColor: initialPicks?.color ?? null,
+        pinnedColor: initialBackgroundColor,
+        palette: getBlank(productId)?.colors ?? [],
+      }).color
+  );
+  const initialSides = buyPagePlacements({
+    page: { id: imageId, imageUrl },
+    added: backEnabled ? (initialPicks?.back ?? null) : null,
+    swapped: !!initialPicks?.swapped,
+  });
+  const [back, setBack] = useState<BackPick | null>(initialSides.back);
   // The front pin: this page's image until the buyer swaps (#138 slice 3).
-  const [front, setFront] = useState<BackPick>({ id: imageId, imageUrl });
+  const [front, setFront] = useState<BackPick>(initialSides.front);
   // Which side the buyer last made large. Only meaningful with a back
   // picked; reset when the back goes so a later pick starts as the tile.
   const [prominent, setProminent] = useState<Side>("front");
@@ -411,6 +447,7 @@ export function BuyHero({
           backEnabled={backEnabled}
           cartEnabled={cartEnabled}
           startAction={startAction}
+          initialPicks={initialPicks}
           onExpandedChange={setExpanded}
           onProductChange={setProductId}
           onColorChange={setColorName}

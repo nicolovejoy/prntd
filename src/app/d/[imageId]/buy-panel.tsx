@@ -11,7 +11,7 @@ import {
 import Link from "next/link";
 import { Button, InlineNotice } from "@/components/ui";
 import { SizePicker, ColorPicker } from "@/components/product-options";
-import { ACTIVE_BLANKS, DEFAULT_BLANK_ID, getBlank } from "@/lib/blanks";
+import { ACTIVE_BLANKS, getBlank } from "@/lib/blanks";
 import {
   computePrice,
   computeOrderTotal,
@@ -19,8 +19,10 @@ import {
 } from "@/lib/pricing";
 import {
   resolveDefaultColor,
+  resolveProductAndSize,
   type PurchaseDefaults,
 } from "@/lib/purchase-defaults";
+import { buyPageHref, withBuyPagePicks } from "@/lib/buy-page-picks";
 import type { BackSourceGroup } from "@/lib/back-sources";
 import { ensureGuestSession } from "@/lib/ensure-guest-session";
 import { buyPagePlacements, type PlacementPick } from "@/lib/placement-pins";
@@ -65,6 +67,7 @@ export function BuyPanel({
   backEnabled = false,
   cartEnabled = false,
   startAction,
+  initialPicks,
   onExpandedChange,
   onProductChange,
   onColorChange,
@@ -94,6 +97,18 @@ export function BuyPanel({
   /** Peer CTA rendered next to Order while collapsed and kept below the
    * stack once expanded (the StartFromImage remix action). */
   startAction?: ReactNode;
+  /** Picks carried by the link (#278): the panel starts from them and keeps
+   * the address bar in step, so a reload, the sign-in detour and a return
+   * from Stripe all come back to the same shirt. Precedence: link >
+   * remembered > static. */
+  initialPicks?: {
+    expanded: boolean;
+    productId: string | null;
+    size: string | null;
+    color: string | null;
+    back: BackPick | null;
+    swapped: boolean;
+  };
   /** Mirrors this panel's expanded/product/color state up to a wrapper
    * (#135 slice 1: the Order-expand hero swap needs to know what to render
    * a mockup for). This panel stays the source of truth for its own state —
@@ -112,35 +127,53 @@ export function BuyPanel({
 }) {
   // Progressive disclosure (#128): the picker stack stays hidden until the
   // visitor taps Order.
-  const [expanded, setExpanded] = useState(false);
-  // Remembered product wins over the static default (#44). No URL params on
-  // this surface, so precedence is remembered > static.
+  const [expanded, setExpanded] = useState(initialPicks?.expanded ?? false);
+  // Precedence is link > remembered (#44) > static default (#278).
   const [productId, setProductId] = useState(
-    () => (remembered && getBlank(remembered.blankId) ? remembered.blankId : DEFAULT_BLANK_ID)
+    () =>
+      resolveProductAndSize({
+        urlProduct: initialPicks?.productId ?? null,
+        urlSize: initialPicks?.size ?? null,
+        remembered: remembered ?? null,
+      }).productId
   );
   const product = getBlank(productId);
   const sizes = product?.sizes ?? [];
   const colors = product?.colors ?? [];
 
-  // No silent size (#60): a remembered size pre-selects a *visible* chip the
-  // buyer can change; with nothing remembered the CTA stays disabled until a
+  // No silent size (#60): a link's or remembered size pre-selects a *visible*
+  // chip the buyer can change; with neither the CTA stays disabled until a
   // pick.
-  const [size, setSize] = useState<string | null>(() => {
-    const s = remembered?.size;
-    return s && (getBlank(productId)?.sizes ?? []).includes(s) ? s : null;
-  });
+  const [size, setSize] = useState<string | null>(
+    () =>
+      resolveProductAndSize({
+        urlProduct: initialPicks?.productId ?? null,
+        urlSize: initialPicks?.size ?? null,
+        remembered: remembered ?? null,
+      }).size
+  );
   // The pinned backdrop color IS defaulted (the design is displayed on it),
-  // but labeled below so it's not a silent pick.
-  const pinnedColorApplied =
-    !!preferredColor && colors.some((c) => c.name === preferredColor);
+  // but labeled below so it's not a silent pick. A color the link names wins
+  // over the pinned one; the note shows whenever the selected color equals the
+  // pinned one, however it got selected.
   const [color, setColor] = useState<string>(
     () =>
       resolveDefaultColor({
-        urlColor: null,
+        urlColor: initialPicks?.color ?? null,
         pinnedColor: preferredColor ?? null,
         palette: colors,
       }).color
   );
+  const pinnedColorApplied =
+    !!preferredColor &&
+    color === preferredColor &&
+    colors.some((c) => c.name === preferredColor);
+  // Whether the buyer chose a garment: the link named one, they switched
+  // product, or they picked a size (which is a pick on this garment). Only
+  // then does the sign-in link carry `product`; otherwise the product is the
+  // static default and a returning customer's remembered one should win
+  // after sign-in.
+  const [productChosen, setProductChosen] = useState(!!initialPicks?.productId);
   const [loading, setLoading] = useState(false);
   const [addingToCart, setAddingToCart] = useState(false);
   // One line under the CTAs when Order or Add to cart fails. The thrown
@@ -165,7 +198,9 @@ export function BuyPanel({
 
   // Back design (#25 on /d): picked source image, the picker's open state,
   // and its groups (null until first fetched — one fetch per page view).
-  const [back, setBack] = useState<BackPick | null>(null);
+  const [back, setBack] = useState<BackPick | null>(
+    () => (backEnabled ? (initialPicks?.back ?? null) : null)
+  );
   const [backPickerOpen, setBackPickerOpen] = useState(false);
   // Cancel unmounts the focused button; hand focus to the control that
   // re-expands the panel instead of dropping it on <body> (#278 review).
@@ -180,7 +215,9 @@ export function BuyPanel({
   const [backGroups, setBackGroups] = useState<BackSourceGroup[] | null>(null);
   // Swap (#138 slice 3): the pick on the front, this page's image on the
   // back. Only meaningful with a pick; picking or removing one resets it.
-  const [swapped, setSwapped] = useState(false);
+  const [swapped, setSwapped] = useState(
+    () => backEnabled && !!initialPicks?.back && !!initialPicks.swapped
+  );
   const sides = buyPagePlacements({
     page: { id: imageId, imageUrl: imageUrl ?? "" },
     added: back,
@@ -216,6 +253,70 @@ export function BuyPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sides.front.id]);
 
+  // Set the moment a navigation away starts (checkout, add to cart): a late
+  // state change must not rewrite history after that (#101).
+  const navigatingAway = useRef(false);
+
+  // Keep the picks in the address bar while the panel is open (#278).
+  // replaceState, not router.replace: a router.replace next to a server-action
+  // call gets cancelled. Nothing is written while collapsed, so a browsing
+  // visitor's URL stays the bare page, and a collapsed mount leaves the URL
+  // exactly as it found it.
+  //
+  // Limit: replaceState is not seen by Next's router, which keeps its own URL
+  // for this entry. A later `router.refresh()` on this page (the owner
+  // renaming the title, for one) can put the address bar back to the URL the
+  // page was loaded with, without the picks. The panel's state is unaffected.
+  useEffect(() => {
+    if (!expanded || navigatingAway.current) return;
+    const next =
+      window.location.pathname +
+      withBuyPagePicks(window.location.search, {
+        order: true,
+        product: productId,
+        size,
+        color,
+        back: back?.id ?? null,
+        swap: swapped && !!back,
+      });
+    if (next === window.location.pathname + window.location.search) return;
+    window.history.replaceState(window.history.state, "", next);
+  }, [expanded, productId, size, color, back, swapped]);
+
+  // Back from hosted Stripe can restore this page from the back/forward cache
+  // with its state as it was when the buyer left: the button on "Redirecting…"
+  // and the URL sync switched off. A persisted pageshow means exactly that, so
+  // hand the panel back.
+  useEffect(() => {
+    function onPageShow(event: PageTransitionEvent) {
+      if (!event.persisted) return;
+      navigatingAway.current = false;
+      setLoading(false);
+      setAddingToCart(false);
+    }
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, []);
+
+  // Cancel (the buyer closing the panel) takes the picks back out, so a reload
+  // does not reopen a panel they closed. `from` and `line` stay. This runs
+  // from the click, not from the sync effect: only that transition removes
+  // picks, never a mount.
+  function removePicksFromUrl() {
+    const next =
+      window.location.pathname +
+      withBuyPagePicks(window.location.search, {
+        order: false,
+        product: null,
+        size: null,
+        color: null,
+        back: null,
+        swap: false,
+      });
+    if (next === window.location.pathname + window.location.search) return;
+    window.history.replaceState(window.history.state, "", next);
+  }
+
   function openBackPicker() {
     setBackPickerOpen(true);
     if (backGroups !== null) return;
@@ -234,6 +335,7 @@ export function BuyPanel({
     const next = getBlank(id);
     if (!next) return;
     setProductId(id);
+    setProductChosen(true);
     if (size && !next.sizes.includes(size)) setSize(null);
     if (!next.colors.some((c) => c.name === color)) {
       setColor(
@@ -262,8 +364,24 @@ export function BuyPanel({
   const frontOverride =
     sides.front.id !== imageId ? sides.front.id : undefined;
 
+  // Sign-in returns to this page with the same shirt open (#278). Built from
+  // state, not from the address bar, so it is right even before the first
+  // URL sync has run. `product` is left out until the buyer has chosen a
+  // garment (see `productChosen`).
+  const signInHref = `/sign-in?next=${encodeURIComponent(
+    buyPageHref(imageId, {
+      order: true,
+      product: productChosen ? productId : null,
+      size,
+      color,
+      back: back?.id ?? null,
+      swap: swapped && !!back,
+    })
+  )}`;
+
   async function handleBuy() {
     if (!size) return;
+    navigatingAway.current = true;
     setLoading(true);
     setNotice(null);
     try {
@@ -276,11 +394,12 @@ export function BuyPanel({
         ...(frontOverride ? { frontImageId: frontOverride } : {}),
       });
       if (needsAuth) {
-        window.location.href = `/sign-in?next=/d/${imageId}`;
+        window.location.href = signInHref;
         return;
       }
       if (url) window.location.href = url;
     } catch {
+      navigatingAway.current = false;
       setNotice(CHECKOUT_FAILED);
       setLoading(false);
     }
@@ -288,6 +407,7 @@ export function BuyPanel({
 
   async function handleAddToCart() {
     if (!size) return;
+    navigatingAway.current = true;
     setAddingToCart(true);
     setNotice(null);
     try {
@@ -310,6 +430,7 @@ export function BuyPanel({
       // (not router.push — see preview/page.tsx handleAddToCart).
       window.location.href = "/cart";
     } catch {
+      navigatingAway.current = false;
       setNotice(ADD_TO_CART_FAILED);
       setAddingToCart(false);
     }
@@ -339,6 +460,7 @@ export function BuyPanel({
         setBackPickerOpen(false);
         refocusExpand.current = true;
         setExpanded(false);
+        removePicksFromUrl();
       }}
       className="w-full min-h-11 text-sm underline text-text-muted hover:text-foreground"
     >
@@ -372,7 +494,7 @@ export function BuyPanel({
       {cartEnabled && !size && (
         <p className="text-sm text-text-muted text-center">Choose a size</p>
       )}
-      <Link href={`/sign-in?next=/d/${imageId}`} className="block">
+      <Link href={signInHref} className="block">
         <Button size="lg" className="w-full">
           Sign in to buy
         </Button>
@@ -427,7 +549,10 @@ export function BuyPanel({
       <SizePicker
         sizes={sizes}
         value={size}
-        onChange={setSize}
+        onChange={(s) => {
+          setSize(s);
+          setProductChosen(true);
+        }}
         label={product?.sizeLabel ?? "Size"}
       />
       <ColorPicker

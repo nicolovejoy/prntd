@@ -264,6 +264,7 @@ describe('"use server" export pins', () => {
       "getImagePage",
       "getListingBackMockup",
       "getListingMockup",
+      "resolveInitialBack",
     ],
   };
 
