@@ -127,7 +127,17 @@ describe("the image detail page for the owner's unpublished image", () => {
 
   it("offers no backdrop picker (no publication to pin it on)", async () => {
     await renderPage();
-    expect(screen.queryByText(/backdrop/i)).not.toBeInTheDocument();
+    // The picker's label is "Background — <colour>" (BackgroundPicker).
+    expect(screen.queryByText(/^Background/)).not.toBeInTheDocument();
+    // And no title editor: there is no listing to name.
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+  });
+
+  it("add to cart follows the flag for the owner of a private image too", async () => {
+    vi.stubEnv("CART_ENABLED", "true");
+    await renderPage({ order: "1" });
+    expect(cartEnabled()).toBe(true);
+    expect(screen.getAllByTestId("add-to-cart").length).toBeGreaterThan(0);
   });
 
   it("Order, then a size, enables the Order button", async () => {
@@ -194,18 +204,66 @@ describe("the image detail page for the owner's unpublished image", () => {
   });
 });
 
-describe("the page for a published image is unchanged", () => {
-  it("still shows the panel, with the owner row marked published", async () => {
-    h.image = imagePage({ publishedAt: new Date() });
+describe("the page for a published image", () => {
+  const PUBLISHED = {
+    publishedAt: new Date(),
+    title: "Fox",
+    backgroundColor: "Black",
+    canOrder: true,
+  };
+
+  it("shows its owner the panel, the backdrop picker on the pinned colour, the title editor and a published owner row", async () => {
+    h.image = imagePage(PUBLISHED);
     await renderPage();
     expect(screen.getByTestId("order-expand")).toBeInTheDocument();
+    expect(screen.getByText("Background — Black")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
     expect(screen.getByTestId("owner-actions")).toHaveTextContent("published");
   });
 
-  it("add to cart follows the flag for the owner of a private image too", async () => {
-    vi.stubEnv("CART_ENABLED", "true");
-    await renderPage({ order: "1" });
-    expect(cartEnabled()).toBe(true);
-    expect(screen.getAllByTestId("add-to-cart").length).toBeGreaterThan(0);
+  it("shows a stranger the panel but no backdrop picker, no title editor and no owner row", async () => {
+    h.session = { user: { id: "stranger", isAnonymous: false } };
+    h.image = imagePage({ ...PUBLISHED, isOwn: false, designerId: "someone-else" });
+    await renderPage();
+    expect(screen.getByTestId("order-expand")).toBeInTheDocument();
+    expect(screen.queryByText(/^Background/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("owner-actions")).not.toBeInTheDocument();
+  });
+});
+
+describe("publishing from the page remounts the buy hero and the title block (fix D)", () => {
+  it("the backdrop picker, the title draft and the panel's default colour follow the published values", async () => {
+    // Unpublished: no backdrop, no title.
+    h.image = imagePage();
+    const first = await PublishedImagePage({
+      params: Promise.resolve({ imageId: "img-1" }),
+      searchParams: Promise.resolve({}),
+    });
+    const { rerender } = render(first);
+    expect(screen.queryByText(/^Background/)).not.toBeInTheDocument();
+
+    // The same route re-renders with the published values (Publish, then the
+    // router refresh): backdrop Black and a title.
+    h.image = imagePage({
+      publishedAt: new Date(),
+      title: "Fox",
+      backgroundColor: "Black",
+    });
+    rerender(
+      await PublishedImagePage({
+        params: Promise.resolve({ imageId: "img-1" }),
+        searchParams: Promise.resolve({}),
+      })
+    );
+
+    // The picker reads the pinned backdrop, not the White default it mounted with.
+    expect(screen.getByText("Background — Black")).toBeInTheDocument();
+    // The title editor opens on the published title, not an empty draft.
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    expect(screen.getByDisplayValue("Fox")).toBeInTheDocument();
+    // The panel's default colour is the designer's pick.
+    fireEvent.click(screen.getByTestId("order-expand"));
+    expect(screen.getByText("Color — Black")).toBeInTheDocument();
   });
 });

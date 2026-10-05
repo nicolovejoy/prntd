@@ -109,11 +109,21 @@ export default async function PublishedImagePage({
   const trail = breadcrumbTrail(`/d/${imageId}`, { from });
   const up = trail.length > 0 ? trail[trail.length - 1] : null;
 
+  // Publishing (or unpublishing) re-renders this same route with the other
+  // state's props. BuyHero, the backdrop picker and the title editor all seed
+  // client state from props once, at mount, and the two states render them at
+  // the same position, so without a new key the hero kept the White backdrop it
+  // mounted with and the title editor an empty draft. A key per publish state
+  // remounts them. What the buyer picked survives: it rides in the URL and is
+  // parsed again above.
+  const stateKey = isPublished ? "published" : "private";
+
   // Title/attribution as one mono-labelled block, identical for both
   // branches below (design review, "/d/[imageId] image page"). The owner's
   // actions are NOT here — they collect under the OWNER row further down.
   const identityBlock = (
     <IdentityBlock
+      key={stateKey}
       imageId={img.imageId}
       title={img.title}
       canEditTitle={isOwner && isPublished}
@@ -168,6 +178,7 @@ export default async function PublishedImagePage({
           {img.canOrder ? (
             <>
               <BuyHero
+                key={stateKey}
                 imageId={img.imageId}
                 imageUrl={img.imageUrl}
                 alt={img.title?.trim() || "Design"}
