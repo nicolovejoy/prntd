@@ -23,6 +23,7 @@ import {
   listingSyncStatement,
   productMirrorStatement,
   findMirrorProduct,
+  isImageAdminHidden,
   requireMirrorProduct,
   type MirrorUpdate,
 } from "@/lib/model-b-writes";
@@ -215,7 +216,8 @@ export async function deleteImages(
  * auto-generated (2026-07-29 review); only an explicit caller-supplied
  * one is stored. Subsequent calls are a no-op on already-published
  * images. Reversible via unpublishImage; admin moderation via the
- * listing's is_hidden removes from the feed.
+ * listing's is_hidden removes from the feed. Refuses an admin-hidden image
+ * (isImageAdminHidden).
  *
  * Authorizes via image.ownerId (the design owner, denormalized).
  */
@@ -253,6 +255,13 @@ export async function publishImage(
     .limit(1);
   if (!image) throw new Error("Image not found");
   if (image.ownerId !== session.user.id) throw new Error("Unauthorized");
+
+  // An admin-hidden image stays hidden: the owner can neither publish it
+  // again nor (unpublishImage) erase the hide. Checked before the
+  // already-published no-op, and before anything is written.
+  if (await isImageAdminHidden(db, imageId)) {
+    throw new Error("This image is not available");
+  }
 
   if (image.publishedAt) return;
 
@@ -396,7 +405,8 @@ export async function updatePublishedNaming(
  * order it from there without a Shop composition (canBuyImage).
  * Re-publishing is a fresh listing: new listed_at (sorts as newly published),
  * title re-proposed if not supplied, backdrop defaulted, feed rank cleared.
- * No-op if already unpublished.
+ * No-op if already unpublished. Refuses an admin-hidden image: it would delete
+ * the listing row that records the hide.
  */
 export async function unpublishImage(imageId: string) {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -414,6 +424,14 @@ export async function unpublishImage(imageId: string) {
     .limit(1);
   if (!image) throw new Error("Image not found");
   if (image.ownerId !== session.user.id) throw new Error("Unauthorized");
+
+  // Unpublishing deletes the listing row, which is where `is_hidden` lives, and
+  // drafts the mirror — so on a hidden image it would erase an admin's hide.
+  // Refuse before anything is written (owner ruling, 2026-10-05); an admin
+  // unhide (setImageHidden) re-enables it.
+  if (await isImageAdminHidden(db, imageId)) {
+    throw new Error("This image is not available");
+  }
 
   if (!image.publishedAt) return;
 

@@ -272,6 +272,33 @@ export async function findMirrorProduct(
 }
 
 /**
+ * Whether an admin has hidden this image. Hidden is recorded in two places:
+ * the `listing` row's `is_hidden` (what the pure buy/view guards read) and the
+ * mirror product's `status = 'hidden'` (`setImageHidden` writes both). Either
+ * one counts, so a state where only one survived still reads as hidden. Owner
+ * ruling (2026-10-05): a hidden image can be neither bought nor printed by
+ * anyone, and its owner must not be able to undo the hide — which
+ * `unpublishImage` would otherwise do by deleting the listing row.
+ */
+export async function isImageAdminHidden(
+  db: typeof appDb,
+  imageId: string
+): Promise<boolean> {
+  const [listing] = await db
+    .select({ isHidden: listingTable.isHidden })
+    .from(listingTable)
+    .where(eq(listingTable.imageId, imageId))
+    .limit(1);
+  if (listing?.isHidden) return true;
+  const [mirror] = await db
+    .select({ status: productTable.status })
+    .from(productTable)
+    .where(mirrorProductWhere(imageId))
+    .limit(1);
+  return mirror?.status === "hidden";
+}
+
+/**
  * Error message for "this published image has no composition". Every
  * published image has a mirror (publish writes one; the slice-1 backfill
  * converted the pre-existing listings), so this is a broken invariant, not a
