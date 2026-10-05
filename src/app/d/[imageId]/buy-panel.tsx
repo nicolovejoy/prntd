@@ -166,6 +166,23 @@ export function BuyPanel({
         palette: colors,
       }).color
   );
+  // Whether the buyer chose the colour (a swatch tap, or the link named one).
+  // Only an unchosen colour is a default, so only it follows a backdrop that
+  // gets pinned under a mounted panel (publishing the image from this page).
+  const [colorChosen, setColorChosen] = useState(!!initialPicks?.color);
+  const [seenPreferredColor, setSeenPreferredColor] = useState(preferredColor);
+  if (preferredColor !== seenPreferredColor) {
+    setSeenPreferredColor(preferredColor);
+    if (!colorChosen) {
+      setColor(
+        resolveDefaultColor({
+          urlColor: null,
+          pinnedColor: preferredColor ?? null,
+          palette: colors,
+        }).color
+      );
+    }
+  }
   const pinnedColorApplied =
     !!preferredColor &&
     color === preferredColor &&
@@ -560,7 +577,10 @@ export function BuyPanel({
       <ColorPicker
         colors={colors}
         value={color}
-        onChange={setColor}
+        onChange={(name) => {
+          setColorChosen(true);
+          setColor(name);
+        }}
         note={
           pinnedColorApplied
             ? `Shown in ${preferredColor} — designer's pick`

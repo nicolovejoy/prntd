@@ -17,6 +17,14 @@ export function EditableNaming({ imageId, title, canEdit }: Props) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [titleDraft, setTitleDraft] = useState(title ?? "");
+  // Follow the prop when it changes under a mounted component (publishing
+  // gives a title to a page that mounted without one), unless the owner is
+  // mid-edit. The "adjust state while rendering" pattern, not an effect.
+  const [seenTitle, setSeenTitle] = useState(title);
+  if (title !== seenTitle) {
+    setSeenTitle(title);
+    if (!editing) setTitleDraft(title ?? "");
+  }
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

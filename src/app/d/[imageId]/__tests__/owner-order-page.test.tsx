@@ -232,38 +232,68 @@ describe("the page for a published image", () => {
   });
 });
 
-describe("publishing from the page remounts the buy hero and the title block (fix D)", () => {
-  it("the backdrop picker, the title draft and the panel's default colour follow the published values", async () => {
-    // Unpublished: no backdrop, no title.
-    h.image = imagePage();
-    const first = await PublishedImagePage({
+describe("publishing from the page keeps the open panel and shows the published values (fixes D and 2)", () => {
+  const PUBLISHED = { publishedAt: new Date(), title: "Fox", backgroundColor: "Black" };
+
+  async function pageNode() {
+    return PublishedImagePage({
       params: Promise.resolve({ imageId: "img-1" }),
       searchParams: Promise.resolve({}),
     });
-    const { rerender } = render(first);
+  }
+
+  it("with no colour picked, the default follows the pinned backdrop, and the picker and the title editor show the published values", async () => {
+    h.image = imagePage();
+    const { rerender } = render(await pageNode());
     expect(screen.queryByText(/^Background/)).not.toBeInTheDocument();
 
-    // The same route re-renders with the published values (Publish, then the
-    // router refresh): backdrop Black and a title.
-    h.image = imagePage({
-      publishedAt: new Date(),
-      title: "Fox",
-      backgroundColor: "Black",
-    });
-    rerender(
-      await PublishedImagePage({
-        params: Promise.resolve({ imageId: "img-1" }),
-        searchParams: Promise.resolve({}),
-      })
-    );
+    h.image = imagePage(PUBLISHED);
+    rerender(await pageNode());
 
-    // The picker reads the pinned backdrop, not the White default it mounted with.
     expect(screen.getByText("Background — Black")).toBeInTheDocument();
-    // The title editor opens on the published title, not an empty draft.
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     expect(screen.getByDisplayValue("Fox")).toBeInTheDocument();
-    // The panel's default colour is the designer's pick.
     fireEvent.click(screen.getByTestId("order-expand"));
+    expect(screen.getByText("Color — Black")).toBeInTheDocument();
+  });
+
+  it("an open panel stays open with its size and the buyer's own colour, and the title editor shows the title", async () => {
+    h.image = imagePage();
+    const { rerender } = render(await pageNode());
+    fireEvent.click(screen.getByTestId("order-expand"));
+    const blank = getBlankOrThrow(DEFAULT_BLANK_ID);
+    const size = blank.sizes[1];
+    fireEvent.click(screen.getAllByRole("button", { name: size })[0]);
+    // The buyer picks a colour that is neither the default nor the new backdrop.
+    const picked = blank.colors.find((c) => c.name !== "White" && c.name !== "Black")!;
+    fireEvent.click(screen.getByTitle(picked.name));
+    expect(screen.getByText(`Color — ${picked.name}`)).toBeInTheDocument();
+
+    h.image = imagePage(PUBLISHED);
+    rerender(await pageNode());
+
+    // Still open, same size, same colour: the buyer's pick is not overridden.
+    expect(screen.queryByTestId("order-expand")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: size })[0]).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    expect(screen.getByText(`Color — ${picked.name}`)).toBeInTheDocument();
+    // The title editor shows the published title. (The backdrop picker lives
+    // on the collapsed hero, so it is covered by the collapsed test above.)
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    expect(screen.getByDisplayValue("Fox")).toBeInTheDocument();
+  });
+
+  it("an open panel whose colour was left at the default follows the new backdrop", async () => {
+    h.image = imagePage();
+    const { rerender } = render(await pageNode());
+    fireEvent.click(screen.getByTestId("order-expand"));
+    expect(screen.getByText("Color — White")).toBeInTheDocument();
+
+    h.image = imagePage(PUBLISHED);
+    rerender(await pageNode());
+    expect(screen.queryByTestId("order-expand")).not.toBeInTheDocument();
     expect(screen.getByText("Color — Black")).toBeInTheDocument();
   });
 });

@@ -113,20 +113,19 @@ export default async function PublishedImagePage({
   const up = trail.length > 0 ? trail[trail.length - 1] : null;
 
   // Publishing (or unpublishing) re-renders this same route with the other
-  // state's props. BuyHero, the backdrop picker and the title editor all seed
-  // client state from props once, at mount, and the two states render them at
-  // the same position, so without a new key the hero kept the White backdrop it
-  // mounted with and the title editor an empty draft. A key per publish state
-  // remounts them. What the buyer picked survives: it rides in the URL and is
-  // parsed again above.
-  const stateKey = isPublished ? "published" : "private";
+  // state's props, and BuyHero sits at the same position in both states, so it
+  // stays mounted: an open panel keeps its product, size, colour, back and swap
+  // (none of them are in the URL after PublishModal's push, which carries no
+  // picks). The client pieces that seed state from props once now follow the
+  // props instead: the backdrop picker (PublishedImageView), the title editor
+  // (EditableNaming) and the panel's default colour (BuyPanel, which leaves a
+  // colour the buyer picked alone).
 
   // Title/attribution as one mono-labelled block, identical for both
   // branches below (design review, "/d/[imageId] image page"). The owner's
   // actions are NOT here — they collect under the OWNER row further down.
   const identityBlock = (
     <IdentityBlock
-      key={stateKey}
       imageId={img.imageId}
       title={img.title}
       canEditTitle={isOwner && isPublished}
@@ -181,7 +180,6 @@ export default async function PublishedImagePage({
           {img.canOrder ? (
             <>
               <BuyHero
-                key={stateKey}
                 imageId={img.imageId}
                 imageUrl={img.imageUrl}
                 alt={img.title?.trim() || "Design"}
