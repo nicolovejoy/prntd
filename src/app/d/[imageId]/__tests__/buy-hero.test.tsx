@@ -14,7 +14,7 @@ import {
   within,
   act,
 } from "@testing-library/react";
-import { DEFAULT_BLANK_ID } from "@/lib/blanks";
+import { ACTIVE_BLANKS, DEFAULT_BLANK_ID } from "@/lib/blanks";
 import { BuyHero } from "../buy-hero";
 
 vi.mock("../../actions", () => ({
@@ -65,7 +65,11 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-function renderHero(props: { backEnabled?: boolean } = {}) {
+type HeroInitialPicks = React.ComponentProps<typeof BuyHero>["initialPicks"];
+
+function renderHero(
+  props: { backEnabled?: boolean; initialPicks?: HeroInitialPicks } = {}
+) {
   return render(
     <BuyHero
       imageId="img-1"
@@ -75,6 +79,7 @@ function renderHero(props: { backEnabled?: boolean } = {}) {
       canEdit={false}
       isLoggedIn
       backEnabled={props.backEnabled}
+      initialPicks={props.initialPicks}
     >
       <p>meta</p>
     </BuyHero>
@@ -381,5 +386,44 @@ describe("BuyHero after a swap (#138 slice 3)", () => {
     );
     expect(screen.getByAltText(/^Front design on a Black/)).toBeInTheDocument();
     expect(screen.getByAltText(/^This design on a Black/)).toBeInTheDocument();
+  });
+});
+
+describe("BuyHero starting from a link (#278)", () => {
+  const NONE = { expanded: false, productId: null, size: null, color: null, back: null, swapped: false };
+
+  it("opens on the mockup and requests it once, for the link's product and colour", async () => {
+    const other = ACTIVE_BLANKS.find((b) => b.id !== DEFAULT_BLANK_ID)!;
+    const color = other.colors[1]?.name ?? other.colors[0].name;
+    renderHero({
+      initialPicks: { ...NONE, expanded: true, productId: other.id, color },
+    });
+    expect(screen.getByTestId("side-hero")).toHaveAttribute("data-side", "front");
+    await waitFor(() => expect(frontMock).toHaveBeenCalledTimes(1));
+    expect(frontMock).toHaveBeenCalledWith({
+      imageId: "img-1",
+      productId: other.id,
+      colorName: color,
+    });
+  });
+
+  it("a swapped link requests the front mockup for the pick and the back for this page's image", async () => {
+    renderHero({
+      backEnabled: true,
+      initialPicks: {
+        ...NONE,
+        expanded: true,
+        back: { id: "back-1", imageUrl: "https://img.example/back-1.png" },
+        swapped: true,
+      },
+    });
+    await waitFor(() => expect(frontMock).toHaveBeenCalledTimes(1));
+    expect(frontMock).toHaveBeenCalledWith(
+      expect.objectContaining({ imageId: "img-1", frontImageId: "back-1" })
+    );
+    await waitFor(() => expect(backMock).toHaveBeenCalledTimes(1));
+    expect(backMock).toHaveBeenCalledWith(
+      expect.objectContaining({ imageId: "img-1", backImageId: "img-1" })
+    );
   });
 });

@@ -2,7 +2,11 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
-import { getImagePage, getConversationImages } from "../actions";
+import {
+  getImagePage,
+  getConversationImages,
+  resolveInitialBack,
+} from "../actions";
 import { getImageShareCard } from "@/lib/image-share";
 import { getLastPurchaseDefaults } from "@/app/preview/actions";
 import { auth, isAnonymousUser } from "@/lib/auth";
@@ -18,9 +22,14 @@ import { StartFromImage } from "./start-from-image";
 import { ConversationImages } from "./conversation-images";
 import { OwnerActions } from "./owner-actions";
 import { previewOrderHref } from "@/lib/placement-pins";
+import {
+  backToResolve,
+  buildInitialPicks,
+  parseBuyPagePicks,
+} from "@/lib/buy-page-picks";
 
 type Params = Promise<{ imageId: string }>;
-type Search = Promise<{ from?: string }>;
+type Search = Promise<Record<string, string | string[] | undefined>>;
 
 /**
  * Caption for the link preview whose picture `opengraph-image.tsx` draws.
@@ -60,7 +69,8 @@ export default async function PublishedImagePage({
   searchParams: Search;
 }) {
   const { imageId } = await params;
-  const { from } = await searchParams;
+  const sp = await searchParams;
+  const from = typeof sp.from === "string" ? sp.from : undefined;
   const img = await getImagePage(imageId);
   if (!img) notFound();
 
@@ -83,6 +93,18 @@ export default async function PublishedImagePage({
     isOwner && img.sourceDesignId
       ? await getConversationImages(img.sourceDesignId)
       : null;
+
+  // The buy panel's picks ride in the link (#278): parsed against the catalog
+  // here, and the back image is checked against what this viewer may print.
+  // Each invalid pick is dropped on its own.
+  const picks = parseBuyPagePicks(sp);
+  const backId = backToResolve(picks, {
+    published: isPublished,
+    loggedIn: isLoggedIn,
+    multiPlacement: multiPlacementEnabled(),
+  });
+  const initialBack = backId ? await resolveInitialBack(imageId, backId) : null;
+  const initialPicks = buildInitialPicks(picks, initialBack, imageId);
 
   const trail = breadcrumbTrail(`/d/${imageId}`, { from });
   const up = trail.length > 0 ? trail[trail.length - 1] : null;
@@ -191,14 +213,16 @@ export default async function PublishedImagePage({
                 backLabel={up?.label}
                 isLoggedIn={isLoggedIn}
                 remembered={remembered}
-                // Back affordance is signed-in only (back selection would be
-                // lost through the sign-in redirect anyway) and flag-gated;
-                // the server action re-checks both.
+                // Back affordance is signed-in only (the picker lists the
+                // viewer's own designs, and a link's `back` is resolved only
+                // for a signed-in viewer) and flag-gated; the server action
+                // re-checks both.
                 backEnabled={isLoggedIn && multiPlacementEnabled()}
                 // Add to cart mirrors /preview's gating: flag + size picked,
                 // no auth gate (guests have carts; checkout gates sign-in,
                 // #146).
                 cartEnabled={cartEnabled()}
+                initialPicks={initialPicks}
                 startAction={<StartFromImage imageId={img.imageId} />}
               >
                 {identityBlock}
