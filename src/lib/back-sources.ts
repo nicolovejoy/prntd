@@ -35,8 +35,9 @@ import {
  * ownership is checked first) or a published + not-hidden Shop image.
  * Throws on anything else — called at the checkout choke points
  * (createCheckoutSession, addToCart, buyPublishedDesign) so a forged id
- * can't get a private image printed. On a /d buy `designId` is the SELLER's
- * design; the guard deliberately gives that no weight (see
+ * can't get a private image printed. On a Shop buy of a published image
+ * `designId` is the SELLER's design, and on the owner's own unpublished image
+ * their own; the guard deliberately gives either no weight (see
  * canUseAsPlacementSource).
  *
  * Placement-agnostic on purpose (#138): the front is a picked image id too
@@ -114,9 +115,10 @@ export async function getBackSourceGroups(params: {
 }
 
 /**
- * Picker groups for the published-design buy page (/d/[imageId]). The buyer
- * usually does NOT own the image's source design, so the groups differ from
- * /preview's:
+ * Picker groups for the image detail page's buy panel (/d/[imageId]). On a
+ * published image the buyer usually does NOT own the image's source design, so
+ * the groups differ from /preview's; on the owner's own unpublished image they
+ * do own it and get /preview's groups:
  *
  *  - This design appears only when the viewer owns the source design — a
  *    cross-owner buyer must never see the seller's private thread images.
@@ -125,8 +127,8 @@ export async function getBackSourceGroups(params: {
  *    is NOT excluded here — its published images (including the one being
  *    bought) are legitimate back choices and This design won't list them.
  *
- * `viewerId` is a signed-in, non-anonymous user (the /d purchase gate);
- * the action returns no groups for anyone else.
+ * `viewerId` is a signed-in, non-anonymous user (the image detail page's
+ * purchase gate); the action returns no groups for anyone else.
  */
 export async function getBuyPageBackSourceGroups(params: {
   /** The published image's source design. */

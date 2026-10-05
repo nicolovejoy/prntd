@@ -42,7 +42,9 @@ export type BuyPanelHandle = {
 };
 
 /**
- * Buy-existing UI on `/d/[imageId]`. Collapsed by default (#128): two peer
+ * Buy UI on `/d/[imageId]`, for a published image and for the owner's own
+ * unpublished one (the page decides, `img.canOrder`; the server re-checks).
+ * Collapsed by default (#128): two peer
  * CTAs under the image — "Order" (no price: the total depends on options
  * not yet picked) and the remix action passed in as
  * `startAction`. Tapping Order expands the picker stack in place
