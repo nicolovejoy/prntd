@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { SizePicker, ColorPicker } from "../product-options";
+import { BLANKS } from "@/lib/blanks";
 
 const COLORS = [
   { name: "White", value: "#ffffff" },
@@ -86,5 +87,34 @@ describe("ColorPicker", () => {
     expect(label.className).toContain("uppercase");
     expect(label.className).toContain("text-text-muted");
     expect(label.className).not.toContain("font-medium");
+  });
+  it("renders every swatch of the longest colour list, wrapped, with 44px phone targets", () => {
+    const longest = [...BLANKS].sort((a, b) => b.colors.length - a.colors.length)[0];
+    render(
+      <ColorPicker colors={longest.colors} value="White" onChange={() => {}} />
+    );
+    const swatches = screen.getAllByTitle(/.+/);
+    expect(swatches).toHaveLength(longest.colors.length);
+    // jsdom has no layout: assert on the classes. w-11/h-11 is 44px at phone
+    // width; the md: overrides only apply from 768px up.
+    for (const sw of swatches) {
+      expect(sw.className).toContain("w-11");
+      expect(sw.className).toContain("h-11");
+      expect(sw.className).toContain("md:w-8");
+      expect(sw.className).toContain("md:h-8");
+    }
+    expect(swatches[0].parentElement!.className).toContain("flex-wrap");
+  });
+
+  it("gives each swatch an aria-label with the colour name", () => {
+    render(<ColorPicker colors={COLORS} value="Black" onChange={() => {}} />);
+    expect(screen.getByRole("button", { name: "White" })).toHaveAttribute("aria-label", "White");
+    expect(screen.getByRole("button", { name: "Black" })).toHaveAttribute("aria-label", "Black");
+  });
+
+  it("names each swatch for assistive tech and marks the selected one", () => {
+    render(<ColorPicker colors={COLORS} value="Black" onChange={() => {}} />);
+    expect(screen.getByRole("button", { name: "Black" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "White" })).toHaveAttribute("aria-pressed", "false");
   });
 });
