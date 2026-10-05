@@ -390,9 +390,10 @@ export async function updatePublishedNaming(
 /**
  * Owner takes a published image back down — the reverse of publishImage.
  * Deletes the listing row and drafts the mirror product, so the image leaves
- * the discover feed (`/`, `/shop`), stops being buyable
+ * the discover feed (`/`, `/shop`), stops being buyable by anyone else
  * (canBuyPublishedImage), and /d/[imageId] 404s for everyone but the owner,
- * who still reaches it as their own private image (#136 slice 1).
+ * who still reaches it as their own private image (#136 slice 1) and can
+ * order it from there without a Shop composition (canBuyImage).
  * Re-publishing is a fresh listing: new listed_at (sorts as newly published),
  * title re-proposed if not supplied, backdrop defaulted, feed rank cleared.
  * No-op if already unpublished.

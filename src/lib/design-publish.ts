@@ -102,17 +102,46 @@ export function imageReferences(flags: ImageReferenceFlags): ImageReferenceDecis
 }
 
 /**
- * Decide whether an image may be bought via the buy-existing path
- * (`/d/[imageId]`). Unlike forking there is no owner shortcut: the image
- * must be published and not admin-hidden for anyone — including its
- * owner, who buys their own unpublished work through the normal /order
- * flow instead.
+ * Whether ANYONE may buy this image from the image detail page: it is
+ * published and not admin-hidden. There is no owner shortcut here; callers
+ * that mean "this viewer" use `canBuyImage`, which adds the owner's own
+ * unpublished work. A published image is bought through its Shop composition
+ * (the mirror product the order records), so "published" also names which
+ * ordering branch an image takes.
  */
 export function canBuyPublishedImage(image: {
   publishedAt: Date | null;
   isHidden: boolean;
 }): boolean {
   return image.publishedAt !== null && !image.isHidden;
+}
+
+/**
+ * Whether `userId` may buy this image from the image detail page (one buy
+ * surface, slice 3): anyone, when it is published and not hidden
+ * (`canBuyPublishedImage`); otherwise only its owner, and only when it is not
+ * admin-hidden. Hidden beats ownership, as in `canViewImagePage`.
+ *
+ * This is the image-level rule only. Ordering an unpublished image also needs
+ * a live conversation the buyer owns (`design.userId`, the check `/preview`
+ * made), because `order.design_id` is NOT NULL; that part needs the database
+ * and lives in `resolveBuyableImage` (src/lib/buyable-image.ts).
+ *
+ * `userId` is nullable because signed-out viewers reach the page: null and the
+ * empty string match no owner.
+ */
+export function canBuyImage(params: {
+  image: { publishedAt: Date | null; isHidden: boolean };
+  imageOwnerId: string;
+  userId: string | null;
+}): boolean {
+  if (canBuyPublishedImage(params.image)) return true;
+  return (
+    params.userId !== null &&
+    params.userId !== "" &&
+    params.userId === params.imageOwnerId &&
+    !params.image.isHidden
+  );
 }
 
 /**
