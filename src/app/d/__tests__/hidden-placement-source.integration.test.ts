@@ -173,6 +173,26 @@ describe("addToCart refuses the owner's hidden image as a placement", () => {
     await expectNothingWritten(db);
   });
 
+  it("as the design's implicit primary (no front sent)", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    await db
+      .update(schema.design)
+      .set({ primaryImageId: ids.hiddenId })
+      .where(eq(schema.design.id, ids.conversationId));
+    await expect(
+      addToCart({ designId: ids.conversationId, ...OPTS })
+    ).rejects.toThrow("Front image is not available");
+    await expectNothingWritten(db);
+    // The same design with a not-hidden primary carts fine.
+    await db
+      .update(schema.design)
+      .set({ primaryImageId: ids.goodId })
+      .where(eq(schema.design.id, ids.conversationId));
+    await addToCart({ designId: ids.conversationId, ...OPTS });
+    expect(await db.select().from(schema.cartItem)).toHaveLength(1);
+  });
+
   it("while a not-hidden own image still works", async () => {
     const db = h.db as Db;
     const ids = await seed(db);
