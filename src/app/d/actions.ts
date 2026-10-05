@@ -22,6 +22,7 @@ import {
   resolveImagesByIds,
 } from "@/lib/design-images";
 import { resolveBuyPageFront } from "@/lib/placement-pins";
+import { buyPageHref } from "@/lib/buy-page-picks";
 import { computePrice } from "@/lib/pricing";
 import {
   DEFAULT_BLANK_ID,
@@ -335,6 +336,41 @@ export async function getBuyPageBackSources(
 }
 
 /**
+ * The back design a link carries (`?back=<imageId>`, #278), resolved for the
+ * viewer: `{ id, imageUrl }` when they could have picked it themselves, or
+ * `null`. Same gates, same order, as `getBuyPageBackSources` plus the check
+ * `buyPublishedDesign` runs on the back (`assertUsablePlacementImage`), so a
+ * link can never put an image on the panel that checkout would refuse. Never
+ * throws for an unusable id: a stale or forged link just opens the panel
+ * without a back.
+ */
+export async function resolveInitialBack(
+  pageImageId: string,
+  backImageId: string
+): Promise<{ id: string; imageUrl: string } | null> {
+  if (!multiPlacementEnabled()) return null;
+
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session || isAnonymousUser(session.user)) return null;
+
+  const image = await getDesignImageWithOwner(pageImageId);
+  if (!image || !image.designId || !canBuyPublishedImage(image)) return null;
+
+  try {
+    await assertUsablePlacementImage(
+      backImageId,
+      image.designId,
+      session.user.id
+    );
+  } catch {
+    return null;
+  }
+
+  const resolved = (await resolveImagesByIds([backImageId])).get(backImageId);
+  return resolved ? { id: backImageId, imageUrl: resolved.imageUrl } : null;
+}
+
+/**
  * Front-placement Printful mockup for the image detail page's Order-expand
  * hero (#135 slice 1). Visibility-gated like the page itself
  * (`canViewImagePage`: published && !hidden, or the owner) — deliberately
@@ -573,6 +609,21 @@ export async function buyPublishedDesign(params: {
     back: !!backImageId,
   });
 
+  // Where a buyer who backs out lands (Stripe's cancel link, /checkout's back
+  // link): this page with the panel open on the same shirt (#278). Built from
+  // the values validated above, never from a client-sent path. The panel's
+  // `back` is the added image, which after a swap is the pinned front, and
+  // `swap=1` puts it there again. `from` is deliberately not carried: the
+  // breadcrumb falls back to Shop.
+  const returnPath = buyPageHref(params.imageId, {
+    order: true,
+    product: resolvedProductId,
+    size: params.size,
+    color: params.color,
+    back: frontSwapped ? frontImageId : backImageId,
+    swap: frontSwapped,
+  });
+
   // Composition slice 4: a Shop purchase now records the composition it
   // bought. Every published image has a mirror product (publish writes one;
   // the slice-1 backfill converted the pre-existing listings), and the
@@ -611,15 +662,12 @@ export async function buyPublishedDesign(params: {
       ? (await resolveImagesByIds([frontImageId])).get(frontImageId)
           ?.imageUrl ?? null
       : image.imageUrl,
-    // Back to the page the buyer came from. It is still on the shirt after a
-    // swap (on the back), and this page keeps no placement state in its URL,
-    // so there is nothing further to carry.
-    cancelUrl: `${process.env.NEXT_PUBLIC_APP_URL}/d/${params.imageId}`,
+    cancelUrl: `${process.env.NEXT_PUBLIC_APP_URL}${returnPath}`,
     storeProductId,
     ...(embedded.enabled
       ? {
           embedded: {
-            backPath: `/d/${params.imageId}`,
+            backPath: returnPath,
             returnOrigin: resolveReturnOrigin(
               (await headers()).get("origin"),
               process.env.NEXT_PUBLIC_APP_URL!

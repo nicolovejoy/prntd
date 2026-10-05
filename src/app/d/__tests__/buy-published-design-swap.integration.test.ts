@@ -22,6 +22,7 @@ import { createTestDb } from "@/lib/__tests__/test-db";
 import * as schema from "@/lib/db/schema";
 import { makeUser, makeDesign, makeSourceImage } from "@/lib/__tests__/factories";
 import { getBlankOrThrow } from "@/lib/blanks";
+import { buyPageHref } from "@/lib/buy-page-picks";
 
 const h = vi.hoisted(() => ({
   db: null as unknown,
@@ -211,7 +212,7 @@ describe("buyPublishedDesign swap (#138 slice 3)", () => {
     expect(swap.order.storeProductId).not.toBeNull();
   });
 
-  it("the Stripe line thumbnail follows the swapped front; the cancel URL returns to the page", async () => {
+  it("the Stripe line thumbnail follows the swapped front; the cancel URL returns to the page with the swap open", async () => {
     const db = h.db as Db;
     const ids = await seed(db);
 
@@ -223,8 +224,16 @@ describe("buyPublishedDesign swap (#138 slice 3)", () => {
     });
 
     expect(lastLineImages()).toEqual(["https://img.example/other-shop.png"]);
+    // The panel's back is the added image; swap=1 puts it on the front (#278).
     expect(h.sessionParams[0].cancel_url).toBe(
-      `http://localhost:3000/d/${ids.listingId}`
+      `http://localhost:3000${buyPageHref(ids.listingId, {
+        order: true,
+        product: OPTS.productId,
+        size: OPTS.size,
+        color: OPTS.color,
+        back: ids.otherShopId,
+        swap: true,
+      })}`
     );
   });
 

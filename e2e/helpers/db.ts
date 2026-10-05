@@ -89,6 +89,58 @@ export async function seedDesign(
   return designId;
 }
 
+/**
+ * Seed a PUBLISHED image owned by a throwaway seller account: the seller user,
+ * a design and image (`seedDesign`), the `listing` visibility row, and the
+ * Shop mirror `product` row the image detail page and the buy action read
+ * (placements `{front: <imageId>}`, store_id and design_id NULL, status
+ * listed). Lets a spec open a public image without a real generation or
+ * publish. Clean up with `cleanupDesigns([designId])` (which also removes the
+ * listing and the unordered mirror), then `cleanupUser(sellerId)`.
+ */
+export async function seedPublishedImage(
+  key: string,
+  title: string
+): Promise<{ designId: string; imageId: string; sellerId: string }> {
+  const c = db();
+  const sellerId = `e2e-seller-${key}`;
+  const designId = `e2e-${key}`;
+  const imageId = `e2e-${key}-img`;
+  try {
+    await c.execute({
+      sql: `INSERT INTO user (id, email, name, email_verified, is_anonymous, created_at, updated_at)
+            VALUES (?, ?, 'E2E Seller', 0, 0, unixepoch(), unixepoch())
+            ON CONFLICT(id) DO NOTHING`,
+      args: [sellerId, `${sellerId}@prntd.test`],
+    });
+    await seedDesign(sellerId, key);
+    await c.execute({
+      sql: `INSERT INTO listing (image_id, published_at, is_hidden, title, created_at)
+            VALUES (?, unixepoch(), 0, ?, unixepoch())
+            ON CONFLICT(image_id) DO NOTHING`,
+      args: [imageId, title],
+    });
+    await c.execute({
+      sql: `INSERT INTO product (id, owner_id, store_id, design_id, blank_id, placements, price, status, position, title, listed_at, created_at, updated_at)
+            VALUES (?, ?, NULL, NULL, NULL, ?, NULL, 'listed', 0, ?, unixepoch(), unixepoch(), unixepoch())
+            ON CONFLICT(id) DO NOTHING`,
+      args: [
+        `e2e-${key}-mirror`,
+        sellerId,
+        JSON.stringify({ front: imageId }),
+        title,
+      ],
+    });
+  } catch (err) {
+    // The caller never receives the ids, so its `finally` cannot clean up a
+    // half-seeded set: do it here, then rethrow.
+    await cleanupDesigns([designId]).catch(() => {});
+    await cleanupUser(sellerId).catch(() => {});
+    throw err;
+  }
+  return { designId, imageId, sellerId };
+}
+
 /** Remove everything a spec seeded (cart items first — FK to design). */
 export async function cleanupDesigns(designIds: string[]): Promise<void> {
   if (designIds.length === 0) return;

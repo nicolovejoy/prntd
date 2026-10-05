@@ -264,6 +264,7 @@ describe('"use server" export pins', () => {
       "getImagePage",
       "getListingBackMockup",
       "getListingMockup",
+      "resolveInitialBack",
     ],
     "src/app/shop/actions.ts": [
       "buyStoreProduct",
