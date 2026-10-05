@@ -20,6 +20,7 @@ const h = vi.hoisted(() => {
     db: null as unknown,
     session: null as unknown,
     stripeCalls: 0 as number,
+    afterHiddenCheck: null as null | (() => Promise<void>),
   };
 });
 
@@ -35,6 +36,18 @@ vi.mock("@/lib/auth", () => ({
   isAnonymousUser: (u: { isAnonymous?: boolean } | undefined) =>
     Boolean(u?.isAnonymous),
 }));
+// Lets a test run code between unpublishImage's hidden check and its write.
+vi.mock("@/lib/model-b-writes", async (importActual) => {
+  const actual = await importActual<typeof import("@/lib/model-b-writes")>();
+  return {
+    ...actual,
+    isImageAdminHidden: async (db: Parameters<typeof actual.isImageAdminHidden>[0], id: string) => {
+      const result = await actual.isImageAdminHidden(db, id);
+      if (h.afterHiddenCheck) await h.afterHiddenCheck();
+      return result;
+    },
+  };
+});
 vi.mock("@/lib/ai", () => ({
   generatePublishedNaming: async () => ({ title: "Auto", description: "Auto" }),
 }));
@@ -119,6 +132,7 @@ async function expectNoOrders(db: Db) {
 beforeEach(async () => {
   h.db = await createTestDb();
   h.stripeCalls = 0;
+  h.afterHiddenCheck = null;
   vi.stubEnv("NEXT_PUBLIC_APP_URL", "http://localhost:3000");
 });
 
@@ -196,5 +210,55 @@ describe("an admin hide cannot be undone by the owner", () => {
     await setImageHidden(imageId, false);
     await setImageHidden(imageId, true);
     expect((await state(db, imageId)).listing).toEqual({ hidden: true });
+  });
+});
+
+describe("an admin hide that lands between the check and the write survives (second round, fix 3)", () => {
+  it("unpublishImage's write is conditional: both rows stay hidden, the owner's and a stranger's buy are refused", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    h.session = OWNER;
+    await publishImage(ids.imageId, { title: "Original", backgroundColor: "Black" });
+
+    // The admin's hide commits after unpublishImage has read "not hidden".
+    h.afterHiddenCheck = async () => {
+      h.afterHiddenCheck = null;
+      const owner = h.session;
+      h.session = ADMIN;
+      await setImageHidden(ids.imageId, true);
+      h.session = owner;
+    };
+    await expect(unpublishImage(ids.imageId)).rejects.toThrow("This image is not available");
+
+    expect(await state(db, ids.imageId)).toEqual({
+      listing: { hidden: true },
+      mirror: { status: "hidden", title: "Original" },
+    });
+    h.session = OWNER;
+    await expect(buyPublishedDesign({ imageId: ids.imageId, ...OPTS })).rejects.toThrow();
+    h.session = STRANGER;
+    await expect(buyPublishedDesign({ imageId: ids.imageId, ...OPTS })).rejects.toThrow();
+    await expectNoOrders(db);
+  });
+
+  it("an ordinary unpublish still deletes the listing and drafts the mirror", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    h.session = OWNER;
+    await publishImage(ids.imageId, { title: "T", backgroundColor: "Black" });
+    await unpublishImage(ids.imageId);
+    expect(await state(db, ids.imageId)).toEqual({
+      listing: null,
+      mirror: { status: "draft", title: "T" },
+    });
+  });
+
+  it("a second unpublish of an already-unpublished image is still a quiet no-op", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    h.session = OWNER;
+    await publishImage(ids.imageId, { title: "T", backgroundColor: "Black" });
+    await unpublishImage(ids.imageId);
+    await expect(unpublishImage(ids.imageId)).resolves.toBeUndefined();
   });
 });

@@ -258,7 +258,10 @@ export async function publishImage(
 
   // An admin-hidden image stays hidden: the owner can neither publish it
   // again nor (unpublishImage) erase the hide. Checked before the
-  // already-published no-op, and before anything is written.
+  // already-published no-op, and before anything is written. No conditional
+  // write is needed after it: the only path that writes is an image with no
+  // listing row, and an admin hide of such an image is a no-op (it updates the
+  // listing row and non-draft mirrors only), so a hide cannot land in between.
   if (await isImageAdminHidden(db, imageId)) {
     throw new Error("This image is not available");
   }
@@ -439,10 +442,19 @@ export async function unpublishImage(imageId: string) {
   // Re-publish revives the same mirror with a fresh listedAt, a re-proposed
   // title, a defaulted backdrop and no feed rank (the fresh-listing
   // semantics, now carried by the product row).
-  await db.batch([
+  //
+  // Both statements are conditional on the image not being hidden, so an admin
+  // hide that commits after the check above is not erased. The listing delete
+  // is the witness: the row existed when it was read (`image.publishedAt`), so
+  // zero rows deleted means a hide won (or a concurrent unpublish did), and
+  // nothing else was written — the mirror update carries the same condition.
+  const [listingResult] = await db.batch([
     listingSyncStatement(db, imageId, { kind: "unpublish" }),
     productMirrorStatement(db, imageId, { kind: "unpublish" }),
   ]);
+  if (listingResult.rowsAffected === 0 && (await isImageAdminHidden(db, imageId))) {
+    throw new Error("This image is not available");
+  }
 
   revalidatePath("/");
   revalidatePath("/shop");
