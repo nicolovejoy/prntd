@@ -318,12 +318,29 @@ export async function getCart(): Promise<CartView> {
       backImageUrl: r.placements?.back
         ? pinnedById.get(r.placements.back)?.imageUrl ?? null
         : null,
-      unavailable: !(await cartLineStillValid(
-        { designId: r.designId, placements: r.placements ?? null },
-        userId
-      )),
+      unavailable: false, // set below, all lines at once
     });
   }
+
+  // Re-check every line as if it were added now. The lines are independent, so
+  // the checks run together instead of one round trip after another.
+  const valid = await Promise.all(
+    items.map((i) =>
+      cartLineStillValid(
+        {
+          designId: i.designId,
+          productId: i.productId,
+          size: i.size,
+          color: i.color,
+          placements: i.placements,
+        },
+        userId
+      )
+    )
+  );
+  items.forEach((i, n) => {
+    i.unavailable = !valid[n];
+  });
 
   const shipping = await quoteCartShipping(items);
   const { item, shipping: ship, total } = computeCartTotal(

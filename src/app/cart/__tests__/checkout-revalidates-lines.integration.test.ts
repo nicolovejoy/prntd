@@ -64,6 +64,8 @@ import { addToCart, checkoutCart, getCart, removeCartItem } from "@/app/cart/act
 import { publishImage, unpublishImage } from "@/app/designs/actions";
 import { setImageHidden } from "@/app/admin/actions";
 import { CART_LINE_UNAVAILABLE } from "@/lib/action-copy";
+import { cartLineStillValid } from "@/lib/cart-line-check";
+import { getBlankOrThrow } from "@/lib/blanks";
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
 
@@ -217,7 +219,7 @@ describe("a mixed cart", () => {
     expect(h.stripeCalls).toBe(1);
   });
 
-  it("a line with a stale design-path primary and no pins is judged too", async () => {
+  it("a pinless line on the user's own design is refused once its primary is hidden", async () => {
     const db = h.db as Db;
     const ids = await seed(db);
     // A legacy /preview line: no placements, so it prints the design's primary.
@@ -230,8 +232,20 @@ describe("a mixed cart", () => {
       placements: null,
     });
     expect((await getCart()).items[0].unavailable).toBe(false);
-    // A line with no pins on someone else's design cannot be re-validated.
-    await db.delete(schema.cartItem);
+
+    // The primary becomes admin-hidden.
+    await db.insert(schema.listing).values({
+      imageId: ids.myId,
+      publishedAt: new Date(),
+      isHidden: true,
+    });
+    expect((await getCart()).items[0].unavailable).toBe(true);
+    await expectRefusedWhole(db, await checkoutCart(), 1);
+  });
+
+  it("a pinless line on someone else's design cannot be re-validated and is refused", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
     await db.insert(schema.cartItem).values({
       userId: "buyer",
       designId: ids.soldDesignId,
@@ -265,5 +279,59 @@ describe("an untouched valid cart behaves as before", () => {
       ].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))
     );
     expect(h.stripeCalls).toBe(1);
+  });
+});
+
+describe("the catalog moved under a line (second round, fix 4)", () => {
+  async function lineFor(db: Db, over: Partial<typeof schema.cartItem.$inferInsert> = {}) {
+    const ids = await seed(db);
+    const line = {
+      designId: ids.myDesignId,
+      productId: OPTS.productId,
+      size: OPTS.size,
+      color: OPTS.color,
+      placements: { front: ids.myId } as Record<string, string>,
+      ...over,
+    };
+    return { ids, line };
+  }
+
+  it("a valid line passes", async () => {
+    const { line } = await lineFor(h.db as Db);
+    expect(await cartLineStillValid(line, "buyer")).toBe(true);
+  });
+
+  it("an unknown product, a size or colour the product no longer offers, and a discontinued product are refused", async () => {
+    const { line } = await lineFor(h.db as Db);
+    expect(await cartLineStillValid({ ...line, productId: "no-such-product" }, "buyer")).toBe(false);
+    expect(await cartLineStillValid({ ...line, size: "NOT-A-SIZE" }, "buyer")).toBe(false);
+    expect(await cartLineStillValid({ ...line, color: "Not A Colour" }, "buyer")).toBe(false);
+    const blank = getBlankOrThrow(OPTS.productId);
+    blank.discontinued = true;
+    try {
+      expect(await cartLineStillValid(line, "buyer")).toBe(false);
+    } finally {
+      blank.discontinued = false;
+    }
+  });
+
+  it("a back on a product that lost its back print area is refused, so checkout cannot charge for a dropped side", async () => {
+    const db = h.db as Db;
+    const { ids } = await lineFor(db);
+    await addToCart({ designId: ids.myDesignId, front: ids.myId, back: ids.publishedId, ...OPTS });
+    expect((await getCart()).items[0].unavailable).toBe(false);
+
+    const blank = getBlankOrThrow(OPTS.productId);
+    const saved = blank.placements;
+    blank.placements = saved.filter((p) => p.id !== "back");
+    try {
+      expect((await getCart()).items[0].unavailable).toBe(true);
+      await expectRefusedWhole(db, await checkoutCart(), 1);
+      // A front-only line on the same product is still fine.
+      const frontOnly = { designId: ids.myDesignId, productId: OPTS.productId, size: OPTS.size, color: OPTS.color, placements: { front: ids.myId } };
+      expect(await cartLineStillValid(frontOnly, "buyer")).toBe(true);
+    } finally {
+      blank.placements = saved;
+    }
   });
 });

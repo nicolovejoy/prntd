@@ -198,7 +198,11 @@ describe("a render of a hidden image is refused as a pin", () => {
     });
     expect(
       await cartLineStillValid(
-        { designId: ids.myDesignId, placements: { front: ids.renderOfHidden } },
+        {
+          designId: ids.myDesignId,
+          ...OPTS,
+          placements: { front: ids.renderOfHidden },
+        },
         "owner"
       )
     ).toBe(false);
