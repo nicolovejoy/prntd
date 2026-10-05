@@ -23,13 +23,17 @@ import {
  *
  * A cart line does not record which path added it (`/preview`'s `designId`
  * path or the image detail page's `frontImageId` path): it stores the design,
- * the product/size/colour and the pinned placements. Those are enough, because
- * the only things that can change after the add are the pinned images' state,
- * and each path guards exactly that with `assertUsablePlacementImage` (your own
- * non-hidden image, or a published, non-hidden one). The path-specific extras
- * can't drift: a Shop line's page image is one of the pins and fails the same
- * guard once unpublished or hidden; an owner's unpublished-image line needs
- * their own live conversation, which a cart pin keeps from being deleted.
+ * the product/size/colour and the pinned placements. Those are enough. The
+ * catalog can change after the add (covered by the first check below), and so
+ * can the pinned images' state; each path guards exactly the image state with
+ * `assertUsablePlacementImage` (your own non-hidden image, or a published,
+ * non-hidden one). The path-specific extras can't drift: a Shop line's page
+ * image is one of the pins and fails the same guard once unpublished or
+ * hidden; an owner's unpublished-image line needs their own live conversation,
+ * and deleting that conversation deletes its cart lines with it
+ * (`deleteDesign`), so a line can't outlive it. (A cart pin only turns an
+ * image delete into a detach, `planImageDeletion`; it does not keep the
+ * conversation from being deleted.)
  * So the line is valid when:
  *
  *  - its product, size and colour resolve and a back is still printable;
