@@ -6,6 +6,7 @@
  *  - This design: the current thread's source images (the original picker).
  *  - My Designs: the display (primary) image of the user's other designs.
  *  - Shop: published, not-hidden images — the discover-feed surface.
+ * An admin-hidden image is in none of them: nobody may print one.
  *
  * Mirror of `canUseAsPlacementSource` (design-publish.ts): everything this
  * returns passes that guard, and the guard rejects anything outside these
@@ -17,7 +18,7 @@ import {
   image as imageTable,
   listing as listingTable,
 } from "@/lib/db/schema";
-import { eq, and, ne, desc, isNotNull } from "drizzle-orm";
+import { eq, and, ne, desc, isNotNull, inArray } from "drizzle-orm";
 import {
   getDesignSourceImages,
   getDesignImageWithOwner,
@@ -67,6 +68,20 @@ export async function assertUsablePlacementImage(
   }
 }
 
+/**
+ * Refuse an image the order would pin as its front WITHOUT a pick: the
+ * design's current primary, when the caller sends no `front`. A pick is held
+ * to `assertUsablePlacementImage`; the implicit primary used to be trusted
+ * outright, which let an admin-hidden primary print. Only a hidden primary is
+ * refused here (a primary that no longer resolves keeps its old behaviour:
+ * the order pins the id and fulfillment falls back to the design's display
+ * image).
+ */
+export async function assertPrimaryNotHidden(imageId: string): Promise<void> {
+  const image = await getDesignImageWithOwner(imageId);
+  if (image?.isHidden) throw new Error("Front image is not available");
+}
+
 export type BackSourceImage = {
   id: string;
   imageUrl: string;
@@ -90,7 +105,7 @@ export async function getBackSourceGroups(params: {
   userId: string | null;
 }): Promise<BackSourceGroup[]> {
   const [thisDesign, myDesigns, shop] = await Promise.all([
-    getDesignSourceImages(params.designId),
+    getDesignSourceImages(params.designId, { excludeHidden: true }),
     params.userId
       ? getOtherDesignPrimaries(params.userId, params.designId)
       : Promise.resolve([]),
@@ -164,6 +179,16 @@ export async function getBuyPageBackSourceGroups(params: {
   return groups;
 }
 
+/** The subset of `ids` an admin has hidden (`listing.is_hidden`). */
+async function hiddenImageIds(ids: string[]): Promise<Set<string>> {
+  if (ids.length === 0) return new Set();
+  const rows = await db
+    .select({ imageId: listingTable.imageId })
+    .from(listingTable)
+    .where(and(inArray(listingTable.imageId, ids), eq(listingTable.isHidden, true)));
+  return new Set(rows.map((r) => r.imageId));
+}
+
 /**
  * Display images of the user's other designs: each design's primary image,
  * most recently touched design first. Designs without a primary (never
@@ -194,11 +219,16 @@ async function getOtherDesignPrimaries(
     .filter((v): v is string => Boolean(v));
   if (primaryIds.length === 0) return [];
 
-  const byId = await resolveImagesByIds(primaryIds);
+  const [byId, hidden] = await Promise.all([
+    resolveImagesByIds(primaryIds),
+    hiddenImageIds(primaryIds),
+  ]);
 
-  // Preserve the designs' recency order; drop dangling primary pointers.
+  // Preserve the designs' recency order; drop dangling primary pointers and
+  // admin-hidden images (nobody may print those).
   const out: BackSourceImage[] = [];
   for (const d of designs) {
+    if (d.primaryImageId && hidden.has(d.primaryImageId)) continue;
     const url = d.primaryImageId ? byId.get(d.primaryImageId)?.imageUrl : undefined;
     if (d.primaryImageId && url) out.push({ id: d.primaryImageId, imageUrl: url });
   }

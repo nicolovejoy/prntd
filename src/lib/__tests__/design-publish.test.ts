@@ -277,6 +277,14 @@ describe("canUseAsPlacementSource (#72)", () => {
     ).toBe(false);
   });
 
+  it("rejects an admin-hidden image for everyone, its owner included (owner ruling, 2026-10-05)", () => {
+    const hidden = { publishedAt: new Date(), isHidden: true };
+    expect(
+      canUseAsPlacementSource({ image: hidden, ...ctx, imageOwnerId: "buyer" })
+    ).toBe(false);
+    expect(canUseAsPlacementSource({ image: hidden, ...ctx })).toBe(false);
+  });
+
   it("allows an image whose design the user owns (My Designs)", () => {
     expect(
       canUseAsPlacementSource({

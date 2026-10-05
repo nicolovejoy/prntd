@@ -23,7 +23,10 @@ import {
   resolveImagesByIds,
 } from "@/lib/design-images";
 import { resolveBuyableImage } from "@/lib/buyable-image";
-import { assertUsablePlacementImage } from "@/lib/back-sources";
+import {
+  assertPrimaryNotHidden,
+  assertUsablePlacementImage,
+} from "@/lib/back-sources";
 import { resolveBuyPageFront } from "@/lib/placement-pins";
 import { estimateOrderCosts } from "@/lib/printful";
 import { stripe } from "@/lib/stripe";
@@ -183,6 +186,9 @@ export async function addToCart(params: {
       frontId = params.front;
     } else {
       frontId = design.primaryImageId ?? null;
+      // The implicit primary is trusted as the front; an admin-hidden image
+      // must not print (owner ruling, 2026-10-05).
+      if (frontId) await assertPrimaryNotHidden(frontId);
     }
   }
 

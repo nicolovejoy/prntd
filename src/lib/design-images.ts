@@ -20,7 +20,7 @@ import {
   listing as listingTable,
   type ChatMessage,
 } from "@/lib/db/schema";
-import { eq, and, asc, desc, inArray, sql } from "drizzle-orm";
+import { eq, and, asc, desc, inArray, isNull, or, sql } from "drizzle-orm";
 import { getBlank, type AspectRatio } from "@/lib/blanks";
 import type { DesignSpec } from "@/lib/design-spec";
 import {
@@ -596,11 +596,12 @@ export type SourceImage = {
  * slice 3), role-tagged; a seed's image.created_at predates every output the
  * thread generates, so the shared ordering keeps it first. Default excludes
  * them so existing callers (the back-source "This design" group) keep their
- * outputs-only semantics.
+ * outputs-only semantics. `excludeHidden` drops admin-hidden images (the
+ * back-source group: nobody may print one); the conversation views keep them.
  */
 export async function getDesignSourceImages(
   designId: string,
-  opts: { includeSeeds?: boolean } = {}
+  opts: { includeSeeds?: boolean; excludeHidden?: boolean } = {}
 ): Promise<SourceImage[]> {
   const rows = await db
     .select({
@@ -623,7 +624,11 @@ export async function getDesignSourceImages(
         eq(conversationImageTable.designId, designId),
         opts.includeSeeds
           ? inArray(conversationImageTable.role, ["output", "seed"])
-          : eq(conversationImageTable.role, "output")
+          : eq(conversationImageTable.role, "output"),
+        // listing.is_hidden is NULL for an image with no listing row.
+        ...(opts.excludeHidden
+          ? [or(isNull(listingTable.isHidden), eq(listingTable.isHidden, false))]
+          : [])
       )
     )
     .orderBy(asc(imageTable.createdAt), IMAGE_SEQ_ASC);

@@ -145,24 +145,28 @@ export function canBuyImage(params: {
 }
 
 /**
- * Decide whether an image may be used as a placement source (the back of a
- * shirt) on an order for `orderDesignId` (#72). Three allowed origins,
- * matching the /preview picker's groups:
+ * Decide whether an image may be used as a placement source (the front or back
+ * of a shirt) on an order for `orderDesignId` (#72). An admin-hidden image is
+ * never one, for anyone: owner ruling (2026-10-05), once an admin hides an
+ * image nobody can buy or print it, its owner included. Otherwise two origins
+ * are allowed, matching the pickers' groups:
  *
- *  - This design: the image belongs to the order's own design thread AND
- *    the requesting user owns that design. Thread membership alone is not
- *    enough: on a /d buy (and an unchecked addToCart), orderDesignId is the
- *    SELLER's design, so an unqualified thread allowance would let a
- *    cross-owner buyer print the seller's private, unpublished generations
- *    by forging an image id from that thread.
- *  - My Designs: the requesting user owns the image's design.
- *  - Shop: the image is published and not admin-hidden (the buy-existing
- *    surface — same visibility rule as canBuyPublishedImage).
+ *  - Your own image (This design and My Designs): the requesting user owns it.
+ *    Thread membership alone is not enough. On a Shop buy of a published image
+ *    (and on `addToCart`'s image path) `orderDesignId` is the SELLER's design,
+ *    so an unqualified thread allowance would let a cross-owner buyer print the
+ *    seller's private, unpublished generations by forging an image id from that
+ *    thread. On `/preview` and on the owner's own unpublished image the order's
+ *    design is the caller's, so ownership covers its thread.
+ *  - Shop: the image is published and not admin-hidden (same visibility rule as
+ *    canBuyPublishedImage).
  *
- * Checked at the checkout choke points (createCheckoutSession / addToCart /
- * buyPublishedDesign) so a forged image id can't get a private image
- * printed, and at the preview render/mockup actions so the picker's reach
- * and the guard agree.
+ * Checked through `assertUsablePlacementImage` at every choke point that pins
+ * or renders a placement: `createCheckoutSession`, `addToCart`,
+ * `buyPublishedDesign`, `getListingMockup` / `getListingBackMockup`,
+ * `resolveInitialBack`, and (directly) `renderAndCacheMockup` and
+ * `getOrCreatePlacementRender`, so a forged image id can't get a private or
+ * hidden image printed and the pickers' reach and the guard agree.
  */
 export function canUseAsPlacementSource(params: {
   /** Publish state only — Model B keeps it in `listing`, and the guard has
@@ -180,12 +184,12 @@ export function canUseAsPlacementSource(params: {
   /** The requesting user. */
   userId: string;
 }): boolean {
-  // Ownership covers the This-design origin too: on /preview and /order the
-  // order's design is verified as the caller's before this guard runs, so its
-  // thread images are the caller's own. There is deliberately NO standalone
-  // `image.designId === orderDesignId` grant — see the docstring.
+  // Hidden beats ownership, as in canBuyImage and canViewImagePage.
+  if (params.image.isHidden) return false;
+  // There is deliberately NO standalone `image.designId === orderDesignId`
+  // grant — see the docstring.
   if (params.imageOwnerId === params.userId) return true;
-  return params.image.publishedAt !== null && !params.image.isHidden;
+  return params.image.publishedAt !== null;
 }
 
 /**
