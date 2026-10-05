@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { breadcrumbTrail, isCurrentSection, upTarget, HOME } from "@/lib/nav";
+import { breadcrumbTrail, detailFrom, isCurrentSection, upTarget, HOME } from "@/lib/nav";
 
 describe("isCurrentSection", () => {
   it("matches the href exactly", () => {
@@ -140,5 +140,24 @@ describe("upTarget", () => {
 
   it("is Home at a top-level hub", () => {
     expect(upTarget("/shop")).toEqual(HOME);
+  });
+});
+
+describe("detailFrom", () => {
+  it("an explicit from wins, published or not", () => {
+    expect(detailFrom("/orders", false)).toBe("/orders");
+    expect(detailFrom("/shop", false)).toBe("/shop");
+    expect(detailFrom("/designs", true)).toBe("/designs");
+  });
+
+  it("without one, a private image falls back to My Designs and a published one to the Shop", () => {
+    expect(breadcrumbTrail("/d/x", { from: detailFrom(undefined, false) }).at(-1)).toEqual({
+      label: "My Designs",
+      href: "/designs",
+    });
+    expect(breadcrumbTrail("/d/x", { from: detailFrom(undefined, true) }).at(-1)).toEqual({
+      label: "Shop",
+      href: "/shop",
+    });
   });
 });

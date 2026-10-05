@@ -60,6 +60,21 @@ function detailParent(from: string | undefined): Crumb {
 }
 
 /**
+ * The `from` an image detail page navigates with. An explicit `?from` wins.
+ * Without one, a published image falls back to the Shop (detailParent), and an
+ * unpublished one to My Designs: it is private, so it is not in the Shop, and
+ * the buyer who backs out of an order for it (Stripe's cancel link, the
+ * embedded Back, the sign-in detour) arrives with no `from` because the return
+ * path never carries a client-sent one.
+ */
+export function detailFrom(
+  from: string | undefined,
+  published: boolean
+): string | undefined {
+  return from ?? (published ? undefined : "/designs");
+}
+
+/**
  * Ancestor crumbs for `pathname`, nearest-last. Funnel pages (/design →
  * /preview → /order/confirm) share one spine and thread id / product through
  * their hrefs so stepping up lands on a fully-formed URL. /order itself only

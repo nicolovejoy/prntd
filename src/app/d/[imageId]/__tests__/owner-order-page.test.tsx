@@ -267,3 +267,25 @@ describe("publishing from the page remounts the buy hero and the title block (fi
     expect(screen.getByText("Color — Black")).toBeInTheDocument();
   });
 });
+
+describe("the back arrow's fallback origin (fix G)", () => {
+  const arrow = () => screen.getByRole("link", { name: /^Back to / });
+
+  it("a private image with no `from` goes back to My Designs", async () => {
+    await renderPage();
+    expect(arrow()).toHaveAccessibleName("Back to My Designs");
+    expect(arrow()).toHaveAttribute("href", "/designs");
+  });
+
+  it("a published image with no `from` still goes back to the Shop", async () => {
+    h.image = imagePage({ publishedAt: new Date(), title: "Fox", backgroundColor: "Black" });
+    await renderPage();
+    expect(arrow()).toHaveAccessibleName("Back to Shop");
+    expect(arrow()).toHaveAttribute("href", "/shop");
+  });
+
+  it("an explicit `from` on a private image is kept", async () => {
+    await renderPage({ from: "/orders" });
+    expect(arrow()).toHaveAccessibleName("Back to Orders");
+  });
+});

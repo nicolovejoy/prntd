@@ -13,7 +13,7 @@ import { auth, isAnonymousUser } from "@/lib/auth";
 import { multiPlacementEnabled } from "@/lib/blanks";
 import { cartEnabled } from "@/lib/flags";
 import { Breadcrumbs } from "@/components/breadcrumbs";
-import { breadcrumbTrail } from "@/lib/nav";
+import { breadcrumbTrail, detailFrom } from "@/lib/nav";
 import { IdentityBlock } from "./identity-block";
 import { PublishedImageView } from "./published-image-view";
 import { BuyHero } from "./buy-hero";
@@ -106,7 +106,10 @@ export default async function PublishedImagePage({
   const initialBack = backId ? await resolveInitialBack(imageId, backId) : null;
   const initialPicks = buildInitialPicks(picks, initialBack, imageId);
 
-  const trail = breadcrumbTrail(`/d/${imageId}`, { from });
+  // No `from` on a private image means My Designs, not the Shop it isn't in.
+  const trail = breadcrumbTrail(`/d/${imageId}`, {
+    from: detailFrom(from, isPublished),
+  });
   const up = trail.length > 0 ? trail[trail.length - 1] : null;
 
   // Publishing (or unpublishing) re-renders this same route with the other
