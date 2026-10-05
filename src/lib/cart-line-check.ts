@@ -31,7 +31,7 @@ import {
  * image is one of the pins and fails the same guard once unpublished or
  * hidden; an owner's unpublished-image line needs their own live conversation,
  * and deleting that conversation deletes its cart lines with it
- * (`deleteDesign`), so a line can't outlive it. (A cart pin only turns an
+ * (`executeDesignDeletion`), so a line can't outlive it. (A cart pin only turns an
  * image delete into a detach, `planImageDeletion`; it does not keep the
  * conversation from being deleted.)
  * So the line is valid when:
