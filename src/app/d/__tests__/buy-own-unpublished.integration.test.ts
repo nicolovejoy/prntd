@@ -13,6 +13,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import type Stripe from "stripe";
 import { createTestDb } from "@/lib/__tests__/test-db";
+import { reparentUserData } from "@/lib/reparent-user";
 import * as schema from "@/lib/db/schema";
 import {
   makeUser,
@@ -343,6 +344,39 @@ describe("an anonymous owner", () => {
       needsAuth: true,
     });
     await expectNothingWritten(db);
+  });
+});
+
+describe("an anonymous owner who signs in", () => {
+  it("keeps the image and can then order it as the real account", async () => {
+    const db = h.db as Db;
+    await makeUser(db, "guest-owner");
+    await makeUser(db, "owner");
+    const conversation = await makeDesign(db, "guest-owner");
+    const imageId = await makeSourceImage(db, {
+      designId: conversation.id,
+      ownerId: "guest-owner",
+      imageUrl: "https://img.example/guest.png",
+    });
+    h.session = { user: { id: "guest-owner", isAnonymous: true } };
+    expect(await buyPublishedDesign({ imageId, ...OPTS })).toEqual({
+      url: null,
+      needsAuth: true,
+    });
+
+    // Sign-in or sign-up: the anonymous plugin's onLinkAccount re-parents the
+    // guest's data to the real account (src/lib/reparent-user.ts).
+    await reparentUserData(db as never, "guest-owner", "owner");
+    h.session = { user: { id: "owner", isAnonymous: false } };
+
+    const { url } = await buyPublishedDesign({ imageId, ...OPTS });
+    expect(url).toBe("https://checkout.stripe.example/cs_test_own");
+    const [order] = await db.select().from(schema.order);
+    expect(order.userId).toBe("owner");
+    expect(order.designId).toBe(conversation.id);
+    expect(order.storeProductId).toBeNull();
+    const [line] = await db.select().from(schema.orderItem);
+    expect(line.placements).toEqual({ front: imageId });
   });
 });
 
