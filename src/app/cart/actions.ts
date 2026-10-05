@@ -179,7 +179,8 @@ export async function addToCart(params: {
     // published image via getImagePage's sourceDesignId — let any caller cart
     // the design's CURRENT primary image, private or not, with no ownership
     // check at all. A cross-owner add must go through frontImageId instead,
-    // which is guarded by canUseAsPlacementSource.
+    // which resolveBuyableImage gates (published and visible, or the buyer's
+    // own unpublished image through a live conversation of theirs).
     const design = await db.query.design.findFirst({
       where: eq(designTable.id, designId),
     });
@@ -206,7 +207,7 @@ export async function addToCart(params: {
       throw new Error("This product has no back print area");
     }
     // Same choke-point guard as createCheckoutSession (#72): the user's own
-    // images or published Shop images. On a /d add of a published image
+    // images or published Shop images, never an admin-hidden one. On a /d add of a published image
     // designId is the SELLER's design, and of the user's own unpublished image
     // their own; the guard deliberately gives either no weight (see
     // canUseAsPlacementSource).

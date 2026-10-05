@@ -3,11 +3,13 @@
  *
  *  - `generateMockup` (`src/app/preview/actions.ts`) — owner-gated, the
  *    design-your-own flow.
- *  - `getListingMockup` (`src/app/d/actions.ts`, #135 slice 1) — visibility-
- *    gated (`canViewImagePage`), so a cross-owner Shop buyer can render a
+ *  - `getListingMockup` and `getListingBackMockup` (`src/app/d/actions.ts`,
+ *    #135 slice 1) — gated like the buy itself (`resolveBuyableImage`: a
+ *    published, visible image for anyone, otherwise only its owner through a
+ *    live conversation of theirs), so a cross-owner Shop buyer can render a
  *    mockup for a listing they don't own.
  *
- * Auth stays with the two callers; this only resolves the source image,
+ * Auth stays with the callers; this only resolves the source image,
  * renders via Printful, uploads to R2, and persists the result on
  * `design.mockupUrls`.
  */
@@ -37,9 +39,13 @@ export type RenderMockupParams = {
   sourceImageId?: string;
   /** Requesting user, for the cross-design placement-source guard exercised
    * when an explicit source has no placement-render row yet (a fresh /
-   * cross-design pick). Null for anonymous public-page callers — the guard's
-   * non-owner branch (published && !hidden) covers that case, since both
-   * callers already checked visibility before reaching here. */
+   * cross-design pick). Null for a signed-out visitor to a published image's
+   * page, who reaches only published, not-hidden sources through the guard
+   * (`canUseAsPlacementSource`, which refuses a hidden image for everyone).
+   * The callers have already gated the PAGE image (ownership for `/preview`,
+   * `resolveBuyableImage` for the image detail page); the guard here is the
+   * check on an explicit SOURCE, so a caller that skipped its own source check
+   * still can't render a private or hidden image. */
   userId: string | null;
   /** /preview only (`generateMockup`): treat a front source equal to the
    * design's primary AT THIS READ as the default front (source-less cache key
