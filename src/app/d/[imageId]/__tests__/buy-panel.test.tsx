@@ -737,6 +737,18 @@ describe("BuyPanel failure notices", () => {
   });
 });
 
+describe("BuyPanel picker order (#278 slice 1)", () => {
+  it("renders Size above Colour", () => {
+    render(<BuyPanel imageId="img-1" isLoggedIn />);
+    expand();
+    const size = screen.getByText("Size");
+    const color = screen.getByText(/^Color — /);
+    expect(
+      size.compareDocumentPosition(color) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+});
+
 function Probe() {
   return <output data-testid="probe">{JSON.stringify(useOpenBuyPanelPicks())}</output>;
 }
