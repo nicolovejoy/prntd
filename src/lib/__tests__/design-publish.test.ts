@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   imageReferencedByOrders,
   canBuyPublishedImage,
+  canBuyImage,
   canUseAsPlacementSource,
   canStartFromImage,
   canViewImagePage,
@@ -60,12 +61,55 @@ describe("canBuyPublishedImage", () => {
     expect(canBuyPublishedImage(published)).toBe(true);
   });
 
-  it("rejects an unpublished image (no owner shortcut — use the design flow)", () => {
+  it("rejects an unpublished image (no owner shortcut here; canBuyImage adds it)", () => {
     expect(canBuyPublishedImage(unpublished)).toBe(false);
   });
 
   it("rejects a hidden image even if published", () => {
     expect(canBuyPublishedImage(hidden)).toBe(false);
+  });
+});
+
+describe("canBuyImage (one buy surface, slice 3)", () => {
+  const published = { publishedAt: new Date(), isHidden: false };
+  const unpublished = { publishedAt: null, isHidden: false };
+  const hidden = { publishedAt: new Date(), isHidden: true };
+
+  it("lets anyone buy a published, visible image, signed out included", () => {
+    for (const userId of [null, "", "stranger", "owner"]) {
+      expect(
+        canBuyImage({ image: published, imageOwnerId: "owner", userId })
+      ).toBe(true);
+    }
+  });
+
+  it("refuses a published, hidden image for everyone, its owner included", () => {
+    for (const userId of [null, "", "stranger", "owner"]) {
+      expect(
+        canBuyImage({ image: hidden, imageOwnerId: "owner", userId })
+      ).toBe(false);
+    }
+  });
+
+  it("lets only the owner buy an unpublished image", () => {
+    expect(
+      canBuyImage({ image: unpublished, imageOwnerId: "owner", userId: "owner" })
+    ).toBe(true);
+    expect(
+      canBuyImage({ image: unpublished, imageOwnerId: "owner", userId: "stranger" })
+    ).toBe(false);
+  });
+
+  it("refuses an unpublished image for a null or empty user, even with an empty owner", () => {
+    expect(
+      canBuyImage({ image: unpublished, imageOwnerId: "owner", userId: null })
+    ).toBe(false);
+    expect(
+      canBuyImage({ image: unpublished, imageOwnerId: "owner", userId: "" })
+    ).toBe(false);
+    expect(
+      canBuyImage({ image: unpublished, imageOwnerId: "", userId: "" })
+    ).toBe(false);
   });
 });
 
@@ -231,6 +275,14 @@ describe("canUseAsPlacementSource (#72)", () => {
         ...ctx,
       })
     ).toBe(false);
+  });
+
+  it("rejects an admin-hidden image for everyone, its owner included (owner ruling, 2026-10-05)", () => {
+    const hidden = { publishedAt: new Date(), isHidden: true };
+    expect(
+      canUseAsPlacementSource({ image: hidden, ...ctx, imageOwnerId: "buyer" })
+    ).toBe(false);
+    expect(canUseAsPlacementSource({ image: hidden, ...ctx })).toBe(false);
   });
 
   it("allows an image whose design the user owns (My Designs)", () => {

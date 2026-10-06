@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getCart, removeCartItem, checkoutCart, type CartView } from "./actions";
-import { Button, EmptyState } from "@/components/ui";
+import { Button, EmptyState, InlineNotice } from "@/components/ui";
+import { CART_LINE_UNAVAILABLE_LABEL } from "@/lib/action-copy";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
 
@@ -29,6 +30,9 @@ export default function CartPage() {
   const [attempt, setAttempt] = useState(0);
   const [removing, setRemoving] = useState<string | null>(null);
   const [checkingOut, setCheckingOut] = useState(false);
+  // checkoutCart's refusal ({ error }), shown above the buttons; the lines
+  // that caused it are marked by getCart.
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
   async function refresh() {
     setCart(await getCart());
@@ -71,8 +75,15 @@ export default function CartPage() {
 
   async function handleCheckout() {
     setCheckingOut(true);
+    setCheckoutError(null);
     try {
-      const { url, needsAuth } = await checkoutCart();
+      const { url, needsAuth, error } = await checkoutCart();
+      if (error) {
+        setCheckoutError(error);
+        // Re-read the cart so the line that failed carries its label.
+        await refresh();
+        return;
+      }
       if (needsAuth) {
         window.location.href = "/sign-in?next=/cart";
         return;
@@ -181,6 +192,14 @@ export default function CartPage() {
                         {item.hasBack ? " · front + back" : ""}
                         {item.quantity > 1 ? ` · ×${item.quantity}` : ""}
                       </p>
+                      {item.unavailable && (
+                        <p
+                          data-testid="cart-line-unavailable"
+                          className="text-sm font-medium mt-0.5"
+                        >
+                          {CART_LINE_UNAVAILABLE_LABEL}
+                        </p>
+                      )}
                     </div>
                     <div className="text-right shrink-0">
                       <p className="font-mono text-sm">
@@ -219,6 +238,14 @@ export default function CartPage() {
                 <span className="font-mono text-sm font-medium">${cart.total.toFixed(2)}</span>
               </div>
             </div>
+
+            {checkoutError && (
+              <InlineNotice
+                message={checkoutError}
+                className="mt-4"
+                testId="cart-checkout-error"
+              />
+            )}
 
             <div className="mt-6 flex flex-col sm:flex-row gap-3">
               <Button

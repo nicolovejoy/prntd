@@ -45,6 +45,9 @@ function query(
  * before nav model A moved it to /designs), still resolve — links carrying
  * them were shared before the move and outlive it.
  */
+/** The origins `detailParent` knows; any other `from` is treated as absent. */
+const DETAIL_ORIGINS = ["/designs", "/studio/library", "/orders", "/shop", "/prints"];
+
 function detailParent(from: string | undefined): Crumb {
   switch (from) {
     case "/designs":
@@ -57,6 +60,24 @@ function detailParent(from: string | undefined): Crumb {
     default:
       return { label: "Shop", href: "/shop" };
   }
+}
+
+/**
+ * The `from` an image detail page navigates with. An explicit `?from` wins
+ * when `detailParent` recognises it; an empty, unknown or unsafe one (`?from=`,
+ * `?from=//evil.example`, the image's own page) counts as absent, so it can't
+ * beat the fallback below. Without one, a published image falls back to the Shop (detailParent), and an
+ * unpublished one to My Designs: it is private, so it is not in the Shop, and
+ * the buyer who backs out of an order for it (Stripe's cancel link, the
+ * embedded Back, the sign-in detour) arrives with no `from` because the return
+ * path never carries a client-sent one.
+ */
+export function detailFrom(
+  from: string | undefined,
+  published: boolean
+): string | undefined {
+  if (from && DETAIL_ORIGINS.includes(from)) return from;
+  return published ? undefined : "/designs";
 }
 
 /**

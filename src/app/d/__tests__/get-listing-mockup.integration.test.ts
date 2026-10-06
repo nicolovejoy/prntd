@@ -8,7 +8,9 @@
  * it out so the matrix stays about auth, not rendering.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { eq } from "drizzle-orm";
 import { createTestDb } from "@/lib/__tests__/test-db";
+import * as schema from "@/lib/db/schema";
 import { makeUser, makeDesign, makeSourceImage } from "@/lib/__tests__/factories";
 
 const h = vi.hoisted(() => ({
@@ -360,6 +362,72 @@ describe("getListingMockup with a swapped-in front (#138 slice 3)", () => {
         colorName: "Black",
       })
     ).rejects.toThrow("Unauthorized");
+    expect(mockupRender.renderAndCacheMockup).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The gate is `resolveBuyableImage`, the one the buy uses (one buy surface,
+ * slice 3): beyond visibility, an unpublished image needs a live conversation
+ * of the viewer's, and a placement render is never a page image.
+ */
+describe("getListingMockup gate for an unpublished image (slice 3)", () => {
+  const args = (imageId: string) => ({
+    imageId,
+    productId: "bella-canvas-3001",
+    colorName: "Black",
+  });
+
+  it("refuses the owner when the image's conversation is gone, and renders nothing", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    h.session = { user: { id: "seller", isAnonymous: false } };
+    await db
+      .update(schema.image)
+      .set({ sourceDesignId: "deleted-design" })
+      .where(eq(schema.image.id, ids.privateId));
+
+    await expect(getListingMockup(args(ids.privateId))).rejects.toThrow(
+      "Unauthorized"
+    );
+    expect(mockupRender.renderAndCacheMockup).not.toHaveBeenCalled();
+  });
+
+  it("refuses the owner when the image names another user's conversation, and renders nothing", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    h.session = { user: { id: "seller", isAnonymous: false } };
+    const theirs = await makeDesign(db, "buyer");
+    await db
+      .update(schema.image)
+      .set({ sourceDesignId: theirs.id })
+      .where(eq(schema.image.id, ids.privateId));
+
+    await expect(getListingMockup(args(ids.privateId))).rejects.toThrow(
+      "Unauthorized"
+    );
+    expect(mockupRender.renderAndCacheMockup).not.toHaveBeenCalled();
+  });
+
+  it("refuses a placement render id sent by the render's owner", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    h.session = { user: { id: "seller", isAnonymous: false } };
+    const [render] = await db
+      .insert(schema.placementRender)
+      .values({
+        designId: ids.designId,
+        sourceImageId: ids.privateId,
+        blankId: "bella-canvas-3001",
+        placementId: "back",
+        imageUrl: "https://img.example/render.png",
+        aspectRatio: "1:1",
+      })
+      .returning();
+
+    await expect(getListingMockup(args(render.id))).rejects.toThrow(
+      "Image not found"
+    );
     expect(mockupRender.renderAndCacheMockup).not.toHaveBeenCalled();
   });
 });

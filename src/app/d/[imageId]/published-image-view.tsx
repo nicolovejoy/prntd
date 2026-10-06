@@ -37,6 +37,15 @@ export function PublishedImageView({
   const [bg, setBg] = useState<string>(
     initialBackgroundColor ?? DEFAULT_PUBLISH_BACKGROUND
   );
+  // Follow the prop when it changes under a mounted component: publishing
+  // re-renders this page with the pinned backdrop while this view stays
+  // mounted, and the picker would otherwise keep the White it mounted with.
+  // The "adjust state while rendering" pattern, not an effect.
+  const [seenBackground, setSeenBackground] = useState(initialBackgroundColor);
+  if (initialBackgroundColor !== seenBackground) {
+    setSeenBackground(initialBackgroundColor);
+    setBg(initialBackgroundColor ?? DEFAULT_PUBLISH_BACKGROUND);
+  }
   const [pending, startTransition] = useTransition();
   const backdrop = publishedBackdrop(bg);
 

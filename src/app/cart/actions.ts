@@ -19,17 +19,21 @@ import {
 import { computePrice, computeCartTotal, estimateShipping } from "@/lib/pricing";
 import { multiPlacementEnabled } from "@/lib/blanks";
 import {
-  getDesignImageWithOwner,
   resolveDesignDisplayImageUrls,
   resolveImagesByIds,
 } from "@/lib/design-images";
-import { canUseAsPlacementSource } from "@/lib/design-publish";
-import { assertUsablePlacementImage } from "@/lib/back-sources";
+import { resolveBuyableImage } from "@/lib/buyable-image";
+import {
+  assertPrimaryNotHidden,
+  assertUsablePlacementImage,
+} from "@/lib/back-sources";
 import { resolveBuyPageFront } from "@/lib/placement-pins";
 import { estimateOrderCosts } from "@/lib/printful";
 import { stripe } from "@/lib/stripe";
 import { buildCartCheckoutSessionParams } from "@/lib/checkout";
 import { cartEnabled } from "@/lib/flags";
+import { cartLineStillValid } from "@/lib/cart-line-check";
+import { CART_LINE_UNAVAILABLE } from "@/lib/action-copy";
 
 /** Whether the cart UI (nav link, Add-to-cart) should show. Client-readable. */
 export async function isCartEnabled(): Promise<boolean> {
@@ -61,6 +65,10 @@ export type CartLine = {
   imageUrl: string | null;
   /** The back design's artwork, when the line has one (#282). */
   backImageUrl: string | null;
+  /** The line would not be accepted if added now (an image it pins is no
+   * longer something this user may order or print): the cart marks it and
+   * checkout refuses until it is removed. */
+  unavailable: boolean;
 };
 
 export type CartView = {
@@ -96,9 +104,12 @@ async function currentUserId(): Promise<string | null> {
  *    the design's primary can change after the add, and the buyer must get
  *    the image they tapped, not the seller's current display image. The
  *    line's designId is derived from the image server-side (never trusted
- *    from the client), and the image must pass canUseAsPlacementSource: the
- *    buyer owns it, or it's published and not admin-hidden. A forged
- *    private/hidden image id throws. `front` on this entry is the page's swap
+ *    from the client), and the image must pass `resolveBuyableImage`, the
+ *    gate buyPublishedDesign uses: published and not admin-hidden for anyone,
+ *    or the buyer's own unpublished image with a live conversation of theirs.
+ *    A forged private, hidden or placement-render id throws. An anonymous
+ *    guest may cart their own image (guests have carts; checkout gates
+ *    sign-in). `front` on this entry is the page's swap
  *    (#138 slice 3), under the same rule as buyPublishedDesign: another
  *    image may take the front only when `back` is the page image, and it
  *    clears the same guard as the back.
@@ -144,22 +155,18 @@ export async function addToCart(params: {
   // Set on the /d path only: the page image, which a swap moves to the back.
   let pageImageId: string | null = null;
   if (params.frontImageId) {
-    // /d path: pin the exact image. Same guard chain as buyPublishedDesign —
-    // resolve the image with its owner, derive the line's designId from it,
-    // and reject anything the buyer may not print.
-    const image = await getDesignImageWithOwner(params.frontImageId);
-    if (!image || !image.designId) throw new Error("Image not found");
-    if (
-      !canUseAsPlacementSource({
-        image,
-        imageOwnerId: image.ownerId,
-        orderDesignId: image.designId,
-        userId,
-      })
-    ) {
-      throw new Error("Image is not available");
+    // /d path: pin the exact image. Same gate as buyPublishedDesign — derive
+    // the line's designId from the image and reject anything the buyer may
+    // not order from the page (see resolveBuyableImage).
+    const buyable = await resolveBuyableImage(params.frontImageId, userId);
+    if (!buyable.ok) {
+      throw new Error(
+        buyable.reason === "not-found"
+          ? "Image not found"
+          : "Image is not available"
+      );
     }
-    designId = image.designId;
+    designId = buyable.designId;
     frontId = params.frontImageId;
     pageImageId = params.frontImageId;
   } else {
@@ -172,7 +179,8 @@ export async function addToCart(params: {
     // published image via getImagePage's sourceDesignId — let any caller cart
     // the design's CURRENT primary image, private or not, with no ownership
     // check at all. A cross-owner add must go through frontImageId instead,
-    // which is guarded by canUseAsPlacementSource.
+    // which resolveBuyableImage gates (published and visible, or the buyer's
+    // own unpublished image through a live conversation of theirs).
     const design = await db.query.design.findFirst({
       where: eq(designTable.id, designId),
     });
@@ -185,6 +193,9 @@ export async function addToCart(params: {
       frontId = params.front;
     } else {
       frontId = design.primaryImageId ?? null;
+      // The implicit primary is trusted as the front; an admin-hidden image
+      // must not print (owner ruling, 2026-10-05).
+      if (frontId) await assertPrimaryNotHidden(frontId);
     }
   }
 
@@ -195,10 +206,11 @@ export async function addToCart(params: {
     if (!productSupportsPlacement(product, "back")) {
       throw new Error("This product has no back print area");
     }
-    // Same choke-point guard as createCheckoutSession (#72): only this
-    // thread's images, the user's own designs, or published Shop images. On a
-    // /d add designId is the SELLER's design; the guard deliberately gives
-    // that no weight (see canUseAsPlacementSource).
+    // Same choke-point guard as createCheckoutSession (#72): the user's own
+    // images or published Shop images, never an admin-hidden one. On a /d add of a published image
+    // designId is the SELLER's design, and of the user's own unpublished image
+    // their own; the guard deliberately gives either no weight (see
+    // canUseAsPlacementSource).
     await assertUsablePlacementImage(backId, designId, userId);
   }
   if (pageImageId) {
@@ -306,8 +318,29 @@ export async function getCart(): Promise<CartView> {
       backImageUrl: r.placements?.back
         ? pinnedById.get(r.placements.back)?.imageUrl ?? null
         : null,
+      unavailable: false, // set below, all lines at once
     });
   }
+
+  // Re-check every line as if it were added now. The lines are independent, so
+  // the checks run together instead of one round trip after another.
+  const valid = await Promise.all(
+    items.map((i) =>
+      cartLineStillValid(
+        {
+          designId: i.designId,
+          productId: i.productId,
+          size: i.size,
+          color: i.color,
+          placements: i.placements,
+        },
+        userId
+      )
+    )
+  );
+  items.forEach((i, n) => {
+    i.unavailable = !valid[n];
+  });
 
   const shipping = await quoteCartShipping(items);
   const { item, shipping: ship, total } = computeCartTotal(
@@ -323,11 +356,14 @@ export async function getCart(): Promise<CartView> {
  * gate lives here: anonymous guests get { needsAuth } and sign in first (the
  * cart re-parents to them on sign-in, so it survives). Writes the order +
  * order_item rows and charges N product lines + one bundled shipping line;
- * the cart itself is cleared by the webhook on payment (#38).
+ * the cart itself is cleared by the webhook on payment (#38). Every line is
+ * re-checked first (`cartLineStillValid`); any stale line refuses the whole
+ * checkout with `{ error }` and writes nothing.
  */
 export async function checkoutCart(): Promise<{
   url: string | null;
   needsAuth?: boolean;
+  error?: string;
 }> {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session || isAnonymousUser(session.user)) {
@@ -337,6 +373,16 @@ export async function checkoutCart(): Promise<{
 
   const view = await getCart();
   if (view.items.length === 0) return { url: null };
+
+  // Every line is re-checked as if it were added now (getCart marks each one):
+  // a line validated at add time can have gone stale since (the owner
+  // unpublished the image, an admin hid it). One stale line refuses the whole
+  // checkout before anything is written; the cart is left as it is so the
+  // buyer can remove the line. Returned as data, not thrown, so the message
+  // survives production's masking of server-action errors.
+  if (view.items.some((i) => i.unavailable)) {
+    return { url: null, error: CART_LINE_UNAVAILABLE };
+  }
 
   // Order-level row: money + linkage only (Phase 1c). designId mirrors the
   // first line as header linkage; what was bought lives in order_item.

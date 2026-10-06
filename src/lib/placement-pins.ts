@@ -46,8 +46,8 @@ export function swapPlacementPins(params: {
 /**
  * The front to pin on an image detail page purchase (#138 slice 3). That page
  * offers no front picker, only a swap (§1, open question 1): the page's own
- * image is always printed, because `order.designId`, `order.storeProductId`
- * and the page URL all name it. So:
+ * image is always printed, because `order.designId`, the page URL and (on a
+ * Shop sale) `order.storeProductId` all name it. So:
  *
  *  - no `front`, or `front` equal to the page image → the page image;
  *  - any other `front` → allowed only as a swap, i.e. when the page image is

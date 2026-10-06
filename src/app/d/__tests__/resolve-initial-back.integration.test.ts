@@ -8,7 +8,9 @@
  * enforced, schema-derived).
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { eq } from "drizzle-orm";
 import { createTestDb } from "@/lib/__tests__/test-db";
+import * as schema from "@/lib/db/schema";
 import { makeUser, makeDesign, makeSourceImage } from "@/lib/__tests__/factories";
 
 const h = vi.hoisted(() => ({
@@ -151,5 +153,95 @@ describe("resolveInitialBack (#278)", () => {
   it("returns null for an id that matches no image", async () => {
     const ids = await seed(h.db as Db);
     expect(await resolveInitialBack(ids.listingId, "no-such-image")).toBeNull();
+  });
+});
+
+describe("resolveInitialBack for the owner's unpublished image (one buy surface, slice 3)", () => {
+  async function seedOwn(db: Db) {
+    const ids = await seed(db);
+    // The buyer's own conversation holds the page image and a second image.
+    const conversation = await makeDesign(db, "buyer");
+    const pageId = await makeSourceImage(db, {
+      designId: conversation.id,
+      ownerId: "buyer",
+      imageUrl: "https://img.example/own-page.png",
+    });
+    const siblingId = await makeSourceImage(db, {
+      designId: conversation.id,
+      ownerId: "buyer",
+      imageUrl: "https://img.example/own-sibling.png",
+    });
+    return { ...ids, conversationId: conversation.id, pageId, siblingId };
+  }
+
+  it("returns the pick when the owner asks about their own unpublished page image", async () => {
+    const ids = await seedOwn(h.db as Db);
+    expect(await resolveInitialBack(ids.pageId, ids.siblingId)).toEqual({
+      id: ids.siblingId,
+      imageUrl: "https://img.example/own-sibling.png",
+    });
+    expect(await resolveInitialBack(ids.pageId, ids.otherShopId)).toEqual({
+      id: ids.otherShopId,
+      imageUrl: "https://img.example/other-shop.png",
+    });
+  });
+
+  it("still refuses another person's private image as the back", async () => {
+    const ids = await seedOwn(h.db as Db);
+    expect(await resolveInitialBack(ids.pageId, ids.sellerPrivateId)).toBeNull();
+  });
+
+  it("returns null for a non-owner asking about someone else's unpublished page image", async () => {
+    const ids = await seedOwn(h.db as Db);
+    h.session = { user: { id: "other", isAnonymous: false } };
+    expect(await resolveInitialBack(ids.pageId, ids.otherShopId)).toBeNull();
+  });
+
+  it("returns null for an anonymous owner and for a signed-out viewer", async () => {
+    const ids = await seedOwn(h.db as Db);
+    h.session = { user: { id: "buyer", isAnonymous: true } };
+    expect(await resolveInitialBack(ids.pageId, ids.siblingId)).toBeNull();
+    h.session = null;
+    expect(await resolveInitialBack(ids.pageId, ids.siblingId)).toBeNull();
+  });
+
+  it("returns null when the owner's page image has no live conversation", async () => {
+    const db = h.db as Db;
+    const ids = await seedOwn(db);
+    await db
+      .update(schema.image)
+      .set({ sourceDesignId: "deleted-design" })
+      .where(eq(schema.image.id, ids.pageId));
+    expect(await resolveInitialBack(ids.pageId, ids.siblingId)).toBeNull();
+  });
+
+  it("returns null when the page id is a placement render", async () => {
+    const db = h.db as Db;
+    const ids = await seedOwn(db);
+    const [render] = await db
+      .insert(schema.placementRender)
+      .values({
+        designId: ids.conversationId,
+        sourceImageId: ids.pageId,
+        blankId: "bella-canvas-3001",
+        placementId: "back",
+        imageUrl: "https://img.example/render.png",
+        aspectRatio: "1:1",
+      })
+      .returning();
+    expect(await resolveInitialBack(render.id, ids.siblingId)).toBeNull();
+  });
+
+  it("returns null for the owner's own image once it is published and admin-hidden", async () => {
+    const db = h.db as Db;
+    const ids = await seedOwn(db);
+    const hiddenId = await makeSourceImage(db, {
+      designId: ids.conversationId,
+      ownerId: "buyer",
+      imageUrl: "https://img.example/own-hidden.png",
+      publishedAt: new Date(),
+      isHidden: true,
+    });
+    expect(await resolveInitialBack(hiddenId, ids.siblingId)).toBeNull();
   });
 });

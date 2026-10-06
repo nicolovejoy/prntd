@@ -220,6 +220,8 @@ describe("publish-family mirror writes", () => {
 
     await publishImage(imageId, { title: "T" });
     await setImageHidden(imageId, true);
+    // An owner cannot unpublish a hidden image (an admin unhide comes first).
+    await setImageHidden(imageId, false);
     await unpublishImage(imageId);
 
     const organizer = await testDb

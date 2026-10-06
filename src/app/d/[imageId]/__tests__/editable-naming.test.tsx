@@ -114,3 +114,29 @@ describe("EditableNaming — blank titles", () => {
     ).toBeInTheDocument();
   });
 });
+
+describe("EditableNaming: edit access is lost while the editor is open", () => {
+  it("closes the editor when canEdit turns false, so Save can't be sent for a private image", () => {
+    const { rerender } = render(
+      <EditableNaming imageId="img-1" title="Real Title" canEdit />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.change(screen.getByPlaceholderText("Title"), {
+      target: { value: "Half-typed" },
+    });
+    expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
+
+    // The owner unpublishes with the editor open: the page re-renders
+    // private, with the same mounted component.
+    rerender(<EditableNaming imageId="img-1" title="Real Title" canEdit={false} />);
+    expect(screen.queryByPlaceholderText("Title")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Real Title" })).toBeInTheDocument();
+
+    // Published again: the editor stays closed and the draft is the stored title.
+    rerender(<EditableNaming imageId="img-1" title="Real Title" canEdit />);
+    expect(screen.queryByPlaceholderText("Title")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    expect(screen.getByPlaceholderText("Title")).toHaveValue("Real Title");
+  });
+});

@@ -1,14 +1,16 @@
 /**
  * getListingBackMockup authorization matrix (#167 decision 1) — against a
  * real in-memory libSQL (the #28 pattern). Two gates stack: the page image
- * must be viewable (canViewImagePage, exactly as the front mockup and the
- * page itself) AND the back pick must be a usable placement source
+ * must be one the viewer may order (resolveBuyableImage, exactly as the front
+ * mockup and the buy itself) AND the back pick must be a usable placement source
  * (canUseAsPlacementSource, the checkout bar). renderAndCacheMockup itself
  * is covered in mockup-render.test.ts; it's mocked here so the matrix stays
  * about auth, not rendering.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { eq } from "drizzle-orm";
 import { createTestDb } from "@/lib/__tests__/test-db";
+import * as schema from "@/lib/db/schema";
 import { makeUser, makeDesign, makeSourceImage } from "@/lib/__tests__/factories";
 
 const h = vi.hoisted(() => ({
@@ -292,5 +294,90 @@ describe("getListingBackMockup after a swap (#138 slice 3)", () => {
         sourceImageId: ids.publishedId,
       })
     );
+  });
+});
+
+/**
+ * One buy surface, slice 3: the page-image gate is `resolveBuyableImage`, so
+ * an owner's unpublished image renders a back mockup only through a live
+ * conversation of theirs, and a placement render is never a page image.
+ */
+describe("getListingBackMockup gate for an unpublished page image (slice 3)", () => {
+  it("lets the owner render a back for their own unpublished image", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    h.session = { user: { id: "seller", isAnonymous: false } };
+
+    const result = await getListingBackMockup({
+      imageId: ids.sellerPrivateId,
+      backImageId: ids.publishedBackId,
+      ...PRODUCT,
+    });
+    expect(result.mockupUrl).toBe("https://r2.example/back-mockup.jpg");
+  });
+
+  it("refuses the owner when the image's conversation is gone, and renders nothing", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    h.session = { user: { id: "seller", isAnonymous: false } };
+    await db
+      .update(schema.image)
+      .set({ sourceDesignId: "deleted-design" })
+      .where(eq(schema.image.id, ids.sellerPrivateId));
+
+    await expect(
+      getListingBackMockup({
+        imageId: ids.sellerPrivateId,
+        backImageId: ids.publishedBackId,
+        ...PRODUCT,
+      })
+    ).rejects.toThrow("Unauthorized");
+    expect(mockupRender.renderAndCacheMockup).not.toHaveBeenCalled();
+  });
+
+  it("refuses a signed-out visitor, an anonymous non-owner and a stranger for an unpublished page image", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    for (const session of [
+      null,
+      { user: { id: "anon-x", isAnonymous: true } },
+      { user: { id: "other", isAnonymous: false } },
+    ]) {
+      h.session = session;
+      await expect(
+        getListingBackMockup({
+          imageId: ids.sellerPrivateId,
+          backImageId: ids.publishedBackId,
+          ...PRODUCT,
+        })
+      ).rejects.toThrow("Unauthorized");
+    }
+    expect(mockupRender.renderAndCacheMockup).not.toHaveBeenCalled();
+  });
+
+  it("refuses a placement render id sent by the render's owner as the page image", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    h.session = { user: { id: "seller", isAnonymous: false } };
+    const [render] = await db
+      .insert(schema.placementRender)
+      .values({
+        designId: ids.soldDesignId,
+        sourceImageId: ids.sellerPrivateId,
+        blankId: PRODUCT.productId,
+        placementId: "back",
+        imageUrl: "https://img.example/render.png",
+        aspectRatio: "1:1",
+      })
+      .returning();
+
+    await expect(
+      getListingBackMockup({
+        imageId: render.id,
+        backImageId: ids.publishedBackId,
+        ...PRODUCT,
+      })
+    ).rejects.toThrow("Image not found");
+    expect(mockupRender.renderAndCacheMockup).not.toHaveBeenCalled();
   });
 });

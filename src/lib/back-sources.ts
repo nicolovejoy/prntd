@@ -6,6 +6,7 @@
  *  - This design: the current thread's source images (the original picker).
  *  - My Designs: the display (primary) image of the user's other designs.
  *  - Shop: published, not-hidden images — the discover-feed surface.
+ * An admin-hidden image is in none of them: nobody may print one.
  *
  * Mirror of `canUseAsPlacementSource` (design-publish.ts): everything this
  * returns passes that guard, and the guard rejects anything outside these
@@ -17,11 +18,12 @@ import {
   image as imageTable,
   listing as listingTable,
 } from "@/lib/db/schema";
-import { eq, and, ne, desc, isNotNull } from "drizzle-orm";
+import { eq, and, ne, desc, isNotNull, inArray } from "drizzle-orm";
 import {
   getDesignSourceImages,
   getDesignImageWithOwner,
   resolveImagesByIds,
+  type ImageWithOwner,
 } from "@/lib/design-images";
 import {
   dedupeFeedByDesign,
@@ -35,8 +37,9 @@ import {
  * ownership is checked first) or a published + not-hidden Shop image.
  * Throws on anything else — called at the checkout choke points
  * (createCheckoutSession, addToCart, buyPublishedDesign) so a forged id
- * can't get a private image printed. On a /d buy `designId` is the SELLER's
- * design; the guard deliberately gives that no weight (see
+ * can't get a private image printed. On a Shop buy of a published image
+ * `designId` is the SELLER's design, and on the owner's own unpublished image
+ * their own; the guard deliberately gives either no weight (see
  * canUseAsPlacementSource).
  *
  * Placement-agnostic on purpose (#138): the front is a picked image id too
@@ -51,18 +54,90 @@ export async function assertUsablePlacementImage(
   placement: "front" | "back" = "back"
 ): Promise<void> {
   const image = await getDesignImageWithOwner(imageId);
-  if (
-    !image ||
-    !canUseAsPlacementSource({
-      image,
-      imageOwnerId: image.ownerId,
-      orderDesignId: designId,
-      userId,
-    })
-  ) {
+  if (!image || !(await placementSourceUsable(image, designId, userId))) {
     throw new Error(
       `${placement === "front" ? "Front" : "Back"} image is not available`
     );
+  }
+}
+
+/** How many render-of-a-render hops are followed before a pin is refused. */
+const MAX_RENDER_HOPS = 5;
+
+/**
+ * Whether a resolved image may be used as a placement source by `userId`:
+ * `canUseAsPlacementSource` for the image, and for a `placement_render` ALSO
+ * for the image it was rendered from, down the chain (second fix round). A
+ * render resolves as unpublished and not hidden, owned by its conversation's
+ * owner, so on its own it would pass on ownership even after the image it
+ * renders went hidden or private. It is refused when its source is hidden,
+ * is neither the user's own nor currently published and visible, no longer
+ * exists, or was never recorded (a legacy render with no source can't be
+ * judged), and when the chain is longer than MAX_RENDER_HOPS or loops.
+ *
+ * The pin and render choke points call it: `assertUsablePlacementImage`,
+ * `getOrCreatePlacementRender`, and `renderAndCacheMockup`, which runs it on
+ * every explicit source before its cached-mockup and placement-render lookups
+ * can answer. Orders that already pin a render are not re-judged.
+ * `prefetchProductMockups` reads the design's own primary's renders without
+ * calling it; its callers check design ownership first.
+ */
+export async function placementSourceUsable(
+  image: ImageWithOwner,
+  orderDesignId: string,
+  userId: string
+): Promise<boolean> {
+  let current = image;
+  const seen = new Set<string>();
+  for (let hop = 0; ; hop++) {
+    if (
+      !canUseAsPlacementSource({
+        image: current,
+        imageOwnerId: current.ownerId,
+        orderDesignId,
+        userId,
+      })
+    ) {
+      return false;
+    }
+    if (current.kind !== "render") return true;
+    if (hop >= MAX_RENDER_HOPS || seen.has(current.id)) return false;
+    seen.add(current.id);
+    if (!current.sourceImageId) return false;
+    const source = await getDesignImageWithOwner(current.sourceImageId);
+    if (!source) return false;
+    current = source;
+  }
+}
+
+/**
+ * Whether an image, or the source it is a render of, is admin-hidden. Used for
+ * the implicit primary, where only a hide is refused (see
+ * `assertPrimaryNotHidden`).
+ */
+async function hiddenThroughSources(image: ImageWithOwner): Promise<boolean> {
+  let current: ImageWithOwner | null = image;
+  for (let hop = 0; current && hop <= MAX_RENDER_HOPS; hop++) {
+    if (current.isHidden) return true;
+    if (current.kind !== "render" || !current.sourceImageId) return false;
+    current = await getDesignImageWithOwner(current.sourceImageId);
+  }
+  return false;
+}
+
+/**
+ * Refuse an image the order would pin as its front WITHOUT a pick: the
+ * design's current primary, when the caller sends no `front`. A pick is held
+ * to `assertUsablePlacementImage`; the implicit primary used to be trusted
+ * outright, which let an admin-hidden primary print. Only a hidden primary is
+ * refused here (a primary that no longer resolves keeps its old behaviour:
+ * the order pins the id and fulfillment falls back to the design's display
+ * image).
+ */
+export async function assertPrimaryNotHidden(imageId: string): Promise<void> {
+  const image = await getDesignImageWithOwner(imageId);
+  if (image && (await hiddenThroughSources(image))) {
+    throw new Error("Front image is not available");
   }
 }
 
@@ -89,7 +164,7 @@ export async function getBackSourceGroups(params: {
   userId: string | null;
 }): Promise<BackSourceGroup[]> {
   const [thisDesign, myDesigns, shop] = await Promise.all([
-    getDesignSourceImages(params.designId),
+    getDesignSourceImages(params.designId, { excludeHidden: true }),
     params.userId
       ? getOtherDesignPrimaries(params.userId, params.designId)
       : Promise.resolve([]),
@@ -114,9 +189,10 @@ export async function getBackSourceGroups(params: {
 }
 
 /**
- * Picker groups for the published-design buy page (/d/[imageId]). The buyer
- * usually does NOT own the image's source design, so the groups differ from
- * /preview's:
+ * Picker groups for the image detail page's buy panel (/d/[imageId]). On a
+ * published image the buyer usually does NOT own the image's source design, so
+ * the groups differ from /preview's; on the owner's own unpublished image they
+ * do own it and get /preview's groups:
  *
  *  - This design appears only when the viewer owns the source design — a
  *    cross-owner buyer must never see the seller's private thread images.
@@ -125,11 +201,13 @@ export async function getBackSourceGroups(params: {
  *    is NOT excluded here — its published images (including the one being
  *    bought) are legitimate back choices and This design won't list them.
  *
- * `viewerId` is a signed-in, non-anonymous user (the /d purchase gate);
- * the action returns no groups for anyone else.
+ * `viewerId` is a signed-in, non-anonymous user (the image detail page's
+ * purchase gate); the action returns no groups for anyone else.
  */
 export async function getBuyPageBackSourceGroups(params: {
-  /** The published image's source design. */
+  /** The page image's source design: the SELLER's conversation for a published
+   * image, the viewer's own for their unpublished one (`resolveBuyableImage`
+   * decides which; this reads whose it is). */
   designId: string;
   viewerId: string;
 }): Promise<BackSourceGroup[]> {
@@ -162,6 +240,16 @@ export async function getBuyPageBackSourceGroups(params: {
   return groups;
 }
 
+/** The subset of `ids` an admin has hidden (`listing.is_hidden`). */
+async function hiddenImageIds(ids: string[]): Promise<Set<string>> {
+  if (ids.length === 0) return new Set();
+  const rows = await db
+    .select({ imageId: listingTable.imageId })
+    .from(listingTable)
+    .where(and(inArray(listingTable.imageId, ids), eq(listingTable.isHidden, true)));
+  return new Set(rows.map((r) => r.imageId));
+}
+
 /**
  * Display images of the user's other designs: each design's primary image,
  * most recently touched design first. Designs without a primary (never
@@ -192,11 +280,16 @@ async function getOtherDesignPrimaries(
     .filter((v): v is string => Boolean(v));
   if (primaryIds.length === 0) return [];
 
-  const byId = await resolveImagesByIds(primaryIds);
+  const [byId, hidden] = await Promise.all([
+    resolveImagesByIds(primaryIds),
+    hiddenImageIds(primaryIds),
+  ]);
 
-  // Preserve the designs' recency order; drop dangling primary pointers.
+  // Preserve the designs' recency order; drop dangling primary pointers and
+  // admin-hidden images (nobody may print those).
   const out: BackSourceImage[] = [];
   for (const d of designs) {
+    if (d.primaryImageId && hidden.has(d.primaryImageId)) continue;
     const url = d.primaryImageId ? byId.get(d.primaryImageId)?.imageUrl : undefined;
     if (d.primaryImageId && url) out.push({ id: d.primaryImageId, imageUrl: url });
   }
