@@ -168,6 +168,16 @@ describe("resolvePreviewRedirect (#278 slice 4)", () => {
     ).toBe(`/d/${ids.primary}?order=1&back=${ids.elsewhere}&swap=1`);
   });
 
+  it("a front in the conversation with a foreign back is not a swap: the front is the page, the back rides along", async () => {
+    const ids = await seed(h.db as Db);
+    expect(
+      await resolvePreviewRedirect(
+        { id: ids.conv, front: ids.second, back: ids.elsewhere },
+        "owner"
+      )
+    ).toBe(`/d/${ids.second}?order=1&back=${ids.elsewhere}`);
+  });
+
   it("neither image in the conversation keeps the front as the page", async () => {
     const ids = await seed(h.db as Db);
     expect(
