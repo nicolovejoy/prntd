@@ -5,11 +5,14 @@ through real Stripe test mode (4242 test card), land on `/order/confirm`, then
 assert the order row reaches `submitted` (dry-run Printful) with `sale` +
 `stripe_fee` ledger rows:
 
-- The cart test adds two designs to the cart and pays on Stripe's hosted
-  checkout page (the cart stays hosted).
-- The `/preview` test seeds a design, picks size, Orders, and pays through
-  embedded checkout on our `/checkout` page when
-  `PREVIEW_EMBEDDED_CHECKOUT_ENABLED=true`, or on the hosted page otherwise.
+- The cart test adds two designs to the cart from their image detail pages and
+  pays on Stripe's hosted checkout page (the cart stays hosted).
+- The old-`/preview`-link test seeds a design, opens
+  `/preview?id=<design>&product=…&color=…&size=M` (the redirect sends it to the
+  image's page with the same picks), Orders, and pays through embedded checkout
+  on our `/checkout` page. It requires `EMBEDDED_CHECKOUT_ENABLED=true`. No test
+  reads `PREVIEW_EMBEDDED_CHECKOUT_ENABLED` since slice 4 of one buy surface
+  (#278); the switch and its code go in slice 6.
 - The image detail page test signs up, seeds an image the account owns and has
   not published, opens `/d/<image id>` with the link's picks (product, size,
   colour), taps Order and pays through embedded checkout on our `/checkout`
@@ -76,12 +79,11 @@ actual checkout DOM, which is third-party flake every PR shouldn't
 have to eat.
 
 It moves money through two Stripe surfaces: hosted checkout DOM (the cart
-test) and the embedded checkout iframe on `/checkout` (the `/preview` test and
-the image detail page test). Forcing the embedded switches on means the nightly
-no longer covers hosted checkout from `/preview`, which is production's path
-while `PREVIEW_EMBEDDED_CHECKOUT_ENABLED` is off. The image detail page's switch
-(`EMBEDDED_CHECKOUT_ENABLED`) is on in production, so the nightly now matches
-production there.
+test) and the embedded checkout iframe on `/checkout` (the image detail page
+test and the old-`/preview`-link test). The image detail page's switch
+(`EMBEDDED_CHECKOUT_ENABLED`) is on in production, so the nightly matches
+production there. Nothing in the nightly reads
+`PREVIEW_EMBEDDED_CHECKOUT_ENABLED` any more.
 
 The workflow installs the Stripe CLI, branches an ephemeral Turso DB off
 `prntd-preview` (same mechanism as the per-PR e2e job, #31/#108 — named so it
@@ -98,14 +100,13 @@ Repo secrets required: `STRIPE_SECRET_KEY` (test-mode), `TURSO_API_TOKEN`
 below). On failure the job files/comments on a GitHub issue labeled
 `stripe-e2e-nightly` so a red run isn't silent.
 
-## Embedded checkout (/preview)
+## Embedded checkout (image detail page)
 
-The nightly sets `PREVIEW_EMBEDDED_CHECKOUT_ENABLED=true`,
-`EMBEDDED_CHECKOUT_ENABLED=true` and
+The nightly sets `EMBEDDED_CHECKOUT_ENABLED=true` and
 `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` from the repo variable
 `STRIPE_TEST_PUBLISHABLE_KEY` (a variable, not a secret). The key must come
 from the same Stripe account and test mode as the `STRIPE_SECRET_KEY` secret,
-or checkout fails closed to hosted and the `/preview` test fails.
+or checkout fails closed to hosted and the two image-detail tests fail.
 
 The publishable key is inlined at build. A local run needs both variables set
 in the local env file before the build that `npm run e2e:stripe` triggers, and
@@ -118,7 +119,7 @@ page test has not been run either: besides those, its guesses are that the
 link's picks leave a `Total` row on screen (the wait for hydration) and the
 Order button labelled `Order — $<total>` and clickable as the first `/^Order/`
 button, and that `/checkout` shows
-`checkout-preview` for it as it does for `/preview`.
+`checkout-preview` for it.
 
 ## Pull request e2e
 
@@ -179,7 +180,7 @@ API; the nightly run is the only live exercise.
 - Stripe's checkout DOM changes without notice. The spec resolves each field
   through candidate locators (`#cardNumber`, placeholder, label); if a fill
   fails, update the candidates in `completeStripeCheckout`.
-- The `/preview` test times out waiting for the embedded form, or lands on
+- An image-detail test times out waiting for the embedded form, or lands on
   Stripe's hosted page: the publishable key is missing, or from a different
   Stripe account or mode than `STRIPE_SECRET_KEY`, so checkout failed closed
   to hosted. Otherwise the iframe selectors in `embeddedStripeRoot` need
