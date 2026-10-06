@@ -269,6 +269,10 @@ describe("SideMockup", () => {
     expect(INSET_FOCUS_RING).toContain("focus-visible:after:z-30");
     expect(INSET_FOCUS_RING).toContain("focus-visible:after:border-foreground");
     expect(INSET_FOCUS_RING).toContain("focus-visible:after:outline-background");
+    // -4, not -2: the paper outline must sit at 2-4px, inside the 2px ink
+    // border. At -2 it paints over the border and only paper shows. Class
+    // strings cannot show the overdraw; this pins the value that fixed it.
+    expect(INSET_FOCUS_RING).toContain("focus-visible:after:-outline-offset-4");
   });
 
   it("renders no select button when onSelect is absent", () => {
