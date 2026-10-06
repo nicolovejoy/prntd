@@ -31,14 +31,8 @@ import { resolveBuyPageFront } from "@/lib/placement-pins";
 import { estimateOrderCosts } from "@/lib/printful";
 import { stripe } from "@/lib/stripe";
 import { buildCartCheckoutSessionParams } from "@/lib/checkout";
-import { cartEnabled } from "@/lib/flags";
 import { cartLineStillValid } from "@/lib/cart-line-check";
 import { CART_LINE_UNAVAILABLE } from "@/lib/action-copy";
-
-/** Whether the cart UI (nav link, Add-to-cart) should show. Client-readable. */
-export async function isCartEnabled(): Promise<boolean> {
-  return cartEnabled();
-}
 
 // Indicative destination for the cart's shipping estimate. Hosted Stripe
 // Checkout can't recompute shipping after the buyer enters their address, so we
