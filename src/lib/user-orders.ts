@@ -45,11 +45,18 @@ export async function getUserOrdersData(buyerId: string, now = Date.now()) {
     // paid order the webhook never recorded, or an expiry Stripe never told
     // us about; shown as "Processing" so the buyer has a record, and admin's
     // Recover control fixes it), and session-less (stripeSessionId never got
-    // backfilled — checkout.ts inserts the order row before creating the
-    // Stripe session, so a session-create failure, or any pre-#231 legacy
-    // row scripts/mark-legacy-pending-abandoned.ts hasn't reached, leaves
-    // this null forever; a row that never had a session could never have
-    // been paid, so it's hidden regardless of age or abandonedAt).
+    // backfilled — createStripeCheckoutForOrder (order-checkout.ts) and
+    // checkoutCart (cart/actions.ts) insert the order row before creating
+    // the Stripe session and save the session id after it. A session-create
+    // failure still leaves the id null forever; since #289 the row is also
+    // marked abandoned (abandonSessionlessOrder), but it was already hidden
+    // by the isNotNull filter below, so the hidden population is unchanged.
+    // Other session-less rows: any pre-#231 legacy row
+    // scripts/mark-legacy-pending-abandoned.ts hasn't reached, or a row
+    // whose abandon write itself failed. Session-less rows are hidden
+    // regardless of age or abandonedAt. A session may exist and be paid
+    // although Stripe threw; if its webhook never arrives, the row stays
+    // session-less, pending and paid, and is hidden here (pre-existing).
     .where(
       and(
         eq(orderTable.userId, buyerId),

@@ -6,6 +6,7 @@ import {
   orderItem as orderItemTable,
 } from "@/lib/db/schema";
 import { assertTransition } from "@/lib/order-state";
+import { cartLineMatch } from "@/lib/cart-line-match";
 import {
   saleLedgerRows,
   refundCogsReversalRow,
@@ -189,17 +190,18 @@ export async function handleStripeCheckoutCompleted(
   // the paid-claim already committed, so a throw here would 400 → Stripe
   // redelivers → skipped (status≠pending) → fulfillment stranded until the
   // daily cron. A leftover cart row is cosmetic; log and press on to fulfill.
+  //
+  // The lines are matched on the order line's front and back images as well
+  // (#289), so an unpaid line for another image of the same conversation
+  // survives. The deletes are one batch, so a failure leaves the cart as it was.
   try {
-    for (const item of orderItems) {
-      await deps.db.delete(cartItemTable).where(
-        and(
-          eq(cartItemTable.userId, foundOrder.userId),
-          eq(cartItemTable.designId, item.designId),
-          eq(cartItemTable.productId, item.productId),
-          eq(cartItemTable.size, item.size),
-          eq(cartItemTable.color, item.color)
-        )
-      );
+    const deletes = orderItems.map((item) =>
+      deps.db
+        .delete(cartItemTable)
+        .where(cartLineMatch(foundOrder.userId, item))
+    );
+    if (deletes.length > 0) {
+      await deps.db.batch([deletes[0], ...deletes.slice(1)]);
     }
   } catch (err) {
     console.error(`Order ${orderId}: cart cleanup failed (non-fatal):`, err);
