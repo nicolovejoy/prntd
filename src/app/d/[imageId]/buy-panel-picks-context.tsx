@@ -15,11 +15,21 @@ const PicksContext = createContext<OpenBuyPanelPicks>(null);
 const noReport = () => {};
 const ReportContext = createContext<(picks: OpenBuyPanelPicks) => void>(noReport);
 
-export function BuyPanelPicksProvider({ children }: { children: ReactNode }) {
+/** Renders one wrapper `div` around its children, carrying `className`, so a
+ * page can make the provider its column container instead of nesting one. */
+export function BuyPanelPicksProvider({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
   const [picks, setPicks] = useState<OpenBuyPanelPicks>(null);
   return (
     <ReportContext.Provider value={setPicks}>
-      <PicksContext.Provider value={picks}>{children}</PicksContext.Provider>
+      <PicksContext.Provider value={picks}>
+        <div className={className}>{children}</div>
+      </PicksContext.Provider>
     </ReportContext.Provider>
   );
 }

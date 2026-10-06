@@ -157,10 +157,10 @@ export default async function PublishedImagePage({
   return (
     <div className="min-h-screen flex flex-col">
       <main className="flex-1 px-4 py-6 pb-[calc(13rem+env(safe-area-inset-bottom))] md:py-8 md:pb-8">
-        <div className="max-w-3xl mx-auto space-y-4">
-          {/* The panel reports its open picks to the conversation strip's
-              links through this provider (#278 slice 4), so it wraps both. */}
-          <BuyPanelPicksProvider>
+        {/* The panel reports its open picks to the conversation strip's links
+            through this provider (#278 slice 4), so it wraps both. It is also
+            the page's column container. */}
+        <BuyPanelPicksProvider className="max-w-3xl mx-auto space-y-4">
           {/* Desktop shows the full trail; on mobile the breadcrumb row is
               dropped to save vertical space — a floating back arrow over the
               image (below) takes its place. */}
@@ -249,8 +249,7 @@ export default async function PublishedImagePage({
               from={from}
             />
           )}
-          </BuyPanelPicksProvider>
-        </div>
+        </BuyPanelPicksProvider>
       </main>
     </div>
   );
