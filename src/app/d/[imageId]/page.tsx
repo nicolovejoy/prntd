@@ -198,9 +198,8 @@ export default async function PublishedImagePage({
                 // for a signed-in viewer) and flag-gated; the server action
                 // re-checks both.
                 backEnabled={isLoggedIn && multiPlacementEnabled()}
-                // Add to cart mirrors /preview's gating: flag + size picked,
-                // no auth gate (guests have carts; checkout gates sign-in,
-                // #146).
+                // Add to cart needs the flag and a picked size, no auth gate
+                // (guests have carts; checkout gates sign-in, #146).
                 cartEnabled={cartEnabled()}
                 initialPicks={initialPicks}
                 startAction={<StartFromImage imageId={img.imageId} />}

@@ -94,8 +94,8 @@ export function BuyPanel({
   /** Multi-placement flag && signed-in (#25/#72 on /d). The server action
    * re-checks both — this only controls the affordance. */
   backEnabled?: boolean;
-  /** CART_ENABLED (#146). Same gating as /preview: flag + size picked; no
-   * auth gate — guests have carts (the auth gate stays at checkout). */
+  /** CART_ENABLED (#146). Add to cart needs the flag and a size; no auth
+   * gate — guests have carts (the auth gate stays at checkout). */
   cartEnabled?: boolean;
   /** Peer CTA rendered next to Order while collapsed and kept below the
    * stack once expanded (the StartFromImage remix action). */
@@ -464,8 +464,8 @@ export function BuyPanel({
         ...(sides.back ? { back: sides.back.id } : {}),
         ...(frontOverride ? { front: frontOverride } : {}),
       });
-      // Same post-add affordance as /preview: a hard navigation to the cart
-      // (not router.push — see preview/page.tsx handleAddToCart).
+      // A hard navigation to the cart, not router.push: a concurrent header
+      // action can swallow a client-side push (see CLAUDE.md, Runtime gotchas).
       window.location.href = "/cart";
     } catch {
       navigatingAway.current = false;
@@ -474,7 +474,7 @@ export function BuyPanel({
     }
   }
 
-  // Add to cart is gated the way /preview gates it: flag + size picked. No
+  // Add to cart is gated on the flag and a picked size. No
   // auth gate — guests have carts; sign-in is required only at checkout.
   const addToCartButton = cartEnabled ? (
     <Button
