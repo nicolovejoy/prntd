@@ -13,15 +13,13 @@ import { auth, isAnonymousUser } from "@/lib/auth";
 import { multiPlacementEnabled } from "@/lib/blanks";
 import { cartEnabled } from "@/lib/flags";
 import { Breadcrumbs } from "@/components/breadcrumbs";
-import { breadcrumbTrail } from "@/lib/nav";
-import { Button } from "@/components/ui";
+import { breadcrumbTrail, detailFrom } from "@/lib/nav";
 import { IdentityBlock } from "./identity-block";
 import { PublishedImageView } from "./published-image-view";
 import { BuyHero } from "./buy-hero";
 import { StartFromImage } from "./start-from-image";
 import { ConversationImages } from "./conversation-images";
 import { OwnerActions } from "./owner-actions";
-import { previewOrderHref } from "@/lib/placement-pins";
 import {
   backToResolve,
   buildInitialPicks,
@@ -80,7 +78,8 @@ export default async function PublishedImagePage({
   const isLoggedIn = Boolean(session) && !isAnonymousUser(session?.user);
   const isOwner = session?.user.id === img.designerId;
   // #136 slice 1: the page also serves the owner's unpublished work, where
-  // there's no listing to name, re-backdrop or buy through the storefront.
+  // there's no listing to name or re-backdrop. The owner orders it from the
+  // same panel a Shop buyer uses (`img.canOrder`), with no Shop composition.
   const isPublished = img.publishedAt !== null;
 
   // Remembered defaults (#44, §8 Q3): last purchase seeds product + size.
@@ -96,18 +95,31 @@ export default async function PublishedImagePage({
 
   // The buy panel's picks ride in the link (#278): parsed against the catalog
   // here, and the back image is checked against what this viewer may print.
-  // Each invalid pick is dropped on its own.
+  // Each invalid pick is dropped on its own. They apply to the owner's
+  // unpublished image too (`img.canOrder`).
   const picks = parseBuyPagePicks(sp);
   const backId = backToResolve(picks, {
-    published: isPublished,
+    buyable: img.canOrder,
     loggedIn: isLoggedIn,
     multiPlacement: multiPlacementEnabled(),
   });
   const initialBack = backId ? await resolveInitialBack(imageId, backId) : null;
   const initialPicks = buildInitialPicks(picks, initialBack, imageId);
 
-  const trail = breadcrumbTrail(`/d/${imageId}`, { from });
+  // No `from` on a private image means My Designs, not the Shop it isn't in.
+  const trail = breadcrumbTrail(`/d/${imageId}`, {
+    from: detailFrom(from, isPublished),
+  });
   const up = trail.length > 0 ? trail[trail.length - 1] : null;
+
+  // Publishing (or unpublishing) re-renders this same route with the other
+  // state's props, and BuyHero sits at the same position in both states, so it
+  // stays mounted: an open panel keeps its product, size, colour, back and swap
+  // (none of them are in the URL after PublishModal's push, which carries no
+  // picks). The client pieces that seed state from props once now follow the
+  // props instead: the backdrop picker (PublishedImageView), the title editor
+  // (EditableNaming) and the panel's default colour (BuyPanel, which leaves a
+  // colour the buyer picked alone).
 
   // Title/attribution as one mono-labelled block, identical for both
   // branches below (design review, "/d/[imageId] image page"). The owner's
@@ -119,6 +131,25 @@ export default async function PublishedImagePage({
       canEditTitle={isOwner && isPublished}
       designerName={img.designerName}
       forkChain={img.forkChain}
+    />
+  );
+
+  // The owner's actions collect under one OWNER row, below the hero and panel.
+  const ownerActions = isOwner && (
+    <OwnerActions
+      imageId={img.imageId}
+      imageUrl={img.imageUrl}
+      isPublished={isPublished}
+      canPublish={isLoggedIn}
+      // The conversation may be gone even when the image names one — an image
+      // pinned by an order or a seed survives its thread's delete — so the row
+      // is gated on the design row resolving.
+      sourceDesignId={
+        img.sourceDesignId && img.hasSourceConversation
+          ? img.sourceDesignId
+          : null
+      }
+      conversationArchived={img.sourceConversationArchived}
     />
   );
 
@@ -139,13 +170,43 @@ export default async function PublishedImagePage({
               place, and swaps the hero to the shirt-mockup preview, #135
               slice 1) and the remix action.
 
-              Unpublished images can't go through the buy-existing path
-              (canBuyPublishedImage has no owner shortcut), so for the owner's
-              private work Order links out to /preview, which still owns
-              ordering your own designs (#136 decision 4 — converging the two
-              pipelines is a follow-up); the hero there has no mockup-preview
-              swap to share with, so it stays the plain PublishedImageView. */}
-          {!isPublished ? (
+              Published images and the owner's own unpublished ones share the
+              panel (`img.canOrder`; one buy surface, slice 3). An unpublished
+              order books no Shop composition and has no backdrop picker (no
+              publication to pin it on), so `canEdit` stays published-only.
+              An image whose conversation is gone can't be ordered
+              (`order.design_id` is NOT NULL), so it gets the plain hero and
+              no Order. */}
+          {img.canOrder ? (
+            <>
+              <BuyHero
+                imageId={img.imageId}
+                imageUrl={img.imageUrl}
+                alt={img.title?.trim() || "Design"}
+                initialBackgroundColor={img.backgroundColor}
+                canEdit={isOwner && isPublished}
+                backHref={up?.href}
+                backLabel={up?.label}
+                isLoggedIn={isLoggedIn}
+                remembered={remembered}
+                // Back affordance is signed-in only (the picker lists the
+                // viewer's own designs, and a link's `back` is resolved only
+                // for a signed-in viewer) and flag-gated; the server action
+                // re-checks both.
+                backEnabled={isLoggedIn && multiPlacementEnabled()}
+                // Add to cart mirrors /preview's gating: flag + size picked,
+                // no auth gate (guests have carts; checkout gates sign-in,
+                // #146).
+                cartEnabled={cartEnabled()}
+                initialPicks={initialPicks}
+                startAction={<StartFromImage imageId={img.imageId} />}
+              >
+                {identityBlock}
+              </BuyHero>
+
+              {ownerActions}
+            </>
+          ) : (
             <>
               <div className="relative">
                 {up && (
@@ -169,82 +230,10 @@ export default async function PublishedImagePage({
               {identityBlock}
 
               <div className="flex flex-wrap items-center gap-3">
-                {/* Same gate as OwnerActions below: img.sourceDesignId can
-                    name a conversation that's already gone (an order/seed
-                    reference kept the image alive after its thread was
-                    deleted — routine since #242's
-                    remove-now-empty-conversation rule), and /preview needs a
-                    live design row to render. */}
-                {img.sourceDesignId && img.hasSourceConversation && (
-                  <Link href={previewOrderHref(img.sourceDesignId, img.imageId)}>
-                    <Button>Order</Button>
-                  </Link>
-                )}
                 <StartFromImage imageId={img.imageId} />
               </div>
 
-              {isOwner && (
-                <OwnerActions
-                  imageId={img.imageId}
-                  imageUrl={img.imageUrl}
-                  isPublished={isPublished}
-                  canPublish={isLoggedIn}
-                  // The conversation may be gone even when the image names one —
-                  // an image pinned by an order or a seed survives its thread's
-                  // delete — so the row is gated on the design row resolving.
-                  sourceDesignId={
-                    img.sourceDesignId && img.hasSourceConversation
-                      ? img.sourceDesignId
-                      : null
-                  }
-                  conversationArchived={img.sourceConversationArchived}
-                />
-              )}
-            </>
-          ) : (
-            <>
-              <BuyHero
-                imageId={img.imageId}
-                imageUrl={img.imageUrl}
-                alt={img.title?.trim() || "Design"}
-                initialBackgroundColor={img.backgroundColor}
-                canEdit={isOwner}
-                backHref={up?.href}
-                backLabel={up?.label}
-                isLoggedIn={isLoggedIn}
-                remembered={remembered}
-                // Back affordance is signed-in only (the picker lists the
-                // viewer's own designs, and a link's `back` is resolved only
-                // for a signed-in viewer) and flag-gated; the server action
-                // re-checks both.
-                backEnabled={isLoggedIn && multiPlacementEnabled()}
-                // Add to cart mirrors /preview's gating: flag + size picked,
-                // no auth gate (guests have carts; checkout gates sign-in,
-                // #146).
-                cartEnabled={cartEnabled()}
-                initialPicks={initialPicks}
-                startAction={<StartFromImage imageId={img.imageId} />}
-              >
-                {identityBlock}
-              </BuyHero>
-
-              {isOwner && (
-                <OwnerActions
-                  imageId={img.imageId}
-                  imageUrl={img.imageUrl}
-                  isPublished={isPublished}
-                  canPublish={isLoggedIn}
-                  // The conversation may be gone even when the image names one —
-                  // an image pinned by an order or a seed survives its thread's
-                  // delete — so the row is gated on the design row resolving.
-                  sourceDesignId={
-                    img.sourceDesignId && img.hasSourceConversation
-                      ? img.sourceDesignId
-                      : null
-                  }
-                  conversationArchived={img.sourceConversationArchived}
-                />
-              )}
+              {ownerActions}
             </>
           )}
 

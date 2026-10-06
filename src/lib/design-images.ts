@@ -20,7 +20,7 @@ import {
   imagePublication as imagePublicationTable,
   type ChatMessage,
 } from "@/lib/db/schema";
-import { eq, and, asc, desc, inArray, sql } from "drizzle-orm";
+import { eq, and, asc, desc, inArray, isNull, or, sql } from "drizzle-orm";
 import { getBlank, type AspectRatio } from "@/lib/blanks";
 import type { DesignSpec } from "@/lib/design-spec";
 import {
@@ -411,15 +411,30 @@ export async function getDesignImageById(id: string): Promise<ImageRow | null> {
   };
 }
 
+/** What `getDesignImageWithOwner` returns: an `ImageRow` plus the fields the
+ * placement-source and buy guards read. */
+export type ImageWithOwner = ImageRow & {
+  isHidden: boolean;
+  ownerId: string;
+  /** Which table the id resolved in. A `render` (placement_render) is a cached
+   * per-placement raster, never a page image or a thing a buyer picks. */
+  kind: "image" | "render";
+  /** For a `render`: the image it was rendered from (`placement_render.
+   * source_image_id`), which is what a pin of the render is judged by. Null
+   * for an `image`, and for a legacy render with no recorded source. */
+  sourceImageId: string | null;
+};
+
 /**
  * Fetch an image plus the fields the placement-source guard needs: publish /
  * moderation state (from `image_publication`) and the owner (#72). `image.ownerId` is
  * denormalized, so the artifact path no longer joins `design`; renders still
- * do, since only their conversation carries an owner.
+ * do, since only their conversation carries an owner. `kind` says which table
+ * answered.
  */
 export async function getDesignImageWithOwner(
   id: string
-): Promise<(ImageRow & { isHidden: boolean; ownerId: string }) | null> {
+): Promise<ImageWithOwner | null> {
   const [artifact] = await db
     .select({
       id: imageTable.id,
@@ -456,6 +471,8 @@ export async function getDesignImageWithOwner(
       publishedAt: artifact.publishedAt,
       isHidden: artifact.isHidden ?? false,
       ownerId: artifact.ownerId,
+      kind: "image",
+      sourceImageId: null,
     };
   }
 
@@ -465,6 +482,7 @@ export async function getDesignImageWithOwner(
       designId: placementRenderTable.designId,
       imageUrl: placementRenderTable.imageUrl,
       aspectRatio: placementRenderTable.aspectRatio,
+      sourceImageId: placementRenderTable.sourceImageId,
       ownerId: designTable.userId,
     })
     .from(placementRenderTable)
@@ -483,6 +501,8 @@ export async function getDesignImageWithOwner(
     publishedAt: null,
     isHidden: false,
     ownerId: render.ownerId,
+    kind: "render",
+    sourceImageId: render.sourceImageId,
   };
 }
 
@@ -583,11 +603,12 @@ export type SourceImage = {
  * slice 3), role-tagged; a seed's image.created_at predates every output the
  * thread generates, so the shared ordering keeps it first. Default excludes
  * them so existing callers (the back-source "This design" group) keep their
- * outputs-only semantics.
+ * outputs-only semantics. `excludeHidden` drops admin-hidden images (the
+ * back-source group: nobody may print one); the conversation views keep them.
  */
 export async function getDesignSourceImages(
   designId: string,
-  opts: { includeSeeds?: boolean } = {}
+  opts: { includeSeeds?: boolean; excludeHidden?: boolean } = {}
 ): Promise<SourceImage[]> {
   const rows = await db
     .select({
@@ -610,7 +631,11 @@ export async function getDesignSourceImages(
         eq(conversationImageTable.designId, designId),
         opts.includeSeeds
           ? inArray(conversationImageTable.role, ["output", "seed"])
-          : eq(conversationImageTable.role, "output")
+          : eq(conversationImageTable.role, "output"),
+        // image_publication.is_hidden is NULL for an image with no publication row.
+        ...(opts.excludeHidden
+          ? [or(isNull(imagePublicationTable.isHidden), eq(imagePublicationTable.isHidden, false))]
+          : [])
       )
     )
     .orderBy(asc(imageTable.createdAt), IMAGE_SEQ_ASC);

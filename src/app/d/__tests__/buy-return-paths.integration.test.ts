@@ -81,7 +81,20 @@ async function seed(db: Db) {
     imageUrl: "https://img.example/other-shop.png",
     publishedAt: new Date(),
   });
-  return { listingId, otherShopId };
+  // The buyer's own unpublished work: the image being ordered and a sibling
+  // from the same conversation.
+  const mine = await makeDesign(db, "buyer");
+  const ownId = await makeSourceImage(db, {
+    designId: mine.id,
+    ownerId: "buyer",
+    imageUrl: "https://img.example/own.png",
+  });
+  const ownSiblingId = await makeSourceImage(db, {
+    designId: mine.id,
+    ownerId: "buyer",
+    imageUrl: "https://img.example/own-sibling.png",
+  });
+  return { listingId, otherShopId, ownId, ownSiblingId };
 }
 
 function useEmbedded() {
@@ -193,7 +206,7 @@ describe("the return path reopens the order that was created (#278)", () => {
     const cancel = new URL(h.sessionParams[0].cancel_url as string);
     const picks = parseBuyPagePicks(Object.fromEntries(cancel.searchParams));
     const backId = backToResolve(picks, {
-      published: true,
+      buyable: true,
       loggedIn: true,
       multiPlacement: true,
     });
@@ -255,5 +268,53 @@ describe("the return path reopens the order that was created (#278)", () => {
     const ids = await seed(h.db as Db);
     await buyPublishedDesign({ imageId: ids.listingId, ...OPTS });
     expect(await reopenedSides(ids.listingId)).toEqual(await orderedPlacements());
+  });
+
+  it("an owner's unpublished image, with a back", async () => {
+    const ids = await seed(h.db as Db);
+    await buyPublishedDesign({
+      imageId: ids.ownId,
+      backImageId: ids.ownSiblingId,
+      ...OPTS,
+    });
+    const cancel = new URL(h.sessionParams[0].cancel_url as string);
+    expect(cancel.pathname).toBe(`/d/${ids.ownId}`);
+    const ordered = await orderedPlacements();
+    expect(ordered).toEqual({ front: ids.ownId, back: ids.ownSiblingId });
+    expect(await reopenedSides(ids.ownId)).toEqual(ordered);
+  });
+
+  it("an owner's unpublished image, swapped", async () => {
+    const ids = await seed(h.db as Db);
+    await buyPublishedDesign({
+      imageId: ids.ownId,
+      frontImageId: ids.ownSiblingId,
+      backImageId: ids.ownId,
+      ...OPTS,
+    });
+    const ordered = await orderedPlacements();
+    expect(ordered).toEqual({ front: ids.ownSiblingId, back: ids.ownId });
+    expect(await reopenedSides(ids.ownId)).toEqual(ordered);
+  });
+
+  it("an owner's unpublished image, with no back", async () => {
+    const ids = await seed(h.db as Db);
+    await buyPublishedDesign({ imageId: ids.ownId, ...OPTS });
+    expect(await reopenedSides(ids.ownId)).toEqual(await orderedPlacements());
+  });
+
+  it("embedded: an owner's unpublished order's back link is the same path", async () => {
+    useEmbedded();
+    const ids = await seed(h.db as Db);
+    const { url } = await buyPublishedDesign({ imageId: ids.ownId, ...OPTS });
+    const path = buyPageHref(ids.ownId, {
+      order: true,
+      product: OPTS.productId,
+      size: OPTS.size,
+      color: OPTS.color,
+    });
+    expect(url).toBe(
+      `/checkout?session=cs_test_return_1&from=${encodeURIComponent(path)}`
+    );
   });
 });

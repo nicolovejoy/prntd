@@ -109,7 +109,8 @@ export const order = sqliteTable("order", {
   // Composition attribution (nullable, no backfill). `storeProductId` points
   // at `product.id` — the composition bought for a Shop sale, set by
   // `buyPublishedDesign` (composition slice 4). Null for design-your-own
-  // orders (/preview, /order, cart). Distinct from `order_item.productId`,
+  // orders (/preview, /order, cart) and for the owner's own unpublished image
+  // ordered from the image detail page. Distinct from `order_item.productId`,
   // which holds a *blank* catalog id. Organizer storefronts are retired
   // (#191) and `store_id` was dropped with them in migration 0014, so every
   // non-null value here is a PRNTD Shop sale.

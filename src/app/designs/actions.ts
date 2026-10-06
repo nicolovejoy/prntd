@@ -23,6 +23,7 @@ import {
   publicationSyncStatement,
   productMirrorStatement,
   findMirrorProduct,
+  isImageAdminHidden,
   requireMirrorProduct,
   type MirrorUpdate,
 } from "@/lib/model-b-writes";
@@ -206,7 +207,8 @@ export async function deleteImages(
  * auto-generated (2026-07-29 review); only an explicit caller-supplied
  * one is stored. Subsequent calls are a no-op on already-published
  * images. Reversible via unpublishImage; admin moderation via the
- * publication row's is_hidden removes from the feed.
+ * publication row's is_hidden removes from the feed. Refuses an admin-hidden
+ * image (isImageAdminHidden).
  *
  * Authorizes via image.ownerId (the design owner, denormalized).
  */
@@ -245,6 +247,16 @@ export async function publishImage(
     .limit(1);
   if (!image) throw new Error("Image not found");
   if (image.ownerId !== session.user.id) throw new Error("Unauthorized");
+
+  // An admin-hidden image stays hidden: the owner can neither publish it
+  // again nor (unpublishImage) erase the hide. Checked before the
+  // already-published no-op, and before anything is written. No conditional
+  // write is needed after it: the only path that writes is an image with no
+  // listing row, and an admin hide of such an image is a no-op (it updates the
+  // listing row and non-draft mirrors only), so a hide cannot land in between.
+  if (await isImageAdminHidden(db, imageId)) {
+    throw new Error("This image is not available");
+  }
 
   if (image.publishedAt) return;
 
@@ -384,12 +396,14 @@ export async function updatePublishedNaming(
 /**
  * Owner takes a published image back down — the reverse of publishImage.
  * Deletes the publication row and drafts the mirror product, so the image
- * leaves the discover feed (`/`, `/shop`), stops being buyable
+ * leaves the discover feed (`/`, `/shop`), stops being buyable by anyone else
  * (canBuyPublishedImage), and /d/[imageId] 404s for everyone but the owner,
- * who still reaches it as their own private image (#136 slice 1).
+ * who still reaches it as their own private image (#136 slice 1) and can
+ * order it from there without a Shop composition (canBuyImage).
  * Re-publishing is a fresh listing: new listed_at (sorts as newly published),
  * title re-proposed if not supplied, backdrop defaulted, feed rank cleared.
- * No-op if already unpublished.
+ * No-op if already unpublished. Refuses an admin-hidden image: it would delete
+ * the listing row that records the hide.
  */
 export async function unpublishImage(imageId: string) {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -408,16 +422,34 @@ export async function unpublishImage(imageId: string) {
   if (!image) throw new Error("Image not found");
   if (image.ownerId !== session.user.id) throw new Error("Unauthorized");
 
+  // Unpublishing deletes the listing row, which is where `is_hidden` lives, and
+  // drafts the mirror — so on a hidden image it would erase an admin's hide.
+  // Refuse before anything is written (owner ruling, 2026-10-05); an admin
+  // unhide (setImageHidden) re-enables it.
+  if (await isImageAdminHidden(db, imageId)) {
+    throw new Error("This image is not available");
+  }
+
   if (!image.publishedAt) return;
 
   // Unpublish = mirror product → draft + delete the visibility row.
   // Re-publish revives the same mirror with a fresh listedAt, a re-proposed
   // title, a defaulted backdrop and no feed rank (the fresh-listing
   // semantics, now carried by the product row).
-  await db.batch([
+  //
+  // Both statements are conditional on the image not being hidden, so an admin
+  // hide that commits after the check above is not erased. The publication
+  // delete is the witness: the row existed when it was read
+  // (`image.publishedAt`), so zero rows deleted means a hide won (or a
+  // concurrent unpublish did), and nothing else was written — the mirror
+  // update carries the same condition.
+  const [publicationResult] = await db.batch([
     publicationSyncStatement(db, imageId, { kind: "unpublish" }),
     productMirrorStatement(db, imageId, { kind: "unpublish" }),
   ]);
+  if (publicationResult.rowsAffected === 0 && (await isImageAdminHidden(db, imageId))) {
+    throw new Error("This image is not available");
+  }
 
   revalidatePath("/");
   revalidatePath("/shop");

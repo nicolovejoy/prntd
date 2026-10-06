@@ -17,8 +17,26 @@ export function EditableNaming({ imageId, title, canEdit }: Props) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [titleDraft, setTitleDraft] = useState(title ?? "");
+  // Follow the prop when it changes under a mounted component (publishing
+  // gives a title to a page that mounted without one), unless the owner is
+  // mid-edit. The "adjust state while rendering" pattern, not an effect.
+  const [seenTitle, setSeenTitle] = useState(title);
+  if (title !== seenTitle) {
+    setSeenTitle(title);
+    if (!editing) setTitleDraft(title ?? "");
+  }
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Close the editor when edit access goes away under the mounted component
+  // (the owner unpublishes with the editor open: the page re-renders private
+  // and `updatePublishedNaming` would refuse the save). Same adjust-state-
+  // while-rendering pattern as above. The draft goes back to the stored title.
+  if (!canEdit && editing) {
+    setEditing(false);
+    setTitleDraft(title ?? "");
+    setError(null);
+  }
 
   // A blank title is unsaveable (the server refuses it), so the control says
   // so rather than letting the tap fail. The dotted-border disabled look

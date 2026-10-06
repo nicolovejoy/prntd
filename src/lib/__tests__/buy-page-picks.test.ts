@@ -124,14 +124,14 @@ describe("withBuyPagePicks", () => {
 
 describe("backToResolve", () => {
   const picks = parseBuyPagePicks({ order: "1", back: "img-b" });
-  const open = { published: true, loggedIn: true, multiPlacement: true };
+  const open = { buyable: true, loggedIn: true, multiPlacement: true };
 
   it("asks for the link's back when every gate is open", () => {
     expect(backToResolve(picks, open)).toBe("img-b");
   });
 
   it("asks for nothing when any gate is closed or the link has no back", () => {
-    expect(backToResolve(picks, { ...open, published: false })).toBeNull();
+    expect(backToResolve(picks, { ...open, buyable: false })).toBeNull();
     expect(backToResolve(picks, { ...open, loggedIn: false })).toBeNull();
     expect(backToResolve(picks, { ...open, multiPlacement: false })).toBeNull();
     expect(backToResolve(parseBuyPagePicks({ order: "1" }), open)).toBeNull();

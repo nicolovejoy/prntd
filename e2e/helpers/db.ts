@@ -244,6 +244,20 @@ export async function orderForStripeSession(
   };
 }
 
+/** An order's `store_product_id` (the Shop composition a sale of a published
+ * image records; null for design-your-own and for the owner's own unpublished
+ * image ordered from the image detail page). */
+export async function storeProductIdForOrder(
+  orderId: string
+): Promise<string | null> {
+  const res = await db().execute({
+    sql: `SELECT store_product_id FROM "order" WHERE id = ?`,
+    args: [orderId],
+  });
+  const row = res.rows[0];
+  return row?.store_product_id == null ? null : String(row.store_product_id);
+}
+
 /**
  * Order lines for a given order id — the authoritative per-item rows
  * (design, product/size/color, placement pins) a multi-item checkout writes

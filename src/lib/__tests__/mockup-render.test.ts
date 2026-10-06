@@ -239,8 +239,8 @@ describe("renderAndCacheMockup", () => {
     });
 
     // The rejected source never falls back to the display image — an
-    // explicit-but-unusable pick throws "No design image" rather than
-    // silently rendering something else.
+    // explicit-but-unusable pick throws rather than silently rendering
+    // something else.
     await expect(
       renderAndCacheMockup({
         designId: design.id,
@@ -251,7 +251,7 @@ describe("renderAndCacheMockup", () => {
         sourceImageId: privateSourceId,
         userId: "stranger",
       })
-    ).rejects.toThrow("No design image");
+    ).rejects.toThrow("Source image is not available");
     expect(printful.createMockupTask).not.toHaveBeenCalled();
   });
 
@@ -360,5 +360,69 @@ describe("renderAndCacheMockup", () => {
         .mockupUrls ?? {};
       expect(Object.keys(urls)).toEqual([`v2:bella-canvas-3001:front:${p1}:Black:100`]);
     });
+  });
+});
+
+describe("renderAndCacheMockup: an explicit source that is a render (second fix round)", () => {
+  async function seedRenderSource(db: Db, hidden: boolean) {
+    await makeUser(db, "owner");
+    const design = await makeDesign(db, "owner");
+    const imageId = await makeSourceImage(db, {
+      designId: design.id,
+      ownerId: "owner",
+      imageUrl: "https://img.example/x.png",
+      ...(hidden ? { publishedAt: new Date(), isHidden: true } : {}),
+    });
+    const [render] = await db
+      .insert(schema.placementRender)
+      .values({
+        designId: design.id,
+        sourceImageId: imageId,
+        blankId: "bella-canvas-3001",
+        placementId: "back",
+        imageUrl: "https://img.example/render-of-x.png",
+        aspectRatio: "1:1",
+      })
+      .returning();
+    return { designId: design.id, renderId: render.id };
+  }
+
+  it("refuses a render of an admin-hidden image, even for its owner", async () => {
+    const db = h.db as Db;
+    const ids = await seedRenderSource(db, true);
+    await expect(
+      renderAndCacheMockup({
+        designId: ids.designId,
+        productId: "bella-canvas-3001",
+        colorName: "Black",
+        scale: 1.0,
+        placementId: "front",
+        sourceImageId: ids.renderId,
+        userId: "owner",
+      })
+    ).rejects.toThrow("Source image is not available");
+    expect(printful.createMockupTask).not.toHaveBeenCalled();
+  });
+
+  it("still renders a render of the owner's not-hidden image", async () => {
+    const db = h.db as Db;
+    const ids = await seedRenderSource(db, false);
+    const result = await renderAndCacheMockup({
+      designId: ids.designId,
+      productId: "bella-canvas-3001",
+      colorName: "Black",
+      scale: 1.0,
+      placementId: "front",
+      sourceImageId: ids.renderId,
+      userId: "owner",
+    });
+    expect(result.mockupUrl).toBe("https://r2.example/mockup.jpg");
+    expect(printful.createMockupTask).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      "https://img.example/render-of-x.png",
+      expect.anything(),
+      "front"
+    );
   });
 });

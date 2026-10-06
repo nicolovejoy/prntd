@@ -124,16 +124,18 @@ export type BuyPanelInitialPicks = {
 
 /**
  * The back image id the page should ask the server to resolve, or null when
- * the link's `back` must not even be looked up: the image is not published,
- * the viewer is not a signed-in real user, back designs are off, or the link
- * has none. The server (`resolveInitialBack`) re-checks all of it; this keeps
- * the lookup from running for a viewer who could never use the answer.
+ * the link's `back` must not even be looked up: the viewer may not order the
+ * page image (`buyable`: it is published, or it is the viewer's own
+ * unpublished image; the page takes this from the server's `canOrder`), the
+ * viewer is not a signed-in real user, back designs are off, or the link has
+ * none. The server (`resolveInitialBack`) re-checks all of it; this keeps the
+ * lookup from running for a viewer who could never use the answer.
  */
 export function backToResolve(
   picks: BuyPagePicks,
-  gate: { published: boolean; loggedIn: boolean; multiPlacement: boolean }
+  gate: { buyable: boolean; loggedIn: boolean; multiPlacement: boolean }
 ): string | null {
-  return gate.published && gate.loggedIn && gate.multiPlacement
+  return gate.buyable && gate.loggedIn && gate.multiPlacement
     ? picks.back
     : null;
 }

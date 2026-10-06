@@ -1,6 +1,6 @@
 # Stripe test-mode e2e
 
-One spec file — `e2e/stripe-money-path.spec.ts` — with two tests that pay
+One spec file — `e2e/stripe-money-path.spec.ts` — with three tests that pay
 through real Stripe test mode (4242 test card), land on `/order/confirm`, then
 assert the order row reaches `submitted` (dry-run Printful) with `sale` +
 `stripe_fee` ledger rows:
@@ -10,10 +10,19 @@ assert the order row reaches `submitted` (dry-run Printful) with `sale` +
 - The `/preview` test seeds a design, picks size, Orders, and pays through
   embedded checkout on our `/checkout` page when
   `PREVIEW_EMBEDDED_CHECKOUT_ENABLED=true`, or on the hosted page otherwise.
+- The image detail page test signs up, seeds an image the account owns and has
+  not published, opens `/d/<image id>` with the link's picks (product, size,
+  colour), taps Order and pays through embedded checkout on our `/checkout`
+  page, as production does for purchases from that page
+  (`EMBEDDED_CHECKOUT_ENABLED`). It requires that switch to be `true` and fails
+  rather than skipping when it is not. Beyond the common assertions it checks
+  that the order carries no Shop composition (`order.store_product_id` null)
+  and that the line pins the image that was ordered. This is the owner-buys-
+  their-own-unpublished-image path of one buy surface, slice 3 (#278).
 
 This is the test class that would have caught the 2026-07-19 external_id
 incident's siblings: real vendor constraints (Stripe here) that mocks can't
-see. Keep it to these two tests. Printful stays dry-run inside the spec; the
+see. Keep it to these three tests. Printful stays dry-run inside the spec; the
 Printful side is covered separately by the contract check below.
 
 ## Prerequisites
@@ -67,9 +76,12 @@ actual checkout DOM, which is third-party flake every PR shouldn't
 have to eat.
 
 It moves money through two Stripe surfaces: hosted checkout DOM (the cart
-test) and the embedded checkout iframe on `/checkout` (the `/preview` test).
-Forcing the embedded switch on means the nightly no longer covers hosted
-checkout from `/preview`, which is production's path while the switch is off.
+test) and the embedded checkout iframe on `/checkout` (the `/preview` test and
+the image detail page test). Forcing the embedded switches on means the nightly
+no longer covers hosted checkout from `/preview`, which is production's path
+while `PREVIEW_EMBEDDED_CHECKOUT_ENABLED` is off. The image detail page's switch
+(`EMBEDDED_CHECKOUT_ENABLED`) is on in production, so the nightly now matches
+production there.
 
 The workflow installs the Stripe CLI, branches an ephemeral Turso DB off
 `prntd-preview` (same mechanism as the per-PR e2e job, #31/#108 — named so it
@@ -88,7 +100,8 @@ below). On failure the job files/comments on a GitHub issue labeled
 
 ## Embedded checkout (/preview)
 
-The nightly sets `PREVIEW_EMBEDDED_CHECKOUT_ENABLED=true` and
+The nightly sets `PREVIEW_EMBEDDED_CHECKOUT_ENABLED=true`,
+`EMBEDDED_CHECKOUT_ENABLED=true` and
 `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` from the repo variable
 `STRIPE_TEST_PUBLISHABLE_KEY` (a variable, not a secret). The key must come
 from the same Stripe account and test mode as the `STRIPE_SECRET_KEY` secret,
@@ -100,7 +113,19 @@ port 3100 free so no stale build is reused.
 
 The iframe and field selectors were written without a live run, so the first
 run is a calibration run: update the candidates in `embeddedStripeRoot` and
-`completeStripeCheckout` in `e2e/stripe-money-path.spec.ts`.
+`completeStripeCheckout` in `e2e/stripe-money-path.spec.ts`. The image detail
+page test has not been run either: besides those, its guesses are that the
+link's picks leave a `Total` row on screen (the wait for hydration) and the
+Order button labelled `Order — $<total>` and clickable as the first `/^Order/`
+button, and that `/checkout` shows
+`checkout-preview` for it as it does for `/preview`.
+
+## Pull request e2e
+
+`e2e/owner-buy.spec.ts` runs in the normal PR `e2e` job (no Stripe): the owner
+of a seeded unpublished image opens its image detail page, taps Order, picks a
+size, and the Order button is enabled; a second signed-in user opening the same
+URL in their own browser context gets Next's not-found page and no Order panel.
 
 ## Printful contract check
 

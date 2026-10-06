@@ -42,7 +42,9 @@ export type BuyPanelHandle = {
 };
 
 /**
- * Buy-existing UI on `/d/[imageId]`. Collapsed by default (#128): two peer
+ * Buy UI on `/d/[imageId]`, for a published image and for the owner's own
+ * unpublished one (the page decides, `img.canOrder`; the server re-checks).
+ * Collapsed by default (#128): two peer
  * CTAs under the image — "Order" (no price: the total depends on options
  * not yet picked) and the remix action passed in as
  * `startAction`. Tapping Order expands the picker stack in place
@@ -164,6 +166,23 @@ export function BuyPanel({
         palette: colors,
       }).color
   );
+  // Whether the buyer chose the colour (a swatch tap, or the link named one).
+  // Only an unchosen colour is a default, so only it follows a backdrop that
+  // gets pinned under a mounted panel (publishing the image from this page).
+  const [colorChosen, setColorChosen] = useState(!!initialPicks?.color);
+  const [seenPreferredColor, setSeenPreferredColor] = useState(preferredColor);
+  if (preferredColor !== seenPreferredColor) {
+    setSeenPreferredColor(preferredColor);
+    if (!colorChosen) {
+      setColor(
+        resolveDefaultColor({
+          urlColor: null,
+          pinnedColor: preferredColor ?? null,
+          palette: colors,
+        }).color
+      );
+    }
+  }
   const pinnedColorApplied =
     !!preferredColor &&
     color === preferredColor &&
@@ -558,7 +577,10 @@ export function BuyPanel({
       <ColorPicker
         colors={colors}
         value={color}
-        onChange={setColor}
+        onChange={(name) => {
+          setColorChosen(true);
+          setColor(name);
+        }}
         note={
           pinnedColorApplied
             ? `Shown in ${preferredColor} — designer's pick`
