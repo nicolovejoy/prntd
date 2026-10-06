@@ -52,9 +52,10 @@ export async function abandonSessionlessOrder(orderId: string): Promise<void> {
  * cart builds its own session in `checkoutCart`. Inserts the order row,
  * creates the Stripe session with `buildCheckoutSessionParams`, persists
  * the session id, and returns the redirect URL. Callers own auth, pricing, image-pinning
- * and the cancel URL; this owns the parts that would otherwise drift. If Stripe
- * throws, the order is marked abandoned (`abandonSessionlessOrder`) and the
- * Stripe error is re-thrown unchanged.
+ * and the cancel URL; this owns the parts that would otherwise drift. If
+ * creating the Stripe session throws (including building its params), the
+ * order is marked abandoned (`abandonSessionlessOrder`) and the error is
+ * re-thrown unchanged.
  */
 export async function createStripeCheckoutForOrder(params: {
   userId: string;

@@ -23,8 +23,10 @@ function placementIs(key: "front" | "back", value: string | null): SQL {
  * size and colour, and the same front and back images. Matching the images as
  * well keeps the cleanup from removing an unpaid line for a different image of
  * the same conversation. A line with null placements (from before the front
- * was pinned) matches only an order line with null placements; leaving an
- * unpaid line behind is the safe direction.
+ * was pinned) matches only an order line with null placements. The line left
+ * behind may be the one just paid for (a legacy null-placements line bought
+ * through a buy-now path lingers, so the buyer could pay for it twice);
+ * nothing is deleted that was not paid for.
  */
 export function cartLineMatch(userId: string, line: OrderLine): SQL {
   return and(

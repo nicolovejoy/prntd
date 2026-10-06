@@ -6,7 +6,7 @@
  * drift and FK constraints are exercised for real.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { createTestDb } from "./test-db";
 import * as schema from "@/lib/db/schema";
 import { calculateStripeFee, summarizeLedger } from "@/lib/ledger";
@@ -509,6 +509,101 @@ describe("money path — checkout.session.completed", () => {
       where: eq(schema.order.id, order.id),
     });
     expect(updated?.status).toBe("submitted");
+    // The cleanup failed, so the matching cart row is still there.
+    const cartRows = await db.query.cartItem.findMany({
+      where: eq(schema.cartItem.userId, userId),
+    });
+    expect(cartRows).toHaveLength(1);
+  });
+
+  it("a cart cleanup batch that fails at execution leaves both matching cart lines and the order submitted", async () => {
+    // Unlike the test above, the failure is not at statement building: a cart
+    // row whose placements are not valid JSON makes json_extract throw while
+    // the batch runs. The batch is atomic, so the first line's delete rolls
+    // back too, and the paid claim, ledger and fulfillment are unaffected.
+    const userId = "batch-fail-user";
+    await db
+      .insert(schema.user)
+      .values({ id: userId, email: "batch@example.com", name: "B" });
+    const [d1] = await db.insert(schema.design).values({ userId }).returning();
+    const [d2] = await db.insert(schema.design).values({ userId }).returning();
+    const [order] = await db
+      .insert(schema.order)
+      .values({
+        userId,
+        designId: d1.id,
+        itemPrice: 38.86,
+        shippingPrice: 4.69,
+        totalPrice: 43.55,
+        status: "pending",
+      })
+      .returning();
+    await db.insert(schema.orderItem).values([
+      {
+        orderId: order.id,
+        designId: d1.id,
+        productId: "bella-canvas-3001",
+        size: "M",
+        color: "Black",
+        placements: { front: "img-1" },
+        quantity: 1,
+        itemPrice: 19.43,
+      },
+      {
+        orderId: order.id,
+        designId: d2.id,
+        productId: "bella-canvas-3001",
+        size: "L",
+        color: "White",
+        placements: { front: "img-2" },
+        quantity: 1,
+        itemPrice: 19.43,
+      },
+    ]);
+    // Line 1's cart row is well formed; line 2's matches on user, design,
+    // product, size and colour but holds text that is not JSON.
+    await db.insert(schema.cartItem).values({
+      userId,
+      designId: d1.id,
+      productId: "bella-canvas-3001",
+      size: "M",
+      color: "Black",
+      placements: { front: "img-1" },
+    });
+    await db.run(
+      sql`insert into cart_item (id, user_id, design_id, product_id, size, color, placements, quantity, created_at)
+          values ('bad-json-line', ${userId}, ${d2.id}, 'bella-canvas-3001', 'L', 'White', 'not json', 1, 0)`
+    );
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await handleStripeCheckoutCompleted(
+      makeSession(order.id, d1.id, {
+        amountSubtotal: 3886,
+        amountShipping: 469,
+        amountTotal: 4355,
+      }),
+      makeDeps(db, {
+        resolveImageUrlById: vi
+          .fn()
+          .mockImplementation(async (id: string) => `https://img.example/${id}.png`),
+      })
+    );
+
+    expect(result.action).toBe("submitted");
+    expect(errorLog).toHaveBeenCalledWith(
+      expect.stringContaining("cart cleanup failed"),
+      expect.anything()
+    );
+    errorLog.mockRestore();
+
+    const types = (await ledgerFor(db, order.id)).map((e) => e.type).sort();
+    expect(types).toEqual(["cogs", "sale", "stripe_fee"]);
+    // Select ids only: drizzle would try to JSON-parse the bad row's placements.
+    const cartRows = await db
+      .select({ id: schema.cartItem.id })
+      .from(schema.cartItem)
+      .where(eq(schema.cartItem.userId, userId));
+    expect(cartRows).toHaveLength(2);
   });
 
   it("single-item order (Phase 1b: order_item written) clears its matching cart line on payment", async () => {

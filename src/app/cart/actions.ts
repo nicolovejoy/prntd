@@ -359,9 +359,10 @@ export async function getCart(): Promise<CartView> {
  * order_item rows and charges N product lines + one bundled shipping line;
  * the cart itself is cleared by the webhook on payment (#38). Every line is
  * re-checked first (`cartLineStillValid`); any stale line refuses the whole
- * checkout with `{ error }` and writes nothing. If Stripe throws, the order is
- * marked abandoned (`abandonSessionlessOrder`), the error is re-thrown, and the
- * cart is left as it was.
+ * checkout with `{ error }` and writes nothing. If creating the Stripe session
+ * throws (including building its params), the order is marked abandoned
+ * (`abandonSessionlessOrder`), the error is re-thrown, and the cart is left as
+ * it was.
  */
 export async function checkoutCart(): Promise<{
   url: string | null;
