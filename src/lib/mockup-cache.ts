@@ -20,8 +20,8 @@ const MOCKUP_CACHE_VERSION = "v2";
 export type MockupKeyParts = {
   productId: string;
   placementId: string;
-  /** Source image the placement was rendered from. Omitted for the default
-   * front (the design's primary); set for the back and for a pinned front. */
+  /** Source image the placement was rendered from. Every render names one
+   * now; only entries written before that have none. */
   sourceImageId?: string | null;
   colorName: string;
   /** Scale as an integer percentage, e.g. 100 for 1.0. */
@@ -32,26 +32,6 @@ export type MockupKeyParts = {
 export function mockupCacheKey(p: MockupKeyParts): string {
   const src = p.sourceImageId ? `:${p.sourceImageId}` : "";
   return `${MOCKUP_CACHE_VERSION}:${p.productId}:${p.placementId}${src}:${p.colorName}:${p.scaleKey}`;
-}
-
-/** Prefix matching every current-version cache entry for a product. */
-export function mockupCacheProductPrefix(productId: string): string {
-  return `${MOCKUP_CACHE_VERSION}:${productId}:`;
-}
-
-/**
- * Prefix matching every current-version cache entry for one
- * product × placement — with or without a source segment, since the source
- * (when present) sits directly after the placement. /preview's client-side
- * invalidation prunes with this after a fresh placement render; a bare
- * `${productId}:${placementId}:` prefix stopped matching anything when the
- * version segment landed (#102), leaving stale entries alive (#138 defect 1).
- */
-export function mockupCachePlacementPrefix(
-  productId: string,
-  placementId: string
-): string {
-  return `${mockupCacheProductPrefix(productId)}${placementId}:`;
 }
 
 function slug(value: string): string {

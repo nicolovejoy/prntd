@@ -83,8 +83,14 @@ describe("findPlacementRender — source keying (#25)", () => {
     expect(b?.imageUrl).toBe("https://img/backB.png"); // the bug returned backA here
   });
 
-  it("front lookup (no source) is unaffected by the parent filter", async () => {
+  it("front lookup keys on the source too", async () => {
     const designId = await seedDesign(testDb);
+    const src = await insertDesignImage({
+      designId,
+      imageUrl: "https://img/src.png",
+      aspectRatio: "1:1",
+      generationCost: 0,
+    });
     await insertDesignImage({
       designId,
       imageUrl: "https://img/front.png",
@@ -92,10 +98,13 @@ describe("findPlacementRender — source keying (#25)", () => {
       generationCost: 0,
       productId: PRODUCT,
       placementId: "front",
+      parentImageId: src,
     });
-    // No sourceImageId → legacy behavior: matches on (design, product, front).
-    const front = await findPlacementRender(designId, PRODUCT, "front");
+    const front = await findPlacementRender(designId, PRODUCT, "front", src);
     expect(front?.imageUrl).toBe("https://img/front.png");
+    expect(
+      await findPlacementRender(designId, PRODUCT, "front", "some-other-source")
+    ).toBeNull();
   });
 
   it("misses when no render is anchored on the requested source", async () => {

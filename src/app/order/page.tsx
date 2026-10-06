@@ -1,11 +1,12 @@
 /**
  * /order is retired (docs/preview-order-collapse-plan.md §7 slice 2): the
- * combined purchase screen lives on /preview. This redirect keeps in-flight
- * Stripe cancel URLs working — sessions created before the deploy point here.
+ * combined purchase screen was /preview, which now redirects to the image
+ * detail page. This redirect keeps in-flight Stripe cancel URLs working —
+ * sessions created before the deploy point here.
  * Pre-#231 sessions lived up to Stripe's 24h default expiry; #231 shortened
  * that to `CHECKOUT_SESSION_TTL_SECONDS` (src/lib/checkout.ts), so any
  * session old enough to still need this redirect is long expired. Params
- * carry over so the restored /preview shows the same selection.
+ * carry over, and /preview passes them on to the image detail page.
  */
 import { redirect } from "next/navigation";
 

@@ -228,6 +228,36 @@ export async function primaryImageIdForDesign(
   return row?.primary_image_id == null ? null : String(row.primary_image_id);
 }
 
+/** Add another output image to a seeded conversation (cleaned up by cleanupDesigns via source_design_id). */
+export async function seedConversationImage(
+  designId: string,
+  ownerId: string,
+  imageId: string,
+  imageUrl: string
+): Promise<void> {
+  const c = db();
+  await c.execute({
+    sql: `INSERT INTO image (id, owner_id, r2_key, image_url, aspect_ratio, generation_cost, source_design_id, created_at)
+          VALUES (?, ?, NULL, ?, '1:1', 0, ?, unixepoch())
+          ON CONFLICT(id) DO NOTHING`,
+    args: [imageId, ownerId, imageUrl, designId],
+  });
+  await c.execute({
+    sql: `INSERT INTO conversation_image (id, design_id, image_id, role, created_at)
+          VALUES (?, ?, ?, 'output', unixepoch())
+          ON CONFLICT(design_id, image_id, role) DO NOTHING`,
+    args: [`${imageId}-link`, designId, imageId],
+  });
+}
+
+/** Clear a design's primary image, for the "conversation with no primary" case. */
+export async function clearPrimaryImage(designId: string): Promise<void> {
+  await db().execute({
+    sql: "UPDATE design SET primary_image_id = NULL WHERE id = ?",
+    args: [designId],
+  });
+}
+
 /** Order row for a Stripe Checkout session id (the Stripe spec extracts
  * `cs_test_…` from the hosted-checkout URL). */
 export async function orderForStripeSession(

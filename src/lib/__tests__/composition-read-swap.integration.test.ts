@@ -54,7 +54,7 @@ const { setImageHidden, setImageFeedRank, getRecentPublishedForAdmin } =
 const { getImagePage } = await import("@/app/d/actions");
 const { getPublishedFeed } = await import("@/lib/discover-feed");
 const { getUserImageLibrary } = await import("@/lib/user-designs");
-const { getDesign, setPrimaryImage } = await import("@/app/design/actions");
+const { setPrimaryImage } = await import("@/app/design/actions");
 const { loadLineIdentityContext, buildLineIdentities } = await import(
   "@/lib/order-line-identity"
 );
@@ -340,28 +340,6 @@ describe("My Designs backdrop reads the mirror product", () => {
     const images = await getUserImageLibrary(currentUserId);
     const cell = images.find((i) => i.imageId === imageId);
     expect(cell!.backgroundColor).toBeNull();
-  });
-});
-
-describe("getDesign backdrop reads the mirror product", () => {
-  it("follows the product backdrop, not the listing backdrop", async () => {
-    const { designId, imageId } = await seedImage();
-    await setPrimaryImage(designId, imageId);
-    await publishImage(imageId, { title: "Tiger", backgroundColor: "Black" });
-    await patchMirror(imageId, { backdropColor: "Navy" });
-    await patchListing(imageId, { backgroundColor: "Red" });
-
-    expect((await getDesign(designId))!.backgroundColor).toBe("Navy");
-  });
-
-  it("drops the pinned backdrop once the mirror is a draft", async () => {
-    const { designId, imageId } = await seedImage();
-    await setPrimaryImage(designId, imageId);
-    await publishImage(imageId, { title: "Tiger", backgroundColor: "Black" });
-    // Listing untouched: a pre-swap reader would still return "Black".
-    await patchMirror(imageId, { status: "draft" });
-
-    expect((await getDesign(designId))!.backgroundColor).toBeNull();
   });
 });
 
