@@ -253,7 +253,7 @@ describe("renderAndCacheMockup", () => {
       (await db.select().from(schema.design).where(eq(schema.design.id, id)))[0]
         .mockupUrls ?? {};
 
-    it("does not write the old primary's render under the default key; stores it under its own source key and still returns it", async () => {
+    it("after the primary moves mid-render, the write-back lands under the source's own key, never the default key, and the URL is still returned", async () => {
       const { db, designId, p1 } = await setup();
       const result = await renderAndCacheMockup({
         designId,
