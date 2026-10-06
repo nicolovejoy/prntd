@@ -4,7 +4,6 @@ import {
   swapPlacementPins,
   resolveBuyPageFront,
   buyPagePlacements,
-  previewOrderHref,
   withFront,
 } from "../placement-pins";
 
@@ -137,14 +136,6 @@ describe("buyPagePlacements (#138 slice 3)", () => {
       front: added,
       back: page,
     });
-  });
-});
-
-describe("previewOrderHref", () => {
-  it("always names the front image, primary or not", () => {
-    expect(previewOrderHref("design-1", "img-9")).toBe(
-      "/preview?id=design-1&front=img-9"
-    );
   });
 });
 

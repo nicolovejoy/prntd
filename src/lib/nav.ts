@@ -39,14 +39,16 @@ function query(
 /**
  * A design detail (/d/[id]) is reachable from several hubs. We record the
  * origin in ?from so "up" returns there; shared links with no origin fall
- * back to the Shop, the public storefront.
+ * back to the Shop, the public storefront. The Studio's lightbox Order and the
+ * conversation page's Order links open the page with `from=/studio` (#278
+ * slice 4), so "up" returns to the Studio bench.
  *
  * The retired marker /prints, and /studio/library (My Designs' address
  * before nav model A moved it to /designs), still resolve — links carrying
  * them were shared before the move and outlive it.
  */
 /** The origins `detailParent` knows; any other `from` is treated as absent. */
-const DETAIL_ORIGINS = ["/designs", "/studio/library", "/orders", "/shop", "/prints"];
+const DETAIL_ORIGINS = ["/designs", "/studio/library", "/orders", "/shop", "/prints", "/studio"];
 
 function detailParent(from: string | undefined): Crumb {
   switch (from) {
@@ -55,6 +57,8 @@ function detailParent(from: string | undefined): Crumb {
       return { label: "My Designs", href: "/designs" };
     case "/orders":
       return { label: "Orders", href: "/orders" };
+    case "/studio":
+      return { label: "Studio", href: "/studio" };
     case "/shop":
     case "/prints":
     default:

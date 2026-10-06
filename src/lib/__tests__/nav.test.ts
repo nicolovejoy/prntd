@@ -167,6 +167,15 @@ describe("detailFrom", () => {
     }
   });
 
+  it("an image detail page opened from the Studio steps up to the Studio (#278 slice 4)", () => {
+    expect(breadcrumbTrail("/d/img-1", { from: "/studio" }).at(-1)).toEqual({
+      label: "Studio",
+      href: "/studio",
+    });
+    expect(detailFrom("/studio", false)).toBe("/studio");
+    expect(detailFrom("/studio", true)).toBe("/studio");
+  });
+
   it("without one, a private image falls back to My Designs and a published one to the Shop", () => {
     expect(breadcrumbTrail("/d/x", { from: detailFrom(undefined, false) }).at(-1)).toEqual({
       label: "My Designs",

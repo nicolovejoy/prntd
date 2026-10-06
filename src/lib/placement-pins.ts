@@ -92,17 +92,6 @@ export function buyPagePlacements(params: {
 }
 
 /**
- * Link into /preview for one image of a conversation, with that image named
- * as the front. Always carries `front`, even when the image is the
- * conversation's current primary: the primary can move (a generation lands,
- * another tab) between this tap and checkout, and a link that leaves the
- * front implicit would then order a different image than the one tapped.
- */
-export function previewOrderHref(designId: string, frontImageId: string): string {
-  return `/preview?id=${designId}&front=${frontImageId}`;
-}
-
-/**
  * `search` (a query string, with or without the leading "?") with `front`
  * set to the front image on screen. Used for the sign-in return path, which
  * must come back to the same shirt even if the conversation's primary moved
