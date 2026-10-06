@@ -1256,7 +1256,7 @@ export async function reopenConversation(designId: string) {
 
 /**
  * Set which of a conversation's images is its primary (#136 slice 3, Q5).
- * The primary is what My Designs, /preview and the AI context treat as the
+ * The primary is what My Designs, the Order link and the AI context treat as the
  * design's current artwork, so without an explicit action the newest
  * generation always wins and a user who prefers an earlier variant has no way
  * to say so.
@@ -1426,8 +1426,8 @@ async function requireOwnedDesign(designId: string) {
  * Fresh-start-from-image (slice 3 §5): open a NEW conversation seeded by an
  * existing image. The seed is a `conversation_image(role=seed)` link — no R2
  * copy, no new image row (replaces the retired copy-based forkImage). The
- * seed becomes the thread's initial primary/anchor so /designs, /preview and
- * the AI context see it immediately; the first generation records
+ * seed becomes the thread's initial primary/anchor so /designs, the Order
+ * link and the AI context see it immediately; the first generation records
  * parent_image_id = null with seed_image_id + original_designer_id looked up
  * from this seed link (getConversationSeedProvenance in design-images.ts).
  *

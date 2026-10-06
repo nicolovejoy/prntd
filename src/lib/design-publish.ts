@@ -123,8 +123,7 @@ export function canBuyPublishedImage(image: {
  * admin-hidden. Hidden beats ownership, as in `canViewImagePage`.
  *
  * This is the image-level rule only. Ordering an unpublished image also needs
- * a live conversation the buyer owns (`design.userId`, the check `/preview`
- * made), because `order.design_id` is NOT NULL; that part needs the database
+ * a live conversation the buyer owns (`design.userId`), because `order.design_id` is NOT NULL; that part needs the database
  * and lives in `resolveBuyableImage` (src/lib/buyable-image.ts).
  *
  * `userId` is nullable because signed-out viewers reach the page: null and the
@@ -156,8 +155,8 @@ export function canBuyImage(params: {
  *    (and on `addToCart`'s image path) `orderDesignId` is the SELLER's design,
  *    so an unqualified thread allowance would let a cross-owner buyer print the
  *    seller's private, unpublished generations by forging an image id from that
- *    thread. On `/preview` and on the owner's own unpublished image the order's
- *    design is the caller's, so ownership covers its thread.
+ *    thread. On the owner's own unpublished image the order's design is the
+ *    caller's, so ownership covers its thread.
  *  - Shop: the image is published and not admin-hidden (same visibility rule as
  *    canBuyPublishedImage).
  *
@@ -165,13 +164,11 @@ export function canBuyImage(params: {
  * or renders a placement: `createCheckoutSession`, `addToCart`,
  * `buyPublishedDesign`, `getListingMockup` / `getListingBackMockup`,
  * `resolveInitialBack`, `cartLineStillValid`, and (through
- * `placementSourceUsable`) `getOrCreatePlacementRender` and
- * `renderAndCacheMockup`. The latter judges every explicit source before its
- * cached-mockup and cached-render lookups, so a source cached while it was
- * usable is refused once it is not. A forged image id can't get a private or
- * hidden image printed or mocked up, and the pickers' reach and the guard
- * agree. This
- * function judges ONE resolved image; a `placement_render` pin is also judged
+ * `placementSourceUsable`) `renderAndCacheMockup`, which judges every explicit
+ * source before its cached-mockup and cached-render lookups, so a source
+ * cached while it was usable is refused once it is not. A forged image id
+ * can't get a private or hidden image printed or mocked up, and the pickers'
+ * reach and the guard agree. This function judges ONE resolved image; a `placement_render` pin is also judged
  * by the image it was rendered from (`placementSourceUsable`,
  * src/lib/back-sources.ts), because a render alone looks unpublished, not
  * hidden and owned by its conversation's owner.

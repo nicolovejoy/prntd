@@ -80,8 +80,8 @@ const EMPTY_SLOT: SideSlot = {
  * settled (resolved or failed), never concurrently. A failed side shows its
  * error in place with a retry; errors never auto-refire. The one exception
  * is a front Retry while the back is still in flight — that starts a front
- * request beside the back one, which is harmless (two Printful tasks, as
- * the bulk prefetch already issues) and not worth resetting the back for.
+ * request beside the back one, which is harmless (two Printful tasks) and
+ * not worth resetting the back for.
  */
 export function BuyHero({
   imageId,

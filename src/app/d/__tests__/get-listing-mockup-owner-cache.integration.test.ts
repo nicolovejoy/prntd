@@ -112,7 +112,7 @@ describe("getListingMockup caching for the owner's unpublished image", () => {
     expect(keys).not.toContain(defaultKey);
   });
 
-  it("the primary image is source-keyed too: the default key is left to /preview", async () => {
+  it("the primary image is source-keyed too: nothing writes the default key", async () => {
     const db = h.db as Db;
     await makeUser(db, "owner");
     const conversation = await makeDesign(db, "owner");

@@ -723,7 +723,7 @@ export async function getDesignPlacementRenders(
  * most recent source image (product_id IS NULL). Null when neither.
  *
  * Use this everywhere a design's "main image URL" is needed —
- * card thumbnails, hydration, mockup gen fallback.
+ * card thumbnails, hydration, order and cart lines that pin no front.
  */
 export async function getDesignDisplayImageUrl(
   designId: string

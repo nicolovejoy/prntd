@@ -58,7 +58,7 @@ Open `src/lib/blanks.ts`. Add a new object to the `BLANKS` array, alongside the 
 ```ts
 {
   id: "kebab-case-slug",          // your slug; used in URLs (?product=...)
-  name: "Display Name",           // shown in the product chip on /preview
+  name: "Display Name",           // shown on the product button in the buy panel on the image detail page
   description: "Short tagline",
   type: "shirt" | "phone-case",   // extend the union if adding a new category
   printfulProductId: 71,          // from step 1
@@ -79,7 +79,7 @@ The deprecated top-level `mockupPosition` and `printArea` mirror `placements[0]`
 
 ### 5. Verify
 
-- `npm run dev`, hit `/preview?id=<existingDesignId>&product=<newSlug>` — the product chip should appear, color picker should populate, default-size mockup should render within ~10s.
+- `npm run dev`, hit `/d/<imageId>?order=1&product=<newSlug>` (an image you own or a published one) — the product button should appear in the buy panel, color picker should populate, and the mockup should render within ~10s.
 - Place a Stripe test-mode order against the new product and confirm Printful accepts the submission. The `feedback_test_orders` memory has the full per-order checklist.
 
 ## Updating an existing product

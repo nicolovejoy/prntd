@@ -148,19 +148,21 @@ export async function renderAndCacheMockup(
     scaleKey,
   });
 
-  // Re-read before update to avoid clobbering concurrent preloads
+  // Re-read before update to avoid clobbering concurrent renders
   const fresh = await db.query.design.findFirst({
     where: eq(designTable.id, designId),
     columns: { mockupUrls: true, primaryImageId: true },
   });
-  // Every entry is keyed on its source image, so it is always stored under
+  // The new entry is keyed on its source image, so it is always stored under
   // `cacheKey`: a generation claiming the primary doesn't change what this
-  // render shows.
+  // render shows. Older entries with no source segment can still be in
+  // `mockup_urls`; they are spread back untouched here, and only a
+  // generation's clear removes them.
   const updatedMockups = { ...(fresh?.mockupUrls ?? {}), [cacheKey]: r2Url };
   // Conditional on the primary still being the one just read, in one
-  // statement: a generation committing between the read and this write makes
-  // it a no-op instead of resurrecting stale entries over its clear. The URL
-  // is returned either way.
+  // statement: a generation that commits between the read and this write
+  // clears `mockup_urls`, and the write must not bring the cleared entries
+  // back. It becomes a no-op instead. The URL is returned either way.
   await db
     .update(designTable)
     .set({ mockupUrls: updatedMockups, updatedAt: new Date() })
