@@ -3,6 +3,10 @@ import { createRef } from "react";
 import { render, screen, fireEvent, act, within } from "@testing-library/react";
 import { getBlankOrThrow } from "@/lib/blanks";
 import { BuyPanel, type BuyPanelHandle } from "../buy-panel";
+import {
+  BuyPanelPicksProvider,
+  useOpenBuyPanelPicks,
+} from "../buy-panel-picks-context";
 
 vi.mock("../../actions", () => ({
   buyPublishedDesign: vi.fn().mockResolvedValue({ url: null, needsAuth: false }),
@@ -730,6 +734,90 @@ describe("BuyPanel failure notices", () => {
     await screen.findAllByText(CHECKOUT_FAILED);
     fireEvent.click(buyButton());
     expect(screen.queryByText(CHECKOUT_FAILED)).not.toBeInTheDocument();
+  });
+});
+
+describe("BuyPanel picker order (#278 slice 1)", () => {
+  it("renders Size above Colour", () => {
+    render(<BuyPanel imageId="img-1" isLoggedIn />);
+    expand();
+    const size = screen.getByText("Size");
+    const color = screen.getByText(/^Color — /);
+    expect(
+      size.compareDocumentPosition(color) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+});
+
+function Probe() {
+  return <output data-testid="probe">{JSON.stringify(useOpenBuyPanelPicks())}</output>;
+}
+const probe = () => JSON.parse(screen.getByTestId("probe").textContent ?? "null");
+
+describe("BuyPanel reports its open picks to the page (#278 slice 4)", () => {
+  it("reports nothing while collapsed, the picks while open, nothing after Cancel", () => {
+    render(
+      <BuyPanelPicksProvider>
+        <BuyPanel imageId="img-1" isLoggedIn />
+        <Probe />
+      </BuyPanelPicksProvider>
+    );
+    expect(probe()).toBeNull();
+    expand();
+    expect(probe()).toMatchObject({ size: null, back: null, swap: false });
+    fireEvent.click(screen.getByRole("button", { name: "M" }));
+    expect(probe().size).toBe("M");
+    fireEvent.click(screen.getAllByRole("button", { name: "Cancel" })[0]);
+    expect(probe()).toBeNull();
+  });
+
+  it("does not report the default colour or product as a pick", () => {
+    render(
+      <BuyPanelPicksProvider>
+        <BuyPanel imageId="img-1" isLoggedIn preferredColor="Black" />
+        <Probe />
+      </BuyPanelPicksProvider>
+    );
+    expand();
+    expect(probe()).toMatchObject({ product: null, color: null, size: null });
+  });
+
+  it("reports the colour once chosen, and the product once a garment is picked", () => {
+    render(
+      <BuyPanelPicksProvider>
+        <BuyPanel imageId="img-1" isLoggedIn preferredColor="Black" />
+        <Probe />
+      </BuyPanelPicksProvider>
+    );
+    expand();
+    // Black is on both garments, so the pick survives the product switch.
+    fireEvent.click(screen.getByTitle("Black"));
+    expect(probe()).toMatchObject({ color: "Black", product: null });
+    fireEvent.click(screen.getByRole("button", { name: "Box Tee" }));
+    expect(probe()).toMatchObject({ color: "Black", product: "cotton-heritage-mc1087" });
+  });
+
+  it("clears the report when the panel unmounts", () => {
+    function Host({ show }: { show: boolean }) {
+      return (
+        <BuyPanelPicksProvider>
+          {show ? <BuyPanel imageId="img-1" isLoggedIn /> : null}
+          <Probe />
+        </BuyPanelPicksProvider>
+      );
+    }
+    const { rerender } = render(<Host show />);
+    expand();
+    fireEvent.click(screen.getByRole("button", { name: "M" }));
+    expect(probe()).not.toBeNull();
+    rerender(<Host show={false} />);
+    expect(probe()).toBeNull();
+  });
+
+  it("renders without a provider (the panel's other tests do)", () => {
+    render(<BuyPanel imageId="img-1" isLoggedIn />);
+    expand();
+    expect(screen.getByText("Size")).toBeInTheDocument();
   });
 });
 

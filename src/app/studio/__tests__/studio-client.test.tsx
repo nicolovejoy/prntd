@@ -238,7 +238,7 @@ describe("cells (Paper bench)", () => {
     expect(openLink.getAttribute("href")).toBe("/d/img-2");
   });
 
-  it("the lightbox row offers Order to /preview with the shown image as the front", () => {
+  it("the lightbox row offers Order to the shown image's image detail page, panel open", () => {
     render(
       <StudioClient
         initialLanes={[
@@ -255,7 +255,7 @@ describe("cells (Paper bench)", () => {
     let lightbox = screen.getByTestId("image-lightbox");
     expect(
       within(lightbox).getByRole("link", { name: "Order" }).getAttribute("href")
-    ).toBe("/preview?id=design-1&front=img-2");
+    ).toBe("/d/img-2?order=1&from=%2Fstudio");
     // The rest of the row is intact.
     expect(within(lightbox).getByTestId("lightbox-edit")).toBeTruthy();
     expect(within(lightbox).getByRole("link", { name: "Open" })).toBeTruthy();
@@ -266,10 +266,10 @@ describe("cells (Paper bench)", () => {
     lightbox = screen.getByTestId("image-lightbox");
     expect(
       within(lightbox).getByRole("link", { name: "Order" }).getAttribute("href")
-    ).toBe("/preview?id=design-1&front=img-1");
+    ).toBe("/d/img-1?order=1&from=%2Fstudio");
   });
 
-  it("no Order in the lightbox when the lane has no primary image (/preview would bounce it)", () => {
+  it("offers Order in a lane with no primary image (the image page needs none)", () => {
     render(
       <StudioClient
         initialLanes={[lane({ designId: "design-1", cells: [cell("img-1")] })]}
@@ -277,9 +277,10 @@ describe("cells (Paper bench)", () => {
     );
     fireEvent.click(screen.getByTestId("studio-cell"));
     const lightbox = screen.getByTestId("image-lightbox");
-    expect(within(lightbox).queryByRole("link", { name: "Order" })).toBeNull();
+    expect(
+      within(lightbox).getByRole("link", { name: "Order" }).getAttribute("href")
+    ).toBe("/d/img-1?order=1&from=%2Fstudio");
     expect(within(lightbox).getByTestId("lightbox-edit")).toBeTruthy();
-    expect(within(lightbox).getByRole("link", { name: "Open" })).toBeTruthy();
   });
 
   it("a cell tap alone does not anchor — anchoring is the lightbox's own action", () => {

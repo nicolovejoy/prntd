@@ -57,7 +57,7 @@ const { setImageHidden, setImageFeedRank, getRecentPublishedForAdmin } =
 const { getImagePage } = await import("@/app/d/actions");
 const { getPublishedFeed } = await import("@/lib/discover-feed");
 const { getUserImageLibrary } = await import("@/lib/user-designs");
-const { getDesign, setPrimaryImage } = await import("@/app/design/actions");
+const { setPrimaryImage } = await import("@/app/design/actions");
 const { loadLineIdentityContext, buildLineIdentities } = await import(
   "@/lib/order-line-identity"
 );
@@ -316,27 +316,6 @@ describe("My Designs backdrop reads the mirror product", () => {
     const images = await getUserImageLibrary(currentUserId);
     const cell = images.find((i) => i.imageId === imageId);
     expect(cell!.backgroundColor).toBeNull();
-  });
-});
-
-describe("getDesign backdrop reads the mirror product", () => {
-  it("follows the product backdrop", async () => {
-    const { designId, imageId } = await seedImage();
-    await setPrimaryImage(designId, imageId);
-    await publishImage(imageId, { title: "Tiger", backgroundColor: "Black" });
-    await patchMirror(imageId, { backdropColor: "Navy" });
-
-    expect((await getDesign(designId))!.backgroundColor).toBe("Navy");
-  });
-
-  it("drops the pinned backdrop once the mirror is a draft", async () => {
-    const { designId, imageId } = await seedImage();
-    await setPrimaryImage(designId, imageId);
-    await publishImage(imageId, { title: "Tiger", backgroundColor: "Black" });
-    // Publication row untouched; the draft status alone drops the backdrop.
-    await patchMirror(imageId, { status: "draft" });
-
-    expect((await getDesign(designId))!.backgroundColor).toBeNull();
   });
 });
 

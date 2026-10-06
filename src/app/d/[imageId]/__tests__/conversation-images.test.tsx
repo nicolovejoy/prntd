@@ -3,6 +3,12 @@ import { render, screen, fireEvent, within, act } from "@testing-library/react";
 import { ConversationImages } from "../conversation-images";
 import type { SiblingImage } from "../../actions";
 import { SET_PRIMARY_IMAGE_FAILED } from "@/lib/action-copy";
+import { useEffect } from "react";
+import type { OpenBuyPanelPicks } from "@/lib/buy-page-picks";
+import {
+  BuyPanelPicksProvider,
+  useReportBuyPanelPicks,
+} from "../buy-panel-picks-context";
 
 // The real module is "use server" and pulls the DB.
 vi.mock("@/app/design/actions", () => ({
@@ -45,6 +51,77 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+function Report({ picks }: { picks: OpenBuyPanelPicks }) {
+  const report = useReportBuyPanelPicks();
+  useEffect(() => report(picks), [report, picks]);
+  return null;
+}
+
+const OPEN_L = { product: "bella-canvas-3001", size: "L", color: "Black", back: null, swap: false };
+const OPEN_BACK_C = { ...OPEN_L, back: "img-c", swap: true };
+const OPEN_BACK_X = { ...OPEN_L, back: "img-x", swap: true };
+
+function renderWithPicks(picks: OpenBuyPanelPicks) {
+  return render(
+    <BuyPanelPicksProvider>
+      <Report picks={picks} />
+      <ConversationImages
+        designId="d1"
+        currentImageId="img-b"
+        images={images}
+        initialPrimaryImageId="img-a"
+        from="/designs"
+      />
+    </BuyPanelPicksProvider>
+  );
+}
+
+const openHref = () =>
+  new URL(lightbox().getByRole("link", { name: "Open" }).getAttribute("href")!, "http://x.invalid");
+
+describe("ConversationImages carries the open panel's picks (#278 slice 4)", () => {
+  it("with the panel open at size L, Open keeps product, size and colour", () => {
+    renderWithPicks(OPEN_L);
+    fireEvent.click(thumb(3));
+    const href = openHref();
+    expect(href.pathname).toBe("/d/img-c");
+    expect(href.searchParams.get("order")).toBe("1");
+    expect(href.searchParams.get("size")).toBe("L");
+    expect(href.searchParams.get("color")).toBe("Black");
+    expect(href.searchParams.get("product")).toBe("bella-canvas-3001");
+    expect(href.searchParams.get("from")).toBe("/designs");
+  });
+
+  it("with the panel collapsed, Open is the plain link", () => {
+    renderWithPicks(null);
+    fireEvent.click(thumb(3));
+    expect(lightbox().getByRole("link", { name: "Open" })).toHaveAttribute(
+      "href",
+      "/d/img-c?from=%2Fdesigns"
+    );
+  });
+
+  it("the Open link is a 44px touch target", () => {
+    renderWithPicks(null);
+    fireEvent.click(thumb(3));
+    expect(lightbox().getByRole("link", { name: "Open" })).toHaveClass("min-h-11");
+  });
+
+  it("keeps the back and the swap for a sibling that is not the back", () => {
+    renderWithPicks(OPEN_BACK_X);
+    fireEvent.click(thumb(3));
+    expect(openHref().searchParams.get("back")).toBe("img-x");
+    expect(openHref().searchParams.get("swap")).toBe("1");
+  });
+
+  it("drops the back and the swap when the sibling is the back", () => {
+    renderWithPicks(OPEN_BACK_C);
+    fireEvent.click(thumb(3));
+    expect(openHref().searchParams.get("back")).toBeNull();
+    expect(openHref().searchParams.get("swap")).toBeNull();
+  });
 });
 
 describe("ConversationImages owner gate", () => {
