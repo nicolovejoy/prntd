@@ -311,8 +311,8 @@ export function BuyHero({
   const layout = sidesLayout({
     hasBack: !!back,
     prominent,
-    // Mirrors /preview's `showBack`: the add-back tile only makes sense when
-    // the blank actually has a back placement to print on.
+    // The add-back tile only makes sense when the blank actually has a back
+    // placement to print on.
     backOffered:
       !!backEnabled && !!product && productSupportsPlacement(product, "back"),
   });
@@ -320,8 +320,8 @@ export function BuyHero({
   // when there's a counterpart to distinguish it from.
   const twoSided = layout.tile.kind === "side";
 
-  // Always "ready": unlike /preview there's no placement re-render to wait
-  // on — this page prints the exact picked images, fixed.
+  // Always "ready": there's no placement re-render to wait on — this page
+  // prints the exact picked images, fixed.
   function displayFor(side: Side) {
     const slot = slots[side];
     const artwork = side === "front" ? front.imageUrl : (back?.imageUrl ?? null);
@@ -377,7 +377,7 @@ export function BuyHero({
           />
         ) : (
           <div className="space-y-2">
-            {/* Fixed-height hero (a /preview convention) so the instant-layer
+            {/* Fixed-height hero so the instant-layer
                 → mockup crossfade never reflows the page — only the one-time
                 collapsed ↔ expanded swap does, which already reveals the
                 picker stack below. No onSelect: this page has no lightbox

@@ -83,10 +83,10 @@ async function fillFirstVisible(
 type StripeRoot = Page | FrameLocator;
 
 /**
- * Find the iframe holding the embedded checkout form. The selectors are
- * candidates, not calibrated: they need one calibration run against the live
- * embedded form (frame name/src and field ids may differ from hosted
- * checkout's). Returns the first frame whose email field is visible.
+ * Find the iframe holding the embedded checkout form. The selectors were
+ * calibrated by the dispatched runs of 2026-10-05 against the live embedded
+ * form (frame name/src and field ids differ from hosted checkout's). Returns
+ * the first frame whose email field is visible.
  */
 async function embeddedStripeRoot(page: Page): Promise<FrameLocator> {
   // `.first()` on each: Stripe.js mounts several js.stripe.com iframes

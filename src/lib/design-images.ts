@@ -719,7 +719,9 @@ export async function getDesignPlacementRenders(
  * most recent source image (product_id IS NULL). Null when neither.
  *
  * Use this everywhere a design's "main image URL" is needed —
- * card thumbnails, hydration, order and cart lines that pin no front.
+ * card thumbnails, hydration. Callers today: the order actions, admin pages,
+ * the Stripe webhook, order emails, the retry-fulfillment cron and
+ * design-thread.
  */
 export async function getDesignDisplayImageUrl(
   designId: string

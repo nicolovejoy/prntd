@@ -325,8 +325,8 @@ export async function getConversationImages(
 
 /**
  * Source groups for the image detail page's back-design picker, scoped for a
- * buyer who usually doesn't own the image's source design: My Designs + Shop, with This design only for the
- * owner (getBuyPageBackSourceGroups). Empty when the flag is off, when the
+ * buyer who usually doesn't own the image's source design: My Designs + Shop,
+ * with This design only for the owner (getBuyPageBackSourceGroups). Empty when the flag is off, when the
  * viewer isn't a signed-in, non-anonymous user, or when they may not order
  * this image (`resolveBuyableImage`, the gate `buyPublishedDesign` uses, so
  * the owner's own unpublished image gets groups and nobody else's does) — the

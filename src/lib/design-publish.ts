@@ -123,8 +123,9 @@ export function canBuyPublishedImage(image: {
  * admin-hidden. Hidden beats ownership, as in `canViewImagePage`.
  *
  * This is the image-level rule only. Ordering an unpublished image also needs
- * a live conversation the buyer owns (`design.userId`), because `order.design_id` is NOT NULL; that part needs the database
- * and lives in `resolveBuyableImage` (src/lib/buyable-image.ts).
+ * a live conversation the buyer owns (`design.userId`), because
+ * `order.design_id` is NOT NULL; that part needs the database and lives in
+ * `resolveBuyableImage` (src/lib/buyable-image.ts).
  *
  * `userId` is nullable because signed-out viewers reach the page: null and the
  * empty string match no owner.
@@ -168,10 +169,10 @@ export function canBuyImage(params: {
  * source before its cached-mockup and cached-render lookups, so a source
  * cached while it was usable is refused once it is not. A forged image id
  * can't get a private or hidden image printed or mocked up, and the pickers'
- * reach and the guard agree. This function judges ONE resolved image; a `placement_render` pin is also judged
- * by the image it was rendered from (`placementSourceUsable`,
- * src/lib/back-sources.ts), because a render alone looks unpublished, not
- * hidden and owned by its conversation's owner.
+ * reach and the guard agree. This function judges ONE resolved image; a
+ * `placement_render` pin is also judged by the image it was rendered from
+ * (`placementSourceUsable`, src/lib/back-sources.ts), because a render alone
+ * looks unpublished, not hidden and owned by its conversation's owner.
  */
 export function canUseAsPlacementSource(params: {
   /** Publish state only — Model B keeps it in `listing`, and the guard has
