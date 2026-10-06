@@ -21,7 +21,9 @@ assert the order row reaches `submitted` (dry-run Printful) with `sale` +
   rather than skipping when it is not. Beyond the common assertions it checks
   that the order carries no Shop composition (`order.store_product_id` null)
   and that the line pins the image that was ordered. This is the owner-buys-
-  their-own-unpublished-image path of one buy surface, slice 3 (#278).
+  their-own-unpublished-image path of one buy surface, slice 3 (#278). Before
+  paying it also opens and closes the checkout page's preview lightbox and
+  asserts Stripe's iframe element is still attached (#285).
 
 This is the test class that would have caught the 2026-07-19 external_id
 incident's siblings: real vendor constraints (Stripe here) that mocks can't

@@ -45,6 +45,22 @@ test("the owner of an unpublished image can order it; a second signed-in user ge
     // once a size is picked, is enabled. The collapsed panel is
     // server-rendered, so wait for React to attach before the first tap.
     await page.goto(imagePath);
+
+    // Lightbox (#285), artwork while the panel is closed: opens, locks the
+    // page behind it, and Escape returns to the same URL.
+    const urlBefore = page.url();
+    const viewLarger = page.getByRole("button", { name: "View larger" });
+    await waitForHydrated(viewLarger);
+    await viewLarger.click();
+    const viewer = page.getByTestId("fullscreen-viewer");
+    await expect(viewer).toBeVisible();
+    await expect(page.getByTestId("fullscreen-viewer-close")).toBeFocused();
+    expect(await page.evaluate(() => document.body.style.overflow)).toBe("hidden");
+    await page.keyboard.press("Escape");
+    await expect(viewer).toHaveCount(0);
+    expect(await page.evaluate(() => document.body.style.overflow)).toBe("");
+    expect(page.url()).toBe(urlBefore);
+
     await waitForHydrated(page.getByTestId("order-expand"));
     await page.getByTestId("order-expand").click();
     await expect(page).not.toHaveURL(/\/preview/);
@@ -52,6 +68,20 @@ test("the owner of an unpublished image can order it; a second signed-in user ge
     await expect(
       page.getByRole("button", { name: /^Order — \$\d/ })
     ).toBeEnabled();
+
+    // Lightbox (#285), mockup once the panel is open. CI's Printful key is a
+    // stub, so the render may show its error overlay above the hero's select
+    // button; open it by keyboard so the check does not depend on the render.
+    const urlWithPicks = page.url();
+    const heroButton = page
+      .getByTestId("side-hero")
+      .getByRole("button", { name: "View larger" });
+    await heroButton.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("fullscreen-viewer")).toBeVisible();
+    await page.getByTestId("fullscreen-viewer-close").click();
+    await expect(page.getByTestId("fullscreen-viewer")).toHaveCount(0);
+    expect(page.url()).toBe(urlWithPicks);
 
     // A second signed-in user, in their own browser context, opening the same
     // URL gets the not-found page, and no Order panel.
