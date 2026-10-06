@@ -382,9 +382,9 @@ describe("money path — checkout.session.completed", () => {
     // webhook must NOT touch.
     const [d3] = await db.insert(schema.design).values({ userId }).returning();
     await db.insert(schema.cartItem).values([
-      { userId, designId: d1.id, productId: "bella-canvas-3001", size: "M", color: "Black" },
-      { userId, designId: d2.id, productId: "bella-canvas-3001", size: "L", color: "White" },
-      { userId, designId: d3.id, productId: "bella-canvas-3001", size: "S", color: "Red" },
+      { userId, designId: d1.id, productId: "bella-canvas-3001", size: "M", color: "Black", placements: { front: "img-1" } },
+      { userId, designId: d2.id, productId: "bella-canvas-3001", size: "L", color: "White", placements: { front: "img-2" } },
+      { userId, designId: d3.id, productId: "bella-canvas-3001", size: "S", color: "Red", placements: { front: "img-3" } },
     ]);
 
     const createPrintfulOrder = vi
@@ -474,6 +474,7 @@ describe("money path — checkout.session.completed", () => {
       productId: "bella-canvas-3001",
       size: "M",
       color: "Black",
+      placements: { front: "img-1" },
     });
 
     // Make only db.delete blow up (the cart-clear); every other op passes
@@ -525,9 +526,9 @@ describe("money path — checkout.session.completed", () => {
     const [other] = await db.insert(schema.design).values({ userId }).returning();
     await db.insert(schema.cartItem).values([
       // matches the purchased line — must be cleared
-      { userId, designId: design.id, productId: "bella-canvas-3001", size: "M", color: "Black" },
+      { userId, designId: design.id, productId: "bella-canvas-3001", size: "M", color: "Black", placements: { front: "img-1" } },
       // a different line still in the cart — must survive
-      { userId, designId: other.id, productId: "bella-canvas-3001", size: "L", color: "White" },
+      { userId, designId: other.id, productId: "bella-canvas-3001", size: "L", color: "White", placements: { front: "img-9" } },
     ]);
 
     const result = await handleStripeCheckoutCompleted(
