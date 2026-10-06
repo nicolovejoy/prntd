@@ -228,6 +228,14 @@ export async function primaryImageIdForDesign(
   return row?.primary_image_id == null ? null : String(row.primary_image_id);
 }
 
+/** Clear a design's primary image, for the "conversation with no primary" case. */
+export async function clearPrimaryImage(designId: string): Promise<void> {
+  await db().execute({
+    sql: "UPDATE design SET primary_image_id = NULL WHERE id = ?",
+    args: [designId],
+  });
+}
+
 /** Order row for a Stripe Checkout session id (the Stripe spec extracts
  * `cs_test_…` from the hosted-checkout URL). */
 export async function orderForStripeSession(
