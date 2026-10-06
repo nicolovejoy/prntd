@@ -103,6 +103,12 @@ describe("ConversationImages carries the open panel's picks (#278 slice 4)", () 
     );
   });
 
+  it("the Open link is a 44px touch target", () => {
+    renderWithPicks(null);
+    fireEvent.click(thumb(3));
+    expect(lightbox().getByRole("link", { name: "Open" })).toHaveClass("min-h-11");
+  });
+
   it("keeps the back and the swap for a sibling that is not the back", () => {
     renderWithPicks(OPEN_BACK_X);
     fireEvent.click(thumb(3));

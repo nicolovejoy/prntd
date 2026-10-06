@@ -179,7 +179,7 @@ export function ConversationImages({
               {shown.imageId !== currentImageId && (
                 <Link
                   href={href(shown.imageId)}
-                  className="self-center text-sm underline text-text-muted hover:text-foreground"
+                  className="inline-flex min-h-11 items-center self-center text-sm underline text-text-muted hover:text-foreground"
                 >
                   Open
                 </Link>
