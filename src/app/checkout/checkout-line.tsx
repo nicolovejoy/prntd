@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { FullscreenViewer } from "@/components/fullscreen-viewer";
 import { mockupBackdrop } from "@/lib/instant-preview";
+import { INSET_FOCUS_RING } from "@/lib/focus-ring";
 import type { CheckoutLineSummary } from "@/lib/embedded-checkout-session";
 
 type FaceSide = "front" | "back";
@@ -66,11 +67,11 @@ export function CheckoutLine({ line }: { line: CheckoutLineSummary }) {
           {hasFront ? (
             <button
               type="button"
-              aria-label="View larger"
+              aria-label={`View larger: ${name}`}
               onClick={() => setViewing("front")}
-              // Inset outline: the tile is overflow-hidden, which would clip
-              // the browser's default outside-the-box focus ring.
-              className="absolute inset-0 block h-full w-full cursor-zoom-in focus-visible:outline-2 focus-visible:outline-foreground focus-visible:-outline-offset-2"
+              // The mockup layer inside paints over an outline on the
+              // button, and the tile is overflow-hidden; see INSET_FOCUS_RING.
+              className={`absolute inset-0 block h-full w-full cursor-zoom-in ${INSET_FOCUS_RING}`}
             >
               {tileContent}
             </button>

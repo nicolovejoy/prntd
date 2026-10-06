@@ -309,7 +309,7 @@ describe("CheckoutPage", () => {
     const form = screen.getByTestId("embedded-checkout-form-mock");
     const rendersBefore = h.formRenders.mock.calls.length;
 
-    fireEvent.click(screen.getByRole("button", { name: "View larger" }));
+    fireEvent.click(screen.getByRole("button", { name: "View larger: Classic Tee" }));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     fireEvent.keyDown(window, { key: "Escape" });
 

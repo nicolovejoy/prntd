@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { DEFAULT_BLANK_ID, getColorHex } from "@/lib/blanks";
 import { PublishedImageView } from "../published-image-view";
+import { INSET_FOCUS_RING } from "@/lib/focus-ring";
 
 const updatePublishedNaming = vi.fn(async () => ({}));
 vi.mock("@/app/designs/actions", () => ({
@@ -71,11 +72,10 @@ describe("PublishedImageView lightbox (#285)", () => {
     );
   });
 
-  it("keeps the artwork's alt in the button's name and an inset focus ring that overflow-hidden cannot clip", () => {
+  it("keeps the artwork's alt in the button's name and the two-tone focus ring", () => {
     renderView();
     const btn = screen.getByRole("button", { name: "View larger: Fox" });
-    expect(btn.className).toContain("focus-visible:outline-2");
-    expect(btn.className).toContain("focus-visible:outline-foreground");
-    expect(btn.className).toContain("focus-visible:-outline-offset-2");
+    expect(btn.className).toContain(INSET_FOCUS_RING);
+    expect(btn.className).toContain("relative");
   });
 });

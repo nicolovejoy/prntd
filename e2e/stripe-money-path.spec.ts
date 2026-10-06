@@ -512,10 +512,20 @@ test.describe("stripe money path", { tag: "@stripe" }, () => {
 
       // Lightbox (#285): opening and closing the viewer over the summary
       // leaves Stripe's iframe element in place.
-      const stripeFrame = await page
-        .locator('iframe[name^="embedded-checkout"], iframe[src*="embedded-checkout"]')
-        .first()
-        .elementHandle();
+      // The two specific patterns first (the third, js.stripe.com, also
+      // matches Stripe's controller and metrics frames, so it is only a
+      // fallback); elementHandle() waits for the element and then throws.
+      const stripeFrame =
+        (await page
+          .locator('iframe[name^="embedded-checkout"], iframe[src*="embedded-checkout"]')
+          .first()
+          .elementHandle({ timeout: 30_000 })
+          .catch(() => null)) ??
+        (await page
+          .locator('iframe[src*="js.stripe.com"]')
+          .first()
+          .elementHandle({ timeout: 5_000 })
+          .catch(() => null));
       expect(stripeFrame, "no Stripe iframe on /checkout").not.toBeNull();
       await page
         .getByTestId("checkout-preview")

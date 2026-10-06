@@ -6,6 +6,7 @@ import { updatePublishedNaming } from "@/app/designs/actions";
 import { publishedBackdrop, DEFAULT_PUBLISH_BACKGROUND } from "@/lib/blanks";
 import { BackgroundPicker } from "@/components/background-picker";
 import { FullscreenViewer } from "@/components/fullscreen-viewer";
+import { INSET_FOCUS_RING } from "@/lib/focus-ring";
 
 /**
  * The published design's image with its storefront backdrop. The owner gets
@@ -85,9 +86,9 @@ export function PublishedImageView({
             type="button"
             aria-label={`View larger: ${alt}`}
             onClick={() => setViewing(true)}
-            // Inset outline: the card is overflow-hidden, which would clip
-            // the browser's default outside-the-box focus ring.
-            className="block w-full cursor-zoom-in focus-visible:outline-2 focus-visible:outline-foreground focus-visible:-outline-offset-2"
+            // The card is overflow-hidden, which would clip the browser's
+            // default focus ring; see INSET_FOCUS_RING.
+            className={`relative block w-full cursor-zoom-in ${INSET_FOCUS_RING}`}
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img

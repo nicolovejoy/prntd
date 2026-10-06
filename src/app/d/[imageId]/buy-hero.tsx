@@ -406,7 +406,7 @@ export function BuyHero({
               }
               error={errorFor(layout.hero)}
               onSelect={() => setViewerSide(layout.hero)}
-              selectLabel="View larger"
+              selectLabel={`View larger: ${altFor(layout.hero)}`}
               showSideLabel={twoSided}
               className="w-full h-72 sm:h-80 md:h-96 border border-border"
               testId="side-hero"

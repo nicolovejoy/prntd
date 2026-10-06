@@ -450,7 +450,7 @@ describe("BuyHero lightbox (#285)", () => {
   const openHero = () =>
     fireEvent.click(
       within(screen.getByTestId("side-hero")).getByRole("button", {
-        name: "View larger",
+        name: /^View larger: /,
       })
     );
 
@@ -517,7 +517,7 @@ describe("BuyHero lightbox (#285)", () => {
     await screen.findAllByText("Couldn't render the preview.");
     const heroButton = within(screen.getByTestId("side-hero")).getByRole(
       "button",
-      { name: "View larger" }
+      { name: /^View larger: / }
     );
     fireEvent.click(heroButton);
     const side = screen.getByTestId("viewer-side");
