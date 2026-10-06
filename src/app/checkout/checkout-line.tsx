@@ -12,7 +12,7 @@ type FaceSide = "front" | "back";
  * page.tsx so it can hold state). Tapping the front tile, or the back
  * thumbnail, opens the viewer (#285) on that face. The viewer is a portal and
  * the open state lives here, so the Stripe form beside the summary is not
- * re-rendered, remounted or covered by anything but the overlay.
+ * re-rendered or remounted; only the overlay sits above it.
  *
  * The face is what the tile already shows: the cached front mockup, else the
  * artwork on the shirt colour. The summary has no back mockup, only the back
@@ -33,8 +33,8 @@ export function CheckoutLine({ line }: { line: CheckoutLineSummary }) {
       : undefined;
 
   const tileContent = line.mockupUrl ? (
-    <div
-      className="absolute inset-0"
+    <span
+      className="absolute inset-0 block"
       style={{ backgroundColor: mockupBackdrop(line.colorHex) }}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -43,7 +43,7 @@ export function CheckoutLine({ line }: { line: CheckoutLineSummary }) {
         alt=""
         className="w-full h-full object-contain mix-blend-multiply"
       />
-    </div>
+    </span>
   ) : (
     line.frontImageUrl && (
       // eslint-disable-next-line @next/next/no-img-element
@@ -68,7 +68,9 @@ export function CheckoutLine({ line }: { line: CheckoutLineSummary }) {
               type="button"
               aria-label="View larger"
               onClick={() => setViewing("front")}
-              className="absolute inset-0 block h-full w-full cursor-zoom-in"
+              // Inset outline: the tile is overflow-hidden, which would clip
+              // the browser's default outside-the-box focus ring.
+              className="absolute inset-0 block h-full w-full cursor-zoom-in focus-visible:outline-2 focus-visible:outline-foreground focus-visible:-outline-offset-2"
             >
               {tileContent}
             </button>

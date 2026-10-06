@@ -69,4 +69,20 @@ describe("CheckoutLine lightbox (#285)", () => {
     fireEvent.keyDown(window, { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
   });
+
+  it("the front tile button has an inset focus ring that the tile's overflow-hidden cannot clip", () => {
+    render(<CheckoutLine line={base} />);
+    const cls = screen.getByRole("button", { name: "View larger" }).className;
+    expect(cls).toContain("focus-visible:outline-2");
+    expect(cls).toContain("focus-visible:outline-foreground");
+    expect(cls).toContain("focus-visible:-outline-offset-2");
+  });
+
+  it("puts no block element inside the tile's button", () => {
+    render(
+      <CheckoutLine line={{ ...base, mockupUrl: "https://img.example/m.jpg" }} />
+    );
+    const btn = screen.getByRole("button", { name: "View larger" });
+    expect(btn.querySelector("div")).toBeNull();
+  });
 });
