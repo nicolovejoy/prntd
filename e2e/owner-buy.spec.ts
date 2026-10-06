@@ -12,6 +12,7 @@ import {
   cleanupDesigns,
   cleanupUser,
   primaryImageIdForDesign,
+  seedConversationImage,
 } from "./helpers/db";
 import { waitForSessionCookie } from "./helpers/session";
 import { signUpFreshAccount } from "./helpers/auth";
@@ -64,5 +65,35 @@ test("the owner of an unpublished image can order it; a second signed-in user ge
     await cleanupDesigns(seeded);
     if (ownerId) await cleanupUser(ownerId);
     if (otherId) await cleanupUser(otherId);
+  }
+});
+
+test("switching to another image of the conversation with the panel open keeps size and colour (#278 slice 4)", async ({ page }, testInfo) => {
+  const key = `owner-sibling-${Date.now()}-${testInfo.project.name}`;
+  const seeded: string[] = [];
+  let ownerId = "";
+  try {
+    await signUpFreshAccount(page, key);
+    ownerId = await userIdForSessionCookie(await waitForSessionCookie(page));
+    const designId = await seedDesign(ownerId, key, "https://placehold.co/1024x1024/png?text=A");
+    seeded.push(designId);
+    const first = (await primaryImageIdForDesign(designId))!;
+    const second = `e2e-${key}-img2`;
+    await seedConversationImage(designId, ownerId, second, "https://placehold.co/1024x1024/png?text=B");
+
+    await page.goto(`/d/${first}?order=1&product=bella-canvas-3001&size=L&color=Black`);
+    await expect(page.getByText("Total")).toBeVisible({ timeout: 30_000 });
+    await page.getByTestId("conversation-image-thumb").first().click();
+    await page.getByTestId("image-lightbox").getByRole("link", { name: "Open" }).click();
+
+    await page.waitForURL((url) => url.pathname === `/d/${second}`, { timeout: 30_000 });
+    const params = new URL(page.url()).searchParams;
+    expect(params.get("order")).toBe("1");
+    expect(params.get("size")).toBe("L");
+    expect(params.get("color")).toBe("Black");
+    await expect(page.getByRole("button", { name: "L", exact: true }).first()).toHaveAttribute("aria-pressed", "true");
+  } finally {
+    await cleanupDesigns(seeded);
+    if (ownerId) await cleanupUser(ownerId);
   }
 });

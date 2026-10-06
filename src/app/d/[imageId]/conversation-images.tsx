@@ -7,7 +7,9 @@ import { setPrimaryImage } from "@/app/design/actions";
 import { ImageLightbox, type LightboxImage } from "@/app/design/image-lightbox";
 import { Button, InlineNotice } from "@/components/ui";
 import { SET_PRIMARY_IMAGE_FAILED } from "@/lib/action-copy";
+import { siblingImageHref } from "@/lib/buy-page-picks";
 import type { SiblingImage } from "../actions";
+import { useOpenBuyPanelPicks } from "./buy-panel-picks-context";
 import { MONO_LABEL } from "./mono-label";
 
 const STRIP_SIZES = "88px";
@@ -21,6 +23,9 @@ const STRIP_SIZES = "88px";
  * Tapping a strip thumbnail opens the lightbox over it (#157) with prev/next
  * across the whole conversation, the page's own image included; "Use this
  * one" and a link to the sibling's own page are inside it for the shown image.
+ * With the buy panel open, that Open link carries the panel's picks
+ * (`siblingImageHref`): this is how the front is changed without re-picking
+ * size and colour, which `/preview`'s front picker used to do.
  */
 export function ConversationImages({
   designId,
@@ -39,6 +44,7 @@ export function ConversationImages({
   const [saving, setSaving] = useState(false);
   const [useError, setUseError] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const openPicks = useOpenBuyPanelPicks();
 
   // Owner backstop: getConversationImages returns an empty list for anyone
   // but the owner, and this strip (with its primary-setting action) is theirs.
@@ -67,8 +73,7 @@ export function ConversationImages({
   // Nothing to say when the design has a single image that's already primary.
   if (others.length === 0 && isPrimary) return null;
 
-  const href = (imageId: string) =>
-    from ? `/d/${imageId}?from=${encodeURIComponent(from)}` : `/d/${imageId}`;
+  const href = (imageId: string) => siblingImageHref(imageId, openPicks, from);
 
   // `#N` = position in the full seed-inclusive list, which is the same order
   // the /design thread numbers its generations in.

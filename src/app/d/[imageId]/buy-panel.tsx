@@ -29,6 +29,7 @@ import { buyPagePlacements, type PlacementPick } from "@/lib/placement-pins";
 import { addToCart } from "@/app/cart/actions";
 import { buyPublishedDesign, getBuyPageBackSources } from "../actions";
 import { MONO_LABEL } from "./mono-label";
+import { useReportBuyPanelPicks } from "./buy-panel-picks-context";
 import { ADD_TO_CART_FAILED, CHECKOUT_FAILED } from "@/lib/action-copy";
 
 /** An image on one side of the shirt: the source image id and its artwork
@@ -301,6 +302,24 @@ export function BuyPanel({
     if (next === window.location.pathname + window.location.search) return;
     window.history.replaceState(window.history.state, "", next);
   }, [expanded, productId, size, color, back, swapped]);
+
+  // Tell the page what the open panel holds (#278 slice 4), so the links to
+  // this conversation's other images carry the same shirt. Null while
+  // collapsed, so a browsing visitor's links stay plain.
+  const reportPicks = useReportBuyPanelPicks();
+  useEffect(() => {
+    reportPicks(
+      expanded
+        ? {
+            product: productId,
+            size,
+            color,
+            back: back?.id ?? null,
+            swap: swapped && !!back,
+          }
+        : null
+    );
+  }, [reportPicks, expanded, productId, size, color, back, swapped]);
 
   // Back from hosted Stripe can restore this page from the back/forward cache
   // with its state as it was when the buyer left: the button on "Redirecting…"

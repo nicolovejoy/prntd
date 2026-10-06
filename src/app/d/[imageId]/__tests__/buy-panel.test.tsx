@@ -3,6 +3,10 @@ import { createRef } from "react";
 import { render, screen, fireEvent, act, within } from "@testing-library/react";
 import { getBlankOrThrow } from "@/lib/blanks";
 import { BuyPanel, type BuyPanelHandle } from "../buy-panel";
+import {
+  BuyPanelPicksProvider,
+  useOpenBuyPanelPicks,
+} from "../buy-panel-picks-context";
 
 vi.mock("../../actions", () => ({
   buyPublishedDesign: vi.fn().mockResolvedValue({ url: null, needsAuth: false }),
@@ -730,6 +734,36 @@ describe("BuyPanel failure notices", () => {
     await screen.findAllByText(CHECKOUT_FAILED);
     fireEvent.click(buyButton());
     expect(screen.queryByText(CHECKOUT_FAILED)).not.toBeInTheDocument();
+  });
+});
+
+function Probe() {
+  return <output data-testid="probe">{JSON.stringify(useOpenBuyPanelPicks())}</output>;
+}
+const probe = () => JSON.parse(screen.getByTestId("probe").textContent ?? "null");
+
+describe("BuyPanel reports its open picks to the page (#278 slice 4)", () => {
+  it("reports nothing while collapsed, the picks while open, nothing after Cancel", () => {
+    render(
+      <BuyPanelPicksProvider>
+        <BuyPanel imageId="img-1" isLoggedIn />
+        <Probe />
+      </BuyPanelPicksProvider>
+    );
+    expect(probe()).toBeNull();
+    expand();
+    expect(probe()).toMatchObject({ product: "bella-canvas-3001", size: null, back: null, swap: false });
+    expect(typeof probe().color).toBe("string");
+    fireEvent.click(screen.getByRole("button", { name: "M" }));
+    expect(probe().size).toBe("M");
+    fireEvent.click(screen.getAllByRole("button", { name: "Cancel" })[0]);
+    expect(probe()).toBeNull();
+  });
+
+  it("renders without a provider (the panel's other tests do)", () => {
+    render(<BuyPanel imageId="img-1" isLoggedIn />);
+    expand();
+    expect(screen.getByText("Size")).toBeInTheDocument();
   });
 });
 
