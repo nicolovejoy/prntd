@@ -9,7 +9,7 @@ import {
   loadEmbeddedCheckout,
   type CheckoutLineSummary,
 } from "@/lib/embedded-checkout-session";
-import { mockupBackdrop } from "@/lib/instant-preview";
+import { CheckoutLine } from "./checkout-line";
 import { EmbeddedCheckoutForm } from "./embedded-checkout-form";
 
 export const metadata: Metadata = {
@@ -170,72 +170,15 @@ function StatusScreen({
  * source-less front mockup, used only when the pinned front is the design's
  * current primary (nothing writes that entry since #278 slice 4, so only older
  * designs have one; every primary move clears it); else the artwork centered
- * on a flat panel of the shirt color, so the box is never empty.
+ * on a flat panel of the shirt color, so the box is never empty. The per-line
+ * markup lives in `checkout-line.tsx`, a client component, because a tap on
+ * the image opens the full-window viewer (#285).
  */
 function ReviewBlock({ summary }: { summary: CheckoutLineSummary[] }) {
   return (
     <div className="space-y-4">
       {summary.map((line, i) => (
-        <div key={i} className="border-t border-border pt-4 space-y-2">
-          <div className="flex items-center gap-3 md:flex-col md:items-stretch md:gap-2">
-            <div
-              data-testid="checkout-preview"
-              className="relative w-24 h-24 md:w-full md:h-auto md:aspect-square border border-border overflow-hidden flex-shrink-0"
-              style={{ backgroundColor: line.colorHex }}
-            >
-              {line.mockupUrl ? (
-                <div
-                  className="absolute inset-0"
-                  style={{ backgroundColor: mockupBackdrop(line.colorHex) }}
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={line.mockupUrl}
-                    alt=""
-                    className="w-full h-full object-contain mix-blend-multiply"
-                  />
-                </div>
-              ) : (
-                line.frontImageUrl && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={line.frontImageUrl}
-                    alt=""
-                    className="absolute inset-0 w-full h-full object-contain p-1.5"
-                  />
-                )
-              )}
-            </div>
-            <div className="min-w-0">
-              <p className="text-sm">
-                {line.productName ?? "Shirt"}
-                {line.quantity > 1 && ` ×${line.quantity}`}
-              </p>
-              <p className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted">
-                {line.color} / {line.size}
-              </p>
-            </div>
-          </div>
-
-          {line.backImageUrl && (
-            <div className="flex items-center gap-2 pl-1">
-              <div
-                className="w-10 h-10 border border-border overflow-hidden flex-shrink-0"
-                style={{ backgroundColor: line.colorHex }}
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={line.backImageUrl}
-                  alt=""
-                  className="w-full h-full object-contain p-1"
-                />
-              </div>
-              <span className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted">
-                Back design
-              </span>
-            </div>
-          )}
-        </div>
+        <CheckoutLine key={i} line={line} />
       ))}
     </div>
   );
