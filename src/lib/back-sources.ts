@@ -75,12 +75,10 @@ const MAX_RENDER_HOPS = 5;
  * exists, or was never recorded (a legacy render with no source can't be
  * judged), and when the chain is longer than MAX_RENDER_HOPS or loops.
  *
- * The pin and render choke points call it: `assertUsablePlacementImage`,
- * `getOrCreatePlacementRender`, and `renderAndCacheMockup`, which runs it on
- * every explicit source before its cached-mockup and placement-render lookups
- * can answer. Orders that already pin a render are not re-judged.
- * `prefetchProductMockups` reads the design's own primary's renders without
- * calling it; its callers check design ownership first.
+ * The pin and render choke points call it: `assertUsablePlacementImage` and
+ * `renderAndCacheMockup`, which runs it on every source before its
+ * cached-mockup and placement-render lookups can answer. Orders that already
+ * pin a render are not re-judged.
  */
 export async function placementSourceUsable(
   image: ImageWithOwner,

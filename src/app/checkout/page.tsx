@@ -168,9 +168,9 @@ function StatusScreen({
  * from the first of these that exists (`loadCheckoutSummary`): the front
  * mockup keyed by the pinned front image (scale 100); else the design's
  * source-less front mockup, used only when the pinned front is the design's
- * current primary (the entry /preview and the prefetch write; every
- * primary move clears it, though a render already in flight can write it
- * back afterwards); else the artwork centered on a flat panel of
+ * current primary (an entry only `/preview` and the prefetch wrote, so only
+ * designs rendered before #278 slice 4 have one; every primary move clears
+ * it, though a render already in flight can write it back afterwards); else the artwork centered on a flat panel of
  * the shirt color, so the box is never empty.
  */
 function ReviewBlock({ summary }: { summary: CheckoutLineSummary[] }) {
