@@ -6,6 +6,7 @@ import { getListingMockup, getListingBackMockup } from "../actions";
 import { PublishedImageView } from "./published-image-view";
 import { BuyPanel, type BackPick, type BuyPanelHandle } from "./buy-panel";
 import { SideMockup } from "@/components/side-mockup";
+import { FullscreenViewer } from "@/components/fullscreen-viewer";
 import { getBlank, productSupportsPlacement } from "@/lib/blanks";
 import {
   resolveHeroDisplay,
@@ -69,7 +70,9 @@ const EMPTY_SLOT: SideSlot = {
  * crossfaded in) and, once the buyer picks a back design in the panel, a
  * smaller back tile below it rendering the real back mockup; tapping the
  * tile swaps which side is large. With no back picked the tile slot offers
- * "Add a back design", which opens the panel's picker.
+ * "Add a back design", which opens the panel's picker. Tapping the hero opens
+ * `FullscreenViewer` (#285) with a second `SideMockup` fed by the same slots,
+ * so a mockup that lands while it is open appears in place.
  *
  * The hero follows the placement pins, not the page (#138 slice 3): after
  * the buyer swaps in the panel, the front renders their pick
@@ -160,6 +163,10 @@ export function BuyHero({
   // Which side the buyer last made large. Only meaningful with a back
   // picked; reset when the back goes so a later pick starts as the tile.
   const [prominent, setProminent] = useState<Side>("front");
+  // The side the full-window viewer (#285) is showing; null is closed.
+  // Independent of `prominent`: switching sides in the viewer leaves the
+  // page's own hero and tile where they were.
+  const [viewerSide, setViewerSide] = useState<Side | null>(null);
 
   const [slots, setSlots] = useState<Record<Side, SideSlot>>({
     front: EMPTY_SLOT,
@@ -359,6 +366,10 @@ export function BuyHero({
     return `${label} on a ${colorName} ${productName}`;
   }
 
+  // A back that goes away while the viewer is on it falls back to the front.
+  const shownSide: Side =
+    viewerSide === "back" && !back ? "front" : (viewerSide ?? "front");
+
   const tileSize = "w-1/3 max-w-[8rem] aspect-[4/5]";
   // Hoisted so the narrowing survives into the tile's callbacks below.
   const tileSide = layout.tile.kind === "side" ? layout.tile.side : null;
@@ -380,8 +391,9 @@ export function BuyHero({
             {/* Fixed-height hero so the instant-layer
                 → mockup crossfade never reflows the page — only the one-time
                 collapsed ↔ expanded swap does, which already reveals the
-                picker stack below. No onSelect: this page has no lightbox
-                (#157 is separate). */}
+                picker stack below. Tapping the hero opens the viewer (#285) on
+                the hero's side; the tile below swaps prominence instead
+                (#167). */}
             <SideMockup
               side={layout.hero}
               variant="hero"
@@ -393,6 +405,8 @@ export function BuyHero({
                 patchSlot(layout.hero, { loadedMockupUrl: url })
               }
               error={errorFor(layout.hero)}
+              onSelect={() => setViewerSide(layout.hero)}
+              selectLabel={`View larger: ${altFor(layout.hero)}`}
               showSideLabel={twoSided}
               className="w-full h-72 sm:h-80 md:h-96 border border-border"
               testId="side-hero"
@@ -455,6 +469,37 @@ export function BuyHero({
           onFrontChange={setFront}
         />
       </div>
+
+      {expanded && viewerSide && (
+        <FullscreenViewer
+          label={`${productName} preview`}
+          onClose={() => setViewerSide(null)}
+          options={
+            back
+              ? [
+                  { key: "front", label: "Front" },
+                  { key: "back", label: "Back" },
+                ]
+              : undefined
+          }
+          activeKey={shownSide}
+          onSelect={(key) => setViewerSide(key === "back" ? "back" : "front")}
+        >
+          <SideMockup
+            side={shownSide}
+            variant="hero"
+            display={displayFor(shownSide)}
+            colorHex={colorHex}
+            alt={altFor(shownSide)}
+            pendingLabel="Rendering exact preview…"
+            onMockupLoad={(url) => patchSlot(shownSide, { loadedMockupUrl: url })}
+            error={errorFor(shownSide)}
+            showSideLabel={false}
+            className="h-full w-full"
+            testId="viewer-side"
+          />
+        </FullscreenViewer>
+      )}
     </>
   );
 }

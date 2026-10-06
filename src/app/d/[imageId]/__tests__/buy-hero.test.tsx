@@ -427,3 +427,134 @@ describe("BuyHero starting from a link (#278)", () => {
     );
   });
 });
+
+describe("BuyHero lightbox (#285)", () => {
+  const FRONT_MOCK = "https://img.example/front-mock.jpg";
+  const BACK_MOCK = "https://img.example/back-mock.jpg";
+  const linkWithBack = {
+    expanded: true,
+    productId: null,
+    size: "L",
+    color: null,
+    back: { id: "back-1", imageUrl: "https://img.example/back-1.png" },
+    swapped: false,
+  };
+
+  beforeEach(() => {
+    frontMock.mockReset();
+    backMock.mockReset();
+    frontMock.mockResolvedValue({ mockupUrl: FRONT_MOCK });
+    backMock.mockResolvedValue({ mockupUrl: BACK_MOCK });
+  });
+
+  const openHero = () =>
+    fireEvent.click(
+      within(screen.getByTestId("side-hero")).getByRole("button", {
+        name: /^View larger: /,
+      })
+    );
+
+  it("opens the mockup once the panel is open, and Escape returns to the same page", async () => {
+    renderHero({ initialPicks: { ...linkWithBack, back: null } });
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId("side-hero")).getByAltText(/This design on a/)
+      ).toHaveAttribute("src", FRONT_MOCK)
+    );
+    openHero();
+    const side = screen.getByTestId("viewer-side");
+    expect(side).toHaveAttribute("data-side", "front");
+    expect(within(side).getByAltText(/This design on a/)).toHaveAttribute(
+      "src",
+      FRONT_MOCK
+    );
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByTestId("side-hero")).toBeInTheDocument();
+  });
+
+  it("opening and closing changes no URL and fires no fetch or history write", async () => {
+    renderHero({ initialPicks: { ...linkWithBack, back: null } });
+    await waitFor(() => expect(frontMock).toHaveBeenCalledTimes(1));
+    await screen.findByAltText(/This design on a/);
+    const replaceState = vi.spyOn(window.history, "replaceState");
+    const pushState = vi.spyOn(window.history, "pushState");
+    const href = window.location.href;
+    const writes = replaceState.mock.calls.length;
+
+    openHero();
+    fireEvent.click(screen.getByTestId("fullscreen-viewer-close"));
+
+    expect(window.location.href).toBe(href);
+    expect(replaceState.mock.calls.length).toBe(writes);
+    expect(pushState).not.toHaveBeenCalled();
+    expect(frontMock).toHaveBeenCalledTimes(1);
+    expect(backMock).not.toHaveBeenCalled();
+    replaceState.mockRestore();
+    pushState.mockRestore();
+  });
+
+  it("opened while the mockup is still rendering, shows the instant layer, then the mockup when it lands", async () => {
+    const d = deferred<{ mockupUrl: string }>();
+    frontMock.mockReturnValue(d.promise);
+    renderHero({ initialPicks: { ...linkWithBack, back: null } });
+    await waitFor(() => expect(frontMock).toHaveBeenCalled());
+    openHero();
+    const side = screen.getByTestId("viewer-side");
+    expect(within(side).getByTestId("side-mockup-instant")).toBeInTheDocument();
+    expect(within(side).queryByTestId("side-mockup-exact")).toBeNull();
+    await act(async () => {
+      d.resolve({ mockupUrl: FRONT_MOCK });
+    });
+    expect(within(side).getByTestId("side-mockup-exact")).toBeInTheDocument();
+    expect(frontMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("a failed render shows its message and Retry in the viewer; Retry does not close it", async () => {
+    frontMock.mockRejectedValueOnce(new Error("boom"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    renderHero({ initialPicks: { ...linkWithBack, back: null } });
+    await screen.findAllByText("Couldn't render the preview.");
+    const heroButton = within(screen.getByTestId("side-hero")).getByRole(
+      "button",
+      { name: /^View larger: / }
+    );
+    fireEvent.click(heroButton);
+    const side = screen.getByTestId("viewer-side");
+    fireEvent.click(within(side).getByRole("button", { name: "Retry preview" }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    await waitFor(() => expect(frontMock).toHaveBeenCalledTimes(2));
+  });
+
+  it("with a back, opens on the hero's side and the switch moves to the other without changing the page", async () => {
+    renderHero({ backEnabled: true, initialPicks: linkWithBack });
+    await waitFor(() => expect(backMock).toHaveBeenCalled());
+    openHero();
+    expect(screen.getByTestId("viewer-side")).toHaveAttribute("data-side", "front");
+    expect(screen.getByTestId("fullscreen-viewer-option-front")).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    fireEvent.click(screen.getByTestId("fullscreen-viewer-option-back"));
+    expect(screen.getByTestId("viewer-side")).toHaveAttribute("data-side", "back");
+    fireEvent.click(screen.getByTestId("fullscreen-viewer-close"));
+    // The page's own prominent side did not move.
+    expect(screen.getByTestId("side-hero")).toHaveAttribute("data-side", "front");
+    expect(screen.getByTestId("side-tile")).toHaveAttribute("data-side", "back");
+  });
+
+  it("after the tile was tapped (back is the hero), the viewer opens on the back", async () => {
+    renderHero({ backEnabled: true, initialPicks: linkWithBack });
+    await waitFor(() => expect(backMock).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "Show back large" }));
+    openHero();
+    expect(screen.getByTestId("viewer-side")).toHaveAttribute("data-side", "back");
+  });
+
+  it("without a back there is no switch", async () => {
+    renderHero({ initialPicks: { ...linkWithBack, back: null } });
+    await waitFor(() => expect(frontMock).toHaveBeenCalled());
+    openHero();
+    expect(screen.queryByTestId("fullscreen-viewer-option-back")).toBeNull();
+  });
+});

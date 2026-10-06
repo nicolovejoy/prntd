@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { SideMockup } from "../side-mockup";
 import type { HeroDisplay } from "@/lib/instant-preview";
+import { INSET_FOCUS_RING } from "@/lib/focus-ring";
 
 const ready: HeroDisplay = {
   showError: false,
@@ -247,6 +248,31 @@ describe("SideMockup", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Show the back large" }));
     expect(onSelect).toHaveBeenCalledTimes(1);
+  });
+
+  it("the select button carries the two-tone focus ring, drawn by a pseudo-element above the layers", () => {
+    render(
+      <SideMockup
+        side="front"
+        variant="hero"
+        display={ready}
+        colorHex="#0c0c0c"
+        alt="front mockup"
+        pendingLabel="Final preview loading…"
+        onMockupLoad={noop}
+        onSelect={noop}
+        selectLabel="View larger"
+      />
+    );
+    const cls = screen.getByRole("button", { name: "View larger" }).className;
+    expect(cls).toContain(INSET_FOCUS_RING);
+    expect(INSET_FOCUS_RING).toContain("focus-visible:after:z-30");
+    expect(INSET_FOCUS_RING).toContain("focus-visible:after:border-foreground");
+    expect(INSET_FOCUS_RING).toContain("focus-visible:after:outline-background");
+    // -4, not -2: the paper outline must sit at 2-4px, inside the 2px ink
+    // border. At -2 it paints over the border and only paper shows. Class
+    // strings cannot show the overdraw; this pins the value that fixed it.
+    expect(INSET_FOCUS_RING).toContain("focus-visible:after:-outline-offset-4");
   });
 
   it("renders no select button when onSelect is absent", () => {

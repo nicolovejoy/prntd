@@ -6,6 +6,7 @@ import {
   type HeroDisplay,
   type Side,
 } from "@/lib/instant-preview";
+import { INSET_FOCUS_RING } from "@/lib/focus-ring";
 
 export type { Side };
 
@@ -159,7 +160,7 @@ export function SideMockup({
           type="button"
           aria-label={selectLabel}
           onClick={onSelect}
-          className={`absolute inset-0 block w-full h-full ${
+          className={`absolute inset-0 block w-full h-full ${INSET_FOCUS_RING} ${
             tile ? "cursor-pointer" : "cursor-zoom-in"
           }`}
         >
