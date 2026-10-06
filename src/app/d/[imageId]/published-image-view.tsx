@@ -83,9 +83,11 @@ export function PublishedImageView({
         >
           <button
             type="button"
-            aria-label="View larger"
+            aria-label={`View larger: ${alt}`}
             onClick={() => setViewing(true)}
-            className="block w-full cursor-zoom-in"
+            // Inset outline: the card is overflow-hidden, which would clip
+            // the browser's default outside-the-box focus ring.
+            className="block w-full cursor-zoom-in focus-visible:outline-2 focus-visible:outline-foreground focus-visible:-outline-offset-2"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img

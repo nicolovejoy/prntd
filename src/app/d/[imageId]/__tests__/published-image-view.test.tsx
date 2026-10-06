@@ -27,7 +27,7 @@ function renderView(canEdit = false, color: string | null = "Black") {
 describe("PublishedImageView lightbox (#285)", () => {
   it("opens the artwork on its pinned backdrop from a View larger button", () => {
     renderView();
-    fireEvent.click(screen.getByRole("button", { name: "View larger" }));
+    fireEvent.click(screen.getByRole("button", { name: "View larger: Fox" }));
     const viewer = screen.getByRole("dialog");
     const img = viewer.querySelector("img")!;
     expect(img).toHaveAttribute("src", "https://img.example/art.png");
@@ -42,18 +42,18 @@ describe("PublishedImageView lightbox (#285)", () => {
 
   it("Escape closes it and the card is still there", () => {
     renderView();
-    fireEvent.click(screen.getByRole("button", { name: "View larger" }));
+    fireEvent.click(screen.getByRole("button", { name: "View larger: Fox" }));
     fireEvent.keyDown(window, { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(
-      screen.getByRole("button", { name: "View larger" })
+      screen.getByRole("button", { name: "View larger: Fox" })
     ).toBeInTheDocument();
   });
 
   it("works for the owner, whose picker stays under the card", () => {
     renderView(true);
-    expect(screen.getByRole("button", { name: "View larger" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "View larger" }));
+    expect(screen.getByRole("button", { name: "View larger: Fox" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "View larger: Fox" }));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
@@ -62,12 +62,20 @@ describe("PublishedImageView lightbox (#285)", () => {
     // The picker is the only other group of buttons; pick White by name.
     fireEvent.click(screen.getByRole("button", { name: "White" }));
     await waitFor(() => expect(updatePublishedNaming).toHaveBeenCalled());
-    fireEvent.click(screen.getByRole("button", { name: "View larger" }));
+    fireEvent.click(screen.getByRole("button", { name: "View larger: Fox" }));
     const img = screen.getByRole("dialog").querySelector("img")!;
     const probe = document.createElement("div");
     probe.style.backgroundColor = getColorHex(DEFAULT_BLANK_ID, "White");
     expect((img.parentElement as HTMLElement).style.backgroundColor).toBe(
       probe.style.backgroundColor
     );
+  });
+
+  it("keeps the artwork's alt in the button's name and an inset focus ring that overflow-hidden cannot clip", () => {
+    renderView();
+    const btn = screen.getByRole("button", { name: "View larger: Fox" });
+    expect(btn.className).toContain("focus-visible:outline-2");
+    expect(btn.className).toContain("focus-visible:outline-foreground");
+    expect(btn.className).toContain("focus-visible:-outline-offset-2");
   });
 });
