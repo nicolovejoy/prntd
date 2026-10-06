@@ -16,6 +16,7 @@ import {
 } from "./helpers/db";
 import { waitForSessionCookie } from "./helpers/session";
 import { signUpFreshAccount } from "./helpers/auth";
+import { waitForHydrated } from "./helpers/hydration";
 
 test("the owner of an unpublished image can order it; a second signed-in user gets the not-found page (#278)", async ({
   page,
@@ -39,10 +40,12 @@ test("the owner of an unpublished image can order it; a second signed-in user ge
     expect(imageId, "seeded design has no primary image").toBeTruthy();
     const imagePath = `/d/${imageId}`;
 
-    // The page offers Order (not a link out to /preview): tap it, pick a
-    // size, and the Order button, which carries the total only once a size is
-    // picked, is enabled.
+    // The page offers Order (an in-page button, not a link to another page):
+    // tap it, pick a size, and the Order button, which carries the total only
+    // once a size is picked, is enabled. The collapsed panel is
+    // server-rendered, so wait for React to attach before the first tap.
     await page.goto(imagePath);
+    await waitForHydrated(page.getByTestId("order-expand"));
     await page.getByTestId("order-expand").click();
     await expect(page).not.toHaveURL(/\/preview/);
     await page.getByRole("button", { name: "L", exact: true }).click();
@@ -82,7 +85,11 @@ test("switching to another image of the conversation with the panel open keeps s
     await seedConversationImage(designId, ownerId, second, "https://placehold.co/1024x1024/png?text=B");
 
     await page.goto(`/d/${first}?order=1&product=bella-canvas-3001&size=L&color=Black`);
-    await expect(page.getByText("Total")).toBeVisible({ timeout: 30_000 });
+    // Both the panel (which reports its picks) and the strip are
+    // server-rendered; wait for each to hydrate before tapping (Total is in
+    // the server HTML, so it proves nothing; see helpers/hydration.ts).
+    await waitForHydrated(page.getByRole("button", { name: /^Order/ }));
+    await waitForHydrated(page.getByTestId("conversation-image-thumb"));
     await page.getByTestId("conversation-image-thumb").first().click();
     await page.getByTestId("image-lightbox").getByRole("link", { name: "Open" }).click();
 

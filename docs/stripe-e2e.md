@@ -112,14 +112,15 @@ The publishable key is inlined at build. A local run needs both variables set
 in the local env file before the build that `npm run e2e:stripe` triggers, and
 port 3100 free so no stale build is reused.
 
-The iframe and field selectors were written without a live run, so the first
-run is a calibration run: update the candidates in `embeddedStripeRoot` and
-`completeStripeCheckout` in `e2e/stripe-money-path.spec.ts`. The image detail
-page test has not been run either: besides those, its guesses are that the
-link's picks leave a `Total` row on screen (the wait for hydration) and the
-Order button labelled `Order — $<total>` and clickable as the first `/^Order/`
-button, and that `/checkout` shows
-`checkout-preview` for it.
+The image detail page renders its buy panel on the server from the link's
+picks, so the `Total` row and an enabled Order or Add to cart button are in the
+HTML before React has attached any handler, and a click that lands then does
+nothing. The specs therefore wait on `waitForHydrated` (`e2e/helpers/hydration.ts`),
+which checks the clicked element for the `__reactFiber$` / `__reactProps$`
+property React sets when it hydrates a node, before the first click on the
+page. If a React upgrade makes that wait time out, check those key prefixes
+first. The Order button is `Order — $<total>` once a size is picked and is
+matched as the first `/^Order/` button; `/checkout` shows `checkout-preview`.
 
 ## Pull request e2e
 

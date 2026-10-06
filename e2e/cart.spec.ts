@@ -1,9 +1,9 @@
 /**
  * Multi-item cart (#26 Stage B), as a guest: seed two designs owned by the
  * browser's anonymous user, add both to the cart from each image's image
- * detail page, check the
- * bundled-shipping invariant (charged once per order, flat across items), and
- * hit the purchase gate (guests are sent to sign-in at checkout).
+ * detail page, check the bundled-shipping invariant (charged once per order,
+ * flat across items), and hit the purchase gate (guests are sent to sign-in at
+ * checkout).
  */
 import { test, expect, type Page } from "@playwright/test";
 import {
@@ -14,6 +14,7 @@ import {
   primaryImageIdForDesign,
 } from "./helpers/db";
 import { waitForSessionCookie } from "./helpers/session";
+import { waitForHydrated } from "./helpers/hydration";
 
 const PRODUCT = "bella-canvas-3001";
 // Distinct per design so the two cart lines' thumbnails are actually
@@ -43,10 +44,13 @@ async function addToCartFromImagePage(page: Page, designId: string) {
   expect(imageId, "seeded design has no primary image").toBeTruthy();
   // The link's size pre-selects visibly (no silent default), so no extra click.
   await page.goto(`/d/${imageId}?order=1&product=${PRODUCT}&color=Black&size=M`);
-  // The Total row renders only once the panel is open with a size, i.e. after
-  // hydration, so the click below can't land before its handler.
+  // The panel is server-rendered from the link's picks, Total and the button
+  // included, so neither proves the page is interactive. Wait for React to
+  // hydrate the button itself (see helpers/hydration.ts) before clicking.
+  const addToCart = page.getByRole("button", { name: "Add to cart" });
   await expect(page.getByText("Total")).toBeVisible({ timeout: 30_000 });
-  await page.getByRole("button", { name: "Add to cart" }).first().click();
+  await waitForHydrated(addToCart);
+  await addToCart.first().click();
   await page.waitForURL(/\/cart/);
 
   // #101 guard. The flake was never "the cart is empty" — the browser landed
