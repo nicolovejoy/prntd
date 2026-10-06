@@ -6,13 +6,14 @@
  * next/navigation and the client form component.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import CheckoutPage from "../page";
 import { embeddedCheckoutPath } from "@/lib/embedded-checkout";
 
 const h = vi.hoisted(() => ({
   loadEmbeddedCheckout: vi.fn(),
   session: null as unknown,
+  formRenders: vi.fn(),
 }));
 
 vi.mock("@/lib/embedded-checkout-session", () => ({
@@ -37,16 +38,16 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("../embedded-checkout-form", () => ({
-  EmbeddedCheckoutForm: (props: {
-    publishableKey: string;
-    clientSecret: string;
-  }) => (
-    <div
-      data-testid="embedded-checkout-form-mock"
-      data-secret={props.clientSecret}
-      data-key={props.publishableKey}
-    />
-  ),
+  EmbeddedCheckoutForm: (props: { publishableKey: string; clientSecret: string }) => {
+    h.formRenders();
+    return (
+      <div
+        data-testid="embedded-checkout-form-mock"
+        data-secret={props.clientSecret}
+        data-key={props.publishableKey}
+      />
+    );
+  },
 }));
 
 const VALID_SESSION = "cs_test_abc123";
@@ -283,5 +284,36 @@ describe("CheckoutPage", () => {
     render(await renderCheckout({ session: VALID_SESSION }));
 
     expect(screen.getByText("Back design")).toBeInTheDocument();
+  });
+
+  it("opening the lightbox leaves the payment form's element and render count alone (#285)", async () => {
+    h.loadEmbeddedCheckout.mockResolvedValue({
+      kind: "ready",
+      clientSecret: "cs_secret_abc",
+      publishableKey: "pk_test_abc123",
+      summary: [
+        {
+          productName: "Classic Tee",
+          color: "Black",
+          size: "M",
+          quantity: 1,
+          frontImageUrl: "https://img.example/front.png",
+          backImageUrl: null,
+          colorHex: "#0c0c0c",
+          mockupUrl: null,
+        },
+      ],
+    });
+    h.formRenders.mockClear();
+    render(await renderCheckout({ session: VALID_SESSION }));
+    const form = screen.getByTestId("embedded-checkout-form-mock");
+    const rendersBefore = h.formRenders.mock.calls.length;
+
+    fireEvent.click(screen.getByRole("button", { name: "View larger" }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    expect(screen.getByTestId("embedded-checkout-form-mock")).toBe(form);
+    expect(h.formRenders.mock.calls.length).toBe(rendersBefore);
   });
 });
