@@ -172,10 +172,9 @@ export async function addToCart(params: {
   } else {
     if (!params.designId) throw new Error("designId or frontImageId required");
     designId = params.designId;
-    // Owner check (#251), mirroring createCheckoutSession: this entry is
-    // /preview's, which only ever operates on the viewer's own design (it
-    // loads the design via getDesign, which already throws for a design the
-    // viewer doesn't own). Without this check, a design id — public on any
+    // Owner check (#251), mirroring createCheckoutSession: this entry is the
+    // design-id one (the former /preview path), which only ever operates on
+    // the viewer's own design. Without this check, a design id — public on any
     // published image via getImagePage's sourceDesignId — let any caller cart
     // the design's CURRENT primary image, private or not, with no ownership
     // check at all. A cross-owner add must go through frontImageId instead,
