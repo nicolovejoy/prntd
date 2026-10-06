@@ -211,6 +211,17 @@ describe("siblingImageHref", () => {
     expect(url.searchParams.has("size")).toBe(false);
   });
 
+  it("leaves product and colour out when the buyer has not chosen them", () => {
+    const url = new URL(
+      siblingImageHref("img-c", { ...OPEN, product: null, color: null }),
+      "http://x.invalid"
+    );
+    expect(url.searchParams.get("order")).toBe("1");
+    expect(url.searchParams.get("size")).toBe("L");
+    expect(url.searchParams.has("product")).toBe(false);
+    expect(url.searchParams.has("color")).toBe(false);
+  });
+
   it("carries the back and the swap", () => {
     const url = new URL(
       siblingImageHref("img-c", { ...OPEN, back: "img-x", swap: true }),

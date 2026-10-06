@@ -99,12 +99,14 @@ export function parseIdParam(raw: string | string[] | undefined): string | null 
 /**
  * The buy panel's picks while it is open, as the page's other links need them
  * (#278 slice 4); null while it is collapsed. Reported by the panel through
- * `buy-panel-picks-context.tsx`.
+ * `buy-panel-picks-context.tsx`. `product` and `color` are null until the
+ * buyer chose them, so a sibling image opened from an untouched default takes
+ * its own product default and pinned backdrop.
  */
 export type OpenBuyPanelPicks = {
-  product: string;
+  product: string | null;
   size: string | null;
-  color: string;
+  color: string | null;
   back: string | null;
   swap: boolean;
 } | null;

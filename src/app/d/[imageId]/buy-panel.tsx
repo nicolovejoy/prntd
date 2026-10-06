@@ -305,21 +305,35 @@ export function BuyPanel({
 
   // Tell the page what the open panel holds (#278 slice 4), so the links to
   // this conversation's other images carry the same shirt. Null while
-  // collapsed, so a browsing visitor's links stay plain.
+  // collapsed, so a browsing visitor's links stay plain. Product and colour go
+  // up only once chosen: an untouched default is not a pick, so a sibling
+  // opened from it takes its own pinned backdrop. The cleanup clears the
+  // report when the panel unmounts.
   const reportPicks = useReportBuyPanelPicks();
   useEffect(() => {
     reportPicks(
       expanded
         ? {
-            product: productId,
+            product: productChosen ? productId : null,
             size,
-            color,
+            color: colorChosen ? color : null,
             back: back?.id ?? null,
             swap: swapped && !!back,
           }
         : null
     );
-  }, [reportPicks, expanded, productId, size, color, back, swapped]);
+    return () => reportPicks(null);
+  }, [
+    reportPicks,
+    expanded,
+    productChosen,
+    productId,
+    size,
+    colorChosen,
+    color,
+    back,
+    swapped,
+  ]);
 
   // Back from hosted Stripe can restore this page from the back/forward cache
   // with its state as it was when the buyer left: the button on "Redirecting…"
