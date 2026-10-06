@@ -89,6 +89,74 @@ export function buyPageHref(
   return qs ? `/d/${imageId}?${qs}` : `/d/${imageId}`;
 }
 
+/** A raw query value as an image or design id, or null: the rule `back` and
+ * `line` use, for callers outside the pick set (the `/preview` redirect's
+ * `id` and `front`). */
+export function parseIdParam(raw: string | string[] | undefined): string | null {
+  return id({ value: raw }, "value");
+}
+
+/**
+ * The buy panel's picks while it is open, as the page's other links need them
+ * (#278 slice 4); null while it is collapsed. Reported by the panel through
+ * `buy-panel-picks-context.tsx`.
+ */
+export type OpenBuyPanelPicks = {
+  product: string;
+  size: string | null;
+  color: string;
+  back: string | null;
+  swap: boolean;
+} | null;
+
+/**
+ * Link from the image detail page to another image of the same conversation.
+ * While the panel is open it carries the panel's picks, so switching the image
+ * keeps product, size and colour: this replaces `/preview`'s front picker
+ * (Nico, 2026-10-01: no utility lost). The back and the swap ride along unless
+ * the sibling IS the back image, where they are dropped. Collapsed, it is the
+ * plain link.
+ */
+export function siblingImageHref(
+  siblingId: string,
+  open: OpenBuyPanelPicks,
+  from?: string | null
+): string {
+  if (!open) return buyPageHref(siblingId, { from: from ?? null });
+  const keepBack = open.back !== null && open.back !== siblingId;
+  return buyPageHref(siblingId, {
+    order: true,
+    product: open.product,
+    size: open.size,
+    color: open.color,
+    back: keepBack ? open.back : null,
+    swap: keepBack && open.swap,
+    from: from ?? null,
+  });
+}
+
+/**
+ * The conversation page's Order (#278 slice 4): the image detail page of the
+ * image shown at `imageUrl` (the conversation page tracks images by URL), with
+ * the panel open and, for a product-version link, that product. Null when the
+ * URL names no image in the list. `from=/studio`: the conversation page hangs
+ * off the Studio, and the image page's back arrow returns there.
+ */
+export function conversationOrderHref(
+  images: ReadonlyArray<{ id: string; url: string }>,
+  imageUrl: string | null,
+  productId?: string
+): string | null {
+  if (!imageUrl) return null;
+  const image = images.find((img) => img.url === imageUrl);
+  if (!image) return null;
+  return buyPageHref(image.id, {
+    order: true,
+    product: productId ?? null,
+    from: "/studio",
+  });
+}
+
 /** `search` with the pick params replaced; other params (`from`) are kept. */
 export function withBuyPagePicks(
   search: string,
