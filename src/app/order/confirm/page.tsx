@@ -15,9 +15,9 @@ import {
 type Search = Promise<Record<string, string | string[] | undefined>>;
 
 /**
- * The order row (and its stripeSessionId) is written before the Stripe
- * session is created, so by the time Stripe sends them back here the row
- * already exists — there is no race with the webhook to guard against for the
+ * The order row is written before the Stripe session is created, and its
+ * stripeSessionId is saved right after, so by the time Stripe sends the buyer
+ * back here the row already exists — there is no race with the webhook to guard against for the
  * receipt, which renders no field the webhook writes (ruling P3). The one
  * webhook-written field it does read is `abandoned` (set when a delayed
  * payment fails), and the processing → failed change is a race with the
