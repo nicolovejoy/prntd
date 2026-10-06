@@ -22,20 +22,6 @@ export type Crumb = { label: string; href: string };
 // from a top-level hub while signed in.
 export const HOME: Crumb = { label: "Home", href: "/" };
 
-/** Build a query string from whichever of `keys` are present in `params`. */
-function query(
-  params: Record<string, string | undefined>,
-  keys: string[]
-): string {
-  const usp = new URLSearchParams();
-  for (const k of keys) {
-    const v = params[k];
-    if (v) usp.set(k, v);
-  }
-  const s = usp.toString();
-  return s ? `?${s}` : "";
-}
-
 /**
  * A design detail (/d/[id]) is reachable from several hubs. We record the
  * origin in ?from so "up" returns there; shared links with no origin fall
@@ -85,21 +71,17 @@ export function detailFrom(
 }
 
 /**
- * Ancestor crumbs for `pathname`, nearest-last. Funnel pages (/design →
- * /preview → /order/confirm) share one spine and thread id / product through
- * their hrefs so stepping up lands on a fully-formed URL. /order itself only
- * redirects to /preview, so it has no trail. Top-level hubs sit directly
- * under Home. Unknown routes return [].
+ * Ancestor crumbs for `pathname`, nearest-last. The conversation page hangs
+ * off the Studio, the image detail page off the origin recorded in `from`, and
+ * the order confirmation page off order history. /order and /preview only
+ * redirect, so they have no trail. Top-level hubs sit directly under Home.
+ * Unknown routes return [].
  */
 export function breadcrumbTrail(
   pathname: string,
   params: Record<string, string | undefined> = {}
 ): Crumb[] {
   const studio: Crumb = { label: "Studio", href: "/studio" };
-  const designStep: Crumb = {
-    label: "Design",
-    href: `/design${query(params, ["id"])}`,
-  };
 
   if (pathname === "/") return [];
 
@@ -114,12 +96,11 @@ export function breadcrumbTrail(
   }
 
   if (pathname === "/cart") return [HOME];
-  // The thread and the preview hang off the Studio bench, not My Designs:
-  // the bench is where a conversation you are still working on lives.
+  // The thread hangs off the Studio bench, not My Designs: the bench is where
+  // a conversation you are still working on lives.
   if (pathname === "/design") return [HOME, studio];
-  if (pathname === "/preview") return [HOME, studio, designStep];
-  // Terminal success page: its only useful "up" is order history — the
-  // funnel /preview needs an id we no longer carry post-checkout.
+  // Terminal success page: its only useful "up" is order history — the buy
+  // page needs an id we no longer carry post-checkout.
   if (pathname === "/order/confirm")
     return [HOME, { label: "Orders", href: "/orders" }];
 

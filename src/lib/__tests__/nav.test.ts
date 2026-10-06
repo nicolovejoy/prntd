@@ -34,18 +34,17 @@ describe("breadcrumbTrail", () => {
     }
   });
 
-  it("builds the funnel spine and threads id into hrefs", () => {
+  it("hangs the conversation page off the Studio", () => {
     const params = { id: "abc", product: "bella-canvas-3001", color: "Black" };
 
     expect(breadcrumbTrail("/design", params).map((c) => c.label)).toEqual([
       "Home",
       "Studio",
     ]);
+  });
 
-    expect(breadcrumbTrail("/preview", params).at(-1)).toEqual({
-      label: "Design",
-      href: "/design?id=abc",
-    });
+  it("has no trail for /preview (redirect-only route)", () => {
+    expect(breadcrumbTrail("/preview", { id: "abc" })).toEqual([]);
   });
 
   it("has no trail for /order (redirect-only route)", () => {
@@ -57,13 +56,6 @@ describe("breadcrumbTrail", () => {
       HOME,
       { label: "Orders", href: "/orders" },
     ]);
-  });
-
-  it("omits absent params from funnel hrefs", () => {
-    expect(breadcrumbTrail("/preview", {}).at(-1)).toEqual({
-      label: "Design",
-      href: "/design",
-    });
   });
 
   it("uses the recorded origin as the detail page's parent", () => {
@@ -101,13 +93,8 @@ describe("breadcrumbTrail", () => {
     });
   });
 
-  it("puts the thread and the preview under the Studio", () => {
+  it("puts the thread under the Studio", () => {
     expect(upTarget("/design")).toEqual({ label: "Studio", href: "/studio" });
-    expect(breadcrumbTrail("/preview", { id: "d1" })).toEqual([
-      HOME,
-      { label: "Studio", href: "/studio" },
-      { label: "Design", href: "/design?id=d1" },
-    ]);
   });
 
   it("nests admin detail pages under Admin", () => {
@@ -128,9 +115,9 @@ describe("breadcrumbTrail", () => {
 
 describe("upTarget", () => {
   it("is the immediate parent (last crumb)", () => {
-    expect(upTarget("/preview", { id: "x" })).toEqual({
-      label: "Design",
-      href: "/design?id=x",
+    expect(upTarget("/d/img1", { from: "/orders" })).toEqual({
+      label: "Orders",
+      href: "/orders",
     });
   });
 
