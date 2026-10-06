@@ -29,6 +29,7 @@ import { buyPagePlacements, type PlacementPick } from "@/lib/placement-pins";
 import { addToCart } from "@/app/cart/actions";
 import { buyPublishedDesign, getBuyPageBackSources } from "../actions";
 import { MONO_LABEL } from "./mono-label";
+import { useReportBuyPanelPicks } from "./buy-panel-picks-context";
 import { ADD_TO_CART_FAILED, CHECKOUT_FAILED } from "@/lib/action-copy";
 
 /** An image on one side of the shirt: the source image id and its artwork
@@ -93,8 +94,8 @@ export function BuyPanel({
   /** Multi-placement flag && signed-in (#25/#72 on /d). The server action
    * re-checks both — this only controls the affordance. */
   backEnabled?: boolean;
-  /** CART_ENABLED (#146). Same gating as /preview: flag + size picked; no
-   * auth gate — guests have carts (the auth gate stays at checkout). */
+  /** CART_ENABLED (#146). Add to cart needs the flag and a size; no auth
+   * gate — guests have carts (the auth gate stays at checkout). */
   cartEnabled?: boolean;
   /** Peer CTA rendered next to Order while collapsed and kept below the
    * stack once expanded (the StartFromImage remix action). */
@@ -302,6 +303,38 @@ export function BuyPanel({
     window.history.replaceState(window.history.state, "", next);
   }, [expanded, productId, size, color, back, swapped]);
 
+  // Tell the page what the open panel holds (#278 slice 4), so the links to
+  // this conversation's other images carry the same shirt. Null while
+  // collapsed, so a browsing visitor's links stay plain. Product and colour go
+  // up only once chosen: an untouched default is not a pick, so a sibling
+  // opened from it takes its own pinned backdrop. The cleanup clears the
+  // report when the panel unmounts.
+  const reportPicks = useReportBuyPanelPicks();
+  useEffect(() => {
+    reportPicks(
+      expanded
+        ? {
+            product: productChosen ? productId : null,
+            size,
+            color: colorChosen ? color : null,
+            back: back?.id ?? null,
+            swap: swapped && !!back,
+          }
+        : null
+    );
+    return () => reportPicks(null);
+  }, [
+    reportPicks,
+    expanded,
+    productChosen,
+    productId,
+    size,
+    colorChosen,
+    color,
+    back,
+    swapped,
+  ]);
+
   // Back from hosted Stripe can restore this page from the back/forward cache
   // with its state as it was when the buyer left: the button on "Redirecting…"
   // and the URL sync switched off. A persisted pageshow means exactly that, so
@@ -445,8 +478,8 @@ export function BuyPanel({
         ...(sides.back ? { back: sides.back.id } : {}),
         ...(frontOverride ? { front: frontOverride } : {}),
       });
-      // Same post-add affordance as /preview: a hard navigation to the cart
-      // (not router.push — see preview/page.tsx handleAddToCart).
+      // A hard navigation to the cart, not router.push: a concurrent header
+      // action can swallow a client-side push (see CLAUDE.md, Runtime gotchas).
       window.location.href = "/cart";
     } catch {
       navigatingAway.current = false;
@@ -455,7 +488,7 @@ export function BuyPanel({
     }
   }
 
-  // Add to cart is gated the way /preview gates it: flag + size picked. No
+  // Add to cart is gated on the flag and a picked size. No
   // auth gate — guests have carts; sign-in is required only at checkout.
   const addToCartButton = cartEnabled ? (
     <Button

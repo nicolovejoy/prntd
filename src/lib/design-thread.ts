@@ -28,8 +28,8 @@ export interface DesignThreadData {
 /**
  * Load a design thread for its owner. Returns null for a missing design or
  * one owned by someone else — callers render the empty-thread view either
- * way, matching the old per-piece action behavior (getDesign's null /
- * Unauthorized both left the page empty).
+ * way, matching the per-piece actions it replaced (a missing or foreign design
+ * left the page empty).
  */
 export async function getDesignThreadData(
   designId: string,

@@ -73,7 +73,7 @@ export async function getUserImageLibrary(
       // (closed_at) or away (status, which is what deleteDesign leaves behind
       // for an ordered design) — marks its images, it does not hide them.
       // Hiding an ordered design's artwork would take the reorder route with
-      // it, since /d is how a design reaches /preview now.
+      // it, since the image detail page is how a design reaches checkout.
       .where(eq(imageTable.ownerId, userId))
       // created_at is seconds-resolution, so same-second inserts need the
       // rowid tiebreak to order deterministically (getDesignSourceImages

@@ -165,8 +165,9 @@ jobs:
       # Next's server-action reducer ends every action by navigating to the
       # canonicalUrl the action was dispatched from; /preview always has a
       # background action in flight, and one landing after router.push("/cart")
-      # undoes the push. /preview now leaves via a document navigation
-      # (src/app/preview/page.tsx). These flags stay as belt-and-suspenders:
+      # undoes the push. The buy surface (now the image detail page's panel,
+      # src/app/d/[imageId]/buy-panel.tsx) leaves via a document navigation.
+      # These flags stay as belt-and-suspenders:
       #   --workers=1  : serialize the two projects so they don't add load to
       #                  one self-hosted server (local `npm run e2e` keeps
       #                  default parallelism — unchanged).

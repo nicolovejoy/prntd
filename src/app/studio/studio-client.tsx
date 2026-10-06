@@ -14,7 +14,7 @@ import {
 } from "react";
 import type { RefObject } from "react";
 import { Button, EmptyState, useConfirm } from "@/components/ui";
-import { previewOrderHref } from "@/lib/placement-pins";
+import { buyPageHref } from "@/lib/buy-page-picks";
 import { ImageLightbox, type LightboxImage } from "@/app/design/image-lightbox";
 import {
   cancelGeneration,
@@ -1622,17 +1622,17 @@ function Lane({
                   Edit this one
                 </Button>
               )}
-              {/* Straight to /preview (#269), skipping the image detail page.
-                  The shown image always rides as `front`, primary or not,
-                  so a later primary change can't swap what gets ordered.
-                  /preview bounces a conversation with no primary image to
-                  /design, so no Order for such a lane. */}
-              {!selectMode && lane.cells.some((c) => c.isPrimary) && (
+              {/* Order opens the shown image's image detail page with the
+                  panel open (one buy surface, #278 slice 4). The image is the
+                  page, so a later primary change can't swap what gets
+                  ordered, and no primary is needed: the page's own gate
+                  decides whether this viewer may order it. */}
+              {!selectMode && (
                 <Link
-                  href={previewOrderHref(
-                    lane.designId,
-                    lane.cells[lightboxIndex].imageId
-                  )}
+                  href={buyPageHref(lane.cells[lightboxIndex].imageId, {
+                    order: true,
+                    from: "/studio",
+                  })}
                   data-testid="lightbox-order"
                   // Mirrors Button's primary variant (src/components/ui/button.tsx); it is a link, so it can't use Button.
                   className="inline-flex min-h-11 items-center rounded-md border border-foreground px-4 text-sm font-medium text-foreground transition-colors hover:bg-surface-well"

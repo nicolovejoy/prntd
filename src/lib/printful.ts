@@ -298,8 +298,8 @@ import type { MockupPosition } from "./blanks";
 
 /**
  * Submit a mockup-generator task. `variantIds` is an array — Printful
- * renders one mockup per variant in a single task, which is how we batch
- * the prefetch fan-out into a single API call.
+ * renders one mockup per variant in a single task. The image detail page
+ * passes one variant per task.
  */
 export async function createMockupTask(
   printfulProductId: number,
