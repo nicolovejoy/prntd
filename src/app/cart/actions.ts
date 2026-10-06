@@ -30,6 +30,7 @@ import {
 import { resolveBuyPageFront } from "@/lib/placement-pins";
 import { estimateOrderCosts } from "@/lib/printful";
 import { stripe } from "@/lib/stripe";
+import { abandonSessionlessOrder } from "@/lib/order-checkout";
 import { buildCartCheckoutSessionParams } from "@/lib/checkout";
 import { cartEnabled } from "@/lib/flags";
 import { cartLineStillValid } from "@/lib/cart-line-check";
@@ -358,7 +359,9 @@ export async function getCart(): Promise<CartView> {
  * order_item rows and charges N product lines + one bundled shipping line;
  * the cart itself is cleared by the webhook on payment (#38). Every line is
  * re-checked first (`cartLineStillValid`); any stale line refuses the whole
- * checkout with `{ error }` and writes nothing.
+ * checkout with `{ error }` and writes nothing. If Stripe throws, the order is
+ * marked abandoned (`abandonSessionlessOrder`), the error is re-thrown, and the
+ * cart is left as it was.
  */
 export async function checkoutCart(): Promise<{
   url: string | null;
@@ -415,22 +418,31 @@ export async function checkoutCart(): Promise<{
     ),
   ]);
 
-  const checkoutSession = await stripe.checkout.sessions.create(
-    buildCartCheckoutSessionParams({
-      orderId,
-      designId: head.designId,
-      lineItems: view.items.map((i) => ({
-        name: i.productName,
-        description: `${i.color} / ${i.size}${i.hasBack ? " · front + back" : ""}`,
-        imageUrl: i.imageUrl,
-        unitPrice: i.unitPrice,
-        quantity: i.quantity,
-      })),
-      shippingPrice: view.shipping,
-      cancelUrl: `${process.env.NEXT_PUBLIC_APP_URL}/cart`,
-      appUrl: process.env.NEXT_PUBLIC_APP_URL!,
-    })
-  );
+  let checkoutSession: Awaited<ReturnType<typeof stripe.checkout.sessions.create>>;
+  try {
+    checkoutSession = await stripe.checkout.sessions.create(
+      buildCartCheckoutSessionParams({
+        orderId,
+        designId: head.designId,
+        lineItems: view.items.map((i) => ({
+          name: i.productName,
+          description: `${i.color} / ${i.size}${i.hasBack ? " · front + back" : ""}`,
+          imageUrl: i.imageUrl,
+          unitPrice: i.unitPrice,
+          quantity: i.quantity,
+        })),
+        shippingPrice: view.shipping,
+        cancelUrl: `${process.env.NEXT_PUBLIC_APP_URL}/cart`,
+        appUrl: process.env.NEXT_PUBLIC_APP_URL!,
+      })
+    );
+  } catch (err) {
+    // The order and lines are already written. Mark the order abandoned so it
+    // does not linger as a session-less pending order (#289), and re-throw the
+    // Stripe error unchanged. The cart is untouched, so the buyer can retry.
+    await abandonSessionlessOrder(orderId);
+    throw err;
+  }
 
   await db
     .update(orderTable)
