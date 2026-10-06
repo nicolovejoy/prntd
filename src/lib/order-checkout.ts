@@ -4,12 +4,45 @@
 // Server Action. Callers own auth, pricing and image guards.
 import { db } from "@/lib/db";
 import { order as orderTable, orderItem as orderItemTable } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { stripe } from "@/lib/stripe";
 import { computeOrderTotal } from "@/lib/pricing";
 import { buildCheckoutSessionParams } from "@/lib/checkout";
 import { embeddedCheckoutPath } from "@/lib/embedded-checkout";
 import { resolveOrderVariant } from "@/lib/blanks";
+
+/**
+ * Marks a checkout that never got a Stripe session as abandoned (#289). The
+ * order and its lines are inserted before Stripe is called, so a Stripe error
+ * would otherwise leave a `pending` order with no session id behind. This sets
+ * the same `abandoned_at` that `checkout.session.expired` sets; the rows stay,
+ * so a webhook for a session that was paid anyway can still claim the order.
+ *
+ * Conditional like `handleStripeCheckoutExpired`: only a still-pending,
+ * not-yet-abandoned order with no session id is touched. Never throws: it
+ * runs inside a catch block, and a failure here must not replace the Stripe
+ * error the caller is about to re-throw.
+ */
+export async function abandonSessionlessOrder(orderId: string): Promise<void> {
+  try {
+    await db
+      .update(orderTable)
+      .set({ abandonedAt: new Date(), updatedAt: new Date() })
+      .where(
+        and(
+          eq(orderTable.id, orderId),
+          eq(orderTable.status, "pending"),
+          isNull(orderTable.abandonedAt),
+          isNull(orderTable.stripeSessionId)
+        )
+      );
+  } catch (err) {
+    console.error(
+      `Order ${orderId}: could not mark abandoned after a Stripe error (non-fatal):`,
+      err instanceof Error ? err.message : String(err)
+    );
+  }
+}
 
 /**
  * Shared order-creation + Stripe-checkout step for the single-item purchase
@@ -19,7 +52,10 @@ import { resolveOrderVariant } from "@/lib/blanks";
  * cart builds its own session in `checkoutCart`. Inserts the order row,
  * creates the Stripe session with `buildCheckoutSessionParams`, persists
  * the session id, and returns the redirect URL. Callers own auth, pricing, image-pinning
- * and the cancel URL; this owns the parts that would otherwise drift.
+ * and the cancel URL; this owns the parts that would otherwise drift. If
+ * creating the Stripe session throws (including building its params), the
+ * order is marked abandoned (`abandonSessionlessOrder`) and the error is
+ * re-thrown unchanged.
  */
 export async function createStripeCheckoutForOrder(params: {
   userId: string;
@@ -98,23 +134,29 @@ export async function createStripeCheckoutForOrder(params: {
     }),
   ]);
 
-  const checkoutSession = await stripe.checkout.sessions.create(
-    buildCheckoutSessionParams({
-      orderId,
-      designId: params.designId,
-      productName,
-      color: params.color,
-      size: params.size,
-      itemPrice: item,
-      shippingPrice: shipping,
-      imageUrl: params.checkoutImageUrl,
-      cancelUrl: params.cancelUrl,
-      appUrl: params.embedded
-        ? params.embedded.returnOrigin
-        : process.env.NEXT_PUBLIC_APP_URL!,
-      uiMode: params.embedded ? "embedded" : "hosted",
-    })
-  );
+  let checkoutSession: Awaited<ReturnType<typeof stripe.checkout.sessions.create>>;
+  try {
+    checkoutSession = await stripe.checkout.sessions.create(
+      buildCheckoutSessionParams({
+        orderId,
+        designId: params.designId,
+        productName,
+        color: params.color,
+        size: params.size,
+        itemPrice: item,
+        shippingPrice: shipping,
+        imageUrl: params.checkoutImageUrl,
+        cancelUrl: params.cancelUrl,
+        appUrl: params.embedded
+          ? params.embedded.returnOrigin
+          : process.env.NEXT_PUBLIC_APP_URL!,
+        uiMode: params.embedded ? "embedded" : "hosted",
+      })
+    );
+  } catch (err) {
+    await abandonSessionlessOrder(orderId);
+    throw err;
+  }
 
   await db
     .update(orderTable)
