@@ -510,6 +510,22 @@ test.describe("stripe money path", { tag: "@stripe" }, () => {
         timeout: 30_000,
       });
 
+      // Lightbox (#285): opening and closing the viewer over the summary
+      // leaves Stripe's iframe element in place.
+      const stripeFrame = await page
+        .locator('iframe[name^="embedded-checkout"], iframe[src*="embedded-checkout"]')
+        .first()
+        .elementHandle();
+      expect(stripeFrame, "no Stripe iframe on /checkout").not.toBeNull();
+      await page
+        .getByTestId("checkout-preview")
+        .getByRole("button", { name: "View larger" })
+        .click();
+      await expect(page.getByTestId("fullscreen-viewer")).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(page.getByTestId("fullscreen-viewer")).toHaveCount(0);
+      expect(await stripeFrame!.evaluate((el) => el.isConnected)).toBe(true);
+
       await completeStripeCheckout(
         await embeddedStripeRoot(page),
         `e2e-buyer-${key}@prntd.test`
