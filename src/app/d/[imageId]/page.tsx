@@ -19,6 +19,7 @@ import { PublishedImageView } from "./published-image-view";
 import { BuyHero } from "./buy-hero";
 import { StartFromImage } from "./start-from-image";
 import { ConversationImages } from "./conversation-images";
+import { BuyPanelPicksProvider } from "./buy-panel-picks-context";
 import { OwnerActions } from "./owner-actions";
 import {
   backToResolve,
@@ -156,7 +157,10 @@ export default async function PublishedImagePage({
   return (
     <div className="min-h-screen flex flex-col">
       <main className="flex-1 px-4 py-6 pb-[calc(13rem+env(safe-area-inset-bottom))] md:py-8 md:pb-8">
-        <div className="max-w-3xl mx-auto space-y-4">
+        {/* The panel reports its open picks to the conversation strip's links
+            through this provider (#278 slice 4), so it wraps both. It is also
+            the page's column container. */}
+        <BuyPanelPicksProvider className="max-w-3xl mx-auto space-y-4">
           {/* Desktop shows the full trail; on mobile the breadcrumb row is
               dropped to save vertical space — a floating back arrow over the
               image (below) takes its place. */}
@@ -194,9 +198,8 @@ export default async function PublishedImagePage({
                 // for a signed-in viewer) and flag-gated; the server action
                 // re-checks both.
                 backEnabled={isLoggedIn && multiPlacementEnabled()}
-                // Add to cart mirrors /preview's gating: flag + size picked,
-                // no auth gate (guests have carts; checkout gates sign-in,
-                // #146).
+                // Add to cart needs the flag and a picked size, no auth gate
+                // (guests have carts; checkout gates sign-in, #146).
                 cartEnabled={cartEnabled()}
                 initialPicks={initialPicks}
                 startAction={<StartFromImage imageId={img.imageId} />}
@@ -246,7 +249,7 @@ export default async function PublishedImagePage({
               from={from}
             />
           )}
-        </div>
+        </BuyPanelPicksProvider>
       </main>
     </div>
   );

@@ -7,10 +7,9 @@
  * cross-owner caller could cart — and a real account could buy — a seller's
  * current primary image even when it is private/unpublished.
  *
- * /preview is the only real caller of this path, and it loads the design via
- * `getDesign`, which already throws `Unauthorized` for a design the viewer
- * doesn't own — so a cross-owner designId can never legitimately reach
- * addToCart from the UI. This test proves the server action refuses it too,
+ * /preview was the only real caller of this path (it is a redirect now, so the
+ * UI sends none), and a cross-owner designId never legitimately reached
+ * addToCart from it. This test proves the server action refuses it itself,
  * the same way `createCheckoutSession` does, rather than trusting the caller.
  *
  * Proves:

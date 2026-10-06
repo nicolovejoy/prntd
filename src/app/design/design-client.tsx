@@ -36,6 +36,7 @@ import { MobileGalleryDrawer } from "./mobile-gallery-drawer";
 import { MobileGalleryStrip } from "./mobile-gallery-strip";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
+import { conversationOrderHref } from "@/lib/buy-page-picks";
 import { isDesignEmpty, sourcesToGalleryImages, conversationToggleError } from "@/lib/design-view";
 import {
   DELETE_IMAGE_ERROR,
@@ -749,8 +750,8 @@ function DesignPageInner({ initialThreadPromise, canPublish }: Props) {
 
   // Stage thumbnail tap (#147): promote the image to the design's primary and
   // lead with it. Same semantics as the lightbox's "Order" for this
-  // image minus the navigation — so the hero, /preview, and the My Designs
-  // card thumbnail never disagree about which image the design is.
+  // image minus the navigation — so the hero, the image detail page and the
+  // My Designs card thumbnail never disagree about which image the design is.
   async function handleSelectImage(imageUrl: string) {
     setSelectedImage(imageUrl);
     try {
@@ -760,21 +761,27 @@ function DesignPageInner({ initialThreadPromise, canPublish }: Props) {
     }
   }
 
+  // Order (#278 slice 4): the image detail page of the image in question,
+  // panel open. Nothing happens if the URL names no image in this thread.
+  function openOrder(imageUrl: string | null, productId?: string) {
+    const href = conversationOrderHref(images, imageUrl, productId);
+    if (href) router.push(href);
+  }
+
   function handleMakeProducts() {
-    if (!selectedImage) return;
-    router.push(`/preview?id=${designId.current}`);
+    openOrder(selectedImage);
   }
 
   async function handleMakeProductsForImage(imageUrl: string) {
-    // selectImage promotes this image to primary_image_id first, so
-    // /preview anchors on the user's pick rather than the latest.
+    // The conversation's primary still follows the pick (#147), so the hero
+    // and the My Designs card agree with what the buyer chose to order.
     await selectImage(designId.current, imageUrl);
     setSelectedImage(imageUrl);
-    router.push(`/preview?id=${designId.current}`);
+    openOrder(imageUrl);
   }
 
-  async function handleSelectProductVersion(productId: string) {
-    router.push(`/preview?id=${designId.current}&product=${productId}`);
+  function handleSelectProductVersion(productId: string) {
+    openOrder(selectedImage, productId);
   }
 
   const empty = isDesignEmpty(messages.length, images.length);

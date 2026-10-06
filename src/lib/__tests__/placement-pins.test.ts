@@ -1,74 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
-  normalizeFrontPin,
-  swapPlacementPins,
   resolveBuyPageFront,
   buyPagePlacements,
-  previewOrderHref,
-  withFront,
 } from "../placement-pins";
-
-describe("normalizeFrontPin", () => {
-  it("picking the primary is the default, not a pin", () => {
-    expect(normalizeFrontPin("img-primary", "img-primary")).toBeNull();
-  });
-
-  it("picking any other image is a pin", () => {
-    expect(normalizeFrontPin("img-other", "img-primary")).toBe("img-other");
-  });
-
-  it("with no primary known, any pick is a pin", () => {
-    expect(normalizeFrontPin("img-other", null)).toBe("img-other");
-  });
-});
-
-describe("swapPlacementPins", () => {
-  it("literally exchanges the two ids (§2)", () => {
-    expect(
-      swapPlacementPins({
-        frontImageId: "A",
-        backImageId: "B",
-        primaryImageId: "P",
-      })
-    ).toEqual({ front: "B", back: "A" });
-  });
-
-  it("a back that is the primary swaps in as the default front (null pin)", () => {
-    expect(
-      swapPlacementPins({
-        frontImageId: "A",
-        backImageId: "P",
-        primaryImageId: "P",
-      })
-    ).toEqual({ front: null, back: "A" });
-  });
-
-  it("the default front (primary) swaps out as an explicit back id", () => {
-    // Caller passes the EFFECTIVE front — the primary when unpinned — so the
-    // back keeps a concrete id, never null.
-    expect(
-      swapPlacementPins({
-        frontImageId: "P",
-        backImageId: "B",
-        primaryImageId: "P",
-      })
-    ).toEqual({ front: "B", back: "P" });
-  });
-
-  it("double swap restores the original pins", () => {
-    const once = swapPlacementPins({
-      frontImageId: "P",
-      backImageId: "B",
-      primaryImageId: "P",
-    });
-    const twice = swapPlacementPins({
-      frontImageId: once.front ?? "P",
-      backImageId: once.back!,
-      primaryImageId: "P",
-    });
-    expect(twice).toEqual({ front: null, back: "B" });
-  });
-});
 
 describe("resolveBuyPageFront (#138 slice 3, swap only)", () => {
   it("no front → the page image", () => {
@@ -137,25 +71,5 @@ describe("buyPagePlacements (#138 slice 3)", () => {
       front: added,
       back: page,
     });
-  });
-});
-
-describe("previewOrderHref", () => {
-  it("always names the front image, primary or not", () => {
-    expect(previewOrderHref("design-1", "img-9")).toBe(
-      "/preview?id=design-1&front=img-9"
-    );
-  });
-});
-
-describe("withFront", () => {
-  it("adds the front to a query that lacks it, keeping the rest", () => {
-    expect(withFront("?id=d1&size=M", "img-1")).toBe("?id=d1&size=M&front=img-1");
-  });
-  it("replaces an existing front", () => {
-    expect(withFront("?id=d1&front=old", "img-1")).toBe("?id=d1&front=img-1");
-  });
-  it("leaves the query alone when no front is known yet", () => {
-    expect(withFront("?id=d1", null)).toBe("?id=d1");
   });
 });

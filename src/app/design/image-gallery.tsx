@@ -27,7 +27,7 @@ export function ImageGallery({
       {/* Header. The Dark/Light backdrop toggle was removed (#147): it was a
           debugging control sitting as a peer of the content. Transparent art
           shows on the house paper well; judging it on a real shirt colour is
-          /preview's job. */}
+          the image detail page's job. */}
       <div className="p-4 border-b border-border">
         <h2 className="text-sm font-medium text-foreground">
           Generations{images.length > 0 && ` (${images.length})`}

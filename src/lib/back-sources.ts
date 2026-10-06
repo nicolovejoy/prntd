@@ -1,6 +1,6 @@
 /**
- * Back-design source groups for the /preview picker (#72) and the /d buy
- * page (getBuyPageBackSourceGroups).
+ * Back-design source groups for the image detail page's picker (#72,
+ * getBuyPageBackSourceGroups).
  *
  * The back of a shirt can print any of three image origins:
  *  - This design: the current thread's source images (the original picker).
@@ -33,8 +33,8 @@ import {
 /**
  * Validate a placement-source image id before it can reach an order (#72).
  * Allowed origins mirror the picker groups below: a design the buyer owns
- * (which covers the order's own thread on /preview and /order, where design
- * ownership is checked first) or a published + not-hidden Shop image.
+ * (which covers the order's own thread, where design ownership is checked
+ * first) or a published + not-hidden Shop image.
  * Throws on anything else — called at the checkout choke points
  * (createCheckoutSession, addToCart, buyPublishedDesign) so a forged id
  * can't get a private image printed. On a Shop buy of a published image
@@ -75,12 +75,10 @@ const MAX_RENDER_HOPS = 5;
  * exists, or was never recorded (a legacy render with no source can't be
  * judged), and when the chain is longer than MAX_RENDER_HOPS or loops.
  *
- * The pin and render choke points call it: `assertUsablePlacementImage`,
- * `getOrCreatePlacementRender`, and `renderAndCacheMockup`, which runs it on
- * every explicit source before its cached-mockup and placement-render lookups
- * can answer. Orders that already pin a render are not re-judged.
- * `prefetchProductMockups` reads the design's own primary's renders without
- * calling it; its callers check design ownership first.
+ * The pin and render choke points call it: `assertUsablePlacementImage` and
+ * `renderAndCacheMockup`, which runs it on every source before its
+ * cached-mockup and placement-render lookups can answer. Orders that already
+ * pin a render are not re-judged.
  */
 export async function placementSourceUsable(
   image: ImageWithOwner,
@@ -191,8 +189,8 @@ export async function getBackSourceGroups(params: {
 /**
  * Picker groups for the image detail page's buy panel (/d/[imageId]). On a
  * published image the buyer usually does NOT own the image's source design, so
- * the groups differ from /preview's; on the owner's own unpublished image they
- * do own it and get /preview's groups:
+ * the groups differ from the owner's; on the owner's own unpublished image
+ * they do own it and get all three:
  *
  *  - This design appears only when the viewer owns the source design — a
  *    cross-owner buyer must never see the seller's private thread images.
