@@ -40,7 +40,7 @@ const LABEL_CLASS =
  *
  * The image is shown larger, not sharper: mockups are fixed-size renders from
  * Printful, and zooming past their native pixels is upscaling. Measured sizes
- * (#285, Task 1): not measured..
+ * (#285, Task 1): not measured.
  */
 export function FullscreenViewer({
   label,
