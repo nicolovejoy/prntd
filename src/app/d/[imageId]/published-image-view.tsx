@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { updatePublishedNaming } from "@/app/designs/actions";
 import { publishedBackdrop, DEFAULT_PUBLISH_BACKGROUND } from "@/lib/blanks";
 import { BackgroundPicker } from "@/components/background-picker";
+import { FullscreenViewer } from "@/components/fullscreen-viewer";
+import { INSET_FOCUS_RING } from "@/lib/focus-ring";
 
 /**
  * The published design's image with its storefront backdrop. The owner gets
@@ -47,6 +49,7 @@ export function PublishedImageView({
     setBg(initialBackgroundColor ?? DEFAULT_PUBLISH_BACKGROUND);
   }
   const [pending, startTransition] = useTransition();
+  const [viewing, setViewing] = useState(false);
   const backdrop = publishedBackdrop(bg);
 
   function pick(color: string) {
@@ -69,25 +72,56 @@ export function PublishedImageView({
   }
 
   return (
-    <div className="space-y-3">
-      {/* 1px bordered card on paper; the fill inside is the listing's pinned
-          backdrop, which stays a real colour because it is the buyer's
-          garment-colour choice (design review, Paper note). */}
-      <div
-        className={`rounded-lg overflow-hidden border border-border ${backdrop.className}`}
-        style={backdrop.style}
-      >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={imageUrl}
-          alt={alt}
-          className="w-full h-auto max-h-[40vh] md:max-h-none object-contain mx-auto"
-        />
+    <>
+      <div className="space-y-3">
+        {/* 1px bordered card on paper; the fill inside is the listing's pinned
+            backdrop, which stays a real colour because it is the buyer's
+            garment-colour choice (design review, Paper note). The image is a
+            button: a tap opens it larger (#285). */}
+        <div
+          className={`rounded-lg overflow-hidden border border-border ${backdrop.className}`}
+          style={backdrop.style}
+        >
+          <button
+            type="button"
+            aria-label={`View larger: ${alt}`}
+            onClick={() => setViewing(true)}
+            // The card is overflow-hidden, which would clip the browser's
+            // default focus ring; see INSET_FOCUS_RING.
+            className={`relative block w-full cursor-zoom-in ${INSET_FOCUS_RING}`}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={imageUrl}
+              alt={alt}
+              className="w-full h-auto max-h-[40vh] md:max-h-none object-contain mx-auto"
+            />
+          </button>
+        </div>
+
+        {canEdit && (
+          <BackgroundPicker value={bg} onChange={pick} disabled={pending} />
+        )}
       </div>
 
-      {canEdit && (
-        <BackgroundPicker value={bg} onChange={pick} disabled={pending} />
+      {viewing && (
+        <FullscreenViewer
+          label="Design, larger view"
+          onClose={() => setViewing(false)}
+        >
+          <div
+            className={`h-full w-full ${backdrop.className}`}
+            style={backdrop.style}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={imageUrl}
+              alt={alt}
+              className="h-full w-full object-contain"
+            />
+          </div>
+        </FullscreenViewer>
       )}
-    </div>
+    </>
   );
 }
