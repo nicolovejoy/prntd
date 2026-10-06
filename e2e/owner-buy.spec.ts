@@ -99,6 +99,7 @@ test("switching to another image of the conversation with the panel open keeps s
     expect(params.get("size")).toBe("L");
     expect(params.get("color")).toBe("Black");
     await expect(page.getByRole("button", { name: "L", exact: true }).first()).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("button", { name: "Black", exact: true }).first()).toHaveAttribute("aria-pressed", "true");
   } finally {
     await cleanupDesigns(seeded);
     if (ownerId) await cleanupUser(ownerId);
