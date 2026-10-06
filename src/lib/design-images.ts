@@ -287,9 +287,8 @@ export async function insertDesignImage(params: {
 }
 
 /**
- * Look up an existing placement-targeted render for a design. Used as
- * a cache-hit short-circuit so re-clicking the same product doesn't
- * re-spend Ideogram credits.
+ * Look up an existing placement-targeted render of one source image for a
+ * design: the cache the mockup render reads before it prints the source as-is.
  *
  * Returns the most recent matching row (latest wins if there are
  * multiple, which can happen if an earlier rewrite landed before
@@ -299,11 +298,10 @@ export async function findPlacementRender(
   designId: string,
   productId: string,
   placementId: string,
-  /** When set, only match a render anchored on this exact source image (#25).
-   * Non-front placements pick from multiple sources, so the cache must key on
-   * the pick — otherwise two back choices collide on one (design,product,back)
-   * row. Front passes nothing → legacy behavior (one render per product). */
-  sourceImageId?: string
+  /** Only a render anchored on this exact source image matches (#25). Front
+   * and back both pick from multiple sources, so the lookup keys on the pick;
+   * without it two choices collide on one (design,product,placement) row. */
+  sourceImageId: string
 ): Promise<{ id: string; imageUrl: string; aspectRatio: AspectRatio } | null> {
   const rows = await db
     .select({
@@ -317,9 +315,7 @@ export async function findPlacementRender(
         eq(placementRenderTable.designId, designId),
         eq(placementRenderTable.blankId, productId),
         eq(placementRenderTable.placementId, placementId),
-        ...(sourceImageId
-          ? [eq(placementRenderTable.sourceImageId, sourceImageId)]
-          : [])
+        eq(placementRenderTable.sourceImageId, sourceImageId)
       )
     )
     .orderBy(desc(placementRenderTable.createdAt), RENDER_SEQ_DESC)
@@ -723,7 +719,9 @@ export async function getDesignPlacementRenders(
  * most recent source image (product_id IS NULL). Null when neither.
  *
  * Use this everywhere a design's "main image URL" is needed —
- * card thumbnails, hydration, mockup gen fallback.
+ * card thumbnails, hydration. Callers today: the order actions, admin pages,
+ * the Stripe webhook, order emails, the retry-fulfillment cron and
+ * design-thread.
  */
 export async function getDesignDisplayImageUrl(
   designId: string

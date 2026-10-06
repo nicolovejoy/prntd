@@ -12,9 +12,11 @@ import {
   cleanupDesigns,
   cleanupUser,
   primaryImageIdForDesign,
+  seedConversationImage,
 } from "./helpers/db";
 import { waitForSessionCookie } from "./helpers/session";
 import { signUpFreshAccount } from "./helpers/auth";
+import { waitForHydrated } from "./helpers/hydration";
 
 test("the owner of an unpublished image can order it; a second signed-in user gets the not-found page (#278)", async ({
   page,
@@ -38,15 +40,18 @@ test("the owner of an unpublished image can order it; a second signed-in user ge
     expect(imageId, "seeded design has no primary image").toBeTruthy();
     const imagePath = `/d/${imageId}`;
 
-    // The page offers Order (not a link out to /preview): tap it, pick a
-    // size, and the Order button, which carries the total only once a size is
-    // picked, is enabled.
+    // The page offers Order (an in-page button, not a link to another page):
+    // tap it, pick a size, and the Order button, which carries the total only
+    // once a size is picked, is enabled. The collapsed panel is
+    // server-rendered, so wait for React to attach before the first tap.
     await page.goto(imagePath);
 
     // Lightbox (#285), artwork while the panel is closed: opens, locks the
     // page behind it, and Escape returns to the same URL.
     const urlBefore = page.url();
-    await page.getByRole("button", { name: "View larger" }).click();
+    const viewLarger = page.getByRole("button", { name: "View larger" });
+    await waitForHydrated(viewLarger);
+    await viewLarger.click();
     const viewer = page.getByTestId("fullscreen-viewer");
     await expect(viewer).toBeVisible();
     await expect(page.getByTestId("fullscreen-viewer-close")).toBeFocused();
@@ -56,6 +61,7 @@ test("the owner of an unpublished image can order it; a second signed-in user ge
     expect(await page.evaluate(() => document.body.style.overflow)).toBe("");
     expect(page.url()).toBe(urlBefore);
 
+    await waitForHydrated(page.getByTestId("order-expand"));
     await page.getByTestId("order-expand").click();
     await expect(page).not.toHaveURL(/\/preview/);
     await page.getByRole("button", { name: "L", exact: true }).click();
@@ -92,5 +98,40 @@ test("the owner of an unpublished image can order it; a second signed-in user ge
     await cleanupDesigns(seeded);
     if (ownerId) await cleanupUser(ownerId);
     if (otherId) await cleanupUser(otherId);
+  }
+});
+
+test("switching to another image of the conversation with the panel open keeps size and colour (#278 slice 4)", async ({ page }, testInfo) => {
+  const key = `owner-sibling-${Date.now()}-${testInfo.project.name}`;
+  const seeded: string[] = [];
+  let ownerId = "";
+  try {
+    await signUpFreshAccount(page, key);
+    ownerId = await userIdForSessionCookie(await waitForSessionCookie(page));
+    const designId = await seedDesign(ownerId, key, "https://placehold.co/1024x1024/png?text=A");
+    seeded.push(designId);
+    const first = (await primaryImageIdForDesign(designId))!;
+    const second = `e2e-${key}-img2`;
+    await seedConversationImage(designId, ownerId, second, "https://placehold.co/1024x1024/png?text=B");
+
+    await page.goto(`/d/${first}?order=1&product=bella-canvas-3001&size=L&color=Black`);
+    // Both the panel (which reports its picks) and the strip are
+    // server-rendered; wait for each to hydrate before tapping (Total is in
+    // the server HTML, so it proves nothing; see helpers/hydration.ts).
+    await waitForHydrated(page.getByRole("button", { name: /^Order/ }));
+    await waitForHydrated(page.getByTestId("conversation-image-thumb"));
+    await page.getByTestId("conversation-image-thumb").first().click();
+    await page.getByTestId("image-lightbox").getByRole("link", { name: "Open" }).click();
+
+    await page.waitForURL((url) => url.pathname === `/d/${second}`, { timeout: 30_000 });
+    const params = new URL(page.url()).searchParams;
+    expect(params.get("order")).toBe("1");
+    expect(params.get("size")).toBe("L");
+    expect(params.get("color")).toBe("Black");
+    await expect(page.getByRole("button", { name: "L", exact: true }).first()).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("button", { name: "Black", exact: true }).first()).toHaveAttribute("aria-pressed", "true");
+  } finally {
+    await cleanupDesigns(seeded);
+    if (ownerId) await cleanupUser(ownerId);
   }
 });

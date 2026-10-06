@@ -248,14 +248,7 @@ describe("runtimeExports helper", () => {
 describe('"use server" export pins', () => {
   const pins: Record<string, string[]> = {
     "src/app/order/actions.ts": ["calculatePrice", "createCheckoutSession"],
-    "src/app/preview/actions.ts": [
-      "ensureMockupsPrefetched",
-      "generateMockup",
-      "getBackDesignSources",
-      "getLastPurchaseDefaults",
-      "getOrCreatePlacementRender",
-      "isMultiPlacementEnabled",
-    ],
+    "src/app/preview/actions.ts": ["getLastPurchaseDefaults"],
     "src/app/d/actions.ts": [
       "buyPublishedDesign",
       "getBuyPageBackSources",
@@ -294,7 +287,6 @@ describe('"use server" export pins', () => {
 describe("helpers moved out of use-server files", () => {
   const moved: [string, string][] = [
     ["src/lib/order-checkout.ts", "createStripeCheckoutForOrder"],
-    ["src/lib/mockup-prefetch.ts", "prefetchProductMockups"],
   ];
 
   for (const [file, name] of moved) {
@@ -313,6 +305,8 @@ describe("no \"use server\" file re-exposes a moved trusted-input helper", () =>
   // there directly (#251). runtimeExports already resolves `export { x }
   // from "./m"` and `export * as ns from "./m"` to their bound names, so a
   // re-export is caught the same way a direct export is.
+  // `prefetchProductMockups` is gone (the module was removed in #278 slice 4);
+  // the ban stops it from coming back as a Server Action.
   const bannedNames = ["createStripeCheckoutForOrder", "prefetchProductMockups"];
   const useServerFiles = listSourceFiles("src").filter((f) =>
     startsWithUseServer(read(f)),

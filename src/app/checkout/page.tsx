@@ -168,12 +168,11 @@ function StatusScreen({
  * from the first of these that exists (`loadCheckoutSummary`): the front
  * mockup keyed by the pinned front image (scale 100); else the design's
  * source-less front mockup, used only when the pinned front is the design's
- * current primary (the entry /preview and the prefetch write; every
- * primary move clears it, though a render already in flight can write it
- * back afterwards); else the artwork centered on a flat panel of
- * the shirt color, so the box is never empty. The per-line markup lives in
- * `checkout-line.tsx`, a client component, because a tap on the image opens
- * the full-window viewer (#285).
+ * current primary (nothing writes that entry since #278 slice 4, so only older
+ * designs have one; every primary move clears it); else the artwork centered
+ * on a flat panel of the shirt color, so the box is never empty. The per-line
+ * markup lives in `checkout-line.tsx`, a client component, because a tap on
+ * the image opens the full-window viewer (#285).
  */
 function ReviewBlock({ summary }: { summary: CheckoutLineSummary[] }) {
   return (

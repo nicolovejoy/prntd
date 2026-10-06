@@ -324,10 +324,9 @@ export async function getConversationImages(
 }
 
 /**
- * Source groups for the image detail page's back-design picker. Same shape as
- * /preview's getBackDesignSources, scoped for a buyer who usually doesn't own
- * the image's source design: My Designs + Shop, with This design only for the
- * owner (getBuyPageBackSourceGroups). Empty when the flag is off, when the
+ * Source groups for the image detail page's back-design picker, scoped for a
+ * buyer who usually doesn't own the image's source design: My Designs + Shop,
+ * with This design only for the owner (getBuyPageBackSourceGroups). Empty when the flag is off, when the
  * viewer isn't a signed-in, non-anonymous user, or when they may not order
  * this image (`resolveBuyableImage`, the gate `buyPublishedDesign` uses, so
  * the owner's own unpublished image gets groups and nobody else's does) — the
@@ -393,15 +392,15 @@ export async function resolveInitialBack(
  * hero (#135 slice 1). Gated like the buy itself (`resolveBuyableImage`:
  * published && !hidden for anyone, or the owner's own unpublished image
  * through a live conversation of theirs) — deliberately NOT ownership-gated
- * for published images, unlike `generateMockup` (`/preview`), because any
- * visitor who can see the Shop buy page must be able to see the mockup.
+ * for published images, because any visitor who can see the Shop buy page must
+ * be able to see the mockup.
  *
  * `sourceImageId` is `imageId` itself: the order pins
  * `placements.front = imageId` (see `buyPublishedDesign` below), which may
  * not be the design's primary image, so the mockup has to render the LISTED
  * image, not whatever the design currently displays. Scale is fixed at 1.0 —
- * there's no scale control on this page. Cache reuse (and the render body
- * itself) is shared with `generateMockup` via `renderAndCacheMockup`.
+ * there's no scale control on this page. Cache reuse and the render body are
+ * `renderAndCacheMockup`'s.
  *
  * After a swap (#138 slice 3) the front is the buyer's back pick, passed as
  * `frontImageId`. That source is held to exactly what `getListingBackMockup`
@@ -481,10 +480,11 @@ export async function getListingMockup(params: {
  *     placement before any write, and nothing is written here ahead of it,
  *     so a bad request can't poison the cache.
  *
- * Like the front, the picked image prints as-is (no
- * `getOrCreatePlacementRender`): every active blank's front and back
- * placements share an aspect, and this page has no reframe path. Scale is
- * fixed at 1.0 — no scale control on this page.
+ * Like the front, the picked image prints as-is: this page never creates a
+ * placement render (every active blank's front and back placements share an
+ * aspect, and there is no reframe path here). `renderAndCacheMockup` still
+ * uses a `placement_render` row already anchored on the picked image, if one
+ * exists. Scale is fixed at 1.0 — no scale control on this page.
  */
 export async function getListingBackMockup(params: {
   /** The page image (goes on the front). */
@@ -535,7 +535,7 @@ export async function getListingBackMockup(params: {
  *    one. The order records the image's mirror composition
  *    (`storeProductId`, `requireMirrorProduct`), so a Shop sale is attributed.
  *  - Unpublished: only its owner, and only when the image's conversation still
- *    exists and is theirs (the check `/preview` made). The order's designId is
+ *    exists and is theirs. The order's designId is
  *    that conversation and no composition is recorded, as for every
  *    design-your-own order.
  *
@@ -661,7 +661,7 @@ export async function buyPublishedDesign(params: {
   // composition. `storeId` stays null: this is the PRNTD Shop, not an
   // organizer storefront (buyStoreProduct owns that path). The owner's own
   // unpublished image has no composition and books none, like every
-  // design-your-own order (`/preview`); it is never given a mirror lookup, so
+  // design-your-own order; it is never given a mirror lookup, so
   // a stale draft mirror left by an unpublish cannot attach itself.
   const storeProductId = published
     ? await requireMirrorProduct(db, params.imageId)

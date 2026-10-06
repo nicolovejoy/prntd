@@ -1,8 +1,9 @@
 /**
  * Multi-item cart (#26 Stage B), as a guest: seed two designs owned by the
- * browser's anonymous user, add both to the cart from /preview, check the
- * bundled-shipping invariant (charged once per order, flat across items), and
- * hit the purchase gate (guests are sent to sign-in at checkout).
+ * browser's anonymous user, add both to the cart from each image's image
+ * detail page, check the bundled-shipping invariant (charged once per order,
+ * flat across items), and hit the purchase gate (guests are sent to sign-in at
+ * checkout).
  */
 import { test, expect, type Page } from "@playwright/test";
 import {
@@ -10,8 +11,10 @@ import {
   seedDesign,
   cleanupDesigns,
   cartItemsForUser,
+  primaryImageIdForDesign,
 } from "./helpers/db";
 import { waitForSessionCookie } from "./helpers/session";
+import { waitForHydrated } from "./helpers/hydration";
 
 const PRODUCT = "bella-canvas-3001";
 // Distinct per design so the two cart lines' thumbnails are actually
@@ -36,21 +39,24 @@ async function sessionCookie(page: Page): Promise<string> {
   );
 }
 
-async function addToCartFromPreviewPage(page: Page, designId: string) {
-  // URL `size` pre-selects visibly (no silent default), so no extra click.
-  await page.goto(
-    `/preview?id=${designId}&product=${PRODUCT}&color=Black&size=M`
-  );
-  // Pricing loads via a server action; the button is live before that, so
-  // wait for the total row to know the page is fully wired.
+async function addToCartFromImagePage(page: Page, designId: string) {
+  const imageId = await primaryImageIdForDesign(designId);
+  expect(imageId, "seeded design has no primary image").toBeTruthy();
+  // The link's size pre-selects visibly (no silent default), so no extra click.
+  await page.goto(`/d/${imageId}?order=1&product=${PRODUCT}&color=Black&size=M`);
+  // The panel is server-rendered from the link's picks, Total and the button
+  // included, so neither proves the page is interactive. Wait for React to
+  // hydrate the button itself (see helpers/hydration.ts) before clicking.
+  const addToCart = page.getByRole("button", { name: "Add to cart" });
   await expect(page.getByText("Total")).toBeVisible({ timeout: 30_000 });
-  await page.getByRole("button", { name: "Add to cart" }).click();
+  await waitForHydrated(addToCart);
+  await addToCart.first().click();
   await page.waitForURL(/\/cart/);
 
   // #101 guard. The flake was never "the cart is empty" — the browser landed
-  // on /cart and then bounced back to /preview a beat later, when a /preview
-  // server action that was still in flight resolved and Next navigated to the
-  // URL that action had been dispatched from. Hold the URL for a moment so a
+  // on /cart and then bounced back to the buy page a beat later, when a server
+  // action that was still in flight resolved and Next navigated to the URL
+  // that action had been dispatched from. Hold the URL for a moment so a
   // bounce fails here, loudly, instead of as a mystery 0-line-items count.
   await page.waitForTimeout(1_000);
   await expect(page).toHaveURL(/\/cart/);
@@ -73,7 +79,7 @@ test("guest cart: two items, bundled shipping, sign-in gate at checkout", async 
     seeded.push(await seedDesign(userId, `${key}-b`, IMAGE_B));
 
     // First item.
-    await addToCartFromPreviewPage(page, seeded[0]);
+    await addToCartFromImagePage(page, seeded[0]);
     await expect(page.getByTestId("cart-line-item")).toHaveCount(1, {
       timeout: 30_000,
     });
@@ -85,7 +91,7 @@ test("guest cart: two items, bundled shipping, sign-in gate at checkout", async 
     const oneItemShipping = await shippingAmount(page);
 
     // Second item — bundled shipping must not scale with item count.
-    await addToCartFromPreviewPage(page, seeded[1]);
+    await addToCartFromImagePage(page, seeded[1]);
     await expect(page.getByTestId("cart-line-item")).toHaveCount(2, {
       timeout: 30_000,
     });
@@ -105,8 +111,9 @@ test("guest cart: two items, bundled shipping, sign-in gate at checkout", async 
 
     // DB-level check of the checkout hand-off: both cart lines persist through
     // to the point of checkout, each still pointed at its own design and its
-    // own pinned front image (the /preview add-to-cart path pins the design's
-    // primary, so the two pins must differ the same way the designs do).
+    // own pinned front image (the image path pins the page image, which is
+    // each design's primary, so the two pins must differ the same way the
+    // designs do).
     const cartRows = await cartItemsForUser(userId);
     expect(cartRows.map((r) => r.designId).sort()).toEqual(
       [...seeded].sort()

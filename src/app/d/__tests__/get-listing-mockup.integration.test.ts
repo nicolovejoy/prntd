@@ -1,7 +1,7 @@
 /**
  * getListingMockup authorization matrix (#135 slice 1) — against a real
  * in-memory libSQL (the #28 pattern). This action is deliberately NOT
- * ownership-gated like /preview's generateMockup: anyone who can see the
+ * ownership-gated for published images: anyone who can see the
  * image detail page (canViewImagePage — published && !hidden, or the owner)
  * must be able to render its mockup. renderAndCacheMockup itself (Printful/
  * R2/cache) is covered separately in mockup-render.test.ts; this file mocks
