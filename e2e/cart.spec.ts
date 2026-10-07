@@ -130,3 +130,59 @@ test("guest cart: two items, bundled shipping, sign-in gate at checkout", async 
     await cleanupDesigns(seeded);
   }
 });
+
+test("cart line: quantity stepper and Edit save back to the same line (#282)", async ({
+  page
+}, testInfo) => {
+  const key = `${Date.now()}-${testInfo.project.name}-edit`;
+  const seeded: string[] = [];
+
+  try {
+    await page.goto("/design");
+    const cookie = await waitForSessionCookie(page);
+    const userId = await userIdForSessionCookie(cookie);
+    seeded.push(await seedDesign(userId, key, IMAGE_A));
+
+    // The same add as the test above: Black / M.
+    await addToCartFromImagePage(page, seeded[0]);
+
+    const line = page.getByTestId("cart-line-item");
+    await expect(line).toHaveCount(1, { timeout: 30_000 });
+    const quantity = page.getByTestId("cart-line-quantity");
+    await expect(quantity).toHaveText("1");
+
+    // Stepper: the buttons call server actions, so wait for hydration, then
+    // for the count to move.
+    const increase = page.getByRole("button", { name: "Increase quantity" });
+    await waitForHydrated(increase);
+    await increase.click();
+    await expect(quantity).toHaveText("2", { timeout: 30_000 });
+    await expect(
+      page.getByRole("button", { name: "Decrease quantity" })
+    ).toBeEnabled();
+
+    // Edit: opens the image detail page with the line's picks, in edit mode.
+    const lineText = await line.innerText();
+    const target = / \/ L\b/.test(lineText) ? "M" : "L";
+    await page.getByRole("link", { name: "Edit" }).click();
+    await expect(page).toHaveURL(/\/d\/[^?]+\?.*line=/, { timeout: 30_000 });
+    const save = page.getByTestId("save-to-cart").first();
+    await expect(save).toBeVisible({ timeout: 30_000 });
+    await waitForHydrated(save);
+
+    // Pick a size that differs from the line's current one, then save back.
+    await page.getByRole("button", { name: target, exact: true }).click();
+    await save.click();
+
+    await expect(page).toHaveURL(/\/cart$/, { timeout: 30_000 });
+    // Same line, new size, quantity kept: no second line was added.
+    await expect(page.getByTestId("cart-line-item")).toHaveCount(1);
+    await expect(page.getByTestId("cart-line-item")).toContainText(
+      ` / ${target}`
+    );
+    await expect(page.getByTestId("cart-line-quantity")).toHaveText("2");
+    expect(await cartItemsForUser(userId)).toHaveLength(1);
+  } finally {
+    await cleanupDesigns(seeded);
+  }
+});
