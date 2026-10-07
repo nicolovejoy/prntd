@@ -27,14 +27,15 @@ export const HOME: Crumb = { label: "Home", href: "/" };
  * origin in ?from so "up" returns there; shared links with no origin fall
  * back to the Shop, the public storefront. The Studio's lightbox Order and the
  * conversation page's Order links open the page with `from=/studio` (#278
- * slice 4), so "up" returns to the Studio bench.
+ * slice 4), so "up" returns to the Studio bench. A cart line's Edit link opens
+ * it with `from=/cart` (#282 slice 5), so "up" returns to the cart.
  *
  * The retired marker /prints, and /studio/library (My Designs' address
  * before nav model A moved it to /designs), still resolve — links carrying
  * them were shared before the move and outlive it.
  */
 /** The origins `detailParent` knows; any other `from` is treated as absent. */
-const DETAIL_ORIGINS = ["/designs", "/studio/library", "/orders", "/shop", "/prints", "/studio"];
+const DETAIL_ORIGINS = ["/designs", "/studio/library", "/orders", "/shop", "/prints", "/studio", "/cart"];
 
 function detailParent(from: string | undefined): Crumb {
   switch (from) {
@@ -45,6 +46,8 @@ function detailParent(from: string | undefined): Crumb {
       return { label: "Orders", href: "/orders" };
     case "/studio":
       return { label: "Studio", href: "/studio" };
+    case "/cart":
+      return { label: "Cart", href: "/cart" };
     case "/shop":
     case "/prints":
     default:

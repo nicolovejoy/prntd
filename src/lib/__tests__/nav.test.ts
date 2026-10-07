@@ -163,6 +163,11 @@ describe("detailFrom", () => {
     expect(detailFrom("/studio", true)).toBe("/studio");
   });
 
+  it("the image detail page hangs off the cart when opened from a cart line (#282)", () => {
+    const trail = breadcrumbTrail("/d/img-1", { from: detailFrom("/cart", true) });
+    expect(trail[trail.length - 1]).toEqual({ label: "Cart", href: "/cart" });
+  });
+
   it("without one, a private image falls back to My Designs and a published one to the Shop", () => {
     expect(breadcrumbTrail("/d/x", { from: detailFrom(undefined, false) }).at(-1)).toEqual({
       label: "My Designs",
