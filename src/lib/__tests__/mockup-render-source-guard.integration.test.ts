@@ -87,7 +87,7 @@ describe("renderAndCacheMockup refuses a source that is no longer usable, even w
   it("refuses an unpublished source whose back render is cached on the caller's design", async () => {
     const db = h.db as Db;
     const ids = await seed(db);
-    await db.delete(schema.listing).where(eq(schema.listing.imageId, ids.sellerImg));
+    await db.delete(schema.imagePublication).where(eq(schema.imagePublication.imageId, ids.sellerImg));
 
     await expect(call(ids)).rejects.toThrow("Source image is not available for this design");
     expect(printful.createMockupTask).not.toHaveBeenCalled();
@@ -104,7 +104,7 @@ describe("renderAndCacheMockup refuses a source that is no longer usable, even w
   it("refuses a cached mockup URL keyed on an unpublished source", async () => {
     const db = h.db as Db;
     const ids = await seed(db);
-    await db.delete(schema.listing).where(eq(schema.listing.imageId, ids.sellerImg));
+    await db.delete(schema.imagePublication).where(eq(schema.imagePublication.imageId, ids.sellerImg));
     await db
       .update(schema.design)
       .set({

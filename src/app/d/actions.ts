@@ -658,11 +658,10 @@ export async function buyPublishedDesign(params: {
   // slice-1 backfill converted the pre-existing listings), and the sellable
   // surfaces already read it — so a missing mirror means the image shouldn't
   // have been buyable at all. Fail loudly rather than book an order with no
-  // composition. `storeId` stays null: this is the PRNTD Shop, not an
-  // organizer storefront (buyStoreProduct owns that path). The owner's own
-  // unpublished image has no composition and books none, like every
-  // design-your-own order; it is never given a mirror lookup, so
-  // a stale draft mirror left by an unpublish cannot attach itself.
+  // composition. The owner's own unpublished image has no composition and
+  // books none, like every design-your-own order; it is never
+  // given a mirror lookup, so a stale draft mirror left by an unpublish cannot
+  // attach itself.
   const storeProductId = published
     ? await requireMirrorProduct(db, params.imageId)
     : null;

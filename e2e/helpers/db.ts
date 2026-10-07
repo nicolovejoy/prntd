@@ -91,12 +91,11 @@ export async function seedDesign(
 
 /**
  * Seed a PUBLISHED image owned by a throwaway seller account: the seller user,
- * a design and image (`seedDesign`), the `listing` visibility row, and the
- * Shop mirror `product` row the image detail page and the buy action read
- * (placements `{front: <imageId>}`, store_id and design_id NULL, status
- * listed). Lets a spec open a public image without a real generation or
- * publish. Clean up with `cleanupDesigns([designId])` (which also removes the
- * listing and the unordered mirror), then `cleanupUser(sellerId)`.
+ * a design and image (`seedDesign`), the `image_publication` visibility row,
+ * and the Shop mirror `product` row the image detail page and the buy action
+ * read (placements `{front: <imageId>}`, status listed). Lets a spec open a
+ * public image without a real generation or publish. Clean up with `cleanupDesigns([designId])` (which also removes the
+ * publication row and the unordered mirror), then `cleanupUser(sellerId)`.
  */
 export async function seedPublishedImage(
   key: string,
@@ -115,14 +114,14 @@ export async function seedPublishedImage(
     });
     await seedDesign(sellerId, key);
     await c.execute({
-      sql: `INSERT INTO listing (image_id, published_at, is_hidden, title, created_at)
-            VALUES (?, unixepoch(), 0, ?, unixepoch())
+      sql: `INSERT INTO image_publication (image_id, published_at, is_hidden, created_at)
+            VALUES (?, unixepoch(), 0, unixepoch())
             ON CONFLICT(image_id) DO NOTHING`,
-      args: [imageId, title],
+      args: [imageId],
     });
     await c.execute({
-      sql: `INSERT INTO product (id, owner_id, store_id, design_id, blank_id, placements, price, status, position, title, listed_at, created_at, updated_at)
-            VALUES (?, ?, NULL, NULL, NULL, ?, NULL, 'listed', 0, ?, unixepoch(), unixepoch(), unixepoch())
+      sql: `INSERT INTO product (id, owner_id, blank_id, placements, price, status, position, title, listed_at, created_at, updated_at)
+            VALUES (?, ?, NULL, ?, NULL, 'listed', 0, ?, unixepoch(), unixepoch(), unixepoch())
             ON CONFLICT(id) DO NOTHING`,
       args: [
         `e2e-${key}-mirror`,
@@ -151,25 +150,23 @@ export async function cleanupDesigns(designIds: string[]): Promise<void> {
     args: designIds,
   });
   // Model B rows: images key off the design's output links (or
-  // source_design_id), listings off the image ids, links + renders off
-  // design_id.
+  // source_design_id), publication rows off the image ids, links + renders
+  // off design_id.
   await c.execute({
-    sql: `DELETE FROM listing WHERE image_id IN (SELECT image_id FROM conversation_image WHERE design_id IN (${placeholders}))`,
+    sql: `DELETE FROM image_publication WHERE image_id IN (SELECT image_id FROM conversation_image WHERE design_id IN (${placeholders}))`,
     args: designIds,
   });
-  // Composition mirrors: a published image's Shop composition (store_id NULL,
-  // design_id NULL, placements {front: <imageId>}) exists BECAUSE of the
-  // image, so a spec that publishes must not leak it. Organizer products
-  // carry a store_id or a design_id and are cleanupStores' job. Mirrors an
-  // order points at (order.store_product_id FKs product) are left behind —
-  // orders are financial records this helper never deletes.
+  // Compositions: a published image's Shop composition (placements
+  // {front: <imageId>}, keyed by the generated front_image_id column) exists
+  // BECAUSE of the image, so a spec that publishes must not leak it.
+  // Compositions an order points at (order.store_product_id FKs product) are
+  // left behind — orders are financial records this helper never deletes.
   await c.execute({
     sql: `DELETE FROM product
-           WHERE store_id IS NULL AND design_id IS NULL
-             AND id NOT IN (
+           WHERE id NOT IN (
                SELECT store_product_id FROM "order" WHERE store_product_id IS NOT NULL
              )
-             AND json_extract(placements, '$.front') IN (
+             AND front_image_id IN (
                SELECT image_id FROM conversation_image WHERE design_id IN (${placeholders})
              )`,
     args: designIds,
@@ -381,26 +378,8 @@ export async function cleanupOrdersForDesigns(
 }
 
 /**
- * Remove the stores + products an organizer spec built through the UI.
- * Products first (FK to store + design), then stores. Scoped by owner so a
- * spec only deletes its own account's rows.
- */
-export async function cleanupStoresAndProducts(ownerId: string): Promise<void> {
-  if (!ownerId) return;
-  const c = db();
-  await c.execute({
-    sql: "DELETE FROM product WHERE owner_id = ?",
-    args: [ownerId],
-  });
-  await c.execute({
-    sql: "DELETE FROM store WHERE owner_id = ?",
-    args: [ownerId],
-  });
-}
-
-/**
  * Remove the throwaway account a spec signed up. Session + account rows FK to
- * user, so they go first. Call AFTER the user's designs/stores/products are
+ * user, so they go first. Call AFTER the user's designs/products are
  * cleaned (those also FK to user).
  */
 export async function cleanupUser(userId: string): Promise<void> {

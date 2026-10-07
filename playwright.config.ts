@@ -69,7 +69,6 @@ export default defineConfig({
         env: {
           GUEST_FUNNEL_ENABLED: "true",
           CART_ENABLED: "true",
-          STORES_ENABLED: "true",
           // Compiled build runs as NODE_ENV=production but is served on
           // localhost; let Better-Auth trust the localhost origin so the
           // sign-up/sign-in flow (origin-checked) works. Never set in real prod.

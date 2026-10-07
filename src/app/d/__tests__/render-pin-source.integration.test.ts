@@ -293,7 +293,7 @@ describe("a stranger's render of a seller's image follows the seller's image", (
 
     // Unpublished (listing gone) is refused the same way.
     await setPublication(db, ids.sellerPublishedId, { isHidden: false });
-    await db.delete(schema.listing).where(eq(schema.listing.imageId, ids.sellerPublishedId));
+    await db.delete(schema.imagePublication).where(eq(schema.imagePublication.imageId, ids.sellerPublishedId));
     await expect(
       addToCart({ designId: theirs.id, front: ownImage, back: r2, ...OPTS })
     ).rejects.toThrow("Back image is not available");

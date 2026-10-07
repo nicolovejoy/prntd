@@ -92,13 +92,15 @@ describe("getImageShareCard", () => {
     expect(await getImageShareCard(crypto.randomUUID())).toBeNull();
   });
 
-  it("reads the mirror product's title and backdrop, not the listing's", async () => {
+  it("reads the title and backdrop off the product composition", async () => {
     const imageId = await seed({
       publishedAt: new Date(),
       title: "Listing Title",
       backgroundColor: "Red",
     });
-    // Diverge the two halves: the mirror is what the card must follow.
+    // Patch the composition after publish: the card must follow it (the
+    // image_publication row beside it carries no sellable fields since
+    // composition slice 5).
     await testDb
       .update(schema.product)
       .set({ title: "Product Title", backdropColor: "Navy" })
@@ -110,7 +112,7 @@ describe("getImageShareCard", () => {
     });
   });
 
-  it("has no card once the mirror is hidden, even with the listing still visible", async () => {
+  it("has no card once the mirror is hidden, even with its publication row still visible", async () => {
     const imageId = await seed({ publishedAt: new Date(), title: "Rocket Cat" });
     await testDb
       .update(schema.product)

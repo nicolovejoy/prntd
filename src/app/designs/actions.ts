@@ -6,7 +6,7 @@ import { db } from "@/lib/db";
 import {
   design as designTable,
   image as imageTable,
-  listing as listingTable,
+  imagePublication as imagePublicationTable,
 } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
@@ -20,7 +20,7 @@ import { deleteObjectByKey, imageKeyFromUrl } from "@/lib/r2";
 import { requireStudioActionSession } from "@/lib/require-user";
 import type { ImageDeleteSkipReason } from "@/lib/library-view";
 import {
-  listingSyncStatement,
+  publicationSyncStatement,
   productMirrorStatement,
   findMirrorProduct,
   isImageAdminHidden,
@@ -75,15 +75,6 @@ export async function deleteDesign(
     return {};
   }
 
-  // product.design_id FKs this design; deleting would break the organizer's
-  // sellable. Surface it instead of dying on the constraint (server-action
-  // throws are masked in prod).
-  if (plan.productCount > 0) {
-    return {
-      error: "This design is used by a shop product. Delete the product first.",
-    };
-  }
-
   await executeDesignDeletion(db, plan);
   return {};
 }
@@ -128,8 +119,8 @@ export interface BulkImageDeleteResult {
  * storage, a thrown action costs the user a tile that is in fact deleted.
  *
  * When a deleted image was its home design's last one, `executeImageDeletion`
- * removes that conversation too — unless a running job, a cart line or a shop
- * product still points at it, and archiving instead when an order does (owner
+ * removes that conversation too — unless a running job or its own cart line
+ * still points at it, and archiving instead when an order does (owner
  * ruling, 2026-09-09; the full rule is on `removeDesignIfNowEmpty` in
  * delete-image.ts). `/studio` is revalidated whenever a conversation went, on
  * top of the library revalidation this action always does.
@@ -208,16 +199,16 @@ export async function deleteImages(
 
 
 /**
- * Publish an image to the discover feed: insert its `listing` visibility row
- * and list its mirror `product` row (the Shop composition, which since the
- * slice-4 cutover holds every sellable field).
+ * Publish an image to the discover feed: insert its `image_publication`
+ * visibility row and list its `product` row (the Shop composition, which
+ * since the slice-4 cutover holds every sellable field).
  * Auto-generates the title via Claude when the owner left it blank
  * (editable later via updatePublishedNaming). Descriptions are never
  * auto-generated (2026-07-29 review); only an explicit caller-supplied
  * one is stored. Subsequent calls are a no-op on already-published
  * images. Reversible via unpublishImage; admin moderation via the
- * listing's is_hidden removes from the feed. Refuses an admin-hidden image
- * (isImageAdminHidden).
+ * publication row's is_hidden removes from the feed. Refuses an admin-hidden
+ * image (isImageAdminHidden).
  *
  * Authorizes via image.ownerId (the design owner, denormalized).
  */
@@ -240,17 +231,18 @@ export async function publishImage(
     throw new Error("Sign up to publish");
   }
 
-  // Model B: whether the image is published lives in `listing`. The image row
-  // carries ownership (denormalized ownerId), so no design join is needed.
+  // Model B: whether the image is published lives in `image_publication`. The
+  // image row carries ownership (denormalized ownerId), so no design join is
+  // needed.
   const [image] = await db
     .select({
       id: imageTable.id,
       ownerId: imageTable.ownerId,
       imageUrl: imageTable.imageUrl,
-      publishedAt: listingTable.publishedAt,
+      publishedAt: imagePublicationTable.publishedAt,
     })
     .from(imageTable)
-    .leftJoin(listingTable, eq(listingTable.imageId, imageTable.id))
+    .leftJoin(imagePublicationTable, eq(imagePublicationTable.imageId, imageTable.id))
     .where(eq(imageTable.id, imageId))
     .limit(1);
   if (!image) throw new Error("Image not found");
@@ -289,15 +281,17 @@ export async function publishImage(
   const backgroundColor = opts.backgroundColor ?? DEFAULT_PUBLISH_BACKGROUND;
   // Composition slice 4 (writer cutover): the sellable state (title,
   // description, backdrop, feed rank, listed-at) is written ONLY to the
-  // image's mirror product row — the Shop composition; the listing row beside
-  // it carries publishedAt/isHidden and nothing else. Lookup-before-insert
-  // keeps a re-publish from minting a second mirror, and the listing's
-  // primary key rolls the whole batch back if a concurrent publish races it.
+  // image's mirror product row — the Shop composition; the publication row
+  // beside it carries publishedAt/isHidden and nothing else. Lookup-before-
+  // insert makes a re-publish revive the existing draft row rather than
+  // insert a second one (which the unique front-image index would reject);
+  // the publication row's primary key and that index both roll the whole
+  // batch back if a concurrent publish races it.
   const existingMirrorId = await findMirrorProduct(db, imageId);
   // Publish never leaves the backdrop transparent (#73): no pick — or an
   // explicit null from a legacy caller — persists as White.
   await db.batch([
-    listingSyncStatement(db, imageId, {
+    publicationSyncStatement(db, imageId, {
       kind: "publish",
       publishedAt,
       isHidden: false,
@@ -321,7 +315,7 @@ export async function publishImage(
  * Owner edits the public naming/backdrop of an already-published image.
  * Refuses if the image hasn't been published yet — the mirror product is a
  * draft then, and its update statement would no-op anyway. published_at (the
- * listing row) is never touched.
+ * publication row) is never touched.
  *
  * Returns `Promise<{ error?: string }>`, not void: auth/not-found/unpublished
  * still throw (the caller cannot act on those), but a blank title is
@@ -348,10 +342,10 @@ export async function updatePublishedNaming(
     .select({
       id: imageTable.id,
       ownerId: imageTable.ownerId,
-      publishedAt: listingTable.publishedAt,
+      publishedAt: imagePublicationTable.publishedAt,
     })
     .from(imageTable)
-    .leftJoin(listingTable, eq(listingTable.imageId, imageTable.id))
+    .leftJoin(imagePublicationTable, eq(imagePublicationTable.imageId, imageTable.id))
     .where(eq(imageTable.id, imageId))
     .limit(1);
   if (!image) throw new Error("Image not found");
@@ -379,8 +373,8 @@ export async function updatePublishedNaming(
   // option (#73); a legacy null still displays as White via
   // publishedBackdrop, so the guard stays `!== undefined`, not truthiness.
   // Composition slice 4: naming/backdrop are product state, so this writes
-  // the mirror product row only — the listing row holds no sellable fields
-  // any more. `backdropColor` is the product-side name for backgroundColor.
+  // the mirror product row only — the publication row holds no sellable
+  // fields. `backdropColor` is the product-side name for backgroundColor.
   const set: MirrorUpdate = {};
   if (title !== undefined) set.title = title.trim();
   if (description !== undefined) set.description = description.trim();
@@ -401,8 +395,8 @@ export async function updatePublishedNaming(
 
 /**
  * Owner takes a published image back down — the reverse of publishImage.
- * Deletes the listing row and drafts the mirror product, so the image leaves
- * the discover feed (`/`, `/shop`), stops being buyable by anyone else
+ * Deletes the publication row and drafts the mirror product, so the image
+ * leaves the discover feed (`/`, `/shop`), stops being buyable by anyone else
  * (canBuyPublishedImage), and /d/[imageId] 404s for everyone but the owner,
  * who still reaches it as their own private image (#136 slice 1) and can
  * order it from there without a Shop composition (canBuyImage).
@@ -419,10 +413,10 @@ export async function unpublishImage(imageId: string) {
     .select({
       id: imageTable.id,
       ownerId: imageTable.ownerId,
-      publishedAt: listingTable.publishedAt,
+      publishedAt: imagePublicationTable.publishedAt,
     })
     .from(imageTable)
-    .leftJoin(listingTable, eq(listingTable.imageId, imageTable.id))
+    .leftJoin(imagePublicationTable, eq(imagePublicationTable.imageId, imageTable.id))
     .where(eq(imageTable.id, imageId))
     .limit(1);
   if (!image) throw new Error("Image not found");
@@ -444,15 +438,16 @@ export async function unpublishImage(imageId: string) {
   // semantics, now carried by the product row).
   //
   // Both statements are conditional on the image not being hidden, so an admin
-  // hide that commits after the check above is not erased. The listing delete
-  // is the witness: the row existed when it was read (`image.publishedAt`), so
-  // zero rows deleted means a hide won (or a concurrent unpublish did), and
-  // nothing else was written — the mirror update carries the same condition.
-  const [listingResult] = await db.batch([
-    listingSyncStatement(db, imageId, { kind: "unpublish" }),
+  // hide that commits after the check above is not erased. The publication
+  // delete is the witness: the row existed when it was read
+  // (`image.publishedAt`), so zero rows deleted means a hide won (or a
+  // concurrent unpublish did), and nothing else was written — the mirror
+  // update carries the same condition.
+  const [publicationResult] = await db.batch([
+    publicationSyncStatement(db, imageId, { kind: "unpublish" }),
     productMirrorStatement(db, imageId, { kind: "unpublish" }),
   ]);
-  if (listingResult.rowsAffected === 0 && (await isImageAdminHidden(db, imageId))) {
+  if (publicationResult.rowsAffected === 0 && (await isImageAdminHidden(db, imageId))) {
     throw new Error("This image is not available");
   }
 

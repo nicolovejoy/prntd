@@ -10,6 +10,10 @@
  * Writes nothing. Safe to run against prod. Hide anything it finds from
  * /admin/published rather than deleting rows.
  *
+ * Reads the post-0014 schema (composition slice 5): visibility off
+ * `image_publication`, the title off the image's `product` composition
+ * (joined on the generated `product.front_image_id`).
+ *
  *   DATABASE_URL=libsql://prntd-nicolovejoy.aws-us-west-2.turso.io \
  *   DATABASE_AUTH_TOKEN=$(turso db tokens create prntd) \
  *   npx tsx scripts/check-anonymous-listings.ts
@@ -27,16 +31,17 @@ async function main() {
   const client = createClient({ url, authToken });
   try {
     const { rows } = await client.execute(`
-      select l.image_id, l.title, l.is_hidden, l.published_at,
+      select l.image_id, p.title, l.is_hidden, l.published_at,
              u.id as owner_id, u.is_anonymous
-      from listing l
+      from image_publication l
       join image i on i.id = l.image_id
       join user u on u.id = i.owner_id
+      left join product p on p.front_image_id = l.image_id
       where u.is_anonymous = 1
       order by l.published_at desc
     `);
 
-    const total = await client.execute("select count(*) as n from listing");
+    const total = await client.execute("select count(*) as n from image_publication");
     console.log(`listings total: ${total.rows[0].n}`);
     console.log(`listings owned by a guest account: ${rows.length}`);
 

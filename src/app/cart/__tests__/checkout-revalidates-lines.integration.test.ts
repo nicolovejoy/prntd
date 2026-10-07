@@ -234,7 +234,7 @@ describe("a mixed cart", () => {
     expect((await getCart()).items[0].unavailable).toBe(false);
 
     // The primary becomes admin-hidden.
-    await db.insert(schema.listing).values({
+    await db.insert(schema.imagePublication).values({
       imageId: ids.myId,
       publishedAt: new Date(),
       isHidden: true,

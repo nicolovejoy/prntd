@@ -6,7 +6,7 @@
  * so the "writes nothing" half is checked against actual rows.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { and, isNull } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { createTestDb } from "@/lib/__tests__/test-db";
 import { makeUser, makeDesign, makeSourceImage } from "@/lib/__tests__/factories";
 import { EMPTY_TITLE_REJECTED, TITLE_TOO_LONG } from "@/lib/action-copy";
@@ -61,15 +61,12 @@ async function publishedImage() {
 }
 
 /**
- * The mirror `product` row for a published image isn't keyed by imageId
- * directly (composition slice 1: `product.placements` is a JSON
- * `{ front: imageId }` map) — mirrors `setPublication`'s lookup in
- * factories.ts, which is the only existing precedent for reading a mirror
- * row by image. The brief's draft used a nonexistent `product.imageId`
- * column; corrected here.
+ * The `product` composition for a published image, found by its front slot:
+ * `product.front_image_id` is the generated column over
+ * `placements.front`, unique since composition slice 5.
  */
 async function mirrorRow(imageId: string) {
-  const rows = await testDb
+  const [row] = await testDb
     .select({
       id: schema.product.id,
       title: schema.product.title,
@@ -77,8 +74,8 @@ async function mirrorRow(imageId: string) {
       placements: schema.product.placements,
     })
     .from(schema.product)
-    .where(and(isNull(schema.product.storeId), isNull(schema.product.designId)));
-  return rows.find((r) => (r.placements ?? {}).front === imageId) ?? null;
+    .where(eq(schema.product.frontImageId, imageId));
+  return row ?? null;
 }
 
 async function mirrorTitle(imageId: string) {

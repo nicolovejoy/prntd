@@ -6,9 +6,9 @@ import ts from "typescript";
 
 // Every export of a "use server" file is a Server Action: a public endpoint
 // anyone can POST to with arbitrary arguments (#251). These tests pin the
-// runtime export list of four such files so a trusted-input helper can't be
+// runtime export list of three such files so a trusted-input helper can't be
 // added to one by accident; check, across EVERY "use server" file under src/
-// (not just the four pinned), that neither helper moved out for that reason
+// (not just the three pinned), that neither helper moved out for that reason
 // is exported or re-exported; and check that no file under src/lib/**
 // contains a "use server" directive anywhere, since that would turn a
 // trusted helper into an unauthenticated Server Action just as surely as
@@ -259,11 +259,6 @@ describe('"use server" export pins', () => {
       "getListingMockup",
       "resolveInitialBack",
     ],
-    "src/app/shop/actions.ts": [
-      "buyStoreProduct",
-      "getStoreProductForBuy",
-      "getStorefront",
-    ],
   };
 
   for (const [file, expected] of Object.entries(pins)) {
@@ -299,7 +294,7 @@ describe("helpers moved out of use-server files", () => {
 });
 
 describe("no \"use server\" file re-exposes a moved trusted-input helper", () => {
-  // Every file whose first statement is the directive, not just the four
+  // Every file whose first statement is the directive, not just the three
   // pinned above — a re-export from any of them would put a trusted-input
   // helper back on the Server Action surface just as surely as defining it
   // there directly (#251). runtimeExports already resolves `export { x }

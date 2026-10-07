@@ -149,7 +149,6 @@ describe("the owner orders an unpublished image", () => {
     expect(order.userId).toBe("owner");
     expect(order.designId).toBe(ids.conversationId);
     expect(order.storeProductId).toBeNull();
-    expect(order.storeId).toBeNull();
     expect(order.status).toBe("pending");
     expect(order.stripeSessionId).toBe("cs_test_own_1");
 
@@ -280,8 +279,8 @@ describe("the owner orders an unpublished image", () => {
     const ids = await seed(db);
     // What unpublishImage leaves: no listing row, the mirror product drafted.
     await db
-      .delete(schema.listing)
-      .where(eq(schema.listing.imageId, ids.publishedId));
+      .delete(schema.imagePublication)
+      .where(eq(schema.imagePublication.imageId, ids.publishedId));
     await db.update(schema.product).set({ status: "draft" });
 
     await buyPublishedDesign({ imageId: ids.publishedId, ...OPTS });

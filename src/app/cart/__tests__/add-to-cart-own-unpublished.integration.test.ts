@@ -215,7 +215,6 @@ describe("addToCart: the owner's unpublished image", () => {
     expect(orders[0].userId).toBe("owner");
     expect(orders[0].designId).toBe(ids.conversationId);
     expect(orders[0].storeProductId).toBeNull();
-    expect(orders[0].storeId).toBeNull();
     expect(orders[0].stripeSessionId).toBe("cs_test_cart_own");
     expect(String(orders[0].itemPrice)).toMatch(/\d/);
 

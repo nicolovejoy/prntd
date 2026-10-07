@@ -6,17 +6,17 @@ export const dynamic = "force-dynamic";
 
 /**
  * The Shop — the community feed, moved here from /prints by nav model A so
- * that the word "Shop" names exactly one thing. The organizer storefronts at
- * /shop/[slug] are retired (#191) and drop out entirely with #201; a dynamic
- * segment needs a non-empty path segment, so they never shadow this page.
+ * that the word "Shop" names exactly one thing. The organizer storefronts that
+ * lived at /shop/[slug] were retired (#191) and deleted with composition
+ * slice 5 (#201).
  *
  * Paper slice 6 (#188): the masthead is a left-aligned mono label, not a
  * centred display heading — matched by the homepage's Shop teaser in
  * src/app/page.tsx. The old sub-line ("Designs published by other makers.")
  * is dropped with no replacement: the Shop sells shirts, not art
  * (docs/object-model-composition.md), so a line about designs/makers is off
- * message and the card grid itself (backdrop, price, garment, maker) already
- * says what's for sale.
+ * message and the card grid itself (backdrop, title, maker) already says
+ * what's for sale.
  */
 export default async function ShopPage() {
   const images = await getDiscoverFeed(60);

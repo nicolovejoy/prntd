@@ -1,8 +1,9 @@
 /**
  * Model B write builders (docs/model-b-migration-plan.md).
  *
- * These are the ONLY write shapes (`image`, `conversation_image`, `listing`,
- * `placement_render`) — `design_image` was dropped in slice 5. The builders
+ * These are the ONLY write shapes (`image`, `conversation_image`,
+ * `image_publication`, `placement_render`) — `design_image` was dropped in
+ * Model B slice 5. The builders
  * stay the single source of the column mapping: both insert sites (the inline
  * batch in generateDesign and insertDesignImage) and every publish-family
  * action route through here (risky spots §3, §5).
@@ -15,24 +16,24 @@
  *
  * Immutability guardrail (§3): this module builds image INSERT rows only. It
  * deliberately exposes NO helper that updates image.imageUrl / r2Key / prompt.
- * A published listing points at an image row nothing mutates, so publishing is
- * a snapshot by construction. `model-b-writes.test.ts` locks this in.
+ * A published composition points at an image row nothing mutates, so
+ * publishing is a snapshot by construction. `model-b-writes.test.ts` locks this in.
  */
-import { and, eq, isNull, ne, sql } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import type { db as appDb } from "@/lib/db";
 import type { DesignSpec } from "@/lib/design-spec";
 import type { ImageOperation } from "@/lib/image-provenance";
 import {
   image as imageTable,
   conversationImage as conversationImageTable,
-  listing as listingTable,
+  imagePublication as imagePublicationTable,
   placementRender as placementRenderTable,
   product as productTable,
 } from "@/lib/db/schema";
 
 type ImageRow = typeof imageTable.$inferInsert;
 type ConversationImageRow = typeof conversationImageTable.$inferInsert;
-type ListingRow = typeof listingTable.$inferInsert;
+type PublicationRow = typeof imagePublicationTable.$inferInsert;
 type PlacementRenderRow = typeof placementRenderTable.$inferInsert;
 
 /**
@@ -140,19 +141,17 @@ export function buildPlacementRenderRow(params: {
 }
 
 /**
- * Build the `listing` row for a freshly published image.
- *
- * Composition slice 4 (writer cutover): the row is now ONLY the image-
- * visibility grant — `publishedAt` + `isHidden`. The sellable fields
- * (title / description / backgroundColor / feedRank) live on the mirror
- * `product` row and are written there alone; the listing's copies stay null
- * on every row published from here on (slice 5 drops the columns).
+ * Build the `image_publication` row for a freshly published image — the
+ * image-visibility grant, `publishedAt` + `isHidden` and nothing else. The
+ * sellable fields (title / description / backdrop / feed rank) live on the
+ * image's `product` composition and are written there alone (composition
+ * slice 4 cut the writers over; slice 5 dropped the frozen copies).
  */
-export function buildListingRow(params: {
+export function buildPublicationRow(params: {
   imageId: string;
   publishedAt: Date;
   isHidden: boolean;
-}): ListingRow {
+}): PublicationRow {
   return {
     imageId: params.imageId,
     publishedAt: params.publishedAt,
@@ -164,24 +163,24 @@ export function buildListingRow(params: {
  * Fields a publish-family edit applies to an existing visibility row. Since
  * the slice-4 cutover that is `isHidden` alone — naming, backdrop and feed
  * rank are product state. Update only — never inserts — so editing an
- * unpublished image (no listing row) is a natural no-op.
+ * unpublished image (no publication row) is a natural no-op.
  */
-export type ListingUpdate = Partial<{
+export type PublicationUpdate = Partial<{
   isHidden: boolean;
 }>;
 
-export type ListingSyncOp =
+export type PublicationSyncOp =
   | {
       kind: "publish";
       publishedAt: Date;
       isHidden: boolean;
     }
   | { kind: "unpublish" }
-  | { kind: "update"; set: ListingUpdate };
+  | { kind: "update"; set: PublicationUpdate };
 
 /**
  * The single choke point every publish-family action routes through (risky
- * spot §3): given the operation, return the one `listing` statement.
+ * spot §3): given the operation, return the one `image_publication` statement.
  *
  *  - publish  → insert the visibility row (publishImage no-ops if already
  *               published). `imageId` is the primary key, so a racing second
@@ -190,17 +189,17 @@ export type ListingSyncOp =
  *               (the mirror statement is always batched with this one).
  *  - unpublish→ delete it, unless the image is hidden (a hide that lands after
  *               the caller's own check must survive; see the statement).
- *  - update   → partial update; no-op when the image has no listing (editing an
- *               unpublished image), so it never conjures a phantom listing.
+ *  - update   → partial update; no-op when the image has no publication row
+ *               (editing an unpublished image), so it never conjures one.
  */
-export function listingSyncStatement(
+export function publicationSyncStatement(
   db: typeof appDb,
   imageId: string,
-  op: ListingSyncOp
+  op: PublicationSyncOp
 ) {
   if (op.kind === "publish") {
-    return db.insert(listingTable).values(
-      buildListingRow({
+    return db.insert(imagePublicationTable).values(
+      buildPublicationRow({
         imageId,
         publishedAt: op.publishedAt,
         isHidden: op.isHidden,
@@ -210,28 +209,35 @@ export function listingSyncStatement(
   if (op.kind === "unpublish") {
     // Conditional on not being hidden: the unpublishing action checks first,
     // but an admin's hide can land between that check and this write, and an
-    // unconditional delete would erase it (the listing row is where
-    // `is_hidden` lives). A hidden listing is left untouched.
+    // unconditional delete would erase it (the publication row is where
+    // `is_hidden` lives). A hidden publication is left untouched.
     return db
-      .delete(listingTable)
-      .where(and(eq(listingTable.imageId, imageId), eq(listingTable.isHidden, false)));
+      .delete(imagePublicationTable)
+      .where(
+        and(
+          eq(imagePublicationTable.imageId, imageId),
+          eq(imagePublicationTable.isHidden, false)
+        )
+      );
   }
   return db
-    .update(listingTable)
+    .update(imagePublicationTable)
     .set(op.set)
-    .where(eq(listingTable.imageId, imageId));
+    .where(eq(imagePublicationTable.imageId, imageId));
 }
 
-// --- the published image's mirror `product` row: the Shop composition ---
+// --- the published image's `product` row: the Shop composition ---
 // (docs/composition-first-class-plan.md §5.) Every publish-family action
-// batches a product statement next to its listing statement, so a published
-// image always has a composition row: storeId NULL (the PRNTD Shop),
-// designId NULL, blankId NULL (buyer picks the garment), placements exactly
-// { front: imageId }.
+// batches a product statement next to its publication statement, so a
+// published image always has a composition row: blankId NULL (buyer picks the
+// garment), price NULL (computed per pick), placements exactly
+// { front: imageId }. "Mirror" in the names below is the slice-1 word for
+// this row, from when it mirrored a listing; since slice 5 it is the only
+// population `product` has.
 //
 // Slice 2 swapped every sellable reader onto this row; slice 4 (the writer
 // cutover) made it the only place the sellable fields are written. The
-// listing row beside it is now the image-visibility grant and nothing else.
+// `image_publication` row beside it is the visibility grant and nothing else.
 
 /** The exact placements object a mirror product row carries. */
 export function mirrorPlacements(imageId: string): Record<string, string> {
@@ -239,27 +245,33 @@ export function mirrorPlacements(imageId: string): Record<string, string> {
 }
 
 /**
- * Predicate identifying the mirror product for an image. Exact-JSON match on
- * placements is sound because mirror rows are only ever written through this
- * module (insert-time serialization is JSON.stringify of mirrorPlacements and
- * placements are never updated afterwards). `designId IS NULL` distinguishes
- * mirrors from loose organizer products (which always carry a designId).
- *
- * Uniqueness: the publish path looks up before inserting, and — because the
- * mirror insert is always batched with the `listing` insert, whose imageId is
- * a primary key — a second publish racing the first fails on that PK and
- * rolls the whole batch back. So two mirrors for one image cannot be minted
- * even under a double-publish race; there is deliberately no separate
- * conditional insert (it would duplicate the row builder for no added
- * guarantee). Slice 5 should still add a real uniqueness constraint once the
- * mirror marker is re-keyed off `designId`.
+ * The image a composition belongs to: its front placement slot. The in-memory
+ * twin of the generated column `product.front_image_id`
+ * (`placements ->> '$.front'`), for callers that already hold `placements` —
+ * delete-design.ts's batch probe. `findMirrorProduct` below answers the same
+ * question in SQL. Both delete paths key "this image's own composition" on
+ * this one rule: the row fronted by image I belongs to I, is deleted with I,
+ * and never counts as a reference keeping I alive; any OTHER image that row
+ * places (a back slot) IS kept alive by it.
+ */
+export function compositionFrontImageId(
+  placements: Record<string, string> | null | undefined
+): string | null {
+  return placements?.front ?? null;
+}
+
+/**
+ * Predicate identifying the composition for an image: the row whose front
+ * placement slot is that image (the SQL form of compositionFrontImageId). `front_image_id` is the generated column over
+ * `placements.front`, and `product_front_image_unique` on it makes "one
+ * composition per front image" a DB guarantee (composition slice 5) — the
+ * publish path still looks up first (findMirrorProduct) so a re-publish
+ * revives the draft row instead of failing on the index, and a
+ * double-publish race now dies on this index as well as on the
+ * `image_publication` primary key it is batched with.
  */
 function mirrorProductWhere(imageId: string) {
-  return and(
-    isNull(productTable.storeId),
-    isNull(productTable.designId),
-    sql`${productTable.placements} = ${JSON.stringify(mirrorPlacements(imageId))}`
-  );
+  return eq(productTable.frontImageId, imageId);
 }
 
 /**
@@ -280,23 +292,23 @@ export async function findMirrorProduct(
 
 /**
  * Whether an admin has hidden this image. Hidden is recorded in two places:
- * the `listing` row's `is_hidden` (what the pure buy/view guards read) and the
- * mirror product's `status = 'hidden'` (`setImageHidden` writes both). Either
+ * the `image_publication` row's `is_hidden` (what the pure buy/view guards
+ * read) and the mirror product's `status = 'hidden'` (`setImageHidden` writes both). Either
  * one counts, so a state where only one survived still reads as hidden. Owner
  * ruling (2026-10-05): a hidden image can be neither bought nor printed by
  * anyone, and its owner must not be able to undo the hide — which
- * `unpublishImage` would otherwise do by deleting the listing row.
+ * `unpublishImage` would otherwise do by deleting the publication row.
  */
 export async function isImageAdminHidden(
   db: typeof appDb,
   imageId: string
 ): Promise<boolean> {
-  const [listing] = await db
-    .select({ isHidden: listingTable.isHidden })
-    .from(listingTable)
-    .where(eq(listingTable.imageId, imageId))
+  const [publication] = await db
+    .select({ isHidden: imagePublicationTable.isHidden })
+    .from(imagePublicationTable)
+    .where(eq(imagePublicationTable.imageId, imageId))
     .limit(1);
-  if (listing?.isHidden) return true;
+  if (publication?.isHidden) return true;
   const [mirror] = await db
     .select({ status: productTable.status })
     .from(productTable)
@@ -329,7 +341,7 @@ export async function requireMirrorProduct(
   return id;
 }
 
-/** Build the mirror `product` row for a publish (or the backfill). */
+/** Build the mirror `product` row for a publish. */
 export function buildMirrorProductRow(params: {
   imageId: string;
   ownerId: string;
@@ -342,8 +354,6 @@ export function buildMirrorProductRow(params: {
 }): typeof productTable.$inferInsert {
   return {
     ownerId: params.ownerId,
-    storeId: null,
-    designId: null,
     blankId: null,
     placements: mirrorPlacements(params.imageId),
     price: null,
@@ -382,8 +392,8 @@ export type ProductMirrorOp =
       /**
        * Result of findMirrorProduct, resolved by the caller before batching:
        * null → insert a fresh mirror; an id → revive that draft row
-       * (fresh listedAt, feedRank cleared — matching the listing's
-       * fresh-row-on-republish semantics).
+       * (fresh listedAt, feedRank cleared — the fresh-row-on-republish
+       * semantics the visibility row has always had).
        */
       existingMirrorId: string | null;
     }
@@ -391,14 +401,15 @@ export type ProductMirrorOp =
   | { kind: "update"; set: MirrorUpdate };
 
 /**
- * The mirror-product counterpart of listingSyncStatement: one statement to
- * batch alongside the listing statement.
+ * The mirror-product counterpart of publicationSyncStatement: one statement to
+ * batch alongside the publication statement.
  *
  *  - publish  → insert the mirror, or revive the existing draft row.
  *  - unpublish→ status "draft" (row kept; re-publish revives it).
  *  - update   → partial update, guarded to non-draft rows so it no-ops
- *               exactly when the listing update does (an unpublished image
- *               has no listing; its mirror — if any — is a draft).
+ *               exactly when the publication update does (an unpublished
+ *               image has no publication row; its mirror — if any — is a
+ *               draft).
  */
 export function productMirrorStatement(
   db: typeof appDb,
@@ -432,7 +443,7 @@ export function productMirrorStatement(
     );
   }
   if (op.kind === "unpublish") {
-    // `status <> 'hidden'`, for the same reason as the listing delete above:
+    // `status <> 'hidden'`, for the same reason as the publication delete above:
     // a hide that lands mid-action must not be drafted away.
     return db
       .update(productTable)

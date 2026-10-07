@@ -24,7 +24,6 @@ const REPARENTED_TABLES = new Set([
   "design",
   "order",
   "cart_item",
-  "store",
   "product",
   "image",
   "image_generation",

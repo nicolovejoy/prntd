@@ -16,7 +16,7 @@ import { db } from "@/lib/db";
 import {
   design as designTable,
   image as imageTable,
-  listing as listingTable,
+  imagePublication as imagePublicationTable,
 } from "@/lib/db/schema";
 import { eq, and, ne, desc, isNotNull, inArray } from "drizzle-orm";
 import {
@@ -238,13 +238,13 @@ export async function getBuyPageBackSourceGroups(params: {
   return groups;
 }
 
-/** The subset of `ids` an admin has hidden (`listing.is_hidden`). */
+/** The subset of `ids` an admin has hidden (`image_publication.is_hidden`). */
 async function hiddenImageIds(ids: string[]): Promise<Set<string>> {
   if (ids.length === 0) return new Set();
   const rows = await db
-    .select({ imageId: listingTable.imageId })
-    .from(listingTable)
-    .where(and(inArray(listingTable.imageId, ids), eq(listingTable.isHidden, true)));
+    .select({ imageId: imagePublicationTable.imageId })
+    .from(imagePublicationTable)
+    .where(and(inArray(imagePublicationTable.imageId, ids), eq(imagePublicationTable.isHidden, true)));
   return new Set(rows.map((r) => r.imageId));
 }
 
@@ -310,22 +310,22 @@ async function getShopImages(
       id: imageTable.id,
       designId: imageTable.sourceDesignId,
       imageUrl: imageTable.imageUrl,
-      publishedAt: listingTable.publishedAt,
+      publishedAt: imagePublicationTable.publishedAt,
     })
-    .from(listingTable)
-    .innerJoin(imageTable, eq(imageTable.id, listingTable.imageId))
+    .from(imagePublicationTable)
+    .innerJoin(imageTable, eq(imageTable.id, imagePublicationTable.imageId))
     .where(
       and(
-        eq(listingTable.isHidden, false),
+        eq(imagePublicationTable.isHidden, false),
         ...(excludeDesignId
           ? [ne(imageTable.sourceDesignId, excludeDesignId)]
           : [])
       )
     )
-    .orderBy(desc(listingTable.publishedAt))
+    .orderBy(desc(imagePublicationTable.publishedAt))
     .limit(GROUP_LIMIT * 4);
 
-  // A listing row exists iff the image is published, so the old
+  // A publication row exists iff the image is published, so the old
   // published_at IS NOT NULL filter is the join itself. An image with no
   // source conversation is its own dedupe group.
   return dedupeFeedByDesign(

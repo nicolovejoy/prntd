@@ -1,7 +1,7 @@
 /**
  * Owner ruling (Nico, 2026-10-05): once an admin hides an image, nobody can
  * buy or print it, its owner included, and the owner must not be able to undo
- * the hide. Hidden is recorded in two places (the `listing` row's is_hidden
+ * the hide. Hidden is recorded in two places (the `image_publication` row's is_hidden
  * and the mirror product's status), and `unpublishImage` deletes the first and
  * drafts the second, so without a refusal an owner could erase a hide by
  * unpublishing and then publish again.
@@ -9,7 +9,7 @@
  * Real in-memory libSQL; db, session and Stripe mocked.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { and, eq, isNull } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { createTestDb } from "@/lib/__tests__/test-db";
 import { makeUser, makeDesign, makeSourceImage } from "@/lib/__tests__/factories";
 import * as schema from "@/lib/db/schema";
@@ -98,18 +98,13 @@ async function seed(db: Db) {
 }
 
 async function state(db: Db, imageId: string) {
-  const listings = await db
+  const publications = await db
     .select()
-    .from(schema.listing)
-    .where(eq(schema.listing.imageId, imageId));
-  const mirrors = (
-    await db
-      .select()
-      .from(schema.product)
-      .where(and(isNull(schema.product.storeId), isNull(schema.product.designId)))
-  ).filter((p) => (p.placements ?? {}).front === imageId);
+    .from(schema.imagePublication)
+    .where(eq(schema.imagePublication.imageId, imageId));
+  const mirrors = (await db.select().from(schema.product)).filter((p) => (p.placements ?? {}).front === imageId);
   return {
-    listing: listings[0] ? { hidden: listings[0].isHidden } : null,
+    publication: publications[0] ? { hidden: publications[0].isHidden } : null,
     mirror: mirrors[0] ? { status: mirrors[0].status, title: mirrors[0].title } : null,
   };
 }
@@ -142,7 +137,7 @@ describe("an admin hide cannot be undone by the owner", () => {
     const { imageId } = await publishHidden(db);
     const before = await state(db, imageId);
     expect(before).toEqual({
-      listing: { hidden: true },
+      publication: { hidden: true },
       mirror: { status: "hidden", title: "Original" },
     });
 
@@ -166,7 +161,7 @@ describe("an admin hide cannot be undone by the owner", () => {
   it("refuses when only the mirror records the hide", async () => {
     const db = h.db as Db;
     const { imageId } = await publishHidden(db);
-    await db.update(schema.listing).set({ isHidden: false });
+    await db.update(schema.imagePublication).set({ isHidden: false });
     const before = await state(db, imageId);
 
     h.session = OWNER;
@@ -195,10 +190,10 @@ describe("an admin hide cannot be undone by the owner", () => {
 
     h.session = OWNER;
     await unpublishImage(imageId);
-    expect((await state(db, imageId)).listing).toBeNull();
+    expect((await state(db, imageId)).publication).toBeNull();
     await publishImage(imageId, { title: "Second" });
     expect(await state(db, imageId)).toEqual({
-      listing: { hidden: false },
+      publication: { hidden: false },
       mirror: { status: "listed", title: "Second" },
     });
   });
@@ -209,7 +204,7 @@ describe("an admin hide cannot be undone by the owner", () => {
     h.session = ADMIN;
     await setImageHidden(imageId, false);
     await setImageHidden(imageId, true);
-    expect((await state(db, imageId)).listing).toEqual({ hidden: true });
+    expect((await state(db, imageId)).publication).toEqual({ hidden: true });
   });
 });
 
@@ -231,7 +226,7 @@ describe("an admin hide that lands between the check and the write survives (sec
     await expect(unpublishImage(ids.imageId)).rejects.toThrow("This image is not available");
 
     expect(await state(db, ids.imageId)).toEqual({
-      listing: { hidden: true },
+      publication: { hidden: true },
       mirror: { status: "hidden", title: "Original" },
     });
     h.session = OWNER;
@@ -241,14 +236,14 @@ describe("an admin hide that lands between the check and the write survives (sec
     await expectNoOrders(db);
   });
 
-  it("an ordinary unpublish still deletes the listing and drafts the mirror", async () => {
+  it("an ordinary unpublish still deletes the publication row and drafts the mirror", async () => {
     const db = h.db as Db;
     const ids = await seed(db);
     h.session = OWNER;
     await publishImage(ids.imageId, { title: "T", backgroundColor: "Black" });
     await unpublishImage(ids.imageId);
     expect(await state(db, ids.imageId)).toEqual({
-      listing: null,
+      publication: null,
       mirror: { status: "draft", title: "T" },
     });
   });
