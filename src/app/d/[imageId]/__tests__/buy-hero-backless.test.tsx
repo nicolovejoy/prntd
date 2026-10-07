@@ -55,6 +55,8 @@ vi.mock("@/lib/ensure-guest-session", () => ({
 }));
 vi.mock("@/app/cart/actions", () => ({
   addToCart: vi.fn(async () => ({ ok: true, count: 1 })),
+  updateCartItem: vi.fn(async () => ({ ok: true })),
+  getEditableCartLine: vi.fn(async () => null),
 }));
 vi.mock("@/app/designs/actions", () => ({
   updatePublishedNaming: vi.fn(async () => {}),

@@ -28,11 +28,17 @@ vi.mock("@/lib/ensure-guest-session", () => ({
 }));
 vi.mock("@/app/cart/actions", () => ({
   addToCart: vi.fn(async () => ({ ok: true, count: 1 })),
+  updateCartItem: vi.fn(async () => ({ ok: true })),
 }));
 
 import { buyPublishedDesign } from "../../actions";
-import { addToCart } from "@/app/cart/actions";
-import { ADD_TO_CART_FAILED, CHECKOUT_FAILED } from "@/lib/action-copy";
+import { addToCart, updateCartItem } from "@/app/cart/actions";
+import {
+  ADD_TO_CART_FAILED,
+  CART_LINE_GONE,
+  CHECKOUT_FAILED,
+  UPDATE_CART_FAILED,
+} from "@/lib/action-copy";
 
 /** The panel starts collapsed (#128); most tests exercise the expanded stack. */
 function expand() {
@@ -1117,5 +1123,114 @@ describe("BuyPanel sign-in return (#278)", () => {
         value: original,
       });
     }
+  });
+});
+
+describe("edit mode: saving back to a cart line (#282)", () => {
+  const EDIT_PICKS = {
+    expanded: true,
+    productId: "bella-canvas-3001",
+    size: "M",
+    color: "Black",
+    back: null,
+    swapped: false,
+  };
+
+  function renderEdit(props: Partial<React.ComponentProps<typeof BuyPanel>> = {}) {
+    return render(
+      <BuyPanel
+        imageId="img-1"
+        isLoggedIn
+        cartEnabled
+        initialPicks={EDIT_PICKS}
+        editingLine={{ id: "line-1" }}
+        {...props}
+      />
+    );
+  }
+
+  it("shows Save to cart and a Cancel link to the cart, and no Order or Add to cart", () => {
+    renderEdit();
+    expect(screen.getAllByRole("button", { name: "Save to cart" }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: /^Order/ })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("add-to-cart")).not.toBeInTheDocument();
+    const cancel = screen.getAllByRole("link", { name: "Cancel" })[0];
+    expect(cancel).toHaveAttribute("href", "/cart");
+  });
+
+  it("Save calls updateCartItem with the line id and the current picks, then goes to the cart", async () => {
+    vi.mocked(updateCartItem).mockClear();
+    const hrefSet = vi.fn();
+    const original = window.location;
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        get pathname() {
+          return original.pathname;
+        },
+        get search() {
+          return original.search;
+        },
+        set href(value: string) {
+          hrefSet(value);
+        },
+      },
+    });
+    try {
+      renderEdit();
+      fireEvent.click(screen.getByRole("button", { name: "L" }));
+      await act(async () => {
+        fireEvent.click(screen.getAllByRole("button", { name: "Save to cart" })[0]);
+      });
+      expect(updateCartItem).toHaveBeenCalledWith({
+        id: "line-1",
+        frontImageId: "img-1",
+        productId: "bella-canvas-3001",
+        size: "L",
+        color: "Black",
+      });
+      expect(hrefSet).toHaveBeenCalledWith("/cart");
+    } finally {
+      Object.defineProperty(window, "location", { configurable: true, value: original });
+    }
+  });
+
+  it("a not-found result shows the line-gone notice and stays on the page", async () => {
+    vi.mocked(updateCartItem).mockResolvedValueOnce({ ok: false, reason: "not-found" });
+    renderEdit();
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole("button", { name: "Save to cart" })[0]);
+    });
+    expect(screen.getAllByText(CART_LINE_GONE)).not.toHaveLength(0);
+  });
+
+  it("a thrown refusal shows the update-failed notice", async () => {
+    vi.mocked(updateCartItem).mockRejectedValueOnce(new Error("This product has no back print area"));
+    renderEdit();
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole("button", { name: "Save to cart" })[0]);
+    });
+    expect(screen.getAllByText(UPDATE_CART_FAILED)).not.toHaveLength(0);
+  });
+
+  it("Save is disabled until a size is picked", () => {
+    renderEdit({ initialPicks: { ...EDIT_PICKS, size: null } });
+    expect(screen.getAllByRole("button", { name: "Save to cart" })[0]).toBeDisabled();
+  });
+
+  it("a guest in edit mode gets Save to cart, not Sign in to buy", () => {
+    renderEdit({ isLoggedIn: false });
+    expect(screen.getAllByRole("button", { name: "Save to cart" }).length).toBeGreaterThan(0);
+    expect(screen.queryByText("Sign in to buy")).not.toBeInTheDocument();
+  });
+
+  it("reports the line in its open picks so sibling links carry it", () => {
+    render(
+      <BuyPanelPicksProvider>
+        <BuyPanel imageId="img-1" isLoggedIn initialPicks={EDIT_PICKS} editingLine={{ id: "line-1" }} />
+        <Probe />
+      </BuyPanelPicksProvider>
+    );
+    expect(probe().line).toBe("line-1");
   });
 });

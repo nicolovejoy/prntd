@@ -34,6 +34,9 @@ vi.mock("@/lib/blanks", () => ({
 vi.mock("@/lib/flags", () => ({
   cartEnabled: vi.fn(),
 }));
+vi.mock("@/app/cart/actions", () => ({
+  getEditableCartLine: vi.fn(async () => null),
+}));
 vi.mock("../identity-block", () => ({ IdentityBlock: () => null }));
 vi.mock("../published-image-view", () => ({ PublishedImageView: () => null }));
 vi.mock("../buy-hero", () => ({ BuyHero: () => null }));

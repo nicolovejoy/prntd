@@ -26,11 +26,16 @@ import { buyPageHref, withBuyPagePicks } from "@/lib/buy-page-picks";
 import type { BackSourceGroup } from "@/lib/back-sources";
 import { ensureGuestSession } from "@/lib/ensure-guest-session";
 import { buyPagePlacements, type PlacementPick } from "@/lib/placement-pins";
-import { addToCart } from "@/app/cart/actions";
+import { addToCart, updateCartItem } from "@/app/cart/actions";
 import { buyPublishedDesign, getBuyPageBackSources } from "../actions";
 import { MONO_LABEL } from "./mono-label";
 import { useReportBuyPanelPicks } from "./buy-panel-picks-context";
-import { ADD_TO_CART_FAILED, CHECKOUT_FAILED } from "@/lib/action-copy";
+import {
+  ADD_TO_CART_FAILED,
+  CART_LINE_GONE,
+  CHECKOUT_FAILED,
+  UPDATE_CART_FAILED,
+} from "@/lib/action-copy";
 
 /** An image on one side of the shirt: the source image id and its artwork
  * URL. Named for its first use (the back pick); the swap (#138 slice 3)
@@ -59,6 +64,9 @@ export type BuyPanelHandle = {
  * buy CTA inside the expanded stack, as before. Price is computed
  * client-side at generationCost 0 — the buyer never incurs generation cost —
  * so it updates instantly without a server round-trip.
+ * With `editingLine` (#282) the panel edits one cart line: Save to cart
+ * replaces Order and Add to cart (for guests too), and Cancel returns to the
+ * cart.
  */
 export function BuyPanel({
   ref,
@@ -76,6 +84,7 @@ export function BuyPanel({
   onColorChange,
   onBackChange,
   onFrontChange,
+  editingLine,
 }: {
   /** Imperative handle (#167): lets the hero's add-a-back tile open this
    * panel's picker without lifting the picker state out of the panel. The
@@ -127,6 +136,10 @@ export function BuyPanel({
   /** What is on the front (#138 slice 3): this page's image, or the back
    * pick after a swap. Same report-only contract. */
   onFrontChange?: (front: BackPick) => void;
+  /** The cart line this panel is editing (#282): Save to cart replaces Order
+   * and Add to cart, Cancel returns to the cart, and the picks save onto that
+   * line. Set only when the page has checked the line is the viewer's. */
+  editingLine?: { id: string } | null;
 }) {
   // Progressive disclosure (#128): the picker stack stays hidden until the
   // visitor taps Order.
@@ -196,6 +209,7 @@ export function BuyPanel({
   const [productChosen, setProductChosen] = useState(!!initialPicks?.productId);
   const [loading, setLoading] = useState(false);
   const [addingToCart, setAddingToCart] = useState(false);
+  const [saving, setSaving] = useState(false);
   // One line under the CTAs when Order or Add to cart fails. The thrown
   // message is a Next.js digest in production, so the copy is our own.
   const [notice, setNotice] = useState<string | null>(null);
@@ -319,6 +333,7 @@ export function BuyPanel({
             color: colorChosen ? color : null,
             back: back?.id ?? null,
             swap: swapped && !!back,
+            line: editingLine?.id ?? null,
           }
         : null
     );
@@ -333,6 +348,7 @@ export function BuyPanel({
     color,
     back,
     swapped,
+    editingLine?.id,
   ]);
 
   // Back from hosted Stripe can restore this page from the back/forward cache
@@ -345,6 +361,7 @@ export function BuyPanel({
       navigatingAway.current = false;
       setLoading(false);
       setAddingToCart(false);
+      setSaving(false);
     }
     window.addEventListener("pageshow", onPageShow);
     return () => window.removeEventListener("pageshow", onPageShow);
@@ -488,6 +505,37 @@ export function BuyPanel({
     }
   }
 
+  // Edit mode (#282): write the picks onto the cart line, then back to the
+  // cart. Guests have carts, so there is no session or sign-in step here.
+  async function handleSave() {
+    if (!size || !editingLine) return;
+    navigatingAway.current = true;
+    setSaving(true);
+    setNotice(null);
+    try {
+      const result = await updateCartItem({
+        id: editingLine.id,
+        frontImageId: imageId,
+        productId,
+        size,
+        color,
+        ...(sides.back ? { back: sides.back.id } : {}),
+        ...(frontOverride ? { front: frontOverride } : {}),
+      });
+      if (!result.ok) {
+        navigatingAway.current = false;
+        setNotice(CART_LINE_GONE);
+        setSaving(false);
+        return;
+      }
+      window.location.href = "/cart";
+    } catch {
+      navigatingAway.current = false;
+      setNotice(UPDATE_CART_FAILED);
+      setSaving(false);
+    }
+  }
+
   // Add to cart is gated on the flag and a picked size. No
   // auth gate — guests have carts; sign-in is required only at checkout.
   const addToCartButton = cartEnabled ? (
@@ -520,7 +568,31 @@ export function BuyPanel({
     </button>
   );
 
-  const cta = isLoggedIn ? (
+  const editCta = editingLine ? (
+    <div className="space-y-1.5">
+      {!size && (
+        <p className="text-sm text-text-muted text-center">Choose a size</p>
+      )}
+      <Button
+        onClick={handleSave}
+        disabled={saving || !size}
+        size="lg"
+        className="w-full"
+        data-testid="save-to-cart"
+      >
+        {saving ? "Saving…" : "Save to cart"}
+      </Button>
+      <Link
+        href="/cart"
+        className="block w-full min-h-11 text-sm text-center underline text-text-muted hover:text-foreground leading-[2.75rem]"
+      >
+        Cancel
+      </Link>
+      {notice && <InlineNotice message={notice} className="text-center" />}
+    </div>
+  ) : null;
+
+  const cta = editCta ?? (isLoggedIn ? (
     <div className="space-y-1.5">
       {!size && (
         <p className="text-sm text-text-muted text-center">Choose a size</p>
@@ -555,7 +627,7 @@ export function BuyPanel({
       {cancelButton}
       {notice && <InlineNotice message={notice} className="text-center" />}
     </div>
-  );
+  ));
 
   if (!expanded) {
     return (

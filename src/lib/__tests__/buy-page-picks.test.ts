@@ -188,7 +188,12 @@ describe("parseIdParam", () => {
 });
 
 describe("siblingImageHref", () => {
-  const OPEN = { product: "bella-canvas-3001", size: "L", color: "Black", back: null, swap: false };
+  const OPEN = { product: "bella-canvas-3001", size: "L", color: "Black", back: null, swap: false, line: null };
+
+  it("carries the cart line being edited (#282)", () => {
+    const href = siblingImageHref("sib", { product: null, size: "M", color: null, back: null, swap: false, line: "line-1" });
+    expect(new URL(href, "http://x").searchParams.get("line")).toBe("line-1");
+  });
 
   it("is the bare link, with from, while the panel is collapsed", () => {
     expect(siblingImageHref("img-c", null, "/designs")).toBe("/d/img-c?from=%2Fdesigns");

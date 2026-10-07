@@ -98,6 +98,7 @@ export function BuyHero({
   cartEnabled,
   startAction,
   initialPicks,
+  editingLine,
   backHref,
   backLabel,
   children,
@@ -123,6 +124,8 @@ export function BuyHero({
     back: BackPick | null;
     swapped: boolean;
   };
+  /** Forwarded to BuyPanel (#282). */
+  editingLine?: { id: string } | null;
   /** Mobile-only floating back arrow (breadcrumbTrail's `up`), rendered over
    * the hero exactly as it was in page.tsx before the wrapper existed. */
   backHref?: string;
@@ -462,6 +465,7 @@ export function BuyHero({
           cartEnabled={cartEnabled}
           startAction={startAction}
           initialPicks={initialPicks}
+          editingLine={editingLine}
           onExpandedChange={setExpanded}
           onProductChange={setProductId}
           onColorChange={setColorName}
