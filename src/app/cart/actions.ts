@@ -1,7 +1,7 @@
 "use server";
 
 import { headers } from "next/headers";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { auth, isAnonymousUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
@@ -9,6 +9,7 @@ import {
   order as orderTable,
   orderItem as orderItemTable,
   design as designTable,
+  conversationImage as conversationImageTable,
 } from "@/lib/db/schema";
 import {
   getBlank,
@@ -34,6 +35,13 @@ import { abandonSessionlessOrder } from "@/lib/order-checkout";
 import { buildCartCheckoutSessionParams } from "@/lib/checkout";
 import { cartLineStillValid } from "@/lib/cart-line-check";
 import { CART_LINE_UNAVAILABLE } from "@/lib/action-copy";
+import {
+  isValidCartQuantity,
+  CART_LINE_MIN_QUANTITY,
+  CART_LINE_MAX_QUANTITY,
+  cartLineEdit,
+  cartLineEditHref,
+} from "@/lib/cart-line-edit";
 
 // Indicative destination for the cart's shipping estimate. Hosted Stripe
 // Checkout can't recompute shipping after the buyer enters their address, so we
@@ -64,6 +72,8 @@ export type CartLine = {
    * longer something this user may order or print): the cart marks it and
    * checkout refuses until it is removed. */
   unavailable: boolean;
+  /** The image detail page link that re-opens this line for editing (#282); null when the line has no front pin. */
+  editHref: string | null;
 };
 
 export type CartView = {
@@ -138,6 +148,16 @@ export async function addToCart(params: {
   const userId = await currentUserId();
   if (!userId) throw new Error("Unauthorized");
 
+  if (params.frontImageId) {
+    // /d path: the shared validation chain, then insert what it resolved.
+    const next = await resolveLineInput(
+      { ...params, frontImageId: params.frontImageId },
+      userId
+    );
+    await db.insert(cartItemTable).values({ userId, ...next });
+    return { ok: true, count: await getCartCount() };
+  }
+
   // Reject an unfulfillable product/size/color before it can reach checkout.
   const { product } = resolveOrderVariant({
     productId: params.productId,
@@ -145,80 +165,45 @@ export async function addToCart(params: {
     color: params.color,
   });
 
-  let designId: string;
+  if (!params.designId) throw new Error("designId or frontImageId required");
+  const designId = params.designId;
   let frontId: string | null;
-  // Set on the /d path only: the page image, which a swap moves to the back.
-  let pageImageId: string | null = null;
-  if (params.frontImageId) {
-    // /d path: pin the exact image. Same gate as buyPublishedDesign — derive
-    // the line's designId from the image and reject anything the buyer may
-    // not order from the page (see resolveBuyableImage).
-    const buyable = await resolveBuyableImage(params.frontImageId, userId);
-    if (!buyable.ok) {
-      throw new Error(
-        buyable.reason === "not-found"
-          ? "Image not found"
-          : "Image is not available"
-      );
-    }
-    designId = buyable.designId;
-    frontId = params.frontImageId;
-    pageImageId = params.frontImageId;
+  // Owner check (#251), mirroring createCheckoutSession: this entry is the
+  // design-id one (the former /preview path), which only ever operates on
+  // the viewer's own design. Without this check, a design id — public on any
+  // published image via getImagePage's sourceDesignId — let any caller cart
+  // the design's CURRENT primary image, private or not, with no ownership
+  // check at all. A cross-owner add must go through frontImageId instead,
+  // which resolveBuyableImage gates (published and visible, or the buyer's
+  // own unpublished image through a live conversation of theirs).
+  const design = await db.query.design.findFirst({
+    where: eq(designTable.id, designId),
+  });
+  if (!design || design.userId !== userId) {
+    throw new Error("Design not found");
+  }
+  if (params.front) {
+    // Explicit front pick (#138) — same choke-point guard as the back.
+    await assertUsablePlacementImage(params.front, designId, userId, "front");
+    frontId = params.front;
   } else {
-    if (!params.designId) throw new Error("designId or frontImageId required");
-    designId = params.designId;
-    // Owner check (#251), mirroring createCheckoutSession: this entry is the
-    // design-id one (the former /preview path), which only ever operates on
-    // the viewer's own design. Without this check, a design id — public on any
-    // published image via getImagePage's sourceDesignId — let any caller cart
-    // the design's CURRENT primary image, private or not, with no ownership
-    // check at all. A cross-owner add must go through frontImageId instead,
-    // which resolveBuyableImage gates (published and visible, or the buyer's
-    // own unpublished image through a live conversation of theirs).
-    const design = await db.query.design.findFirst({
-      where: eq(designTable.id, designId),
-    });
-    if (!design || design.userId !== userId) {
-      throw new Error("Design not found");
-    }
-    if (params.front) {
-      // Explicit front pick (#138) — same choke-point guard as the back.
-      await assertUsablePlacementImage(params.front, designId, userId, "front");
-      frontId = params.front;
-    } else {
-      frontId = design.primaryImageId ?? null;
-      // The implicit primary is trusted as the front; an admin-hidden image
-      // must not print (owner ruling, 2026-10-05).
-      if (frontId) await assertPrimaryNotHidden(frontId);
-    }
+    frontId = design.primaryImageId ?? null;
+    // The implicit primary is trusted as the front; an admin-hidden image
+    // must not print (owner ruling, 2026-10-05).
+    if (frontId) await assertPrimaryNotHidden(frontId);
   }
 
   const backId = multiPlacementEnabled() && params.back ? params.back : null;
   if (backId) {
     // Fulfillment drops a placement the blank can't print — a paid-for back
-    // (after a /d swap, the page image itself) would silently vanish.
+    // would silently vanish.
     if (!productSupportsPlacement(product, "back")) {
       throw new Error("This product has no back print area");
     }
     // Same choke-point guard as createCheckoutSession (#72): the user's own
-    // images or published Shop images, never an admin-hidden one. On a /d add of a published image
-    // designId is the SELLER's design, and of the user's own unpublished image
-    // their own; the guard deliberately gives either no weight (see
-    // canUseAsPlacementSource).
+    // images or published Shop images, never an admin-hidden one. The guard
+    // deliberately gives the design id no weight (see canUseAsPlacementSource).
     await assertUsablePlacementImage(backId, designId, userId);
-  }
-  if (pageImageId) {
-    // The /d swap (#138 slice 3): checked against the back that will actually
-    // be pinned, so a back dropped by the flag also refuses the override.
-    const swappedFront = resolveBuyPageFront({
-      pageImageId,
-      front: params.front,
-      back: backId,
-    });
-    if (swappedFront !== pageImageId) {
-      await assertUsablePlacementImage(swappedFront, designId, userId, "front");
-      frontId = swappedFront;
-    }
   }
   const placements: Record<string, string> | null = frontId
     ? { front: frontId, ...(backId ? { back: backId } : {}) }
@@ -234,6 +219,146 @@ export async function addToCart(params: {
   });
 
   return { ok: true, count: await getCartCount() };
+}
+
+/**
+ * The validated row an image-detail-page add or edit writes (#282): the same
+ * chain `addToCart`'s `frontImageId` entry has always run (catalog variant,
+ * `resolveBuyableImage` on the page image, the back's print area and guard,
+ * the swap rule), returned as the columns to write. Throws on any refusal;
+ * writes nothing.
+ */
+async function resolveLineInput(
+  params: {
+    frontImageId: string;
+    front?: string;
+    back?: string;
+    productId: string;
+    size: string;
+    color: string;
+  },
+  userId: string
+): Promise<{
+  designId: string;
+  productId: string;
+  size: string;
+  color: string;
+  placements: Record<string, string>;
+}> {
+  // Reject an unfulfillable product/size/color before it can reach checkout.
+  const { product } = resolveOrderVariant({
+    productId: params.productId,
+    size: params.size,
+    color: params.color,
+  });
+  // Pin the exact image. Same gate as buyPublishedDesign — derive the line's
+  // designId from the image and reject anything the buyer may not order from
+  // the page (see resolveBuyableImage).
+  const buyable = await resolveBuyableImage(params.frontImageId, userId);
+  if (!buyable.ok) {
+    throw new Error(
+      buyable.reason === "not-found" ? "Image not found" : "Image is not available"
+    );
+  }
+  const designId = buyable.designId;
+  let frontId = params.frontImageId;
+  const backId = multiPlacementEnabled() && params.back ? params.back : null;
+  if (backId) {
+    // Fulfillment drops a placement the blank can't print — a paid-for back
+    // (after a /d swap, the page image itself) would silently vanish.
+    if (!productSupportsPlacement(product, "back")) {
+      throw new Error("This product has no back print area");
+    }
+    // Same choke-point guard as createCheckoutSession (#72): the user's own
+    // images or published Shop images, never an admin-hidden one. designId is
+    // the SELLER's design for a published image and the user's own for their
+    // unpublished one; the guard deliberately gives either no weight (see
+    // canUseAsPlacementSource).
+    await assertUsablePlacementImage(backId, designId, userId);
+  }
+  // The /d swap (#138 slice 3): checked against the back that will actually
+  // be pinned, so a back dropped by the flag also refuses the override.
+  const swappedFront = resolveBuyPageFront({
+    pageImageId: params.frontImageId,
+    front: params.front,
+    back: backId,
+  });
+  if (swappedFront !== params.frontImageId) {
+    await assertUsablePlacementImage(swappedFront, designId, userId, "front");
+    frontId = swappedFront;
+  }
+  return {
+    designId,
+    productId: params.productId,
+    size: params.size,
+    color: params.color,
+    placements: { front: frontId, ...(backId ? { back: backId } : {}) },
+  };
+}
+
+/**
+ * Save the image detail page's panel back onto an existing cart line (#282,
+ * one buy surface slice 5). The same validation as an add, then ONE
+ * owner-scoped UPDATE: a line id from another cart, or a line removed since
+ * the panel opened, matches no row and is reported as data (`not-found`), so
+ * the panel can say so (production masks thrown errors). Quantity is left as
+ * it is: the stepper on the cart page owns it.
+ */
+export async function updateCartItem(params: {
+  id: string;
+  frontImageId: string;
+  front?: string;
+  back?: string;
+  productId: string;
+  size: string;
+  color: string;
+}): Promise<{ ok: true } | { ok: false; reason: "not-found" }> {
+  const userId = await currentUserId();
+  if (!userId) throw new Error("Unauthorized");
+  const next = await resolveLineInput(params, userId);
+  const updated = await db
+    .update(cartItemTable)
+    .set(next)
+    .where(and(eq(cartItemTable.id, params.id), eq(cartItemTable.userId, userId)))
+    .returning({ id: cartItemTable.id });
+  return updated.length === 1 ? { ok: true } : { ok: false, reason: "not-found" };
+}
+
+/** 1 to 12 (Nico, 2026-10-01). Owner-scoped like removeCartItem. */
+export async function setCartItemQuantity(
+  id: string,
+  quantity: number
+): Promise<{ ok: true } | { ok: false; reason: "not-found" }> {
+  const userId = await currentUserId();
+  if (!userId) throw new Error("Unauthorized");
+  if (!isValidCartQuantity(quantity)) {
+    throw new Error(
+      `Quantity must be between ${CART_LINE_MIN_QUANTITY} and ${CART_LINE_MAX_QUANTITY}`
+    );
+  }
+  const updated = await db
+    .update(cartItemTable)
+    .set({ quantity })
+    .where(and(eq(cartItemTable.id, id), eq(cartItemTable.userId, userId)))
+    .returning({ id: cartItemTable.id });
+  return updated.length === 1 ? { ok: true } : { ok: false, reason: "not-found" };
+}
+
+/**
+ * The image detail page asks before turning edit mode on for a `line` in its
+ * URL: only the viewer's own line qualifies. Null otherwise, and the page
+ * opens in plain buy mode.
+ */
+export async function getEditableCartLine(
+  id: string
+): Promise<{ id: string; quantity: number } | null> {
+  const userId = await currentUserId();
+  if (!userId) return null;
+  const row = await db.query.cartItem.findFirst({
+    where: and(eq(cartItemTable.id, id), eq(cartItemTable.userId, userId)),
+    columns: { id: true, quantity: true },
+  });
+  return row ?? null;
 }
 
 export async function removeCartItem(id: string): Promise<void> {
@@ -288,6 +413,28 @@ export async function getCart(): Promise<CartView> {
       .filter((v): v is string => Boolean(v))
   );
 
+  // Which pinned image is the line's page image (cart-line-edit.ts): the one
+  // linked to the line's conversation. One query for every line's pins.
+  const pinIds = rows
+    .flatMap((r) => [r.placements?.front, r.placements?.back])
+    .filter((v): v is string => Boolean(v));
+  const links =
+    pinIds.length > 0
+      ? await db
+          .select({
+            designId: conversationImageTable.designId,
+            imageId: conversationImageTable.imageId,
+          })
+          .from(conversationImageTable)
+          .where(
+            and(
+              inArray(conversationImageTable.designId, rows.map((r) => r.designId)),
+              inArray(conversationImageTable.imageId, pinIds)
+            )
+          )
+      : [];
+  const linked = new Set(links.map((l) => `${l.designId}:${l.imageId}`));
+
   const items: CartLine[] = [];
   for (const r of rows) {
     const product = getBlank(r.productId);
@@ -297,6 +444,10 @@ export async function getCart(): Promise<CartView> {
       ? pinnedById.get(r.placements.front)?.imageUrl ?? null
       : null;
     const unitPrice = computePrice(0, r.productId, r.size, { back: hasBack }).total;
+    const edit = cartLineEdit(
+      { placements: r.placements ?? null },
+      (imageId) => linked.has(`${r.designId}:${imageId}`)
+    );
     items.push({
       id: r.id,
       designId: r.designId,
@@ -313,6 +464,13 @@ export async function getCart(): Promise<CartView> {
         ? pinnedById.get(r.placements.back)?.imageUrl ?? null
         : null,
       unavailable: false, // set below, all lines at once
+      editHref: edit
+        ? cartLineEditHref(
+            r.id,
+            { productId: r.productId, size: r.size, color: r.color },
+            edit
+          )
+        : null,
     });
   }
 

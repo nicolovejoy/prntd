@@ -41,6 +41,7 @@ const ONE_ITEM: CartView = {
       imageUrl: null,
       backImageUrl: null,
       unavailable: false,
+      editHref: null,
     },
   ],
   itemSubtotal: 19.43,
