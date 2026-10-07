@@ -166,12 +166,16 @@ test("cart line: quantity stepper and Edit save back to the same line (#282)", a
     const target = / \/ L\b/.test(lineText) ? "M" : "L";
     await page.getByRole("link", { name: "Edit" }).click();
     await expect(page).toHaveURL(/\/d\/[^?]+\?.*line=/, { timeout: 30_000 });
-    const save = page.getByTestId("save-to-cart").first();
+    // The panel renders the CTA twice (desktop inline, mobile sticky bar); a
+    // role query skips the display:none twin, `getByTestId(...).first()` does not.
+    const save = page.getByRole("button", { name: "Save to cart" });
     await expect(save).toBeVisible({ timeout: 30_000 });
     await waitForHydrated(save);
 
     // Pick a size that differs from the line's current one, then save back.
-    await page.getByRole("button", { name: target, exact: true }).click();
+    const chip = page.getByRole("button", { name: target, exact: true });
+    await chip.click();
+    await expect(chip).toHaveAttribute("aria-pressed", "true");
     await save.click();
 
     await expect(page).toHaveURL(/\/cart$/, { timeout: 30_000 });
