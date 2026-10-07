@@ -10,6 +10,7 @@ import CartPage from "../page";
 
 const getCart = vi.fn();
 const removeCartItem = vi.fn();
+const setCartItemQuantity = vi.fn();
 const checkoutCart = vi.fn();
 const push = vi.fn();
 
@@ -17,6 +18,7 @@ vi.mock("../actions", () => ({
   getCart: (...args: unknown[]) => getCart(...args),
   removeCartItem: (...args: unknown[]) => removeCartItem(...args),
   checkoutCart: (...args: unknown[]) => checkoutCart(...args),
+  setCartItemQuantity: (...args: unknown[]) => setCartItemQuantity(...args),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -58,6 +60,7 @@ const ONE_ITEM_WITH_IMAGE: CartView = {
 
 beforeEach(() => {
   removeCartItem.mockReset();
+  setCartItemQuantity.mockReset();
   checkoutCart.mockReset();
   getCart.mockReset();
   push.mockReset();
@@ -247,5 +250,68 @@ describe("CartPage unavailable lines (one buy surface, slice 3)", () => {
     expect(await screen.findByTestId("cart-checkout-error")).toHaveTextContent(
       "A design in your cart is no longer available. Remove it to continue."
     );
+  });
+});
+
+describe("cart line controls (#282)", () => {
+  const WITH_EDIT: CartView = {
+    ...ONE_ITEM_WITH_IMAGE,
+    items: [{ ...ONE_ITEM_WITH_IMAGE.items[0], editHref: "/d/img-1?order=1&size=M&line=line-1&from=%2Fcart" }],
+  };
+
+  it("renders an Edit link and links the thumbnail to the same place", async () => {
+    getCart.mockResolvedValue(WITH_EDIT);
+    render(<CartPage />);
+    const edit = await screen.findByRole("link", { name: "Edit" });
+    expect(edit).toHaveAttribute("href", WITH_EDIT.items[0].editHref);
+    const thumbLink = screen.getByTestId("cart-line-thumb-link");
+    expect(thumbLink).toHaveAttribute("href", WITH_EDIT.items[0].editHref);
+  });
+
+  it("no Edit link on a line without one, or on an unavailable line", async () => {
+    getCart.mockResolvedValue({
+      ...WITH_EDIT,
+      items: [
+        { ...WITH_EDIT.items[0], id: "a", editHref: null },
+        { ...WITH_EDIT.items[0], id: "b", unavailable: true },
+      ],
+    });
+    render(<CartPage />);
+    await screen.findAllByTestId("cart-line-item");
+    expect(screen.queryByRole("link", { name: "Edit" })).not.toBeInTheDocument();
+  });
+
+  it("the stepper shows the quantity and calls setCartItemQuantity with ±1", async () => {
+    getCart.mockResolvedValue({ ...WITH_EDIT, items: [{ ...WITH_EDIT.items[0], quantity: 2 }] });
+    setCartItemQuantity.mockResolvedValue({ ok: true });
+    render(<CartPage />);
+    expect(await screen.findByTestId("cart-line-quantity")).toHaveTextContent("2");
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity" }));
+    await waitFor(() => expect(setCartItemQuantity).toHaveBeenCalledWith("line-1", 3));
+    fireEvent.click(screen.getByRole("button", { name: "Decrease quantity" }));
+    await waitFor(() => expect(setCartItemQuantity).toHaveBeenCalledWith("line-1", 1));
+    // The cart is re-read after each change.
+    await waitFor(() => expect(getCart).toHaveBeenCalledTimes(3));
+  });
+
+  it("disables Decrease at 1 and Increase at 12", async () => {
+    getCart.mockResolvedValueOnce({ ...WITH_EDIT, items: [{ ...WITH_EDIT.items[0], quantity: 1 }] });
+    const { unmount } = render(<CartPage />);
+    await screen.findByTestId("cart-line-quantity");
+    expect(screen.getByRole("button", { name: "Decrease quantity" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Increase quantity" })).toBeEnabled();
+    unmount();
+    getCart.mockResolvedValueOnce({ ...WITH_EDIT, items: [{ ...WITH_EDIT.items[0], quantity: 12 }] });
+    render(<CartPage />);
+    await screen.findByTestId("cart-line-quantity");
+    expect(screen.getByRole("button", { name: "Increase quantity" })).toBeDisabled();
+  });
+
+  it("the stepper buttons are 44px targets", async () => {
+    getCart.mockResolvedValue(WITH_EDIT);
+    render(<CartPage />);
+    const inc = await screen.findByRole("button", { name: "Increase quantity" });
+    expect(inc.className).toMatch(/\bw-11\b/);
+    expect(inc.className).toMatch(/\bh-11\b/);
   });
 });
