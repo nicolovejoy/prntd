@@ -294,6 +294,18 @@ describe("cart line controls (#282)", () => {
     await waitFor(() => expect(getCart).toHaveBeenCalledTimes(3));
   });
 
+  it("a failed quantity write shows a plain notice and re-reads the cart", async () => {
+    getCart.mockResolvedValue({ ...WITH_EDIT, items: [{ ...WITH_EDIT.items[0], quantity: 2 }] });
+    setCartItemQuantity.mockRejectedValue(new Error("boom"));
+    render(<CartPage />);
+    await screen.findByTestId("cart-line-quantity");
+    fireEvent.click(screen.getByRole("button", { name: "Increase quantity" }));
+    expect(await screen.findByTestId("cart-quantity-error")).toHaveTextContent(
+      "Couldn't change the quantity."
+    );
+    expect(getCart).toHaveBeenCalledTimes(2);
+  });
+
   it("disables Decrease at 1 and Increase at 12", async () => {
     getCart.mockResolvedValueOnce({ ...WITH_EDIT, items: [{ ...WITH_EDIT.items[0], quantity: 1 }] });
     const { unmount } = render(<CartPage />);

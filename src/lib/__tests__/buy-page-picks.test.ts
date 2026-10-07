@@ -123,6 +123,12 @@ describe("withBuyPagePicks", () => {
   it("returns an empty string when nothing is left", () => {
     expect(withBuyPagePicks("?size=S", { size: null })).toBe("");
   });
+
+  it("keeps the cart line being edited when other picks change (#282)", () => {
+    const qs = withBuyPagePicks("?line=l1&order=1", { size: "L" });
+    expect(new URLSearchParams(qs).get("line")).toBe("l1");
+    expect(new URLSearchParams(qs).get("size")).toBe("L");
+  });
 });
 
 describe("backToResolve", () => {

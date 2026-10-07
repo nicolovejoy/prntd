@@ -96,6 +96,10 @@ export const ERROR_BOUNDARY_HOME = "Go to the home page";
 
 // --- cart ---
 
+/** The cart's quantity stepper write failed (a thrown server action). The
+ * stepper snaps back to the server's number. */
+export const QUANTITY_UPDATE_FAILED = "Couldn't change the quantity.";
+
 /** checkoutCart refused: a line's image is no longer something this buyer may
  * order or print. Returned as data (`{ error }`), so it survives production's
  * masking of thrown server-action errors. */

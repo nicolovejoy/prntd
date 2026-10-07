@@ -104,7 +104,7 @@ async function currentUserId(): Promise<string | null> {
  *    `back` is (#138), so a front pin grants no reach a back pin didn't
  *    already have. A cross-owner add must go through
  *    `frontImageId` instead.
- *  - `frontImageId` (/d, #146): the image detail page's image. The front
+ *  - `frontImageId` (image detail page, #146): the image detail page's image. The front
  *    placement is pinned to that EXACT image, mirroring buyPublishedDesign —
  *    the design's primary can change after the add, and the buyer must get
  *    the image they tapped, not the seller's current display image. The
@@ -131,12 +131,12 @@ async function currentUserId(): Promise<string | null> {
 export async function addToCart(params: {
   /** The design to cart (/preview path). Ignored when frontImageId is set. */
   designId?: string;
-  /** The image detail page's image (/d path, #146): the line's designId
+  /** The image detail page's image (image detail page, #146): the line's designId
    * derives from it, and it is pinned as the front unless `front` swaps it
    * to the back. */
   frontImageId?: string;
   /** Front pick. On the designId path (/preview, #138) any guarded image.
-   * On the frontImageId path (/d, #138 slice 3) a swap only: accepted when
+   * On the frontImageId path (image detail page, #138 slice 3) a swap only: accepted when
    * `back` is the page image, refused otherwise. */
   front?: string;
   productId: string;
@@ -149,7 +149,7 @@ export async function addToCart(params: {
   if (!userId) throw new Error("Unauthorized");
 
   if (params.frontImageId) {
-    // /d path: the shared validation chain, then insert what it resolved.
+    // Image detail page path: the shared validation chain, then insert what it resolved.
     const next = await resolveLineInput(
       { ...params, frontImageId: params.frontImageId },
       userId
@@ -265,7 +265,7 @@ async function resolveLineInput(
   const backId = multiPlacementEnabled() && params.back ? params.back : null;
   if (backId) {
     // Fulfillment drops a placement the blank can't print — a paid-for back
-    // (after a /d swap, the page image itself) would silently vanish.
+    // (after an image detail page swap, the page image itself) would silently vanish.
     if (!productSupportsPlacement(product, "back")) {
       throw new Error("This product has no back print area");
     }
@@ -276,7 +276,7 @@ async function resolveLineInput(
     // canUseAsPlacementSource).
     await assertUsablePlacementImage(backId, designId, userId);
   }
-  // The /d swap (#138 slice 3): checked against the back that will actually
+  // The image detail page swap (#138 slice 3): checked against the back that will actually
   // be pinned, so a back dropped by the flag also refuses the override.
   const swappedFront = resolveBuyPageFront({
     pageImageId: params.frontImageId,
@@ -407,17 +407,16 @@ export async function getCart(): Promise<CartView> {
   // not the design's current display image — they can differ, and the pin is
   // what gets printed. /preview lines pin the primary, so this is a no-op
   // for them.
-  const pinnedById = await resolveImagesByIds(
-    rows
-      .flatMap((r) => [r.placements?.front, r.placements?.back])
-      .filter((v): v is string => Boolean(v))
-  );
-
-  // Which pinned image is the line's page image (cart-line-edit.ts): the one
-  // linked to the line's conversation. One query for every line's pins.
   const pinIds = rows
     .flatMap((r) => [r.placements?.front, r.placements?.back])
     .filter((v): v is string => Boolean(v));
+  const pinnedById = await resolveImagesByIds(pinIds);
+
+  // Which pinned image is the line's page image (cart-line-edit.ts): the one
+  // linked to the line's conversation as an OUTPUT. Seed rows are excluded: a
+  // swapped Shop line whose front pick is a seed of the seller's conversation
+  // would otherwise count as linked, open on the pick (no swap), and Save would
+  // move design_id to the pick's conversation. One query for every line's pins.
   const links =
     pinIds.length > 0
       ? await db
@@ -429,7 +428,8 @@ export async function getCart(): Promise<CartView> {
           .where(
             and(
               inArray(conversationImageTable.designId, rows.map((r) => r.designId)),
-              inArray(conversationImageTable.imageId, pinIds)
+              inArray(conversationImageTable.imageId, pinIds),
+              eq(conversationImageTable.role, "output")
             )
           )
       : [];

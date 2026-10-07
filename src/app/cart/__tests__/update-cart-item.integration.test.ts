@@ -154,7 +154,7 @@ afterEach(() => {
 });
 
 describe("updateCartItem (#282)", () => {
-  it("changes exactly the named line: size, colour and product, keeping its quantity", async () => {
+  it("changes exactly the named line: size and colour, keeping its quantity", async () => {
     const db = h.db as Db;
     const ids = await seed(db);
     await addToCart({ frontImageId: ids.listingId, ...OPTS });
@@ -359,6 +359,24 @@ describe("getEditableCartLine and CartLine.editHref (#282)", () => {
     expect(swapped.pathname).toBe(`/d/${ids.listingId}`);
     expect(swapped.searchParams.get("back")).toBe(ids.myImageId);
     expect(swapped.searchParams.get("swap")).toBe("1");
+  });
+
+  it("a swapped line whose pick is also a seed of the seller's conversation still opens the page image", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    // The buyer's image is linked to the SELLER's conversation as a seed. Only
+    // an output link marks a page image, so this must not move the edit link.
+    await db.insert(schema.conversationImage).values({
+      designId: ids.soldDesignId,
+      imageId: ids.myImageId,
+      role: "seed",
+    });
+    await addToCart({ frontImageId: ids.listingId, front: ids.myImageId, back: ids.listingId, ...OPTS });
+    const view = await getCart();
+    const href = new URL(view.items[0].editHref!, "http://x");
+    expect(href.pathname).toBe(`/d/${ids.listingId}`);
+    expect(href.searchParams.get("swap")).toBe("1");
+    expect(href.searchParams.get("back")).toBe(ids.myImageId);
   });
 
   it("a line with no front pin has no editHref", async () => {

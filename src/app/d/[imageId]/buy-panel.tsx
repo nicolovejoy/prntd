@@ -287,8 +287,8 @@ export function BuyPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sides.front.id]);
 
-  // Set the moment a navigation away starts (checkout, add to cart): a late
-  // state change must not rewrite history after that (#101).
+  // Set the moment a navigation away starts (checkout, add to cart, save to
+  // cart): a late state change must not rewrite history after that (#101).
   const navigatingAway = useRef(false);
 
   // Keep the picks in the address bar while the panel is open (#278).

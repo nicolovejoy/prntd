@@ -11,7 +11,7 @@ import {
   type CartView,
 } from "./actions";
 import { Button, EmptyState, InlineNotice } from "@/components/ui";
-import { CART_LINE_UNAVAILABLE_LABEL } from "@/lib/action-copy";
+import { CART_LINE_UNAVAILABLE_LABEL, QUANTITY_UPDATE_FAILED } from "@/lib/action-copy";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
 import { CART_LINE_MIN_QUANTITY, CART_LINE_MAX_QUANTITY } from "@/lib/cart-line-edit";
@@ -35,10 +35,14 @@ export default function CartPage() {
   // tests and worse for a customer who is about to walk away.
   const [loadFailed, setLoadFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
-  // The line id with a change in flight: one at a time per line, shared by
-  // Remove and the quantity stepper. `removing` is the Remove subset, for its
-  // "Removing…" label.
+  // The id of the line with a Remove or quantity change in flight. It is one
+  // id for the whole page, not one per line: starting a change on another line
+  // replaces it. That is harmless because quantity writes are absolute (the
+  // last write wins and each response is followed by a fresh getCart), and
+  // while it is set the Checkout button is disabled so its total can't be
+  // stale. `removing` is the Remove subset, for its "Removing…" label.
   const [busy, setBusy] = useState<string | null>(null);
+  const [quantityFailed, setQuantityFailed] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
   const [checkingOut, setCheckingOut] = useState(false);
   // checkoutCart's refusal ({ error }), shown above the buttons; the lines
@@ -89,9 +93,18 @@ export default function CartPage() {
   async function handleQuantity(id: string, quantity: number) {
     if (quantity < CART_LINE_MIN_QUANTITY || quantity > CART_LINE_MAX_QUANTITY) return;
     setBusy(id);
+    setQuantityFailed(false);
     try {
       await setCartItemQuantity(id, quantity);
+    } catch {
+      setQuantityFailed(true);
+    }
+    // Re-read either way, so the stepper shows the server's number (also when
+    // the line is gone: { ok: false }).
+    try {
       await refresh();
+    } catch {
+      setQuantityFailed(true);
     } finally {
       setBusy(null);
     }
@@ -177,7 +190,10 @@ export default function CartPage() {
                 const thumb = item.backImageUrl ? "w-14 h-14" : "w-16 h-16";
                 // Edit reopens the image detail page with this line's picks;
                 // an unavailable line has nothing to reopen.
-                const editHref = item.unavailable ? null : item.editHref;
+                // While checkout is starting the cart must not change under it,
+                // so the links go quiet (Edit becomes plain text below).
+                const canEdit = item.unavailable ? null : item.editHref;
+                const editHref = checkingOut ? null : canEdit;
                 const thumbs = (
                   <>
                     <div className={`${thumb} shrink-0 bg-surface-well border border-border overflow-hidden`}>
@@ -264,7 +280,7 @@ export default function CartPage() {
                           type="button"
                           aria-label="Decrease quantity"
                           onClick={() => handleQuantity(item.id, item.quantity - 1)}
-                          disabled={busy === item.id || item.quantity <= CART_LINE_MIN_QUANTITY}
+                          disabled={checkingOut || busy === item.id || item.quantity <= CART_LINE_MIN_QUANTITY}
                           className="w-11 h-11 inline-flex items-center justify-center text-base disabled:text-text-faint"
                         >
                           −
@@ -276,21 +292,27 @@ export default function CartPage() {
                           type="button"
                           aria-label="Increase quantity"
                           onClick={() => handleQuantity(item.id, item.quantity + 1)}
-                          disabled={busy === item.id || item.quantity >= CART_LINE_MAX_QUANTITY}
+                          disabled={checkingOut || busy === item.id || item.quantity >= CART_LINE_MAX_QUANTITY}
                           className="w-11 h-11 inline-flex items-center justify-center text-base disabled:text-text-faint"
                         >
                           +
                         </button>
                       </div>
                       <div className="flex items-center gap-4">
-                        {editHref && (
+                        {editHref ? (
                           <Link href={editHref} className={linkStyle}>
                             Edit
                           </Link>
+                        ) : (
+                          canEdit && (
+                            <span className="min-h-11 inline-flex items-center text-xs text-text-faint">
+                              Edit
+                            </span>
+                          )
                         )}
                         <button
                           onClick={() => handleRemove(item.id)}
-                          disabled={busy === item.id}
+                          disabled={checkingOut || busy === item.id}
                           className={linkStyle}
                         >
                           {removing === item.id ? "Removing…" : "Remove"}
@@ -301,6 +323,14 @@ export default function CartPage() {
                 );
               })}
             </ul>
+
+            {quantityFailed && (
+              <InlineNotice
+                message={QUANTITY_UPDATE_FAILED}
+                className="mt-4"
+                testId="cart-quantity-error"
+              />
+            )}
 
             <div className="space-y-2 text-sm mt-4">
               <div className="flex justify-between">
@@ -334,7 +364,7 @@ export default function CartPage() {
             <div className="mt-6 flex flex-col sm:flex-row gap-3">
               <Button
                 onClick={handleCheckout}
-                disabled={checkingOut}
+                disabled={checkingOut || busy !== null}
                 size="lg"
                 className="w-full"
               >
