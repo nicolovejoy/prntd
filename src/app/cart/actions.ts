@@ -34,6 +34,8 @@ import { stripe } from "@/lib/stripe";
 import { abandonSessionlessOrder } from "@/lib/order-checkout";
 import { buildCartCheckoutSessionParams } from "@/lib/checkout";
 import { cartLineStillValid } from "@/lib/cart-line-check";
+import { cartOrderStoreProductId } from "@/lib/cart-attribution";
+import { requireMirrorProduct } from "@/lib/model-b-writes";
 import { CART_LINE_UNAVAILABLE } from "@/lib/action-copy";
 import {
   isValidCartQuantity,
@@ -547,11 +549,45 @@ export async function checkoutCart(): Promise<{
   // built before the batch.
   const head = view.items[0];
   const orderId = crypto.randomUUID();
+
+  // Shop attribution (#289 item 2). `order.store_product_id` is a header
+  // column, but a cart can hold lines from several compositions, so the order
+  // records one only when every published line's front image shares the same
+  // mirror product (`cartOrderStoreProductId`); a mixed cart, or one of the
+  // buyer's own unpublished work, books null. Per-line attribution would need
+  // an order_item column. Only the front counts: the Shop sells the front. An
+  // unpublished image is never given a mirror lookup (a stale draft mirror
+  // left by an unpublish must not attach itself, as in buyPublishedDesign),
+  // and a published front with no mirror throws rather than booking an order
+  // with no composition. This runs before the batch, so a throw writes nothing.
+  const mirrorByImage = new Map<string, string>();
+  const attributionLines: Array<{ published: boolean; storeProductId: string | null }> = [];
+  for (const i of view.items) {
+    const frontId = i.placements?.front;
+    if (!frontId) {
+      attributionLines.push({ published: false, storeProductId: null });
+      continue;
+    }
+    const buyable = await resolveBuyableImage(frontId, userId);
+    if (!buyable.ok || !buyable.published) {
+      attributionLines.push({ published: false, storeProductId: null });
+      continue;
+    }
+    let mirrorId = mirrorByImage.get(frontId);
+    if (!mirrorId) {
+      mirrorId = await requireMirrorProduct(db, frontId);
+      mirrorByImage.set(frontId, mirrorId);
+    }
+    attributionLines.push({ published: true, storeProductId: mirrorId });
+  }
+  const storeProductId = cartOrderStoreProductId(attributionLines);
+
   await db.batch([
     db.insert(orderTable).values({
       id: orderId,
       userId,
       designId: head.designId,
+      storeProductId,
       totalPrice: view.total,
       itemPrice: view.itemSubtotal,
       shippingPrice: view.shipping,
