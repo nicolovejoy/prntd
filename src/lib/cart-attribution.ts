@@ -3,7 +3,9 @@
  * (`order.store_product_id`, #289 item 2).
  *
  * The column lives on the order header, but a cart order can carry lines from
- * several compositions. The order is attributed only when every published line
+ * several compositions. A line is judged by its page image (the image its
+ * detail page opens on), not its front pin, which after a swap is the buyer's
+ * pick. The order is attributed only when every published line
  * names the same composition and at least one line is published; otherwise the
  * answer is null. Unpublished lines (the buyer's own work) have no composition
  * and do not count either way. Per-line attribution would need an

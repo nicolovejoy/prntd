@@ -50,7 +50,9 @@ vi.mock("@/lib/printful", () => ({
 }));
 
 import { addToCart, checkoutCart } from "@/app/cart/actions";
-import { findMirrorProduct } from "@/lib/model-b-writes";
+import { publishImage } from "@/app/designs/actions";
+import { stripe } from "@/lib/stripe";
+import { findMirrorProduct, MISSING_COMPOSITION_ERROR } from "@/lib/model-b-writes";
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
 
@@ -73,6 +75,15 @@ async function seed(db: Db) {
     imageUrl: "https://img.example/b.png",
     publishedAt: new Date(),
   });
+  // Another seller's published image: a different conversation from A and B.
+  await makeUser(db, "seller2");
+  const sold2 = await makeDesign(db, "seller2");
+  const publishedC = await makeSourceImage(db, {
+    designId: sold2.id,
+    ownerId: "seller2",
+    imageUrl: "https://img.example/c.png",
+    publishedAt: new Date(),
+  });
   const mine = await makeDesign(db, "buyer");
   const myId = await makeSourceImage(db, {
     designId: mine.id,
@@ -83,7 +94,7 @@ async function seed(db: Db) {
     .update(schema.design)
     .set({ primaryImageId: myId })
     .where(eq(schema.design.id, mine.id));
-  return { publishedA, publishedB, myId };
+  return { soldDesignId: sold.id, myDesignId: mine.id, publishedA, publishedB, publishedC, myId };
 }
 
 async function onlyOrder(db: Db) {
@@ -93,6 +104,7 @@ async function onlyOrder(db: Db) {
 }
 
 beforeEach(async () => {
+  vi.mocked(stripe.checkout.sessions.create).mockClear();
   h.db = await createTestDb();
   h.session = BUYER;
   vi.stubEnv("MULTI_PLACEMENT_ENABLED", "true");
@@ -160,8 +172,93 @@ describe("checkoutCart attribution", () => {
     await addToCart({ frontImageId: ids.publishedA, ...OPTS });
     await db.delete(schema.product);
 
-    await expect(checkoutCart()).rejects.toThrow();
+    await expect(checkoutCart()).rejects.toThrow(MISSING_COMPOSITION_ERROR);
+    expect(stripe.checkout.sessions.create).not.toHaveBeenCalled();
     expect(await db.select().from(schema.order)).toHaveLength(0);
     expect(await db.select().from(schema.orderItem)).toHaveLength(0);
+  });
+  it("a swapped line is attributed to the page image, not the buyer's front pick", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    // Page image A, back = A, front = the buyer's own image.
+    await addToCart({
+      frontImageId: ids.publishedA,
+      front: ids.myId,
+      back: ids.publishedA,
+      ...OPTS,
+    });
+
+    await checkoutCart();
+    const mirror = await findMirrorProduct(db as never, ids.publishedA);
+    expect(mirror).not.toBeNull();
+    expect((await onlyOrder(db)).storeProductId).toBe(mirror);
+  });
+
+  // Residue: when the swapped-in front is another output of the SAME
+  // conversation, both pins are linked to the line's design and the stored line
+  // does not say which was the page image, so cartLineEdit (and this) pick the
+  // front.
+  it("a swap onto another seller's published image still books the page image's composition", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    await addToCart({
+      frontImageId: ids.publishedA,
+      front: ids.publishedC,
+      back: ids.publishedA,
+      ...OPTS,
+    });
+
+    await checkoutCart();
+    const mirror = await findMirrorProduct(db as never, ids.publishedA);
+    expect((await onlyOrder(db)).storeProductId).toBe(mirror);
+  });
+
+  it("the owner buying their own published image through the cart books its composition", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    await publishImage(ids.myId, { title: "Mine", backgroundColor: "Black" });
+    await addToCart({ frontImageId: ids.myId, ...OPTS });
+
+    await checkoutCart();
+    const mirror = await findMirrorProduct(db as never, ids.myId);
+    expect(mirror).not.toBeNull();
+    expect((await onlyOrder(db)).storeProductId).toBe(mirror);
+  });
+
+  it("a legacy pinned line whose front has since been published books that composition", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    await db.insert(schema.cartItem).values({
+      userId: "buyer",
+      designId: ids.myDesignId,
+      productId: OPTS.productId,
+      size: OPTS.size,
+      color: OPTS.color,
+      placements: { front: ids.myId },
+    });
+    await publishImage(ids.myId, { title: "Mine", backgroundColor: "Black" });
+
+    await checkoutCart();
+    const mirror = await findMirrorProduct(db as never, ids.myId);
+    expect(mirror).not.toBeNull();
+    expect((await onlyOrder(db)).storeProductId).toBe(mirror);
+  });
+
+  it("a legacy line with no front pin contributes nothing", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    await db.insert(schema.cartItem).values({
+      userId: "buyer",
+      designId: ids.myDesignId,
+      productId: OPTS.productId,
+      size: OPTS.size,
+      color: OPTS.color,
+      placements: null,
+    });
+    await addToCart({ frontImageId: ids.publishedA, ...OPTS });
+
+    await checkoutCart();
+    const mirror = await findMirrorProduct(db as never, ids.publishedA);
+    expect((await onlyOrder(db)).storeProductId).toBe(mirror);
   });
 });
