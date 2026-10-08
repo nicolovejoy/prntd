@@ -254,6 +254,25 @@ export function canViewImagePage(params: {
 }
 
 /**
+ * Whether `userId` gets the "hidden" notice at `/d/[imageId]` instead of the
+ * not-found page: the image is admin-hidden and the viewer owns it. Anyone
+ * else, the admin included, keeps the not-found page. The notice replaces the
+ * artwork and every control, so it leaves a moderated design no more
+ * reachable than `canViewImagePage` already does (#288).
+ */
+export function seesHiddenNotice(params: {
+  image: { isHidden: boolean };
+  imageOwnerId: string;
+  userId: string | null;
+}): boolean {
+  return (
+    params.image.isHidden &&
+    params.userId !== null &&
+    params.imageOwnerId === params.userId
+  );
+}
+
+/**
  * Collapse a published-image feed to one entry per design. Publishing
  * happens per design_image, so a maker who publishes several generations
  * within one design would otherwise flood the storefront with

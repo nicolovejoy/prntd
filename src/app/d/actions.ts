@@ -43,6 +43,7 @@ import { resolveBuyableImage } from "@/lib/buyable-image";
 import {
   canViewImagePage,
   publicationVisibility,
+  seesHiddenNotice,
   buildForkChain,
   type ForkChainEntry,
   type ForkChainRow,
@@ -84,6 +85,8 @@ export type PublishedImage = {
  * produced the image, for the owner's "View conversation" link.
  */
 export type ImagePage = Omit<PublishedImage, "publishedAt"> & {
+  /** Discriminant against `HiddenImagePage`; absent on a normal page. */
+  hiddenForOwner?: false;
   publishedAt: Date | null;
   sourceDesignId: string | null;
   /**
@@ -109,6 +112,17 @@ export type ImagePage = Omit<PublishedImage, "publishedAt"> & {
    * False means the page shows no Order.
    */
   canOrder: boolean;
+};
+
+/**
+ * What `getImagePage` returns to the owner of an admin-hidden image (#288):
+ * enough for the notice and nothing else. No artwork URL, so the page has no
+ * way to render the image or a buy surface from it.
+ */
+export type HiddenImagePage = {
+  hiddenForOwner: true;
+  imageId: string;
+  title: string | null;
 };
 
 /**
@@ -190,7 +204,8 @@ async function fetchForkChainRow(imageId: string): Promise<ForkChainRow | null> 
  * owner's own unpublished images to the owner (#136 slice 1) — the mirror
  * product is a left join, so an image with no mirror row still returns.
  * Returns null when the viewer may not see it (canViewImagePage) and the
- * route 404s.
+ * route 404s. The owner of an admin-hidden image gets the `HiddenImagePage`
+ * variant instead of null, so the route can tell them (#288).
  *
  * The sellable fields (title / description / backdrop) come off the image's
  * mirror `product` row; published and hidden state come off its
@@ -198,7 +213,7 @@ async function fetchForkChainRow(imageId: string): Promise<ForkChainRow | null> 
  */
 export async function getImagePage(
   imageId: string
-): Promise<ImagePage | null> {
+): Promise<ImagePage | HiddenImagePage | null> {
   const rows = await db
     .select({
       imageId: imageTable.id,
@@ -246,6 +261,16 @@ export async function getImagePage(
   }
 
   const isOwn = viewerId !== null && r.designerId === viewerId;
+  // The owner of an admin-hidden image is told, rather than shown a 404.
+  if (
+    seesHiddenNotice({
+      image: { isHidden },
+      imageOwnerId: r.designerId,
+      userId: viewerId,
+    })
+  ) {
+    return { hiddenForOwner: true, imageId: r.imageId, title: r.title };
+  }
   if (
     !canViewImagePage({
       image: { publishedAt, isHidden },

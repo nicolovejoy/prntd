@@ -22,6 +22,7 @@ import { StartFromImage } from "./start-from-image";
 import { ConversationImages } from "./conversation-images";
 import { BuyPanelPicksProvider } from "./buy-panel-picks-context";
 import { OwnerActions } from "./owner-actions";
+import { HiddenNotice } from "./hidden-notice";
 import {
   backToResolve,
   buildInitialPicks,
@@ -73,6 +74,18 @@ export default async function PublishedImagePage({
   const from = typeof sp.from === "string" ? sp.from : undefined;
   const img = await getImagePage(imageId);
   if (!img) notFound();
+
+  // The owner of an admin-hidden image gets a notice in place of everything
+  // below (#288): no artwork, no buy panel, no owner actions. Everyone else
+  // never gets here — getImagePage returns null for them.
+  if (img.hiddenForOwner) {
+    return (
+      <HiddenNotice
+        trail={breadcrumbTrail(`/d/${imageId}`, { from: detailFrom(from, false) })}
+        title={img.title}
+      />
+    );
+  }
 
   const session = await auth.api.getSession({ headers: await headers() });
   // Anonymous (guest) sessions don't count as logged-in for the buy CTA — the

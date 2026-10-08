@@ -40,7 +40,8 @@ process.env.STRIPE_SECRET_KEY ??= "sk_test_dummy";
 process.env.RESEND_API_KEY ??= "re_dummy";
 process.env.ADMIN_EMAIL = "admin@example.com";
 
-const { getImagePage } = await import("@/app/d/actions");
+const { getImagePage } = await import("./normal-image-page");
+
 const { getImageShareCard } = await import("@/lib/image-share");
 const { getRecentPublishedForAdmin } = await import("@/app/admin/actions");
 

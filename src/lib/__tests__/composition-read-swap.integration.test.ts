@@ -55,6 +55,14 @@ const { publishImage, unpublishImage, updatePublishedNaming } = await import(
 const { setImageHidden, setImageFeedRank, getRecentPublishedForAdmin } =
   await import("@/app/admin/actions");
 const { getImagePage } = await import("@/app/d/actions");
+
+/** getImagePage narrowed to a normal page: fails on null or the hidden notice. */
+async function visiblePage(imageId: string) {
+  const page = await getImagePage(imageId);
+  if (!page || page.hiddenForOwner) throw new Error("expected a normal image page");
+  return page;
+}
+
 const { getPublishedFeed } = await import("@/lib/discover-feed");
 const { getUserImageLibrary } = await import("@/lib/user-designs");
 const { setPrimaryImage } = await import("@/app/design/actions");
@@ -178,7 +186,7 @@ describe("getImagePage reads the mirror product for sellable fields", () => {
     await publishImage(imageId, { title: "Tiger", backgroundColor: "Black" });
     await updatePublishedNaming(imageId, { description: "A tiger" });
 
-    const page = await getImagePage(imageId);
+    const page = await visiblePage(imageId);
     expect(page).not.toBeNull();
     expect(page!.title).toBe("Tiger");
     expect(page!.description).toBe("A tiger");
@@ -192,13 +200,13 @@ describe("getImagePage reads the mirror product for sellable fields", () => {
     await publishImage(imageId, { title: "Tiger", backgroundColor: "Black" });
     await patchMirror(imageId, { backdropColor: "Navy" });
 
-    expect((await getImagePage(imageId))!.backgroundColor).toBe("Navy");
+    expect((await visiblePage(imageId)).backgroundColor).toBe("Navy");
   });
 
   it("still returns an unpublished image to its owner, with null publish fields", async () => {
     const { imageId } = await seedImage();
 
-    const page = await getImagePage(imageId);
+    const page = await visiblePage(imageId);
     expect(page).not.toBeNull();
     expect(page!.publishedAt).toBeNull();
     expect(page!.title).toBeNull();
@@ -234,7 +242,7 @@ describe("getImagePage reads the mirror product for sellable fields", () => {
     await makeUser(testDb, "someone-else");
     currentUserId = "someone-else";
 
-    const page = await getImagePage(imageId);
+    const page = await visiblePage(imageId);
     expect(page).not.toBeNull();
     expect(page!.publishedAt).toBeInstanceOf(Date);
     expect(await getPublishedFeed()).toHaveLength(1);
@@ -245,7 +253,7 @@ describe("getImagePage reads the mirror product for sellable fields", () => {
     await publishImage(imageId, { title: "Tiger", backgroundColor: "Black" });
     await unpublishImage(imageId);
 
-    const page = await getImagePage(imageId);
+    const page = await visiblePage(imageId);
     expect(page).not.toBeNull(); // owner still sees it
     expect(page!.publishedAt).toBeNull();
     expect(page!.title).toBeNull();

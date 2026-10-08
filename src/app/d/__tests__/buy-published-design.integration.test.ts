@@ -309,7 +309,7 @@ describe("getImagePage (Model B reads)", () => {
       backgroundColor: "Black",
     });
 
-    const { getImagePage } = await import("@/app/d/actions");
+    const { getImagePage } = await import("./normal-image-page");
     const img = await getImagePage(ids.listingId);
     expect(img?.imageUrl).toBe("https://img.example/listing.png");
     expect(img?.title).toBe("Fox");
@@ -318,10 +318,10 @@ describe("getImagePage (Model B reads)", () => {
     expect(img?.forkChain).toEqual([]);
   });
 
-  it("404s an unpublished image for a non-owner, and a hidden one for all", async () => {
+  it("404s an unpublished image for a non-owner, and a hidden one for everyone but its owner", async () => {
     const db = h.db as Db;
     const ids = await seed(db);
-    const { getImagePage } = await import("@/app/d/actions");
+    const { getImagePage } = await import("./normal-image-page");
 
     // Session is the buyer (beforeEach); the seller's private sibling stays
     // unreachable even though its id is guessable from the sold thread.
@@ -331,11 +331,18 @@ describe("getImagePage (Model B reads)", () => {
     h.session = null;
     expect(await getImagePage(ids.sellerPrivateId)).toBeNull();
 
-    // Hidden beats ownership: an admin-hidden listing 404s for its owner too,
-    // or moderation would leave the page linkable.
-    h.session = { user: { id: "seller", isAnonymous: false } };
+    // Hidden beats ownership: an admin-hidden listing gives its owner a
+    // notice with no artwork (#288), not the page, or moderation would leave
+    // the design linkable. Everyone else, the buyer included, gets a 404.
     await setPublication(db, ids.listingId, { isHidden: true });
     expect(await getImagePage(ids.listingId)).toBeNull();
+    h.session = { user: { id: "seller", isAnonymous: false } };
+    await expect(getImagePage(ids.listingId)).rejects.toThrow("hidden-owner notice");
+    const { getImagePage: raw } = await import("@/app/d/actions");
+    expect(await raw(ids.listingId)).toMatchObject({
+      hiddenForOwner: true,
+      imageId: ids.listingId,
+    });
   });
 
   it("serves the owner their own unpublished image, with its conversation", async () => {
@@ -343,7 +350,7 @@ describe("getImagePage (Model B reads)", () => {
     const ids = await seed(db);
     h.session = { user: { id: "seller", isAnonymous: false } };
 
-    const { getImagePage } = await import("@/app/d/actions");
+    const { getImagePage } = await import("./normal-image-page");
     const img = await getImagePage(ids.sellerPrivateId);
     expect(img?.imageId).toBe(ids.sellerPrivateId);
     expect(img?.publishedAt).toBeNull();
@@ -358,7 +365,7 @@ describe("getImagePage (Model B reads)", () => {
     const db = h.db as Db;
     const ids = await seed(db);
     h.session = { user: { id: "seller", isAnonymous: false } };
-    const { getImagePage } = await import("@/app/d/actions");
+    const { getImagePage } = await import("./normal-image-page");
 
     // An image survives its conversation's delete when an order, seed or cart
     // still references it; the stale sourceDesignId must not offer a route
@@ -377,7 +384,7 @@ describe("getImagePage (Model B reads)", () => {
     const db = h.db as Db;
     const ids = await seed(db);
     h.session = { user: { id: "seller", isAnonymous: false } };
-    const { getImagePage } = await import("@/app/d/actions");
+    const { getImagePage } = await import("./normal-image-page");
 
     const before = await getImagePage(ids.sellerPrivateId);
     await db
@@ -394,7 +401,7 @@ describe("getImagePage (Model B reads)", () => {
     const db = h.db as Db;
     const ids = await seed(db);
     h.session = { user: { id: "seller", isAnonymous: false } };
-    const { getImagePage } = await import("@/app/d/actions");
+    const { getImagePage } = await import("./normal-image-page");
 
     const before = await getImagePage(ids.sellerPrivateId);
     await db
@@ -422,7 +429,7 @@ describe("getImagePage (Model B reads)", () => {
       publishedAt: new Date(),
     });
 
-    const { getImagePage } = await import("@/app/d/actions");
+    const { getImagePage } = await import("./normal-image-page");
     const img = await getImagePage(childImageId);
     expect(img?.forkChain.map((e: { imageId: string }) => e.imageId)).toEqual([
       ids.listingId,
