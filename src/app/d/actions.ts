@@ -343,7 +343,12 @@ export async function getConversationImages(
 
   // Seeds included: a fresh-start thread's anchor is part of its history and
   // is a legitimate primary (startConversationFromImage already sets it).
-  const sources = await getDesignSourceImages(designId, { includeSeeds: true });
+  // Admin-hidden images are dropped: this strip is a picker, and "Use this
+  // one" must not make a hidden image the conversation's primary (#288).
+  const sources = await getDesignSourceImages(designId, {
+    includeSeeds: true,
+    excludeHidden: true,
+  });
   return {
     images: sources.map((s) => ({
       imageId: s.id,

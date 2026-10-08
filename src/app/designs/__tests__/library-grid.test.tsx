@@ -366,6 +366,16 @@ describe("an admin-hidden image in My Designs (#288)", () => {
     expect(screen.getByTestId("library-tile-hidden")).toBeInTheDocument();
   });
 
+  it("keeps the HIDDEN label at full contrast in select mode: no opacity, no aria-disabled", () => {
+    render(<LibraryGrid images={withHidden()} />);
+    fireEvent.click(screen.getByTestId("library-select"));
+    const tile = screen.getByTestId("library-tile-hidden");
+    expect(tile.className).not.toMatch(/opacity/);
+    expect(tile.className).toContain("border-dotted");
+    expect(tile.closest("[aria-disabled]")).toBeNull();
+    expect(tile).toHaveTextContent("HIDDEN");
+  });
+
   it("a grid of only hidden images has nothing to select all of", () => {
     render(<LibraryGrid images={[img({ imageId: "h1", isHidden: true })]} />);
     fireEvent.click(screen.getByTestId("library-select"));

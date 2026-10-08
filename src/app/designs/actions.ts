@@ -152,6 +152,15 @@ export async function deleteImages(
       result.skipped.push({ imageId, reason });
       continue;
     }
+    // An admin-hidden image is not the owner's to delete: the delete would
+    // take the publication row (the moderation record) with it, and the owner
+    // could then publish the image again (#288). The grid never sends hidden
+    // ids; this keeps a direct call from doing it. Checked after ownership so
+    // a foreign id still reads as not-owned, not hidden.
+    if (await isImageAdminHidden(db, imageId)) {
+      result.skipped.push({ imageId, reason: "hidden" });
+      continue;
+    }
 
     let outcome: Awaited<ReturnType<typeof executeImageDeletion>>;
     try {

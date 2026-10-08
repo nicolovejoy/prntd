@@ -291,15 +291,15 @@ function LibraryCell({
     const placeholder = (
       <div
         data-testid="library-tile-hidden"
-        className={`flex aspect-square items-center justify-center rounded-md border border-foreground bg-background ${
-          selectMode ? "opacity-50" : ""
+        className={`flex aspect-square items-center justify-center rounded-md border bg-background ${
+          selectMode ? "border-dotted border-border" : "border-foreground"
         }`}
       >
         <span className={MONO_LABEL}>HIDDEN</span>
       </div>
     );
     if (selectMode) {
-      return <div aria-disabled="true">{placeholder}</div>;
+      return <div>{placeholder}</div>;
     }
     return (
       <Link

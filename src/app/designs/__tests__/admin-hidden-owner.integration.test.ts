@@ -75,7 +75,7 @@ vi.mock("@/lib/email", () => ({
 
 import { publishImage, unpublishImage } from "@/app/designs/actions";
 import { setImageHidden } from "@/app/admin/actions";
-import { buyPublishedDesign, getImagePage } from "@/app/d/actions";
+import { buyPublishedDesign, getImagePage, getConversationImages } from "@/app/d/actions";
 import { getUserImageLibrary } from "@/lib/user-designs";
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
@@ -331,5 +331,31 @@ describe("My Designs data for a hidden image (#288)", () => {
     await setImageHidden(imageId, false);
     const library = await getUserImageLibrary("owner");
     expect(library.find((i) => i.imageId === imageId)?.isHidden).toBe(false);
+  });
+});
+
+describe("the image detail page's sibling strip drops a hidden image (#288)", () => {
+  it("lists the visible siblings only, so 'Use this one' can't pick a hidden image", async () => {
+    const db = h.db as Db;
+    const { imageId, designId } = await publishHidden(db);
+    const visibleId = await makeSourceImage(db, {
+      designId,
+      ownerId: "owner",
+      imageUrl: "https://img.example/b.png",
+    });
+    h.session = OWNER;
+    const strip = await getConversationImages(designId);
+    expect(strip.images.map((i) => i.imageId)).toEqual([visibleId]);
+    expect(strip.images.map((i) => i.imageId)).not.toContain(imageId);
+  });
+
+  it("brings it back after an unhide", async () => {
+    const db = h.db as Db;
+    const { imageId, designId } = await publishHidden(db);
+    h.session = ADMIN;
+    await setImageHidden(imageId, false);
+    h.session = OWNER;
+    const strip = await getConversationImages(designId);
+    expect(strip.images.map((i) => i.imageId)).toEqual([imageId]);
   });
 });

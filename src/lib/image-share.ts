@@ -50,8 +50,8 @@ export function canShareImageCard(image: {
 
 /**
  * The share card for one image, or null when there is nothing shareable
- * (unknown id, never published, unpublished — the mirror row goes back to
- * "draft" — or admin-hidden). Callers fall back to the site-wide card on null.
+ * (unknown id, never published, unpublished — its `image_publication` row is
+ * gone — or admin-hidden). Callers fall back to the site-wide card on null.
  *
  * Title and backdrop come off the image's mirror `product` row; the
  * publish/hidden state comes off its `image_publication` row, the one

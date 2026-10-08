@@ -6,6 +6,8 @@ import {
   canUseAsPlacementSource,
   canStartFromImage,
   canViewImagePage,
+  publicationVisibility,
+  seesHiddenNotice,
   buildForkChain,
   dedupeFeedByDesign,
   type ForkChainRow,
@@ -388,6 +390,51 @@ describe("canViewImagePage (#136 slice 1)", () => {
     ).toBe(false);
     expect(
       canViewImagePage({ image: hidden, imageOwnerId: "u1", userId: "u2" })
+    ).toBe(false);
+  });
+});
+
+describe("publicationVisibility", () => {
+  const at = new Date("2026-09-01T00:00:00Z");
+
+  it("treats an absent publication row (left join nulls) as unpublished and not hidden", () => {
+    expect(publicationVisibility({ publishedAt: null, isHidden: null })).toEqual({
+      publishedAt: null,
+      isHidden: false,
+    });
+  });
+
+  it("passes a visible published row through", () => {
+    expect(publicationVisibility({ publishedAt: at, isHidden: false })).toEqual({
+      publishedAt: at,
+      isHidden: false,
+    });
+  });
+
+  it("passes a hidden published row through", () => {
+    expect(publicationVisibility({ publishedAt: at, isHidden: true })).toEqual({
+      publishedAt: at,
+      isHidden: true,
+    });
+  });
+});
+
+describe("seesHiddenNotice", () => {
+  const hidden = { isHidden: true };
+
+  it("is true for the owner of a hidden image", () => {
+    expect(seesHiddenNotice({ image: hidden, imageOwnerId: "o", userId: "o" })).toBe(true);
+  });
+
+  it("is false for a non-owner, the admin included, and for a signed-out viewer", () => {
+    expect(seesHiddenNotice({ image: hidden, imageOwnerId: "o", userId: "admin" })).toBe(false);
+    expect(seesHiddenNotice({ image: hidden, imageOwnerId: "o", userId: "x" })).toBe(false);
+    expect(seesHiddenNotice({ image: hidden, imageOwnerId: "o", userId: null })).toBe(false);
+  });
+
+  it("is false for the owner of an image that is not hidden", () => {
+    expect(
+      seesHiddenNotice({ image: { isHidden: false }, imageOwnerId: "o", userId: "o" })
     ).toBe(false);
   });
 });
