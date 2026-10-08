@@ -108,8 +108,9 @@ export const order = sqliteTable("order", {
   stripeSessionId: text("stripe_session_id"),
   // Composition attribution (nullable, no backfill). `storeProductId` points
   // at `product.id` — the composition bought for a Shop sale, set by
-  // `buyPublishedDesign` (composition slice 4). Null for design-your-own
-  // orders (/preview, /order, cart) and for the owner's own unpublished image
+  // `buyPublishedDesign` (composition slice 4). A cart order carries it
+  // only when every published line shares one composition (#289 item 2).
+  // Null for design-your-own orders and for the owner's own unpublished image
   // ordered from the image detail page. Distinct from `order_item.productId`,
   // which holds a *blank* catalog id. Organizer storefronts are retired
   // (#191) and `store_id` was dropped with them in migration 0014, so every

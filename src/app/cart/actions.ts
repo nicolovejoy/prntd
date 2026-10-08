@@ -34,6 +34,8 @@ import { stripe } from "@/lib/stripe";
 import { abandonSessionlessOrder } from "@/lib/order-checkout";
 import { buildCartCheckoutSessionParams } from "@/lib/checkout";
 import { cartLineStillValid } from "@/lib/cart-line-check";
+import { cartOrderStoreProductId } from "@/lib/cart-attribution";
+import { requireMirrorProduct } from "@/lib/model-b-writes";
 import { CART_LINE_UNAVAILABLE } from "@/lib/action-copy";
 import {
   isValidCartQuantity,
@@ -394,7 +396,18 @@ export async function getCartCount(): Promise<number> {
 export async function getCart(): Promise<CartView> {
   const userId = await currentUserId();
   if (!userId) return { items: [], itemSubtotal: 0, shipping: 0, total: 0 };
+  return (await buildCart(userId)).view;
+}
 
+/**
+ * `getCart` for a known user, plus each line's page image id (the image whose
+ * detail page the line re-opens, `cartLineEdit`; null when it cannot be
+ * determined). `checkoutCart` attributes a line by that image.
+ */
+async function buildCart(
+  userId: string
+): Promise<{ view: CartView; pageImageIds: Map<string, string | null> }> {
+  const pageImageIds = new Map<string, string | null>();
   const rows = await db.query.cartItem.findMany({
     where: eq(cartItemTable.userId, userId),
   });
@@ -448,6 +461,7 @@ export async function getCart(): Promise<CartView> {
       { placements: r.placements ?? null },
       (imageId) => linked.has(`${r.designId}:${imageId}`)
     );
+    pageImageIds.set(r.id, edit?.pageImageId ?? null);
     items.push({
       id: r.id,
       designId: r.designId,
@@ -500,7 +514,7 @@ export async function getCart(): Promise<CartView> {
     shipping
   );
 
-  return { items, itemSubtotal: item, shipping: ship, total };
+  return { view: { items, itemSubtotal: item, shipping: ship, total }, pageImageIds };
 }
 
 /**
@@ -513,7 +527,9 @@ export async function getCart(): Promise<CartView> {
  * checkout with `{ error }` and writes nothing. If creating the Stripe session
  * throws (including building its params), the order is marked abandoned
  * (`abandonSessionlessOrder`), the error is re-thrown, and the cart is left as
- * it was.
+ * it was. A line whose page image is published but has no Shop composition
+ * throws (`MISSING_COMPOSITION_ERROR`) before anything is written; see the
+ * attribution block.
  */
 export async function checkoutCart(): Promise<{
   url: string | null;
@@ -526,7 +542,7 @@ export async function checkoutCart(): Promise<{
   }
   const userId = session.user.id;
 
-  const view = await getCart();
+  const { view, pageImageIds } = await buildCart(userId);
   if (view.items.length === 0) return { url: null };
 
   // Every line is re-checked as if it were added now (getCart marks each one):
@@ -539,6 +555,57 @@ export async function checkoutCart(): Promise<{
     return { url: null, error: CART_LINE_UNAVAILABLE };
   }
 
+  // Shop attribution (#289 item 2). `order.store_product_id` is a header
+  // column, but a cart can hold lines from several compositions, so the order
+  // records one only when every published line's PAGE image shares the same
+  // mirror product (`cartOrderStoreProductId`); a mixed cart, or one of the
+  // buyer's own unpublished work, books null. Per-line attribution would need
+  // an order_item column. A line is attributed by its page image, the one
+  // `cartLineEdit` re-opens, not by `placements.front`: after a swap (#138)
+  // the front is the buyer's pick and the page image is on the back, and the
+  // direct buy (`buyPublishedDesign`, `resolveBuyPageFront`) names the page
+  // image's composition. A line whose page image cannot be determined (no
+  // front pin) contributes nothing. (Residue: a swap between two outputs of
+  // the same conversation cannot be told apart from an unswapped line, so it
+  // attributes the front, as the Edit link opens it.) An unpublished image is never given a
+  // mirror lookup (a stale draft mirror left by an unpublish must not attach
+  // itself, as in buyPublishedDesign), and a published page image with no
+  // mirror throws rather than booking an order with no composition. This
+  // runs before the batch, so a throw writes nothing.
+  //
+  // A page image `resolveBuyableImage` refuses contributes nothing and is not
+  // thrown: `getCart`'s `cartLineStillValid` already refused hidden and
+  // other-user-unpublished pins above; what is still refused here (renders,
+  // own images with no live conversation) has no composition, so null is
+  // right. A hide landing between that check and this loop is the same race
+  // checkout already has for printing.
+  const distinctPageIds = [
+    ...new Set(
+      view.items
+        .map((i) => pageImageIds.get(i.id) ?? null)
+        .filter((v): v is string => v !== null)
+    ),
+  ];
+  const mirrorByImage = new Map<string, string | null>();
+  await Promise.all(
+    distinctPageIds.map(async (imageId) => {
+      const buyable = await resolveBuyableImage(imageId, userId);
+      mirrorByImage.set(
+        imageId,
+        buyable.ok && buyable.published
+          ? await requireMirrorProduct(db, imageId)
+          : null
+      );
+    })
+  );
+  const storeProductId = cartOrderStoreProductId(
+    view.items.map((i) => {
+      const pageId = pageImageIds.get(i.id) ?? null;
+      const mirrorId = pageId ? mirrorByImage.get(pageId) ?? null : null;
+      return { published: mirrorId !== null, storeProductId: mirrorId };
+    })
+  );
+
   // Order-level row: money + linkage only (Phase 1c). designId mirrors the
   // first line as header linkage; what was bought lives in order_item.
   // Price split is order-level (shipping once). Order + items commit together
@@ -547,11 +614,13 @@ export async function checkoutCart(): Promise<{
   // built before the batch.
   const head = view.items[0];
   const orderId = crypto.randomUUID();
+
   await db.batch([
     db.insert(orderTable).values({
       id: orderId,
       userId,
       designId: head.designId,
+      storeProductId,
       totalPrice: view.total,
       itemPrice: view.itemSubtotal,
       shippingPrice: view.shipping,
