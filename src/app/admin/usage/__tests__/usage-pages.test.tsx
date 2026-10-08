@@ -93,7 +93,7 @@ afterEach(() => {
 const listProps = { searchParams: Promise.resolve({}) };
 
 describe("/admin/usage", () => {
-  it("redirects a non-admin before reading anything", async () => {
+  it("redirects a non-admin", async () => {
     h.email = "someone@example.com";
     await expect(AdminUsagePage(listProps)).rejects.toThrow("REDIRECT:/");
     h.email = null;
@@ -104,11 +104,13 @@ describe("/admin/usage", () => {
     render(await AdminUsagePage(listProps));
     expect(screen.getByRole("heading", { name: "Usage" })).toBeInTheDocument();
 
+    // The totals row is the first <dl>; cards carry some of the same labels.
+    const totalsRow = within(document.querySelector("dl") as HTMLElement);
     const totalOf = (label: string) =>
-      screen.getByText(label).parentElement!.querySelector("dd")!.textContent;
+      totalsRow.getByText(label).parentElement!.querySelector("dd")!.textContent;
     expect(totalOf("Active users, 7 d")).toBe("1");
     expect(totalOf("Generations, 7 d")).toBe("2");
-    expect(totalOf("Failed, 7 d")).toBe("2");
+    expect(totalOf("Failed or cancelled, 7 d")).toBe("2");
     expect(totalOf("Spend, 7 d")).toBe("$0.23");
     expect(totalOf("Paid orders, 7 d")).toBe("1");
 
@@ -127,7 +129,7 @@ describe("/admin/usage", () => {
     expect(valueOf("Failed or cancelled, 7 d")).toBe("1");
     expect(valueOf("Spend")).toBe("$0.23");
     expect(valueOf("Conversations")).toBe("1");
-    expect(valueOf("Chat messages, 7 d")).toBe("1");
+    expect(valueOf("Messages sent, 7 d")).toBe("1");
     expect(valueOf("Published")).toBe("1");
     expect(valueOf("Paid orders · revenue")).toBe("1 · $30.00");
     expect(valueOf("Last IP")).toBe("—");
@@ -164,7 +166,7 @@ describe("/admin/usage/[userId]", () => {
     expect(pub.getByText("Published")).toBeInTheDocument();
     expect(pub.getByText("a red fox")).toBeInTheDocument();
     expect(pub.queryByText("open image")).toBeNull();
-    expect(pub.getByRole("link", { name: "Image" })).toHaveAttribute("href", "/d/img-pub");
+    expect(pub.getByRole("link", { name: "Image img-pub" })).toHaveAttribute("href", "/d/img-pub");
 
     expect(priv.queryByText("Published")).toBeNull();
     expect(priv.getByText("open image")).toHaveAttribute(

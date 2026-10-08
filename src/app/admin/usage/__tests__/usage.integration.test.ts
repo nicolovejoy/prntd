@@ -171,7 +171,7 @@ async function seed() {
   await chat(gd.id, "user", "2026-10-07T12:00:00Z");
 
   // Orders: paid, shipped (old), pending, and an abandoned pending (newest).
-  const order = (id: string, status: "pending" | "paid" | "shipped", total: number, at: string, abandoned?: string) =>
+  const order = (id: string, status: "pending" | "paid" | "shipped" | "canceled", total: number, at: string, abandoned?: string) =>
     db().insert(schema.order).values({
       id,
       userId: ACCOUNT,
@@ -185,6 +185,8 @@ async function seed() {
   await order("o-shipped", "shipped", 25.5, "2026-09-10T10:00:00Z");
   await order("o-pending", "pending", 99, "2026-10-07T10:00:00Z");
   await order("o-abandoned", "pending", 40, "2026-10-08T15:00:00Z", "2026-10-08T17:00:00Z");
+  // Canceled inside the window: not paid, so no paid count or revenue moves.
+  await order("o-canceled", "canceled", 77, "2026-10-07T12:00:00Z");
 
   await db().insert(schema.cartItem).values([
     { userId: ACCOUNT, designId: d1.id, productId: "p", size: "M", color: "black" },
@@ -208,7 +210,7 @@ afterEach(() => {
 });
 
 describe("getUsageList", () => {
-  it("refuses a non-admin before reading anything", async () => {
+  it("refuses a non-admin", async () => {
     state.sessionEmail = "someone@example.com";
     await expect(getUsageList(100)).rejects.toThrow("Unauthorized");
     state.sessionEmail = null;
@@ -231,7 +233,9 @@ describe("getUsageList", () => {
     expect(a.lastActiveAt).toEqual(t("2026-10-08T15:00:00Z"));
     expect(a.generations).toEqual({ today: 1, week: 3, total: 5, generateTotal: 4, editTotal: 1 });
     expect(a.failedWeek).toBe(2);
-    expect(a.spend).toBeCloseTo(0.32, 6);
+    // Succeeded 0.03*4 + 0.20, plus the cancelled job's 0.03 (billed). The
+    // failed jobs' cost is not counted.
+    expect(a.spend).toBeCloseTo(0.35, 6);
     expect(a.conversations).toBe(2);
     expect(a.chatWeek).toBe(2);
     expect(a.published).toBe(2);
@@ -267,7 +271,7 @@ describe("getUsageList", () => {
     expect(totals.activeUsers7d).toBe(2);
     expect(totals.generations7d).toBe(4);
     expect(totals.failed7d).toBe(3);
-    expect(totals.spend7d).toBeCloseTo(0.29, 6);
+    expect(totals.spend7d).toBeCloseTo(0.32, 6);
     expect(totals.paidOrders7d).toBe(1);
   });
 
@@ -303,7 +307,7 @@ describe("getUsageUser", () => {
   });
 
   it("lists the user's images newest first with status, conversation and prompt", async () => {
-    const { d1, d2 } = await seed2();
+    const { d1, d2 } = await designIds();
     const detail = await getUsageUser(ACCOUNT, 200);
     expect(detail!.imageCount).toBe(4);
     expect(detail!.images.map((i) => i.id)).toEqual([
@@ -327,6 +331,14 @@ describe("getUsageUser", () => {
     expect(priv).toMatchObject({ status: "private", conversationId: d2 });
   });
 
+  it("clamps a bad limit inside the actions", async () => {
+    expect((await getUsageList(0)).rows).toHaveLength(2);
+    expect((await getUsageList(-3)).rows).toHaveLength(2);
+    expect((await getUsageList(Number.NaN)).rows).toHaveLength(2);
+    expect((await getUsageUser(ACCOUNT, 0))!.images).toHaveLength(4);
+    expect((await getUsageUser(ACCOUNT, -1))!.images).toHaveLength(4);
+  });
+
   it("limits the images but reports the full count", async () => {
     const detail = await getUsageUser(ACCOUNT, 2);
     expect(detail!.images.map((i) => i.id)).toEqual(["img-pub-1", "img-hidden"]);
@@ -340,7 +352,7 @@ describe("getUsageUser", () => {
 });
 
 // The design ids are random; read them back for assertions on conversation ids.
-async function seed2() {
+async function designIds() {
   const rows = await db().select().from(schema.design);
   const mine = rows.filter((d) => d.userId === ACCOUNT);
   const conv = await db().select().from(schema.conversationImage);

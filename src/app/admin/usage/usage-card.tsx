@@ -17,7 +17,7 @@ function stats(row: UsageUserRow): { label: string; value: string }[] {
     { label: "Failed or cancelled, 7 d", value: String(row.failedWeek) },
     { label: "Spend", value: formatUsd(row.spend) },
     { label: "Conversations", value: String(row.conversations) },
-    { label: "Chat messages, 7 d", value: String(row.chatWeek) },
+    { label: "Messages sent, 7 d", value: String(row.chatWeek) },
     {
       label: "Published",
       value:
@@ -78,6 +78,7 @@ export function UsageCard({
         href={href}
         data-testid="usage-card"
         data-user-id={row.id}
+        aria-label={`Usage for ${row.label}`}
         className={`${classes} hover:border-border-hover`}
       >
         {body}

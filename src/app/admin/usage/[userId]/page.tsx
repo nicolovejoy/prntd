@@ -7,15 +7,19 @@ import { getUsageUser, type UsageImage } from "../actions";
 import { UsageCard } from "../usage-card";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { HOME } from "@/lib/nav";
-import { parseLimit, shortId, truncatePrompt } from "@/lib/admin-usage";
+import {
+  USAGE_IMAGES_LIMIT,
+  parseLimit,
+  shortId,
+  truncatePrompt,
+} from "@/lib/admin-usage";
 import { formatDisplayDateTime } from "@/lib/display-time-zone";
 
 export const dynamic = "force-dynamic";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
 
-const DEFAULT_LIMIT = 200;
-const MAX_LIMIT = 2000;
+const MAX_LIMIT = USAGE_IMAGES_LIMIT.max;
 const LIMIT_STEP = 200;
 
 const LABEL =
@@ -35,7 +39,7 @@ function ImageCell({ img }: { img: UsageImage }) {
       >
         <Image
           src={img.imageUrl}
-          alt="Image"
+          alt={`Image ${shortId(img.id)}`}
           fill
           sizes="96px"
           loading="lazy"
@@ -99,7 +103,7 @@ export default async function AdminUsageUserPage({
   }
 
   const { userId } = await params;
-  const limit = parseLimit((await searchParams).limit, DEFAULT_LIMIT, MAX_LIMIT);
+  const limit = parseLimit((await searchParams).limit, USAGE_IMAGES_LIMIT);
   const detail = await getUsageUser(userId, limit);
   if (!detail) notFound();
   const now = new Date();
@@ -115,7 +119,7 @@ export default async function AdminUsageUserPage({
         current={detail.row.label}
         className="mb-4"
       />
-      <h1 className="text-xl font-bold mb-6">User usage</h1>
+      <h1 className="text-xl font-bold mb-6 break-all">{detail.row.label}</h1>
 
       <UsageCard row={detail.row} now={now} />
 
@@ -135,7 +139,7 @@ export default async function AdminUsageUserPage({
         first.{" "}
         {detail.imageCount > detail.images.length && limit < MAX_LIMIT && (
           <Link
-            href={`/admin/usage/${userId}?limit=${Math.min(limit + LIMIT_STEP, MAX_LIMIT)}`}
+            href={`/admin/usage/${encodeURIComponent(userId)}?limit=${Math.min(limit + LIMIT_STEP, MAX_LIMIT)}`}
             className="underline underline-offset-[3px] hover:no-underline text-foreground"
           >
             Show more

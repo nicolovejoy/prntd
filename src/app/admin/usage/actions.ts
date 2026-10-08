@@ -18,7 +18,10 @@ import {
 } from "@/lib/db/schema";
 import { isAdminEmail } from "@/lib/admin";
 import {
+  USAGE_IMAGES_LIMIT,
+  USAGE_LIST_LIMIT,
   buildUsageRow,
+  clampLimit,
   mergeUsageRows,
   type GenerationAgg,
   type OrderAgg,
@@ -91,6 +94,9 @@ async function loadAggregates(userId?: string): Promise<{
       .from(userTable)
       .where(only(userTable.id)),
 
+    // Spend counts succeeded and cancelled jobs: a cancelled render is billed
+    // (schema.ts, generation-job.ts). Some failed jobs were billed too and can't
+    // be told apart from the row, so Spend is a floor, not the Ideogram bill.
     db
       .select({
         userId: ig.userId,
@@ -100,8 +106,8 @@ async function loadAggregates(userId?: string): Promise<{
         generateTotal: sql<number>`coalesce(sum(case when ${ig.status} = 'succeeded' and ${ig.operation} = 'generate' then 1 else 0 end), 0)`,
         editTotal: sql<number>`coalesce(sum(case when ${ig.status} = 'succeeded' and ${ig.operation} = 'edit' then 1 else 0 end), 0)`,
         failedWeek: sql<number>`coalesce(sum(case when (${ig.status} in ('failed', 'cancelled') or ${ig.cancelledAt} is not null) and ${ig.startedAt} >= ${secs(weekStart)} then 1 else 0 end), 0)`,
-        spendTotal: sql<number>`coalesce(sum(case when ${ig.status} = 'succeeded' then ${ig.cost} else 0 end), 0)`,
-        spendWeek: sql<number>`coalesce(sum(case when ${ig.status} = 'succeeded' and ${ig.startedAt} >= ${secs(weekStart)} then ${ig.cost} else 0 end), 0)`,
+        spendTotal: sql<number>`coalesce(sum(case when ${ig.status} in ('succeeded', 'cancelled') then ${ig.cost} else 0 end), 0)`,
+        spendWeek: sql<number>`coalesce(sum(case when ${ig.status} in ('succeeded', 'cancelled') and ${ig.startedAt} >= ${secs(weekStart)} then ${ig.cost} else 0 end), 0)`,
       })
       .from(ig)
       .where(only(ig.userId))
@@ -137,7 +143,8 @@ async function loadAggregates(userId?: string): Promise<{
       .where(only(designTable.userId))
       .groupBy(designTable.userId),
 
-    // User turns only: one per chat call. chat_message.created_at is ms.
+    // User-role turns: chat messages, Generate prompts and uploads all write
+    // one, so this is messages sent, not chat-API calls. created_at is ms.
     db
       .select({
         userId: designTable.userId,
@@ -163,9 +170,9 @@ async function loadAggregates(userId?: string): Promise<{
     db
       .select({
         userId: orderTable.userId,
-        paidCount: sql<number>`coalesce(sum(case when ${orderTable.status} != 'pending' and ${orderTable.abandonedAt} is null then 1 else 0 end), 0)`,
-        paidRevenue: sql<number>`coalesce(sum(case when ${orderTable.status} != 'pending' and ${orderTable.abandonedAt} is null then ${orderTable.totalPrice} else 0 end), 0)`,
-        paidWeek: sql<number>`coalesce(sum(case when ${orderTable.status} != 'pending' and ${orderTable.abandonedAt} is null and ${orderTable.createdAt} >= ${secs(weekStart)} then 1 else 0 end), 0)`,
+        paidCount: sql<number>`coalesce(sum(case when ${orderTable.status} not in ('pending', 'canceled') and ${orderTable.abandonedAt} is null then 1 else 0 end), 0)`,
+        paidRevenue: sql<number>`coalesce(sum(case when ${orderTable.status} not in ('pending', 'canceled') and ${orderTable.abandonedAt} is null then ${orderTable.totalPrice} else 0 end), 0)`,
+        paidWeek: sql<number>`coalesce(sum(case when ${orderTable.status} not in ('pending', 'canceled') and ${orderTable.abandonedAt} is null and ${orderTable.createdAt} >= ${secs(weekStart)} then 1 else 0 end), 0)`,
         lastOrderAt: max(orderTable.createdAt),
       })
       .from(orderTable)
@@ -238,9 +245,10 @@ export async function getUsageList(limit: number): Promise<{
   listedCount: number;
 }> {
   await requireAdmin();
+  const bound = clampLimit(limit, USAGE_LIST_LIMIT);
   const { agg, weekStart } = await loadAggregates();
   const { rows, totals } = mergeUsageRows(agg, weekStart);
-  return { rows: rows.slice(0, limit), totals, listedCount: rows.length };
+  return { rows: rows.slice(0, bound), totals, listedCount: rows.length };
 }
 
 /**
@@ -252,6 +260,7 @@ export async function getUsageUser(
   limit: number,
 ): Promise<{ row: UsageUserRow; images: UsageImage[]; imageCount: number } | null> {
   await requireAdmin();
+  const bound = clampLimit(limit, USAGE_IMAGES_LIMIT);
   const { agg } = await loadAggregates(userId);
   const user = agg.users[0];
   if (!user) return null;
@@ -272,7 +281,7 @@ export async function getUsageUser(
       .leftJoin(imagePublicationTable, eq(imagePublicationTable.imageId, imageTable.id))
       .where(eq(imageTable.ownerId, userId))
       .orderBy(desc(imageTable.createdAt), desc(imageTable.id))
-      .limit(limit),
+      .limit(bound),
     db.select({ n: count() }).from(imageTable).where(eq(imageTable.ownerId, userId)),
   ]);
 

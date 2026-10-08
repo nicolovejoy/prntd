@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildUsageRow,
+  clampLimit,
   formatLastActive,
   formatUsd,
   mergeUsageRows,
@@ -162,12 +163,26 @@ describe("formatters", () => {
   });
 
   it("parses ?limit= with a default and a cap", () => {
-    expect(parseLimit(undefined, 100, 1000)).toBe(100);
-    expect(parseLimit("250", 100, 1000)).toBe(250);
-    expect(parseLimit("abc", 100, 1000)).toBe(100);
-    expect(parseLimit("-5", 100, 1000)).toBe(100);
-    expect(parseLimit("0", 100, 1000)).toBe(100);
-    expect(parseLimit("99999", 100, 1000)).toBe(1000);
-    expect(parseLimit(["30", "40"], 100, 1000)).toBe(30);
+    const b = { fallback: 100, max: 1000 };
+    expect(parseLimit(undefined, b)).toBe(100);
+    expect(parseLimit("250", b)).toBe(250);
+    expect(parseLimit("abc", b)).toBe(100);
+    expect(parseLimit("-5", b)).toBe(100);
+    expect(parseLimit("0", b)).toBe(100);
+    expect(parseLimit("10abc", b)).toBe(100);
+    expect(parseLimit("1e3", b)).toBe(100);
+    expect(parseLimit("99999", b)).toBe(1000);
+    expect(parseLimit(["30", "40"], b)).toBe(30);
+  });
+
+  it("clamps a numeric limit the same way", () => {
+    const b = { fallback: 100, max: 1000 };
+    expect(clampLimit(250, b)).toBe(250);
+    expect(clampLimit(5000, b)).toBe(1000);
+    expect(clampLimit(0, b)).toBe(100);
+    expect(clampLimit(-1, b)).toBe(100);
+    expect(clampLimit(2.5, b)).toBe(100);
+    expect(clampLimit(Number.NaN, b)).toBe(100);
+    expect(clampLimit(Number.POSITIVE_INFINITY, b)).toBe(100);
   });
 });

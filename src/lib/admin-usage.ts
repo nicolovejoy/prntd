@@ -26,7 +26,7 @@ export type GenerationAgg = {
 };
 
 export type OrderAgg = {
-  /** Orders that are neither pending nor abandoned. */
+  /** Orders that are not pending, canceled or abandoned. */
   paidCount: number;
   paidRevenue: number;
   paidWeek: number;
@@ -209,14 +209,24 @@ export function truncatePrompt(prompt: string | null): {
   return { text: prompt.slice(0, PROMPT_PREVIEW_CHARS), truncated: true };
 }
 
-/** A positive integer from a `?limit=` param, else `fallback`; capped at `max`. */
+export const USAGE_LIST_LIMIT = { fallback: 100, max: 1000 };
+export const USAGE_IMAGES_LIMIT = { fallback: 200, max: 2000 };
+
+/** `limit` as a positive integer no larger than `max`, else `fallback`. */
+export function clampLimit(
+  limit: number,
+  bounds: { fallback: number; max: number },
+): number {
+  if (!Number.isInteger(limit) || limit < 1) return bounds.fallback;
+  return Math.min(limit, bounds.max);
+}
+
+/** A positive integer from a `?limit=` param, else the fallback; capped at max. */
 export function parseLimit(
   raw: string | string[] | undefined,
-  fallback: number,
-  max: number,
+  bounds: { fallback: number; max: number },
 ): number {
   const value = Array.isArray(raw) ? raw[0] : raw;
-  const n = value === undefined ? NaN : Number.parseInt(value, 10);
-  if (!Number.isFinite(n) || n < 1) return fallback;
-  return Math.min(n, max);
+  if (value === undefined || !/^\d+$/.test(value)) return bounds.fallback;
+  return clampLimit(Number.parseInt(value, 10), bounds);
 }

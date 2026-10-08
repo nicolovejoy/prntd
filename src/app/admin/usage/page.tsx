@@ -6,14 +6,13 @@ import { getUsageList } from "./actions";
 import { UsageCard } from "./usage-card";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { HOME } from "@/lib/nav";
-import { formatUsd, parseLimit } from "@/lib/admin-usage";
+import { USAGE_LIST_LIMIT, formatUsd, parseLimit } from "@/lib/admin-usage";
 
 export const dynamic = "force-dynamic";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
 
-const DEFAULT_LIMIT = 100;
-const MAX_LIMIT = 1000;
+const MAX_LIMIT = USAGE_LIST_LIMIT.max;
 const LIMIT_STEP = 100;
 
 export default async function AdminUsagePage({
@@ -26,14 +25,14 @@ export default async function AdminUsagePage({
     redirect("/");
   }
 
-  const limit = parseLimit((await searchParams).limit, DEFAULT_LIMIT, MAX_LIMIT);
+  const limit = parseLimit((await searchParams).limit, USAGE_LIST_LIMIT);
   const { rows, totals, listedCount } = await getUsageList(limit);
   const now = new Date();
 
   const totalRows = [
     { label: "Active users, 7 d", value: String(totals.activeUsers7d) },
     { label: "Generations, 7 d", value: String(totals.generations7d) },
-    { label: "Failed, 7 d", value: String(totals.failed7d) },
+    { label: "Failed or cancelled, 7 d", value: String(totals.failed7d) },
     { label: "Spend, 7 d", value: formatUsd(totals.spend7d) },
     { label: "Paid orders, 7 d", value: String(totals.paidOrders7d) },
   ];
@@ -67,7 +66,7 @@ export default async function AdminUsagePage({
               key={row.id}
               row={row}
               now={now}
-              href={`/admin/usage/${row.id}`}
+              href={`/admin/usage/${encodeURIComponent(row.id)}`}
             />
           ))}
         </div>
