@@ -75,7 +75,8 @@ vi.mock("@/lib/email", () => ({
 
 import { publishImage, unpublishImage } from "@/app/designs/actions";
 import { setImageHidden } from "@/app/admin/actions";
-import { buyPublishedDesign } from "@/app/d/actions";
+import { buyPublishedDesign, getImagePage, getConversationImages } from "@/app/d/actions";
+import { getUserImageLibrary } from "@/lib/user-designs";
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
 
@@ -255,5 +256,106 @@ describe("an admin hide that lands between the check and the write survives (sec
     await publishImage(ids.imageId, { title: "T", backgroundColor: "Black" });
     await unpublishImage(ids.imageId);
     await expect(unpublishImage(ids.imageId)).resolves.toBeUndefined();
+  });
+});
+
+describe("the image detail page data for a hidden image (#288)", () => {
+  it("the owner gets the hidden variant: id and title only, no artwork", async () => {
+    const db = h.db as Db;
+    const { imageId } = await publishHidden(db);
+    h.session = OWNER;
+    const page = await getImagePage(imageId);
+    expect(page).toEqual({ hiddenForOwner: true, imageId, title: "Original" });
+    expect(page).not.toHaveProperty("imageUrl");
+  });
+
+  it("a stranger, the admin (not the owner) and a signed-out viewer get nothing", async () => {
+    const db = h.db as Db;
+    const { imageId } = await publishHidden(db);
+    for (const session of [STRANGER, ADMIN, null]) {
+      h.session = session;
+      expect(await getImagePage(imageId)).toBeNull();
+    }
+  });
+
+  it("the owner of a visible image gets the normal page", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    h.session = OWNER;
+    await publishImage(ids.imageId, { title: "Visible", backgroundColor: "Black" });
+    const page = await getImagePage(ids.imageId);
+    expect(page).not.toBeNull();
+    expect(page).not.toHaveProperty("hiddenForOwner", true);
+    expect(page).toMatchObject({ imageId: ids.imageId, title: "Visible" });
+  });
+
+  it("the owner of an unpublished image gets the normal page", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    h.session = OWNER;
+    expect(await getImagePage(ids.imageId)).toMatchObject({
+      imageId: ids.imageId,
+      publishedAt: null,
+    });
+  });
+
+  it("an unhide brings the owner's page back", async () => {
+    const db = h.db as Db;
+    const { imageId } = await publishHidden(db);
+    h.session = ADMIN;
+    await setImageHidden(imageId, false);
+    h.session = OWNER;
+    expect(await getImagePage(imageId)).toMatchObject({ imageId, title: "Original" });
+  });
+});
+
+describe("My Designs data for a hidden image (#288)", () => {
+  it("marks the hidden image and only that one", async () => {
+    const db = h.db as Db;
+    const { imageId, designId } = await publishHidden(db);
+    const otherId = await makeSourceImage(db, {
+      designId,
+      ownerId: "owner",
+      imageUrl: "https://img.example/b.png",
+    });
+    const library = await getUserImageLibrary("owner");
+    const byId = new Map(library.map((i) => [i.imageId, i]));
+    expect(byId.get(imageId)?.isHidden).toBe(true);
+    expect(byId.get(otherId)?.isHidden).toBe(false);
+  });
+
+  it("an unhide clears the flag", async () => {
+    const db = h.db as Db;
+    const { imageId } = await publishHidden(db);
+    h.session = ADMIN;
+    await setImageHidden(imageId, false);
+    const library = await getUserImageLibrary("owner");
+    expect(library.find((i) => i.imageId === imageId)?.isHidden).toBe(false);
+  });
+});
+
+describe("the image detail page's sibling strip drops a hidden image (#288)", () => {
+  it("lists the visible siblings only, so 'Use this one' can't pick a hidden image", async () => {
+    const db = h.db as Db;
+    const { imageId, designId } = await publishHidden(db);
+    const visibleId = await makeSourceImage(db, {
+      designId,
+      ownerId: "owner",
+      imageUrl: "https://img.example/b.png",
+    });
+    h.session = OWNER;
+    const strip = await getConversationImages(designId);
+    expect(strip.images.map((i) => i.imageId)).toEqual([visibleId]);
+    expect(strip.images.map((i) => i.imageId)).not.toContain(imageId);
+  });
+
+  it("brings it back after an unhide", async () => {
+    const db = h.db as Db;
+    const { imageId, designId } = await publishHidden(db);
+    h.session = ADMIN;
+    await setImageHidden(imageId, false);
+    h.session = OWNER;
+    const strip = await getConversationImages(designId);
+    expect(strip.images.map((i) => i.imageId)).toEqual([imageId]);
   });
 });

@@ -644,3 +644,56 @@ describe("executeImageDeletion — the primary move rides in the batch", () => {
     expect(row).toBeUndefined();
   });
 });
+
+describe("deleteImages and an admin-hidden image (#288)", () => {
+  async function seedPublished(ownerId: string, isHidden: boolean) {
+    const d = await makeDesign(testDb, ownerId);
+    const imageId = await makeSourceImage(testDb, {
+      designId: d.id,
+      ownerId,
+      imageUrl: `https://r2/images/${crypto.randomUUID()}.png`,
+      publishedAt: new Date("2026-09-01T00:00:00Z"),
+      isHidden,
+    });
+    return imageId;
+  }
+
+  it("refuses to delete it: skipped as hidden, image and moderation record intact, R2 untouched", async () => {
+    const hidden = await seedPublished("u1", true);
+    const plain = await seedPublished("u1", false);
+
+    const result = await deleteImages([hidden, plain]);
+
+    expect(result.skipped).toEqual([{ imageId: hidden, reason: "hidden" }]);
+    expect(result.deleted).toEqual([plain]);
+    expect(await imageRows(hidden)).toHaveLength(1);
+    const publication = await testDb
+      .select()
+      .from(schema.imagePublication)
+      .where(eq(schema.imagePublication.imageId, hidden));
+    expect(publication).toHaveLength(1);
+    expect(publication[0].isHidden).toBe(true);
+    expect(deleteObjectByKey).toHaveBeenCalledTimes(1);
+  });
+
+  it("a hidden image of someone else still reads as not-owned", async () => {
+    const theirs = await seedPublished("u2", true);
+    const result = await deleteImages([theirs]);
+    expect(result.skipped).toEqual([{ imageId: theirs, reason: "not-owned" }]);
+  });
+
+  it("deletes it again once the admin has unhidden it", async () => {
+    const id = await seedPublished("u1", true);
+    await testDb
+      .update(schema.imagePublication)
+      .set({ isHidden: false })
+      .where(eq(schema.imagePublication.imageId, id));
+    await testDb
+      .update(schema.product)
+      .set({ status: "listed" })
+      .where(eq(schema.product.frontImageId, id));
+    const result = await deleteImages([id]);
+    expect(result.deleted).toEqual([id]);
+    expect(await imageRows(id)).toHaveLength(0);
+  });
+});

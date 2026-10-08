@@ -27,10 +27,11 @@ import { GuestKeepLine } from "../studio/guest-keep-line";
  *
  * With at least one image, the masthead row has "Download all my designs"
  * (#12): a zip of every owned image from /designs/export, in parts of up to
- * 50 images, oldest first. One part is a plain link; several open a panel
- * with one link per part. The part summaries come from the library this page
- * already loads, reversed to the export's oldest-first order (a real-DB test
- * pins that the two orders are exact reverses), so nothing extra is fetched.
+ * 50 images, oldest first, without admin-hidden ones (#288). One part is a
+ * plain link; several open a panel with one link per part. The part summaries
+ * come from the library this page already loads, minus its hidden images,
+ * reversed to the export's oldest-first order (a real-DB test pins that the
+ * two are exact reverses), so nothing extra is fetched.
  *
  * Guests (#241) get their own images and, once there is at least one, the
  * sign-up/sign-in line. An empty library shows only its empty state: "keep
@@ -39,7 +40,10 @@ import { GuestKeepLine } from "../studio/guest-keep-line";
 export default async function DesignsPage() {
   const { session, isGuest } = await requireStudioUser("/designs");
   const images = await getUserImageLibrary(session.user.id);
-  const exportParts = summarizeExportParts([...images].reverse()).map((p) => ({
+  // The export leaves out admin-hidden images (loadExportRows does the same in
+  // SQL), so the parts and the count come from the visible ones only.
+  const exportable = images.filter((i) => !i.isHidden);
+  const exportParts = summarizeExportParts([...exportable].reverse()).map((p) => ({
     ...p,
     firstCreatedAt: p.firstCreatedAt.toISOString(),
     lastCreatedAt: p.lastCreatedAt.toISOString(),
@@ -54,7 +58,7 @@ export default async function DesignsPage() {
           <h1 className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted">
             My Designs
           </h1>
-          {images.length > 0 && (
+          {exportable.length > 0 && (
             // The control is a 44 px touch target in a 16 px row: -my-3.5
             // cancels the extra 28 px so it overhangs into the page's top
             // padding and this row's bottom margin instead of making the row

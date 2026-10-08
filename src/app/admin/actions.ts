@@ -8,6 +8,7 @@ import {
   orderItem as orderItemTable,
   design as designTable,
   image as imageTable,
+  imagePublication as imagePublicationTable,
   product as productTable,
   user as userTable,
   ledgerEntry,
@@ -18,12 +19,7 @@ import {
   productMirrorStatement,
 } from "@/lib/model-b-writes";
 import { eq, desc, asc, inArray, sum, count, sql } from "drizzle-orm";
-import {
-  isPublishedShopMirror,
-  listedMirrorPublishedAt,
-  mirrorFrontImageId,
-  mirrorIsHidden,
-} from "@/lib/composition-reads";
+import { mirrorFrontImageId } from "@/lib/composition-reads";
 import { alias } from "drizzle-orm/sqlite-core";
 import { revalidatePath } from "next/cache";
 import { createOrder, getOrderByExternalId } from "@/lib/printful";
@@ -355,29 +351,29 @@ export async function getRecentPublishedForAdmin(
 
   // Same order as the Shop feed (ranked first, then newest) so the admin
   // grid mirrors what customers see.
-  // Composition slice 2: published = has a non-draft mirror `product` row;
-  // hidden ones (status "hidden") stay in the grid so the admin can unhide
-  // them.
+  // Published and hidden are read from `image_publication` (the one
+  // visibility reader, #289 item 4): an image is in the grid iff its
+  // publication row exists, hidden ones included so the admin can unhide them.
+  // Title and feed rank are sellable fields and come off the mirror product.
   const rows = await db
     .select({
       imageId: imageTable.id,
       imageUrl: imageTable.imageUrl,
       title: productTable.title,
-      status: productTable.status,
-      listedAt: productTable.listedAt,
-      productCreatedAt: productTable.createdAt,
+      publishedAt: imagePublicationTable.publishedAt,
+      isHidden: imagePublicationTable.isHidden,
       feedRank: productTable.feedRank,
       designerName: userTable.name,
       designerEmail: userTable.email,
     })
-    .from(productTable)
-    .innerJoin(imageTable, eq(mirrorFrontImageId, imageTable.id))
+    .from(imagePublicationTable)
+    .innerJoin(imageTable, eq(imageTable.id, imagePublicationTable.imageId))
     .innerJoin(userTable, eq(userTable.id, imageTable.ownerId))
-    .where(isPublishedShopMirror())
+    .leftJoin(productTable, eq(mirrorFrontImageId, imageTable.id))
     .orderBy(
       sql`${productTable.feedRank} is null`,
       asc(productTable.feedRank),
-      desc(productTable.listedAt)
+      desc(imagePublicationTable.publishedAt)
     )
     .limit(limit);
 
@@ -387,8 +383,8 @@ export async function getRecentPublishedForAdmin(
     title: r.title,
     designerName: r.designerName,
     designerEmail: r.designerEmail,
-    publishedAt: listedMirrorPublishedAt(r.listedAt, r.productCreatedAt),
-    isHidden: mirrorIsHidden(r.status),
+    publishedAt: r.publishedAt,
+    isHidden: r.isHidden,
     feedRank: r.feedRank,
   }));
 }

@@ -28,12 +28,16 @@
  * (DOS time has no zone), so they agree with the Pacific date in the
  * filename whatever the server's TZ. manifest.json keeps UTC ISO 8601.
  *
- * Rows come from the `image` table alone; publication and order state are
- * not part of an export.
+ * Rows come from the `image` table, minus images an admin has hidden
+ * (`image_publication.is_hidden`, #288); other publication state and order
+ * state are not part of an export.
  */
-import { asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
 import type { db as appDb } from "@/lib/db";
-import { image as imageTable } from "@/lib/db/schema";
+import {
+  image as imageTable,
+  imagePublication as imagePublicationTable,
+} from "@/lib/db/schema";
 
 const FILENAME_TIME_ZONE = "America/Los_Angeles";
 
@@ -65,9 +69,10 @@ export type ExportRow = {
 };
 
 /**
- * Every image the user owns, oldest first. Same filter as
- * `getUserImageLibrary` (My Designs) and exactly its order reversed, so the
- * page can compute the parts from the library it already loaded.
+ * Every image the user owns that an admin has not hidden, oldest first. The
+ * same rows as `getUserImageLibrary` (My Designs) without its `isHidden`
+ * ones, in exactly its order reversed, so the page can compute the parts from
+ * the library it already loaded.
  */
 export async function loadExportRows(
   db: typeof appDb,
@@ -85,7 +90,20 @@ export async function loadExportRows(
         createdAt: imageTable.createdAt,
       })
       .from(imageTable)
-      .where(eq(imageTable.ownerId, userId))
+      .leftJoin(
+        imagePublicationTable,
+        eq(imagePublicationTable.imageId, imageTable.id),
+      )
+      .where(
+        and(
+          eq(imageTable.ownerId, userId),
+          // No publication row = never published or unpublished: not hidden.
+          or(
+            isNull(imagePublicationTable.isHidden),
+            eq(imagePublicationTable.isHidden, false),
+          ),
+        ),
+      )
       // created_at has seconds resolution; rowid breaks same-second ties.
       .orderBy(asc(imageTable.createdAt), sql`image.rowid asc`)
   );

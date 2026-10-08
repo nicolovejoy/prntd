@@ -19,6 +19,11 @@ export type LibraryImage = {
   createdAt: Date;
   /** A publication row exists — the image is on the storefront. */
   isPublished: boolean;
+  /**
+   * An admin hid the image (`image_publication.is_hidden`). The grid shows a
+   * placeholder tile in its place, and the zip export leaves it out (#288).
+   */
+  isHidden: boolean;
   /** Pinned storefront backdrop, null for unpublished work (#73). */
   backgroundColor: string | null;
   /** The conversation that produced it; null for legacy rows. */
@@ -61,6 +66,7 @@ export async function getUserImageLibrary(
         // `image_publication` (docs/composition-first-class-plan.md §1) — a
         // row exists iff the image is published.
         publishedAt: imagePublicationTable.publishedAt,
+        isHidden: imagePublicationTable.isHidden,
         sourceDesignId: imageTable.sourceDesignId,
         sourceClosedAt: designTable.closedAt,
         sourceStatus: designTable.status,
@@ -92,6 +98,8 @@ export async function getUserImageLibrary(
     imageUrl: row.imageUrl,
     createdAt: row.createdAt,
     isPublished: row.publishedAt !== null,
+    // No publication row (null) means never published, so not hidden.
+    isHidden: row.isHidden ?? false,
     backgroundColor: backdrops.get(row.imageId) ?? null,
     sourceDesignId: row.sourceDesignId,
     isArchived: row.sourceClosedAt !== null || row.sourceStatus === "archived",

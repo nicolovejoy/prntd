@@ -58,11 +58,8 @@ vi.mock("@/lib/stripe", () => ({
   },
 }));
 
-import {
-  buyPublishedDesign,
-  getBuyPageBackSources,
-  getImagePage,
-} from "@/app/d/actions";
+import { buyPublishedDesign, getBuyPageBackSources } from "@/app/d/actions";
+import { getImagePage } from "./normal-image-page";
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
 

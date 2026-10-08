@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import {
   design as designTable,
   image as imageTable,
+  imagePublication as imagePublicationTable,
   product as productTable,
   user as userTable,
 } from "@/lib/db/schema";
@@ -13,8 +14,6 @@ import { and, eq } from "drizzle-orm";
 import {
   isPublishedShopMirror,
   mirrorFrontImageId,
-  mirrorIsHidden,
-  mirrorPublishedAt,
 } from "@/lib/composition-reads";
 import {
   getDesignSourceImages,
@@ -43,6 +42,8 @@ import {
 import { resolveBuyableImage } from "@/lib/buyable-image";
 import {
   canViewImagePage,
+  publicationVisibility,
+  seesHiddenNotice,
   buildForkChain,
   type ForkChainEntry,
   type ForkChainRow,
@@ -84,6 +85,8 @@ export type PublishedImage = {
  * produced the image, for the owner's "View conversation" link.
  */
 export type ImagePage = Omit<PublishedImage, "publishedAt"> & {
+  /** Discriminant against `HiddenImagePage`; absent on a normal page. */
+  hiddenForOwner?: false;
   publishedAt: Date | null;
   sourceDesignId: string | null;
   /**
@@ -109,6 +112,17 @@ export type ImagePage = Omit<PublishedImage, "publishedAt"> & {
    * False means the page shows no Order.
    */
   canOrder: boolean;
+};
+
+/**
+ * What `getImagePage` returns to the owner of an admin-hidden image (#288):
+ * enough for the notice and nothing else. No artwork URL, so the page has no
+ * way to render the image or a buy surface from it.
+ */
+export type HiddenImagePage = {
+  hiddenForOwner: true;
+  imageId: string;
+  title: string | null;
 };
 
 /**
@@ -149,21 +163,25 @@ export async function getDiscoverFeed(limit = 60): Promise<PublishedImage[]> {
  */
 async function fetchForkChainRow(imageId: string): Promise<ForkChainRow | null> {
   // Lineage now lives on the image graph (image.seed_image_id), not on the
-  // conversation. Publish state comes from the image's mirror product
-  // (composition slice 2) — a left join, so an unpublished hop still returns
-  // a row and buildForkChain stops on it.
+  // conversation. Publish and hidden state come from the image's
+  // `image_publication` row, the one visibility reader — a left join, so an
+  // unpublished hop still returns a row and buildForkChain stops on it. The
+  // title is a sellable field and still comes off the mirror product.
   const rows = await db
     .select({
       imageId: imageTable.id,
       title: productTable.title,
-      status: productTable.status,
-      listedAt: productTable.listedAt,
-      productCreatedAt: productTable.createdAt,
+      publishedAt: imagePublicationTable.publishedAt,
+      isHidden: imagePublicationTable.isHidden,
       designerName: userTable.name,
       forkedFromImageId: imageTable.seedImageId,
     })
     .from(imageTable)
     .innerJoin(userTable, eq(userTable.id, imageTable.ownerId))
+    .leftJoin(
+      imagePublicationTable,
+      eq(imagePublicationTable.imageId, imageTable.id)
+    )
     .leftJoin(
       productTable,
       and(isPublishedShopMirror(), eq(mirrorFrontImageId, imageTable.id))
@@ -177,8 +195,7 @@ async function fetchForkChainRow(imageId: string): Promise<ForkChainRow | null> 
     title: r.title,
     designerName: r.designerName,
     forkedFromImageId: r.forkedFromImageId,
-    publishedAt: mirrorPublishedAt(r.status, r.listedAt, r.productCreatedAt),
-    isHidden: mirrorIsHidden(r.status),
+    ...publicationVisibility(r),
   };
 }
 
@@ -187,14 +204,16 @@ async function fetchForkChainRow(imageId: string): Promise<ForkChainRow | null> 
  * owner's own unpublished images to the owner (#136 slice 1) — the mirror
  * product is a left join, so an image with no mirror row still returns.
  * Returns null when the viewer may not see it (canViewImagePage) and the
- * route 404s.
+ * route 404s. The owner of an admin-hidden image gets the `HiddenImagePage`
+ * variant instead of null, so the route can tell them (#288).
  *
- * Composition slice 2: the sellable fields (title / description / backdrop /
- * listedAt) and the hidden flag come off the image's mirror `product` row.
+ * The sellable fields (title / description / backdrop) come off the image's
+ * mirror `product` row; published and hidden state come off its
+ * `image_publication` row, the one visibility reader (#289 item 4).
  */
 export async function getImagePage(
   imageId: string
-): Promise<ImagePage | null> {
+): Promise<ImagePage | HiddenImagePage | null> {
   const rows = await db
     .select({
       imageId: imageTable.id,
@@ -202,9 +221,8 @@ export async function getImagePage(
       title: productTable.title,
       description: productTable.description,
       backgroundColor: productTable.backdropColor,
-      status: productTable.status,
-      listedAt: productTable.listedAt,
-      productCreatedAt: productTable.createdAt,
+      publishedAt: imagePublicationTable.publishedAt,
+      isHidden: imagePublicationTable.isHidden,
       designerName: userTable.name,
       designerId: userTable.id,
       forkedFromImageId: imageTable.seedImageId,
@@ -215,6 +233,10 @@ export async function getImagePage(
     })
     .from(imageTable)
     .innerJoin(userTable, eq(userTable.id, imageTable.ownerId))
+    .leftJoin(
+      imagePublicationTable,
+      eq(imagePublicationTable.imageId, imageTable.id)
+    )
     .leftJoin(
       productTable,
       and(isPublishedShopMirror(), eq(mirrorFrontImageId, imageTable.id))
@@ -228,8 +250,7 @@ export async function getImagePage(
   const r = rows[0];
   if (!r) return null;
 
-  const publishedAt = mirrorPublishedAt(r.status, r.listedAt, r.productCreatedAt);
-  const isHidden = mirrorIsHidden(r.status);
+  const { publishedAt, isHidden } = publicationVisibility(r);
 
   let viewerId: string | null = null;
   try {
@@ -240,6 +261,16 @@ export async function getImagePage(
   }
 
   const isOwn = viewerId !== null && r.designerId === viewerId;
+  // The owner of an admin-hidden image is told, rather than shown a 404.
+  if (
+    seesHiddenNotice({
+      image: { isHidden },
+      imageOwnerId: r.designerId,
+      userId: viewerId,
+    })
+  ) {
+    return { hiddenForOwner: true, imageId: r.imageId, title: r.title };
+  }
   if (
     !canViewImagePage({
       image: { publishedAt, isHidden },
@@ -312,7 +343,12 @@ export async function getConversationImages(
 
   // Seeds included: a fresh-start thread's anchor is part of its history and
   // is a legitimate primary (startConversationFromImage already sets it).
-  const sources = await getDesignSourceImages(designId, { includeSeeds: true });
+  // Admin-hidden images are dropped: this strip is a picker, and "Use this
+  // one" must not make a hidden image the conversation's primary (#288).
+  const sources = await getDesignSourceImages(designId, {
+    includeSeeds: true,
+    excludeHidden: true,
+  });
   return {
     images: sources.map((s) => ({
       imageId: s.id,
