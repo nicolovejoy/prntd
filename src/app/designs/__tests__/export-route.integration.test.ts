@@ -181,6 +181,21 @@ describe("GET /designs/export", () => {
     }
   });
 
+  it("leaves an admin-hidden image out of the zip and the manifest (#288)", async () => {
+    const shown = await seedImage("u1", "shown");
+    const hidden = await seedImage("u1", "hidden");
+    await testDb
+      .insert(schema.imagePublication)
+      .values({ imageId: hidden, publishedAt: new Date("2026-09-01T00:00:00Z"), isHidden: true });
+
+    const res = await GET(request());
+    expect(res.status).toBe(200);
+    const { files, manifest } = await readZip(res);
+    expect(manifest.images.map((i: ManifestImage) => i.imageId)).toEqual([shown]);
+    expect(Object.keys(files)).toHaveLength(2);
+    expect(getObjectByKey).not.toHaveBeenCalledWith("images/hidden.png");
+  });
+
   it("still answers 200 when an object is missing, and lists it as not included", async () => {
     await seedImage("u1", "here");
     const gone = await seedImage("u1", "gone", false);

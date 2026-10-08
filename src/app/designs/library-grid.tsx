@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { publishedBackdrop } from "@/lib/blanks";
+import { MONO_LABEL } from "@/app/d/[imageId]/mono-label";
 import { Button, EmptyState, useConfirm } from "@/components/ui";
 import {
   bulkImageDeleteConsequence,
@@ -29,6 +30,11 @@ const GRID_SIZES = "(max-width: 767px) 33vw, (max-width: 1023px) 25vw, 20vw";
  * images at once is deleting them, so the grid owns a selection and a bulk
  * delete, mirroring the Studio bench. While selecting, a tile toggles rather
  * than navigating.
+ *
+ * An image an admin has hidden (#288) stays in the grid as a placeholder tile
+ * labelled HIDDEN, so the owner can find the notice on its image detail page.
+ * It carries no artwork and takes no part in select mode: it can't be toggled,
+ * is skipped by Select all, and is never sent to a bulk delete.
  *
  * Three columns at 390px: the whole cell is the tap target, so it clears 44px
  * with room to spare, and the grid never scrolls sideways.
@@ -69,6 +75,8 @@ export function LibraryGrid({ images }: { images: LibraryImage[] }) {
   }
 
   function toggleSelected(imageId: string) {
+    // Hidden tiles don't render a toggle; this guards against a stale id.
+    if (shown.some((i) => i.imageId === imageId && i.isHidden)) return;
     setSelected((s) => {
       const next = new Set(s);
       if (next.has(imageId)) next.delete(imageId);
@@ -111,6 +119,8 @@ export function LibraryGrid({ images }: { images: LibraryImage[] }) {
   }
 
   const visible = filterLibraryImages(shown, filter);
+  // What select mode can act on: hidden images are shown but never selected.
+  const selectable = visible.filter((i) => !i.isHidden);
 
   // Reconcile the selection when the filter hides selected images.
   // This prevents bulk-delete from acting on images not visible to the user.
@@ -122,7 +132,9 @@ export function LibraryGrid({ images }: { images: LibraryImage[] }) {
     // Recomputed here rather than closing over `visible` above: that array is
     // a new reference every render, and depending on it would re-fire this
     // effect on every render — this is the earlier infinite-loop bug.
-    const currentlyVisible = filterLibraryImages(shown, filter);
+    const currentlyVisible = filterLibraryImages(shown, filter).filter(
+      (i) => !i.isHidden
+    );
     const visibleIds = new Set(currentlyVisible.map((i) => i.imageId));
     setSelected((prev) => {
       const next = [...prev].filter((id) => visibleIds.has(id));
@@ -183,8 +195,8 @@ export function LibraryGrid({ images }: { images: LibraryImage[] }) {
                 variant="ghost"
                 size="sm"
                 className="min-h-11"
-                onClick={() => setSelected(new Set(visible.map((i) => i.imageId)))}
-                disabled={visible.length === 0 || selected.size === visible.length}
+                onClick={() => setSelected(new Set(selectable.map((i) => i.imageId)))}
+                disabled={selectable.length === 0 || selected.size === selectable.length}
                 data-testid="library-select-all"
               >
                 Select all
@@ -272,6 +284,34 @@ function LibraryCell({
   selected: boolean;
   onToggle: (imageId: string) => void;
 }) {
+  // An admin-hidden image shows no artwork: a Paper tile with a mono label,
+  // linking to the image detail page where the notice is. In select mode it
+  // is inert (no toggle, no link), since no bulk action applies to it.
+  if (img.isHidden) {
+    const placeholder = (
+      <div
+        data-testid="library-tile-hidden"
+        className={`flex aspect-square items-center justify-center rounded-md border border-foreground bg-background ${
+          selectMode ? "opacity-50" : ""
+        }`}
+      >
+        <span className={MONO_LABEL}>HIDDEN</span>
+      </div>
+    );
+    if (selectMode) {
+      return <div aria-disabled="true">{placeholder}</div>;
+    }
+    return (
+      <Link
+        href={`/d/${img.imageId}?from=/designs`}
+        aria-label="Hidden design"
+        className="group block"
+      >
+        {placeholder}
+      </Link>
+    );
+  }
+
   // Published images sit on their chosen storefront backdrop (null → White,
   // #73); unpublished work keeps the paper well working view.
   const backdrop = img.isPublished

@@ -76,6 +76,7 @@ vi.mock("@/lib/email", () => ({
 import { publishImage, unpublishImage } from "@/app/designs/actions";
 import { setImageHidden } from "@/app/admin/actions";
 import { buyPublishedDesign, getImagePage } from "@/app/d/actions";
+import { getUserImageLibrary } from "@/lib/user-designs";
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
 
@@ -305,5 +306,30 @@ describe("the image detail page data for a hidden image (#288)", () => {
     await setImageHidden(imageId, false);
     h.session = OWNER;
     expect(await getImagePage(imageId)).toMatchObject({ imageId, title: "Original" });
+  });
+});
+
+describe("My Designs data for a hidden image (#288)", () => {
+  it("marks the hidden image and only that one", async () => {
+    const db = h.db as Db;
+    const { imageId, designId } = await publishHidden(db);
+    const otherId = await makeSourceImage(db, {
+      designId,
+      ownerId: "owner",
+      imageUrl: "https://img.example/b.png",
+    });
+    const library = await getUserImageLibrary("owner");
+    const byId = new Map(library.map((i) => [i.imageId, i]));
+    expect(byId.get(imageId)?.isHidden).toBe(true);
+    expect(byId.get(otherId)?.isHidden).toBe(false);
+  });
+
+  it("an unhide clears the flag", async () => {
+    const db = h.db as Db;
+    const { imageId } = await publishHidden(db);
+    h.session = ADMIN;
+    await setImageHidden(imageId, false);
+    const library = await getUserImageLibrary("owner");
+    expect(library.find((i) => i.imageId === imageId)?.isHidden).toBe(false);
   });
 });

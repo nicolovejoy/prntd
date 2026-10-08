@@ -119,6 +119,54 @@ describe("loadExportRows", () => {
     expect(times).toEqual([...times].sort((a, b) => a - b));
   });
 
+  it("leaves out an admin-hidden image and keeps the library's order otherwise (#288)", async () => {
+    const db = h.db as Db;
+    const d = await makeDesign(db, "owner");
+    const seedAt = (n: number, extra: Partial<Parameters<typeof makeSourceImage>[1]> = {}) =>
+      makeSourceImage(db, {
+        designId: d.id,
+        ownerId: "owner",
+        imageUrl: `https://r2/n${n}.png`,
+        createdAt: new Date(Date.UTC(2026, 7, n)),
+        ...extra,
+      });
+    const plain = await seedAt(1);
+    const hidden = await seedAt(2, { publishedAt: new Date("2026-09-01T00:00:00Z"), isHidden: true });
+    const published = await seedAt(3, { publishedAt: new Date("2026-09-01T00:00:00Z") });
+    const alsoPlain = await seedAt(4);
+
+    const rows = await loadExportRows(db, "owner");
+    expect(rows.map((r) => r.imageId)).toEqual([plain, published, alsoPlain]);
+    expect(rows.map((r) => r.imageId)).not.toContain(hidden);
+
+    // The library still carries it (as a placeholder tile), flagged; without
+    // the flagged ones it is exactly the export, reversed.
+    const library = await getUserImageLibrary("owner");
+    expect(library.find((i) => i.imageId === hidden)?.isHidden).toBe(true);
+    expect(library.filter((i) => i.imageId !== hidden).every((i) => !i.isHidden)).toBe(true);
+    expect(rows.map((r) => r.imageId)).toEqual(
+      library.filter((i) => !i.isHidden).map((i) => i.imageId).reverse()
+    );
+  });
+
+  it("includes the image again once the admin unhides it", async () => {
+    const db = h.db as Db;
+    const d = await makeDesign(db, "owner");
+    const id = await makeSourceImage(db, {
+      designId: d.id,
+      ownerId: "owner",
+      imageUrl: "https://r2/x.png",
+      publishedAt: new Date("2026-09-01T00:00:00Z"),
+      isHidden: true,
+    });
+    expect(await loadExportRows(db, "owner")).toHaveLength(0);
+    await db
+      .update(schema.imagePublication)
+      .set({ isHidden: false })
+      .where(eq(schema.imagePublication.imageId, id));
+    expect((await loadExportRows(db, "owner")).map((r) => r.imageId)).toEqual([id]);
+  });
+
   it.each([
     { total: 150, sizes: [50, 50, 50] },
     { total: 151, sizes: [50, 50, 50, 1] },
