@@ -96,6 +96,10 @@ export const ERROR_BOUNDARY_HOME = "Go to the home page";
 
 // --- cart ---
 
+/** The cart's quantity stepper write failed (a thrown server action). The
+ * stepper snaps back to the server's number. */
+export const QUANTITY_UPDATE_FAILED = "Couldn't change the quantity.";
+
 /** checkoutCart refused: a line's image is no longer something this buyer may
  * order or print. Returned as data (`{ error }`), so it survives production's
  * masking of thrown server-action errors. */
@@ -104,3 +108,12 @@ export const CART_LINE_UNAVAILABLE =
 
 /** The label on the cart line that failed that check. */
 export const CART_LINE_UNAVAILABLE_LABEL = "No longer available";
+
+/** updateCartItem threw (a refusal such as a back on a garment with no back
+ * print area, or a failure). No "Try again": the refusal fails identically on
+ * every retry. */
+export const UPDATE_CART_FAILED = "Couldn't save the changes to your cart.";
+
+/** updateCartItem returned not-found: the line was removed (another tab,
+ * or a paid checkout) while the panel was open on it. */
+export const CART_LINE_GONE = "This line is no longer in your cart.";

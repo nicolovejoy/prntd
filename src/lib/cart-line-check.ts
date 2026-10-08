@@ -11,10 +11,10 @@ import {
 
 /**
  * Whether a cart line would still be accepted if `userId` added it now
- * (`checkoutCart` and `getCart` use it). `addToCart` validates a line once, at
- * add time; an image can leave the Shop (the owner unpublishes it, an admin
- * hides it) while the line sits in a cart, and checkout used to pin whatever
- * the line named.
+ * (`checkoutCart` and `getCart` use it). `addToCart` and `updateCartItem`
+ * validate a line when they write it; an image can leave the Shop (the owner
+ * unpublishes it, an admin hides it) while the line sits in a cart, and
+ * checkout used to pin whatever the line named.
  *
  * The catalog can move under a line as well as the images: the product, size
  * and colour must still resolve to a fulfillable variant

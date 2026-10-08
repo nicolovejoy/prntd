@@ -15,6 +15,7 @@ import { ACTIVE_BLANKS, DEFAULT_BLANK_ID, getBlankOrThrow } from "@/lib/blanks";
 const h = vi.hoisted(() => ({
   session: null as unknown,
   image: null as unknown,
+  line: null as { id: string; quantity: number } | null,
 }));
 
 vi.mock("next/headers", () => ({ headers: async () => new Headers() }));
@@ -52,6 +53,8 @@ vi.mock("@/lib/ensure-guest-session", () => ({
 }));
 vi.mock("@/app/cart/actions", () => ({
   addToCart: vi.fn(async () => ({ ok: true, count: 1 })),
+  updateCartItem: vi.fn(async () => ({ ok: true })),
+  getEditableCartLine: vi.fn(async () => h.line),
 }));
 vi.mock("@/app/designs/actions", () => ({
   updatePublishedNaming: vi.fn(async () => {}),
@@ -106,6 +109,7 @@ async function renderPage(search: Record<string, string> = {}) {
 beforeEach(() => {
   h.session = OWNER;
   h.image = imagePage();
+  h.line = null;
   vi.mocked(buyPublishedDesign).mockClear();
   vi.mocked(getImagePage).mockClear();
   vi.stubEnv("MULTI_PLACEMENT_ENABLED", "true");
@@ -201,6 +205,21 @@ describe("the image detail page for the owner's unpublished image", () => {
   it("a non-owner never reaches the page: the 404 is the data layer's", async () => {
     vi.mocked(getImagePage).mockResolvedValueOnce(null);
     await expect(renderPage()).rejects.toThrow("NEXT_NOT_FOUND");
+  });
+});
+
+describe("edit mode from a cart line (#282)", () => {
+  it("the viewer's own line turns edit mode on", async () => {
+    h.line = { id: "line-1", quantity: 1 };
+    await renderPage({ order: "1", size: "M", line: "line-1" });
+    expect(screen.getAllByRole("button", { name: "Save to cart" }).length).toBeGreaterThan(0);
+  });
+
+  it("a line that is not the viewer's opens plain buy mode", async () => {
+    h.line = null;
+    await renderPage({ order: "1", size: "M", line: "line-x" });
+    expect(screen.queryByRole("button", { name: "Save to cart" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /^Order/ }).length).toBeGreaterThan(0);
   });
 });
 

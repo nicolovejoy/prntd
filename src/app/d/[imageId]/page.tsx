@@ -12,6 +12,7 @@ import { getLastPurchaseDefaults } from "@/app/preview/actions";
 import { auth, isAnonymousUser } from "@/lib/auth";
 import { multiPlacementEnabled } from "@/lib/blanks";
 import { cartEnabled } from "@/lib/flags";
+import { getEditableCartLine } from "@/app/cart/actions";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail, detailFrom } from "@/lib/nav";
 import { IdentityBlock } from "./identity-block";
@@ -106,6 +107,10 @@ export default async function PublishedImagePage({
   });
   const initialBack = backId ? await resolveInitialBack(imageId, backId) : null;
   const initialPicks = buildInitialPicks(picks, initialBack, imageId);
+  // A cart line in the link (#282) turns the panel into an editor of that
+  // line, only when it is the viewer's own: anything else opens plain buy mode.
+  const editable = picks.line ? await getEditableCartLine(picks.line) : null;
+  const editingLine = editable ? { id: editable.id } : null;
 
   // No `from` on a private image means My Designs, not the Shop it isn't in.
   const trail = breadcrumbTrail(`/d/${imageId}`, {
@@ -202,6 +207,7 @@ export default async function PublishedImagePage({
                 // (guests have carts; checkout gates sign-in, #146).
                 cartEnabled={cartEnabled()}
                 initialPicks={initialPicks}
+                editingLine={editingLine}
                 startAction={<StartFromImage imageId={img.imageId} />}
               >
                 {identityBlock}

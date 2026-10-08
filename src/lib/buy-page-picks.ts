@@ -109,6 +109,8 @@ export type OpenBuyPanelPicks = {
   color: string | null;
   back: string | null;
   swap: boolean;
+  /** The cart line being edited (#282), so switching image keeps the edit. */
+  line: string | null;
 } | null;
 
 /**
@@ -133,6 +135,7 @@ export function siblingImageHref(
     color: open.color,
     back: keepBack ? open.back : null,
     swap: keepBack && open.swap,
+    line: open.line,
     from: from ?? null,
   });
 }

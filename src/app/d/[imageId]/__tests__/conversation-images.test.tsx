@@ -59,7 +59,7 @@ function Report({ picks }: { picks: OpenBuyPanelPicks }) {
   return null;
 }
 
-const OPEN_L = { product: "bella-canvas-3001", size: "L", color: "Black", back: null, swap: false };
+const OPEN_L = { product: "bella-canvas-3001", size: "L", color: "Black", back: null, swap: false, line: null };
 const OPEN_BACK_C = { ...OPEN_L, back: "img-c", swap: true };
 const OPEN_BACK_X = { ...OPEN_L, back: "img-x", swap: true };
 

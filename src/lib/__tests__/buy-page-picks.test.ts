@@ -123,6 +123,12 @@ describe("withBuyPagePicks", () => {
   it("returns an empty string when nothing is left", () => {
     expect(withBuyPagePicks("?size=S", { size: null })).toBe("");
   });
+
+  it("keeps the cart line being edited when other picks change (#282)", () => {
+    const qs = withBuyPagePicks("?line=l1&order=1", { size: "L" });
+    expect(new URLSearchParams(qs).get("line")).toBe("l1");
+    expect(new URLSearchParams(qs).get("size")).toBe("L");
+  });
 });
 
 describe("backToResolve", () => {
@@ -188,7 +194,12 @@ describe("parseIdParam", () => {
 });
 
 describe("siblingImageHref", () => {
-  const OPEN = { product: "bella-canvas-3001", size: "L", color: "Black", back: null, swap: false };
+  const OPEN = { product: "bella-canvas-3001", size: "L", color: "Black", back: null, swap: false, line: null };
+
+  it("carries the cart line being edited (#282)", () => {
+    const href = siblingImageHref("sib", { product: null, size: "M", color: null, back: null, swap: false, line: "line-1" });
+    expect(new URL(href, "http://x").searchParams.get("line")).toBe("line-1");
+  });
 
   it("is the bare link, with from, while the panel is collapsed", () => {
     expect(siblingImageHref("img-c", null, "/designs")).toBe("/d/img-c?from=%2Fdesigns");
