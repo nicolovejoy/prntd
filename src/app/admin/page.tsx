@@ -226,6 +226,9 @@ export default function AdminPage() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-xl font-bold">Admin</h1>
         <div className="flex items-center gap-4">
+          <Link href="/admin/usage" className="text-sm underline underline-offset-[3px] hover:no-underline">
+            Usage →
+          </Link>
           <Link href="/admin/errors" className="text-sm underline underline-offset-[3px] hover:no-underline">
             Errors →
           </Link>
