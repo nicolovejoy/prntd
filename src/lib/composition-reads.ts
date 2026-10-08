@@ -6,7 +6,11 @@
  * description / backdrop / feed rank / listed-at from the image's `product`
  * composition. `image_publication` keeps job B (the image-visibility grant
  * read by the pure guards in design-publish.ts and their feeders); nothing in
- * this module touches that.
+ * this module touches that. Whether an image is published or hidden is read
+ * from `image_publication` only (#289 item 4); the `product.status` mirror is
+ * still written on publish, unpublish and hide, but no reader derives
+ * visibility from it. `isPublishedShopMirror` and `listedMirrorPublishedAt`
+ * remain for the Shop feed, which sells compositions rather than images.
  *
  * Since composition slice 5 every `product` row IS a Shop composition — the
  * organizer population (`design_id` / `store_id` set) went with the
@@ -30,46 +34,27 @@ export const mirrorFrontImageId = productTable.frontImageId;
 /**
  * Compositions whose image is currently published: `draft` is what unpublish
  * leaves behind, so it means "not published"; `listed` and `hidden` are both
- * published (hidden is admin moderation, which the admin grid still shows).
+ * published. For the composition's own fields (title, backdrop); whether the
+ * image is published or hidden is `image_publication`'s to say.
  */
 export function isPublishedShopMirror(): SQL {
   return ne(productTable.status, "draft");
 }
 
-/** Mirror status → the boolean the pure guards and the admin grid expect. */
-export function mirrorIsHidden(status: string | null): boolean {
-  return status === "hidden";
-}
-
 /**
- * The one publish-timestamp rule, so every reader agrees on it.
+ * The publish-timestamp rule for readers of a composition's own timestamps.
  *
  * `listed_at` is set on every publish; the `created_at` fallback covers only a
- * hand-written row, and exists so a published mirror with a null `listed_at`
- * can't be visible on one surface and 404 on another. The parity script fails
- * on a null `listed_at` so this never silently absorbs a real problem.
+ * hand-written row, so a listed composition with a null `listed_at` still
+ * sorts in the Shop feed. The parity script fails on a null `listed_at` so
+ * this never silently absorbs a real problem.
  */
 function publishedAtOf(listedAt: Date | null, createdAt: Date): Date {
   return listedAt ?? createdAt;
 }
 
 /**
- * Mirror status + timestamps → the nullable `publishedAt` readers expect.
- * A draft mirror keeps its old listedAt, so status decides; an absent mirror
- * (left join miss, status null) is simply not published.
- */
-export function mirrorPublishedAt(
-  status: string | null,
-  listedAt: Date | null,
-  createdAt: Date | null
-): Date | null {
-  if (status === null || status === "draft" || createdAt === null) return null;
-  return publishedAtOf(listedAt, createdAt);
-}
-
-/**
- * Same rule for readers whose query already excludes drafts (the feed, the
- * admin grid), where the result is known to be non-null.
+ * Same rule for readers whose query already excludes drafts (the feed), where the result is known to be non-null.
  */
 export function listedMirrorPublishedAt(
   listedAt: Date | null,

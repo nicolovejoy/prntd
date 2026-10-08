@@ -112,22 +112,21 @@ describe("getImageShareCard", () => {
     });
   });
 
-  it("has no card once the mirror is hidden, even with its publication row still visible", async () => {
+  it("has no card once the publication row is hidden, even with the mirror still listed", async () => {
     const imageId = await seed({ publishedAt: new Date(), title: "Rocket Cat" });
     await testDb
-      .update(schema.product)
-      .set({ status: "hidden" })
-      .where(eq(schema.product.title, "Rocket Cat"));
+      .update(schema.imagePublication)
+      .set({ isHidden: true })
+      .where(eq(schema.imagePublication.imageId, imageId));
 
     expect(await getImageShareCard(imageId)).toBeNull();
   });
 
-  it("has no card once the mirror is a draft (unpublished)", async () => {
+  it("has no card once the publication row is gone (unpublished), even with the mirror still listed", async () => {
     const imageId = await seed({ publishedAt: new Date(), title: "Rocket Cat" });
     await testDb
-      .update(schema.product)
-      .set({ status: "draft" })
-      .where(eq(schema.product.title, "Rocket Cat"));
+      .delete(schema.imagePublication)
+      .where(eq(schema.imagePublication.imageId, imageId));
 
     expect(await getImageShareCard(imageId)).toBeNull();
   });

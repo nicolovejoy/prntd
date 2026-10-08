@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import {
   design as designTable,
   image as imageTable,
+  imagePublication as imagePublicationTable,
   product as productTable,
   user as userTable,
 } from "@/lib/db/schema";
@@ -13,8 +14,6 @@ import { and, eq } from "drizzle-orm";
 import {
   isPublishedShopMirror,
   mirrorFrontImageId,
-  mirrorIsHidden,
-  mirrorPublishedAt,
 } from "@/lib/composition-reads";
 import {
   getDesignSourceImages,
@@ -43,6 +42,7 @@ import {
 import { resolveBuyableImage } from "@/lib/buyable-image";
 import {
   canViewImagePage,
+  publicationVisibility,
   buildForkChain,
   type ForkChainEntry,
   type ForkChainRow,
@@ -149,21 +149,25 @@ export async function getDiscoverFeed(limit = 60): Promise<PublishedImage[]> {
  */
 async function fetchForkChainRow(imageId: string): Promise<ForkChainRow | null> {
   // Lineage now lives on the image graph (image.seed_image_id), not on the
-  // conversation. Publish state comes from the image's mirror product
-  // (composition slice 2) — a left join, so an unpublished hop still returns
-  // a row and buildForkChain stops on it.
+  // conversation. Publish and hidden state come from the image's
+  // `image_publication` row, the one visibility reader — a left join, so an
+  // unpublished hop still returns a row and buildForkChain stops on it. The
+  // title is a sellable field and still comes off the mirror product.
   const rows = await db
     .select({
       imageId: imageTable.id,
       title: productTable.title,
-      status: productTable.status,
-      listedAt: productTable.listedAt,
-      productCreatedAt: productTable.createdAt,
+      publishedAt: imagePublicationTable.publishedAt,
+      isHidden: imagePublicationTable.isHidden,
       designerName: userTable.name,
       forkedFromImageId: imageTable.seedImageId,
     })
     .from(imageTable)
     .innerJoin(userTable, eq(userTable.id, imageTable.ownerId))
+    .leftJoin(
+      imagePublicationTable,
+      eq(imagePublicationTable.imageId, imageTable.id)
+    )
     .leftJoin(
       productTable,
       and(isPublishedShopMirror(), eq(mirrorFrontImageId, imageTable.id))
@@ -177,8 +181,7 @@ async function fetchForkChainRow(imageId: string): Promise<ForkChainRow | null> 
     title: r.title,
     designerName: r.designerName,
     forkedFromImageId: r.forkedFromImageId,
-    publishedAt: mirrorPublishedAt(r.status, r.listedAt, r.productCreatedAt),
-    isHidden: mirrorIsHidden(r.status),
+    ...publicationVisibility(r),
   };
 }
 
@@ -189,8 +192,9 @@ async function fetchForkChainRow(imageId: string): Promise<ForkChainRow | null> 
  * Returns null when the viewer may not see it (canViewImagePage) and the
  * route 404s.
  *
- * Composition slice 2: the sellable fields (title / description / backdrop /
- * listedAt) and the hidden flag come off the image's mirror `product` row.
+ * The sellable fields (title / description / backdrop) come off the image's
+ * mirror `product` row; published and hidden state come off its
+ * `image_publication` row, the one visibility reader (#289 item 4).
  */
 export async function getImagePage(
   imageId: string
@@ -202,9 +206,8 @@ export async function getImagePage(
       title: productTable.title,
       description: productTable.description,
       backgroundColor: productTable.backdropColor,
-      status: productTable.status,
-      listedAt: productTable.listedAt,
-      productCreatedAt: productTable.createdAt,
+      publishedAt: imagePublicationTable.publishedAt,
+      isHidden: imagePublicationTable.isHidden,
       designerName: userTable.name,
       designerId: userTable.id,
       forkedFromImageId: imageTable.seedImageId,
@@ -215,6 +218,10 @@ export async function getImagePage(
     })
     .from(imageTable)
     .innerJoin(userTable, eq(userTable.id, imageTable.ownerId))
+    .leftJoin(
+      imagePublicationTable,
+      eq(imagePublicationTable.imageId, imageTable.id)
+    )
     .leftJoin(
       productTable,
       and(isPublishedShopMirror(), eq(mirrorFrontImageId, imageTable.id))
@@ -228,8 +235,7 @@ export async function getImagePage(
   const r = rows[0];
   if (!r) return null;
 
-  const publishedAt = mirrorPublishedAt(r.status, r.listedAt, r.productCreatedAt);
-  const isHidden = mirrorIsHidden(r.status);
+  const { publishedAt, isHidden } = publicationVisibility(r);
 
   let viewerId: string | null = null;
   try {

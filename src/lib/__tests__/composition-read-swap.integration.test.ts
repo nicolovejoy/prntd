@@ -172,7 +172,7 @@ describe("feed reads the mirror product", () => {
 
 });
 
-describe("getImagePage reads the mirror product", () => {
+describe("getImagePage reads the mirror product for sellable fields", () => {
   it("returns product-sourced fields for a published image", async () => {
     const { imageId, designId } = await seedImage();
     await publishImage(imageId, { title: "Tiger", backgroundColor: "Black" });
@@ -213,18 +213,21 @@ describe("getImagePage reads the mirror product", () => {
     expect(await getImagePage(imageId)).toBeNull();
   });
 
-  it("404s a hidden image (mirror status drives the guard)", async () => {
+  it("404s a hidden image for a non-owner (the publication row drives the guard)", async () => {
     const { imageId } = await seedImage();
     await publishImage(imageId, { title: "Tiger", backgroundColor: "Black" });
     await setImageHidden(imageId, true);
+    await makeUser(testDb, "someone-else");
+    currentUserId = "someone-else";
 
     expect(await getImagePage(imageId)).toBeNull();
   });
 
   it("falls back to createdAt when a published mirror has no listedAt", async () => {
-    // The one publish-timestamp rule (composition-reads.mirrorPublishedAt):
-    // the feed and /d must agree, or an image lists in the Shop and 404s on
-    // its own page for everyone but the owner.
+    // The feed falls back to created_at for a listed composition with no
+    // listed_at (composition-reads.listedMirrorPublishedAt); /d reads
+    // published_at off the publication row, which is never null. Both must
+    // still serve the image.
     const { imageId } = await seedImage();
     await publishImage(imageId, { title: "Tiger", backgroundColor: "Black" });
     await patchMirror(imageId, { listedAt: null });
@@ -249,8 +252,8 @@ describe("getImagePage reads the mirror product", () => {
   });
 });
 
-describe("admin published grid reads the mirror product", () => {
-  it("lists published images with product title, rank and hidden state", async () => {
+describe("admin published grid reads the mirror product and the publication row", () => {
+  it("lists published images with product title and rank, and the publication's hidden state", async () => {
     const { imageId } = await seedImage();
     await publishImage(imageId, { title: "Tiger", backgroundColor: "Black" });
     await setImageFeedRank(imageId, 3);
@@ -265,22 +268,23 @@ describe("admin published grid reads the mirror product", () => {
     expect(rows[0].isHidden).toBe(false);
     expect(rows[0].publishedAt).toBeInstanceOf(Date);
 
-    // Hidden state too: the mirror says hidden, the publication row says
-    // visible.
+    // Hidden state is the publication row's: a mirror that says hidden does
+    // not hide the row, and a publication that says hidden does.
     await patchMirror(imageId, { status: "hidden" });
     await patchPublication(imageId, { isHidden: false });
-    const hidden = await getRecentPublishedForAdmin();
-    expect(hidden).toHaveLength(1);
-    expect(hidden[0].isHidden).toBe(true);
+    expect((await getRecentPublishedForAdmin())[0].isHidden).toBe(false);
+    await patchMirror(imageId, { status: "listed" });
+    await patchPublication(imageId, { isHidden: true });
+    expect((await getRecentPublishedForAdmin())[0].isHidden).toBe(true);
   });
 
-  it("drops an image whose mirror is a draft, even with the publication row intact", async () => {
+  it("keeps an image whose mirror is a draft while the publication row exists, so the admin can still hide it", async () => {
     const { imageId } = await seedImage();
     await publishImage(imageId, { title: "Tiger", backgroundColor: "Black" });
     // Only the mirror is retired — the publication row stays.
     await patchMirror(imageId, { status: "draft" });
 
-    expect(await getRecentPublishedForAdmin()).toHaveLength(0);
+    expect((await getRecentPublishedForAdmin()).map((r) => r.imageId)).toEqual([imageId]);
   });
 
   it("drops an unpublished image from the grid", async () => {

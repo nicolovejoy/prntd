@@ -106,6 +106,20 @@ export function imageReferences(flags: ImageReferenceFlags): ImageReferenceDecis
 }
 
 /**
+ * The visibility state of an image, read from its `image_publication` row
+ * (the one authority for "published" and "hidden", #289 item 4). The row is
+ * reached by a left join, so both columns are null when the image was never
+ * published or was unpublished (unpublish deletes the row): not published,
+ * not hidden. The `product` mirror's status is not consulted.
+ */
+export function publicationVisibility(row: {
+  publishedAt: Date | null;
+  isHidden: boolean | null;
+}): { publishedAt: Date | null; isHidden: boolean } {
+  return { publishedAt: row.publishedAt ?? null, isHidden: row.isHidden ?? false };
+}
+
+/**
  * Whether ANYONE may buy this image from the image detail page: it is
  * published and not admin-hidden. There is no owner shortcut here; callers
  * that mean "this viewer" use `canBuyImage`, which adds the owner's own
