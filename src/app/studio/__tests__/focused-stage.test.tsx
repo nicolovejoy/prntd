@@ -10,6 +10,7 @@ vi.mock("../actions", () => ({
   ]),
 }));
 import { getConversationHistory } from "../actions";
+import { getColorHex } from "@/lib/blanks";
 import { FocusedStage } from "../focused-stage";
 
 window.HTMLElement.prototype.scrollIntoView = vi.fn();
@@ -60,7 +61,11 @@ describe("FocusedStage", () => {
       <FocusedStage {...renderStageProps({ lane: lane({ cells: [cell("a", { backdropColor: "Navy" })] }), index: 0 })} />
     );
     const frame = screen.getByTestId("stage-frame");
-    expect(frame.style.backgroundColor).not.toBe("");
+    // jsdom normalises the hex to rgb(); set the same hex on a probe to compare.
+    const probe = document.createElement("div");
+    probe.style.backgroundColor = getColorHex("bella-canvas-3001", "Navy");
+    expect(probe.style.backgroundColor).not.toBe("");
+    expect(frame.style.backgroundColor).toBe(probe.style.backgroundColor);
     expect(screen.getByText("Shown on Navy")).toBeTruthy();
     unmount();
     renderStage({ index: 0 });
@@ -110,6 +115,7 @@ describe("FocusedStage", () => {
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(getConversationHistory).not.toHaveBeenCalled();
     fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
     await waitFor(() => expect(screen.getByText("a bear reading")).toBeTruthy());
     expect(screen.getByText("You")).toBeTruthy();
     expect(screen.getByText("PRNTD · Result 2")).toBeTruthy();
@@ -127,9 +133,44 @@ describe("FocusedStage", () => {
   });
 
   it("history shows a plain failure line when the fetch throws", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.mocked(getConversationHistory).mockRejectedValueOnce(new Error("boom"));
     renderStage();
     fireEvent.click(screen.getByRole("button", { name: "History · 4 messages" }));
     await waitFor(() => expect(screen.getByText("Couldn't load the history.")).toBeTruthy());
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+    errorSpy.mockRestore();
+  });
+
+  it("reopening after a failure refetches and drops the failure line", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(getConversationHistory).mockRejectedValueOnce(new Error("boom"));
+    renderStage();
+    const toggle = screen.getByRole("button", { name: "History · 4 messages" });
+    fireEvent.click(toggle);
+    await waitFor(() => expect(screen.getByText("Couldn't load the history.")).toBeTruthy());
+    fireEvent.click(toggle);
+    fireEvent.click(toggle);
+    await waitFor(() => expect(screen.getByText("a bear reading")).toBeTruthy());
+    expect(screen.queryByText("Couldn't load the history.")).toBeNull();
+    expect(getConversationHistory).toHaveBeenCalledTimes(2);
+    errorSpy.mockRestore();
+  });
+
+  it("shows Loading… while the fetch is pending and fetches once if reopened meanwhile", async () => {
+    let resolve!: (v: Awaited<ReturnType<typeof getConversationHistory>>) => void;
+    vi.mocked(getConversationHistory).mockImplementationOnce(
+      () => new Promise((r) => { resolve = r; })
+    );
+    renderStage();
+    const toggle = screen.getByRole("button", { name: "History · 4 messages" });
+    fireEvent.click(toggle);
+    expect(screen.getByText("Loading…")).toBeTruthy();
+    fireEvent.click(toggle);
+    fireEvent.click(toggle);
+    expect(getConversationHistory).toHaveBeenCalledTimes(1);
+    resolve([{ id: "m1", role: "user", content: "a bear reading", imageId: null, createdAt: new Date(1) }]);
+    await waitFor(() => expect(screen.getByText("a bear reading")).toBeTruthy());
+    expect(screen.queryByText("Loading…")).toBeNull();
   });
 });

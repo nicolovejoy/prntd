@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useState, type MouseEvent, type ReactNode } from "react";
+import { useRef, useState, type MouseEvent, type ReactNode } from "react";
 import type { StudioLane } from "@/lib/studio";
 import { buyPageHref } from "@/lib/buy-page-picks";
 import { DEFAULT_BLANK_ID, getColorHex, publishedBackdrop } from "@/lib/blanks";
@@ -11,6 +11,9 @@ import { historyTurnLabel } from "@/lib/studio-focus";
 import { getConversationHistory, type HistoryTurn } from "./actions";
 
 const MONO = "font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted";
+// MONO with the faint colour in place of the muted one (two text-colour
+// utilities on one element leave the winner to stylesheet order).
+const MONO_FAINT = MONO.replace("text-text-muted", "text-text-faint");
 const HISTORY_FAILED_COPY = "Couldn't load the history.";
 
 /**
@@ -49,6 +52,7 @@ export function FocusedStage({
   benchHref: string;
 }) {
   const cell = lane.cells[index];
+  if (!cell) return null;
   const published = cell.backdropColor !== null;
   // Published: the pinned Shop backdrop (#302 rule for admin grids). Not
   // published: the paper well; the #139 slice decides its tone later.
@@ -68,7 +72,7 @@ export function FocusedStage({
       <div>
         <div
           data-testid="stage-frame"
-          className={`relative w-full max-w-[600px] aspect-square border border-border p-6 ${frame.className}`}
+          className={`relative w-full max-w-[600px] aspect-square border border-border ${frame.className}`}
           style={frame.style}
         >
           <Image
@@ -96,13 +100,13 @@ export function FocusedStage({
         {composer}
 
         <div className="h-11 flex items-center gap-5 text-sm">
-          <Link href={buyPageHref(cell.imageId, { order: true, from: "/studio" })} className="underline underline-offset-[3px]">
+          <Link href={buyPageHref(cell.imageId, { order: true, from: "/studio" })} className="underline underline-offset-[3px] min-h-11 inline-flex items-center">
             Order
           </Link>
-          <Link href={`/d/${cell.imageId}`} className="underline underline-offset-[3px]">
+          <Link href={`/d/${cell.imageId}`} className="underline underline-offset-[3px] min-h-11 inline-flex items-center">
             Open
           </Link>
-          <a href={benchHref} onClick={onNewDesign} className="underline underline-offset-[3px]">
+          <a href={benchHref} onClick={onNewDesign} className="underline underline-offset-[3px] min-h-11 inline-flex items-center">
             New design
           </a>
         </div>
@@ -172,17 +176,26 @@ function History({ lane }: { lane: StudioLane }) {
   const [open, setOpen] = useState(false);
   const [turns, setTurns] = useState<HistoryTurn[] | null>(null);
   const [failed, setFailed] = useState(false);
+  const [loading, setLoading] = useState(false);
+  // Open/close/open before the first fetch resolves must not start a second one.
+  const inFlight = useRef(false);
   const label = `History · ${lane.messageCount} ${lane.messageCount === 1 ? "message" : "messages"}`;
 
   async function toggle() {
     const next = !open;
     setOpen(next);
-    if (!next || turns !== null) return;
+    if (!next || turns !== null || inFlight.current) return;
+    inFlight.current = true;
+    setFailed(false);
+    setLoading(true);
     try {
       setTurns(await getConversationHistory(lane.designId));
     } catch (err) {
       console.error("History load failed:", err instanceof Error ? err.message : String(err));
       setFailed(true);
+    } finally {
+      inFlight.current = false;
+      setLoading(false);
     }
   }
 
@@ -201,10 +214,11 @@ function History({ lane }: { lane: StudioLane }) {
       </button>
       {open && (
         <div className="flex flex-col text-sm leading-5">
+          {loading && <p className={`py-2.5 ${MONO}`}>Loading…</p>}
           {failed && <p className="py-2.5 text-text-muted">{HISTORY_FAILED_COPY}</p>}
           {turns?.map((t) => (
             <div key={t.id} className="py-2.5 border-t border-border flex flex-col gap-1">
-              <span className={`${MONO} text-text-faint`}>{historyTurnLabel(t, lane.cells)}</span>
+              <span className={MONO_FAINT}>{historyTurnLabel(t, lane.cells)}</span>
               <p className={`m-0 whitespace-pre-wrap ${t.role === "assistant" ? "text-text-muted" : ""}`}>{t.content}</p>
             </div>
           ))}
