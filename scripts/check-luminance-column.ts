@@ -13,6 +13,7 @@ if (!url) {
   console.error("DATABASE_URL is required");
   process.exit(1);
 }
+console.log(`database: ${new URL(url).host}`);
 const client = createClient({ url, authToken: process.env.DATABASE_AUTH_TOKEN });
 
 async function main() {
