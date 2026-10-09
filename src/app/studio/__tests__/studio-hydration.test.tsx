@@ -192,7 +192,7 @@ describe("Studio page wiring", () => {
     const { default: StudioPage } = await import("../page");
 
     const before = Date.now();
-    const element = await StudioPage();
+    const element = await StudioPage({ searchParams: Promise.resolve({}) });
     const after = Date.now();
 
     expect(element.type).toBe(StudioClient);
@@ -202,5 +202,18 @@ describe("Studio page wiring", () => {
     expect(initialNowMs).toBeLessThanOrEqual(after);
     // The #241 prop rides alongside it.
     expect((element.props as { isGuest?: boolean }).isGuest).toBe(false);
+    // No stage params: the bench.
+    expect((element.props as { initialFocus?: unknown }).initialFocus).toBeNull();
+  });
+
+  it("hands the client the stage address from the URL (#188 slice 4)", async () => {
+    const { default: StudioPage } = await import("../page");
+    const element = await StudioPage({
+      searchParams: Promise.resolve({ conversation: "d1", image: "img-1" }),
+    });
+    expect((element.props as { initialFocus?: unknown }).initialFocus).toEqual({
+      designId: "d1",
+      imageId: "img-1",
+    });
   });
 });

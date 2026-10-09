@@ -3,8 +3,8 @@
  * state, a lane's cells with the primary marked, a pending cell with elapsed
  * time — and the anchor model: chip with dismiss, anchored submit = edit of
  * that image, unanchored submit = fresh conversation, cap visible, Close
- * clears a lane. (2026-09-09: a cell tap now opens the lightbox; anchoring
- * is the lightbox's "Edit this one" — see the `anchorCell` helper below.)
+ * clears a lane. (#188 slice 4: a cell tap opens the focused stage, and being
+ * on the stage is what anchors — see the `openStage` helper below.)
  *
  * The one test that matters most (plan, slice 3): the anchor survives a poll
  * refresh landing mid-typing. Server actions are mocked; polling arithmetic
@@ -61,6 +61,7 @@ import { deleteDesign } from "@/app/designs/actions";
 
 // jsdom implements neither; the component calls both.
 window.HTMLElement.prototype.scrollIntoView = vi.fn();
+window.scrollTo = vi.fn() as typeof window.scrollTo;
 
 function lane(overrides: Partial<StudioLane> = {}): StudioLane {
   return {
@@ -94,19 +95,50 @@ function pendingJob(id: string, ageMs = 42_000) {
 }
 
 /**
- * Anchors a cell for edit. Since #236's follow-up, a plain cell tap opens
- * the lightbox rather than anchoring — anchoring now happens via the
- * lightbox's own "Edit this one" action — so every test that needs an
- * anchored image goes through both steps.
+ * Opens the focused stage on a bench cell (#188 slice 4). The stage's shown
+ * image is the anchor, so every test that needs an anchored image goes
+ * through this.
  */
-function anchorCell(index = 0) {
+function openStage(index = 0) {
   fireEvent.click(screen.getAllByTestId("studio-cell")[index]);
-  fireEvent.click(screen.getByTestId("lightbox-edit"));
+}
+
+/** The stage's "← Studio": back to the bench. */
+function leaveStage() {
+  fireEvent.click(screen.getByRole("link", { name: "← Studio" }));
+}
+
+/**
+ * Puts an anchor on the BENCH. Nothing sets one there directly any more
+ * (#188 slice 4); the one way is a stage submit that is refused — its words
+ * come back with their anchor (giveBack) — followed by "← Studio". Queues
+ * its own refusal, so call it before a test queues generateDesign or
+ * crypto.randomUUID results of its own; it clears generateDesign's calls.
+ */
+async function anchorOnBench(index = 0) {
+  vi.mocked(generateDesign).mockResolvedValueOnce({
+    kind: "limit",
+    message: "Over the limit.",
+  });
+  openStage(index);
+  fireEvent.change(screen.getByTestId("studio-composer"), {
+    target: { value: "refused first" },
+  });
+  await act(async () => {
+    fireEvent.submit(screen.getByTestId("studio-composer").closest("form")!);
+  });
+  leaveStage();
+  fireEvent.change(screen.getByTestId("studio-composer"), {
+    target: { value: "" },
+  });
+  vi.mocked(generateDesign).mockClear();
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   h.polledLanes = [];
+  // The stage's address lives in the URL; jsdom keeps it between tests.
+  window.history.replaceState(null, "", "/studio");
 });
 
 describe("StudioClient rendering", () => {
@@ -168,7 +200,7 @@ describe("cells (Paper bench)", () => {
     expect(within(cells[1]).getByText("#2")).toBeTruthy();
   });
 
-  it("marks the anchored cell with an ink border, not a ring", () => {
+  it("marks the anchored cell with an ink border, not a ring", async () => {
     render(
       <StudioClient
         initialLanes={[
@@ -176,13 +208,13 @@ describe("cells (Paper bench)", () => {
         ]}
       />
     );
+    await anchorOnBench(0);
     const cell0 = screen.getAllByTestId("studio-cell")[0];
-    anchorCell(0);
     expect(cell0.className).toContain("border-2");
     expect(cell0.className).not.toContain("ring-2");
   });
 
-  it("keeps anchored and primary as separate, composable signals", () => {
+  it("keeps anchored and primary as separate, composable signals", async () => {
     render(
       <StudioClient
         initialLanes={[
@@ -190,9 +222,9 @@ describe("cells (Paper bench)", () => {
         ]}
       />
     );
-    const cells = screen.getAllByTestId("studio-cell");
     // Anchor the NON-primary cell — primary stays "b" (cells[1]).
-    anchorCell(0);
+    await anchorOnBench(0);
+    const cells = screen.getAllByTestId("studio-cell");
 
     expect(cells[0].className).toContain("border-2");
     expect(cells[0]).not.toBe(cells[1]);
@@ -217,97 +249,152 @@ describe("cells (Paper bench)", () => {
     expect(pending.className).toContain("border-foreground");
     expect(pending.className).toContain("sm:w-36");
   });
+});
 
-  it("a cell tap opens the lightbox, with an Open link to the detail page", () => {
-    render(
-      <StudioClient
-        initialLanes={[
-          lane({
-            designId: "design-1",
-            cells: [cell("img-1"), cell("img-2")],
-          }),
-        ]}
-      />
-    );
-
-    const cells = screen.getAllByTestId("studio-cell");
-    fireEvent.click(cells[1]); // open on the second cell
-
-    const lightbox = screen.getByTestId("image-lightbox");
-    expect(lightbox).toBeTruthy();
-
-    const openLink = within(lightbox).getByRole("link", { name: "Open" });
-    expect(openLink.getAttribute("href")).toBe("/d/img-2");
+describe("focused stage", () => {
+  beforeEach(() => {
+    window.history.replaceState(null, "", "/studio");
   });
 
-  it("the lightbox row offers Order to the shown image's image detail page, panel open", () => {
-    render(
-      <StudioClient
-        initialLanes={[
-          lane({
-            designId: "design-1",
-            cells: [cell("img-1", { isPrimary: true }), cell("img-2")],
-          }),
-        ]}
-      />
-    );
-
-    // Non-primary image: pinned as the front.
-    fireEvent.click(screen.getAllByTestId("studio-cell")[1]);
-    let lightbox = screen.getByTestId("image-lightbox");
-    expect(
-      within(lightbox).getByRole("link", { name: "Order" }).getAttribute("href")
-    ).toBe("/d/img-2?order=1&from=%2Fstudio");
-    // The rest of the row is intact.
-    expect(within(lightbox).getByTestId("lightbox-edit")).toBeTruthy();
-    expect(within(lightbox).getByRole("link", { name: "Open" })).toBeTruthy();
-
-    // Primary image: front is still named, so a later primary change on the
-    // server can't swap what gets ordered.
-    fireEvent.click(within(lightbox).getByLabelText("Previous image"));
-    lightbox = screen.getByTestId("image-lightbox");
-    expect(
-      within(lightbox).getByRole("link", { name: "Order" }).getAttribute("href")
-    ).toBe("/d/img-1?order=1&from=%2Fstudio");
+  it("a cell tap opens the stage for that cell and pushes its URL", () => {
+    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1"), cell("img-2")] })]} />);
+    openStage(1);
+    expect(screen.getByTestId("focused-stage")).toBeTruthy();
+    expect(screen.getByText("Result 2 of 2")).toBeTruthy();
+    expect(window.location.search).toBe("?conversation=design-1&image=img-2");
+    expect(screen.getByTestId("anchor-chip")).toBeTruthy();
+    expect(screen.queryByTestId("studio-lane")).toBeNull();
   });
 
-  it("offers Order in a lane with no primary image (the image page needs none)", () => {
+  it("renders the stage from initialFocus on first render", () => {
     render(
       <StudioClient
-        initialLanes={[lane({ designId: "design-1", cells: [cell("img-1")] })]}
+        initialLanes={[lane({ cells: [cell("img-1"), cell("img-2")] })]}
+        initialFocus={{ designId: "design-1", imageId: "img-1" }}
       />
     );
-    fireEvent.click(screen.getByTestId("studio-cell"));
-    const lightbox = screen.getByTestId("image-lightbox");
-    expect(
-      within(lightbox).getByRole("link", { name: "Order" }).getAttribute("href")
-    ).toBe("/d/img-1?order=1&from=%2Fstudio");
-    expect(within(lightbox).getByTestId("lightbox-edit")).toBeTruthy();
+    expect(screen.getByText("Result 1 of 2")).toBeTruthy();
   });
 
-  it("a cell tap alone does not anchor — anchoring is the lightbox's own action", () => {
-    render(
-      <StudioClient
-        initialLanes={[lane({ designId: "design-1", cells: [cell("img-1")] })]}
-      />
-    );
+  it("an initialFocus that names nothing renders the bench and drops the params", () => {
+    window.history.replaceState(null, "", "/studio?conversation=design-1&image=zz");
+    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} initialFocus={{ designId: "design-1", imageId: "zz" }} />);
+    expect(screen.queryByTestId("focused-stage")).toBeNull();
+    expect(screen.getByTestId("studio-lane")).toBeTruthy();
+    expect(window.location.search).toBe("");
+  });
 
-    fireEvent.click(screen.getByTestId("studio-cell"));
-    expect(screen.getByTestId("image-lightbox")).toBeTruthy();
+  it("← Studio returns to the bench and Back re-opens the stage", () => {
+    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+    openStage(0);
+    fireEvent.click(screen.getByRole("link", { name: "← Studio" }));
+    expect(screen.queryByTestId("focused-stage")).toBeNull();
+    expect(window.location.search).toBe("");
+    act(() => {
+      window.history.back();
+    });
+    // jsdom's back() is async; drive popstate by hand with the URL it restores
+    act(() => {
+      window.history.replaceState(null, "", "/studio?conversation=design-1&image=img-1");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(screen.getByTestId("focused-stage")).toBeTruthy();
+  });
+
+  it("a modified click on a stage link is left to the browser (new tab)", () => {
+    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+    openStage(0);
+    // Read the outcome after React's handlers, then cancel so jsdom does not
+    // try to navigate.
+    let leftToBrowser = false;
+    const after = (e: MouseEvent) => {
+      leftToBrowser = !e.defaultPrevented;
+      e.preventDefault();
+    };
+    document.addEventListener("click", after);
+    try {
+      fireEvent.click(screen.getByRole("link", { name: "← Studio" }), { metaKey: true });
+    } finally {
+      document.removeEventListener("click", after);
+    }
+    expect(leftToBrowser).toBe(true);
+    expect(screen.getByTestId("focused-stage")).toBeTruthy();
+  });
+
+  it("the lane title links to the stage of the primary cell, else the newest", () => {
+    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1"), cell("img-2", { isPrimary: true }), cell("img-3")] }), lane({ designId: "design-2", cells: [cell("x"), cell("y")] }), lane({ designId: "design-3", cells: [] })]} />);
+    const links = screen.getAllByRole("link", { name: "geometric wolf head" });
+    expect(links[0].getAttribute("href")).toBe("/studio?conversation=design-1&image=img-2");
+    expect(links[1].getAttribute("href")).toBe("/studio?conversation=design-2&image=y");
+    expect(links[2].getAttribute("href")).toBe("/design?id=design-3");
+  });
+
+  it("Generate on the stage edits the shown image and a second line still edits", async () => {
+    // Server truth for the submit's own poll: the lane, now running the job.
+    h.polledLanes = [lane({ cells: [cell("img-1")], pending: [pendingJob("job-new", 0)] })];
+    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+    openStage(0);
+    fireEvent.change(screen.getByTestId("studio-composer"), { target: { value: "bigger" } });
+    fireEvent.click(screen.getByTestId("studio-generate"));
+    await waitFor(() => expect(generateDesign).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(generateDesign).mock.calls[0][2]).toMatchObject({ anchorImageId: "img-1" });
+    expect(screen.getAllByTestId("stage-pending-cell")).toHaveLength(1);
+    expect(screen.getByTestId("anchor-chip")).toBeTruthy();
+    fireEvent.change(screen.getByTestId("studio-composer"), { target: { value: "and red" } });
+    fireEvent.click(screen.getByTestId("studio-generate"));
+    await waitFor(() => expect(generateDesign).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(generateDesign).mock.calls[1][2]).toMatchObject({ anchorImageId: "img-1" });
+  });
+
+  it("landing moves the stage to the new result and keeps the draft", async () => {
+    const l = lane({ cells: [cell("img-1")] });
+    render(<StudioClient initialLanes={[l]} />);
+    openStage(0);
+    // The submit's own poll (it runs pollOnce once the job is queued) is the
+    // one that lands the result.
+    h.polledLanes = [lane({ cells: [cell("img-1"), cell("img-new")] })];
+    fireEvent.change(screen.getByTestId("studio-composer"), { target: { value: "bigger" } });
+    fireEvent.click(screen.getByTestId("studio-generate"));
+    await waitFor(() => expect(generateDesign).toHaveBeenCalled());
+    fireEvent.change(screen.getByTestId("studio-composer"), { target: { value: "next idea" } });
+    await waitFor(() => expect(screen.getByText("Result 2 of 2")).toBeTruthy());
+    expect(window.location.search).toBe("?conversation=design-1&image=img-new");
+    expect((screen.getByTestId("studio-composer") as HTMLInputElement).value).toBe("next idea");
+    expect(vi.mocked(generateDesign).mock.calls.length).toBe(1);
+  });
+
+  it("clearing the chip and generating starts a new lane and returns to the bench", async () => {
+    h.polledLanes = [lane({ cells: [cell("img-1")] })];
+    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+    openStage(0);
+    fireEvent.click(screen.getByLabelText("Clear anchor"));
     expect(screen.queryByTestId("anchor-chip")).toBeNull();
+    fireEvent.change(screen.getByTestId("studio-composer"), { target: { value: "a fox" } });
+    fireEvent.click(screen.getByTestId("studio-generate"));
+    await waitFor(() => expect(generateDesign).toHaveBeenCalled());
+    expect(vi.mocked(generateDesign).mock.calls[0][2]).not.toHaveProperty("anchorImageId");
+    expect(screen.queryByTestId("focused-stage")).toBeNull();
+    expect(window.location.search).toBe("");
+    expect(screen.getAllByTestId("studio-lane").length).toBe(2);
   });
 
-  it("Edit this one in the lightbox anchors the shown image and closes the lightbox", () => {
-    render(
-      <StudioClient
-        initialLanes={[lane({ designId: "design-1", cells: [cell("img-1")] })]}
-      />
-    );
+  it("New design goes to the bench with the composer unanchored", () => {
+    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+    openStage(0);
+    fireEvent.click(screen.getByRole("link", { name: "New design" }));
+    expect(screen.queryByTestId("focused-stage")).toBeNull();
+    expect(screen.queryByTestId("anchor-chip")).toBeNull();
+    expect(window.location.search).toBe("");
+  });
 
-    anchorCell(0);
-    expect(screen.queryByTestId("image-lightbox")).toBeNull();
-    const chip = screen.getByTestId("anchor-chip");
-    expect(chip.textContent).toContain("Editing · geometric wolf head");
+  it("a poll that drops the focused lane returns to the bench", async () => {
+    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+    openStage(0);
+    h.polledLanes = [];
+    // A wake refetch is the poll (the same one the anchor tests use).
+    fireEvent(window, new Event("focus"));
+    await waitFor(() => expect(screen.queryByTestId("focused-stage")).toBeNull());
+    expect(window.location.search).toBe("");
   });
 });
 
@@ -321,10 +408,10 @@ describe("the empty bench", () => {
 });
 
 describe("anchoring", () => {
-  it("Edit this one anchors a cell and shows the chip; dismiss clears it", () => {
+  it("opening the stage anchors its image and shows the chip; dismiss clears it", () => {
     render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
 
-    anchorCell(0);
+    openStage(0);
     const chip = screen.getByTestId("anchor-chip");
     expect(chip.textContent).toContain("Editing · geometric wolf head");
 
@@ -332,24 +419,12 @@ describe("anchoring", () => {
     expect(screen.queryByTestId("anchor-chip")).toBeNull();
   });
 
-  it("re-opening the lightbox and choosing Edit this one on the already-anchored image keeps it anchored", () => {
-    // "Edit this one" always SETS the anchor — it must never read as a
-    // silent toggle-off, since un-anchoring belongs to the chip's own
-    // "Clear anchor" control (#236 follow-up).
-    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
-
-    anchorCell(0);
-    expect(screen.getByTestId("anchor-chip")).toBeTruthy();
-    anchorCell(0);
-    expect(screen.getByTestId("anchor-chip")).toBeTruthy();
-  });
-
   it("the anchor survives a poll refresh landing mid-typing", async () => {
     const l = lane({ cells: [cell("img-1")], pending: [pendingJob("job-9")] });
     h.polledLanes = [l];
     render(<StudioClient initialLanes={[l]} />);
 
-    anchorCell(0);
+    openStage(0);
     fireEvent.change(screen.getByTestId("studio-composer"), {
       target: { value: "make it bl" },
     });
@@ -369,9 +444,22 @@ describe("anchoring", () => {
     h.polledLanes = []; // the conversation closed elsewhere
     render(<StudioClient initialLanes={[l]} />);
 
-    anchorCell(0);
+    openStage(0);
     expect(screen.getByTestId("anchor-chip")).toBeTruthy();
 
+    fireEvent(window, new Event("focus"));
+    await waitFor(() =>
+      expect(screen.queryByTestId("anchor-chip")).toBeNull()
+    );
+  });
+
+  it("clears a bench anchor when its image leaves the surface", async () => {
+    const l = lane({ cells: [cell("img-1")] });
+    render(<StudioClient initialLanes={[l]} />);
+    await anchorOnBench(0);
+    expect(screen.getByTestId("anchor-chip")).toBeTruthy();
+
+    h.polledLanes = []; // the conversation closed elsewhere
     fireEvent(window, new Event("focus"));
     await waitFor(() =>
       expect(screen.queryByTestId("anchor-chip")).toBeNull()
@@ -384,7 +472,7 @@ describe("the composer", () => {
     h.polledLanes = [lane({ cells: [cell("img-1")] })];
     render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
 
-    anchorCell(0);
+    openStage(0);
     fireEvent.change(screen.getByTestId("studio-composer"), {
       target: { value: "make it blue" },
     });
@@ -396,9 +484,12 @@ describe("the composer", () => {
         jobId: expect.any(String),
       })
     );
-    // An accepted turn spends the anchor (2026-10-01): the next idea starts
-    // a new lane instead of landing in this one.
-    await waitFor(() => expect(screen.queryByTestId("anchor-chip")).toBeNull());
+    // On the stage an accepted turn keeps the anchor (#188 slice 4): the
+    // next line is another change to the shown image. The bench's rule
+    // (#276, the anchor is spent) is pinned under "the anchor clears after
+    // an accepted Generate".
+    await waitFor(() => expect(getStudioLanes).toHaveBeenCalled());
+    expect(screen.getByTestId("anchor-chip")).toBeTruthy();
   });
 
   it("unanchored Generate starts a fresh conversation", async () => {
@@ -482,7 +573,7 @@ describe("the composer panel (Paper bench)", () => {
 
   it("shows the anchored image as a row inside the panel", () => {
     render(<StudioClient initialLanes={[lane({ cells: [cell("a")] })]} />);
-    anchorCell(0);
+    openStage(0);
     const chip = screen.getByTestId("anchor-chip");
     expect(screen.getByTestId("studio-composer-panel").contains(chip)).toBe(true);
   });
@@ -531,7 +622,7 @@ describe("the composer panel (Paper bench)", () => {
 });
 
 describe("the lane row (Paper bench)", () => {
-  it("shows a relative time and keeps the title a link to the thread", () => {
+  it("shows a relative time and keeps the title a link to the lane's stage", () => {
     const l = lane({
       cells: [cell("a")],
       lastActiveAt: new Date(Date.now() - 14 * 60_000),
@@ -540,7 +631,7 @@ describe("the lane row (Paper bench)", () => {
     expect(screen.getByText("14m ago")).toBeTruthy();
     expect(
       screen.getByRole("link", { name: l.title! }).getAttribute("href")
-    ).toBe(`/design?id=${l.designId}`);
+    ).toBe(`/studio?conversation=${l.designId}&image=a`);
   });
 
   it("marks a generating lane with a status pill", () => {
@@ -724,19 +815,6 @@ describe("select mode (#189)", () => {
     expect(screen.getByTestId("select-mode")).toBeTruthy();
   });
 
-  it("entering select mode while the lightbox is open closes it (no focus trap, reachable by keyboard)", () => {
-    render(<StudioClient initialLanes={three()} />);
-
-    fireEvent.click(screen.getAllByTestId("studio-cell")[0]);
-    expect(screen.getByTestId("image-lightbox")).toBeTruthy();
-
-    fireEvent.click(screen.getAllByRole("button", { name: "More" })[0]);
-    fireEvent.click(screen.getByTestId("select-mode"));
-
-    expect(screen.queryByTestId("image-lightbox")).toBeNull();
-    expect(screen.queryByTestId("lightbox-order")).toBeNull();
-  });
-
   it("Select swaps the composer for the bar and shows a checkbox per lane", () => {
     render(<StudioClient initialLanes={three()} />);
 
@@ -766,11 +844,11 @@ describe("select mode (#189)", () => {
     fireEvent.click(screen.getByText("two"));
     expect(screen.getByTestId("selected-count").textContent).toBe("2 selected");
 
-    // A cell tap selects rather than anchors.
+    // A cell tap selects rather than opening the stage.
     fireEvent.click(screen.getAllByTestId("studio-cell")[0]);
     expect(screen.getByTestId("selected-count").textContent).toBe("1 selected");
     expect(screen.queryByTestId("anchor-chip")).toBeNull();
-    expect(screen.queryByTestId("image-lightbox")).toBeNull();
+    expect(screen.queryByTestId("focused-stage")).toBeNull();
   });
 
   it("Select all picks every selectable lane; a generating lane is left out", () => {
@@ -941,11 +1019,12 @@ describe("the optimistic pending cell (#187)", () => {
     deferGenerate();
     render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
 
-    anchorCell(0);
+    openStage(0);
     submitText("make it blue");
 
-    const pending = screen.getByTestId("studio-pending-cell");
-    expect(pending.textContent).toContain("Generating…");
+    // An anchored submit is made on the stage, so its cell is the stage's.
+    expect(screen.getAllByTestId("stage-pending-cell")).toHaveLength(1);
+    expect(screen.getByTestId("focused-stage").textContent).toContain("Generating…");
     // No jobId yet, so nothing to cancel — same markup otherwise, so the cell
     // doesn't jump when Cancel appears.
     expect(screen.queryByTestId("cancel-generation")).toBeNull();
@@ -980,13 +1059,13 @@ describe("the optimistic pending cell (#187)", () => {
     h.polledLanes = [lane({ cells: [cell("img-1")] })];
     render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
 
-    anchorCell(0);
+    openStage(0);
     submitText("make it blue");
 
     fireEvent(window, new Event("focus"));
     await waitFor(() => expect(getStudioLanes).toHaveBeenCalled());
 
-    expect(screen.getByTestId("studio-pending-cell")).toBeTruthy();
+    expect(screen.getByTestId("stage-pending-cell")).toBeTruthy();
   });
 
   it("shows exactly one cell once the job is queued and a poll lists it", async () => {
@@ -995,15 +1074,17 @@ describe("the optimistic pending cell (#187)", () => {
     ];
     render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
 
-    anchorCell(0);
+    openStage(0);
     submitText("make it blue");
 
     await waitFor(() => expect(getStudioLanes).toHaveBeenCalled());
     await waitFor(() =>
-      expect(screen.getAllByTestId("studio-pending-cell")).toHaveLength(1)
+      expect(screen.getAllByTestId("stage-pending-cell")).toHaveLength(1)
     );
     // The server row carries a real jobId, so Cancel is back.
     expect(screen.getByTestId("cancel-generation")).toBeTruthy();
+    // And no stray synthetic lane on the bench.
+    leaveStage();
     expect(screen.getAllByTestId("studio-lane")).toHaveLength(1);
   });
 
@@ -1059,12 +1140,12 @@ describe("the optimistic pending cell (#187)", () => {
       />
     );
 
-    anchorCell(0);
+    openStage(0);
     submitText("make it blue");
 
     await waitFor(() => expect(getStudioLanes).toHaveBeenCalled());
     await waitFor(() =>
-      expect(screen.getAllByTestId("studio-pending-cell")).toHaveLength(2)
+      expect(screen.getAllByTestId("stage-pending-cell")).toHaveLength(2)
     );
     // Were the settled entry still counted, this would read 3 and lock out.
     expect(screen.queryByTestId("cap-notice")).toBeNull();
@@ -1089,7 +1170,7 @@ describe("the optimistic pending cell (#187)", () => {
       />
     );
 
-    anchorCell(0);
+    openStage(0);
     submitText("make it blue");
 
     expect(screen.getByTestId("cap-notice").textContent).toContain("3 generating");
@@ -1114,8 +1195,9 @@ describe("the optimistic pending cell (#187)", () => {
       />
     );
 
-    anchorCell(0);
+    openStage(0);
     submitText("make it blue");
+    leaveStage();
     // The generating lane's own trigger is gone; the idle second lane's is
     // the only door left into select mode.
     fireEvent.click(screen.getAllByRole("button", { name: "More" })[0]);
@@ -1135,7 +1217,7 @@ describe("the optimistic pending cell (#187)", () => {
     deferGenerate();
     render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
 
-    anchorCell(0);
+    openStage(0);
     submitText("make it blue");
 
     expect(screen.getByTestId("anchor-chip")).toBeTruthy();
@@ -1172,7 +1254,7 @@ describe("the optimistic pending cell — review fixes (#187)", () => {
       );
 
       render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
-      anchorCell(0);
+      openStage(0);
       submitText("make it blue");
 
       // The timer poll goes out while generateDesign is still in flight.
@@ -1201,7 +1283,7 @@ describe("the optimistic pending cell — review fixes (#187)", () => {
         await Promise.resolve();
       });
 
-      expect(screen.getByTestId("studio-pending-cell")).toBeTruthy();
+      expect(screen.getByTestId("stage-pending-cell")).toBeTruthy();
 
       // And the loop is still armed — the cell isn't stranded until a wake.
       h.polledLanes = [lane({ cells: [cell("img-1")] })];
@@ -1242,7 +1324,7 @@ describe("the optimistic pending cell — review fixes (#187)", () => {
     deferGenerate();
     render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
 
-    anchorCell(0);
+    openStage(0);
     submitText("make it blue");
 
     expect(screen.queryByTestId("cancel-generation")).toBeNull();
@@ -1635,17 +1717,17 @@ describe("lost Generate response reconcile (#245)", () => {
       ];
 
       render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
-      anchorCell(0);
+      openStage(0);
       submitText("make it blue");
 
-      expect(screen.getAllByTestId("studio-pending-cell")).toHaveLength(1);
+      expect(screen.getAllByTestId("stage-pending-cell")).toHaveLength(1);
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(0);
       });
 
       expect(getGenerationJobStatus).toHaveBeenCalledWith("job-1");
-      expect(screen.getAllByTestId("studio-pending-cell")).toHaveLength(1);
+      expect(screen.getAllByTestId("stage-pending-cell")).toHaveLength(1);
       expect(screen.queryByText(/Something went wrong/)).toBeNull();
       expect(
         (screen.getByTestId("studio-composer") as HTMLInputElement).value
@@ -1668,7 +1750,7 @@ describe("lost Generate response reconcile (#245)", () => {
       );
 
       render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
-      anchorCell(0);
+      openStage(0);
       submitText("make it blue");
 
       await act(async () => {
@@ -1685,13 +1767,13 @@ describe("lost Generate response reconcile (#245)", () => {
         await vi.advanceTimersByTimeAsync(2000);
       });
 
-      expect(screen.getAllByTestId("studio-pending-cell")).toHaveLength(1);
+      expect(screen.getAllByTestId("stage-pending-cell")).toHaveLength(1);
 
       resolveStatus({ status: "running" });
       await act(async () => {
         await Promise.resolve();
       });
-      expect(screen.getAllByTestId("studio-pending-cell")).toHaveLength(1);
+      expect(screen.getAllByTestId("stage-pending-cell")).toHaveLength(1);
     } finally {
       vi.useRealTimers();
     }
@@ -1881,7 +1963,7 @@ describe("lost Generate response reconcile (#245)", () => {
     h.polledLanes = []; // the lane closed server-side
 
     render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
-    anchorCell(0);
+    openStage(0);
     submitText("make it blue");
 
     expect(generateDesign).toHaveBeenCalledWith(
@@ -1918,12 +2000,12 @@ describe("lost Generate response reconcile (#245)", () => {
       ];
 
       render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
-      anchorCell(0);
+      openStage(0);
       submitText("first");
       await act(async () => {
         await vi.advanceTimersByTimeAsync(0);
       });
-      anchorCell(0);
+      // Still on the stage, so still anchored to the same image.
       submitText("second");
       await act(async () => {
         await vi.advanceTimersByTimeAsync(0);
@@ -1933,14 +2015,14 @@ describe("lost Generate response reconcile (#245)", () => {
       expect(getGenerationJobStatus).toHaveBeenCalledWith("job-b");
       // job-a landed (now the server's own pending cell); job-b is still
       // waiting on its own deadline.
-      expect(screen.getAllByTestId("studio-pending-cell")).toHaveLength(2);
+      expect(screen.getAllByTestId("stage-pending-cell")).toHaveLength(2);
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(65_000);
       });
       // job-b fails at its own deadline; job-a's cell remains.
       expect(screen.getByText(/Something went wrong/)).toBeTruthy();
-      expect(screen.getAllByTestId("studio-pending-cell")).toHaveLength(1);
+      expect(screen.getAllByTestId("stage-pending-cell")).toHaveLength(1);
     } finally {
       vi.useRealTimers();
     }
@@ -1960,7 +2042,7 @@ describe("lost Generate response reconcile (#245)", () => {
       ];
 
       render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
-      anchorCell(0);
+      openStage(0);
       submitText("make it blue");
 
       // A periodic poll picks up the other tab's job.
@@ -1969,7 +2051,7 @@ describe("lost Generate response reconcile (#245)", () => {
       });
       // The other tab's real cell, plus this submit's own overlay (still
       // unresolved) — never merged into one.
-      expect(screen.getAllByTestId("studio-pending-cell")).toHaveLength(2);
+      expect(screen.getAllByTestId("stage-pending-cell")).toHaveLength(2);
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(65_000);
@@ -2430,6 +2512,13 @@ describe("lost Generate response reconcile (#245)", () => {
   });
 });
 
+/**
+ * #276 (Nico, 2026-10-01): on the BENCH an accepted Generate spends the
+ * anchor, so the next idea starts a new lane. On the stage (#188 slice 4) it
+ * does not — the shown image stays the anchor — so the spend tests reach a
+ * bench anchor through anchorOnBench, and the give-back tests run where the
+ * user is: on the stage.
+ */
 describe("the anchor clears after an accepted Generate (2026-10-01)", () => {
   function submitText(value: string) {
     fireEvent.change(screen.getByTestId("studio-composer"), {
@@ -2461,11 +2550,11 @@ describe("the anchor clears after an accepted Generate (2026-10-01)", () => {
     imageId: "img-new",
   };
 
-  it("restores the unanchored placeholder, and the next Generate starts a new lane", async () => {
+  it("on the bench: restores the unanchored placeholder, and the next Generate starts a new lane", async () => {
     h.polledLanes = [lane({ cells: [cell("img-1")] })];
     render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
 
-    anchorCell(0);
+    await anchorOnBench(0);
     expect(
       (screen.getByTestId("studio-composer") as HTMLInputElement).placeholder
     ).toBe("Describe the change");
@@ -2491,7 +2580,7 @@ describe("the anchor clears after an accepted Generate (2026-10-01)", () => {
     });
     render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
 
-    anchorCell(0);
+    openStage(0);
     submitText("make it blue");
     await waitFor(() => expect(screen.getByText(/free design limit/)).toBeTruthy());
 
@@ -2508,7 +2597,7 @@ describe("the anchor clears after an accepted Generate (2026-10-01)", () => {
     );
     render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
 
-    anchorCell(0);
+    openStage(0);
     submitText("make it blue");
     await waitFor(() => expect(screen.getByText(/Something went wrong/)).toBeTruthy());
 
@@ -2530,9 +2619,10 @@ describe("the anchor clears after an accepted Generate (2026-10-01)", () => {
       />
     );
 
-    anchorCell(0);
+    openStage(0);
     submitText("make it blue");
-    anchorCell(1);
+    leaveStage();
+    openStage(1);
     expect(screen.getByTestId("anchor-chip").textContent).toContain("second lane");
 
     await act(async () => {
@@ -2543,11 +2633,12 @@ describe("the anchor clears after an accepted Generate (2026-10-01)", () => {
   });
 
   describe("two submits from one anchor", () => {
-    function setup() {
+    // On the bench, where an accepted turn spends the anchor.
+    async function setup() {
       h.polledLanes = [lane({ cells: [cell("img-1")] })];
-      const settles: Array<(r: unknown) => void> = [deferGenerate(), deferGenerate()];
       render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
-      anchorCell(0);
+      await anchorOnBench(0);
+      const settles: Array<(r: unknown) => void> = [deferGenerate(), deferGenerate()];
       submitText("first idea");
       submitText("second idea");
       return settles;
@@ -2559,7 +2650,7 @@ describe("the anchor clears after an accepted Generate (2026-10-01)", () => {
     const composer = () => screen.getByTestId("studio-composer") as HTMLInputElement;
 
     it("A accepted, then B refused: B's words come back with the anchor", async () => {
-      const [a, b] = setup();
+      const [a, b] = await setup();
       await act(async () => {
         a(queued);
       });
@@ -2571,7 +2662,7 @@ describe("the anchor clears after an accepted Generate (2026-10-01)", () => {
     });
 
     it("B refused, then A accepted: the anchor B's words came back with survives", async () => {
-      const [a, b] = setup();
+      const [a, b] = await setup();
       await act(async () => {
         b(refused);
       });
@@ -2583,7 +2674,7 @@ describe("the anchor clears after an accepted Generate (2026-10-01)", () => {
     });
 
     it("a refusal whose words are not restored (new text in the box) leaves the anchor cleared", async () => {
-      const [a, b] = setup();
+      const [a, b] = await setup();
       submitTextNoSubmit("third idea");
       await act(async () => {
         a(queued);
@@ -2617,9 +2708,10 @@ describe("the anchor clears after an accepted Generate (2026-10-01)", () => {
       h.polledLanes = twoLanes();
       const settle = deferGenerate();
       render(<StudioClient initialLanes={twoLanes()} />);
-      anchorCell(0);
+      openStage(0);
       submitText("make it blue");
-      anchorCell(1);
+      leaveStage();
+      openStage(1);
       await act(async () => {
         settle(refused);
       });
@@ -2627,6 +2719,9 @@ describe("the anchor clears after an accepted Generate (2026-10-01)", () => {
       expect(screen.getByTestId("anchor-chip").textContent).toContain(
         "geometric wolf head"
       );
+      // The stage is where an anchor is chosen, so it moves back to the
+      // image the words were about.
+      expect(window.location.search).toBe("?conversation=design-1&image=img-1");
     });
 
     it("unanchored submit refused after the user anchored an image: words back, no chip, retry starts a new lane", async () => {
@@ -2634,7 +2729,7 @@ describe("the anchor clears after an accepted Generate (2026-10-01)", () => {
       const settle = deferGenerate();
       render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
       submitText("new idea");
-      anchorCell(0);
+      openStage(0);
       expect(screen.getByTestId("anchor-chip")).toBeTruthy();
       await act(async () => {
         settle(refused);
@@ -2653,7 +2748,7 @@ describe("the anchor clears after an accepted Generate (2026-10-01)", () => {
       h.polledLanes = [lane({ cells: [cell("img-1")] })];
       const settle = deferGenerate();
       render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
-      anchorCell(0);
+      openStage(0);
       submitText("make it blue");
       fireEvent.click(screen.getByLabelText("Clear anchor"));
       expect(screen.queryByTestId("anchor-chip")).toBeNull();
@@ -2668,7 +2763,7 @@ describe("the anchor clears after an accepted Generate (2026-10-01)", () => {
       h.polledLanes = [lane({ cells: [cell("img-1")] })];
       const settle = deferGenerate();
       render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
-      anchorCell(0);
+      openStage(0);
       submitText("make it blue");
       h.polledLanes = []; // the conversation closed elsewhere
       fireEvent(window, new Event("focus"));
@@ -2684,7 +2779,7 @@ describe("the anchor clears after an accepted Generate (2026-10-01)", () => {
       h.polledLanes = [lane({ cells: [cell("img-1")] })];
       const reject = deferReject();
       render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
-      anchorCell(0);
+      openStage(0);
       submitText("make it blue");
       fireEvent.click(screen.getByLabelText("Clear anchor"));
       await act(async () => {
@@ -2700,7 +2795,7 @@ describe("the anchor clears after an accepted Generate (2026-10-01)", () => {
       try {
         const reject = deferReject();
         render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
-        anchorCell(0);
+        openStage(0);
         submitText("make it blue");
         fireEvent.click(screen.getByLabelText("Clear anchor"));
         await act(async () => {
@@ -2720,7 +2815,7 @@ describe("the anchor clears after an accepted Generate (2026-10-01)", () => {
         const reject = deferReject();
         vi.mocked(getGenerationJobStatus).mockResolvedValue({ status: "failed" });
         render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
-        anchorCell(0);
+        openStage(0);
         submitText("make it blue");
         fireEvent.click(screen.getByLabelText("Clear anchor"));
         await act(async () => {
@@ -2735,17 +2830,16 @@ describe("the anchor clears after an accepted Generate (2026-10-01)", () => {
     });
   });
 
-  it("clears the anchor when a lost response is reconciled as run", async () => {
+  it("on the bench: clears the anchor when a lost response is reconciled as run", async () => {
     vi.useFakeTimers();
     try {
+      h.polledLanes = [lane({ cells: [cell("img-1")] })];
+      render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+      await anchorOnBench(0);
       vi.mocked(generateDesign).mockImplementationOnce(
         () => Promise.reject(new TypeError("Failed to fetch")) as never
       );
       vi.mocked(getGenerationJobStatus).mockResolvedValueOnce({ status: "running" });
-      h.polledLanes = [lane({ cells: [cell("img-1")] })];
-
-      render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
-      anchorCell(0);
       submitText("make it blue");
       expect(screen.getByTestId("anchor-chip")).toBeTruthy();
 
@@ -2759,17 +2853,16 @@ describe("the anchor clears after an accepted Generate (2026-10-01)", () => {
     }
   });
 
-  it("clears the anchor when the lookup says cancelled", async () => {
+  it("on the bench: clears the anchor when the lookup says cancelled", async () => {
     vi.useFakeTimers();
     try {
+      h.polledLanes = [lane({ cells: [cell("img-1")] })];
+      render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+      await anchorOnBench(0);
       vi.mocked(generateDesign).mockImplementationOnce(
         () => Promise.reject(new TypeError("Failed to fetch")) as never
       );
       vi.mocked(getGenerationJobStatus).mockResolvedValueOnce({ status: "cancelled" });
-      h.polledLanes = [lane({ cells: [cell("img-1")] })];
-
-      render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
-      anchorCell(0);
       submitText("make it blue");
       expect(screen.getByTestId("anchor-chip")).toBeTruthy();
 
@@ -2783,9 +2876,12 @@ describe("the anchor clears after an accepted Generate (2026-10-01)", () => {
     }
   });
 
-  it("clears the anchor when lookups keep erroring but a poll lists the client job id at the backstop", async () => {
+  it("on the bench: clears the anchor when lookups keep erroring but a poll lists the client job id at the backstop", async () => {
     vi.useFakeTimers();
     try {
+      h.polledLanes = [lane({ cells: [cell("img-1")] })];
+      render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+      await anchorOnBench(0);
       vi.spyOn(crypto, "randomUUID")
         .mockReturnValueOnce("local-a1" as never)
         .mockReturnValueOnce("job-a1" as never);
@@ -2793,10 +2889,6 @@ describe("the anchor clears after an accepted Generate (2026-10-01)", () => {
         () => Promise.reject(new TypeError("Failed to fetch")) as never
       );
       vi.mocked(getGenerationJobStatus).mockRejectedValue(new Error("network"));
-      h.polledLanes = [lane({ cells: [cell("img-1")] })];
-
-      render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
-      anchorCell(0);
       submitText("make it blue");
       await act(async () => {
         await vi.advanceTimersByTimeAsync(0);
@@ -2833,7 +2925,7 @@ describe("the anchor clears after an accepted Generate (2026-10-01)", () => {
       h.polledLanes = [lane({ cells: [cell("img-1")] })];
 
       render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
-      anchorCell(0);
+      openStage(0);
       submitText("make it blue");
 
       await act(async () => {

@@ -125,13 +125,13 @@ describe("GuestKeepLine", () => {
 describe("/studio (bench page)", () => {
   it("hands isGuest to the bench and reads the guest's own lanes", async () => {
     asGuest();
-    render(await StudioPage());
+    render(await StudioPage({ searchParams: Promise.resolve({}) }));
     expect(h.studioClientProps).toMatchObject({ isGuest: true });
     expect(getStudioLanesData).toHaveBeenCalledWith("guest-1");
   });
 
   it("hands isGuest=false for a real account", async () => {
-    render(await StudioPage());
+    render(await StudioPage({ searchParams: Promise.resolve({}) }));
     expect(h.studioClientProps).toMatchObject({ isGuest: false });
     expect(getStudioLanesData).toHaveBeenCalledWith("u1");
   });
