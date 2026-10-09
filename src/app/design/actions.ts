@@ -39,6 +39,7 @@ import { eq, and, sql, inArray } from "drizzle-orm";
 import { buildImageRow, buildOutputLinkRow } from "@/lib/model-b-writes";
 import { chatAboutDesign, constructDesignBrief, type ChatOption } from "@/lib/ai";
 import { uploadImageObject, deleteImageObject } from "@/lib/r2";
+import { meanLuminance } from "@/lib/image-luminance";
 import { getGenerator } from "@/lib/generators/registry";
 import type { GenerateOperation } from "@/lib/generators/types";
 import {
@@ -951,6 +952,13 @@ async function runGenerationJob(params: GenerationJobParams): Promise<void> {
 
     const response = await fetch(sourceUrl);
     const buffer = Buffer.from(await response.arrayBuffer());
+    // The light/dark signal (#139), read from the bytes we already hold.
+    // Before the upload so the decode never widens the window between the
+    // object landing and the row write. A failure is NULL, never a failed job.
+    const luminance = await meanLuminance(buffer);
+    if (luminance === null) {
+      console.warn("[luminance] not computed for a generation", { jobId, imageId });
+    }
     const r2Url = await uploadImageObject(imageId, buffer);
 
     // Self-fail against the deadline BEFORE writing: past the cutoff a sweeper
@@ -1038,6 +1046,7 @@ async function runGenerationJob(params: GenerationJobParams): Promise<void> {
           parentImageId,
           seedImageId: seed?.seedImageId ?? null,
           originalDesignerId: seed?.originalDesignerId ?? null,
+          luminance,
         })
       ),
       insertIfJobSucceededStatement(
@@ -1119,6 +1128,10 @@ export async function uploadReferenceImage(
   // Upload under the pre-minted image id (images/{id}.png, slice 4 §6).
   const newImageId = crypto.randomUUID();
   const buffer = Buffer.from(base64Data, "base64");
+  const luminance = await meanLuminance(buffer);
+  if (luminance === null) {
+    console.warn("[luminance] not computed for an upload", { imageId: newImageId });
+  }
   const r2Url = await uploadImageObject(newImageId, buffer);
 
   // Record as an image row so the gallery picks it up and the
@@ -1131,6 +1144,7 @@ export async function uploadReferenceImage(
     prompt: `[user upload] ${fileName}`,
     operation: "upload",
     generationCost: 0,
+    luminance,
   });
 
   await insertChatMessage({
