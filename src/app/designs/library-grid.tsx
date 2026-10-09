@@ -281,8 +281,9 @@ function LibraryCell({
   // Published images sit on their chosen storefront backdrop (null → White,
   // #73); unpublished work sits on the well, ink when the artwork is light
   // enough to read as blank on paper (#139, wellForLuminance). The ink well
-  // is the same colour as border-accent, so on it the selected and hover
-  // cues, and the check badge, invert to Paper.
+  // is the same colour as border-accent, so on it the inner border, the hover
+  // border and the check badge invert to Paper. The selected ring is drawn
+  // outside the tile, on the Paper page, so it stays ink.
   const onInk = !img.isPublished && wellForLuminance(img.luminance) === "dark";
   const backdrop = img.isPublished
     ? publishedBackdrop(img.backgroundColor)
@@ -296,7 +297,7 @@ function LibraryCell({
         className={`relative aspect-square rounded-md overflow-hidden border transition-colors ${
           selected
             ? onInk
-              ? "border-background ring-2 ring-background"
+              ? "border-background ring-2 ring-accent"
               : "border-accent ring-2 ring-accent"
             : onInk
               ? "border-border group-hover:border-background"

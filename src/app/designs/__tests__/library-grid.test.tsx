@@ -82,15 +82,15 @@ describe("My Designs selection cue on the ink well (#139)", () => {
     img({ imageId: "dark", luminance: 0.05 }),
   ];
 
-  it("a selected tile on the dark well draws its border and ring in Paper", () => {
+  it("a selected tile on the dark well draws its inner border in Paper and keeps the ink ring", () => {
     render(<LibraryGrid images={mixed()} />);
     fireEvent.click(screen.getByTestId("library-select"));
     fireEvent.click(tiles()[0]);
     const cls = tiles()[0].className;
     expect(cls).toContain("border-background");
-    expect(cls).toContain("ring-background");
+    expect(cls).toContain("ring-accent");
+    expect(cls).not.toContain("ring-background");
     expect(cls).not.toContain("border-accent");
-    expect(cls).not.toContain("ring-accent");
     const badge = screen.getByTestId("library-tile-checked");
     expect(badge.className).toContain("bg-background");
     expect(badge.className).not.toContain("bg-accent");
