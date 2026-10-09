@@ -785,7 +785,7 @@ export function BuyPanel({
                   Cancel
                 </button>
               </div>
-              <div className={`flex gap-4 ${MONO_LABEL}`} role="group" aria-label="Order">
+              <div className={`flex gap-4 ${MONO_LABEL}`} role="group" aria-label="Sort">
                 {(["light-first", "dark-first"] as const).map((dir) => (
                   <button
                     key={dir}

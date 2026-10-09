@@ -806,12 +806,14 @@ describe("BuyPanel back picker sort (#139)", () => {
   it("defaults to Dark first on a white shirt and lists darkest first, unscored last", async () => {
     await openPickerOn({ color: "White" });
     expect(screen.getByRole("button", { name: "Dark first", pressed: true })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Light first", pressed: false })).toBeInTheDocument();
     expect(pickerOrder()).toEqual(["dark", "mid", "light", "none"]);
   });
 
   it("defaults to Light first on a black shirt", async () => {
     await openPickerOn({ color: "Black" });
     expect(screen.getByRole("button", { name: "Light first", pressed: true })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Dark first", pressed: false })).toBeInTheDocument();
     expect(pickerOrder()).toEqual(["light", "mid", "dark", "none"]);
   });
 
