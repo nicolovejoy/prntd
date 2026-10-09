@@ -16,6 +16,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { eq } from "drizzle-orm";
 import { createTestDb } from "@/lib/__tests__/test-db";
 import { makeUser, makeSourceImage } from "@/lib/__tests__/factories";
+import { buildMirrorProductRow } from "@/lib/model-b-writes";
 import * as schema from "@/lib/db/schema";
 import {
   getStudioArchiveData,
@@ -291,6 +292,68 @@ describe("getStudioLanesData", () => {
 
     expect(lanes.find((l) => l.designId === design.id)?.messageCount).toBe(2);
     expect(lanes.find((l) => l.designId === other.id)?.messageCount).toBe(1);
+  });
+
+  it("a published cell whose mirror has no backdrop shows on White; a draft mirror's backdrop on an unpublished image is ignored", async () => {
+    const design = await makeOpenDesign("owner");
+    const noBackdrop = await makeSourceImage(db, {
+      designId: design.id,
+      ownerId: "owner",
+      imageUrl: "https://cdn.example/nobackdrop.png",
+      createdAt: minutesAgo(30),
+      publishedAt: minutesAgo(20),
+      backgroundColor: null,
+    });
+    const unpublished = await makeSourceImage(db, {
+      designId: design.id,
+      ownerId: "owner",
+      imageUrl: "https://cdn.example/unpublished.png",
+      createdAt: minutesAgo(10),
+    });
+    // A mirror row with a backdrop but no publication grant.
+    await db.insert(schema.product).values(
+      buildMirrorProductRow({
+        imageId: unpublished,
+        ownerId: "owner",
+        listedAt: minutesAgo(5),
+        title: null,
+        description: null,
+        backdropColor: "Navy",
+      })
+    );
+
+    const [lane] = await getStudioLanesData("owner", { db });
+
+    const byId = new Map(lane.cells.map((c) => [c.imageId, c.backdropColor]));
+    expect(byId.get(noBackdrop)).toBe("White");
+    expect(byId.get(unpublished)).toBeNull();
+  });
+
+  it("counts every turn and titles the lane from the first USER turn, even after an earlier assistant turn", async () => {
+    const design = await makeOpenDesign("owner");
+    const assistantOnly = await makeOpenDesign("owner");
+    await makeSourceImage(db, {
+      designId: assistantOnly.id,
+      ownerId: "owner",
+      imageUrl: "https://cdn.example/a.png",
+      prompt: "retro sunset",
+    });
+    await db.insert(schema.chatMessage).values([
+      { designId: design.id, role: "assistant", content: "welcome", createdAt: minutesAgo(5) },
+      { designId: design.id, role: "user", content: "a wolf", createdAt: minutesAgo(4) },
+      { designId: design.id, role: "assistant", content: "done", createdAt: minutesAgo(3) },
+      { designId: design.id, role: "user", content: "bigger", createdAt: minutesAgo(2) },
+      { designId: assistantOnly.id, role: "assistant", content: "hello", createdAt: minutesAgo(1) },
+    ]);
+
+    const lanes = await getStudioLanesData("owner", { db });
+    const byId = new Map(lanes.map((l) => [l.designId, l]));
+
+    expect(byId.get(design.id)?.title).toBe("a wolf");
+    expect(byId.get(design.id)?.messageCount).toBe(4);
+    // No user turn: the label falls back to the prompt, not the assistant's words.
+    expect(byId.get(assistantOnly.id)?.title).toBe("retro sunset");
+    expect(byId.get(assistantOnly.id)?.messageCount).toBe(1);
   });
 
   it("a lane with no chat has messageCount 0", async () => {

@@ -26,6 +26,7 @@ import { renderToString } from "react-dom/server";
 import { hydrateRoot, type Root } from "react-dom/client";
 import { StudioClient } from "../studio-client";
 import type { StudioLane } from "@/lib/studio";
+import { requireStudioUser } from "@/lib/require-user";
 
 vi.mock("../actions", () => ({
   getStudioLanes: vi.fn(async () => []),
@@ -185,6 +186,48 @@ describe("StudioClient hydration", () => {
     expect(recoverable).toEqual([]);
     expect(container.textContent).toContain("8/10/2026");
   });
+
+  it("hydrates a server-rendered focused stage with a running generation (#188 slice 4)", async () => {
+    // The page parsed initialFocus from this URL; the client re-reads it on
+    // mount, so it must match.
+    window.history.replaceState(null, "", "/studio?conversation=design-1&image=img-1");
+    const consoleError = vi.spyOn(console, "error");
+    try {
+      const lane: StudioLane = {
+        ...runningLane(),
+        cells: [
+          {
+            imageId: "img-1",
+            imageUrl: "https://cdn.example/img-1.png",
+            isPrimary: true,
+            createdAt: new Date(T - 600_000),
+            backdropColor: null,
+          },
+        ],
+      };
+      await serverThenHydrate(
+        <StudioClient
+          initialLanes={[lane]}
+          initialNowMs={T}
+          initialFocus={{ designId: "design-1", imageId: "img-1" }}
+        />,
+        T,
+        T + 1_500
+      );
+
+      expect(recoverable).toEqual([]);
+      const hydrationErrors = consoleError.mock.calls.filter((args) =>
+        args.some((a) => /hydrat|#418/i.test(String(a)))
+      );
+      expect(hydrationErrors).toEqual([]);
+      expect(container.querySelector('[data-testid="focused-stage"]')).toBeTruthy();
+      expect(container.textContent).toContain("Result 1 of 1");
+      // The stage's elapsed line, on the browser's clock once hydrated.
+      expect(container.textContent).toContain("0:26");
+    } finally {
+      window.history.replaceState(null, "", "/studio");
+    }
+  });
 });
 
 describe("Studio page wiring", () => {
@@ -202,8 +245,9 @@ describe("Studio page wiring", () => {
     expect(initialNowMs).toBeLessThanOrEqual(after);
     // The #241 prop rides alongside it.
     expect((element.props as { isGuest?: boolean }).isGuest).toBe(false);
-    // No stage params: the bench.
+    // No stage params: the bench, and a sign-in bounce returns to it.
     expect((element.props as { initialFocus?: unknown }).initialFocus).toBeNull();
+    expect(requireStudioUser).toHaveBeenLastCalledWith("/studio");
   });
 
   it("hands the client the stage address from the URL (#188 slice 4)", async () => {
@@ -215,5 +259,7 @@ describe("Studio page wiring", () => {
       designId: "d1",
       imageId: "img-1",
     });
+    // A sign-in bounce comes back to the same stage.
+    expect(requireStudioUser).toHaveBeenLastCalledWith("/studio?conversation=d1&image=img-1");
   });
 });

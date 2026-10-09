@@ -25,6 +25,7 @@ import {
   product as productTable,
 } from "./db/schema";
 import { mirrorFrontImageId } from "./composition-reads";
+import { DEFAULT_PUBLISH_BACKGROUND } from "./blanks";
 import { sweepStaleJobs } from "./generation-job";
 import { sweepIdleConversations } from "./archive-conversations";
 
@@ -192,7 +193,7 @@ export async function getStudioLanesData(
   if (designs.length === 0) return [];
   const designIds = designs.map((d) => d.id);
 
-  const [imageRows, jobRows, firstTurnRows, countRows] = await Promise.all([
+  const [imageRows, jobRows, turnRows] = await Promise.all([
     // Both roles: a seed is one of the conversation's images, and its
     // image.created_at predates every output the thread generates, so the
     // shared ordering keeps it first (getDesignSourceImages convention,
@@ -239,27 +240,20 @@ export async function getStudioLanesData(
         )
       )
       .orderBy(asc(imageGenerationTable.generationNumber)),
-    // First user turn per conversation — the lane label. Bare `content`
-    // alongside min() relies on SQLite's documented min/max-aggregate
-    // behavior (the bare column comes from the row achieving the min);
-    // Turso is libSQL, so this holds in prod and in the test harness alike.
+    // One pass over chat_message per conversation for two things: the first
+    // user turn (the lane label) and the turn count (the stage's History
+    // label). Bare `content` alongside the single min() relies on SQLite's
+    // documented min/max-aggregate behavior (the bare column comes from the
+    // row achieving the min; min() skips the NULLs the CASE gives non-user
+    // turns), so it is the first user turn's content whenever
+    // `firstUserAt` is not null. Turso is libSQL, so this holds in prod and
+    // in the test harness alike.
     db
       .select({
         designId: chatMessageTable.designId,
         content: chatMessageTable.content,
-        firstAt: sql<number>`min(${chatMessageTable.createdAt})`,
-      })
-      .from(chatMessageTable)
-      .where(
-        and(
-          inArray(chatMessageTable.designId, designIds),
-          eq(chatMessageTable.role, "user")
-        )
-      )
-      .groupBy(chatMessageTable.designId),
-    db
-      .select({
-        designId: chatMessageTable.designId,
+        firstUserAt: sql<number | null>`min(case when ${chatMessageTable.role} = 'user' then ${chatMessageTable.createdAt} end)`,
+        // Every turn, both roles: the rows the stage's History lists.
         n: sql<number>`count(*)`,
       })
       .from(chatMessageTable)
@@ -279,8 +273,13 @@ export async function getStudioLanesData(
         imageUrl: row.imageUrl,
         isPrimary: false, // filled in per-design below
         createdAt: row.createdAt,
+        // Published and not hidden: the pinned Shop backdrop, defaulting the
+        // way every other surface does (publishedBackdrop) when the mirror
+        // has none. Otherwise null, even if a mirror row carries one.
         backdropColor:
-          row.publishedAt && !row.isHidden ? (row.backdropColor ?? null) : null,
+          row.publishedAt && !row.isHidden
+            ? (row.backdropColor ?? DEFAULT_PUBLISH_BACKGROUND)
+            : null,
       },
       prompt: row.prompt,
     });
@@ -299,11 +298,13 @@ export async function getStudioLanesData(
   }
 
   const titleByDesign = new Map(
-    firstTurnRows.map((row) => [row.designId, row.content])
+    turnRows
+      .filter((row) => row.firstUserAt !== null)
+      .map((row) => [row.designId, row.content])
   );
 
   const countByDesign = new Map(
-    countRows.map((row) => [row.designId, Number(row.n)])
+    turnRows.map((row) => [row.designId, Number(row.n)])
   );
 
   const lanes = designs.map((design) => {

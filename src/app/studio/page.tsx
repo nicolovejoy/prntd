@@ -1,7 +1,7 @@
 import { after } from "next/server";
 import { requireStudioUser } from "@/lib/require-user";
 import { getStudioLanesData, sweepStudioForUser } from "@/lib/studio";
-import { parseFocus } from "@/lib/studio-focus";
+import { BENCH_HREF, focusHref, parseFocus } from "@/lib/studio-focus";
 import { StudioClient } from "./studio-client";
 
 // Server-rendered initial data (#127 shape): the lanes arrive in the first
@@ -21,12 +21,15 @@ export default async function StudioPage({
 }: {
   searchParams: Promise<{ conversation?: string | string[]; image?: string | string[] }>;
 }) {
-  const { session, isGuest } = await requireStudioUser("/studio");
-  after(() => sweepStudioForUser(session.user.id));
   // The focused stage's address (#188 slice 4). Parsed here so the first
   // render is the stage, not a bench that flips on hydration; the client
-  // owns it from then on (pushState/popstate), see StudioClient.
+  // owns it from then on (pushState/popstate), see StudioClient. Parsed
+  // before the gate so a sign-in bounce comes back to the same stage.
   const focus = parseFocus(await searchParams);
+  const { session, isGuest } = await requireStudioUser(
+    focus ? focusHref(focus) : BENCH_HREF
+  );
+  after(() => sweepStudioForUser(session.user.id));
   const lanes = await getStudioLanesData(session.user.id);
   // One clock reading for the server render and the client's hydration
   // render, so the time labels match (React #418; see StudioClient). The
