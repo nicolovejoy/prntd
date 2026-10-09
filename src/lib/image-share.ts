@@ -9,12 +9,16 @@
  */
 import { and, eq } from "drizzle-orm";
 import { db } from "./db";
-import { image as imageTable, product as productTable, user as userTable } from "./db/schema";
+import {
+  image as imageTable,
+  imagePublication as imagePublicationTable,
+  product as productTable,
+  user as userTable,
+} from "./db/schema";
+import { publicationVisibility } from "./design-publish";
 import {
   isPublishedShopMirror,
   mirrorFrontImageId,
-  mirrorIsHidden,
-  mirrorPublishedAt,
 } from "./composition-reads";
 
 export type ImageShareCard = {
@@ -46,11 +50,12 @@ export function canShareImageCard(image: {
 
 /**
  * The share card for one image, or null when there is nothing shareable
- * (unknown id, never published, unpublished — the mirror row goes back to
- * "draft" — or admin-hidden). Callers fall back to the site-wide card on null.
+ * (unknown id, never published, unpublished — its `image_publication` row is
+ * gone — or admin-hidden). Callers fall back to the site-wide card on null.
  *
- * Composition slice 2: title and backdrop come off the image's mirror
- * `product` row, and the publish/hidden state with them. Still a left join, so
+ * Title and backdrop come off the image's mirror `product` row; the
+ * publish/hidden state comes off its `image_publication` row, the one
+ * visibility reader (#289 item 4). Still a left join, so
  * an unpublished image returns a row, fails `canShareImageCard`, and gets the
  * site card — unchanged behaviour.
  */
@@ -62,13 +67,16 @@ export async function getImageShareCard(
       imageUrl: imageTable.imageUrl,
       title: productTable.title,
       backgroundColor: productTable.backdropColor,
-      status: productTable.status,
-      listedAt: productTable.listedAt,
-      productCreatedAt: productTable.createdAt,
+      publishedAt: imagePublicationTable.publishedAt,
+      isHidden: imagePublicationTable.isHidden,
       designerName: userTable.name,
     })
     .from(imageTable)
     .innerJoin(userTable, eq(userTable.id, imageTable.ownerId))
+    .leftJoin(
+      imagePublicationTable,
+      eq(imagePublicationTable.imageId, imageTable.id)
+    )
     .leftJoin(
       productTable,
       and(isPublishedShopMirror(), eq(mirrorFrontImageId, imageTable.id))
@@ -78,12 +86,7 @@ export async function getImageShareCard(
 
   const r = rows[0];
   if (!r) return null;
-  if (
-    !canShareImageCard({
-      publishedAt: mirrorPublishedAt(r.status, r.listedAt, r.productCreatedAt),
-      isHidden: mirrorIsHidden(r.status),
-    })
-  ) {
+  if (!canShareImageCard(publicationVisibility(r))) {
     return null;
   }
 

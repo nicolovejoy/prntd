@@ -90,6 +90,14 @@ describe("bulkImageDeleteNotice", () => {
     ).toBe("2 images weren't deleted — No longer available (2).");
   });
 
+  it("names a hidden image in plain words and keeps it distinct from not-owned", () => {
+    expect(imageDeleteSkipCopy("hidden")).toBe("Hidden by an admin");
+    expect(imageDeleteSkipCopy("hidden")).not.toBe(imageDeleteSkipCopy("not-owned"));
+    expect(bulkImageDeleteNotice([{ imageId: "a", reason: "hidden" }])).toBe(
+      "1 image wasn't deleted — Hidden by an admin."
+    );
+  });
+
   it("reports a failed write with the rest", () => {
     expect(
       bulkImageDeleteNotice([
@@ -110,6 +118,7 @@ describe("filterLibraryImages", () => {
       backgroundColor: null,
       sourceDesignId: "design-1",
       isArchived: false,
+      isHidden: false,
       ...overrides,
     };
   }

@@ -18,6 +18,7 @@ export type ImageDeleteSkipReason =
   | "in-use"
   | "not-owned"
   | "not-found"
+  | "hidden"
   | "failed";
 
 /**
@@ -37,6 +38,8 @@ export function imageDeleteSkipCopy(reason: ImageDeleteSkipReason): string {
     case "not-owned":
     case "not-found":
       return "No longer available";
+    case "hidden":
+      return "Hidden by an admin";
     case "failed":
       return "Couldn't delete";
   }
@@ -89,6 +92,7 @@ export function bulkImageDeleteNotice(
     "in-use",
     "not-owned",
     "not-found",
+    "hidden",
     "failed",
   ];
   const counts = new Map<string, number>();

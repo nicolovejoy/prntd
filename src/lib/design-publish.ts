@@ -106,6 +106,20 @@ export function imageReferences(flags: ImageReferenceFlags): ImageReferenceDecis
 }
 
 /**
+ * The visibility state of an image, read from its `image_publication` row
+ * (the one authority for "published" and "hidden", #289 item 4). The row is
+ * reached by a left join, so both columns are null when the image was never
+ * published or was unpublished (unpublish deletes the row): not published,
+ * not hidden. The `product` mirror's status is not consulted.
+ */
+export function publicationVisibility(row: {
+  publishedAt: Date | null;
+  isHidden: boolean | null;
+}): { publishedAt: Date | null; isHidden: boolean } {
+  return { publishedAt: row.publishedAt ?? null, isHidden: row.isHidden ?? false };
+}
+
+/**
  * Whether ANYONE may buy this image from the image detail page: it is
  * published and not admin-hidden. There is no owner shortcut here; callers
  * that mean "this viewer" use `canBuyImage`, which adds the owner's own
@@ -237,6 +251,25 @@ export function canViewImagePage(params: {
   if (params.image.isHidden) return false;
   if (params.image.publishedAt !== null) return true;
   return params.userId !== null && params.imageOwnerId === params.userId;
+}
+
+/**
+ * Whether `userId` gets the "hidden" notice at `/d/[imageId]` instead of the
+ * not-found page: the image is admin-hidden and the viewer owns it. Anyone
+ * else, the admin included, keeps the not-found page. The notice replaces the
+ * artwork and every control, so it leaves a moderated design no more
+ * reachable than `canViewImagePage` already does (#288).
+ */
+export function seesHiddenNotice(params: {
+  image: { isHidden: boolean };
+  imageOwnerId: string;
+  userId: string | null;
+}): boolean {
+  return (
+    params.image.isHidden &&
+    params.userId !== null &&
+    params.imageOwnerId === params.userId
+  );
 }
 
 /**
