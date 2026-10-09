@@ -1,0 +1,1 @@
+ALTER TABLE `image` ADD `luminance` real;

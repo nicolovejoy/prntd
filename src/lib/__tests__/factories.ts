@@ -44,6 +44,7 @@ export async function makeSourceImage(
     parentImageId?: string | null;
     seedImageId?: string | null;
     originalDesignerId?: string | null;
+    luminance?: number | null;
     createdAt?: Date;
     publishedAt?: Date | null;
     isHidden?: boolean;
@@ -66,6 +67,7 @@ export async function makeSourceImage(
     parentImageId: params.parentImageId ?? null,
     seedImageId: params.seedImageId ?? null,
     originalDesignerId: params.originalDesignerId ?? null,
+    luminance: params.luminance ?? null,
     sourceDesignId: params.designId,
     ...(params.createdAt ? { createdAt: params.createdAt } : {}),
   });

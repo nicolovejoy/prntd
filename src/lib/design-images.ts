@@ -215,6 +215,9 @@ export async function insertDesignImage(params: {
    * (`images/{id}.png`) mint the id first and pass it here so the row and the
    * object key agree. Omitted → a fresh UUID. */
   id?: string;
+  /** Mean luminance of the opaque pixels (#139), computed by the caller that
+   * holds the bytes. Omitted → null. Placement renders ignore it. */
+  luminance?: number | null;
 }): Promise<string> {
   let parentImageId = params.parentImageId ?? null;
   if (parentImageId === null) {
@@ -278,6 +281,7 @@ export async function insertDesignImage(params: {
           parentImageId,
           seedImageId: seed?.seedImageId ?? null,
           originalDesignerId: seed?.originalDesignerId ?? null,
+          luminance: params.luminance ?? null,
         })
       ),
       db.insert(conversationImageTable).values(buildOutputLinkRow(params.designId, id)),

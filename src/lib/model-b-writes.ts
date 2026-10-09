@@ -71,6 +71,8 @@ export function buildImageRow(params: {
   parentImageId?: string | null;
   seedImageId?: string | null;
   originalDesignerId?: string | null;
+  /** Mean luminance of the opaque pixels (#139); omitted → null. */
+  luminance?: number | null;
   /** Backfill only: carries the design_image timestamp across, so the
    * chronological reads (thread gallery order, latest-source fallback) keep
    * working on rows that predate the table. Live writes omit it → now. */
@@ -91,6 +93,7 @@ export function buildImageRow(params: {
     parentImageId: params.parentImageId ?? null,
     seedImageId: params.seedImageId ?? null,
     originalDesignerId: params.originalDesignerId ?? null,
+    luminance: params.luminance ?? null,
     sourceDesignId: params.designId,
   };
 }
