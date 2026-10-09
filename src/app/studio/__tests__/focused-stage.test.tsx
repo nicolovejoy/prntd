@@ -110,8 +110,9 @@ describe("FocusedStage", () => {
   });
 
   it("history is collapsed, fetches once on open, and labels turns", async () => {
-    renderStage();
-    const toggle = screen.getByRole("button", { name: "History · 4 messages" });
+    // Two turns, as the mocked fetch returns: nothing new to refetch on reopen.
+    renderStage({ lane: lane({ messageCount: 2 }) });
+    const toggle = screen.getByRole("button", { name: "History · 2 messages" });
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(getConversationHistory).not.toHaveBeenCalled();
     fireEvent.click(toggle);
@@ -125,6 +126,59 @@ describe("FocusedStage", () => {
     expect(screen.queryByText("a bear reading")).toBeNull();
     fireEvent.click(toggle);
     expect(getConversationHistory).toHaveBeenCalledTimes(1);
+  });
+
+  it("reopening refetches when the conversation has gained turns since the last fetch", async () => {
+    const props = renderStageProps({ lane: lane({ messageCount: 2 }) });
+    const { rerender } = render(<FocusedStage {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: "History · 2 messages" }));
+    await waitFor(() => expect(screen.getByText("a bear reading")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "History · 2 messages" }));
+
+    // A Generate on the stage wrote another turn; the poll brought the count.
+    vi.mocked(getConversationHistory).mockResolvedValueOnce([
+      { id: "m1", role: "user", content: "a bear reading", imageId: null, createdAt: new Date(1) },
+      { id: "m2", role: "assistant", content: "Rendered.", imageId: "b", createdAt: new Date(2) },
+      { id: "m3", role: "user", content: "make it red", imageId: null, createdAt: new Date(3) },
+    ]);
+    rerender(<FocusedStage {...props} lane={lane({ messageCount: 3 })} />);
+    fireEvent.click(screen.getByRole("button", { name: "History · 3 messages" }));
+    await waitFor(() => expect(screen.getByText("make it red")).toBeTruthy());
+    expect(getConversationHistory).toHaveBeenCalledTimes(2);
+  });
+
+  it("scrolls the strip to the shown result, horizontally only", () => {
+    // The strip spans 0–200; the shown thumbnail (index 2) sits at 260–316.
+    const rect = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        const box =
+          this.dataset.testid === "stage-results"
+            ? { left: 0, right: 200 }
+            : this.getAttribute("aria-current") === "true"
+              ? { left: 260, right: 316 }
+              : { left: 0, right: 0 };
+        return { ...box, top: 0, bottom: 0, width: box.right - box.left, height: 0, x: box.left, y: 0, toJSON: () => ({}) } as DOMRect;
+      });
+    try {
+      renderStage({ index: 2 });
+      expect(screen.getByTestId("stage-results").scrollLeft).toBe(116);
+      expect(window.HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
+    } finally {
+      rect.mockRestore();
+    }
+  });
+
+  it("scrolls the strip to its right end while an edit is running", () => {
+    const width = vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockReturnValue(480);
+    try {
+      renderStage({
+        lane: lane({ pending: [{ jobId: "j1", generationNumber: 4, startedAt: new Date() }] }),
+      });
+      expect(screen.getByTestId("stage-results").scrollLeft).toBe(480);
+    } finally {
+      width.mockRestore();
+    }
   });
 
   it("uses the singular label for one message", () => {

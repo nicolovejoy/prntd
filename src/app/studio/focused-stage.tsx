@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import type { StudioLane } from "@/lib/studio";
 import { buyPageHref } from "@/lib/buy-page-picks";
 import { DEFAULT_BLANK_ID, getColorHex, publishedBackdrop } from "@/lib/blanks";
@@ -52,6 +52,26 @@ export function FocusedStage({
   benchHref: string;
 }) {
   const cell = lane.cells[index];
+  const stripRef = useRef<HTMLDivElement>(null);
+  const pendingCount = lane.pending.length;
+  // Keep the strip on what matters, as the bench lane does: a running edit
+  // (pending cells sit at the right end), else the shown result. Horizontal
+  // only — scrollIntoView would also scroll the page, and on a phone the
+  // strip sits below the fold under the image and the composer.
+  useEffect(() => {
+    const strip = stripRef.current;
+    if (!strip) return;
+    if (pendingCount > 0) {
+      strip.scrollLeft = strip.scrollWidth;
+      return;
+    }
+    const thumb = strip.querySelector<HTMLElement>('[aria-current="true"]');
+    if (!thumb) return;
+    const s = strip.getBoundingClientRect();
+    const t = thumb.getBoundingClientRect();
+    if (t.left < s.left) strip.scrollLeft -= s.left - t.left;
+    else if (t.right > s.right) strip.scrollLeft += t.right - s.right;
+  }, [index, pendingCount, lane.cells.length]);
   if (!cell) return null;
   const published = cell.backdropColor !== null;
   // Published: the pinned Shop backdrop (#302 rule for admin grids). Not
@@ -113,7 +133,7 @@ export function FocusedStage({
 
         <div className="flex flex-col gap-2">
           <span className={MONO}>Other results</span>
-          <div data-testid="stage-results" className="flex gap-2 overflow-x-auto pb-1">
+          <div ref={stripRef} data-testid="stage-results" className="flex gap-2 overflow-x-auto pb-1">
             {lane.cells.map((c, i) => {
               const shown = i === index;
               return (
@@ -184,7 +204,10 @@ function History({ lane }: { lane: StudioLane }) {
   async function toggle() {
     const next = !open;
     setOpen(next);
-    if (!next || turns !== null || inFlight.current) return;
+    if (!next || inFlight.current) return;
+    // Fetched already and still current: Generates on this stage keep adding
+    // turns, so a count that moved since the last fetch means fetch again.
+    if (turns !== null && turns.length === lane.messageCount) return;
     inFlight.current = true;
     setFailed(false);
     setLoading(true);

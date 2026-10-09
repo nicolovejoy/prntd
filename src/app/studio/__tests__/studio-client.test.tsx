@@ -365,12 +365,28 @@ describe("focused stage", () => {
     expect((screen.getByTestId("studio-composer") as HTMLInputElement).value).toBe("bigger");
   });
 
-  it("an initialFocus that names nothing renders the bench and drops the params", () => {
+  it("an initialFocus that names nothing renders the bench and drops the params", async () => {
     window.history.replaceState(null, "", "/studio?conversation=design-1&image=zz");
+    // Fresh server truth doesn't have it either.
+    h.polledLanes = [lane({ cells: [cell("img-1")] })];
     render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} initialFocus={{ designId: "design-1", imageId: "zz" }} />);
     expect(screen.queryByTestId("focused-stage")).toBeNull();
     expect(screen.getByTestId("studio-lane")).toBeTruthy();
-    expect(window.location.search).toBe("");
+    // One poll first, then the params go.
+    await waitFor(() => expect(window.location.search).toBe(""));
+    expect(getStudioLanes).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("focused-stage")).toBeNull();
+  });
+
+  it("a focus the cached lanes predate is kept when a poll finds it (Back from a Next navigation)", async () => {
+    // Back into /studio from the image detail page: Next remounts with the
+    // page-load lanes, from before img-new landed; the entry names img-new.
+    window.history.replaceState(null, "", "/studio?conversation=design-1&image=img-new");
+    h.polledLanes = [lane({ cells: [cell("img-1"), cell("img-new")] })];
+    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} initialFocus={null} />);
+    await waitFor(() => expect(screen.getByText("Result 2 of 2")).toBeTruthy());
+    expect(window.location.search).toBe("?conversation=design-1&image=img-new");
+    expect(getStudioLanes).toHaveBeenCalledTimes(1);
   });
 
   it("← Studio returns to the bench and Back re-opens the stage", () => {
@@ -435,7 +451,7 @@ describe("focused stage", () => {
     expect(vi.mocked(generateDesign).mock.calls[1][2]).toMatchObject({ anchorImageId: "img-1" });
   });
 
-  it("landing moves the stage to the new result and keeps the draft", async () => {
+  it("landing moves the stage to the new result while it still shows the edited image, and keeps the draft", async () => {
     const l = lane({ cells: [cell("img-1")] });
     render(<StudioClient initialLanes={[l]} />);
     openStage(0);
@@ -450,6 +466,24 @@ describe("focused stage", () => {
     expect(window.location.search).toBe("?conversation=design-1&image=img-new");
     expect((screen.getByTestId("studio-composer") as HTMLInputElement).value).toBe("next idea");
     expect(vi.mocked(generateDesign).mock.calls.length).toBe(1);
+  });
+
+  it("a landing while the user picked another result does not move the stage", async () => {
+    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1"), cell("img-2")] })]} />);
+    openStage(0);
+    // The submit's own poll sees the job running, not landed.
+    h.polledLanes = [lane({ cells: [cell("img-1"), cell("img-2")], pending: [pendingJob("job-new", 0)] })];
+    fireEvent.change(screen.getByTestId("studio-composer"), { target: { value: "bigger" } });
+    fireEvent.click(screen.getByTestId("studio-generate"));
+    await waitFor(() => expect(getStudioLanes).toHaveBeenCalledTimes(1));
+    // The user moves on to result 2 while the edit of result 1 runs.
+    fireEvent.click(screen.getByRole("link", { name: "Result 2" }));
+    expect(window.location.search).toBe("?conversation=design-1&image=img-2");
+
+    h.polledLanes = [lane({ cells: [cell("img-1"), cell("img-2"), cell("img-new")] })];
+    fireEvent(window, new Event("focus"));
+    await waitFor(() => expect(screen.getByText("Result 2 of 3")).toBeTruthy());
+    expect(window.location.search).toBe("?conversation=design-1&image=img-2");
   });
 
   it("clearing the chip and generating starts a new lane and returns to the bench", async () => {
@@ -483,7 +517,8 @@ describe("focused stage", () => {
     // A wake refetch is the poll (the same one the anchor tests use).
     fireEvent(window, new Event("focus"));
     await waitFor(() => expect(screen.queryByTestId("focused-stage")).toBeNull());
-    expect(window.location.search).toBe("");
+    // The params go once a confirming poll still lacks the lane.
+    await waitFor(() => expect(window.location.search).toBe(""));
   });
 });
 

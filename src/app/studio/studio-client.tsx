@@ -78,8 +78,9 @@ import { GuestKeepLine } from "./guest-keep-line";
  * chip with a crop of it, and Generate edits exactly that image. The stage's
  * address is the URL (?conversation=&image=), so Back and reload work.
  * On the stage an accepted Generate does NOT spend the anchor — the next
- * line is another change to the same image — and when a result the stage
- * has not shown lands in its lane, the stage moves to it. Dismissing the
+ * line is another change to the same image — and when a result lands in
+ * its lane while the stage still shows the image that edit was made from,
+ * the stage moves to it. Dismissing the
  * chip makes the same box start a NEW conversation, which lives on the
  * bench, so an unanchored Generate leaves the stage for it when submitted. On the
  * bench the anchor is plain state that nothing sets except a refused
@@ -255,6 +256,10 @@ export function StudioClient({
   // opened (the follow effect below). Keyed by lane: entering a lane — a
   // tap, the first render, Back — marks everything already in it as seen.
   const seenCells = useRef<{ designId: string; ids: Set<string> } | null>(null);
+  // The image the latest stage edit was anchored to (the stage showed it at
+  // submit time). A landing is followed only while the stage still shows
+  // it: a user who has picked another result meanwhile is left there.
+  const followFrom = useRef<StudioFocus | null>(null);
   // Set by the chip's ✕ on the stage: the stage image stops being the
   // anchor until the focus changes.
   const [anchorCleared, setAnchorCleared] = useState(false);
@@ -264,6 +269,9 @@ export function StudioClient({
   const { confirm, element: confirmSheet } = useConfirm();
 
   const polling = useRef(false);
+  // The poll in flight, for a caller that needs fresh lanes even when a poll
+  // is already running (pollOnce itself returns at once in that case).
+  const pollInFlight = useRef<Promise<void> | null>(null);
   const pollStartedAt = useRef<number | null>(null);
   // Mirrors `lanes` for the async reconcile loop below, which must read
   // current server state, not the closure it started with.
@@ -343,6 +351,10 @@ export function StudioClient({
   const pollOnce = useCallback(async () => {
     if (polling.current) return;
     polling.current = true;
+    let settle!: () => void;
+    pollInFlight.current = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
     // When THIS fetch went out. A poll can straddle the job-row write, and a
     // snapshot taken before it can't testify that the job is gone.
     const snapshotStartedAtMs = Date.now();
@@ -364,6 +376,7 @@ export function StudioClient({
     } finally {
       polling.current = false;
       setPollNonce((n) => n + 1);
+      settle();
     }
   }, []);
 
@@ -432,10 +445,10 @@ export function StudioClient({
 
   // On mount, the URL is the truth too. The first render took initialFocus
   // (the server rendered from the same URL, so hydration matches), but a
-  // remount from Next's router cache — Back into /studio after Order or
-  // Open on the stage — carries the page-load focus, not the entry's URL
-  // (see go()). Read after hydration, so the server markup is never
-  // contradicted during it.
+  // remount from Next's back/forward cache — Back into /studio after Order
+  // or Open on the stage — reuses the props of the render it cached, which
+  // can name another stage or none. Read after hydration, so the server
+  // markup is never contradicted during it.
   useEffect(() => {
     const fromUrl = parseFocus(new URLSearchParams(window.location.search));
     focusRef.current = fromUrl;
@@ -462,19 +475,39 @@ export function StudioClient({
 
   // A focus that names nothing on the bench (closed elsewhere, archived by
   // the sweep, a stale link) falls back to the bench and drops the params,
-  // so a reload does not try again.
+  // so a reload does not try again. Not on the lanes in hand alone: a
+  // remount from Next's back/forward cache brings the page-load lanes, which
+  // can predate the focused image. So first one poll for that focus (or the
+  // one already running), and drop the params only if the fresh lanes still
+  // don't have it. The bench shows meanwhile.
+  const focusKey = focus ? `${focus.designId}\n${focus.imageId}` : null;
+  const [focusPolledKey, setFocusPolledKey] = useState<string | null>(null);
+  const focusPollStarted = useRef<string | null>(null);
   useEffect(() => {
-    if (focus && !stage) go(null, "replace");
-    // go is a plain function rebuilt every render; focus and whether it
-    // resolves are the real dependencies.
+    if (!focusKey || stage) return;
+    if (focusPolledKey === focusKey) {
+      go(null, "replace");
+      return;
+    }
+    if (focusPollStarted.current === focusKey) return;
+    focusPollStarted.current = focusKey;
+    const fresh = polling.current ? pollInFlight.current : pollOnce();
+    void Promise.resolve(fresh).then(() => {
+      if (mountedRef.current) setFocusPolledKey(focusKey);
+    });
+    // go is a plain function rebuilt every render; the focus, whether it
+    // resolves, and whether its poll is back are the real dependencies.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focus, stage === null]);
+  }, [focusKey, stage === null, focusPolledKey]);
 
   // Follow a landed result: when the focused lane gains a cell this stage
-  // has not shown, show it (the user asked for the change; seeing it is the
-  // point). replaceState, not push: Back should leave the stage, not step
-  // through every result that landed. Entering a lane only records what is
-  // already there, so opening the stage on an older result stays put.
+  // has not shown while the stage still shows the image the latest edit was
+  // anchored to (followFrom), show it (the user asked for the change; seeing
+  // it is the point). Picked another result meanwhile, or a landing nobody
+  // here asked for (another tab): stay put. replaceState, not push: Back
+  // should leave the stage, not step through every result that landed.
+  // Entering a lane only records what is already there, so opening the
+  // stage on an older result stays put.
   const stageCellIds = stage?.lane.cells.map((c) => c.imageId).join(",");
   useEffect(() => {
     if (!stage) {
@@ -486,7 +519,16 @@ export function StudioClient({
     seenCells.current = { designId: stage.lane.designId, ids };
     if (seen?.designId !== stage.lane.designId) return;
     const fresh = newestUnseenCell(stage.lane, seen.ids);
-    if (fresh) go({ designId: stage.lane.designId, imageId: fresh.imageId }, "replace");
+    const from = followFrom.current;
+    const shown = stage.lane.cells[stage.index];
+    if (
+      fresh &&
+      from?.designId === stage.lane.designId &&
+      from.imageId === shown.imageId
+    ) {
+      followFrom.current = null;
+      go({ designId: stage.lane.designId, imageId: fresh.imageId }, "replace");
+    }
     // The lane's cell ids are the real dependency (the lane object is
     // rebuilt by every poll and every render's overlay).
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -639,18 +681,16 @@ export function StudioClient({
   }
 
   // Moves between the bench and the stage (#188 slice 4) by writing the URL
-  // directly. Next's own history state is passed through unchanged, so its
-  // router still recognises the entry on Back and does not reload the page.
-  // Known limit (the same as the buy panel's replaceState): because that
-  // state already carries Next's marker, Next's patched history methods
-  // return early and its canonical URL is never told about the move. So a
-  // remount from Next's cache (Back from a Next navigation out of the stage)
-  // starts from the page-load initialFocus; the mount effect above re-reads
-  // the URL for that reason.
+  // directly, with Next's documented native-history pattern: state `null`.
+  // Next's patched pushState/replaceState then copies its own entry state in
+  // and updates the router's canonical URL, so a later server action that
+  // revalidates (or a refresh) stays on this entry instead of navigating back
+  // to the page-load URL. Passing the existing state instead would skip that
+  // (Next returns early when its marker is already there).
   function go(next: StudioFocus | null, mode: "push" | "replace") {
     const url = next ? focusHref(next) : BENCH_HREF;
-    const fn = mode === "push" ? window.history.pushState : window.history.replaceState;
-    fn.call(window.history, window.history.state, "", url);
+    if (mode === "push") window.history.pushState(null, "", url);
+    else window.history.replaceState(null, "", url);
     focusRef.current = next;
     setFocus(next);
     setAnchorCleared(false);
@@ -928,8 +968,15 @@ export function StudioClient({
     ]);
     // An unanchored submit from the stage starts a new conversation, which
     // lives on the bench: go there now, where the reveal nudge finds the new
-    // lane and its pending cell (the stage has no place to show either).
+    // lane and its pending cell (the stage has no place to show either). An
+    // anchored one records the image it edits, for the follow effect.
     if (fromStage && !submitAnchor) go(null, "push");
+    if (fromStage && submitAnchor) {
+      followFrom.current = {
+        designId: submitAnchor.designId,
+        imageId: submitAnchor.imageId,
+      };
+    }
     try {
       const result = await generateDesign(targetDesignId, trimmed, {
         ...(submitAnchor ? { anchorImageId: submitAnchor.imageId } : {}),
@@ -1084,8 +1131,13 @@ export function StudioClient({
   return (
     <>
       {confirmSheet}
+      {/* The stage is wider than the bench: board G's 600px image plus a
+          roomy right column does not fit max-w-4xl (its right column would be
+          200px at lg). The layout's heading follows via data-studio-stage
+          (src/app/studio/layout.tsx). */}
       <main
-        className={`flex-1 px-4 sm:px-6 max-w-4xl mx-auto w-full ${
+        data-studio-stage={stage ? "" : undefined}
+        className={`flex-1 px-4 sm:px-6 ${stage ? "max-w-6xl" : "max-w-4xl"} mx-auto w-full ${
           selectMode ? "pt-6 pb-40" : "pb-8"
         }`}
       >
