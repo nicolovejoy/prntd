@@ -97,37 +97,6 @@ describe("/designs", () => {
     expect(wrapper!.parentElement).toBe(heading.parentElement);
   });
 
-  it("leaves hidden images out of the export parts and their count (#288)", async () => {
-    const day = (n: number) => new Date(Date.UTC(2026, 0, 1, 20) + n * 86_400_000);
-    // Newest first: 52 visible images plus 3 hidden ones mixed in.
-    vi.mocked(getUserImageLibrary).mockResolvedValue(
-      Array.from({ length: 55 }, (_, i) => ({
-        imageId: `i${55 - i}`,
-        createdAt: day(54 - i),
-        isHidden: (55 - i) % 14 === 0,
-      })) as never
-    );
-    render(await DesignsPage());
-    fireEvent.click(screen.getByRole("button", { name: "Download all my designs" }));
-    expect(
-      screen.getByText("52 designs in 2 files of up to 50, oldest first.")
-    ).toBeInTheDocument();
-    const links = screen.getAllByRole("link", { name: /^Part / });
-    expect(links[0]).toHaveTextContent("Part 1 of 2 · 50 designs");
-    expect(links[1]).toHaveTextContent("Part 2 of 2 · 2 designs");
-  });
-
-  it("has no download link when every image is hidden (#288)", async () => {
-    vi.mocked(getUserImageLibrary).mockResolvedValue([
-      { imageId: "i1", createdAt: new Date("2026-09-20T12:00:00Z"), isHidden: true },
-    ] as never);
-    render(await DesignsPage());
-    expect(
-      screen.queryByRole("link", { name: "Download all my designs" })
-    ).not.toBeInTheDocument();
-    expect(screen.getByTestId("library-grid-stub")).toBeInTheDocument();
-  });
-
   it("has no download link in the empty state", async () => {
     render(await DesignsPage());
     expect(

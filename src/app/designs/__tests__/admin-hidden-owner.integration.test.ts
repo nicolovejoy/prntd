@@ -310,7 +310,7 @@ describe("the image detail page data for a hidden image (#288)", () => {
 });
 
 describe("My Designs data for a hidden image (#288)", () => {
-  it("marks the hidden image and only that one", async () => {
+  it("leaves the hidden image out and keeps the owner's other images", async () => {
     const db = h.db as Db;
     const { imageId, designId } = await publishHidden(db);
     const otherId = await makeSourceImage(db, {
@@ -319,18 +319,17 @@ describe("My Designs data for a hidden image (#288)", () => {
       imageUrl: "https://img.example/b.png",
     });
     const library = await getUserImageLibrary("owner");
-    const byId = new Map(library.map((i) => [i.imageId, i]));
-    expect(byId.get(imageId)?.isHidden).toBe(true);
-    expect(byId.get(otherId)?.isHidden).toBe(false);
+    expect(library.map((i) => i.imageId)).toEqual([otherId]);
+    expect(library.map((i) => i.imageId)).not.toContain(imageId);
   });
 
-  it("an unhide clears the flag", async () => {
+  it("an unhide brings the image back", async () => {
     const db = h.db as Db;
     const { imageId } = await publishHidden(db);
     h.session = ADMIN;
     await setImageHidden(imageId, false);
     const library = await getUserImageLibrary("owner");
-    expect(library.find((i) => i.imageId === imageId)?.isHidden).toBe(false);
+    expect(library.map((i) => i.imageId)).toContain(imageId);
   });
 });
 
