@@ -70,8 +70,8 @@ export type ExportRow = {
 
 /**
  * Every image the user owns that an admin has not hidden, oldest first. The
- * same rows as `getUserImageLibrary` (My Designs) without its `isHidden`
- * ones, in exactly its order reversed, so the page can compute the parts from
+ * same rows as `getUserImageLibrary` (My Designs), which applies the same
+ * hidden filter, in exactly its order reversed, so the page can compute the parts from
  * the library it already loaded.
  */
 export async function loadExportRows(

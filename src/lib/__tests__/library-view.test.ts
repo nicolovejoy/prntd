@@ -118,7 +118,6 @@ describe("filterLibraryImages", () => {
       backgroundColor: null,
       sourceDesignId: "design-1",
       isArchived: false,
-      isHidden: false,
       ...overrides,
     };
   }

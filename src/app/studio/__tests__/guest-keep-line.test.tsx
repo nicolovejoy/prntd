@@ -60,7 +60,6 @@ const ONE_IMAGE: LibraryImage = {
   backgroundColor: null,
   sourceDesignId: "design-1",
   isArchived: false,
-  isHidden: false,
 };
 
 function asGuest() {

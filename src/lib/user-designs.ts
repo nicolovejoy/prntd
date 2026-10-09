@@ -5,7 +5,7 @@ import {
   imagePublication as imagePublicationTable,
   product as productTable,
 } from "@/lib/db/schema";
-import { eq, desc, and, inArray, sql } from "drizzle-orm";
+import { eq, desc, and, or, isNull, inArray, sql } from "drizzle-orm";
 import {
   isPublishedShopMirror,
   mirrorFrontImageId,
@@ -19,11 +19,6 @@ export type LibraryImage = {
   createdAt: Date;
   /** A publication row exists — the image is on the storefront. */
   isPublished: boolean;
-  /**
-   * An admin hid the image (`image_publication.is_hidden`). The grid shows a
-   * placeholder tile in its place, and the zip export leaves it out (#288).
-   */
-  isHidden: boolean;
   /** Pinned storefront backdrop, null for unpublished work (#73). */
   backgroundColor: string | null;
   /** The conversation that produced it; null for legacy rows. */
@@ -66,7 +61,6 @@ export async function getUserImageLibrary(
         // `image_publication` (docs/composition-first-class-plan.md §1) — a
         // row exists iff the image is published.
         publishedAt: imagePublicationTable.publishedAt,
-        isHidden: imagePublicationTable.isHidden,
         sourceDesignId: imageTable.sourceDesignId,
         sourceClosedAt: designTable.closedAt,
         sourceStatus: designTable.status,
@@ -74,13 +68,24 @@ export async function getUserImageLibrary(
       .from(imageTable)
       .leftJoin(imagePublicationTable, eq(imagePublicationTable.imageId, imageTable.id))
       .leftJoin(designTable, eq(designTable.id, imageTable.sourceDesignId))
-      // Ownership is the only filter. The library is the whole record of what
-      // the user has made, so a conversation being archived — off the bench
+      // Ownership, minus images an admin has hidden (#288), is the only
+      // filter. A hidden image has no tile (a placeholder the owner can't
+      // identify is pointless); no publication row (null) means never
+      // published or unpublished, so not hidden. The library is otherwise the
+      // whole record of what the user has made, so a conversation being archived — off the bench
       // (closed_at) or away (status, which is what deleteDesign leaves behind
       // for an ordered design) — marks its images, it does not hide them.
       // Hiding an ordered design's artwork would take the reorder route with
       // it, since the image detail page is how a design reaches checkout.
-      .where(eq(imageTable.ownerId, userId))
+      .where(
+        and(
+          eq(imageTable.ownerId, userId),
+          or(
+            isNull(imagePublicationTable.isHidden),
+            eq(imagePublicationTable.isHidden, false)
+          )
+        )
+      )
       // created_at is seconds-resolution, so same-second inserts need the
       // rowid tiebreak to order deterministically (getDesignSourceImages
       // convention, reversed — the library is newest first).
@@ -98,8 +103,6 @@ export async function getUserImageLibrary(
     imageUrl: row.imageUrl,
     createdAt: row.createdAt,
     isPublished: row.publishedAt !== null,
-    // No publication row (null) means never published, so not hidden.
-    isHidden: row.isHidden ?? false,
     backgroundColor: backdrops.get(row.imageId) ?? null,
     sourceDesignId: row.sourceDesignId,
     isArchived: row.sourceClosedAt !== null || row.sourceStatus === "archived",

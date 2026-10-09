@@ -37,7 +37,6 @@ function img(overrides: Partial<LibraryImage> = {}): LibraryImage {
     backgroundColor: null,
     sourceDesignId: "design-1",
     isArchived: false,
-    isHidden: false,
     ...overrides,
   };
 }
@@ -318,69 +317,5 @@ describe("All/Active filter", () => {
     // Selection should be reconciled; count should drop to "1 selected".
     expect(screen.getByTestId("library-selected-count").textContent).toBe("1 selected");
     expect(tiles()).toHaveLength(1);
-  });
-});
-
-describe("an admin-hidden image in My Designs (#288)", () => {
-  const withHidden = () => [
-    img({ imageId: "i1" }),
-    img({ imageId: "h1", isHidden: true, isPublished: true }),
-    img({ imageId: "i3" }),
-  ];
-
-  it("shows a HIDDEN placeholder with no artwork that opens the image detail page", () => {
-    render(<LibraryGrid images={withHidden()} />);
-    const tile = screen.getByTestId("library-tile-hidden");
-    expect(tile).toHaveTextContent("HIDDEN");
-    expect(within(tile).queryByRole("img")).toBeNull();
-    expect(tile.closest("a")?.getAttribute("href")).toBe("/d/h1?from=/designs");
-    // Two normal tiles with artwork, one placeholder.
-    expect(tiles()).toHaveLength(2);
-    expect(screen.getAllByRole("img")).toHaveLength(2);
-    // The Published marker belongs to a visible published image.
-    expect(screen.queryByText("Published")).toBeNull();
-  });
-
-  it("is not selectable: no toggle, not part of Select all, never sent to delete", async () => {
-    render(<LibraryGrid images={withHidden()} />);
-    fireEvent.click(screen.getByTestId("library-select"));
-
-    const tile = screen.getByTestId("library-tile-hidden");
-    expect(tile.closest("button")).toBeNull();
-    expect(tile.closest("a")).toBeNull();
-    fireEvent.click(tile);
-    expect(screen.queryAllByTestId("library-tile-checked")).toHaveLength(0);
-
-    fireEvent.click(screen.getByTestId("library-select-all"));
-    expect(screen.getAllByTestId("library-tile-checked")).toHaveLength(2);
-    expect(screen.getByTestId("library-selected-count")).toHaveTextContent("2 selected");
-    expect(
-      (screen.getByTestId("library-select-all") as HTMLButtonElement).disabled
-    ).toBe(true);
-
-    fireEvent.click(screen.getByTestId("library-delete"));
-    fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
-    await waitFor(() => expect(deleteImages).toHaveBeenCalledTimes(1));
-    expect(vi.mocked(deleteImages).mock.calls[0][0].sort()).toEqual(["i1", "i3"]);
-    // The placeholder stays.
-    expect(screen.getByTestId("library-tile-hidden")).toBeInTheDocument();
-  });
-
-  it("keeps the HIDDEN label at full contrast in select mode: no opacity, no aria-disabled", () => {
-    render(<LibraryGrid images={withHidden()} />);
-    fireEvent.click(screen.getByTestId("library-select"));
-    const tile = screen.getByTestId("library-tile-hidden");
-    expect(tile.className).not.toMatch(/opacity/);
-    expect(tile.className).toContain("border-dotted");
-    expect(tile.closest("[aria-disabled]")).toBeNull();
-    expect(tile).toHaveTextContent("HIDDEN");
-  });
-
-  it("a grid of only hidden images has nothing to select all of", () => {
-    render(<LibraryGrid images={[img({ imageId: "h1", isHidden: true })]} />);
-    fireEvent.click(screen.getByTestId("library-select"));
-    expect(
-      (screen.getByTestId("library-select-all") as HTMLButtonElement).disabled
-    ).toBe(true);
   });
 });
