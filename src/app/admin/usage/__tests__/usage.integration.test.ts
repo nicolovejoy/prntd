@@ -86,6 +86,8 @@ async function img(opts: {
   operation?: "generate" | "edit" | "upload";
   role?: "output" | "seed";
   published?: "visible" | "hidden";
+  /** Seeds a mirror product with this pinned backdrop (published only). */
+  backdrop?: string;
 }) {
   await db()
     .insert(schema.image)
@@ -110,6 +112,18 @@ async function img(opts: {
         publishedAt: t(opts.at),
         isHidden: opts.published === "hidden",
       });
+    if (opts.backdrop) {
+      await db()
+        .insert(schema.product)
+        .values({
+          ownerId: opts.ownerId,
+          blankId: "bella-canvas-3001",
+          placements: { front: opts.id },
+          backdropColor: opts.backdrop,
+          status: "listed",
+          listedAt: t(opts.at),
+        });
+    }
   }
 }
 
@@ -154,7 +168,7 @@ async function seed() {
   ]);
 
   // Account images: one published, one published then hidden, one visible, one private.
-  await img({ id: "img-pub-1", ownerId: ACCOUNT, designId: d1.id, at: "2026-10-08T10:00:00Z", prompt: "a red fox", published: "visible" });
+  await img({ id: "img-pub-1", ownerId: ACCOUNT, designId: d1.id, at: "2026-10-08T10:00:00Z", prompt: "a red fox", published: "visible", backdrop: "Navy" });
   await img({ id: "img-hidden", ownerId: ACCOUNT, designId: d1.id, at: "2026-10-05T10:00:00Z", prompt: "an edit", operation: "edit", published: "hidden" });
   await img({ id: "img-pub-2", ownerId: ACCOUNT, designId: d2.id, at: "2026-10-02T08:00:00Z", prompt: "p".repeat(200), published: "visible" });
   await img({ id: "img-private", ownerId: ACCOUNT, designId: d2.id, at: "2026-09-01T10:00:00Z", prompt: "old private" });
@@ -326,9 +340,11 @@ describe("getUsageUser", () => {
       imageUrl: "https://pub.r2.dev/images/img-pub-1.png",
       createdAt: t("2026-10-08T10:00:00Z"),
     });
+    expect(pub1.backdropColor).toBe("Navy");
     expect(hidden).toMatchObject({ status: "hidden", operation: "edit", conversationId: d1, seedIn: [] });
+    expect(hidden.backdropColor).toBeNull();
     expect(pub2.prompt).toHaveLength(200);
-    expect(priv).toMatchObject({ status: "private", conversationId: d2 });
+    expect(priv).toMatchObject({ status: "private", conversationId: d2, backdropColor: null });
   });
 
   it("clamps a bad limit inside the actions", async () => {

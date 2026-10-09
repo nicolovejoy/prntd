@@ -12,6 +12,7 @@ import { Button, Input } from "@/components/ui";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
 import { formatDisplayDate } from "@/lib/display-time-zone";
+import { publishedBackdrop } from "@/lib/blanks";
 
 export const dynamic = "force-dynamic";
 
@@ -62,10 +63,13 @@ export default async function AdminPublishedPage() {
               {/* Paper: containers on /admin carry a hairline and no radius
                   (see the summary rows and orders table on /admin). The image
                   well only needs its bottom edge — a full border here doubled
-                  the card's own hairline on three sides. */}
+                  the card's own hairline on three sides. The artwork sits on
+                  its pinned storefront backdrop, as in the Shop and My
+                  Designs: a light design on the paper well reads as blank. */}
               <Link
                 href={`/d/${img.imageId}`}
-                className="relative block aspect-square bg-surface-well border-b border-border"
+                className={`relative block aspect-square border-b border-border ${publishedBackdrop(img.backdropColor).className}`}
+                style={publishedBackdrop(img.backdropColor).style}
               >
                 <Image
                   src={img.imageUrl}

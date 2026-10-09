@@ -339,6 +339,8 @@ export type AdminPublishedImage = {
   publishedAt: Date;
   isHidden: boolean;
   feedRank: number | null;
+  /** Pinned storefront backdrop (colour name); null reads as the default. */
+  backdropColor: string | null;
 };
 
 export async function getRecentPublishedForAdmin(
@@ -363,6 +365,7 @@ export async function getRecentPublishedForAdmin(
       publishedAt: imagePublicationTable.publishedAt,
       isHidden: imagePublicationTable.isHidden,
       feedRank: productTable.feedRank,
+      backdropColor: productTable.backdropColor,
       designerName: userTable.name,
       designerEmail: userTable.email,
     })
@@ -386,6 +389,7 @@ export async function getRecentPublishedForAdmin(
     publishedAt: r.publishedAt,
     isHidden: r.isHidden,
     feedRank: r.feedRank,
+    backdropColor: r.backdropColor ?? null,
   }));
 }
 
