@@ -339,6 +339,8 @@ export type AdminPublishedImage = {
   publishedAt: Date;
   isHidden: boolean;
   feedRank: number | null;
+  /** Pinned storefront backdrop (colour name); null reads as the default. */
+  backdropColor: string | null;
 };
 
 export async function getRecentPublishedForAdmin(
@@ -354,7 +356,8 @@ export async function getRecentPublishedForAdmin(
   // Published and hidden are read from `image_publication` (the one
   // visibility reader, #289 item 4): an image is in the grid iff its
   // publication row exists, hidden ones included so the admin can unhide them.
-  // Title and feed rank are sellable fields and come off the mirror product.
+  // Title, feed rank and backdrop are sellable fields and come off the
+  // mirror product.
   const rows = await db
     .select({
       imageId: imageTable.id,
@@ -363,6 +366,7 @@ export async function getRecentPublishedForAdmin(
       publishedAt: imagePublicationTable.publishedAt,
       isHidden: imagePublicationTable.isHidden,
       feedRank: productTable.feedRank,
+      backdropColor: productTable.backdropColor,
       designerName: userTable.name,
       designerEmail: userTable.email,
     })
@@ -386,6 +390,7 @@ export async function getRecentPublishedForAdmin(
     publishedAt: r.publishedAt,
     isHidden: r.isHidden,
     feedRank: r.feedRank,
+    backdropColor: r.backdropColor ?? null,
   }));
 }
 
