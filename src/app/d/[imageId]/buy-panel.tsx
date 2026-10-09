@@ -11,7 +11,7 @@ import {
 import Link from "next/link";
 import { Button, InlineNotice } from "@/components/ui";
 import { SizePicker, ColorPicker } from "@/components/product-options";
-import { ACTIVE_BLANKS, getBlank } from "@/lib/blanks";
+import { ACTIVE_BLANKS, getBlank, getColorHex } from "@/lib/blanks";
 import {
   computePrice,
   computeOrderTotal,
@@ -24,6 +24,11 @@ import {
 } from "@/lib/purchase-defaults";
 import { buyPageHref, withBuyPagePicks } from "@/lib/buy-page-picks";
 import type { BackSourceGroup } from "@/lib/back-sources";
+import {
+  defaultSortForShirt,
+  sortBySuitability,
+  type SortDirection,
+} from "@/lib/back-source-sort";
 import { ensureGuestSession } from "@/lib/ensure-guest-session";
 import { buyPagePlacements, type PlacementPick } from "@/lib/placement-pins";
 import { addToCart, updateCartItem } from "@/app/cart/actions";
@@ -247,6 +252,11 @@ export function BuyPanel({
     }
   }, [expanded]);
   const [backGroups, setBackGroups] = useState<BackSourceGroup[] | null>(null);
+  // Picker order (#139): follows the shirt colour until the buyer taps the
+  // control, which pins it for the rest of the panel's life. Not persisted.
+  const [pinnedSort, setPinnedSort] = useState<SortDirection | null>(null);
+  const sortDirection: SortDirection =
+    pinnedSort ?? defaultSortForShirt(getColorHex(productId, color));
   // Swap (#138 slice 3): the pick on the front, this page's image on the
   // back. Only meaningful with a pick; picking or removing one resets it.
   const [swapped, setSwapped] = useState(
@@ -760,7 +770,10 @@ export function BuyPanel({
           )}
 
           {backPickerOpen && (
-            <div className="mt-3 space-y-3 max-h-[50vh] overflow-y-auto border border-border rounded-md p-3">
+            <div
+              data-testid="back-picker"
+              className="mt-3 space-y-3 max-h-[50vh] overflow-y-auto border border-border rounded-md p-3"
+            >
               <div className="flex items-center justify-between">
                 <p className="text-sm text-text-muted">
                   Pick an image to print on the back.
@@ -772,6 +785,19 @@ export function BuyPanel({
                   Cancel
                 </button>
               </div>
+              <div className={`flex gap-4 ${MONO_LABEL}`} role="group" aria-label="Order">
+                {(["light-first", "dark-first"] as const).map((dir) => (
+                  <button
+                    key={dir}
+                    type="button"
+                    aria-pressed={sortDirection === dir}
+                    onClick={() => setPinnedSort(dir)}
+                    className={`min-h-11 ${sortDirection === dir ? "text-foreground underline" : "text-text-muted"}`}
+                  >
+                    {dir === "light-first" ? "Light first" : "Dark first"}
+                  </button>
+                ))}
+              </div>
               {backGroups === null ? (
                 <div className="w-8 h-8 mx-auto border-2 border-accent border-t-transparent rounded-full animate-spin" />
               ) : backGroups.length === 0 ? (
@@ -781,9 +807,10 @@ export function BuyPanel({
                   <div key={group.id}>
                     <h3 className={`${MONO_LABEL} mb-1.5`}>{group.label}</h3>
                     <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-                      {group.images.map((s) => (
+                      {sortBySuitability(group.images, sortDirection).map((s) => (
                         <button
                           key={s.id}
+                          data-image-id={s.id}
                           onClick={() => {
                             setBack({ id: s.id, imageUrl: s.imageUrl });
                             // A new pick always starts on the back: the
