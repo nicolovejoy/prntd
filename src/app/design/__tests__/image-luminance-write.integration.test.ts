@@ -1,7 +1,7 @@
 /**
- * The generation continuation records image.luminance (#139): the mean
- * luminance of the fetched PNG, or NULL (never a failed job) when the bytes
- * do not decode. Mock boilerplate mirrors explicit-anchor.integration.test.ts.
+ * The generation continuation and the upload action record image.luminance
+ * (#139): the mean luminance of the PNG, or NULL (never a failed job) when the
+ * bytes do not decode. Mock boilerplate mirrors explicit-anchor.integration.test.ts.
  */
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from "vitest";
 import { createTestDb } from "@/lib/__tests__/test-db";
@@ -80,7 +80,7 @@ vi.mock("@/lib/generators/registry", () => {
   };
 });
 
-const { generateDesign } = await import("@/app/design/actions");
+const { generateDesign, uploadReferenceImage } = await import("@/app/design/actions");
 const ai = await import("@/lib/ai");
 const registry = await import("@/lib/generators/registry");
 
@@ -175,5 +175,18 @@ describe("the continuation writes image.luminance (#139)", () => {
     expect(row.luminance).toBeNull();
     const [job] = await jobs(designId);
     expect(job.status).toBe("succeeded");
+  });
+});
+
+describe("the upload action writes image.luminance (#139)", () => {
+  it("stores the mean luminance of the uploaded PNG", async () => {
+    const designId = await seedDesign();
+    const base64 = Buffer.from(await whitePng()).toString("base64");
+
+    const { imageId } = await uploadReferenceImage(designId, base64, "white.png");
+
+    const [row] = await testDb.select().from(schema.image).where(eq(schema.image.id, imageId));
+    expect(row.operation).toBe("upload");
+    expect(row.luminance).toBeCloseTo(1, 3);
   });
 });
