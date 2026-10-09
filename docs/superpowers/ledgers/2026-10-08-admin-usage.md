@@ -1,0 +1,7 @@
+# SDD ledger — plan: docs/superpowers/plans/2026-10-08-admin-usage.md
+Base: 811445d. Single implementer (Sonnet) for all tasks; Opus whole-branch review after.
+Preflight: tasks share src/app/admin/usage/** only; helper from Task 1 consumed by Task 2 as written. Rulings in plan (fields picked by Claude; empty-guest exclusion; Pacific day; spend = finished job cost). Clean.
+Tasks 1-4: implementer DONE_WITH_CONCERNS, commits 811445d..d6d8050, PR #301. Ruling: paid orders and revenue exclude status canceled (a canceled order is refunded) — to go in the fix wave; cost if wrong: refunded orders drop out of a reporting number. Accepted: limit caps 1000/2000; last active counts any order; totals include unlisted guests (load is load); 10 grouped selects per list load, 13 per detail.
+Opus review: 0 Critical, 2 Important (I1 canceled orders counted as paid; I2 spend omits cancelled jobs which Ideogram bills), 8 Minor. Ruling: spend includes cancelled jobs (schema.ts and generation-job.ts say they are billed) — cost if wrong: spend reads slightly high. Fix round 1/5 dispatched: I1, I2, all minors.
+Tasks 1-4: fix round 1/5 (10 addressed per implementer; commit d6d8050..6a6e262).
+Tasks 1-4: complete (commits 811445d..6a6e262, re-review clean). Deferred minors: a succeeded job with cancelled_at counts as both a generation and failed-or-cancelled; card aria-label replaces stats text as accessible name; 10+3 grouped selects per load is fine at current size.
