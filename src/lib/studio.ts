@@ -44,9 +44,12 @@ export type StudioCell = {
    * The pinned Shop backdrop (`product.backdrop_color`) when the image is
    * published and not admin-hidden (`image_publication` is the one
    * visibility reader, #300); null otherwise. The focused stage paints a
-   * published result on it; unpublished artwork sits on the paper well.
+   * published result on it; unpublished artwork sits on a well that follows
+   * its luminance (#139).
    */
   backdropColor: string | null;
+  /** image.luminance (#139): picks the well under an unpublished cell. */
+  luminance: number | null;
 };
 
 /** One running generation in a lane, rendered with elapsed time. */
@@ -208,6 +211,7 @@ export async function getStudioLanesData(
         publishedAt: imagePublicationTable.publishedAt,
         isHidden: imagePublicationTable.isHidden,
         backdropColor: productTable.backdropColor,
+        luminance: imageTable.luminance,
       })
       .from(conversationImageTable)
       .innerJoin(imageTable, eq(imageTable.id, conversationImageTable.imageId))
@@ -280,6 +284,7 @@ export async function getStudioLanesData(
           row.publishedAt && !row.isHidden
             ? (row.backdropColor ?? DEFAULT_PUBLISH_BACKGROUND)
             : null,
+        luminance: row.luminance,
       },
       prompt: row.prompt,
     });

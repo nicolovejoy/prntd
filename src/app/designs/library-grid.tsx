@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { publishedBackdrop } from "@/lib/blanks";
+import { wellClass, wellForLuminance } from "@/lib/artwork-well";
 import { Button, EmptyState, useConfirm } from "@/components/ui";
 import {
   bulkImageDeleteConsequence,
@@ -278,10 +279,15 @@ function LibraryCell({
   onToggle: (imageId: string) => void;
 }) {
   // Published images sit on their chosen storefront backdrop (null → White,
-  // #73); unpublished work keeps the paper well working view.
+  // #73); unpublished work sits on the well, ink when the artwork is light
+  // enough to read as blank on paper (#139, wellForLuminance). The ink well
+  // is the same colour as border-accent, so on it the inner border, the hover
+  // border and the check badge invert to Paper. The selected ring is drawn
+  // outside the tile, on the Paper page, so it stays ink.
+  const onInk = !img.isPublished && wellForLuminance(img.luminance) === "dark";
   const backdrop = img.isPublished
     ? publishedBackdrop(img.backgroundColor)
-    : { className: "bg-checkerboard", style: undefined };
+    : { className: wellClass(img.luminance), style: undefined };
   const marker = img.isPublished ? "Published" : null;
 
   const tile = (
@@ -290,8 +296,12 @@ function LibraryCell({
         data-testid="library-tile"
         className={`relative aspect-square rounded-md overflow-hidden border transition-colors ${
           selected
-            ? "border-accent ring-2 ring-accent"
-            : "border-border group-hover:border-accent"
+            ? onInk
+              ? "border-background ring-2 ring-accent"
+              : "border-accent ring-2 ring-accent"
+            : onInk
+              ? "border-border group-hover:border-background"
+              : "border-border group-hover:border-accent"
         } ${backdrop.className}`}
         style={backdrop.style}
       >
@@ -308,7 +318,9 @@ function LibraryCell({
           <span
             aria-hidden
             data-testid="library-tile-checked"
-            className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-accent text-xs text-accent-fg"
+            className={`absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full text-xs ${
+              onInk ? "bg-background text-foreground" : "bg-accent text-accent-fg"
+            }`}
           >
             ✓
           </span>

@@ -354,6 +354,11 @@ export const image = sqliteTable("image", {
   designSpecJson: text("design_spec_json", { mode: "json" }).$type<DesignSpec>(),
   generator: text("generator"),
   generationCost: real("generation_cost").notNull().default(0),
+  // Mean WCAG relative luminance of the opaque pixels, 0 (black) to 1
+  // (white); the light/dark signal for the back-source picker's sort and
+  // the dark well under unpublished artwork (#139). NULL = not computed:
+  // rows older than the backfill, a decode failure, or no opaque pixel.
+  luminance: real("luminance"),
   // Within-thread iteration chain (was design_image.parentImageId).
   parentImageId: text("parent_image_id"),
   // Cross-conversation lineage (was design.forkedFromImageId, dropped slice

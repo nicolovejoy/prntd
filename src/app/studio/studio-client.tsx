@@ -40,6 +40,7 @@ import {
   type LostSubmitLookup,
 } from "@/lib/lost-submit";
 import { withTimeout } from "@/lib/timeout";
+import { wellClass, wellForLuminance } from "@/lib/artwork-well";
 import {
   applyOptimistic,
   bulkDeleteConsequence,
@@ -167,6 +168,8 @@ type Anchor = {
   imageId: string;
   imageUrl: string;
   title: string | null;
+  /** The well under the chip thumbnail: the cell's luminance, null when published. */
+  luminance: number | null;
 };
 
 /** Clean Label: names the state, says what to do, stops. */
@@ -326,6 +329,11 @@ export function StudioClient({
           imageId: stage.lane.cells[stage.index].imageId,
           imageUrl: stage.lane.cells[stage.index].imageUrl,
           title: stage.lane.title,
+          // A published cell sits on paper (its backdrop is pinned, #139).
+          luminance:
+            stage.lane.cells[stage.index].backdropColor === null
+              ? stage.lane.cells[stage.index].luminance
+              : null,
         }
       : stage
         ? null
@@ -1373,7 +1381,7 @@ function Composer({
             className="flex items-center gap-2 min-w-0"
             data-testid="anchor-chip"
           >
-            <div className="relative w-8 h-8 overflow-hidden bg-surface-well shrink-0 border border-border">
+            <div className={`relative w-8 h-8 overflow-hidden ${wellClass(anchor.luminance)} shrink-0 border border-border`}>
               <Image
                 src={anchor.imageUrl}
                 alt=""
@@ -1777,6 +1785,11 @@ function Lane({
           // #1 is the lane's first image, and a later generation never
           // renumbers an earlier one.
           const label = `#${index + 1}`;
+          // The ink well is the same colour as border-foreground and the
+          // muted label colour, so on it the anchored cue and the #N / Primary
+          // labels invert to Paper. Published cells stay on paper, as in the
+          // focused stage's strip.
+          const onInk = cell.backdropColor === null && wellForLuminance(cell.luminance) === "dark";
           return (
             <div
               key={cell.imageId}
@@ -1803,8 +1816,14 @@ function Lane({
                   }
                   onOpenCell(lane, index);
                 }}
-                className={`absolute inset-0 overflow-hidden bg-surface ${
-                  anchored ? "border-2 border-foreground" : "border border-foreground"
+                className={`absolute inset-0 overflow-hidden ${
+                  onInk ? "bg-surface-well-dark" : "bg-surface"
+                } ${
+                  anchored
+                    ? onInk
+                      ? "border-2 border-background"
+                      : "border-2 border-foreground"
+                    : "border border-foreground"
                 }`}
               >
                 <span className="absolute inset-1.5">
@@ -1816,7 +1835,7 @@ function Lane({
                     className="object-contain"
                   />
                 </span>
-                <span className="absolute top-1 left-1.5 font-mono text-[11px] leading-4 text-text-muted">
+                <span className={`absolute top-1 left-1.5 font-mono text-[11px] leading-4 ${onInk ? "text-background" : "text-text-muted"}`}>
                   {label}
                 </span>
                 {/* Anchored (2px ink border) and primary (this mono label) are
@@ -1826,7 +1845,7 @@ function Lane({
                     something else is being edited. Same offsets as the #N
                     label, mirrored to the bottom. */}
                 {cell.isPrimary && (
-                  <span className="absolute bottom-1 left-1.5 font-mono text-[11px] leading-4 uppercase tracking-[0.08em] text-text-muted">
+                  <span className={`absolute bottom-1 left-1.5 font-mono text-[11px] leading-4 uppercase tracking-[0.08em] ${onInk ? "text-background" : "text-text-muted"}`}>
                     Primary
                   </span>
                 )}

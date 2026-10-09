@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createRef } from "react";
 import { render, screen, fireEvent, act, within } from "@testing-library/react";
 import { getBlankOrThrow } from "@/lib/blanks";
+import type { BackSourceGroup } from "@/lib/back-sources";
 import { BuyPanel, type BuyPanelHandle } from "../buy-panel";
 import {
   BuyPanelPicksProvider,
@@ -15,7 +16,7 @@ vi.mock("../../actions", () => ({
       {
         id: "my-designs",
         label: "My designs",
-        images: [{ id: "back-1", imageUrl: "https://img.example/back-1.png" }],
+        images: [{ id: "back-1", imageUrl: "https://img.example/back-1.png", luminance: null }],
       },
     ],
   }),
@@ -654,7 +655,7 @@ describe("BuyPanel swap (#138 slice 3)", () => {
         {
           id: "shop",
           label: "Shop",
-          images: [{ id: "img-1", imageUrl: PAGE_URL }],
+          images: [{ id: "img-1", imageUrl: PAGE_URL, luminance: null }],
         },
       ],
     });
@@ -752,6 +753,106 @@ describe("BuyPanel picker order (#278 slice 1)", () => {
     expect(
       size.compareDocumentPosition(color) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
+  });
+});
+
+describe("BuyPanel back picker sort (#139)", () => {
+  const NONE = { expanded: true, productId: null, size: null, color: null, back: null, swapped: false };
+  const groups: BackSourceGroup[] = [
+    {
+      id: "my-designs",
+      label: "My designs",
+      images: [
+        { id: "mid", imageUrl: "https://r2/mid.png", luminance: 0.5 },
+        { id: "light", imageUrl: "https://r2/light.png", luminance: 0.9 },
+        { id: "dark", imageUrl: "https://r2/dark.png", luminance: 0.1 },
+        { id: "none", imageUrl: "https://r2/none.png", luminance: null },
+      ],
+    },
+  ];
+
+  /** Renders an expanded Classic Tee panel on `color`, opens the back picker
+   * and waits for the mocked groups. */
+  async function openPickerOn({ color }: { color: string }) {
+    const { getBuyPageBackSources } = await import("../../actions");
+    vi.mocked(getBuyPageBackSources).mockResolvedValueOnce({ groups });
+    const ref = createRef<BuyPanelHandle>();
+    render(
+      <BuyPanel
+        ref={ref}
+        imageId="img-1"
+        isLoggedIn
+        backEnabled
+        initialPicks={{ ...NONE, color }}
+      />
+    );
+    act(() => ref.current!.openBackPicker());
+    await screen.findAllByAltText("My designs option");
+  }
+
+  async function pickColor(name: string) {
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name }));
+    });
+  }
+
+  // Every image button carries the group's alt text as its name, so the
+  // order is read from data-image-id.
+  const pickerOrder = () =>
+    Array.from(
+      screen.getByTestId("back-picker").querySelectorAll("[data-image-id]")
+    ).map((b) => b.getAttribute("data-image-id"));
+
+  it("paints each tile on the well its luminance picks", async () => {
+    await openPickerOn({ color: "White" });
+    const tile = (id: string) => screen.getByTestId("back-picker").querySelector(`[data-image-id="${id}"]`)!;
+    expect(tile("light").className).toContain("bg-surface-well-dark");
+    expect(tile("dark").className).not.toContain("bg-surface-well-dark");
+    expect(tile("dark").className).toContain("bg-surface-well");
+    expect(tile("none").className).not.toContain("bg-surface-well-dark");
+  });
+
+  it("shows no sort control when there are no images to sort", async () => {
+    const { getBuyPageBackSources } = await import("../../actions");
+    vi.mocked(getBuyPageBackSources).mockResolvedValueOnce({ groups: [] });
+    const ref = createRef<BuyPanelHandle>();
+    render(<BuyPanel ref={ref} imageId="img-1" isLoggedIn backEnabled initialPicks={{ ...NONE, color: "White" }} />);
+    act(() => ref.current!.openBackPicker());
+    await screen.findByText("No images available.");
+    expect(screen.queryByRole("group", { name: "Sort" })).toBeNull();
+  });
+
+  it("defaults to Dark first on a white shirt and lists darkest first, unscored last", async () => {
+    await openPickerOn({ color: "White" });
+    expect(screen.getByRole("button", { name: "Dark first", pressed: true })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Light first", pressed: false })).toBeInTheDocument();
+    expect(pickerOrder()).toEqual(["dark", "mid", "light", "none"]);
+  });
+
+  it("defaults to Light first on a black shirt", async () => {
+    await openPickerOn({ color: "Black" });
+    expect(screen.getByRole("button", { name: "Light first", pressed: true })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Dark first", pressed: false })).toBeInTheDocument();
+    expect(pickerOrder()).toEqual(["light", "mid", "dark", "none"]);
+  });
+
+  it("the control flips the order and then ignores a colour change", async () => {
+    await openPickerOn({ color: "White" });
+    fireEvent.click(screen.getByRole("button", { name: "Light first" }));
+    expect(pickerOrder()).toEqual(["light", "mid", "dark", "none"]);
+    // Black would default to light first anyway; going back to White shows
+    // the pin holding against a default that would flip to dark first.
+    await pickColor("Black");
+    await pickColor("White");
+    expect(pickerOrder()).toEqual(["light", "mid", "dark", "none"]);
+    expect(screen.getByRole("button", { name: "Light first", pressed: true })).toBeInTheDocument();
+  });
+
+  it("an untouched control follows a colour change", async () => {
+    await openPickerOn({ color: "White" });
+    expect(pickerOrder()[0]).toBe("dark");
+    await pickColor("Black");
+    expect(pickerOrder()[0]).toBe("light");
   });
 });
 

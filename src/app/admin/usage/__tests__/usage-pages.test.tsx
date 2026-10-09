@@ -5,6 +5,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, within } from "@testing-library/react";
+import { eq } from "drizzle-orm";
 import * as schema from "@/lib/db/schema";
 import { createTestDb } from "@/lib/__tests__/test-db";
 
@@ -178,6 +179,20 @@ describe("/admin/usage/[userId]", () => {
     expect(details.querySelector("summary")!.textContent).toBe(`${LONG_PROMPT.slice(0, 140)}…`);
     expect(details.textContent).toContain("END-OF-PROMPT");
     expect(screen.getByText(/Showing 2 of 2 images/)).toBeInTheDocument();
+  });
+
+  it("paints a private image on the dark well when its artwork is light (#139)", async () => {
+    const tile = async () => {
+      const { unmount } = render(await AdminUsageUserPage(props(ACCOUNT)));
+      const link = screen.getAllByTestId("usage-image")[1].querySelector("a")!;
+      const className = link.className;
+      unmount();
+      return className;
+    };
+    expect(await tile()).toContain("bg-surface-well");
+    expect(await tile()).not.toContain("bg-surface-well-dark");
+    await db().update(schema.image).set({ luminance: 0.9 }).where(eq(schema.image.id, "img-priv"));
+    expect(await tile()).toContain("bg-surface-well-dark");
   });
 
   it("renders a card and no images for a guest with none", async () => {

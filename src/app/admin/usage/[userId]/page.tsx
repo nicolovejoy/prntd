@@ -15,6 +15,7 @@ import {
 } from "@/lib/admin-usage";
 import { formatDisplayDateTime } from "@/lib/display-time-zone";
 import { publishedBackdrop } from "@/lib/blanks";
+import { wellClass } from "@/lib/artwork-well";
 
 export const dynamic = "force-dynamic";
 
@@ -29,11 +30,11 @@ const LABEL =
 function ImageCell({ img }: { img: UsageImage }) {
   const { text, truncated } = truncatePrompt(img.prompt);
   // Published (and hidden) images sit on their pinned storefront backdrop,
-  // as in the Shop and My Designs; private work keeps the paper well. A
-  // light design on the well reads as blank.
+  // as in the Shop and My Designs; private work sits on the well, ink when
+  // the artwork is light (#139, wellForLuminance).
   const backdrop =
     img.status === "private"
-      ? { className: "bg-surface-well", style: undefined }
+      ? { className: wellClass(img.luminance), style: undefined }
       : publishedBackdrop(img.backdropColor);
   return (
     <div

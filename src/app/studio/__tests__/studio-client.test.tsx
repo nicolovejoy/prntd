@@ -82,6 +82,7 @@ function cell(id: string, overrides: Partial<StudioLane["cells"][number]> = {}) 
     isPrimary: false,
     createdAt: new Date(),
     backdropColor: null,
+    luminance: null,
     ...overrides,
   };
 }
@@ -204,6 +205,20 @@ describe("cells (Paper bench)", () => {
     expect(within(cells[1]).getByText("#2")).toBeTruthy();
   });
 
+  it("a light design sits on the dark well, a dark one on white (#139)", () => {
+    render(
+      <StudioClient
+        initialLanes={[
+          lane({ cells: [cell("light", { luminance: 0.9 }), cell("dark", { luminance: 0.1 })] }),
+        ]}
+      />
+    );
+    const [light, dark] = screen.getAllByTestId("studio-cell");
+    expect(light.className).toContain("bg-surface-well-dark");
+    expect(dark.className).toContain("bg-surface");
+    expect(dark.className).not.toContain("bg-surface-well-dark");
+  });
+
   it("marks the anchored cell with an ink border, not a ring", async () => {
     render(
       <StudioClient
@@ -216,6 +231,70 @@ describe("cells (Paper bench)", () => {
     const cell0 = screen.getAllByTestId("studio-cell")[0];
     expect(cell0.className).toContain("border-2");
     expect(cell0.className).not.toContain("ring-2");
+  });
+
+  it("an anchored cell on the dark well draws its border in Paper, on white in ink (#139)", async () => {
+    const { unmount } = render(
+      <StudioClient initialLanes={[lane({ cells: [cell("light", { luminance: 0.9 })] })]} />
+    );
+    await anchorOnBench(0);
+    const light = screen.getAllByTestId("studio-cell")[0];
+    expect(light.className).toContain("border-2");
+    expect(light.className).toContain("border-background");
+    expect(light.className).not.toContain("border-foreground");
+    unmount();
+
+    render(<StudioClient initialLanes={[lane({ cells: [cell("dark", { luminance: 0.1 })] })]} />);
+    await anchorOnBench(0);
+    const dark = screen.getAllByTestId("studio-cell")[0];
+    expect(dark.className).toContain("border-2");
+    expect(dark.className).toContain("border-foreground");
+    expect(dark.className).not.toContain("border-background");
+  });
+
+  it("the #N and Primary labels are Paper on the dark well, muted on white (#139)", () => {
+    render(
+      <StudioClient
+        initialLanes={[
+          lane({
+            cells: [
+              cell("light", { luminance: 0.9, isPrimary: true }),
+              cell("dark", { luminance: 0.1, isPrimary: true }),
+            ],
+          }),
+        ]}
+      />
+    );
+    const [light, dark] = screen.getAllByTestId("studio-cell");
+    for (const [el, on, off] of [
+      [light, "text-background", "text-text-muted"],
+      [dark, "text-text-muted", "text-background"],
+    ] as const) {
+      const n = within(el).getByText(/^#\d$/);
+      const p = within(el).getByText("Primary");
+      for (const span of [n, p]) {
+        expect(span.className).toContain(on);
+        expect(span.className).not.toContain(off);
+      }
+    }
+  });
+
+  it("a published light cell stays on white, like the stage strip (#139)", () => {
+    render(
+      <StudioClient
+        initialLanes={[lane({ cells: [cell("pub", { luminance: 0.9, backdropColor: "White" })] })]}
+      />
+    );
+    const c = screen.getAllByTestId("studio-cell")[0];
+    expect(c.className).toContain("bg-surface");
+    expect(c.className).not.toContain("bg-surface-well-dark");
+  });
+
+  it("the anchor chip thumbnail follows the cell's well (#139)", async () => {
+    render(<StudioClient initialLanes={[lane({ cells: [cell("light", { luminance: 0.9 })] })]} />);
+    openStage(0);
+    const thumb = screen.getByTestId("anchor-chip").firstElementChild!;
+    expect(thumb.className).toContain("bg-surface-well-dark");
   });
 
   it("keeps anchored and primary as separate, composable signals", async () => {

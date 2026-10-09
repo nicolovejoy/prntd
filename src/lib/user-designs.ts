@@ -29,6 +29,8 @@ export type LibraryImage = {
    * for an ordered design).
    */
   isArchived: boolean;
+  /** image.luminance (#139): picks the tile's well when unpublished. */
+  luminance: number | null;
 };
 
 /**
@@ -66,6 +68,7 @@ export async function getUserImageLibrary(
         sourceDesignId: imageTable.sourceDesignId,
         sourceClosedAt: designTable.closedAt,
         sourceStatus: designTable.status,
+        luminance: imageTable.luminance,
       })
       .from(imageTable)
       .leftJoin(imagePublicationTable, eq(imagePublicationTable.imageId, imageTable.id))
@@ -109,6 +112,7 @@ export async function getUserImageLibrary(
     backgroundColor: backdrops.get(row.imageId) ?? null,
     sourceDesignId: row.sourceDesignId,
     isArchived: row.sourceClosedAt !== null || row.sourceStatus === "archived",
+    luminance: row.luminance,
   }));
 }
 

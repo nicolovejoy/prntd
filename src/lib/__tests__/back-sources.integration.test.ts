@@ -104,6 +104,62 @@ describe("getBackSourceGroups / assertUsablePlacementImage (#72)", () => {
     return { d1: d1.id, s1, s2, d2: d2.id, p2, pub, hidden, priv };
   }
 
+  it("carries image.luminance on every group (#139)", async () => {
+    await makeUser(testDb, "nico");
+    await makeUser(testDb, "stranger");
+    const [d1] = await testDb
+      .insert(schema.design)
+      .values({ userId: "nico" })
+      .returning();
+    await makeSourceImage(testDb, {
+      designId: d1.id,
+      ownerId: "nico",
+      imageUrl: "https://img.example/this.png",
+      luminance: 0.9,
+    });
+    const [d2] = await testDb
+      .insert(schema.design)
+      .values({ userId: "nico" })
+      .returning();
+    const p2 = await makeSourceImage(testDb, {
+      designId: d2.id,
+      ownerId: "nico",
+      imageUrl: "https://img.example/mine.png",
+      luminance: 0.2,
+    });
+    await testDb
+      .update(schema.design)
+      .set({ primaryImageId: p2 })
+      .where(eq(schema.design.id, d2.id));
+    const [d3] = await testDb
+      .insert(schema.design)
+      .values({ userId: "stranger" })
+      .returning();
+    await makeSourceImage(testDb, {
+      designId: d3.id,
+      ownerId: "stranger",
+      imageUrl: "https://img.example/shop.png",
+      publishedAt: new Date(),
+      luminance: 0.5,
+    });
+
+    const groups = await getBackSourceGroups({
+      designId: d1.id,
+      userId: "nico",
+    });
+    const byGroup = Object.fromEntries(groups.map((g) => [g.id, g.images]));
+    expect(byGroup["this-design"][0].luminance).toBeCloseTo(0.9, 6);
+    expect(byGroup["my-designs"][0].luminance).toBeCloseTo(0.2, 6);
+    expect(byGroup["shop"][0].luminance).toBeCloseTo(0.5, 6);
+  });
+
+  it("passes null through for an unscored image (#139)", async () => {
+    await makeUser(testDb, "nico");
+    const { designId } = await makeDesignWithImage(testDb, "nico");
+    const groups = await getBackSourceGroups({ designId, userId: "nico" });
+    expect(groups[0].images[0].luminance).toBeNull();
+  });
+
   it("returns the three groups, scoped and filtered", async () => {
     const ids = await seed();
     const groups = await getBackSourceGroups({

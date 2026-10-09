@@ -36,6 +36,7 @@ function source(id: string, role: "output" | "seed" = "output"): SourceImage {
     createdAt: new Date(),
     publishedAt: null,
     role,
+    luminance: null,
   };
 }
 

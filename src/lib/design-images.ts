@@ -215,6 +215,9 @@ export async function insertDesignImage(params: {
    * (`images/{id}.png`) mint the id first and pass it here so the row and the
    * object key agree. Omitted → a fresh UUID. */
   id?: string;
+  /** Mean luminance of the opaque pixels (#139), computed by the caller that
+   * holds the bytes. Omitted → null. Placement renders ignore it. */
+  luminance?: number | null;
 }): Promise<string> {
   let parentImageId = params.parentImageId ?? null;
   if (parentImageId === null) {
@@ -278,6 +281,7 @@ export async function insertDesignImage(params: {
           parentImageId,
           seedImageId: seed?.seedImageId ?? null,
           originalDesignerId: seed?.originalDesignerId ?? null,
+          luminance: params.luminance ?? null,
         })
       ),
       db.insert(conversationImageTable).values(buildOutputLinkRow(params.designId, id)),
@@ -332,6 +336,8 @@ export type ImageRef = {
   id: string;
   imageUrl: string;
   aspectRatio: AspectRatio;
+  /** image.luminance (#139); null when unscored or for a placement_render row. */
+  luminance: number | null;
 };
 
 /**
@@ -355,6 +361,7 @@ export async function resolveImagesByIds(
       id: imageTable.id,
       imageUrl: imageTable.imageUrl,
       aspectRatio: imageTable.aspectRatio,
+      luminance: imageTable.luminance,
     })
     .from(imageTable)
     .where(inArray(imageTable.id, unique));
@@ -374,7 +381,11 @@ export async function resolveImagesByIds(
     .from(placementRenderTable)
     .where(inArray(placementRenderTable.id, missing));
   for (const r of renders) {
-    out.set(r.id, { ...r, aspectRatio: r.aspectRatio as AspectRatio });
+    out.set(r.id, {
+      ...r,
+      aspectRatio: r.aspectRatio as AspectRatio,
+      luminance: null,
+    });
   }
   return out;
 }
@@ -588,6 +599,8 @@ export type SourceImage = {
   parentImageId: string | null;
   /** See DesignImage.role — `seed` rows only appear with includeSeeds. */
   role: "output" | "seed";
+  /** image.luminance (#139); null when unscored. */
+  luminance: number | null;
 };
 
 /**
@@ -618,6 +631,7 @@ export async function getDesignSourceImages(
       createdAt: imageTable.createdAt,
       publishedAt: imagePublicationTable.publishedAt,
       role: conversationImageTable.role,
+      luminance: imageTable.luminance,
     })
     .from(conversationImageTable)
     .innerJoin(imageTable, eq(imageTable.id, conversationImageTable.imageId))
@@ -649,6 +663,7 @@ export async function getDesignSourceImages(
     createdAt: r.createdAt,
     publishedAt: r.publishedAt,
     role: r.role,
+    luminance: r.luminance,
   }));
 }
 

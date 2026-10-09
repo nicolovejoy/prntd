@@ -58,6 +58,29 @@ describe("getUserImageLibrary", () => {
     expect(images[0].isArchived).toBe(false);
   });
 
+  it("carries image.luminance, null when unscored (#139)", async () => {
+    const db = h.db as Db;
+    const design = await makeDesign(db, "owner");
+    const scored = await makeSourceImage(db, {
+      designId: design.id,
+      ownerId: "owner",
+      imageUrl: "https://r2/scored.png",
+      luminance: 0.7,
+      createdAt: new Date("2026-08-02T00:00:00Z"),
+    });
+    await makeSourceImage(db, {
+      designId: design.id,
+      ownerId: "owner",
+      imageUrl: "https://r2/unscored.png",
+      createdAt: new Date("2026-08-01T00:00:00Z"),
+    });
+
+    const images = await getUserImageLibrary("owner");
+    expect(images[0].imageId).toBe(scored);
+    expect(images[0].luminance).toBeCloseTo(0.7, 6);
+    expect(images[1].luminance).toBeNull();
+  });
+
   it("does not return other users' images", async () => {
     const db = h.db as Db;
     await makeUser(db, "someone-else");

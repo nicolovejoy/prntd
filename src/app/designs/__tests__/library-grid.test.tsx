@@ -37,6 +37,7 @@ function img(overrides: Partial<LibraryImage> = {}): LibraryImage {
     backgroundColor: null,
     sourceDesignId: "design-1",
     isArchived: false,
+    luminance: null,
     ...overrides,
   };
 }
@@ -53,6 +54,68 @@ function tiles() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+});
+
+describe("My Designs tile well (#139)", () => {
+  it("paints a light unpublished image on the dark well and a dark one on paper (#139)", () => {
+    render(
+      <LibraryGrid
+        images={[
+          img({ imageId: "light", luminance: 0.95 }),
+          img({ imageId: "dark", luminance: 0.05 }),
+          img({ imageId: "none", luminance: null }),
+        ]}
+      />,
+    );
+    const [light, dark, none] = tiles();
+    expect(light.className).toContain("bg-surface-well-dark");
+    expect(dark.className).toContain("bg-surface-well");
+    expect(dark.className).not.toContain("bg-surface-well-dark");
+    expect(none.className).toContain("bg-surface-well");
+    expect(none.className).not.toContain("bg-surface-well-dark");
+  });
+});
+
+describe("My Designs selection cue on the ink well (#139)", () => {
+  const mixed = () => [
+    img({ imageId: "light", luminance: 0.95 }),
+    img({ imageId: "dark", luminance: 0.05 }),
+  ];
+
+  it("a selected tile on the dark well draws its inner border in Paper and keeps the ink ring", () => {
+    render(<LibraryGrid images={mixed()} />);
+    fireEvent.click(screen.getByTestId("library-select"));
+    fireEvent.click(tiles()[0]);
+    const cls = tiles()[0].className;
+    expect(cls).toContain("border-background");
+    expect(cls).toContain("ring-accent");
+    expect(cls).not.toContain("ring-background");
+    expect(cls).not.toContain("border-accent");
+    const badge = screen.getByTestId("library-tile-checked");
+    expect(badge.className).toContain("bg-background");
+    expect(badge.className).not.toContain("bg-accent");
+  });
+
+  it("an unselected tile on the dark well hovers to Paper, not ink", () => {
+    render(<LibraryGrid images={mixed()} />);
+    const cls = tiles()[0].className;
+    expect(cls).toContain("group-hover:border-background");
+    expect(cls).not.toContain("group-hover:border-accent");
+  });
+
+  it("a selected tile on the paper well keeps the accent border and ring", () => {
+    render(<LibraryGrid images={mixed()} />);
+    fireEvent.click(screen.getByTestId("library-select"));
+    fireEvent.click(tiles()[1]);
+    const cls = tiles()[1].className;
+    expect(cls).toContain("border-accent");
+    expect(cls).toContain("ring-accent");
+    expect(cls).not.toContain("border-background");
+    expect(cls).not.toContain("ring-background");
+    const badge = screen.getByTestId("library-tile-checked");
+    expect(badge.className).toContain("bg-accent");
+    expect(badge.className).not.toContain("bg-background");
+  });
 });
 
 describe("My Designs select mode", () => {
