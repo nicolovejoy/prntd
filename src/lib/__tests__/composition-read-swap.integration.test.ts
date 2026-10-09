@@ -261,18 +261,19 @@ describe("getImagePage reads the mirror product for sellable fields", () => {
 });
 
 describe("admin published grid reads the mirror product and the publication row", () => {
-  it("lists published images with product title and rank, and the publication's hidden state", async () => {
+  it("lists published images with product title, rank and backdrop, and the publication's hidden state", async () => {
     const { imageId } = await seedImage();
     await publishImage(imageId, { title: "Tiger", backgroundColor: "Black" });
     await setImageFeedRank(imageId, 3);
     // Patch the composition directly so the row can only have come from it.
-    await patchMirror(imageId, { title: "Product Title", feedRank: 7 });
+    await patchMirror(imageId, { title: "Product Title", feedRank: 7, backdropColor: "Navy" });
 
     const rows = await getRecentPublishedForAdmin();
     expect(rows).toHaveLength(1);
     expect(rows[0].imageId).toBe(imageId);
     expect(rows[0].title).toBe("Product Title");
     expect(rows[0].feedRank).toBe(7);
+    expect(rows[0].backdropColor).toBe("Navy");
     expect(rows[0].isHidden).toBe(false);
     expect(rows[0].publishedAt).toBeInstanceOf(Date);
 

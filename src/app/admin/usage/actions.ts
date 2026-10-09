@@ -13,10 +13,12 @@ import {
   imageGeneration as imageGenerationTable,
   imagePublication as imagePublicationTable,
   order as orderTable,
+  product as productTable,
   session as sessionTable,
   user as userTable,
 } from "@/lib/db/schema";
 import { isAdminEmail } from "@/lib/admin";
+import { mirrorFrontImageId } from "@/lib/composition-reads";
 import {
   USAGE_IMAGES_LIMIT,
   USAGE_LIST_LIMIT,
@@ -40,6 +42,12 @@ export type UsageImage = {
   operation: "generate" | "edit" | "upload" | null;
   prompt: string | null;
   status: UsageImageStatus;
+  /**
+   * Pinned storefront backdrop (colour name) off the mirror product; null for
+   * private images, which have none, and for a published image whose mirror
+   * is missing (`publishedBackdrop` then paints the default).
+   */
+  backdropColor: string | null;
   /** The conversation that generated it (role=output link). */
   conversationId: string | null;
   /** Other conversations it was carried into as a seed. */
@@ -276,9 +284,11 @@ export async function getUsageUser(
         sourceDesignId: imageTable.sourceDesignId,
         publishedAt: imagePublicationTable.publishedAt,
         isHidden: imagePublicationTable.isHidden,
+        backdropColor: productTable.backdropColor,
       })
       .from(imageTable)
       .leftJoin(imagePublicationTable, eq(imagePublicationTable.imageId, imageTable.id))
+      .leftJoin(productTable, eq(mirrorFrontImageId, imageTable.id))
       .where(eq(imageTable.ownerId, userId))
       .orderBy(desc(imageTable.createdAt), desc(imageTable.id))
       .limit(bound),
@@ -305,6 +315,7 @@ export async function getUsageUser(
       operation: i.operation,
       prompt: i.prompt,
       status: i.publishedAt ? (i.isHidden ? "hidden" : "published") : "private",
+      backdropColor: i.publishedAt ? (i.backdropColor ?? null) : null,
       conversationId:
         mine.find((l) => l.role === "output")?.designId ?? i.sourceDesignId ?? null,
       seedIn: mine.filter((l) => l.role === "seed").map((l) => l.designId),

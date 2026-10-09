@@ -14,6 +14,7 @@ import {
   truncatePrompt,
 } from "@/lib/admin-usage";
 import { formatDisplayDateTime } from "@/lib/display-time-zone";
+import { publishedBackdrop } from "@/lib/blanks";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,13 @@ const LABEL =
 
 function ImageCell({ img }: { img: UsageImage }) {
   const { text, truncated } = truncatePrompt(img.prompt);
+  // Published (and hidden) images sit on their pinned storefront backdrop,
+  // as in the Shop and My Designs; private work keeps the paper well. A
+  // light design on the well reads as blank.
+  const backdrop =
+    img.status === "private"
+      ? { className: "bg-surface-well", style: undefined }
+      : publishedBackdrop(img.backdropColor);
   return (
     <div
       data-testid="usage-image"
@@ -35,7 +43,8 @@ function ImageCell({ img }: { img: UsageImage }) {
     >
       <Link
         href={`/d/${img.id}`}
-        className="relative block w-24 h-24 shrink-0 bg-surface-well border border-border"
+        className={`relative block w-24 h-24 shrink-0 border border-border ${backdrop.className}`}
+        style={backdrop.style}
       >
         <Image
           src={img.imageUrl}
