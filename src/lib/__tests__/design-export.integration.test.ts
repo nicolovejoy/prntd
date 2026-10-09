@@ -139,13 +139,12 @@ describe("loadExportRows", () => {
     expect(rows.map((r) => r.imageId)).toEqual([plain, published, alsoPlain]);
     expect(rows.map((r) => r.imageId)).not.toContain(hidden);
 
-    // The library still carries it (as a placeholder tile), flagged; without
-    // the flagged ones it is exactly the export, reversed.
+    // My Designs leaves it out by the same rule, so the export is exactly the
+    // library, reversed.
     const library = await getUserImageLibrary("owner");
-    expect(library.find((i) => i.imageId === hidden)?.isHidden).toBe(true);
-    expect(library.filter((i) => i.imageId !== hidden).every((i) => !i.isHidden)).toBe(true);
+    expect(library.map((i) => i.imageId)).not.toContain(hidden);
     expect(rows.map((r) => r.imageId)).toEqual(
-      library.filter((i) => !i.isHidden).map((i) => i.imageId).reverse()
+      library.map((i) => i.imageId).reverse()
     );
   });
 

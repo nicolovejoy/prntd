@@ -87,6 +87,36 @@ describe("getUserImageLibrary", () => {
     expect(image.backgroundColor).toBe("Navy");
   });
 
+  it("leaves an admin-hidden image out and keeps unpublished and published ones (#288)", async () => {
+    const db = h.db as Db;
+    const design = await makeDesign(db, "owner");
+    const never = await makeSourceImage(db, {
+      designId: design.id,
+      ownerId: "owner",
+      imageUrl: "https://r2/never.png",
+    });
+    const published = await makeSourceImage(db, {
+      designId: design.id,
+      ownerId: "owner",
+      imageUrl: "https://r2/published.png",
+      publishedAt: new Date("2026-07-01T00:00:00Z"),
+    });
+    const hidden = await makeSourceImage(db, {
+      designId: design.id,
+      ownerId: "owner",
+      imageUrl: "https://r2/hidden.png",
+      publishedAt: new Date("2026-07-01T00:00:00Z"),
+    });
+    await db
+      .update(schema.imagePublication)
+      .set({ isHidden: true })
+      .where(eq(schema.imagePublication.imageId, hidden));
+
+    const ids = (await getUserImageLibrary("owner")).map((i) => i.imageId);
+    expect(ids.sort()).toEqual([never, published].sort());
+    expect(ids).not.toContain(hidden);
+  });
+
   it("marks images whose conversation has been archived out of the Studio", async () => {
     const db = h.db as Db;
     const design = await makeDesign(db, "owner");
