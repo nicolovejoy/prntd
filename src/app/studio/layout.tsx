@@ -8,6 +8,10 @@
  * wrapper unmounts, `main`'s own `pt-6` supplies it instead. Either way it's
  * the same 24px the bench had under the old tab strip.
  *
+ * The focused stage (#188 slice 4) widens `main` to max-w-6xl and marks it
+ * `data-studio-stage`; the heading follows with a `group-has` variant, so it
+ * stays aligned with the content without the layout knowing the URL.
+ *
  * The page owns its own auth gate (requireStudioUser, which admits a
  * guest-funnel session while the guest funnel is on, #241); a layout renders
  * before that resolves, but the heading is static, so there is nothing here
@@ -21,8 +25,8 @@ export default function StudioLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-screen flex flex-col">
-      <div className="px-4 sm:px-6 pt-6 max-w-4xl mx-auto w-full">
+    <div className="group/studio min-h-screen flex flex-col">
+      <div className="px-4 sm:px-6 pt-6 max-w-4xl group-has-[[data-studio-stage]]/studio:max-w-6xl mx-auto w-full">
         <h1 className="text-xl sm:text-2xl font-bold">Studio</h1>
       </div>
       {children}

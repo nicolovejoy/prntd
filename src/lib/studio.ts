@@ -5,8 +5,9 @@
  *
  * Assembled in a fixed number of statements regardless of lane count — the
  * client re-reads this whole surface on a poll while a generation is in
- * flight, so the path must stay flat: one design select, then three
- * batched reads (images, running jobs, first chat turns), never a query
+ * flight, so the path must stay flat: one design select, then four
+ * batched reads (images, running jobs, first chat turns, message counts),
+ * never a query
  * per lane.
  *
  * Server-only (imports drizzle + schema). Client components import types
@@ -20,7 +21,11 @@ import {
   conversationImage as conversationImageTable,
   image as imageTable,
   imageGeneration as imageGenerationTable,
+  imagePublication as imagePublicationTable,
+  product as productTable,
 } from "./db/schema";
+import { mirrorFrontImageId } from "./composition-reads";
+import { DEFAULT_PUBLISH_BACKGROUND } from "./blanks";
 import { sweepStaleJobs } from "./generation-job";
 import { sweepIdleConversations } from "./archive-conversations";
 
@@ -35,6 +40,13 @@ export type StudioCell = {
   /** The conversation's primary_image_id — the marked cell. */
   isPrimary: boolean;
   createdAt: Date;
+  /**
+   * The pinned Shop backdrop (`product.backdrop_color`) when the image is
+   * published and not admin-hidden (`image_publication` is the one
+   * visibility reader, #300); null otherwise. The focused stage paints a
+   * published result on it; unpublished artwork sits on the paper well.
+   */
+  backdropColor: string | null;
 };
 
 /** One running generation in a lane, rendered with elapsed time. */
@@ -58,6 +70,8 @@ export type StudioLane = {
   title: string | null;
   /** What "most recently active" is judged on — see laneLastActiveAt. */
   lastActiveAt: Date;
+  /** `chat_message` rows in this conversation — the stage's history label. */
+  messageCount: number;
   cells: StudioCell[];
   pending: StudioPendingCell[];
 };
@@ -179,7 +193,7 @@ export async function getStudioLanesData(
   if (designs.length === 0) return [];
   const designIds = designs.map((d) => d.id);
 
-  const [imageRows, jobRows, firstTurnRows] = await Promise.all([
+  const [imageRows, jobRows, turnRows] = await Promise.all([
     // Both roles: a seed is one of the conversation's images, and its
     // image.created_at predates every output the thread generates, so the
     // shared ordering keeps it first (getDesignSourceImages convention,
@@ -191,9 +205,19 @@ export async function getStudioLanesData(
         imageUrl: imageTable.imageUrl,
         prompt: imageTable.prompt,
         createdAt: imageTable.createdAt,
+        publishedAt: imagePublicationTable.publishedAt,
+        isHidden: imagePublicationTable.isHidden,
+        backdropColor: productTable.backdropColor,
       })
       .from(conversationImageTable)
       .innerJoin(imageTable, eq(imageTable.id, conversationImageTable.imageId))
+      // Visibility from image_publication (#300); the backdrop off the Shop
+      // mirror. front_image_id is unique, so the mirror join yields <= 1 row.
+      .leftJoin(
+        imagePublicationTable,
+        eq(imagePublicationTable.imageId, imageTable.id)
+      )
+      .leftJoin(productTable, eq(mirrorFrontImageId, imageTable.id))
       .where(inArray(conversationImageTable.designId, designIds))
       .orderBy(asc(imageTable.createdAt), sql`image.rowid asc`),
     // One user-scoped read (the user_status index), not one per lane.
@@ -216,23 +240,24 @@ export async function getStudioLanesData(
         )
       )
       .orderBy(asc(imageGenerationTable.generationNumber)),
-    // First user turn per conversation — the lane label. Bare `content`
-    // alongside min() relies on SQLite's documented min/max-aggregate
-    // behavior (the bare column comes from the row achieving the min);
-    // Turso is libSQL, so this holds in prod and in the test harness alike.
+    // One pass over chat_message per conversation for two things: the first
+    // user turn (the lane label) and the turn count (the stage's History
+    // label). Bare `content` alongside the single min() relies on SQLite's
+    // documented min/max-aggregate behavior (the bare column comes from the
+    // row achieving the min; min() skips the NULLs the CASE gives non-user
+    // turns), so it is the first user turn's content whenever
+    // `firstUserAt` is not null. Turso is libSQL, so this holds in prod and
+    // in the test harness alike.
     db
       .select({
         designId: chatMessageTable.designId,
         content: chatMessageTable.content,
-        firstAt: sql<number>`min(${chatMessageTable.createdAt})`,
+        firstUserAt: sql<number | null>`min(case when ${chatMessageTable.role} = 'user' then ${chatMessageTable.createdAt} end)`,
+        // Every turn, both roles: the rows the stage's History lists.
+        n: sql<number>`count(*)`,
       })
       .from(chatMessageTable)
-      .where(
-        and(
-          inArray(chatMessageTable.designId, designIds),
-          eq(chatMessageTable.role, "user")
-        )
-      )
+      .where(inArray(chatMessageTable.designId, designIds))
       .groupBy(chatMessageTable.designId),
   ]);
 
@@ -248,6 +273,13 @@ export async function getStudioLanesData(
         imageUrl: row.imageUrl,
         isPrimary: false, // filled in per-design below
         createdAt: row.createdAt,
+        // Published and not hidden: the pinned Shop backdrop, defaulting the
+        // way every other surface does (publishedBackdrop) when the mirror
+        // has none. Otherwise null, even if a mirror row carries one.
+        backdropColor:
+          row.publishedAt && !row.isHidden
+            ? (row.backdropColor ?? DEFAULT_PUBLISH_BACKGROUND)
+            : null,
       },
       prompt: row.prompt,
     });
@@ -266,7 +298,13 @@ export async function getStudioLanesData(
   }
 
   const titleByDesign = new Map(
-    firstTurnRows.map((row) => [row.designId, row.content])
+    turnRows
+      .filter((row) => row.firstUserAt !== null)
+      .map((row) => [row.designId, row.content])
+  );
+
+  const countByDesign = new Map(
+    turnRows.map((row) => [row.designId, Number(row.n)])
   );
 
   const lanes = designs.map((design) => {
@@ -288,6 +326,7 @@ export async function getStudioLanesData(
         cells,
         pending,
       }),
+      messageCount: countByDesign.get(design.id) ?? 0,
       cells,
       pending,
     };

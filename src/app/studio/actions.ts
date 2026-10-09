@@ -10,6 +10,7 @@ import {
   planDesignDeletion,
 } from "@/lib/delete-design";
 import { r2KeysForPlan } from "@/lib/delete-designs-since";
+import { getDesignMessages } from "@/lib/design-images";
 import { getGenerationJobStatusForUser } from "@/lib/generation-job";
 import type { GenerationJobStatus } from "@/lib/lost-submit";
 import { deleteObjectByKey, imageKeyFromUrl } from "@/lib/r2";
@@ -137,4 +138,42 @@ export async function deleteConversations(
   }
 
   return result;
+}
+
+export type HistoryTurn = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  imageId: string | null;
+  createdAt: Date;
+};
+
+/**
+ * The transcript behind the focused stage's "History" disclosure: every
+ * chat_message of one conversation, oldest first. Owner-scoped (the design
+ * row must belong to the session's user); same gate as getStudioLanes, so
+ * guests read their own threads while the guest funnel is on. Read on
+ * demand when the disclosure opens, never on the poll: a lane's transcript
+ * is not bench state.
+ */
+export async function getConversationHistory(
+  designId: string
+): Promise<HistoryTurn[]> {
+  const session = await requireStudioActionSession();
+  const [owned] = await db
+    .select({ id: designTable.id })
+    .from(designTable)
+    .where(
+      and(eq(designTable.id, designId), eq(designTable.userId, session.user.id))
+    )
+    .limit(1);
+  if (!owned) throw new Error("Unauthorized");
+  const rows = await getDesignMessages(designId);
+  return rows.map((m) => ({
+    id: m.id,
+    role: m.role,
+    content: m.content,
+    imageId: m.imageId ?? null,
+    createdAt: m.createdAt,
+  }));
 }

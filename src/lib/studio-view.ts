@@ -218,6 +218,7 @@ export function applyOptimistic(
       lastActiveAt: new Date(
         Math.max(...group.map((e) => e.startedAt.getTime()))
       ),
+      messageCount: 0,
       cells: [],
       pending: group.map(optimisticCell),
     }))

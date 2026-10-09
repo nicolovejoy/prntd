@@ -12,10 +12,8 @@ import {
   useRef,
   useState,
 } from "react";
-import type { RefObject } from "react";
+import type { MouseEvent as ReactMouseEvent, RefObject } from "react";
 import { Button, EmptyState, useConfirm } from "@/components/ui";
-import { buyPageHref } from "@/lib/buy-page-picks";
-import { ImageLightbox, type LightboxImage } from "@/app/design/image-lightbox";
 import {
   cancelGeneration,
   closeConversation,
@@ -54,28 +52,46 @@ import {
 } from "@/lib/studio-view";
 import type { OptimisticEntry } from "@/lib/studio-view";
 import type { StudioLane } from "@/lib/studio";
+import {
+  BENCH_HREF,
+  focusHref,
+  laneStageHref,
+  newestUnseenCell,
+  parseFocus,
+  resolveFocus,
+  type StudioFocus,
+} from "@/lib/studio-focus";
 import { deleteConversations, getGenerationJobStatus, getStudioLanes } from "./actions";
+import { FocusedStage } from "./focused-stage";
 import { GuestKeepLine } from "./guest-keep-line";
 
 /**
  * /studio — the working surface (studio-plan slices 2+3): lanes render, a
  * running generation shows as a pending cell with elapsed time, and one
- * composer at the top of the page is the only submit control.
+ * composer is the only submit control (at the top of the bench, under the
+ * image on the focused stage).
  *
- * Selection is the interaction model, but viewing and editing are two
- * separate gestures (#236 follow-up): tapping a cell opens the shared
- * lightbox for that image, and anchoring for edit is a deliberate "Edit this
- * one" action inside it, not a side effect of looking. Once anchored, the
- * composer carries a chip with a crop of the anchored image, and Generate
- * then edits exactly that image. Dismissing the chip clears the anchor and
- * the same box starts a NEW conversation; so does an accepted Generate, which
- * spends the anchor (Nico, 2026-10-01: a new idea typed after an edit landed
- * in the old lane). A refused turn hands its words back with the anchor
- * state it was sent with (chip or none), for a retry of the same thing.
- * Decisions settled (plan, slice 3 + the #236 follow-up): the composer sits
- * at the top of the bench (Paper mock, #188 slice 3), the anchor never
- * advances to a result on its own, a lane opens scrolled to its newest
- * image, and opening the lightbox never anchors on its own either.
+ * Selection is the interaction model. A cell tap opens the focused stage
+ * (#188 slice 4, ./focused-stage): that result large, the same composer
+ * under it, the conversation's other results as a strip. Being on the stage
+ * is what anchors: the shown image is the anchor, the composer carries a
+ * chip with a crop of it, and Generate edits exactly that image. The stage's
+ * address is the URL (?conversation=&image=), so Back and reload work.
+ * On the stage an accepted Generate does NOT spend the anchor — the next
+ * line is another change to the same image — and when a result lands in
+ * its lane while the stage still shows the image that edit was made from,
+ * the stage moves to it. Dismissing the
+ * chip makes the same box start a NEW conversation, which lives on the
+ * bench, so an unanchored Generate leaves the stage for it when submitted. On the
+ * bench the anchor is plain state that nothing sets except a refused
+ * submit's give-back (below), and an accepted Generate there spends it
+ * (Nico, 2026-10-01, #276: a new idea typed after an edit landed in the old
+ * lane). A refused turn hands its words back with the anchor state it was
+ * sent with (chip or none), for a retry of the same thing.
+ * Decisions settled (plan, slice 3; #188 slice 4): the composer sits at the
+ * top of the bench (Paper mock, #188 slice 3), a lane opens scrolled to its
+ * newest image, and the bench has no lightbox — tapping the stage's large
+ * image does nothing in this slice.
  *
  * Polling: while any lane has a pending cell, the whole read model is
  * re-fetched on the generation-poll schedule (fast, then slow). One request
@@ -123,15 +139,18 @@ import { GuestKeepLine } from "./guest-keep-line";
  *
  * The anchor lives OUTSIDE the lane state on purpose: a poll refresh replaces
  * `lanes` wholesale with server truth, and the anchor (plus the draft text)
- * must survive that landing mid-typing. It's cleared by the chip's own
- * control, by an accepted Generate, and when its image genuinely leaves the
- * surface (the conversation closed or was deleted).
+ * must survive that landing mid-typing. On the stage it is derived from the
+ * focus, which is its own state; the chip's control there sets
+ * `anchorCleared` until the focus changes. The bench anchor is cleared by
+ * the chip's own control, by an accepted bench Generate, and when its image
+ * genuinely leaves the surface (the conversation closed or was deleted) —
+ * the stage, for its part, falls back to the bench when its cell leaves.
  *
  * Select mode (#189): "Select" lives inside each lane's ⋯ overflow (Paper
  * bench, #188 slice 3 — there is no page-level control) and turns every lane
  * header into a checkbox row, swapping the composer for a bar with the
  * count, Select all, Delete and Done. While selecting, a tap anywhere on a
- * lane — header or cell — toggles that lane; the lightbox does not open in
+ * lane — header or cell — toggles that lane; the stage does not open in
  * select mode, so one gesture still means one thing. A lane with a running
  * generation can't be
  * selected (its ⋯ overflow, and so its Close/Delete/Select, is hidden for
@@ -162,10 +181,20 @@ const GENERATE_FAILED_COPY = "Something went wrong. Try again.";
  */
 const MOUNT_RECONCILE_DELAY_MS = 1500;
 
+/**
+ * A click the browser should handle itself: a new tab or window, a download.
+ * The stage's links are real hrefs so these work (#188 slice 4); only a plain
+ * click is taken over by pushState.
+ */
+function isModifiedClick(e: ReactMouseEvent) {
+  return e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey;
+}
+
 export function StudioClient({
   initialLanes,
   initialNowMs,
   isGuest = false,
+  initialFocus,
 }: {
   initialLanes: StudioLane[];
   /**
@@ -179,6 +208,8 @@ export function StudioClient({
   /** An anonymous guest-funnel session (#241): shows the sign-up/sign-in
    * line under the composer while there is at least one lane to keep. */
   isGuest?: boolean;
+  /** The stage address the page parsed from the URL, or null for the bench. */
+  initialFocus?: StudioFocus | null;
 }) {
   const [lanes, setLanes] = useState<StudioLane[]>(initialLanes);
   const [anchor, setAnchor] = useState<Anchor | null>(null);
@@ -206,9 +237,41 @@ export function StudioClient({
   // with the composer now at the top of the page too, the common case is
   // that the lane is already visible, and a no-op scroll must stay a no-op.
   const [revealDesignId, setRevealDesignId] = useState<string | null>(null);
+  // The focused stage's address (#188 slice 4). Lives in the URL
+  // (?conversation=&image=) so Back and reload work; moves are pushState /
+  // replaceState on the client, not router navigations — the lanes are
+  // already here and a soft navigation would re-run the page's DB read on
+  // every tap. popstate re-reads the URL (below). Null is the bench.
+  const [focus, setFocus] = useState<StudioFocus | null>(initialFocus ?? null);
+  // Mirrors `focus` for giveBack, which runs from async callbacks that must
+  // see where the user is now, not where the submit was made. Written by
+  // go() and the popstate handler as well as the effect, so a give-back in
+  // the same tick as a move sees the move.
+  const focusRef = useRef(focus);
+  useEffect(() => {
+    focusRef.current = focus;
+  }, [focus]);
+  // The cells the stage has already shown for its lane, so a result landing
+  // in it can be told apart from cells that were there when the stage
+  // opened (the follow effect below). Keyed by lane: entering a lane — a
+  // tap, the first render, Back — marks everything already in it as seen.
+  const seenCells = useRef<{ designId: string; ids: Set<string> } | null>(null);
+  // The image the latest stage edit was anchored to (the stage showed it at
+  // submit time). A landing is followed only while the stage still shows
+  // it: a user who has picked another result meanwhile is left there.
+  const followFrom = useRef<StudioFocus | null>(null);
+  // Set by the chip's ✕ on the stage: the stage image stops being the
+  // anchor until the focus changes.
+  const [anchorCleared, setAnchorCleared] = useState(false);
+  // Bumped by the stage's "New design" so the bench's composer input takes
+  // focus once the bench has mounted (the stage's own input is gone by then).
+  const [focusComposerNonce, setFocusComposerNonce] = useState(0);
   const { confirm, element: confirmSheet } = useConfirm();
 
   const polling = useRef(false);
+  // The poll in flight, for a caller that needs fresh lanes even when a poll
+  // is already running (pollOnce itself returns at once in that case).
+  const pollInFlight = useRef<Promise<void> | null>(null);
   const pollStartedAt = useRef<number | null>(null);
   // Mirrors `lanes` for the async reconcile loop below, which must read
   // current server state, not the closure it started with.
@@ -234,11 +297,12 @@ export function StudioClient({
       mountedRef.current = false;
     };
   }, []);
-  // The composer panel is the only place `notice` renders, and it now sits
-  // at the top of the page — but the control that SETS a notice (Close,
-  // Delete, bulk delete, a refused submit) can be lanes below the fold. On a
-  // failure transition, bring the panel back on screen so the explanation is
-  // actually seen (Important 2, whole-branch review).
+  // The composer panel is the only place `notice` renders (the focused
+  // stage renders the same panel under its image, on the same ref), and on
+  // the bench it sits at the top of the page — but the control that SETS a
+  // notice (Close, Delete, bulk delete, a refused submit) can be lanes below
+  // the fold. On a failure transition, bring the panel back on screen so the
+  // explanation is actually seen (Important 2, whole-branch review).
   const composerPanelRef = useRef<HTMLDivElement>(null);
   const prevNoticeRef = useRef<string | null>(null);
   useEffect(() => {
@@ -250,6 +314,22 @@ export function StudioClient({
 
   // What the bench renders: server truth plus this tab's own overlay.
   const renderedLanes = applyOptimistic(lanes, optimistic);
+  // The lane and cell the focus names, or null: the bench renders.
+  const stage = resolveFocus(renderedLanes, focus);
+  // On the stage the shown image is the anchor unless the chip was cleared;
+  // on the bench the anchor is whatever state holds (nothing sets it there
+  // any more except giveBack's restore after a refused submit).
+  const effectiveAnchor: Anchor | null =
+    stage && !anchorCleared
+      ? {
+          designId: stage.lane.designId,
+          imageId: stage.lane.cells[stage.index].imageId,
+          imageUrl: stage.lane.cells[stage.index].imageUrl,
+          title: stage.lane.title,
+        }
+      : stage
+        ? null
+        : anchor;
   // Server pending drives polling and the cap's first argument; the second is
   // only the overlay the server cannot see yet, so a cell that has landed in
   // server lanes is never counted twice.
@@ -271,6 +351,10 @@ export function StudioClient({
   const pollOnce = useCallback(async () => {
     if (polling.current) return;
     polling.current = true;
+    let settle!: () => void;
+    pollInFlight.current = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
     // When THIS fetch went out. A poll can straddle the job-row write, and a
     // snapshot taken before it can't testify that the job is gone.
     const snapshotStartedAtMs = Date.now();
@@ -292,6 +376,7 @@ export function StudioClient({
     } finally {
       polling.current = false;
       setPollNonce((n) => n + 1);
+      settle();
     }
   }, []);
 
@@ -357,6 +442,104 @@ export function StudioClient({
       window.removeEventListener("focus", onWake);
     };
   }, [pollOnce]);
+
+  // On mount, the URL is the truth too. The first render took initialFocus
+  // (the server rendered from the same URL, so hydration matches), but a
+  // remount from Next's back/forward cache — Back into /studio after Order
+  // or Open on the stage — reuses the props of the render it cached, which
+  // can name another stage or none. Read after hydration, so the server
+  // markup is never contradicted during it.
+  useEffect(() => {
+    const fromUrl = parseFocus(new URLSearchParams(window.location.search));
+    focusRef.current = fromUrl;
+    setFocus(fromUrl);
+    setAnchorCleared(false);
+  }, []);
+
+  // Back/forward: the URL is the truth for which state is on screen. Select
+  // mode belongs to the bench, so a Back that lands on a stage leaves it.
+  useEffect(() => {
+    function onPop() {
+      const next = parseFocus(new URLSearchParams(window.location.search));
+      focusRef.current = next;
+      setFocus(next);
+      setAnchorCleared(false);
+      if (next) {
+        setSelectMode(false);
+        setSelected(new Set());
+      }
+    }
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  // A focus that names nothing on the bench (closed elsewhere, archived by
+  // the sweep, a stale link) falls back to the bench and drops the params,
+  // so a reload does not try again. Not on the lanes in hand alone: a
+  // remount from Next's back/forward cache brings the page-load lanes, which
+  // can predate the focused image. So first one poll for that focus (or the
+  // one already running), and drop the params only if the fresh lanes still
+  // don't have it. The bench shows meanwhile.
+  const focusKey = focus ? `${focus.designId}\n${focus.imageId}` : null;
+  const [focusPolledKey, setFocusPolledKey] = useState<string | null>(null);
+  const focusPollStarted = useRef<string | null>(null);
+  useEffect(() => {
+    if (!focusKey || stage) return;
+    if (focusPolledKey === focusKey) {
+      go(null, "replace");
+      return;
+    }
+    if (focusPollStarted.current === focusKey) return;
+    focusPollStarted.current = focusKey;
+    const fresh = polling.current ? pollInFlight.current : pollOnce();
+    void Promise.resolve(fresh).then(() => {
+      if (mountedRef.current) setFocusPolledKey(focusKey);
+    });
+    // go is a plain function rebuilt every render; the focus, whether it
+    // resolves, and whether its poll is back are the real dependencies.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusKey, stage === null, focusPolledKey]);
+
+  // Follow a landed result: when the focused lane gains a cell this stage
+  // has not shown while the stage still shows the image the latest edit was
+  // anchored to (followFrom), show it (the user asked for the change; seeing
+  // it is the point). Picked another result meanwhile, or a landing nobody
+  // here asked for (another tab): stay put. replaceState, not push: Back
+  // should leave the stage, not step through every result that landed.
+  // Entering a lane only records what is already there, so opening the
+  // stage on an older result stays put.
+  const stageCellIds = stage?.lane.cells.map((c) => c.imageId).join(",");
+  useEffect(() => {
+    if (!stage) {
+      seenCells.current = null;
+      return;
+    }
+    const ids = new Set(stage.lane.cells.map((c) => c.imageId));
+    const seen = seenCells.current;
+    seenCells.current = { designId: stage.lane.designId, ids };
+    if (seen?.designId !== stage.lane.designId) return;
+    const fresh = newestUnseenCell(stage.lane, seen.ids);
+    const from = followFrom.current;
+    const shown = stage.lane.cells[stage.index];
+    if (
+      fresh &&
+      from?.designId === stage.lane.designId &&
+      from.imageId === shown.imageId
+    ) {
+      followFrom.current = null;
+      go({ designId: stage.lane.designId, imageId: fresh.imageId }, "replace");
+    }
+    // The lane's cell ids are the real dependency (the lane object is
+    // rebuilt by every poll and every render's overlay).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage?.lane.designId, stageCellIds]);
+
+  // The stage's "New design" lands on the bench; its composer input exists
+  // only once the bench has rendered, so focus it here.
+  useEffect(() => {
+    if (focusComposerNonce === 0) return;
+    composerPanelRef.current?.querySelector("input")?.focus();
+  }, [focusComposerNonce]);
 
   // Once mounted, switch from the server's clock reading to the browser's.
   // Right after hydration the two differ by the page's load time; after a
@@ -490,33 +673,44 @@ export function StudioClient({
     }
   }
 
-  // Cell tap in select mode: the only caller left of this since #236 moved
-  // viewing (and thus anchoring) off the plain tap and into the lightbox's
-  // "Edit this one" action below. Lane only calls this once it has already
-  // branched on selectMode itself, so there is no mode check here.
+  // Cell tap in select mode: outside select mode a tap opens the stage
+  // (openStage below). Lane only calls this once it has already branched on
+  // selectMode itself, so there is no mode check here.
   function selectLaneFromCell(lane: StudioLane) {
     if (lane.pending.length === 0) toggleSelected(lane.designId);
   }
 
-  // Always SETS the anchor — never toggles it off — because this is what
-  // the lightbox's "Edit this one" button does, and that button must not
-  // silently un-anchor when it happens to be shown for the already-anchored
-  // image (its own name would then be a lie). Un-anchoring stays the
-  // composer chip's "Clear anchor" control.
-  function editFromLightbox(
-    lane: StudioLane,
-    cell: StudioLane["cells"][number]
-  ) {
-    setAnchor({
-      designId: lane.designId,
-      imageId: cell.imageId,
-      imageUrl: cell.imageUrl,
-      title: lane.title,
-    });
-    // The composer panel sits at the TOP of the bench (#188 slice 3, not a
-    // fixed bottom bar), so bring IT into view rather than the lane — the
-    // anchor chip that just appeared lives there.
-    composerPanelRef.current?.scrollIntoView({ block: "nearest" });
+  // Moves between the bench and the stage (#188 slice 4) by writing the URL
+  // directly, with Next's documented native-history pattern: state `null`.
+  // Next's patched pushState/replaceState then copies its own entry state in
+  // and updates the router's canonical URL, so a later server action that
+  // revalidates (or a refresh) stays on this entry instead of navigating back
+  // to the page-load URL. Passing the existing state instead would skip that
+  // (Next returns early when its marker is already there).
+  function go(next: StudioFocus | null, mode: "push" | "replace") {
+    const url = next ? focusHref(next) : BENCH_HREF;
+    if (mode === "push") window.history.pushState(null, "", url);
+    else window.history.replaceState(null, "", url);
+    focusRef.current = next;
+    setFocus(next);
+    setAnchorCleared(false);
+  }
+
+  function openStage(lane: StudioLane, index: number) {
+    const c = lane.cells[index];
+    if (!c) return;
+    // Already shown (a tap on the current strip result): no new history
+    // entry, so Back still leaves the stage in one step.
+    const shown = focusRef.current;
+    if (shown?.designId === lane.designId && shown.imageId === c.imageId) return;
+    go({ designId: lane.designId, imageId: c.imageId }, "push");
+    window.scrollTo({ top: 0 });
+  }
+
+  function leaveStage(e: ReactMouseEvent<HTMLAnchorElement>) {
+    if (isModifiedClick(e)) return;
+    e.preventDefault();
+    go(null, "push");
   }
 
   // The shared "this submit genuinely failed" path (#245): a digest throw
@@ -546,21 +740,53 @@ export function StudioClient({
   // reference in spendAnchor); X gone from the surface, or no anchor at all,
   // gives none (a restored anchor on a vanished image would sit until the next
   // lanes change). If the box already has new text, the anchor isn't touched.
+  //
+  // "On the surface" means that conversation still holds that image: a seed
+  // image can sit in two lanes, and the one the words were for may have
+  // closed.
+  //
+  // Where the user is when the refusal arrives decides which anchor is
+  // restored. On the bench it is the bench `anchor` state. On the
+  // stage (#188 slice 4) the chip is derived from the shown image, and the
+  // bench state is left alone (writing it there would leave a hidden bench
+  // anchor that surfaces on "← Studio"): an edit of the shown image gets its
+  // chip back (undoing a ✕ pressed meanwhile); an edit of another image
+  // moves the stage back to that image, since the stage is where an anchor
+  // is chosen; words that were not an edit (or whose image left) come back
+  // with the chip cleared.
   function giveBack(trimmed: string, submitAnchor: Anchor | null) {
     if (textRef.current !== "") return;
     textRef.current = trimmed;
     setText(trimmed);
     const onSurface =
       submitAnchor !== null &&
-      lanesRef.current.some((l) =>
-        l.cells.some((c) => c.imageId === submitAnchor.imageId)
+      lanesRef.current.some(
+        (l) =>
+          l.designId === submitAnchor.designId &&
+          l.cells.some((c) => c.imageId === submitAnchor.imageId)
       );
-    setAnchor(onSurface ? { ...submitAnchor } : null);
+    const shown = focusRef.current;
+    if (!shown) {
+      setAnchor(onSurface ? { ...submitAnchor } : null);
+      return;
+    }
+    if (!onSurface || !submitAnchor) {
+      setAnchorCleared(true);
+    } else if (
+      submitAnchor.designId === shown.designId &&
+      submitAnchor.imageId === shown.imageId
+    ) {
+      setAnchorCleared(false);
+    } else {
+      go({ designId: submitAnchor.designId, imageId: submitAnchor.imageId }, "replace");
+    }
   }
 
-  // Clears the anchor a submit was sent with, once its turn is known to have
-  // been accepted. Compared by reference: an anchor the user set while the
-  // request was in flight is a different object and stays.
+  // Clears the bench anchor a submit was sent with, once its turn is known to
+  // have been accepted. Compared by reference: an anchor the user set while
+  // the request was in flight, or one giveBack restored as a copy, is a
+  // different object and stays. A submit made from the stage passes null
+  // here (see submit): the stage keeps its anchor.
   function spendAnchor(submitted: Anchor | null) {
     if (!submitted) return;
     setAnchor((a) => (a === submitted ? null : a));
@@ -576,13 +802,17 @@ export function StudioClient({
   // absence the way a real "none" answer is, so it can only fail this submit
   // once STALE_OPTIMISTIC_MS has passed since the submit itself (see
   // judgeLostSubmit's docs).
+  //
+  // `anchorToSpend` is what an accepted turn spends: the submit's anchor on
+  // the bench, null on the stage (see submit).
   async function reconcileLostSubmit(
     localId: string,
     clientJobId: string,
     deadlineMs: number,
     hardDeadlineMs: number,
     trimmed: string,
-    submitAnchor: Anchor | null
+    submitAnchor: Anchor | null,
+    anchorToSpend: Anchor | null
   ) {
     // Tracks the current run of CONSECUTIVE "error" lookups for
     // judgeLostSubmit's errorStreakCount (third review, 2026-09-27): 0 when
@@ -630,7 +860,7 @@ export function StudioClient({
               : e
           )
         );
-        spendAnchor(submitAnchor);
+        spendAnchor(anchorToSpend);
         void pollOnce();
         return;
       }
@@ -660,7 +890,7 @@ export function StudioClient({
                   : e
               )
             );
-            spendAnchor(submitAnchor);
+            spendAnchor(anchorToSpend);
             void pollOnce();
             return;
           }
@@ -671,9 +901,9 @@ export function StudioClient({
       if (verdict === "cancelled") {
         // Deliberate: the only way to cancel is the user's own Cancel, and a
         // cancelled queued job today just leaves — no notice, words not
-        // given back. The turn was accepted, so the anchor is spent too.
+        // given back. The turn was accepted, so a bench anchor is spent too.
         setOptimistic((entries) => entries.filter((e) => e.localId !== localId));
-        spendAnchor(submitAnchor);
+        spendAnchor(anchorToSpend);
         void pollOnce();
         return;
       }
@@ -689,7 +919,12 @@ export function StudioClient({
     // idea without waiting for the last one's round trip is the normal case,
     // so the box clears now and each submit runs concurrently up to the cap.
     if (!trimmed || atCap) return;
-    const submitAnchor = anchor;
+    const submitAnchor = effectiveAnchor;
+    // An accepted turn spends the anchor on the BENCH (Nico, 2026-10-01,
+    // #276): the next idea typed there starts a new lane. On the stage the
+    // shown image stays the anchor — the next line is another change to it.
+    const fromStage = stage !== null;
+    const anchorToSpend = fromStage ? null : submitAnchor;
     textRef.current = "";
     setText("");
     setNotice(null);
@@ -731,6 +966,17 @@ export function StudioClient({
         prompt: trimmed,
       },
     ]);
+    // An unanchored submit from the stage starts a new conversation, which
+    // lives on the bench: go there now, where the reveal nudge finds the new
+    // lane and its pending cell (the stage has no place to show either). An
+    // anchored one records the image it edits, for the follow effect.
+    if (fromStage && !submitAnchor) go(null, "push");
+    if (fromStage && submitAnchor) {
+      followFrom.current = {
+        designId: submitAnchor.designId,
+        imageId: submitAnchor.imageId,
+      };
+    }
     try {
       const result = await generateDesign(targetDesignId, trimmed, {
         ...(submitAnchor ? { anchorImageId: submitAnchor.imageId } : {}),
@@ -746,10 +992,8 @@ export function StudioClient({
               : e
           )
         );
-        // An accepted turn spends the anchor (Nico, 2026-10-01): the next
-        // idea typed here starts a new lane, not another edit in this one.
-        // Building on the result means tapping it and choosing Edit this one.
-        spendAnchor(submitAnchor);
+        // Spends a bench anchor only (anchorToSpend, above).
+        spendAnchor(anchorToSpend);
         await pollOnce();
       } else {
         // The turn didn't run, so the cell it promised has to go.
@@ -793,7 +1037,8 @@ export function StudioClient({
         Date.now() + LOST_SUBMIT_WINDOW_MS,
         startedAtMs + STALE_OPTIMISTIC_MS,
         trimmed,
-        submitAnchor
+        submitAnchor,
+        anchorToSpend
       );
     }
   }
@@ -886,63 +1131,122 @@ export function StudioClient({
   return (
     <>
       {confirmSheet}
+      {/* The stage is wider than the bench: board G's 600px image plus a
+          roomy right column does not fit max-w-4xl (its right column would be
+          200px at lg). The layout's heading follows via data-studio-stage
+          (src/app/studio/layout.tsx). */}
       <main
-        className={`flex-1 px-4 sm:px-6 max-w-4xl mx-auto w-full ${
+        data-studio-stage={stage ? "" : undefined}
+        className={`flex-1 px-4 sm:px-6 ${stage ? "max-w-6xl" : "max-w-4xl"} mx-auto w-full ${
           selectMode ? "pt-6 pb-40" : "pb-8"
         }`}
       >
-        {selectMode ? null : (
+        {stage ? (
+          <div className="py-2">
+            {/* Keyed by conversation so the stage's own local state (the
+                history disclosure) resets when the focus moves to another
+                conversation. */}
+            <FocusedStage
+              key={stage.lane.designId}
+              lane={stage.lane}
+              index={stage.index}
+              nowMs={nowMs}
+              unresolvedCellIds={unresolvedCellIds}
+              onBack={leaveStage}
+              onPickResult={(i, e) => {
+                if (isModifiedClick(e)) return;
+                e.preventDefault();
+                openStage(stage.lane, i);
+              }}
+              onNewDesign={(e) => {
+                if (isModifiedClick(e)) return;
+                e.preventDefault();
+                setAnchor(null);
+                go(null, "push");
+                setFocusComposerNonce((n) => n + 1);
+              }}
+              onCancel={(jobId) => void cancelJob(stage.lane, jobId)}
+              focusHrefFor={(i) =>
+                focusHref({
+                  designId: stage.lane.designId,
+                  imageId: stage.lane.cells[i].imageId,
+                })
+              }
+              benchHref={BENCH_HREF}
+              composer={
+                <>
+                  <Composer
+                    panelRef={composerPanelRef}
+                    text={text}
+                    anchor={effectiveAnchor}
+                    atCap={atCap}
+                    capNotice={AT_CAP_COPY}
+                    notice={notice}
+                    onChangeText={setText}
+                    onSubmit={() => void submit()}
+                    onClearAnchor={() => setAnchorCleared(true)}
+                  />
+                  {isGuest && <GuestKeepLine className="-mt-2" />}
+                </>
+              }
+            />
+          </div>
+        ) : (
           <>
-            <div className="py-6">
-              <Composer
-                panelRef={composerPanelRef}
-                text={text}
-                anchor={anchor}
-                atCap={atCap}
-                capNotice={AT_CAP_COPY}
-                notice={notice}
-                onChangeText={setText}
-                onSubmit={() => void submit()}
-                onClearAnchor={() => setAnchor(null)}
-              />
-            </div>
-            {/* The guest line (#241) goes BELOW the composer, never above:
-                it wraps to two 44px rows on a phone and comes and goes
-                mid-session (a guest's first lane appears, their last lane
-                is deleted), so above the composer it would shove the
-                composer down under the thumb that just pressed Generate.
-                Keyed off renderedLanes, optimistic lanes included, so it
-                shows as soon as a first lane does; hidden on an empty bench,
-                where there is nothing to keep. It sits with the composer as
-                the bench's top chrome, so select mode hides both. */}
-            {isGuest && renderedLanes.length > 0 && (
-              <GuestKeepLine className="-mt-3 pb-3" />
+            {selectMode ? null : (
+              <>
+                <div className="py-6">
+                  <Composer
+                    panelRef={composerPanelRef}
+                    text={text}
+                    anchor={effectiveAnchor}
+                    atCap={atCap}
+                    capNotice={AT_CAP_COPY}
+                    notice={notice}
+                    onChangeText={setText}
+                    onSubmit={() => void submit()}
+                    onClearAnchor={() => setAnchor(null)}
+                  />
+                </div>
+                {/* The guest line (#241) goes BELOW the composer, never above:
+                    it wraps to two 44px rows on a phone and comes and goes
+                    mid-session (a guest's first lane appears, their last lane
+                    is deleted), so above the composer it would shove the
+                    composer down under the thumb that just pressed Generate.
+                    Keyed off renderedLanes, optimistic lanes included, so it
+                    shows as soon as a first lane does; hidden on an empty bench,
+                    where there is nothing to keep. It sits with the composer as
+                    the bench's top chrome, so select mode hides both. */}
+                {isGuest && renderedLanes.length > 0 && (
+                  <GuestKeepLine className="-mt-3 pb-3" />
+                )}
+              </>
+            )}
+
+            {renderedLanes.length === 0 ? (
+              <EmptyState message="No open designs." />
+            ) : (
+              renderedLanes.map((lane) => (
+                <Lane
+                  key={lane.designId}
+                  lane={lane}
+                  nowMs={nowMs}
+                  anchoredImageId={effectiveAnchor?.imageId ?? null}
+                  selectMode={selectMode}
+                  selected={selected.has(lane.designId)}
+                  onTapCell={selectLaneFromCell}
+                  onOpenCell={openStage}
+                  onToggleSelect={toggleSelected}
+                  onClose={closeLane}
+                  onDelete={deleteLane}
+                  onCancel={cancelJob}
+                  onEnterSelectMode={enterSelectMode}
+                  unresolvedCellIds={unresolvedCellIds}
+                  reveal={lane.designId === revealDesignId}
+                />
+              ))
             )}
           </>
-        )}
-
-        {renderedLanes.length === 0 ? (
-          <EmptyState message="No open designs." />
-        ) : (
-          renderedLanes.map((lane) => (
-            <Lane
-              key={lane.designId}
-              lane={lane}
-              nowMs={nowMs}
-              anchoredImageId={anchor?.imageId ?? null}
-              selectMode={selectMode}
-              selected={selected.has(lane.designId)}
-              onTapCell={selectLaneFromCell}
-              onEditImage={editFromLightbox}
-              onToggleSelect={toggleSelected}
-              onClose={closeLane}
-              onDelete={deleteLane}
-              onCancel={cancelJob}
-              onEnterSelectMode={enterSelectMode}
-              unresolvedCellIds={unresolvedCellIds}
-              reveal={lane.designId === revealDesignId}
-            />
-          ))
         )}
       </main>
 
@@ -1008,7 +1312,8 @@ export function StudioClient({
  * The bench's one submit control, at the top of the page (Paper bench,
  * #188 slice 3). It was a fixed bottom bar; the mock puts it under the tab
  * strip as a bordered paper panel, so the page has no fixed chrome and
- * `main` pays no standing bottom padding.
+ * `main` pays no standing bottom padding. The focused stage (#188 slice 4)
+ * renders this same component under its image, unchanged.
  *
  * The field is a bare underlined input rather than the `Input` primitive:
  * the primitive draws a bordered box, and the panel already owns the box.
@@ -1297,7 +1602,7 @@ function Lane({
   selectMode,
   selected,
   onTapCell,
-  onEditImage,
+  onOpenCell,
   onToggleSelect,
   onClose,
   onDelete,
@@ -1312,12 +1617,12 @@ function Lane({
   selectMode: boolean;
   selected: boolean;
   /** Select-mode cell tap only — a plain tap outside select mode opens the
-   * lightbox instead (Lane's own onClick branches on selectMode before
+   * stage instead (Lane's own onClick branches on selectMode before
    * calling this), so there is no cell to pass. */
   onTapCell: (lane: StudioLane) => void;
-  /** "Edit this one" inside the lightbox (#236 follow-up): always sets the
-   * anchor to the shown image, never toggles it off. */
-  onEditImage: (lane: StudioLane, cell: StudioLane["cells"][number]) => void;
+  /** A plain cell tap opens the focused stage for that cell; select mode
+   * keeps its own tap, see onTapCell. */
+  onOpenCell: (lane: StudioLane, index: number) => void;
   onToggleSelect: (designId: string) => void;
   onClose: (lane: StudioLane) => void;
   onDelete: (lane: StudioLane) => void;
@@ -1333,7 +1638,6 @@ function Lane({
 }) {
   const sectionRef = useRef<HTMLElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const cellCount = lane.cells.length + lane.pending.length;
   const generating = lane.pending.length > 0;
   // Selectable = nothing running. Deleting under a render would land the
@@ -1400,8 +1704,16 @@ function Lane({
             {lane.title ?? "Untitled"}
           </h2>
         ) : (
+          // The stage of the lane's primary cell, else its newest (#188
+          // slice 4); a lane with no cells yet keeps its thread link.
           <Link
-            href={`/design?id=${lane.designId}`}
+            href={laneStageHref(lane) ?? `/design?id=${lane.designId}`}
+            onClick={(e) => {
+              if (!laneStageHref(lane) || isModifiedClick(e)) return;
+              e.preventDefault();
+              const target = lane.cells.findIndex((c) => c.isPrimary);
+              onOpenCell(lane, target === -1 ? lane.cells.length - 1 : target);
+            }}
             className="min-w-0 flex-1 hover:underline"
           >
             <h2 className="text-sm font-medium truncate">
@@ -1448,16 +1760,7 @@ function Lane({
             <button
               type="button"
               role="menuitem"
-              onClick={() => {
-                // The lightbox has no focus trap, so this item is reachable
-                // by keyboard while it's still open — close it here rather
-                // than leave a stray overlay whose "Edit this one" would
-                // anchor an image while the page is trying to select
-                // conversations instead (also hidden below as a second
-                // guard against the same overlap).
-                setLightboxIndex(null);
-                onEnterSelectMode();
-              }}
+              onClick={onEnterSelectMode}
               className="min-h-11 px-4 text-left text-sm text-text-muted hover:text-foreground hover:bg-surface-well"
               data-testid="select-mode"
             >
@@ -1482,23 +1785,23 @@ function Lane({
               <button
                 type="button"
                 data-testid="studio-cell"
-                aria-label={`View image #${index + 1}${
+                aria-label={`Open result #${index + 1}${
                   cell.isPrimary ? ", primary" : ""
                 }${anchored ? ", editing" : ""}`}
                 onClick={() => {
-                  // One gesture, one meaning (docblock above, #236 follow-up):
-                  // outside select mode the cell body opens the lightbox — it
-                  // no longer anchors on tap, that moved to the lightbox's
-                  // own "Edit this one" action. In select mode the tap keeps
-                  // its old job (toggle this lane's selection), and the
-                  // section-scroll that used to compensate for the keyboard
-                  // popping up over an anchor only makes sense there.
+                  // One gesture, one meaning (docblock above): outside select
+                  // mode the cell body opens the focused stage on this cell
+                  // (#188 slice 4), which is also what anchors it. In select
+                  // mode the tap keeps its old job (toggle this lane's
+                  // selection), and the section-scroll that used to
+                  // compensate for the keyboard popping up over an anchor
+                  // only makes sense there.
                   if (selectMode) {
                     onTapCell(lane);
                     sectionRef.current?.scrollIntoView({ block: "nearest" });
                     return;
                   }
-                  setLightboxIndex(index);
+                  onOpenCell(lane, index);
                 }}
                 className={`absolute inset-0 overflow-hidden bg-surface ${
                   anchored ? "border-2 border-foreground" : "border border-foreground"
@@ -1535,7 +1838,7 @@ function Lane({
                     they're sighted-only decoration once a label is present.
                     `aria-pressed` was dropped (#236 follow-up) for the same
                     reason it would otherwise have covered: this button opens
-                    a lightbox rather than toggling its own state, so a
+                    the stage rather than toggling its own state, so a
                     pressed/unpressed semantic would be wrong. */}
               </button>
             </div>
@@ -1589,67 +1892,6 @@ function Lane({
           );
         })}
       </div>
-      {lightboxIndex !== null && lane.cells[lightboxIndex] && (
-        <ImageLightbox
-          images={lane.cells.map(
-            (c, i): LightboxImage => ({ id: c.imageId, number: i + 1, url: c.imageUrl })
-          )}
-          currentIndex={lightboxIndex}
-          onClose={() => setLightboxIndex(null)}
-          onNavigate={setLightboxIndex}
-          actions={
-            <>
-              {/* Anchoring for edit lives here now (#236 follow-up), not on
-                  the cell tap that opened this lightbox. Always SETS the
-                  anchor — see editFromLightbox's comment — so this button's
-                  own name stays true even when the shown image is already
-                  anchored. Hidden in select mode as a second guard beside
-                  the effect above that closes the lightbox on entry — there
-                  is no focus trap on the lightbox, so select mode can be
-                  entered by keyboard while it's still open. */}
-              {!selectMode && (
-                <Button
-                  type="button"
-                  variant="secondary"
-                  className="min-h-11"
-                  data-testid="lightbox-edit"
-                  onClick={() => {
-                    const shown = lane.cells[lightboxIndex];
-                    if (shown) onEditImage(lane, shown);
-                    setLightboxIndex(null);
-                  }}
-                >
-                  Edit this one
-                </Button>
-              )}
-              {/* Order opens the shown image's image detail page with the
-                  panel open (one buy surface, #278 slice 4). The image is the
-                  page, so a later primary change can't swap what gets
-                  ordered, and no primary is needed: the page's own gate
-                  decides whether this viewer may order it. */}
-              {!selectMode && (
-                <Link
-                  href={buyPageHref(lane.cells[lightboxIndex].imageId, {
-                    order: true,
-                    from: "/studio",
-                  })}
-                  data-testid="lightbox-order"
-                  // Mirrors Button's primary variant (src/components/ui/button.tsx); it is a link, so it can't use Button.
-                  className="inline-flex min-h-11 items-center rounded-md border border-foreground px-4 text-sm font-medium text-foreground transition-colors hover:bg-surface-well"
-                >
-                  Order
-                </Link>
-              )}
-              <Link
-                href={`/d/${lane.cells[lightboxIndex].imageId}`}
-                className="inline-flex min-h-11 items-center text-sm underline text-text-muted hover:text-foreground"
-              >
-                Open
-              </Link>
-            </>
-          }
-        />
-      )}
     </section>
   );
 }
