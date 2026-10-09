@@ -291,10 +291,10 @@ export function StudioClient({
   }, []);
   // The composer panel is the only place `notice` renders (the focused
   // stage renders the same panel under its image, on the same ref), and on
-  // the bench it sits at the top of the page — but the control that SETS a notice (Close,
-  // Delete, bulk delete, a refused submit) can be lanes below the fold. On a
-  // failure transition, bring the panel back on screen so the explanation is
-  // actually seen (Important 2, whole-branch review).
+  // the bench it sits at the top of the page — but the control that SETS a
+  // notice (Close, Delete, bulk delete, a refused submit) can be lanes below
+  // the fold. On a failure transition, bring the panel back on screen so the
+  // explanation is actually seen (Important 2, whole-branch review).
   const composerPanelRef = useRef<HTMLDivElement>(null);
   const prevNoticeRef = useRef<string | null>(null);
   useEffect(() => {
@@ -429,6 +429,19 @@ export function StudioClient({
       window.removeEventListener("focus", onWake);
     };
   }, [pollOnce]);
+
+  // On mount, the URL is the truth too. The first render took initialFocus
+  // (the server rendered from the same URL, so hydration matches), but a
+  // remount from Next's router cache — Back into /studio after Order or
+  // Open on the stage — carries the page-load focus, not the entry's URL
+  // (see go()). Read after hydration, so the server markup is never
+  // contradicted during it.
+  useEffect(() => {
+    const fromUrl = parseFocus(new URLSearchParams(window.location.search));
+    focusRef.current = fromUrl;
+    setFocus(fromUrl);
+    setAnchorCleared(false);
+  }, []);
 
   // Back/forward: the URL is the truth for which state is on screen. Select
   // mode belongs to the bench, so a Back that lands on a stage leaves it.
@@ -628,6 +641,12 @@ export function StudioClient({
   // Moves between the bench and the stage (#188 slice 4) by writing the URL
   // directly. Next's own history state is passed through unchanged, so its
   // router still recognises the entry on Back and does not reload the page.
+  // Known limit (the same as the buy panel's replaceState): because that
+  // state already carries Next's marker, Next's patched history methods
+  // return early and its canonical URL is never told about the move. So a
+  // remount from Next's cache (Back from a Next navigation out of the stage)
+  // starts from the page-load initialFocus; the mount effect above re-reads
+  // the URL for that reason.
   function go(next: StudioFocus | null, mode: "push" | "replace") {
     const url = next ? focusHref(next) : BENCH_HREF;
     const fn = mode === "push" ? window.history.pushState : window.history.replaceState;
@@ -640,6 +659,10 @@ export function StudioClient({
   function openStage(lane: StudioLane, index: number) {
     const c = lane.cells[index];
     if (!c) return;
+    // Already shown (a tap on the current strip result): no new history
+    // entry, so Back still leaves the stage in one step.
+    const shown = focusRef.current;
+    if (shown?.designId === lane.designId && shown.imageId === c.imageId) return;
     go({ designId: lane.designId, imageId: c.imageId }, "push");
     window.scrollTo({ top: 0 });
   }
@@ -678,24 +701,35 @@ export function StudioClient({
   // gives none (a restored anchor on a vanished image would sit until the next
   // lanes change). If the box already has new text, the anchor isn't touched.
   //
-  // On the stage (#188 slice 4) the chip is derived from the shown image, so
-  // the bench state alone does not reach it. There the same rule is applied
-  // to the stage: an edit of the shown image gets its chip back (undoing a
-  // ✕ pressed meanwhile); an edit of another image moves the stage back to
-  // that image, since the stage is where an anchor is chosen; words that were
-  // not an edit (or whose image left) come back with the chip cleared.
+  // "On the surface" means that conversation still holds that image: a seed
+  // image can sit in two lanes, and the one the words were for may have
+  // closed.
+  //
+  // Where the user is when the refusal arrives decides which anchor is
+  // restored. On the bench it is the bench `anchor` state. On the
+  // stage (#188 slice 4) the chip is derived from the shown image, and the
+  // bench state is left alone (writing it there would leave a hidden bench
+  // anchor that surfaces on "← Studio"): an edit of the shown image gets its
+  // chip back (undoing a ✕ pressed meanwhile); an edit of another image
+  // moves the stage back to that image, since the stage is where an anchor
+  // is chosen; words that were not an edit (or whose image left) come back
+  // with the chip cleared.
   function giveBack(trimmed: string, submitAnchor: Anchor | null) {
     if (textRef.current !== "") return;
     textRef.current = trimmed;
     setText(trimmed);
     const onSurface =
       submitAnchor !== null &&
-      lanesRef.current.some((l) =>
-        l.cells.some((c) => c.imageId === submitAnchor.imageId)
+      lanesRef.current.some(
+        (l) =>
+          l.designId === submitAnchor.designId &&
+          l.cells.some((c) => c.imageId === submitAnchor.imageId)
       );
-    setAnchor(onSurface ? { ...submitAnchor } : null);
     const shown = focusRef.current;
-    if (!shown) return;
+    if (!shown) {
+      setAnchor(onSurface ? { ...submitAnchor } : null);
+      return;
+    }
     if (!onSurface || !submitAnchor) {
       setAnchorCleared(true);
     } else if (

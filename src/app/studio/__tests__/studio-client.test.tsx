@@ -110,24 +110,28 @@ function leaveStage() {
 
 /**
  * Puts an anchor on the BENCH. Nothing sets one there directly any more
- * (#188 slice 4); the one way is a stage submit that is refused — its words
- * come back with their anchor (giveBack) — followed by "← Studio". Queues
- * its own refusal, so call it before a test queues generateDesign or
- * crypto.randomUUID results of its own; it clears generateDesign's calls.
+ * (#188 slice 4); the one way is a stage submit whose refusal arrives after
+ * the user has pressed "← Studio" — its words come back to the bench with
+ * their anchor (giveBack). Queues its own held generateDesign result, so
+ * call it before a test queues generateDesign or crypto.randomUUID results
+ * of its own; it clears generateDesign's calls.
  */
 async function anchorOnBench(index = 0) {
-  vi.mocked(generateDesign).mockResolvedValueOnce({
-    kind: "limit",
-    message: "Over the limit.",
-  });
+  let refuse!: (result: unknown) => void;
+  vi.mocked(generateDesign).mockReturnValueOnce(
+    new Promise((resolve) => {
+      refuse = resolve;
+    }) as never
+  );
   openStage(index);
   fireEvent.change(screen.getByTestId("studio-composer"), {
     target: { value: "refused first" },
   });
-  await act(async () => {
-    fireEvent.submit(screen.getByTestId("studio-composer").closest("form")!);
-  });
+  fireEvent.submit(screen.getByTestId("studio-composer").closest("form")!);
   leaveStage();
+  await act(async () => {
+    refuse({ kind: "limit", message: "Over the limit." });
+  });
   fireEvent.change(screen.getByTestId("studio-composer"), {
     target: { value: "" },
   });
@@ -267,6 +271,8 @@ describe("focused stage", () => {
   });
 
   it("renders the stage from initialFocus on first render", () => {
+    // The page parsed initialFocus from this same URL.
+    window.history.replaceState(null, "", "/studio?conversation=design-1&image=img-1");
     render(
       <StudioClient
         initialLanes={[lane({ cells: [cell("img-1"), cell("img-2")] })]}
@@ -274,6 +280,89 @@ describe("focused stage", () => {
       />
     );
     expect(screen.getByText("Result 1 of 2")).toBeTruthy();
+  });
+
+  it("on mount the URL wins over a stale initialFocus (a remount from Next's router cache)", () => {
+    // Back into /studio after Order or Open on the stage: Next remounts the
+    // page with its page-load props, while the history entry names a stage.
+    window.history.replaceState(null, "", "/studio?conversation=design-1&image=img-2");
+    render(
+      <StudioClient
+        initialLanes={[lane({ cells: [cell("img-1"), cell("img-2")] })]}
+        initialFocus={null}
+      />
+    );
+    expect(screen.getByText("Result 2 of 2")).toBeTruthy();
+  });
+
+  it("tapping the result already shown adds no history entry", () => {
+    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1"), cell("img-2")] })]} />);
+    openStage(0);
+    const before = window.history.length;
+    fireEvent.click(screen.getByRole("link", { name: "Result 1, shown" }));
+    expect(window.history.length).toBe(before);
+    fireEvent.click(screen.getByRole("link", { name: "Result 2" }));
+    expect(window.history.length).toBe(before + 1);
+    expect(screen.getByText("Result 2 of 2")).toBeTruthy();
+  });
+
+  it("a refusal that lands on the stage leaves no anchor behind on the bench", async () => {
+    let refuse!: (result: unknown) => void;
+    vi.mocked(generateDesign).mockReturnValueOnce(
+      new Promise((resolve) => {
+        refuse = resolve;
+      }) as never
+    );
+    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+    openStage(0);
+    fireEvent.change(screen.getByTestId("studio-composer"), { target: { value: "bigger" } });
+    fireEvent.click(screen.getByTestId("studio-generate"));
+    await act(async () => {
+      refuse({ kind: "limit", message: "Over the limit." });
+    });
+    // Words and chip back on the stage…
+    expect((screen.getByTestId("studio-composer") as HTMLInputElement).value).toBe("bigger");
+    expect(screen.getByTestId("anchor-chip")).toBeTruthy();
+    // …and nothing hidden on the bench for "← Studio" to surface.
+    leaveStage();
+    expect(screen.queryByTestId("anchor-chip")).toBeNull();
+  });
+
+  it("a give-back ignores the same image in another lane once its own lane has closed", async () => {
+    // design-2 holds img-1 as a seed (a link), plus its own img-2.
+    const lanes = () => [
+      lane({ cells: [cell("img-1")] }),
+      lane({ designId: "design-2", title: "second lane", cells: [cell("img-1"), cell("img-2")] }),
+    ];
+    h.polledLanes = lanes();
+    let refuse!: (result: unknown) => void;
+    vi.mocked(generateDesign).mockReturnValueOnce(
+      new Promise((resolve) => {
+        refuse = resolve;
+      }) as never
+    );
+    render(<StudioClient initialLanes={lanes()} />);
+    openStage(0); // design-1 / img-1
+    fireEvent.change(screen.getByTestId("studio-composer"), { target: { value: "bigger" } });
+    fireEvent.click(screen.getByTestId("studio-generate"));
+    leaveStage();
+    openStage(2); // design-2 / img-2
+    // design-1 closes elsewhere; design-2 still shows img-1.
+    h.polledLanes = [lanes()[1]];
+    fireEvent(window, new Event("focus"));
+    await waitFor(() => expect(getStudioLanes).toHaveBeenCalled());
+    // Let that poll's lanes land before the refusal arrives.
+    await act(async () => {
+      await vi.mocked(getStudioLanes).mock.results.at(-1)!.value;
+    });
+    await act(async () => {
+      refuse({ kind: "limit", message: "Over the limit." });
+    });
+    // Not steered into the closed conversation: still on design-2, chip
+    // cleared because the words' own image left.
+    expect(window.location.search).toBe("?conversation=design-2&image=img-2");
+    expect(screen.queryByTestId("anchor-chip")).toBeNull();
+    expect((screen.getByTestId("studio-composer") as HTMLInputElement).value).toBe("bigger");
   });
 
   it("an initialFocus that names nothing renders the bench and drops the params", () => {
@@ -1213,14 +1302,21 @@ describe("the optimistic pending cell (#187)", () => {
     expect(box.checked).toBe(false);
   });
 
-  it("keeps the anchor while the submit is in flight, until the turn is accepted", () => {
-    deferGenerate();
+  it("keeps a bench anchor while the submit is in flight, until the turn is accepted", async () => {
+    // On the bench, where an accepted turn spends the anchor (#276); a stage
+    // submit never does.
+    h.polledLanes = [lane({ cells: [cell("img-1")] })];
     render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+    await anchorOnBench(0);
+    const settle = deferGenerate();
 
-    openStage(0);
     submitText("make it blue");
-
     expect(screen.getByTestId("anchor-chip")).toBeTruthy();
+
+    await act(async () => {
+      settle({ kind: "queued", jobId: "job-new", generationNumber: 1, imageId: "img-new" });
+    });
+    expect(screen.queryByTestId("anchor-chip")).toBeNull();
   });
 });
 
@@ -2572,40 +2668,7 @@ describe("the anchor clears after an accepted Generate (2026-10-01)", () => {
     expect(opts).toEqual({ jobId: expect.any(String) });
   });
 
-  it("keeps the anchor when the turn is refused, so the same edit can be retried", async () => {
-    h.polledLanes = [lane({ cells: [cell("img-1")] })];
-    vi.mocked(generateDesign).mockResolvedValueOnce({
-      kind: "limit",
-      message: "You've reached today's free design limit. Sign in to keep designing.",
-    });
-    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
-
-    openStage(0);
-    submitText("make it blue");
-    await waitFor(() => expect(screen.getByText(/free design limit/)).toBeTruthy());
-
-    expect(screen.getByTestId("anchor-chip")).toBeTruthy();
-    expect(
-      (screen.getByTestId("studio-composer") as HTMLInputElement).value
-    ).toBe("make it blue");
-  });
-
-  it("keeps the anchor when the action throws a server error", async () => {
-    h.polledLanes = [lane({ cells: [cell("img-1")] })];
-    vi.mocked(generateDesign).mockRejectedValueOnce(
-      Object.assign(new Error("masked"), { digest: "abc" })
-    );
-    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
-
-    openStage(0);
-    submitText("make it blue");
-    await waitFor(() => expect(screen.getByText(/Something went wrong/)).toBeTruthy());
-
-    expect(screen.getByTestId("anchor-chip")).toBeTruthy();
-  });
-
-  it("keeps a newer anchor set while the submit was in flight", async () => {
-    const settle = deferGenerate();
+  it("keeps a newer bench anchor set while the submit was in flight", async () => {
     h.polledLanes = [
       lane({ cells: [cell("img-1")] }),
       lane({ designId: "design-2", title: "second lane", cells: [cell("img-2")] }),
@@ -2619,10 +2682,14 @@ describe("the anchor clears after an accepted Generate (2026-10-01)", () => {
       />
     );
 
-    openStage(0);
+    // A bench submit anchored to the first lane's image…
+    await anchorOnBench(0);
+    expect(screen.getByTestId("anchor-chip").textContent).toContain("geometric wolf head");
+    const settle = deferGenerate();
     submitText("make it blue");
-    leaveStage();
-    openStage(1);
+    // …then, while it is in flight, a newer bench anchor on the second lane
+    // (cell 1: the first lane's pending cell is not a studio-cell).
+    await anchorOnBench(1);
     expect(screen.getByTestId("anchor-chip").textContent).toContain("second lane");
 
     await act(async () => {
