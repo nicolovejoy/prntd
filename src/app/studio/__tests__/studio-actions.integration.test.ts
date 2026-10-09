@@ -55,9 +55,10 @@ vi.mock("@/lib/auth", () => ({
     user.isAnonymous === true,
 }));
 
-const { getStudioLanes, getGenerationJobStatus } = await import(
-  "@/app/studio/actions"
-);
+const { getStudioLanes, getGenerationJobStatus, getConversationHistory } =
+  await import(
+    "@/app/studio/actions"
+  );
 
 let savedFlag: string | undefined;
 
@@ -210,5 +211,68 @@ describe("getGenerationJobStatus", () => {
     expect(await getGenerationJobStatus(ownerJob.job.id)).toEqual({
       status: "none",
     });
+  });
+});
+
+describe("getConversationHistory", () => {
+  it("returns the owner's turns oldest first", async () => {
+    const design = await makeDesign(testDb, "owner");
+    const now = Date.now();
+    // Inserted out of order so the result order comes from created_at.
+    await testDb.insert(schema.chatMessage).values([
+      {
+        designId: design.id,
+        role: "user",
+        content: "a third turn",
+        createdAt: new Date(now - 60_000),
+      },
+      {
+        designId: design.id,
+        role: "user",
+        content: "a first turn",
+        imageId: null,
+        createdAt: new Date(now - 3 * 60_000),
+      },
+      {
+        designId: design.id,
+        role: "assistant",
+        content: "a second turn",
+        imageId: "img-a",
+        createdAt: new Date(now - 2 * 60_000),
+      },
+    ]);
+
+    const turns = await getConversationHistory(design.id);
+
+    expect(turns.map((t) => t.role)).toEqual(["user", "assistant", "user"]);
+    expect(turns.map((t) => t.content)).toEqual([
+      "a first turn",
+      "a second turn",
+      "a third turn",
+    ]);
+    expect(turns[0].imageId).toBeNull();
+    expect(turns[1].imageId).toBe("img-a");
+    expect(turns[0].createdAt.getTime()).toBeLessThan(
+      turns[2].createdAt.getTime()
+    );
+  });
+
+  it("refuses a conversation the session does not own", async () => {
+    await makeUser(testDb, "stranger");
+    const other = await makeDesign(testDb, "stranger");
+    await testDb.insert(schema.chatMessage).values({
+      designId: other.id,
+      role: "user",
+      content: "not yours",
+    });
+
+    await expect(getConversationHistory(other.id)).rejects.toThrow(
+      "Unauthorized"
+    );
+  });
+
+  it("refuses with no session", async () => {
+    h.userId = null;
+    await expect(getConversationHistory("any")).rejects.toThrow("Unauthorized");
   });
 });
