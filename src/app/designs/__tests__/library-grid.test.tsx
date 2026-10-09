@@ -91,6 +91,9 @@ describe("My Designs selection cue on the ink well (#139)", () => {
     expect(cls).toContain("ring-background");
     expect(cls).not.toContain("border-accent");
     expect(cls).not.toContain("ring-accent");
+    const badge = screen.getByTestId("library-tile-checked");
+    expect(badge.className).toContain("bg-background");
+    expect(badge.className).not.toContain("bg-accent");
   });
 
   it("an unselected tile on the dark well hovers to Paper, not ink", () => {
@@ -109,6 +112,9 @@ describe("My Designs selection cue on the ink well (#139)", () => {
     expect(cls).toContain("ring-accent");
     expect(cls).not.toContain("border-background");
     expect(cls).not.toContain("ring-background");
+    const badge = screen.getByTestId("library-tile-checked");
+    expect(badge.className).toContain("bg-accent");
+    expect(badge.className).not.toContain("bg-background");
   });
 });
 

@@ -282,7 +282,7 @@ function LibraryCell({
   // #73); unpublished work sits on the well, ink when the artwork is light
   // enough to read as blank on paper (#139, wellForLuminance). The ink well
   // is the same colour as border-accent, so on it the selected and hover
-  // cues invert to Paper.
+  // cues, and the check badge, invert to Paper.
   const onInk = !img.isPublished && wellForLuminance(img.luminance) === "dark";
   const backdrop = img.isPublished
     ? publishedBackdrop(img.backgroundColor)
@@ -317,7 +317,9 @@ function LibraryCell({
           <span
             aria-hidden
             data-testid="library-tile-checked"
-            className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-accent text-xs text-accent-fg"
+            className={`absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full text-xs ${
+              onInk ? "bg-background text-foreground" : "bg-accent text-accent-fg"
+            }`}
           >
             ✓
           </span>
