@@ -15,6 +15,9 @@
   /* The paper "well" for artwork/media that used to sit on a checkerboard —
      see .bg-checkerboard below. Ink mixed 8% into the ground. */
   --surface-well: #e6e3dd;
+  /* The ink well under unpublished artwork that would read as blank on
+     paper (#139, src/lib/artwork-well.ts decides). Same hex as --foreground. */
+  --surface-well-dark: #141311;
   /* Hairline (resting) vs solid ink (hover/focus, emphasis) — "ink at ~25%
      for hairlines / ink for 1px rules" per the design review. */
   --border: #bfbdb8;
@@ -46,6 +49,7 @@
   --color-surface: var(--surface);
   --color-surface-raised: var(--surface-raised);
   --color-surface-well: var(--surface-well);
+  --color-surface-well-dark: var(--surface-well-dark);
   --color-border: var(--border);
   --color-border-hover: var(--border-hover);
   --color-text-muted: var(--text-muted);
