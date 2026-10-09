@@ -356,6 +356,7 @@ differ.
   the only surface carrying this pattern, since the Rail it used to pair
   with is gone.
 - **Lightbox** — full-screen image overlay with per-image actions.
+- **Focused stage** — a Studio layout mode with `?conversation=&image=` parameters: one result large on its backdrop, composer below, other results in a strip, history disclosure.
 - **Sticky bar** — the fixed bottom CTA bar on phone funnel pages
   (/preview).
 - **Chip** — a small pill-shaped tappable suggestion (example prompts, filter

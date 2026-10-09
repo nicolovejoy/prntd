@@ -75,7 +75,7 @@ Local `npm run build` needs env. Use CI's dummy block (copy it from `ci.yml`'s `
 
 ```
 /                       → Landing: composer-first hero + Shop feed below
-/studio                 → Studio bench: composer on top, one lane per conversation (guests with a session allowed while GUEST_FUNNEL_ENABLED; #248)
+/studio                 → Studio bench: composer on top, one lane per conversation (guests with a session allowed while GUEST_FUNNEL_ENABLED; #248); `?conversation=&image=` is the focused stage (#188 slice 4): one result large on its backdrop, composer under it, other results, history disclosure
 /designs                → My Designs (top nav): every owned image, Active/All filter (guests too; #258)
 /checkout?session=      → Stripe Embedded Checkout for image-detail-page buys; 404 unless EMBEDDED_CHECKOUT_ENABLED (or the unused PREVIEW_EMBEDDED_CHECKOUT_ENABLED) is on (#250, #135)
 /design?id=             → One conversation thread (older make surface; still reachable)
