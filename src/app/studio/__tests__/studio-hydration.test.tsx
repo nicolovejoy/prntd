@@ -202,6 +202,7 @@ describe("StudioClient hydration", () => {
             isPrimary: true,
             createdAt: new Date(T - 600_000),
             backdropColor: null,
+            luminance: null,
           },
         ],
       };

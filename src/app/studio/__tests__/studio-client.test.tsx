@@ -82,6 +82,7 @@ function cell(id: string, overrides: Partial<StudioLane["cells"][number]> = {}) 
     isPrimary: false,
     createdAt: new Date(),
     backdropColor: null,
+    luminance: null,
     ...overrides,
   };
 }

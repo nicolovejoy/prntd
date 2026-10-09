@@ -149,6 +149,28 @@ describe("getStudioLanesData", () => {
     expect(lane.cells.map((c) => c.isPrimary)).toEqual([false, false, true]);
   });
 
+  it("cells carry image.luminance, null when unscored (#139)", async () => {
+    const design = await makeOpenDesign("owner");
+    await makeSourceImage(db, {
+      designId: design.id,
+      ownerId: "owner",
+      imageUrl: "https://cdn.example/scored.png",
+      luminance: 0.7,
+      createdAt: minutesAgo(20),
+    });
+    await makeSourceImage(db, {
+      designId: design.id,
+      ownerId: "owner",
+      imageUrl: "https://cdn.example/unscored.png",
+      createdAt: minutesAgo(10),
+    });
+
+    const [lane] = await getStudioLanesData("owner", { db });
+
+    expect(lane.cells[0].luminance).toBeCloseTo(0.7, 6);
+    expect(lane.cells[1].luminance).toBeNull();
+  });
+
   it("running jobs render as pending cells; cancelled ones do not", async () => {
     const design = await makeOpenDesign("owner");
     const live = await seedRunningJob(design.id, "owner", {

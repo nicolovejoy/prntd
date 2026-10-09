@@ -52,6 +52,8 @@ export type UsageImage = {
   conversationId: string | null;
   /** Other conversations it was carried into as a seed. */
   seedIn: string[];
+  /** image.luminance (#139): picks the tile's well when unpublished. */
+  luminance: number | null;
 };
 
 async function requireAdmin(): Promise<void> {
@@ -285,6 +287,7 @@ export async function getUsageUser(
         publishedAt: imagePublicationTable.publishedAt,
         isHidden: imagePublicationTable.isHidden,
         backdropColor: productTable.backdropColor,
+        luminance: imageTable.luminance,
       })
       .from(imageTable)
       .leftJoin(imagePublicationTable, eq(imagePublicationTable.imageId, imageTable.id))
@@ -319,6 +322,7 @@ export async function getUsageUser(
       conversationId:
         mine.find((l) => l.role === "output")?.designId ?? i.sourceDesignId ?? null,
       seedIn: mine.filter((l) => l.role === "seed").map((l) => l.designId),
+      luminance: i.luminance,
     };
   });
 

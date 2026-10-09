@@ -142,6 +142,8 @@ export async function assertPrimaryNotHidden(imageId: string): Promise<void> {
 export type BackSourceImage = {
   id: string;
   imageUrl: string;
+  /** image.luminance (#139) — the picker's sort key; null sorts last. */
+  luminance: number | null;
 };
 
 export type BackSourceGroup = {
@@ -174,7 +176,11 @@ export async function getBackSourceGroups(params: {
     groups.push({
       id: "this-design",
       label: "This design",
-      images: thisDesign.map((s) => ({ id: s.id, imageUrl: s.imageUrl })),
+      images: thisDesign.map((s) => ({
+        id: s.id,
+        imageUrl: s.imageUrl,
+        luminance: s.luminance,
+      })),
     });
   }
   if (myDesigns.length > 0) {
@@ -288,8 +294,14 @@ async function getOtherDesignPrimaries(
   const out: BackSourceImage[] = [];
   for (const d of designs) {
     if (d.primaryImageId && hidden.has(d.primaryImageId)) continue;
-    const url = d.primaryImageId ? byId.get(d.primaryImageId)?.imageUrl : undefined;
-    if (d.primaryImageId && url) out.push({ id: d.primaryImageId, imageUrl: url });
+    const ref = d.primaryImageId ? byId.get(d.primaryImageId) : undefined;
+    if (d.primaryImageId && ref) {
+      out.push({
+        id: d.primaryImageId,
+        imageUrl: ref.imageUrl,
+        luminance: ref.luminance,
+      });
+    }
   }
   return out;
 }
@@ -310,6 +322,7 @@ async function getShopImages(
       id: imageTable.id,
       designId: imageTable.sourceDesignId,
       imageUrl: imageTable.imageUrl,
+      luminance: imageTable.luminance,
       publishedAt: imagePublicationTable.publishedAt,
     })
     .from(imagePublicationTable)
@@ -332,5 +345,5 @@ async function getShopImages(
     rows.map((r) => ({ ...r, designId: r.designId ?? r.id }))
   )
     .slice(0, GROUP_LIMIT)
-    .map((r) => ({ id: r.id, imageUrl: r.imageUrl }));
+    .map((r) => ({ id: r.id, imageUrl: r.imageUrl, luminance: r.luminance }));
 }

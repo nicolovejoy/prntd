@@ -654,7 +654,7 @@ describe("BuyPanel swap (#138 slice 3)", () => {
         {
           id: "shop",
           label: "Shop",
-          images: [{ id: "img-1", imageUrl: PAGE_URL }],
+          images: [{ id: "img-1", imageUrl: PAGE_URL, luminance: null }],
         },
       ],
     });

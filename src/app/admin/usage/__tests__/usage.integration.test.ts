@@ -8,6 +8,7 @@
  * the 7-day window starts 2026-10-02 07:00Z.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { eq } from "drizzle-orm";
 import * as schema from "@/lib/db/schema";
 import { createTestDb } from "@/lib/__tests__/test-db";
 
@@ -347,6 +348,17 @@ describe("getUsageUser", () => {
     expect(hidden.backdropColor).toBeNull();
     expect(pub2.prompt).toHaveLength(200);
     expect(priv).toMatchObject({ status: "private", conversationId: d2, backdropColor: null });
+  });
+
+  it("carries image.luminance, null when unscored (#139)", async () => {
+    await db()
+      .update(schema.image)
+      .set({ luminance: 0.7 })
+      .where(eq(schema.image.id, "img-pub-1"));
+    const detail = await getUsageUser(ACCOUNT, 200);
+    const byId = Object.fromEntries(detail!.images.map((i) => [i.id, i]));
+    expect(byId["img-pub-1"].luminance).toBeCloseTo(0.7, 6);
+    expect(byId["img-private"].luminance).toBeNull();
   });
 
   it("clamps a bad limit inside the actions", async () => {

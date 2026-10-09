@@ -11,7 +11,7 @@ import {
 } from "@/lib/studio-focus";
 
 function cell(imageId: string, isPrimary = false) {
-  return { imageId, imageUrl: `https://cdn.example/${imageId}.png`, isPrimary, createdAt: new Date(), backdropColor: null };
+  return { imageId, imageUrl: `https://cdn.example/${imageId}.png`, isPrimary, createdAt: new Date(), backdropColor: null, luminance: null };
 }
 function lane(designId: string, cells: ReturnType<typeof cell>[]): StudioLane {
   return { designId, title: null, lastActiveAt: new Date(), messageCount: 0, cells, pending: [] };

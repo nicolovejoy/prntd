@@ -16,7 +16,7 @@ import { FocusedStage } from "../focused-stage";
 window.HTMLElement.prototype.scrollIntoView = vi.fn();
 
 function cell(imageId: string, over: Partial<StudioLane["cells"][number]> = {}) {
-  return { imageId, imageUrl: `https://cdn.example/${imageId}.png`, isPrimary: false, createdAt: new Date(), backdropColor: null, ...over };
+  return { imageId, imageUrl: `https://cdn.example/${imageId}.png`, isPrimary: false, createdAt: new Date(), backdropColor: null, luminance: null, ...over };
 }
 function lane(over: Partial<StudioLane> = {}): StudioLane {
   return { designId: "d1", title: "woodcut bear", lastActiveAt: new Date(), messageCount: 4, cells: [cell("a"), cell("b"), cell("c")], pending: [], ...over };
