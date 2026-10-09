@@ -94,6 +94,7 @@ function runningLane(): StudioLane {
     // 59.5 s before the server rendered: "just now" there, "1m ago" 1.5 s
     // later on the client.
     lastActiveAt: new Date(T - 59_500),
+    messageCount: 0,
     cells: [],
     // 25.4 s into the render on the server ("0:25"), 26.9 s on the client
     // ("0:26").
@@ -155,6 +156,7 @@ describe("StudioClient hydration", () => {
             designId: "design-old",
             title: "a returning lane",
             lastActiveAt,
+            messageCount: 0,
             cells: [],
             pending: [],
           },

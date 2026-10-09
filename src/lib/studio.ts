@@ -5,8 +5,9 @@
  *
  * Assembled in a fixed number of statements regardless of lane count — the
  * client re-reads this whole surface on a poll while a generation is in
- * flight, so the path must stay flat: one design select, then three
- * batched reads (images, running jobs, first chat turns), never a query
+ * flight, so the path must stay flat: one design select, then four
+ * batched reads (images, running jobs, first chat turns, message counts),
+ * never a query
  * per lane.
  *
  * Server-only (imports drizzle + schema). Client components import types
@@ -20,7 +21,10 @@ import {
   conversationImage as conversationImageTable,
   image as imageTable,
   imageGeneration as imageGenerationTable,
+  imagePublication as imagePublicationTable,
+  product as productTable,
 } from "./db/schema";
+import { mirrorFrontImageId } from "./composition-reads";
 import { sweepStaleJobs } from "./generation-job";
 import { sweepIdleConversations } from "./archive-conversations";
 
@@ -35,6 +39,13 @@ export type StudioCell = {
   /** The conversation's primary_image_id — the marked cell. */
   isPrimary: boolean;
   createdAt: Date;
+  /**
+   * The pinned Shop backdrop (`product.backdrop_color`) when the image is
+   * published and not admin-hidden (`image_publication` is the one
+   * visibility reader, #300); null otherwise. The focused stage paints a
+   * published result on it; unpublished artwork sits on the paper well.
+   */
+  backdropColor: string | null;
 };
 
 /** One running generation in a lane, rendered with elapsed time. */
@@ -58,6 +69,8 @@ export type StudioLane = {
   title: string | null;
   /** What "most recently active" is judged on — see laneLastActiveAt. */
   lastActiveAt: Date;
+  /** `chat_message` rows in this conversation — the stage's history label. */
+  messageCount: number;
   cells: StudioCell[];
   pending: StudioPendingCell[];
 };
@@ -179,7 +192,7 @@ export async function getStudioLanesData(
   if (designs.length === 0) return [];
   const designIds = designs.map((d) => d.id);
 
-  const [imageRows, jobRows, firstTurnRows] = await Promise.all([
+  const [imageRows, jobRows, firstTurnRows, countRows] = await Promise.all([
     // Both roles: a seed is one of the conversation's images, and its
     // image.created_at predates every output the thread generates, so the
     // shared ordering keeps it first (getDesignSourceImages convention,
@@ -191,9 +204,19 @@ export async function getStudioLanesData(
         imageUrl: imageTable.imageUrl,
         prompt: imageTable.prompt,
         createdAt: imageTable.createdAt,
+        publishedAt: imagePublicationTable.publishedAt,
+        isHidden: imagePublicationTable.isHidden,
+        backdropColor: productTable.backdropColor,
       })
       .from(conversationImageTable)
       .innerJoin(imageTable, eq(imageTable.id, conversationImageTable.imageId))
+      // Visibility from image_publication (#300); the backdrop off the Shop
+      // mirror. front_image_id is unique, so the mirror join yields <= 1 row.
+      .leftJoin(
+        imagePublicationTable,
+        eq(imagePublicationTable.imageId, imageTable.id)
+      )
+      .leftJoin(productTable, eq(mirrorFrontImageId, imageTable.id))
       .where(inArray(conversationImageTable.designId, designIds))
       .orderBy(asc(imageTable.createdAt), sql`image.rowid asc`),
     // One user-scoped read (the user_status index), not one per lane.
@@ -234,6 +257,14 @@ export async function getStudioLanesData(
         )
       )
       .groupBy(chatMessageTable.designId),
+    db
+      .select({
+        designId: chatMessageTable.designId,
+        n: sql<number>`count(*)`,
+      })
+      .from(chatMessageTable)
+      .where(inArray(chatMessageTable.designId, designIds))
+      .groupBy(chatMessageTable.designId),
   ]);
 
   const cellsByDesign = new Map<
@@ -248,6 +279,8 @@ export async function getStudioLanesData(
         imageUrl: row.imageUrl,
         isPrimary: false, // filled in per-design below
         createdAt: row.createdAt,
+        backdropColor:
+          row.publishedAt && !row.isHidden ? (row.backdropColor ?? null) : null,
       },
       prompt: row.prompt,
     });
@@ -269,6 +302,10 @@ export async function getStudioLanesData(
     firstTurnRows.map((row) => [row.designId, row.content])
   );
 
+  const countByDesign = new Map(
+    countRows.map((row) => [row.designId, Number(row.n)])
+  );
+
   const lanes = designs.map((design) => {
     const entries = cellsByDesign.get(design.id) ?? [];
     const cells = entries.map(({ cell }) => ({
@@ -288,6 +325,7 @@ export async function getStudioLanesData(
         cells,
         pending,
       }),
+      messageCount: countByDesign.get(design.id) ?? 0,
       cells,
       pending,
     };

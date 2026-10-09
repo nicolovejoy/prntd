@@ -124,6 +124,7 @@ function lane(overrides: Partial<StudioLane> = {}): StudioLane {
     designId: "design-1",
     title: "existing lane",
     lastActiveAt: new Date("2026-09-05T00:00:00Z"),
+    messageCount: 0,
     cells: [],
     pending: [],
     ...overrides,

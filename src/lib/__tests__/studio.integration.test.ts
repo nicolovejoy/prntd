@@ -243,6 +243,61 @@ describe("getStudioLanesData", () => {
   it("returns [] for a user with no open conversations", async () => {
     expect(await getStudioLanesData("owner", { db })).toEqual([]);
   });
+
+  it("a published cell carries its pinned backdrop; unpublished and hidden carry null", async () => {
+    const design = await makeOpenDesign("owner");
+    const published = await makeSourceImage(db, {
+      designId: design.id,
+      ownerId: "owner",
+      imageUrl: "https://cdn.example/pub.png",
+      createdAt: minutesAgo(30),
+      publishedAt: minutesAgo(20),
+      backgroundColor: "Navy",
+    });
+    const hidden = await makeSourceImage(db, {
+      designId: design.id,
+      ownerId: "owner",
+      imageUrl: "https://cdn.example/hidden.png",
+      createdAt: minutesAgo(25),
+      publishedAt: minutesAgo(20),
+      backgroundColor: "Black",
+      isHidden: true,
+    });
+    const privateId = await makeSourceImage(db, {
+      designId: design.id,
+      ownerId: "owner",
+      imageUrl: "https://cdn.example/private.png",
+      createdAt: minutesAgo(10),
+    });
+
+    const [lane] = await getStudioLanesData("owner", { db });
+
+    const byId = new Map(lane.cells.map((c) => [c.imageId, c.backdropColor]));
+    expect(byId.get(published)).toBe("Navy");
+    expect(byId.get(hidden)).toBeNull();
+    expect(byId.get(privateId)).toBeNull();
+  });
+
+  it("counts the conversation's chat messages", async () => {
+    const design = await makeOpenDesign("owner");
+    const other = await makeOpenDesign("owner");
+    await db.insert(schema.chatMessage).values([
+      { designId: design.id, role: "user", content: "a", createdAt: minutesAgo(3) },
+      { designId: design.id, role: "assistant", content: "b", createdAt: minutesAgo(2) },
+      { designId: other.id, role: "user", content: "c", createdAt: minutesAgo(1) },
+    ]);
+
+    const lanes = await getStudioLanesData("owner", { db });
+
+    expect(lanes.find((l) => l.designId === design.id)?.messageCount).toBe(2);
+    expect(lanes.find((l) => l.designId === other.id)?.messageCount).toBe(1);
+  });
+
+  it("a lane with no chat has messageCount 0", async () => {
+    await makeOpenDesign("owner");
+    const [lane] = await getStudioLanesData("owner", { db });
+    expect(lane.messageCount).toBe(0);
+  });
 });
 
 describe("laneLastActiveAt", () => {

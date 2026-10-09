@@ -67,6 +67,7 @@ function lane(overrides: Partial<StudioLane> = {}): StudioLane {
     designId: "design-1",
     title: "geometric wolf head",
     lastActiveAt: new Date(Date.now() - 5 * 60 * 1000),
+    messageCount: 0,
     cells: [],
     pending: [],
     ...overrides,
@@ -79,6 +80,7 @@ function cell(id: string, overrides: Partial<StudioLane["cells"][number]> = {}) 
     imageUrl: `https://cdn.example/${id}.png`,
     isPrimary: false,
     createdAt: new Date(),
+    backdropColor: null,
     ...overrides,
   };
 }
