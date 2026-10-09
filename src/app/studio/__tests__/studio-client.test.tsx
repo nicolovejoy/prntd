@@ -233,6 +233,25 @@ describe("cells (Paper bench)", () => {
     expect(cell0.className).not.toContain("ring-2");
   });
 
+  it("an anchored cell on the dark well draws its border in Paper, on white in ink (#139)", async () => {
+    const { unmount } = render(
+      <StudioClient initialLanes={[lane({ cells: [cell("light", { luminance: 0.9 })] })]} />
+    );
+    await anchorOnBench(0);
+    const light = screen.getAllByTestId("studio-cell")[0];
+    expect(light.className).toContain("border-2");
+    expect(light.className).toContain("border-background");
+    expect(light.className).not.toContain("border-foreground");
+    unmount();
+
+    render(<StudioClient initialLanes={[lane({ cells: [cell("dark", { luminance: 0.1 })] })]} />);
+    await anchorOnBench(0);
+    const dark = screen.getAllByTestId("studio-cell")[0];
+    expect(dark.className).toContain("border-2");
+    expect(dark.className).toContain("border-foreground");
+    expect(dark.className).not.toContain("border-background");
+  });
+
   it("keeps anchored and primary as separate, composable signals", async () => {
     render(
       <StudioClient

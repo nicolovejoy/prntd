@@ -79,6 +79,21 @@ describe("FocusedStage", () => {
     expect(screen.getByLabelText(/Result 1/).className).toContain("bg-surface-well-dark");
   });
 
+  it("the shown strip cell inverts its border to Paper on the dark well, and keeps ink on paper (#139)", () => {
+    const cells = [cell("a", { luminance: 0.9 }), cell("b", { luminance: 0.1 })];
+    const { unmount } = render(<FocusedStage {...renderStageProps({ lane: lane({ cells }), index: 0 })} />);
+    const light = screen.getByLabelText(/Result 1/);
+    expect(light.className).toContain("border-background");
+    expect(light.className).not.toContain("border-foreground");
+    // The unshown cell next to it keeps the quiet 1px border.
+    expect(screen.getByLabelText(/Result 2/).className).toContain("border-border");
+    unmount();
+    render(<FocusedStage {...renderStageProps({ lane: lane({ cells }), index: 1 })} />);
+    const dark = screen.getByLabelText(/Result 2/);
+    expect(dark.className).toContain("border-foreground");
+    expect(dark.className).not.toContain("border-background");
+  });
+
   it("a published result keeps its pinned backdrop whatever its luminance", () => {
     renderStage({ lane: lane({ cells: [cell("a", { luminance: 0.9, backdropColor: "Black" })] }), index: 0 });
     const frame = screen.getByTestId("stage-frame");

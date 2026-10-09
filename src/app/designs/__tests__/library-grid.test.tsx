@@ -76,6 +76,42 @@ describe("My Designs tile well (#139)", () => {
   });
 });
 
+describe("My Designs selection cue on the ink well (#139)", () => {
+  const mixed = () => [
+    img({ imageId: "light", luminance: 0.95 }),
+    img({ imageId: "dark", luminance: 0.05 }),
+  ];
+
+  it("a selected tile on the dark well draws its border and ring in Paper", () => {
+    render(<LibraryGrid images={mixed()} />);
+    fireEvent.click(screen.getByTestId("library-select"));
+    fireEvent.click(tiles()[0]);
+    const cls = tiles()[0].className;
+    expect(cls).toContain("border-background");
+    expect(cls).toContain("ring-background");
+    expect(cls).not.toContain("border-accent");
+    expect(cls).not.toContain("ring-accent");
+  });
+
+  it("an unselected tile on the dark well hovers to Paper, not ink", () => {
+    render(<LibraryGrid images={mixed()} />);
+    const cls = tiles()[0].className;
+    expect(cls).toContain("group-hover:border-background");
+    expect(cls).not.toContain("group-hover:border-accent");
+  });
+
+  it("a selected tile on the paper well keeps the accent border and ring", () => {
+    render(<LibraryGrid images={mixed()} />);
+    fireEvent.click(screen.getByTestId("library-select"));
+    fireEvent.click(tiles()[1]);
+    const cls = tiles()[1].className;
+    expect(cls).toContain("border-accent");
+    expect(cls).toContain("ring-accent");
+    expect(cls).not.toContain("border-background");
+    expect(cls).not.toContain("ring-background");
+  });
+});
+
 describe("My Designs select mode", () => {
   it("offers Select only when there is something to select", () => {
     const { unmount } = render(<LibraryGrid images={[]} />);

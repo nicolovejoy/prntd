@@ -1778,6 +1778,9 @@ function Lane({
           // #1 is the lane's first image, and a later generation never
           // renumbers an earlier one.
           const label = `#${index + 1}`;
+          // The ink well is the same colour as border-foreground, so on it
+          // the anchored cue inverts to Paper (border-background).
+          const onInk = wellForLuminance(cell.luminance) === "dark";
           return (
             <div
               key={cell.imageId}
@@ -1805,9 +1808,13 @@ function Lane({
                   onOpenCell(lane, index);
                 }}
                 className={`absolute inset-0 overflow-hidden ${
-                  wellForLuminance(cell.luminance) === "dark" ? "bg-surface-well-dark" : "bg-surface"
+                  onInk ? "bg-surface-well-dark" : "bg-surface"
                 } ${
-                  anchored ? "border-2 border-foreground" : "border border-foreground"
+                  anchored
+                    ? onInk
+                      ? "border-2 border-background"
+                      : "border-2 border-foreground"
+                    : "border border-foreground"
                 }`}
               >
                 <span className="absolute inset-1.5">

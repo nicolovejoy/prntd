@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { publishedBackdrop } from "@/lib/blanks";
-import { wellClass } from "@/lib/artwork-well";
+import { wellClass, wellForLuminance } from "@/lib/artwork-well";
 import { Button, EmptyState, useConfirm } from "@/components/ui";
 import {
   bulkImageDeleteConsequence,
@@ -280,7 +280,10 @@ function LibraryCell({
 }) {
   // Published images sit on their chosen storefront backdrop (null → White,
   // #73); unpublished work sits on the well, ink when the artwork is light
-  // enough to read as blank on paper (#139, wellForLuminance).
+  // enough to read as blank on paper (#139, wellForLuminance). The ink well
+  // is the same colour as border-accent, so on it the selected and hover
+  // cues invert to Paper.
+  const onInk = !img.isPublished && wellForLuminance(img.luminance) === "dark";
   const backdrop = img.isPublished
     ? publishedBackdrop(img.backgroundColor)
     : { className: wellClass(img.luminance), style: undefined };
@@ -292,8 +295,12 @@ function LibraryCell({
         data-testid="library-tile"
         className={`relative aspect-square rounded-md overflow-hidden border transition-colors ${
           selected
-            ? "border-accent ring-2 ring-accent"
-            : "border-border group-hover:border-accent"
+            ? onInk
+              ? "border-background ring-2 ring-background"
+              : "border-accent ring-2 ring-accent"
+            : onInk
+              ? "border-border group-hover:border-background"
+              : "border-border group-hover:border-accent"
         } ${backdrop.className}`}
         style={backdrop.style}
       >
