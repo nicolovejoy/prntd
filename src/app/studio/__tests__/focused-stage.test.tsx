@@ -73,6 +73,23 @@ describe("FocusedStage", () => {
     expect(screen.queryByText(/Shown on/)).toBeNull();
   });
 
+  it("an unpublished light result sits on the dark well, its strip cell too (#139)", () => {
+    renderStage({ lane: lane({ cells: [cell("a", { luminance: 0.9, backdropColor: null })] }), index: 0 });
+    expect(screen.getByTestId("stage-frame").className).toContain("bg-surface-well-dark");
+    expect(screen.getByLabelText(/Result 1/).className).toContain("bg-surface-well-dark");
+  });
+
+  it("a published result keeps its pinned backdrop whatever its luminance", () => {
+    renderStage({ lane: lane({ cells: [cell("a", { luminance: 0.9, backdropColor: "Black" })] }), index: 0 });
+    const frame = screen.getByTestId("stage-frame");
+    expect(frame.className).not.toContain("bg-surface-well");
+    expect(frame.style.backgroundColor).not.toBe("");
+    // The strip cell of a published result keeps the paper well it had.
+    const stripCell = screen.getByLabelText(/Result 1/);
+    expect(stripCell.className).toContain("bg-surface-well");
+    expect(stripCell.className).not.toContain("bg-surface-well-dark");
+  });
+
   it("links Order, Open and New design", () => {
     const props = renderStage();
     expect(screen.getByRole("link", { name: "Order" }).getAttribute("href")).toBe("/d/b?order=1&from=%2Fstudio");

@@ -56,6 +56,26 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
+describe("My Designs tile well (#139)", () => {
+  it("paints a light unpublished image on the dark well and a dark one on paper (#139)", () => {
+    render(
+      <LibraryGrid
+        images={[
+          img({ imageId: "light", luminance: 0.95 }),
+          img({ imageId: "dark", luminance: 0.05 }),
+          img({ imageId: "none", luminance: null }),
+        ]}
+      />,
+    );
+    const [light, dark, none] = tiles();
+    expect(light.className).toContain("bg-surface-well-dark");
+    expect(dark.className).toContain("bg-surface-well");
+    expect(dark.className).not.toContain("bg-surface-well-dark");
+    expect(none.className).toContain("bg-surface-well");
+    expect(none.className).not.toContain("bg-surface-well-dark");
+  });
+});
+
 describe("My Designs select mode", () => {
   it("offers Select only when there is something to select", () => {
     const { unmount } = render(<LibraryGrid images={[]} />);

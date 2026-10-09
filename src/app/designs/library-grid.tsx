@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { publishedBackdrop } from "@/lib/blanks";
+import { wellClass } from "@/lib/artwork-well";
 import { Button, EmptyState, useConfirm } from "@/components/ui";
 import {
   bulkImageDeleteConsequence,
@@ -278,10 +279,11 @@ function LibraryCell({
   onToggle: (imageId: string) => void;
 }) {
   // Published images sit on their chosen storefront backdrop (null → White,
-  // #73); unpublished work keeps the paper well working view.
+  // #73); unpublished work sits on the well, ink when the artwork is light
+  // enough to read as blank on paper (#139, wellForLuminance).
   const backdrop = img.isPublished
     ? publishedBackdrop(img.backgroundColor)
-    : { className: "bg-checkerboard", style: undefined };
+    : { className: wellClass(img.luminance), style: undefined };
   const marker = img.isPublished ? "Published" : null;
 
   const tile = (

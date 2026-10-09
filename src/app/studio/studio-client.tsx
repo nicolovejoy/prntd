@@ -40,6 +40,7 @@ import {
   type LostSubmitLookup,
 } from "@/lib/lost-submit";
 import { withTimeout } from "@/lib/timeout";
+import { wellForLuminance } from "@/lib/artwork-well";
 import {
   applyOptimistic,
   bulkDeleteConsequence,
@@ -1803,7 +1804,9 @@ function Lane({
                   }
                   onOpenCell(lane, index);
                 }}
-                className={`absolute inset-0 overflow-hidden bg-surface ${
+                className={`absolute inset-0 overflow-hidden ${
+                  wellForLuminance(cell.luminance) === "dark" ? "bg-surface-well-dark" : "bg-surface"
+                } ${
                   anchored ? "border-2 border-foreground" : "border border-foreground"
                 }`}
               >

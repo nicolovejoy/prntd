@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "re
 import type { StudioLane } from "@/lib/studio";
 import { buyPageHref } from "@/lib/buy-page-picks";
 import { DEFAULT_BLANK_ID, getColorHex, publishedBackdrop } from "@/lib/blanks";
+import { wellClass } from "@/lib/artwork-well";
 import { formatElapsed } from "@/lib/studio-view";
 import { historyTurnLabel } from "@/lib/studio-focus";
 import { getConversationHistory, type HistoryTurn } from "./actions";
@@ -75,10 +76,10 @@ export function FocusedStage({
   if (!cell) return null;
   const published = cell.backdropColor !== null;
   // Published: the pinned Shop backdrop (#302 rule for admin grids). Not
-  // published: the paper well; the #139 slice decides its tone later.
+  // published: the well, ink for light artwork (#139, wellForLuminance).
   const frame = published
     ? publishedBackdrop(cell.backdropColor)
-    : { className: "bg-surface-well", style: undefined };
+    : { className: wellClass(cell.luminance), style: undefined };
 
   return (
     <div data-testid="focused-stage" className="lg:grid lg:grid-cols-[600px_1fr] lg:gap-12">
@@ -143,7 +144,9 @@ export function FocusedStage({
                   onClick={(e) => onPickResult(i, e)}
                   aria-label={`Result ${i + 1}${shown ? ", shown" : ""}`}
                   aria-current={shown ? "true" : undefined}
-                  className={`relative shrink-0 w-14 h-14 lg:w-22 lg:h-22 bg-surface-well ${
+                  className={`relative shrink-0 w-14 h-14 lg:w-22 lg:h-22 ${
+                    c.backdropColor !== null ? "bg-surface-well" : wellClass(c.luminance)
+                  } ${
                     shown ? "border-2 border-foreground" : "border border-border"
                   }`}
                 >

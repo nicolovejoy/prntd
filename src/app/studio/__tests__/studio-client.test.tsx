@@ -205,6 +205,20 @@ describe("cells (Paper bench)", () => {
     expect(within(cells[1]).getByText("#2")).toBeTruthy();
   });
 
+  it("a light design sits on the dark well, a dark one on white (#139)", () => {
+    render(
+      <StudioClient
+        initialLanes={[
+          lane({ cells: [cell("light", { luminance: 0.9 }), cell("dark", { luminance: 0.1 })] }),
+        ]}
+      />
+    );
+    const [light, dark] = screen.getAllByTestId("studio-cell");
+    expect(light.className).toContain("bg-surface-well-dark");
+    expect(dark.className).toContain("bg-surface");
+    expect(dark.className).not.toContain("bg-surface-well-dark");
+  });
+
   it("marks the anchored cell with an ink border, not a ring", async () => {
     render(
       <StudioClient
