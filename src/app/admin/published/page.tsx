@@ -53,92 +53,95 @@ export default async function AdminPublishedPage() {
         <p className="text-sm text-text-muted">No published images yet.</p>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-          {images.map((img) => (
-            <div
-              key={img.imageId}
-              className={`border overflow-hidden ${
-                img.isHidden ? "border-negative" : "border-border"
-              }`}
-            >
-              {/* Paper: containers on /admin carry a hairline and no radius
+          {images.map((img) => {
+            const backdrop = publishedBackdrop(img.backdropColor);
+            return (
+              <div
+                key={img.imageId}
+                className={`border overflow-hidden ${
+                  img.isHidden ? "border-negative" : "border-border"
+                }`}
+              >
+                {/* Paper: containers on /admin carry a hairline and no radius
                   (see the summary rows and orders table on /admin). The image
                   well only needs its bottom edge — a full border here doubled
                   the card's own hairline on three sides. The artwork sits on
                   its pinned storefront backdrop, as in the Shop and My
                   Designs: a light design on the paper well reads as blank. */}
-              <Link
-                href={`/d/${img.imageId}`}
-                className={`relative block aspect-square border-b border-border ${publishedBackdrop(img.backdropColor).className}`}
-                style={publishedBackdrop(img.backdropColor).style}
-              >
-                <Image
-                  src={img.imageUrl}
-                  alt={img.title || "Design"}
-                  fill
-                  sizes="(max-width: 639px) 50vw, (max-width: 767px) 33vw, 25vw"
-                  loading="lazy"
-                  decoding="async"
-                  className="object-contain"
-                />
-              </Link>
-              <div className="p-3 space-y-2">
-                {img.isHidden && (
-                  <p className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-negative">
-                    Hidden
+                <Link
+                  href={`/d/${img.imageId}`}
+                  className={`relative block aspect-square border-b border-border ${backdrop.className}`}
+                  style={backdrop.style}
+                >
+                  <Image
+                    src={img.imageUrl}
+                    alt={img.title || "Design"}
+                    fill
+                    sizes="(max-width: 639px) 50vw, (max-width: 767px) 33vw, 25vw"
+                    loading="lazy"
+                    decoding="async"
+                    className="object-contain"
+                  />
+                </Link>
+                <div className="p-3 space-y-2">
+                  {img.isHidden && (
+                    <p className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-negative">
+                      Hidden
+                    </p>
+                  )}
+                  {img.title && (
+                    <p className="text-sm font-medium truncate">{img.title}</p>
+                  )}
+                  <p className="text-xs text-text-muted truncate">
+                    {img.designerName} · {img.designerEmail}
                   </p>
-                )}
-                {img.title && (
-                  <p className="text-sm font-medium truncate">{img.title}</p>
-                )}
-                <p className="text-xs text-text-muted truncate">
-                  {img.designerName} · {img.designerEmail}
-                </p>
-                <p className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted">
-                  {formatDisplayDate(img.publishedAt)}
-                </p>
-                {/* Shop feed position. Ranked images list first (lowest
+                  <p className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted">
+                    {formatDisplayDate(img.publishedAt)}
+                  </p>
+                  {/* Shop feed position. Ranked images list first (lowest
                     number first); blank = unranked, recency order. */}
-                <form action={saveRank} className="flex gap-2">
-                  <input type="hidden" name="imageId" value={img.imageId} />
-                  <Input
-                    type="number"
-                    name="rank"
-                    inputMode="numeric"
-                    min={1}
-                    max={9999}
-                    defaultValue={img.feedRank ?? ""}
-                    placeholder="Rank"
-                    aria-label="Shop feed rank"
-                    className="w-full min-w-0 min-h-11 px-2 text-sm font-mono"
-                  />
-                  <Button
-                    type="submit"
-                    variant="secondary"
-                    size="sm"
-                    className="min-h-11 shrink-0"
-                  >
-                    Save
-                  </Button>
-                </form>
-                <form action={toggle}>
-                  <input type="hidden" name="imageId" value={img.imageId} />
-                  <input
-                    type="hidden"
-                    name="hidden"
-                    value={img.isHidden ? "false" : "true"}
-                  />
-                  <Button
-                    type="submit"
-                    variant="ghost"
-                    size="sm"
-                    className="w-full min-h-11 underline underline-offset-[3px]"
-                  >
-                    {img.isHidden ? "Unhide" : "Hide"}
-                  </Button>
-                </form>
+                  <form action={saveRank} className="flex gap-2">
+                    <input type="hidden" name="imageId" value={img.imageId} />
+                    <Input
+                      type="number"
+                      name="rank"
+                      inputMode="numeric"
+                      min={1}
+                      max={9999}
+                      defaultValue={img.feedRank ?? ""}
+                      placeholder="Rank"
+                      aria-label="Shop feed rank"
+                      className="w-full min-w-0 min-h-11 px-2 text-sm font-mono"
+                    />
+                    <Button
+                      type="submit"
+                      variant="secondary"
+                      size="sm"
+                      className="min-h-11 shrink-0"
+                    >
+                      Save
+                    </Button>
+                  </form>
+                  <form action={toggle}>
+                    <input type="hidden" name="imageId" value={img.imageId} />
+                    <input
+                      type="hidden"
+                      name="hidden"
+                      value={img.isHidden ? "false" : "true"}
+                    />
+                    <Button
+                      type="submit"
+                      variant="ghost"
+                      size="sm"
+                      className="w-full min-h-11 underline underline-offset-[3px]"
+                    >
+                      {img.isHidden ? "Unhide" : "Hide"}
+                    </Button>
+                  </form>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

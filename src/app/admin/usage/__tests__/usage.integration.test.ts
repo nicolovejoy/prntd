@@ -86,7 +86,7 @@ async function img(opts: {
   operation?: "generate" | "edit" | "upload";
   role?: "output" | "seed";
   published?: "visible" | "hidden";
-  /** Seeds a mirror product with this pinned backdrop (published only). */
+  /** Seeds a mirror product with this backdrop (listed if published, else draft). */
   backdrop?: string;
 }) {
   await db()
@@ -112,18 +112,20 @@ async function img(opts: {
         publishedAt: t(opts.at),
         isHidden: opts.published === "hidden",
       });
-    if (opts.backdrop) {
-      await db()
-        .insert(schema.product)
-        .values({
-          ownerId: opts.ownerId,
-          blankId: "bella-canvas-3001",
-          placements: { front: opts.id },
-          backdropColor: opts.backdrop,
-          status: "listed",
-          listedAt: t(opts.at),
-        });
-    }
+  }
+  // A private image can keep a draft mirror from an earlier unpublish; its
+  // backdrop must not leak into the admin list.
+  if (opts.backdrop) {
+    await db()
+      .insert(schema.product)
+      .values({
+        ownerId: opts.ownerId,
+        blankId: "bella-canvas-3001",
+        placements: { front: opts.id },
+        backdropColor: opts.backdrop,
+        status: opts.published ? "listed" : "draft",
+        listedAt: opts.published ? t(opts.at) : null,
+      });
   }
 }
 
@@ -171,7 +173,7 @@ async function seed() {
   await img({ id: "img-pub-1", ownerId: ACCOUNT, designId: d1.id, at: "2026-10-08T10:00:00Z", prompt: "a red fox", published: "visible", backdrop: "Navy" });
   await img({ id: "img-hidden", ownerId: ACCOUNT, designId: d1.id, at: "2026-10-05T10:00:00Z", prompt: "an edit", operation: "edit", published: "hidden" });
   await img({ id: "img-pub-2", ownerId: ACCOUNT, designId: d2.id, at: "2026-10-02T08:00:00Z", prompt: "p".repeat(200), published: "visible" });
-  await img({ id: "img-private", ownerId: ACCOUNT, designId: d2.id, at: "2026-09-01T10:00:00Z", prompt: "old private" });
+  await img({ id: "img-private", ownerId: ACCOUNT, designId: d2.id, at: "2026-09-01T10:00:00Z", prompt: "old private", backdrop: "Black" });
   // Same image carried into d2 as a seed.
   await db().insert(schema.conversationImage).values({ designId: d2.id, imageId: "img-pub-1", role: "seed" });
   await img({ id: "img-guest", ownerId: GUEST, designId: gd.id, at: "2026-10-07T10:00:00Z", prompt: "guest art" });
