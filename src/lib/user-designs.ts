@@ -33,8 +33,10 @@ export type LibraryImage = {
 
 /**
  * My Designs is a library of images, not of conversations (studio-plan,
- * "What My Designs becomes"). Every image the user owns, newest first — no
- * keep verb, per the plan's open question.
+ * "What My Designs becomes"). Every image the user owns, newest first, except
+ * the ones an admin has hidden (#288; Nico's ruling: a placeholder tile the
+ * owner can't identify is pointless) — no keep verb, per the plan's open
+ * question.
  *
  * One statement plus the ride-along sweep for the grid itself; a second,
  * batched statement for the backdrops of whichever images turned out to be
@@ -68,15 +70,16 @@ export async function getUserImageLibrary(
       .from(imageTable)
       .leftJoin(imagePublicationTable, eq(imagePublicationTable.imageId, imageTable.id))
       .leftJoin(designTable, eq(designTable.id, imageTable.sourceDesignId))
-      // Ownership, minus images an admin has hidden (#288), is the only
-      // filter. A hidden image has no tile (a placeholder the owner can't
-      // identify is pointless); no publication row (null) means never
-      // published or unpublished, so not hidden. The library is otherwise the
-      // whole record of what the user has made, so a conversation being archived — off the bench
-      // (closed_at) or away (status, which is what deleteDesign leaves behind
-      // for an ordered design) — marks its images, it does not hide them.
-      // Hiding an ordered design's artwork would take the reorder route with
-      // it, since the image detail page is how a design reaches checkout.
+      // Two filters: ownership, and not admin-hidden (#288). A hidden image
+      // has no tile, since a placeholder the owner can't identify is
+      // pointless; no publication row (null) means never published or
+      // unpublished, so not hidden. Beyond those two the library is the whole
+      // record of what the user has made, so a conversation being archived —
+      // off the bench (closed_at) or away (status, which is what deleteDesign
+      // leaves behind for an ordered design) — marks its images, it does not
+      // drop them. Dropping an ordered design's artwork would take the
+      // reorder route with it, since the image detail page is how a design
+      // reaches checkout.
       .where(
         and(
           eq(imageTable.ownerId, userId),
