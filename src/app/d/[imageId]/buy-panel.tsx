@@ -33,6 +33,7 @@ import { ensureGuestSession } from "@/lib/ensure-guest-session";
 import { buyPagePlacements, type PlacementPick } from "@/lib/placement-pins";
 import { addToCart, updateCartItem } from "@/app/cart/actions";
 import { buyPublishedDesign, getBuyPageBackSources } from "../actions";
+import { wellClass } from "@/lib/artwork-well";
 import { MONO_LABEL } from "./mono-label";
 import { useReportBuyPanelPicks } from "./buy-panel-picks-context";
 import {
@@ -785,19 +786,21 @@ export function BuyPanel({
                   Cancel
                 </button>
               </div>
-              <div className={`flex gap-4 ${MONO_LABEL}`} role="group" aria-label="Sort">
-                {(["light-first", "dark-first"] as const).map((dir) => (
-                  <button
-                    key={dir}
-                    type="button"
-                    aria-pressed={sortDirection === dir}
-                    onClick={() => setPinnedSort(dir)}
-                    className={`min-h-11 ${sortDirection === dir ? "text-foreground underline" : "text-text-muted"}`}
-                  >
-                    {dir === "light-first" ? "Light first" : "Dark first"}
-                  </button>
-                ))}
-              </div>
+              {backGroups !== null && backGroups.length > 0 && (
+                <div className={`flex gap-4 ${MONO_LABEL}`} role="group" aria-label="Sort">
+                  {(["light-first", "dark-first"] as const).map((dir) => (
+                    <button
+                      key={dir}
+                      type="button"
+                      aria-pressed={sortDirection === dir}
+                      onClick={() => setPinnedSort(dir)}
+                      className={`min-h-11 ${sortDirection === dir ? "text-foreground underline" : "text-text-muted"}`}
+                    >
+                      {dir === "light-first" ? "Light first" : "Dark first"}
+                    </button>
+                  ))}
+                </div>
+              )}
               {backGroups === null ? (
                 <div className="w-8 h-8 mx-auto border-2 border-accent border-t-transparent rounded-full animate-spin" />
               ) : backGroups.length === 0 ? (
@@ -818,7 +821,7 @@ export function BuyPanel({
                             setSwapped(false);
                             setBackPickerOpen(false);
                           }}
-                          className={`aspect-square min-h-11 rounded-md overflow-hidden border-2 bg-surface-well ${
+                          className={`aspect-square min-h-11 rounded-md overflow-hidden border-2 ${wellClass(s.luminance)} ${
                             s.id === back?.id
                               ? "border-accent"
                               : "border-border hover:border-accent"

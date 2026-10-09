@@ -6,8 +6,9 @@
  * well (--surface-well-dark) instead. Unscored artwork (null) stays on paper,
  * so the day-one state before the backfill is today's.
  *
- * Published artwork never comes here: it sits on its pinned Shop backdrop
- * (publishedBackdrop) on every surface.
+ * Published artwork never comes here on a surface that paints a backdrop: it
+ * sits on its pinned Shop backdrop (publishedBackdrop). The back-source
+ * picker paints no backdrop for any image, so it uses this rule for all.
  */
 import { relativeLuminance } from "@/lib/blanks";
 

@@ -803,6 +803,25 @@ describe("BuyPanel back picker sort (#139)", () => {
       screen.getByTestId("back-picker").querySelectorAll("[data-image-id]")
     ).map((b) => b.getAttribute("data-image-id"));
 
+  it("paints each tile on the well its luminance picks", async () => {
+    await openPickerOn({ color: "White" });
+    const tile = (id: string) => screen.getByTestId("back-picker").querySelector(`[data-image-id="${id}"]`)!;
+    expect(tile("light").className).toContain("bg-surface-well-dark");
+    expect(tile("dark").className).not.toContain("bg-surface-well-dark");
+    expect(tile("dark").className).toContain("bg-surface-well");
+    expect(tile("none").className).not.toContain("bg-surface-well-dark");
+  });
+
+  it("shows no sort control when there are no images to sort", async () => {
+    const { getBuyPageBackSources } = await import("../../actions");
+    vi.mocked(getBuyPageBackSources).mockResolvedValueOnce({ groups: [] });
+    const ref = createRef<BuyPanelHandle>();
+    render(<BuyPanel ref={ref} imageId="img-1" isLoggedIn backEnabled initialPicks={{ ...NONE, color: "White" }} />);
+    act(() => ref.current!.openBackPicker());
+    await screen.findByText("No images available.");
+    expect(screen.queryByRole("group", { name: "Sort" })).toBeNull();
+  });
+
   it("defaults to Dark first on a white shirt and lists darkest first, unscored last", async () => {
     await openPickerOn({ color: "White" });
     expect(screen.getByRole("button", { name: "Dark first", pressed: true })).toBeInTheDocument();

@@ -11,8 +11,6 @@
  * Anti-aliased edge pixels count at their own colour, a mild bias toward the
  * outline's colour (accepted in the #139 spike).
  */
-import sharp from "sharp";
-
 export const ALPHA_OPAQUE_MIN = 128;
 export const LUMINANCE_ANALYSIS_SIZE = 256;
 
@@ -32,6 +30,10 @@ export async function meanLuminance(png: Buffer | Uint8Array): Promise<number | 
   let data: Buffer;
   let channels: number;
   try {
+    // Loaded here, not at module scope: a native-binary load failure on the
+    // server then yields null (callers log it) instead of failing every
+    // module that imports this one.
+    const { default: sharp } = await import("sharp");
     const out = await sharp(png)
       .ensureAlpha()
       .resize(LUMINANCE_ANALYSIS_SIZE, LUMINANCE_ANALYSIS_SIZE, { fit: "inside", withoutEnlargement: true })
