@@ -308,10 +308,15 @@ export function BuyPanel({
   // visitor's URL stays the bare page, and a collapsed mount leaves the URL
   // exactly as it found it.
   //
-  // Limit: replaceState is not seen by Next's router, which keeps its own URL
-  // for this entry. A later `router.refresh()` on this page (the owner
-  // renaming the title, for one) can put the address bar back to the URL the
-  // page was loaded with, without the picks. The panel's state is unaffected.
+  // The state argument is `null`, Next's documented native-history pattern
+  // (the Studio's `go` does the same). Next patches replaceState: handed its
+  // own history state (what `window.history.state` holds) it calls straight
+  // through and the router never hears of the write, so the router keeps the
+  // URL the page loaded with and a later `router.refresh()` or revalidating
+  // server action (the owner renaming the title, for one) puts the address bar
+  // back to it, picks gone. Handed anything else, Next copies its own entry
+  // state in and updates the router's URL, without a server request, so a
+  // refresh or revalidation keeps the picks.
   useEffect(() => {
     if (!expanded || navigatingAway.current) return;
     const next =
@@ -325,7 +330,7 @@ export function BuyPanel({
         swap: swapped && !!back,
       });
     if (next === window.location.pathname + window.location.search) return;
-    window.history.replaceState(window.history.state, "", next);
+    window.history.replaceState(null, "", next);
   }, [expanded, productId, size, color, back, swapped]);
 
   // Tell the page what the open panel holds (#278 slice 4), so the links to
@@ -381,7 +386,7 @@ export function BuyPanel({
   // Cancel (the buyer closing the panel) takes the picks back out, so a reload
   // does not reopen a panel they closed. `from` and `line` stay. This runs
   // from the click, not from the sync effect: only that transition removes
-  // picks, never a mount.
+  // picks, never a mount. `null` state for the reason given at the sync effect.
   function removePicksFromUrl() {
     const next =
       window.location.pathname +
@@ -394,7 +399,7 @@ export function BuyPanel({
         swap: false,
       });
     if (next === window.location.pathname + window.location.search) return;
-    window.history.replaceState(window.history.state, "", next);
+    window.history.replaceState(null, "", next);
   }
 
   function openBackPicker() {

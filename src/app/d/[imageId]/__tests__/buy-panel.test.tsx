@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createRef } from "react";
 import { render, screen, fireEvent, act, within } from "@testing-library/react";
 import { getBlankOrThrow } from "@/lib/blanks";
@@ -1020,6 +1020,54 @@ describe("BuyPanel picks in the URL (#278)", () => {
     expect(new URLSearchParams(window.location.search).get("order")).toBe("1");
     fireEvent.click(screen.getAllByRole("button", { name: "Cancel" })[0]);
     expect(window.location.search).toBe("?from=%2Fshop");
+  });
+
+  describe("state argument (what lets Next's router see the write)", () => {
+    // Next's patched replaceState calls straight through, without telling the
+    // router, when it is handed a state carrying Next's own `__NA` marker (what
+    // `window.history.state` holds on a Next page); any other state, `null`
+    // included, makes it update the router's URL. jsdom's history state starts
+    // out null, which would hide a panel that still passes
+    // `window.history.state`, so seed the marker: such a panel then hands the
+    // marker to replaceState and fails here.
+    let replaceState: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      window.history.replaceState({ __NA: true }, "", "/d/img-1?from=%2Fshop");
+      replaceState = vi.spyOn(window.history, "replaceState");
+    });
+
+    afterEach(() => replaceState.mockRestore());
+
+    it("the sync write passes null as the state and the URL it put in the address bar", () => {
+      render(<BuyPanel imageId="img-1" isLoggedIn />);
+      expand();
+      fireEvent.click(screen.getByRole("button", { name: "M" }));
+
+      expect(replaceState).toHaveBeenCalled();
+      for (const [state] of replaceState.mock.calls) {
+        expect(state).toBeNull();
+      }
+      const [, , url] = replaceState.mock.lastCall!;
+      expect(url).toBe(window.location.pathname + window.location.search);
+      const written = new URL(url as string, "http://x.invalid");
+      expect(written.pathname).toBe("/d/img-1");
+      expect(written.searchParams.get("from")).toBe("/shop");
+      expect(written.searchParams.get("order")).toBe("1");
+      expect(written.searchParams.get("size")).toBe("M");
+    });
+
+    it("the Cancel removal passes null as the state and the URL without the picks", () => {
+      render(<BuyPanel imageId="img-1" isLoggedIn />);
+      expand();
+      fireEvent.click(screen.getByRole("button", { name: "M" }));
+      replaceState.mockClear();
+
+      fireEvent.click(screen.getAllByRole("button", { name: "Cancel" })[0]);
+
+      expect(replaceState).toHaveBeenCalledTimes(1);
+      expect(replaceState).toHaveBeenCalledWith(null, "", "/d/img-1?from=%2Fshop");
+    });
   });
 
   it("writes nothing once Order has started a navigation away", async () => {
