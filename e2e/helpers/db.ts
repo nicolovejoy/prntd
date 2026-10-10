@@ -140,6 +140,34 @@ export async function seedPublishedImage(
   return { designId, imageId, sellerId };
 }
 
+/**
+ * Publish an image `seedDesign` already seeded for `ownerId`: the
+ * `image_publication` visibility row and the Shop mirror `product` row, the
+ * same two rows `seedPublishedImage` writes for its throwaway seller. For a
+ * spec whose signed-in user owns the published image, so the image detail page
+ * offers that user the title editor. `cleanupDesigns([designId])` removes both
+ * rows; the owner is the caller's to clean up.
+ */
+export async function publishSeededImage(
+  imageId: string,
+  ownerId: string,
+  title: string
+): Promise<void> {
+  const c = db();
+  await c.execute({
+    sql: `INSERT INTO image_publication (image_id, published_at, is_hidden, created_at)
+          VALUES (?, unixepoch(), 0, unixepoch())
+          ON CONFLICT(image_id) DO NOTHING`,
+    args: [imageId],
+  });
+  await c.execute({
+    sql: `INSERT INTO product (id, owner_id, blank_id, placements, price, status, position, title, listed_at, created_at, updated_at)
+          VALUES (?, ?, NULL, ?, NULL, 'listed', 0, ?, unixepoch(), unixepoch(), unixepoch())
+          ON CONFLICT(id) DO NOTHING`,
+    args: [`${imageId}-mirror`, ownerId, JSON.stringify({ front: imageId }), title],
+  });
+}
+
 /** Remove everything a spec seeded (cart items first — FK to design). */
 export async function cleanupDesigns(designIds: string[]): Promise<void> {
   if (designIds.length === 0) return;
