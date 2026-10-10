@@ -3,13 +3,10 @@
 /**
  * The buy panel's open picks, shared with the rest of the image detail page
  * (#278 slice 4). The links to the conversation's other images carry them, so
- * switching the image keeps product, size and colour. Context rather than
- * `useSearchParams`, which does follow the panel's address-bar writes now: the
- * address bar also holds the defaulted product and colour, and these links
- * carry those only once the buyer chose them (a sibling opened from an
- * untouched default takes its own product default and pinned backdrop). Only
- * the panel knows which is which. Without a provider the report is a no-op and
- * the picks read null.
+ * switching the image keeps product, size and colour. Context rather than the
+ * address bar: the panel's replaceState is not seen by Next's router, so
+ * useSearchParams would not follow it. Without a provider the report is a
+ * no-op and the picks read null.
  */
 import { createContext, useContext, useState, type ReactNode } from "react";
 import type { OpenBuyPanelPicks } from "@/lib/buy-page-picks";

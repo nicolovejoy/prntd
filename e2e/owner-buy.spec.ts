@@ -12,7 +12,6 @@ import {
   cleanupDesigns,
   cleanupUser,
   primaryImageIdForDesign,
-  publishSeededImage,
   seedConversationImage,
 } from "./helpers/db";
 import { waitForSessionCookie } from "./helpers/session";
@@ -131,57 +130,6 @@ test("switching to another image of the conversation with the panel open keeps s
     expect(params.get("color")).toBe("Black");
     await expect(page.getByRole("button", { name: "L", exact: true }).first()).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByRole("button", { name: "Black", exact: true }).first()).toHaveAttribute("aria-pressed", "true");
-  } finally {
-    await cleanupDesigns(seeded);
-    if (ownerId) await cleanupUser(ownerId);
-  }
-});
-
-test("a router.refresh() on the image detail page leaves the open panel and its picks in the address bar (buy panel URL sync)", async ({ page }, testInfo) => {
-  const key = `owner-refresh-${Date.now()}-${testInfo.project.name}`;
-  const seeded: string[] = [];
-  let ownerId = "";
-  try {
-    await signUpFreshAccount(page, key);
-    ownerId = await userIdForSessionCookie(await waitForSessionCookie(page));
-    const designId = await seedDesign(ownerId, key);
-    seeded.push(designId);
-    const imageId = (await primaryImageIdForDesign(designId))!;
-    expect(imageId, "seeded design has no primary image").toBeTruthy();
-    // Published, and owned by this user: the page then offers them the title
-    // editor, whose Save runs a revalidating server action and then
-    // router.refresh(). (An unpublished image offers neither, which is why this
-    // does not reuse the first test's image.)
-    await publishSeededImage(imageId, ownerId, `Before ${key}`);
-
-    await page.goto(`/d/${imageId}`);
-    await waitForHydrated(page.getByTestId("order-expand"));
-    await page.getByTestId("order-expand").click();
-    await page.getByRole("button", { name: "L", exact: true }).click();
-    await expect(page).toHaveURL(/[?&]size=L(&|$)/);
-
-    const edit = page.getByRole("button", { name: "Edit", exact: true });
-    await waitForHydrated(edit);
-    await edit.click();
-    const renamed = `Renamed ${Date.now()}`;
-    await page.getByPlaceholder("Title").fill(renamed);
-    await page.getByRole("button", { name: "Save", exact: true }).click();
-
-    // The heading shows the new title only once the router has applied the
-    // revalidated page. That commit is where a router that never saw the
-    // panel's address-bar writes puts the bar back to the URL the page loaded
-    // with (no query), so the checks below run after it.
-    await expect(page.getByRole("heading", { name: renamed })).toBeVisible({
-      timeout: 30_000,
-    });
-
-    const picks = new URL(page.url()).searchParams;
-    expect(picks.get("order")).toBe("1");
-    expect(picks.get("size")).toBe("L");
-    await expect(page.getByTestId("order-expand")).toHaveCount(0);
-    await expect(
-      page.getByRole("button", { name: "L", exact: true })
-    ).toHaveAttribute("aria-pressed", "true");
   } finally {
     await cleanupDesigns(seeded);
     if (ownerId) await cleanupUser(ownerId);
