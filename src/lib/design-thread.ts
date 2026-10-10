@@ -42,7 +42,10 @@ export async function getDesignThreadData(
   if (!found || found.userId !== userId) return null;
 
   const [displayImageUrl, chat, sources, productGroups] = await Promise.all([
-    getDesignDisplayImageUrl(designId),
+    // The owner's thread never shows admin-hidden artwork, so a hidden
+    // primary falls back the way a missing one does. The sources and the
+    // placement renders leave hidden artwork out on their own.
+    getDesignDisplayImageUrl(designId, { excludeHidden: true }),
     getDesignMessages(designId),
     // Seeds included (slice 3): a fresh-start thread opens showing its
     // starting image in the gallery/strip, referenceable and orderable.

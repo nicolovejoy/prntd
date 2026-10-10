@@ -688,6 +688,11 @@ export type ProductVersionGroup = {
  * Fetch placement-targeted renders for a design, grouped by blank. Each
  * group's `images` is ordered oldest → newest. Blanks with no renders for
  * this design are omitted entirely.
+ *
+ * A render of an admin-hidden source image is left out: it is the hidden
+ * artwork on a shirt, and the callers are the owner's /design views. A legacy
+ * render with no recorded source (`source_image_id` NULL) cannot be judged and
+ * is kept.
  */
 export async function getDesignPlacementRenders(
   designId: string
@@ -702,7 +707,17 @@ export async function getDesignPlacementRenders(
       createdAt: placementRenderTable.createdAt,
     })
     .from(placementRenderTable)
-    .where(eq(placementRenderTable.designId, designId))
+    .leftJoin(
+      imagePublicationTable,
+      eq(imagePublicationTable.imageId, placementRenderTable.sourceImageId)
+    )
+    .where(
+      and(
+        eq(placementRenderTable.designId, designId),
+        // NULL when the render has no source or its source has no publication row.
+        or(isNull(imagePublicationTable.isHidden), eq(imagePublicationTable.isHidden, false))
+      )
+    )
     .orderBy(asc(placementRenderTable.createdAt), RENDER_SEQ_ASC);
 
   const byProduct = new Map<string, ProductVersionGroup>();
@@ -728,6 +743,15 @@ export async function getDesignPlacementRenders(
   return Array.from(byProduct.values());
 }
 
+export type DisplayImageOptions = {
+  /** Treat an admin-hidden image as if it did not exist: a hidden primary
+   * falls through to the latest output, and a hidden output is never that
+   * fallback. For the owner's own pages. Off by default: admin pages, order
+   * emails, the Stripe webhook and fulfillment show what was ordered or what
+   * is being moderated. */
+  excludeHidden?: boolean;
+};
+
 /**
  * Resolve the display image URL for a design — the URL surfaced on
  * /orders rows, the design hydration on /design, etc. (the old /designs
@@ -735,16 +759,19 @@ export async function getDesignPlacementRenders(
  *
  * Resolution: design.primary_image_id → its image URL. Fallback: the
  * most recent source image (product_id IS NULL). Null when neither.
+ * `excludeHidden` (see DisplayImageOptions) treats an admin-hidden image as
+ * absent at both steps.
  *
  * Use this everywhere a design's "main image URL" is needed —
  * card thumbnails, hydration. Callers today: the order actions, admin pages,
  * the Stripe webhook, order emails, the retry-fulfillment cron and
- * design-thread.
+ * design-thread. Only design-thread passes `excludeHidden`.
  */
 export async function getDesignDisplayImageUrl(
-  designId: string
+  designId: string,
+  opts: DisplayImageOptions = {}
 ): Promise<string | null> {
-  const map = await resolveDesignDisplayImageUrls([designId]);
+  const map = await resolveDesignDisplayImageUrls([designId], opts);
   return map.get(designId) ?? null;
 }
 
@@ -752,10 +779,12 @@ export async function getDesignDisplayImageUrl(
  * Batch version of getDesignDisplayImageUrl — for list pages (/orders,
  * /admin; also the old /designs card grid, retired) that would otherwise
  * N+1 the design_image table.
- * One query for primary lookups, one for latest-source fallbacks.
+ * One query for primary lookups, one for latest-source fallbacks; with
+ * `excludeHidden`, one more finds the hidden primaries.
  */
 export async function resolveDesignDisplayImageUrls(
-  designIds: string[]
+  designIds: string[],
+  opts: DisplayImageOptions = {}
 ): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   if (designIds.length === 0) return out;
@@ -773,6 +802,20 @@ export async function resolveDesignDisplayImageUrls(
     .filter((v): v is string => Boolean(v));
 
   const urlByImageId = await resolveImagesByIds(primaryIds);
+  if (opts.excludeHidden && primaryIds.length > 0) {
+    // A hidden primary reads as a primary that no longer exists, which sends
+    // its design to the fallback below.
+    const hidden = await db
+      .select({ imageId: imagePublicationTable.imageId })
+      .from(imagePublicationTable)
+      .where(
+        and(
+          inArray(imagePublicationTable.imageId, primaryIds),
+          eq(imagePublicationTable.isHidden, true)
+        )
+      );
+    for (const h of hidden) urlByImageId.delete(h.imageId);
+  }
 
   // First pass: pick up everything with a working primary pointer.
   const needFallback: string[] = [];
@@ -796,10 +839,14 @@ export async function resolveDesignDisplayImageUrls(
       })
       .from(conversationImageTable)
       .innerJoin(imageTable, eq(imageTable.id, conversationImageTable.imageId))
+      .leftJoin(imagePublicationTable, eq(imagePublicationTable.imageId, imageTable.id))
       .where(
         and(
           inArray(conversationImageTable.designId, needFallback),
-          eq(conversationImageTable.role, "output")
+          eq(conversationImageTable.role, "output"),
+          ...(opts.excludeHidden
+            ? [or(isNull(imagePublicationTable.isHidden), eq(imagePublicationTable.isHidden, false))]
+            : [])
         )
       )
       .orderBy(desc(imageTable.createdAt), IMAGE_SEQ_DESC);

@@ -279,4 +279,76 @@ describe("hidden images in the conversation readers", () => {
     expect(sources.map((s) => s.id)).not.toContain(ids.hidden);
     expect(sources.map((s) => s.id)).not.toContain(hiddenSeed);
   });
+
+  it("getDesignPlacementRenders leaves out a render sourced from a hidden image", async () => {
+    const ids = await seedThree();
+    const renderValues = (sourceImageId: string | null, imageUrl: string) => ({
+      designId: ids.designId,
+      sourceImageId,
+      blankId: "bella-canvas-3001",
+      placementId: "front",
+      imageUrl,
+      aspectRatio: "1:1",
+    });
+    await testDb.insert(schema.placementRender).values([
+      renderValues(ids.first, "https://cdn/h/render-of-1.png"),
+      renderValues(ids.hidden, "https://cdn/h/render-of-hidden.png"),
+      renderValues(null, "https://cdn/h/render-legacy.png"),
+    ]);
+    const groups = await getDesignPlacementRenders(ids.designId);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].images.map((i) => i.imageUrl)).toEqual([
+      "https://cdn/h/render-of-1.png",
+      "https://cdn/h/render-legacy.png",
+    ]);
+  });
+
+  it("resolveDesignDisplayImageUrls is unchanged by default and skips a hidden primary on request", async () => {
+    const ids = await seedThree();
+    await testDb
+      .update(schema.design)
+      .set({ primaryImageId: ids.hidden })
+      .where(eq(schema.design.id, ids.designId));
+
+    // Admin pages, order emails and the like keep seeing the primary.
+    let urls = await resolveDesignDisplayImageUrls([ids.designId]);
+    expect(urls.get(ids.designId)).toBe("https://cdn/h/2-hidden.png");
+
+    // The owner's pages ask for the same fallback a missing primary gets:
+    // the latest output that is not hidden.
+    urls = await resolveDesignDisplayImageUrls([ids.designId], {
+      excludeHidden: true,
+    });
+    expect(urls.get(ids.designId)).toBe("https://cdn/h/3.png");
+  });
+
+  it("excludeHidden also skips a hidden image in the latest-output fallback", async () => {
+    const ids = await seedThree();
+    // Hide the newest output too; no primary is set.
+    await testDb.insert(schema.imagePublication).values({
+      imageId: ids.third,
+      publishedAt,
+      isHidden: true,
+    });
+    const urls = await resolveDesignDisplayImageUrls([ids.designId], {
+      excludeHidden: true,
+    });
+    expect(urls.get(ids.designId)).toBe("https://cdn/h/1.png");
+  });
+
+  it("excludeHidden leaves a design with only hidden images out of the map", async () => {
+    await makeUser(testDb, "nico");
+    const design = await makeDesign(testDb, "nico");
+    await makeSourceImage(testDb, {
+      designId: design.id,
+      ownerId: "nico",
+      imageUrl: "https://cdn/h/only-hidden.png",
+      publishedAt,
+      isHidden: true,
+    });
+    const urls = await resolveDesignDisplayImageUrls([design.id], {
+      excludeHidden: true,
+    });
+    expect(urls.has(design.id)).toBe(false);
+  });
 });
