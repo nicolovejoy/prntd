@@ -129,7 +129,9 @@ export async function insertChatMessage(params: {
  * constructDesignBrief to populate the "Images so far" gallery
  * context. Uploads stored with prompt='[user upload] ...' surface as-is.
  * Includes the thread's seed image (fresh-start, slice 3) so the AI can
- * reference the starting point from turn one.
+ * reference the starting point from turn one. Admin-hidden images are left
+ * out (getDesignSourceImages drops them), so the numbers match the /design
+ * gallery's.
  */
 export async function getDesignImagesForAIContext(
   designId: string
@@ -690,9 +692,16 @@ export type ProductVersionGroup = {
  * this design are omitted entirely.
  *
  * A render of an admin-hidden source image is left out: it is the hidden
- * artwork on a shirt, and the callers are the owner's /design views. A legacy
- * render with no recorded source (`source_image_id` NULL) cannot be judged and
- * is kept.
+ * artwork on a shirt, and the callers are the owner's /design views. The check
+ * is one level deep, on `source_image_id` against `image_publication`. Two
+ * cases cannot be judged and are kept: a legacy render with no recorded source
+ * (`source_image_id` NULL), and a render whose source is itself a render (a
+ * render id has no publication row). The buy path follows that chain
+ * (`hiddenThroughSources` in back-sources.ts); this reader does not.
+ * `placement_render` has no live writer: its only writer is
+ * `insertDesignImage`'s `productId` branch, and that function's one caller
+ * outside tests (the upload action) passes no `productId`. The rows that exist
+ * are from before that.
  */
 export async function getDesignPlacementRenders(
   designId: string
@@ -748,7 +757,13 @@ export type DisplayImageOptions = {
    * falls through to the latest output, and a hidden output is never that
    * fallback. For the owner's own pages. Off by default: admin pages, order
    * emails, the Stripe webhook and fulfillment show what was ordered or what
-   * is being moderated. */
+   * is being moderated.
+   *
+   * Only an image id with a hidden `image_publication` row is dropped. Not
+   * judged, and kept: a primary that is a `placement_render` id, even when the
+   * render's source image is hidden (`selectImage` can still write a render id
+   * as the primary). `placement_render` has no live writer (see
+   * getDesignPlacementRenders), so only older rows can be in that state. */
   excludeHidden?: boolean;
 };
 
@@ -760,7 +775,8 @@ export type DisplayImageOptions = {
  * Resolution: design.primary_image_id → its image URL. Fallback: the
  * most recent source image (product_id IS NULL). Null when neither.
  * `excludeHidden` (see DisplayImageOptions) treats an admin-hidden image as
- * absent at both steps.
+ * absent at both steps. It does not judge a primary that is a
+ * `placement_render` id; DisplayImageOptions says why that case is kept.
  *
  * Use this everywhere a design's "main image URL" is needed —
  * card thumbnails, hydration. Callers today: the order actions, admin pages,
@@ -780,7 +796,8 @@ export async function getDesignDisplayImageUrl(
  * /admin; also the old /designs card grid, retired) that would otherwise
  * N+1 the design_image table.
  * One query for primary lookups, one for latest-source fallbacks; with
- * `excludeHidden`, one more finds the hidden primaries.
+ * `excludeHidden`, one more finds the primaries whose `image_publication` row
+ * is hidden (render ids are not judged, see DisplayImageOptions).
  */
 export async function resolveDesignDisplayImageUrls(
   designIds: string[],
