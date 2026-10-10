@@ -12,7 +12,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { createTestDb } from "./test-db";
 import * as schema from "@/lib/db/schema";
-import { makeUser } from "./factories";
+import { makeUser, makeDesign, makeSourceImage } from "./factories";
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
 let testDb: Db;
@@ -26,6 +26,7 @@ vi.mock("@/lib/db", () => ({
 const {
   insertDesignImage,
   getDesignSourceImages,
+  getDesignImagesForAIContext,
   getDesignImageById,
   getDesignImageWithOwner,
   getDesignPlacementRenders,
@@ -176,5 +177,106 @@ describe("readers on dual-written rows", () => {
     expect(groups[0].productId).toBe("bella-canvas-3001");
     expect(groups[0].images.map((i) => i.id)).toEqual([ids.renderId]);
     expect(groups[0].images[0].placementId).toBe("back");
+  });
+});
+
+describe("hidden images in the conversation readers", () => {
+  const publishedAt = new Date(Date.UTC(2026, 0, 1, 11, 55));
+
+  // Three outputs in creation order; the middle one is admin-hidden.
+  async function seedThree() {
+    await makeUser(testDb, "nico");
+    const design = await makeDesign(testDb, "nico");
+    const first = await makeSourceImage(testDb, {
+      designId: design.id,
+      ownerId: "nico",
+      imageUrl: "https://cdn/h/1.png",
+    });
+    const hidden = await makeSourceImage(testDb, {
+      designId: design.id,
+      ownerId: "nico",
+      imageUrl: "https://cdn/h/2-hidden.png",
+      publishedAt,
+      isHidden: true,
+    });
+    const third = await makeSourceImage(testDb, {
+      designId: design.id,
+      ownerId: "nico",
+      imageUrl: "https://cdn/h/3.png",
+    });
+    return { designId: design.id, first, hidden, third };
+  }
+
+  it("getDesignSourceImages leaves a hidden image out and keeps creation order", async () => {
+    const ids = await seedThree();
+    const sources = await getDesignSourceImages(ids.designId);
+    expect(sources.map((s) => s.id)).toEqual([ids.first, ids.third]);
+  });
+
+  it("returns an image with no publication row and a published, not hidden one", async () => {
+    await makeUser(testDb, "nico");
+    const design = await makeDesign(testDb, "nico");
+    const unpublished = await makeSourceImage(testDb, {
+      designId: design.id,
+      ownerId: "nico",
+      imageUrl: "https://cdn/h/unpublished.png",
+    });
+    const published = await makeSourceImage(testDb, {
+      designId: design.id,
+      ownerId: "nico",
+      imageUrl: "https://cdn/h/published.png",
+      publishedAt,
+      isHidden: false,
+    });
+    const sources = await getDesignSourceImages(design.id);
+    expect(sources.map((s) => s.id)).toEqual([unpublished, published]);
+  });
+
+  it("getDesignImagesForAIContext numbers the visible images 1 and 2", async () => {
+    const ids = await seedThree();
+    const context = await getDesignImagesForAIContext(ids.designId);
+    expect(context.map((c) => [c.number, c.id])).toEqual([
+      [1, ids.first],
+      [2, ids.third],
+    ]);
+    // The gallery and the AI context are the same list, so a number means
+    // the same image in both.
+    const sources = await getDesignSourceImages(ids.designId, {
+      includeSeeds: true,
+    });
+    expect(context.map((c) => c.id)).toEqual(sources.map((s) => s.id));
+  });
+
+  it("includeSeeds leaves a hidden seed out too", async () => {
+    const ids = await seedThree();
+    // A hidden image from another conversation, linked here as a seed.
+    await makeUser(testDb, "other");
+    const otherDesign = await makeDesign(testDb, "other");
+    const hiddenSeed = await makeSourceImage(testDb, {
+      designId: otherDesign.id,
+      ownerId: "other",
+      imageUrl: "https://cdn/h/seed-hidden.png",
+      publishedAt,
+      isHidden: true,
+    });
+    const visibleSeed = await makeSourceImage(testDb, {
+      designId: otherDesign.id,
+      ownerId: "other",
+      imageUrl: "https://cdn/h/seed-visible.png",
+      publishedAt,
+      isHidden: false,
+    });
+    await testDb.insert(schema.conversationImage).values([
+      { designId: ids.designId, imageId: hiddenSeed, role: "seed" },
+      { designId: ids.designId, imageId: visibleSeed, role: "seed" },
+    ]);
+
+    const sources = await getDesignSourceImages(ids.designId, {
+      includeSeeds: true,
+    });
+    const seeds = sources.filter((s) => s.role === "seed").map((s) => s.id);
+    expect(seeds).toEqual([visibleSeed]);
+    expect(sources.map((s) => s.id)).not.toContain(ids.hidden);
+    expect(sources.map((s) => s.id)).not.toContain(hiddenSeed);
   });
 });

@@ -612,12 +612,17 @@ export type SourceImage = {
  * slice 3), role-tagged; a seed's image.created_at predates every output the
  * thread generates, so the shared ordering keeps it first. Default excludes
  * them so existing callers (the back-source "This design" group) keep their
- * outputs-only semantics. `excludeHidden` drops admin-hidden images (the
- * back-source group: nobody may print one); the conversation views keep them.
+ * outputs-only semantics.
+ *
+ * Admin-hidden images are never returned, from any caller: nobody may buy,
+ * print or mock one up, and the owner's own pages leave it out (the image
+ * detail page keeps the notice for an old link). The /design gallery and the
+ * AI context number images by position in this one list, so filtering here
+ * keeps their numbering in agreement.
  */
 export async function getDesignSourceImages(
   designId: string,
-  opts: { includeSeeds?: boolean; excludeHidden?: boolean } = {}
+  opts: { includeSeeds?: boolean } = {}
 ): Promise<SourceImage[]> {
   const rows = await db
     .select({
@@ -643,9 +648,7 @@ export async function getDesignSourceImages(
           ? inArray(conversationImageTable.role, ["output", "seed"])
           : eq(conversationImageTable.role, "output"),
         // image_publication.is_hidden is NULL for an image with no publication row.
-        ...(opts.excludeHidden
-          ? [or(isNull(imagePublicationTable.isHidden), eq(imagePublicationTable.isHidden, false))]
-          : [])
+        or(isNull(imagePublicationTable.isHidden), eq(imagePublicationTable.isHidden, false))
       )
     )
     .orderBy(asc(imageTable.createdAt), IMAGE_SEQ_ASC);
