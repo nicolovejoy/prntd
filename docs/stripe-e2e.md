@@ -93,8 +93,9 @@ All three tests pay through the embedded checkout iframe on `/checkout`. The
 switch (`EMBEDDED_CHECKOUT_ENABLED`) is on in production for the image detail
 page and the cart, so the nightly matches production on both. Nothing in the
 nightly pays through Stripe's hosted page: hosted checkout is the fail-closed
-fallback (a missing or mismatched publishable key) and is covered by the
-parameter tests in Vitest. Nothing reads `PREVIEW_EMBEDDED_CHECKOUT_ENABLED`.
+fallback (a missing, malformed or other-mode publishable key) and is covered
+by the parameter tests in Vitest. Nothing reads
+`PREVIEW_EMBEDDED_CHECKOUT_ENABLED`.
 
 The workflow installs the Stripe CLI, branches an ephemeral Turso DB off
 `prntd-preview` (same mechanism as the per-PR e2e job, #31/#108 — named so it

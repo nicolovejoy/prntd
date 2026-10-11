@@ -9,8 +9,8 @@
  * and, since #278 slice 6b, from the cart (EMBEDDED_CHECKOUT_ENABLED, with
  * NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY set at build time). All three require
  * that switch, and landing on checkout.stripe.com fails the test instead of
- * falling back, so a missing or mismatched publishable key turns the run
- * red. The cart test checks out two designs together and asserts both order
+ * falling back, so a missing, malformed or other-mode publishable key turns the
+ * run red. The cart test checks out two designs together and asserts both order
  * lines and the emptied cart. The image-detail-page test orders the owner's
  * own UNPUBLISHED image from the Order panel (one buy surface, slice 3), and
  * the order it creates must carry no Shop composition. The last test does
