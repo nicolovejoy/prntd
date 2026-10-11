@@ -308,10 +308,24 @@ export function BuyPanel({
   // visitor's URL stays the bare page, and a collapsed mount leaves the URL
   // exactly as it found it.
   //
-  // Limit: replaceState is not seen by Next's router, which keeps its own URL
-  // for this entry. A later `router.refresh()` on this page (the owner
-  // renaming the title, for one) can put the address bar back to the URL the
-  // page was loaded with, without the picks. The panel's state is unaffected.
+  // The state argument is the existing `window.history.state`, on purpose.
+  // Next's patched replaceState returns early when handed its own marker, so
+  // the router never sees the write. Cost: after a server re-render of this
+  // page (router.refresh(), or a server action that revalidates or sets a
+  // cookie) the address bar goes back to the URL the page was loaded with
+  // until the next pick, and a server action's re-render also pushes a
+  // duplicate history entry (HistoryUpdater in app-router.js).
+  //
+  // `null`, as the Studio's `go` passes, makes the router see the write, but
+  // was tried on 2026-10-10 and reverted (stand-in app, Next 16.3.6):
+  // restore-reducer.js leaves the tree's page key at the query last rendered,
+  // so the next server-action re-render counts as a search-param change and
+  // scrolls the window to the top (ppr-navigations.js, layout-router.js); and
+  // on a hard load this effect runs before Router's effect installs the
+  // history patch (app-router.js), so `null` replaces Next's entry state
+  // unseen and browser Back to it leaves the other page on screen. A fix
+  // needs the write gated on `useHydrated()` (src/components/use-hydrated.ts)
+  // and the scroll kept, with a Playwright check that scrolls first.
   useEffect(() => {
     if (!expanded || navigatingAway.current) return;
     const next =
