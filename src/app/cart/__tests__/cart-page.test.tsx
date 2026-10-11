@@ -460,5 +460,8 @@ describe("CartPage checkout (#278 slice 6b)", () => {
     expect(screen.getByTestId("cart-checkout-error")).not.toHaveTextContent(
       CHECKOUT_FAILED
     );
+    // The initial load plus the re-read after the refusal, which is the one
+    // that failed.
+    expect(getCart).toHaveBeenCalledTimes(2);
   });
 });

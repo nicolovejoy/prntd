@@ -19,7 +19,7 @@ assert the order row reaches `submitted` (dry-run Printful) with `sale` +
   image's page with the same picks), Orders, and pays through embedded checkout
   on our `/checkout` page. It requires `EMBEDDED_CHECKOUT_ENABLED=true`. No test
   reads `PREVIEW_EMBEDDED_CHECKOUT_ENABLED` since slice 4 of one buy surface
-  (#278); the switch and its code go in slice 6.
+  (#278); the switch and its code go in slice 6a.
 - The image detail page test signs up, seeds an image the account owns and has
   not published, opens `/d/<image id>` with the link's picks (product, size,
   colour), taps Order and pays through embedded checkout on our `/checkout`
@@ -61,8 +61,9 @@ What the script (`scripts/e2e-stripe.sh`) does:
    (only the four `checkout.session.*` events the handler acts on:
    `completed`, `expired`, `async_payment_succeeded`,
    `async_payment_failed`), killed on exit.
-3. Exports `NEXT_PUBLIC_APP_URL=http://localhost:3100` so Stripe's
-   success/cancel redirects land back on the server under test,
+3. Exports `NEXT_PUBLIC_APP_URL=http://localhost:3100` so the embedded
+   session's `return_url` (built from it unless the request's Origin is a
+   trusted Preview host) lands back on the server under test,
    `PRINTFUL_DRY_RUN=true` (also forced in `playwright.config.ts` — no local
    e2e can place a real Printful order), a dummy `RESEND_API_KEY` (no real
    order emails), and `E2E_STRIPE=1`.
@@ -75,9 +76,10 @@ and throwaway account are deleted from the dev DB afterward.
 
 The spec is tagged `@stripe` and skips itself unless `E2E_STRIPE=1`, so plain
 `npm run e2e` and the PR `check`/`e2e` jobs never run it. It also skips when
-`E2E_BASE_URL` is set (that means a Vercel preview, where Stripe redirect URLs
-build from `NEXT_PUBLIC_APP_URL` = prod and checkout would bounce off the
-deployment under test) and when `STRIPE_SECRET_KEY` isn't `sk_test_…`.
+`E2E_BASE_URL` is set (that means a Vercel preview, where no Stripe webhook
+reaches the deployment, so the order never leaves `pending` and the assertions
+on the submitted order and the ledger cannot pass) and when `STRIPE_SECRET_KEY`
+isn't `sk_test_…`.
 
 ## Nightly CI run (#104)
 
@@ -114,8 +116,11 @@ below). On failure the job files/comments on a GitHub issue labeled
 The nightly sets `EMBEDDED_CHECKOUT_ENABLED=true` and
 `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` from the repo variable
 `STRIPE_TEST_PUBLISHABLE_KEY` (a variable, not a secret). The key must come
-from the same Stripe account and test mode as the `STRIPE_SECRET_KEY` secret,
-or checkout fails closed to hosted and all three tests fail.
+from the same Stripe account and test mode as the `STRIPE_SECRET_KEY` secret.
+A missing, malformed or other-mode publishable key falls back to hosted
+checkout, and all three tests fail. A key of the right mode from a different
+Stripe account passes the config check: the session is embedded, the form never
+mounts, and the tests time out waiting for it.
 
 The publishable key is inlined at build. A local run needs both variables set
 in the local env file before the build that `npm run e2e:stripe` triggers, and
@@ -190,10 +195,12 @@ API; the nightly run is the only live exercise.
 - Stripe's checkout DOM changes without notice. The spec resolves each field
   through candidate locators (`#cardNumber`, placeholder, label); if a fill
   fails, update the candidates in `completeStripeCheckout`.
-- A test times out waiting for the embedded form, or lands on Stripe's hosted
-  page: the publishable key is missing, or from a different Stripe account or
-  mode than `STRIPE_SECRET_KEY`, so checkout failed closed to hosted.
-  Otherwise the iframe selectors in `embeddedStripeRoot` need calibrating.
+- A test lands on Stripe's hosted page: the publishable key is missing,
+  malformed or in a different mode than `STRIPE_SECRET_KEY`, so checkout fell
+  back to hosted. A test that times out waiting for the embedded form: the key
+  is of the right mode but from a different Stripe account (the session is
+  embedded and the form never mounts), or the iframe selectors in
+  `embeddedStripeRoot` need calibrating.
 - The cart test fails at "toHaveCount(2)" on `checkout-preview`: `/checkout`
   rendered a different number of review rows than the cart had lines. Read
   the order's `order_item` rows before suspecting the selectors.

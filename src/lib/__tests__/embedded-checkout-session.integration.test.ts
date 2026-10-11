@@ -680,8 +680,9 @@ describe("loadEmbeddedCheckout for a cart order (#278 slice 6b)", () => {
 
     if (result.kind !== "ready") throw new Error(`expected ready, got ${result.kind}`);
     const productName = getBlank(CART_PRODUCT)?.name ?? null;
-    // The three lines share one created_at second (one INSERT), so this also
-    // pins that the summary comes back in insert order, which is cart order.
+    // The lines of one cart order tie on created_at. This is the order SQLite
+    // returns for such ties: insert order, which is cart order. The loader has
+    // no tiebreaker, and /order/confirm and /orders rely on the same thing.
     expect(result.summary).toEqual([
       {
         productName,

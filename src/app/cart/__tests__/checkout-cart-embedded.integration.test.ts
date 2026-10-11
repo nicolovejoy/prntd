@@ -7,7 +7,9 @@
  * naming the reason. Also pinned: the order and every line are written before
  * Stripe is called in both modes, the Origin rules for return_url, the
  * Stripe-failure path, and the known behaviour that each Checkout makes its
- * own order and session.
+ * own order and session. One case carries the order checkoutCart wrote into
+ * the real /checkout loader, so a change to the rows checkoutCart writes reaches
+ * the loader's summary test.
  *
  * The db singleton, auth session, request headers, Printful quote and Stripe
  * client are mocked; the database is real (FKs enforced, schema-derived).
@@ -38,9 +40,13 @@ const h = vi.hoisted(() => ({
   rowsAtCreateTime: [] as { orders: OrderRow[]; items: OrderItemRow[] }[],
   /** Simulated `Origin` request header, read by resolveReturnOrigin. */
   originHeader: null as string | null,
+  /** When set, reading `Origin` from the request headers throws. */
+  originReadThrows: false,
   stripeError: null as Error | null,
   /** What the Stripe mock returns as `url` for a hosted session. */
   hostedUrl: "https://checkout.stripe.example/cs_test_hosted",
+  /** `stripe.checkout.sessions.retrieve`, read by the /checkout loader. */
+  retrieve: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -56,8 +62,18 @@ vi.mock("@/lib/auth", () => ({
 }));
 
 vi.mock("next/headers", () => ({
-  headers: async () =>
-    new Headers(h.originHeader ? { origin: h.originHeader } : {}),
+  headers: async () => {
+    // headers() itself resolves (the session read uses it first); only the
+    // read of the `Origin` entry throws, as a throw there would.
+    if (h.originReadThrows) {
+      return {
+        get: () => {
+          throw new Error("origin read failed");
+        },
+      };
+    }
+    return new Headers(h.originHeader ? { origin: h.originHeader } : {});
+  },
 }));
 
 // The shipping quote falls back to the flat estimate.
@@ -69,6 +85,7 @@ vi.mock("@/lib/stripe", () => ({
   stripe: {
     checkout: {
       sessions: {
+        retrieve: (...args: unknown[]) => h.retrieve(...args),
         create: vi.fn(async (params: Stripe.Checkout.SessionCreateParams) => {
           if (h.stripeError) throw h.stripeError;
           h.sessionParams.push(params);
@@ -95,6 +112,8 @@ import {
   setCartItemQuantity,
   checkoutCart,
 } from "@/app/cart/actions";
+import { stripe } from "@/lib/stripe";
+import { loadEmbeddedCheckout } from "@/lib/embedded-checkout-session";
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
 
@@ -105,6 +124,7 @@ const PREVIEW_ORIGIN =
 const HOSTED_URL = h.hostedUrl;
 const LISTING_URL = "https://img.example/listing.png";
 const MINE_URL = "https://img.example/mine.png";
+const SECOND_URL = "https://img.example/mine-second.png";
 const BUYER = { user: { id: "buyer", isAnonymous: false } };
 const CONFIRM_PATH = "/order/confirm?session_id={CHECKOUT_SESSION_ID}";
 
@@ -215,6 +235,7 @@ beforeEach(async () => {
   h.sessionParams = [];
   h.rowsAtCreateTime = [];
   h.originHeader = null;
+  h.originReadThrows = false;
   h.stripeError = null;
   vi.stubEnv("MULTI_PLACEMENT_ENABLED", "true");
   vi.stubEnv("NEXT_PUBLIC_APP_URL", APP_URL);
@@ -451,6 +472,26 @@ describe("checkoutCart refusals and failures with the switch on (#278 slice 6b)"
     expect(live[0].stripeSessionId).toBe("cs_test_1");
   });
 
+  it("reading the request's Origin throws: checkoutCart rejects before anything is written, and Stripe is not called", async () => {
+    embeddedOn();
+    const db = h.db as Db;
+    await seedCart(db);
+    // Armed after seeding, which reads headers() through addToCart too.
+    h.originReadThrows = true;
+    const create = vi.mocked(stripe.checkout.sessions.create);
+    create.mockClear();
+
+    // The config and the return origin are resolved before the order is
+    // written, so a throw there leaves no order behind. Moving that block below
+    // the db.batch would leave an order with no Stripe session.
+    await expect(checkoutCart()).rejects.toThrow("origin read failed");
+
+    expect(await db.select().from(schema.order)).toHaveLength(0);
+    expect(await db.select().from(schema.orderItem)).toHaveLength(0);
+    expect(create).not.toHaveBeenCalled();
+    expect(h.sessionParams).toHaveLength(0);
+  });
+
   it("an anonymous session: needsAuth, nothing written, Stripe not called", async () => {
     embeddedOn();
     const db = h.db as Db;
@@ -512,5 +553,116 @@ describe("each Checkout makes its own order and session (known behaviour, #278 s
       orders.every((o) => o.status === "pending" && o.abandonedAt === null)
     ).toBe(true);
     expect(await db.select().from(schema.orderItem)).toHaveLength(4);
+  });
+});
+
+describe("checkoutCart into the /checkout loader (#278 slice 6b)", () => {
+  it("the order checkoutCart wrote reads back as one summary entry per cart line, in cart order, matching the Stripe line_items", async () => {
+    embeddedOn();
+    const db = h.db as Db;
+    await makeUser(db, "seller");
+    await makeUser(db, "buyer");
+    const sold = await makeDesign(db, "seller");
+    const listingId = await makeSourceImage(db, {
+      designId: sold.id,
+      ownerId: "seller",
+      imageUrl: LISTING_URL,
+      publishedAt: new Date(),
+    });
+    const mine = await makeDesign(db, "buyer");
+    const firstId = await makeSourceImage(db, {
+      designId: mine.id,
+      ownerId: "buyer",
+      imageUrl: MINE_URL,
+    });
+    const secondId = await makeSourceImage(db, {
+      designId: mine.id,
+      ownerId: "buyer",
+      imageUrl: SECOND_URL,
+    });
+    const urlOf = new Map([
+      [listingId, LISTING_URL],
+      [firstId, MINE_URL],
+      [secondId, SECOND_URL],
+    ]);
+    // Lines 1 and 2 share a product and colour with different fronts; line 1
+    // has a back design; line 2 has a quantity above one.
+    const seeded = [
+      { frontId: listingId, backId: firstId, color: "Black", size: "L", quantity: 1 },
+      { frontId: firstId, backId: null, color: "Black", size: "M", quantity: 2 },
+      { frontId: secondId, backId: null, color: "White", size: "S", quantity: 1 },
+    ];
+    for (const line of seeded) {
+      await addToCart({
+        frontImageId: line.frontId,
+        ...(line.backId ? { back: line.backId } : {}),
+        productId: PRODUCT,
+        size: line.size,
+        color: line.color,
+      });
+    }
+    const cartRows = await db.select().from(schema.cartItem);
+    for (const line of seeded.filter((l) => l.quantity > 1)) {
+      const row = cartRows.find(
+        (r) => r.placements?.front === line.frontId && r.size === line.size
+      );
+      if (!row) throw new Error("seed: a cart line is missing");
+      await setCartItemQuantity(row.id, line.quantity);
+    }
+    h.retrieve.mockResolvedValue({
+      status: "open",
+      ui_mode: "embedded",
+      client_secret: "cs_secret_cart",
+      url: null,
+    });
+
+    const checkout = await checkoutCart();
+
+    expect(checkout.url).toBe("/checkout?session=cs_test_1&from=%2Fcart");
+    const [order] = await db.select().from(schema.order);
+    if (!order.stripeSessionId) throw new Error("checkoutCart saved no session id");
+    const result = await loadEmbeddedCheckout({
+      sessionId: order.stripeSessionId,
+      viewerId: "buyer",
+    });
+
+    if (result.kind !== "ready") {
+      throw new Error(`expected ready, got ${result.kind}`);
+    }
+    expect(h.retrieve).toHaveBeenCalledWith(order.stripeSessionId);
+    const blankName = getBlank(PRODUCT)?.name ?? null;
+    expect(
+      result.summary.map((e) => ({
+        productName: e.productName,
+        frontImageUrl: e.frontImageUrl,
+        backImageUrl: e.backImageUrl,
+        color: e.color,
+        size: e.size,
+        quantity: e.quantity,
+      }))
+    ).toEqual(
+      seeded.map((l) => ({
+        productName: blankName,
+        frontImageUrl: urlOf.get(l.frontId),
+        backImageUrl: l.backId ? urlOf.get(l.backId) : null,
+        color: l.color,
+        size: l.size,
+        quantity: l.quantity,
+      }))
+    );
+    // The Stripe lines come in the same order: each carries its front artwork
+    // and quantity.
+    const lineItems = h.sessionParams[0].line_items ?? [];
+    expect(
+      lineItems.map((li) => ({
+        front: li.price_data?.product_data?.images?.[0],
+        quantity: li.quantity,
+      }))
+    ).toEqual(
+      result.summary.map((e) => ({
+        front: e.frontImageUrl,
+        quantity: e.quantity,
+      }))
+    );
   });
 });

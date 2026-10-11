@@ -28,9 +28,10 @@
  * `stripe listen` forwarder on :3100. Run via `npm run e2e:stripe`
  * (docs/stripe-e2e.md); it self-skips everywhere else:
  *   - E2E_STRIPE unset          → plain `npm run e2e` skips it
- *   - E2E_BASE_URL set          → CI-against-preview skips it (Stripe redirect
- *     URLs build from NEXT_PUBLIC_APP_URL, which is prod on previews — the
- *     checkout would bounce off the deployment under test)
+ *   - E2E_BASE_URL set          → CI-against-preview skips it (no Stripe
+ *     webhook reaches a Preview deployment, so the order never leaves
+ *     `pending` and the assertions on the submitted order and the ledger
+ *     cannot pass)
  *   - STRIPE_SECRET_KEY not sk_test_ → never pays with a live key
  */
 import {
@@ -83,7 +84,9 @@ async function fillFirstVisible(
 
 /** Where Stripe's checkout form lives: the page itself (hosted checkout) or
  * the iframe Stripe mounts on /checkout (embedded checkout). Both expose the
- * locator/getBy* methods the helper below uses. */
+ * locator/getBy* methods the helper below uses. Since #278 slice 6b every test
+ * passes the embedded iframe; the page (hosted) branch is kept for the hosted
+ * fallback and is not exercised by any test. */
 type StripeRoot = Page | FrameLocator;
 
 /**
@@ -123,7 +126,9 @@ async function embeddedStripeRoot(page: Page): Promise<FrameLocator> {
  * Drive Stripe's test checkout, hosted (`root` is the page) or embedded
  * (`root` is the Stripe iframe): email, US shipping address, 4242 test card,
  * Pay. Optional fields (Link prompts, autocomplete) are handled when present
- * and skipped when not.
+ * and skipped when not. Since #278 slice 6b every test passes the embedded
+ * iframe; the hosted (page) branch is kept for the hosted fallback and is not
+ * exercised by any test.
  */
 async function completeStripeCheckout(root: StripeRoot, email: string) {
   // The form is interactable once the email field renders. (The card fields
@@ -255,7 +260,7 @@ test.describe("stripe money path", { tag: "@stripe" }, () => {
   );
   test.skip(
     Boolean(process.env.E2E_BASE_URL),
-    "local-only: on previews the Stripe success/cancel URLs point at prod (NEXT_PUBLIC_APP_URL)"
+    "local-only: no Stripe webhook reaches a Preview deployment, so the order never leaves pending"
   );
   test.skip(
     !stripeKey.startsWith("sk_test_"),

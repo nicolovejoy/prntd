@@ -44,8 +44,11 @@ jobs:
       # switch is off.
       # The publishable key is a repo variable, not a secret (it ships to
       # browsers). It is inlined at `next build`, and must belong to the same
-      # Stripe test account as STRIPE_SECRET_KEY: otherwise checkout fails
-      # closed to the hosted page and those tests fail loud.
+      # Stripe test account as STRIPE_SECRET_KEY. A missing, malformed or
+      # other-mode key falls back to hosted checkout and those tests fail loud.
+      # A key of the right mode from a different Stripe account passes the
+      # config check: the session is embedded, the form never mounts, and the
+      # tests time out waiting for it.
       EMBEDDED_CHECKOUT_ENABLED: "true"
       NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ vars.STRIPE_TEST_PUBLISHABLE_KEY }}
       # Fake vendor creds for SDK constructors that run at module-eval time
@@ -136,7 +139,7 @@ jobs:
       # here — a dry run would assert nothing, which is the gap this closes.
       # See docs/stripe-e2e.md and scripts/printful-contract-check.ts.
       - name: Printful API contract check (unconfirmed order)
-        # Runs even if the Stripe spec failed — Stripe's hosted checkout DOM is
+        # Runs even if the Stripe spec failed — Stripe's checkout DOM is
         # the flaky part of this job, and a flake there shouldn't hide a
         # Printful contract regression. Either step failing fails the job.
         if: ${{ !cancelled() }}

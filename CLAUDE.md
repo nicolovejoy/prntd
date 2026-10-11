@@ -29,7 +29,7 @@ Session history (every dated record through 2026-09-10) lives in `docs/session-l
 - Ideogram (direct API): v4 `generate-transparent` with `json_prompt` for new designs; `/v1/edit` with `transparent_background` for edits and placement re-renders. Replicate is out of the generation path (only ops scripts still import `removeBackground`)
 - Claude (Anthropic API, `claude-sonnet-4-6`) turns casual messages into a typed `DesignSpec` brief (`constructDesignBrief`) and chat replies
 - Printful API for fulfillment and mockups
-- Stripe Checkout (hosted) for payments
+- Stripe Checkout for payments: embedded on our own `/checkout` page, hosted as the fail-closed fallback
 - Resend for email
 
 ## Commands
@@ -129,7 +129,7 @@ Price = `baseCost × 1.4` per size (Nico, 2026-10-01), plus a separate flat ship
 - **Ideogram:** $0.03 per generate, $0.20 per edit (`costFor()`; the edit price is secondhand, check it against a bill). No transparency support in v4's text endpoints; only `generate-transparent` and `/v1/edit` have it.
 - **R2:** every generated image is kept (`images/{imageId}.png`; legacy `designs/{designId}/{n}.png` keys stay). Mockup keys come from `src/lib/mockup-cache.ts`, the single builder for both the R2 key and the DB cache key.
 - **Printful:** product catalog in `src/lib/blanks.ts`; mockups; order submission; status webhooks (redeliveries at the target status return 200 `ignored`). `PRINTFUL_AUTO_CONFIRM` defaults ON. Printful's field constraints are invisible to mocks; the nightly contract check is the only test that sees them.
-- **Stripe:** hosted checkout, webhooks, admin refunds. Embedded checkout (`ui_mode: "embedded"`, `/checkout`) is switched by `EMBEDDED_CHECKOUT_ENABLED` (image detail page, #250), which needs `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` in the secret key's mode or fails closed to hosted. The cart uses the same switch and the same fallback (#278 slice 6b), so that one switch turns embedded checkout off for both. Radar goes to $0.05/transaction after 2027-01-22 — switch to Radar Lite or decide by January.
+- **Stripe:** hosted checkout, webhooks, admin refunds. Embedded checkout (`ui_mode: "embedded"`, `/checkout`) is switched by `EMBEDDED_CHECKOUT_ENABLED` (image detail page, #250), which needs `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` in the secret key's mode or fails closed to hosted. The cart uses the same switch and the same fallback (#278 slice 6b), so that one switch turns embedded checkout off for both. Radar goes to $0.05/transaction after 2027-01-22 — switch to Radar Lite or decide by January. A publishable key of the right mode from another Stripe account passes the config check, so there is no fallback: the session is embedded and the form never mounts. After any Stripe key change, confirm one checkout from the image detail page and one from the cart reach the payment form.
 
 ### Conventions
 

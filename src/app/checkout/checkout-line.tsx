@@ -19,7 +19,7 @@ type FaceSide = "front" | "back";
  * artwork on the shirt colour. The summary has no back mockup, only the back
  * artwork, so the back face is that artwork on the shirt colour.
  *
- * A cart order's lines are rendered `compact` (see the prop).
+ * An order with more than one line is rendered `compact` (see the prop).
  */
 export function CheckoutLine({
   line,
