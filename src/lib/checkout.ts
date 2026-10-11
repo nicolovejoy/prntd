@@ -117,6 +117,8 @@ export function buildCheckoutSessionParams(params: {
  * not per item, and stays out of percentage promos (same margin fix). Kept
  * separate from the single-item builder so that flow's locked shape can't
  * drift; both share the shipping-as-option pattern and URL/metadata wiring.
+ * Like the single-item builder it takes a `uiMode`: the cart mounts on our own
+ * /checkout page when embedded checkout is enabled (#278 slice 6b).
  */
 export function buildCartCheckoutSessionParams(params: {
   orderId: string;
@@ -136,7 +138,15 @@ export function buildCartCheckoutSessionParams(params: {
   appUrl: string;
   /** Injected clock (ms) for `expires_at` — defaults to `Date.now()`. */
   now?: number;
+  /**
+   * Hosted (default) or embedded, exactly as in `buildCheckoutSessionParams`
+   * above: an embedded session takes `return_url` in place of
+   * `success_url`/`cancel_url`, and `cancelUrl` is ignored (the way back is
+   * `/checkout`'s own Back link, which `checkoutCart` points at the cart).
+   */
+  uiMode?: "hosted" | "embedded";
 }): Stripe.Checkout.SessionCreateParams {
+  const embedded = params.uiMode === "embedded";
   return {
     mode: "payment",
     allow_promotion_codes: true,
@@ -169,7 +179,14 @@ export function buildCartCheckoutSessionParams(params: {
       },
     ],
     metadata: { orderId: params.orderId, designId: params.designId },
-    success_url: `${params.appUrl}/order/confirm?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: params.cancelUrl,
+    ...(embedded
+      ? {
+          ui_mode: "embedded" as const,
+          return_url: `${params.appUrl}/order/confirm?session_id={CHECKOUT_SESSION_ID}`,
+        }
+      : {
+          success_url: `${params.appUrl}/order/confirm?session_id={CHECKOUT_SESSION_ID}`,
+          cancel_url: params.cancelUrl,
+        }),
   };
 }
