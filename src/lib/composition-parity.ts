@@ -167,7 +167,7 @@ function structuralProblems(
     for (const c of rows) {
       if (String(c.status) !== "draft" && !visible.has(imageId)) {
         problems.push(
-          `${imageId}: composition ${c.id} is ${c.status} but the image has no ${visibilityLabel} row — in the Shop with no publish grant`
+          `${imageId}: composition ${c.id} is ${c.status} but the image has no ${visibilityLabel} row`
         );
       }
     }

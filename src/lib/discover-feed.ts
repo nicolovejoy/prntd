@@ -8,11 +8,18 @@
  *
  * Composition slice 2: the sellable fields come off the image's `product`
  * composition (docs/composition-first-class-plan.md §1 "job A"), not its
- * visibility row. See src/lib/composition-reads.ts.
+ * visibility row. See src/lib/composition-reads.ts. Whether an image is shown
+ * at all is read from `image_publication` (#300), like every other visibility
+ * check; `product.status` is not consulted.
+ *
+ * src/lib/feed-visibility-parity.ts re-runs this query's joins as raw SQL so
+ * a production database can be checked against the visibility rule. If the
+ * joins or the visibility filter below change, change that module with them.
  */
 import { db } from "@/lib/db";
 import {
   image as imageTable,
+  imagePublication as imagePublicationTable,
   product as productTable,
   user as userTable,
 } from "@/lib/db/schema";
@@ -84,12 +91,14 @@ export function orderFeedByRank<
  * ranked rows are never cut off by the over-fetch window.
  */
 export async function getPublishedFeed(limit = 60): Promise<FeedRow[]> {
-  // Composition slice 2: the feed is a *product* query. Every product row is a
-  // Shop composition (slice 5 dropped the organizer population), and
-  // `status = "listed"` is exactly the old `is_hidden = false` (hidden →
-  // status "hidden", unpublished → "draft"), so the same rows come back. The
-  // image joins on the composition's front placement slot; the designer comes
-  // off image.ownerId (denormalized in Model B) — no design join left.
+  // The feed is a *product* query. Every product row is a Shop composition
+  // (slice 5 dropped the organizer population), and the image joins on the
+  // composition's front placement slot. Whether that image is public is
+  // `image_publication`'s to say, as for every other visibility check (#300):
+  // the inner join drops an image with no publication row (unpublished) and
+  // `is_hidden = false` drops one an admin hid. `product.status` is still
+  // written on publish, unpublish and hide but is not read here. The designer
+  // comes off image.ownerId (denormalized in Model B) — no design join left.
   const rows = await db
     .select({
       imageId: imageTable.id,
@@ -108,7 +117,11 @@ export async function getPublishedFeed(limit = 60): Promise<FeedRow[]> {
     .from(productTable)
     .innerJoin(imageTable, eq(mirrorFrontImageId, imageTable.id))
     .innerJoin(userTable, eq(userTable.id, imageTable.ownerId))
-    .where(eq(productTable.status, "listed"))
+    .innerJoin(
+      imagePublicationTable,
+      eq(imagePublicationTable.imageId, imageTable.id)
+    )
+    .where(eq(imagePublicationTable.isHidden, false))
     .orderBy(
       sql`${productTable.feedRank} is null`,
       asc(productTable.feedRank),

@@ -4,6 +4,8 @@
  * variant as the design's current artwork, so the guards that matter are
  * ownership and "this image actually belongs to this conversation" — without
  * the latter an owner could point their design at any image id they can name.
+ * The same file covers selectImage's and setPrimaryImage's refusal of an
+ * admin-hidden image (#310 item 4).
  *
  * Auth is mocked; the database is real.
  */
@@ -59,7 +61,7 @@ vi.mock("@/lib/stripe", () => ({
   },
 }));
 
-const { setPrimaryImage } = await import("@/app/design/actions");
+const { setPrimaryImage, selectImage } = await import("@/app/design/actions");
 const { getConversationImages } = await import("@/app/d/actions");
 const { loadEmbeddedCheckout } = await import("@/lib/embedded-checkout-session");
 const { resolveOrderEmailImages } = await import("@/lib/email-images");
@@ -259,6 +261,188 @@ describe("setPrimaryImage and the mockup cache (#264)", () => {
 
     expect(await primaryOf(designId)).toBe(second);
     expect(await cacheOf(designId)).toEqual(CACHE);
+  });
+});
+
+describe("admin-hidden images (#310 item 4)", () => {
+  const CACHE = { "some-key": "https://r2.example/render-of-current.jpg" };
+  const PUBLISHED_AT = new Date("2026-02-01");
+
+  // `current` is the design's primary and carries a cached mockup, so a refused
+  // call has something to leave unchanged. The other three are linked to the
+  // same design: hidden by an admin, published and visible, and never
+  // published (no publication row).
+  async function seedHiddenThread() {
+    await makeUser(testDb, "owner");
+    const design = await makeDesign(testDb, "owner");
+    const link = (n: string, extra: Partial<Parameters<typeof makeSourceImage>[1]> = {}) =>
+      makeSourceImage(testDb, {
+        designId: design.id,
+        ownerId: "owner",
+        imageUrl: `https://r2/${n}.png`,
+        ...extra,
+      });
+    const current = await link("current", { createdAt: new Date("2026-01-01") });
+    const hidden = await link("hidden", {
+      createdAt: new Date("2026-01-02"),
+      publishedAt: PUBLISHED_AT,
+      isHidden: true,
+    });
+    const visible = await link("visible", {
+      createdAt: new Date("2026-01-03"),
+      publishedAt: PUBLISHED_AT,
+      isHidden: false,
+    });
+    const plain = await link("plain", { createdAt: new Date("2026-01-04") });
+    await testDb
+      .update(schema.design)
+      .set({ primaryImageId: current, mockupUrls: CACHE })
+      .where(eq(schema.design.id, design.id));
+    return { designId: design.id, current, hidden, visible, plain };
+  }
+
+  async function stateOf(designId: string) {
+    const [row] = await testDb
+      .select({
+        primaryImageId: schema.design.primaryImageId,
+        mockupUrls: schema.design.mockupUrls,
+      })
+      .from(schema.design)
+      .where(eq(schema.design.id, designId));
+    return row;
+  }
+
+  // A hidden image in another conversation of the same owner.
+  async function seedForeignHidden() {
+    const other = await makeDesign(testDb, "owner");
+    const imageId = await makeSourceImage(testDb, {
+      designId: other.id,
+      ownerId: "owner",
+      imageUrl: "https://r2/foreign-hidden.png",
+      publishedAt: PUBLISHED_AT,
+      isHidden: true,
+    });
+    return { imageId, imageUrl: "https://r2/foreign-hidden.png" };
+  }
+
+  describe("setPrimaryImage", () => {
+    it("refuses a hidden image and writes nothing", async () => {
+      const { designId, current, hidden } = await seedHiddenThread();
+
+      await expect(setPrimaryImage(designId, hidden)).rejects.toThrow(
+        "This image is not available"
+      );
+
+      expect(await stateOf(designId)).toEqual({
+        primaryImageId: current,
+        mockupUrls: CACHE,
+      });
+    });
+
+    it("refuses a hidden image that is already the primary", async () => {
+      const { designId, hidden } = await seedHiddenThread();
+      await testDb
+        .update(schema.design)
+        .set({ primaryImageId: hidden })
+        .where(eq(schema.design.id, designId));
+
+      await expect(setPrimaryImage(designId, hidden)).rejects.toThrow(
+        "This image is not available"
+      );
+
+      expect(await stateOf(designId)).toEqual({
+        primaryImageId: hidden,
+        mockupUrls: CACHE,
+      });
+    });
+
+    it("still pins a published image that is not hidden", async () => {
+      const { designId, visible } = await seedHiddenThread();
+
+      await setPrimaryImage(designId, visible);
+
+      expect(await stateOf(designId)).toEqual({
+        primaryImageId: visible,
+        mockupUrls: null,
+      });
+    });
+
+    it("still pins an image with no publication row", async () => {
+      const { designId, plain } = await seedHiddenThread();
+
+      await setPrimaryImage(designId, plain);
+
+      expect(await stateOf(designId)).toEqual({
+        primaryImageId: plain,
+        mockupUrls: null,
+      });
+    });
+
+    it("reports a hidden image this design doesn't hold as not part of the design", async () => {
+      const { designId, current } = await seedHiddenThread();
+      const foreign = await seedForeignHidden();
+
+      await expect(setPrimaryImage(designId, foreign.imageId)).rejects.toThrow(
+        "Image is not part of this design"
+      );
+
+      expect(await stateOf(designId)).toEqual({
+        primaryImageId: current,
+        mockupUrls: CACHE,
+      });
+    });
+  });
+
+  describe("selectImage", () => {
+    it("refuses a hidden image and writes nothing", async () => {
+      const { designId, current } = await seedHiddenThread();
+
+      await expect(
+        selectImage(designId, "https://r2/hidden.png")
+      ).rejects.toThrow("This image is not available");
+
+      expect(await stateOf(designId)).toEqual({
+        primaryImageId: current,
+        mockupUrls: CACHE,
+      });
+    });
+
+    it("still selects a published image that is not hidden", async () => {
+      const { designId, visible } = await seedHiddenThread();
+
+      await selectImage(designId, "https://r2/visible.png");
+
+      expect(await stateOf(designId)).toEqual({
+        primaryImageId: visible,
+        mockupUrls: null,
+      });
+    });
+
+    it("still selects an image with no publication row", async () => {
+      const { designId, plain } = await seedHiddenThread();
+
+      await selectImage(designId, "https://r2/plain.png");
+
+      expect(await stateOf(designId)).toEqual({
+        primaryImageId: plain,
+        mockupUrls: null,
+      });
+    });
+
+    it("tells a non-owner Unauthorized even when the URL names a hidden image", async () => {
+      const { designId, current } = await seedHiddenThread();
+      await makeUser(testDb, "stranger");
+      h.userId = "stranger";
+
+      await expect(
+        selectImage(designId, "https://r2/hidden.png")
+      ).rejects.toThrow("Unauthorized");
+
+      expect(await stateOf(designId)).toEqual({
+        primaryImageId: current,
+        mockupUrls: CACHE,
+      });
+    });
   });
 });
 

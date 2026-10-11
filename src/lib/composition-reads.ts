@@ -9,8 +9,12 @@
  * this module touches that. Whether an image is published or hidden is read
  * from `image_publication` only (#289 item 4); the `product.status` mirror is
  * still written on publish, unpublish and hide, but no reader derives
- * visibility from it. `isPublishedShopMirror` and `listedMirrorPublishedAt`
- * remain for the Shop feed, which sells compositions rather than images.
+ * visibility from it, the Shop feed included (it joins `image_publication`
+ * and filters `is_hidden`). `isPublishedShopMirror` narrows a composition
+ * lookup to non-draft rows for the readers that want its own fields (the image
+ * detail page, My Designs backdrops, order-line titles, the share card); the
+ * feed does not call it. `listedMirrorPublishedAt` is the feed's publish
+ * timestamp rule.
  *
  * Since composition slice 5 every `product` row IS a Shop composition — the
  * organizer population (`design_id` / `store_id` set) went with the
@@ -54,7 +58,9 @@ function publishedAtOf(listedAt: Date | null, createdAt: Date): Date {
 }
 
 /**
- * Same rule for readers whose query already excludes drafts (the feed), where the result is known to be non-null.
+ * `publishedAtOf`, exported for the Shop feed. The feed only reads published
+ * images, so it always needs a timestamp to sort on: a null `listed_at` falls
+ * back to `created_at` rather than dropping the row.
  */
 export function listedMirrorPublishedAt(
   listedAt: Date | null,
