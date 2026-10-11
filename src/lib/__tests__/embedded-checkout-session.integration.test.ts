@@ -14,6 +14,8 @@ import { createTestDb } from "./test-db";
 import * as schema from "@/lib/db/schema";
 import { makeUser, makeDesign, makeSourceImage } from "./factories";
 import { STRIPE_SESSION_READ_TIMEOUT_MS } from "@/lib/checkout-session-status";
+import { computePrice } from "@/lib/pricing";
+import { getBlank, getColorHex } from "@/lib/blanks";
 
 const h = vi.hoisted(() => ({
   db: null as unknown,
@@ -563,5 +565,189 @@ describe("loadEmbeddedCheckout (#135 slice 2)", () => {
     });
 
     expect(result).toEqual({ kind: "unavailable" });
+  });
+});
+
+const CART_PRODUCT = "bella-canvas-3001";
+
+/**
+ * An order shaped like the ones checkoutCart writes: one header and several
+ * order_item rows from one INSERT, with lines from more than one design.
+ * Prices come from computePrice so no amount is written here.
+ */
+async function seedCartOrder(db: Db, stripeSessionId: string) {
+  await makeUser(db, "buyer");
+  await makeUser(db, "seller");
+  const mine = await makeDesign(db, "buyer");
+  const firstId = await makeSourceImage(db, {
+    designId: mine.id,
+    ownerId: "buyer",
+    imageUrl: "https://img.example/mine-first.png",
+  });
+  const secondId = await makeSourceImage(db, {
+    designId: mine.id,
+    ownerId: "buyer",
+    imageUrl: "https://img.example/mine-second.png",
+  });
+  const sold = await makeDesign(db, "seller");
+  const listingId = await makeSourceImage(db, {
+    designId: sold.id,
+    ownerId: "seller",
+    imageUrl: "https://img.example/listing.png",
+    publishedAt: new Date(),
+  });
+  // The buyer's design caches two Black front mockups: one keyed by the first
+  // image, and the old source-less one that stands for the design's primary
+  // (the first image). Neither belongs to the second image.
+  await db
+    .update(schema.design)
+    .set({
+      primaryImageId: firstId,
+      mockupUrls: {
+        [mockupCacheKey({
+          productId: CART_PRODUCT,
+          placementId: "front",
+          sourceImageId: firstId,
+          colorName: "Black",
+          scaleKey: 100,
+        })]: "https://r2.example/mine-first-black.jpg",
+        [mockupCacheKey({
+          productId: CART_PRODUCT,
+          placementId: "front",
+          colorName: "Black",
+          scaleKey: 100,
+        })]: "https://r2.example/mine-default-black.jpg",
+      },
+    })
+    .where(eq(schema.design.id, mine.id));
+
+  const unit = (size: string, back = false) =>
+    computePrice(0, CART_PRODUCT, size, { back }).total;
+  const [order] = await db
+    .insert(schema.order)
+    .values({
+      userId: "buyer",
+      designId: mine.id,
+      stripeSessionId,
+      status: "pending",
+      totalPrice: unit("M") + 2 * unit("L", true) + unit("S"),
+    })
+    .returning();
+  await db.insert(schema.orderItem).values([
+    {
+      orderId: order.id,
+      designId: mine.id,
+      productId: CART_PRODUCT,
+      size: "M",
+      color: "Black",
+      placements: { front: firstId },
+      quantity: 1,
+      itemPrice: unit("M"),
+    },
+    {
+      orderId: order.id,
+      designId: sold.id,
+      productId: CART_PRODUCT,
+      size: "L",
+      color: "White",
+      placements: { front: listingId, back: firstId },
+      quantity: 2,
+      itemPrice: unit("L", true),
+    },
+    {
+      orderId: order.id,
+      designId: mine.id,
+      productId: CART_PRODUCT,
+      size: "S",
+      color: "Black",
+      placements: { front: secondId },
+      quantity: 1,
+      itemPrice: unit("S"),
+    },
+  ]);
+}
+
+describe("loadEmbeddedCheckout for a cart order (#278 slice 6b)", () => {
+  it("returns one summary entry per order line, each with its own artwork, colour, size, quantity and mockup", async () => {
+    const db = h.db as Db;
+    await seedCartOrder(db, "cs_test_cart1");
+    h.retrieve.mockResolvedValue(OPEN_EMBEDDED);
+
+    const result = await loadEmbeddedCheckout({
+      sessionId: "cs_test_cart1",
+      viewerId: "buyer",
+    });
+
+    if (result.kind !== "ready") throw new Error(`expected ready, got ${result.kind}`);
+    const productName = getBlank(CART_PRODUCT)?.name ?? null;
+    // The three lines share one created_at second (one INSERT), so this also
+    // pins that the summary comes back in insert order, which is cart order.
+    expect(result.summary).toEqual([
+      {
+        productName,
+        color: "Black",
+        size: "M",
+        quantity: 1,
+        frontImageUrl: "https://img.example/mine-first.png",
+        backImageUrl: null,
+        colorHex: getColorHex(CART_PRODUCT, "Black"),
+        mockupUrl: "https://r2.example/mine-first-black.jpg",
+      },
+      {
+        productName,
+        color: "White",
+        size: "L",
+        quantity: 2,
+        frontImageUrl: "https://img.example/listing.png",
+        backImageUrl: "https://img.example/mine-first.png",
+        colorHex: getColorHex(CART_PRODUCT, "White"),
+        mockupUrl: null,
+      },
+      {
+        productName,
+        color: "Black",
+        size: "S",
+        quantity: 1,
+        frontImageUrl: "https://img.example/mine-second.png",
+        backImageUrl: null,
+        colorHex: getColorHex(CART_PRODUCT, "Black"),
+        // Same design and colour as line 1, a different front: neither of the
+        // design's cached mockups is this line's artwork.
+        mockupUrl: null,
+      },
+    ]);
+    expect(h.retrieve).toHaveBeenCalledTimes(1);
+  });
+
+  it("the summary carries no price field for any line", async () => {
+    const db = h.db as Db;
+    await seedCartOrder(db, "cs_test_cart2");
+    h.retrieve.mockResolvedValue(OPEN_EMBEDDED);
+
+    const result = await loadEmbeddedCheckout({
+      sessionId: "cs_test_cart2",
+      viewerId: "buyer",
+    });
+
+    if (result.kind !== "ready") throw new Error(`expected ready, got ${result.kind}`);
+    expect(result.summary).toHaveLength(3);
+    for (const line of result.summary) {
+      expect(
+        Object.keys(line).filter((key) => /price|total|amount|cost/i.test(key))
+      ).toEqual([]);
+    }
+  });
+
+  it("another account opening a cart session gets not-found and Stripe is not called", async () => {
+    const db = h.db as Db;
+    await seedCartOrder(db, "cs_test_cart3");
+
+    const result = await loadEmbeddedCheckout({
+      sessionId: "cs_test_cart3",
+      viewerId: "seller",
+    });
+
+    expect(result).toEqual({ kind: "not-found" });
+    expect(h.retrieve).not.toHaveBeenCalled();
   });
 });

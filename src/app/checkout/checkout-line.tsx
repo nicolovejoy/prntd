@@ -18,8 +18,21 @@ type FaceSide = "front" | "back";
  * The face is what the tile already shows: the cached front mockup, else the
  * artwork on the shirt colour. The summary has no back mockup, only the back
  * artwork, so the back face is that artwork on the shirt colour.
+ *
+ * A cart order's lines are rendered `compact` (see the prop).
  */
-export function CheckoutLine({ line }: { line: CheckoutLineSummary }) {
+export function CheckoutLine({
+  line,
+  compact = false,
+}: {
+  line: CheckoutLineSummary;
+  /** Set when the summary has more than one line (a cart order, #278 slice
+   * 6b). From `md` up a line becomes a full-width square, which is sized for
+   * one shirt; several would stack one large square per line beside the
+   * payment form. Compact keeps the phone's row, tile beside the text, at
+   * every width. */
+  compact?: boolean;
+}) {
   const [viewing, setViewing] = useState<FaceSide | null>(null);
 
   const hasFront = Boolean(line.mockupUrl || line.frontImageUrl);
@@ -58,10 +71,20 @@ export function CheckoutLine({ line }: { line: CheckoutLineSummary }) {
 
   return (
     <div className="border-t border-border pt-4 space-y-2">
-      <div className="flex items-center gap-3 md:flex-col md:items-stretch md:gap-2">
+      <div
+        className={
+          compact
+            ? "flex items-center gap-3"
+            : "flex items-center gap-3 md:flex-col md:items-stretch md:gap-2"
+        }
+      >
         <div
           data-testid="checkout-preview"
-          className="relative w-24 h-24 md:w-full md:h-auto md:aspect-square border border-border overflow-hidden flex-shrink-0"
+          className={
+            compact
+              ? "relative w-24 h-24 border border-border overflow-hidden flex-shrink-0"
+              : "relative w-24 h-24 md:w-full md:h-auto md:aspect-square border border-border overflow-hidden flex-shrink-0"
+          }
           style={{ backgroundColor: line.colorHex }}
         >
           {hasFront ? (
