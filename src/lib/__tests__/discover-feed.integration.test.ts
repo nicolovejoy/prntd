@@ -3,13 +3,17 @@
  * libSQL (the #28 pattern). Ranked images list before unranked, lowest
  * rank first; ties and unranked fall back to newest published first, so
  * a rank-free feed behaves exactly as before the column existed.
+ *
+ * Visibility is `image_publication.is_hidden`; `product.status` is not read.
+ * The last describe block makes the two tables disagree on purpose and checks
+ * the feed follows the publication row.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { createTestDb } from "./test-db";
 import { makeUser, makeDesign, makeSourceImage } from "./factories";
 import { orderFeedByRank, compareFeedOrder } from "@/lib/discover-feed";
 import * as schema from "@/lib/db/schema";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
 let testDb: Db;
@@ -213,5 +217,71 @@ describe("getPublishedFeed (real DB)", () => {
     const feed = await getPublishedFeed();
     const row = feed.find((r) => r.imageId === fixed.imageId);
     expect(row?.blankId).toBe("cotton-heritage-mc1087");
+  });
+});
+
+describe("getPublishedFeed visibility follows image_publication", () => {
+  beforeEach(async () => {
+    testDb = await createTestDb();
+    await makeUser(testDb, "nico");
+  });
+
+  async function publishImage(
+    opts: { hidden?: boolean; publishedMinutesAgo?: number } = {}
+  ) {
+    const designId = (await makeDesign(testDb, "nico")).id;
+    return makeSourceImage(testDb, {
+      designId,
+      ownerId: "nico",
+      imageUrl: `https://img.example/${crypto.randomUUID()}.png`,
+      publishedAt: at(opts.publishedMinutesAgo ?? 10),
+      isHidden: opts.hidden ?? false,
+    });
+  }
+
+  const setStatus = (imageId: string, status: "draft" | "listed" | "hidden") =>
+    testDb
+      .update(schema.product)
+      .set({ status })
+      .where(sql`json_extract(placements, '$.front') = ${imageId}`);
+
+  it("leaves out an image whose publication row is hidden", async () => {
+    const visible = await publishImage();
+    await publishImage({ hidden: true });
+
+    const feed = await getPublishedFeed();
+    expect(feed.map((r) => r.imageId)).toEqual([visible]);
+  });
+
+  it("leaves out a hidden publication even when the composition still says listed", async () => {
+    const visible = await publishImage();
+    const hidden = await publishImage();
+    await testDb
+      .update(schema.imagePublication)
+      .set({ isHidden: true })
+      .where(eq(schema.imagePublication.imageId, hidden));
+    // The composition was not touched: it still reads "listed".
+
+    const feed = await getPublishedFeed();
+    expect(feed.map((r) => r.imageId)).toEqual([visible]);
+  });
+
+  it("shows a visible publication even when the composition says hidden", async () => {
+    const stale = await publishImage();
+    await setStatus(stale, "hidden");
+
+    const feed = await getPublishedFeed();
+    expect(feed.map((r) => r.imageId)).toEqual([stale]);
+  });
+
+  it("leaves out a listed composition whose image has no publication row", async () => {
+    const visible = await publishImage();
+    const orphan = await publishImage();
+    await testDb
+      .delete(schema.imagePublication)
+      .where(eq(schema.imagePublication.imageId, orphan));
+
+    const feed = await getPublishedFeed();
+    expect(feed.map((r) => r.imageId)).toEqual([visible]);
   });
 });

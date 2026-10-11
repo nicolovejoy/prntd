@@ -36,7 +36,11 @@ import {
   imageGeneration as imageGenerationTable,
 } from "@/lib/db/schema";
 import { eq, and, sql, inArray } from "drizzle-orm";
-import { buildImageRow, buildOutputLinkRow } from "@/lib/model-b-writes";
+import {
+  buildImageRow,
+  buildOutputLinkRow,
+  isImageAdminHidden,
+} from "@/lib/model-b-writes";
 import { chatAboutDesign, constructDesignBrief, type ChatOption } from "@/lib/ai";
 import { uploadImageObject, deleteImageObject } from "@/lib/r2";
 import { meanLuminance } from "@/lib/image-luminance";
@@ -1162,6 +1166,12 @@ export async function uploadReferenceImage(
   return { imageUrl: r2Url, imageId: newImageId };
 }
 
+/**
+ * Make the image at `imageUrl` the conversation's primary. A URL that names
+ * none of this thread's images clears the primary (the design then falls back
+ * to its latest image). Refuses an admin-hidden image (#310): hidden artwork
+ * is not something the owner can pin as the design's current image.
+ */
 export async function selectImage(designId: string, imageUrl: string) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) throw new Error("Unauthorized");
@@ -1173,6 +1183,13 @@ export async function selectImage(designId: string, imageUrl: string) {
     throw new Error("Unauthorized");
 
   const primaryImageId = await findDesignImageByUrl(designId, imageUrl);
+
+  // Checked after ownership and the URL lookup, so a URL this thread doesn't
+  // hold reads as it always has. A hide that lands after this check leaves a
+  // hidden primary, the same state as hiding an image that is already primary.
+  if (primaryImageId && (await isImageAdminHidden(db, primaryImageId))) {
+    throw new Error("This image is not available");
+  }
 
   await db
     .update(designTable)
@@ -1278,6 +1295,9 @@ export async function reopenConversation(designId: string) {
  * Allowed on a closed conversation: this curates the record, it doesn't write
  * to the thread (no chat, generation or upload), so assertConversationOpen
  * deliberately isn't applied.
+ *
+ * Refuses an admin-hidden image (#310): hidden artwork is not something the
+ * owner can pin as the design's current image.
  */
 export async function setPrimaryImage(designId: string, imageId: string) {
   const design = await requireOwnedDesign(designId);
@@ -1296,6 +1316,15 @@ export async function setPrimaryImage(designId: string, imageId: string) {
     )
     .limit(1);
   if (!link) throw new Error("Image is not part of this design");
+
+  // Checked after ownership and the link check, so an id this thread doesn't
+  // hold reads as it always has, and before the already-primary return so the
+  // answer doesn't depend on which image is primary now. A hide that lands
+  // after this check leaves a hidden primary, the same state as hiding an
+  // image that is already primary.
+  if (await isImageAdminHidden(db, imageId)) {
+    throw new Error("This image is not available");
+  }
 
   // Already primary: nothing changes, so the mockup cache stays valid.
   if (design.primaryImageId === imageId) return;

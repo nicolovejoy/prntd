@@ -270,7 +270,7 @@ describe("checkCompositionParity — post-0014 (Nico's verify)", () => {
     await mirror(client, "stray", "img8", 7);
     const report = await checkCompositionParity(client);
     expect(report.problems).toEqual([
-      "img8: composition stray is listed but the image has no image_publication row — in the Shop with no publish grant",
+      "img8: composition stray is listed but the image has no image_publication row",
     ]);
   });
 

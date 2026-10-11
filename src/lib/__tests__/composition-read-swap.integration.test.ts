@@ -4,7 +4,8 @@
  * `image_publication` row beside it is only the visibility grant (its frozen
  * sellable copies were dropped in slice 5, so a reader can no longer be on
  * the wrong table by accident — these tests now pin that the product's
- * status/fields are what each surface follows).
+ * fields are what each surface follows; whether an image is shown at all,
+ * in the feed too since #310 item 5, comes from the publication row).
  *
  * The tests drive the REAL publish-family actions against a real in-memory
  * libSQL (#28), then assert each reader returns the product-sourced values.
@@ -132,13 +133,17 @@ describe("feed reads the mirror product", () => {
     expect(feed[0].title).toBe("Product Title");
   });
 
-  it("drops a composition whose status is draft, even with the publication row intact", async () => {
+  it("keeps a draft composition whose publication row is intact (#310 item 5)", async () => {
     const { imageId } = await seedImage();
     await publishImage(imageId, { title: "Tiger", backgroundColor: "Black" });
-    // Only the composition is retired — the publication row stays.
+    // Only the composition is retired — the publication row stays. Whether an
+    // image is in the feed is image_publication's to say, so it stays listed.
+    // Unpublish writes both in one batch, so this state is drift only;
+    // scripts/check-feed-visibility-parity.ts reports it.
     await patchMirror(imageId, { status: "draft" });
 
-    expect(await getPublishedFeed()).toHaveLength(0);
+    const feed = await getPublishedFeed();
+    expect(feed.map((r) => r.imageId)).toEqual([imageId]);
   });
 
   it("drops a hidden image and brings it back on unhide", async () => {
