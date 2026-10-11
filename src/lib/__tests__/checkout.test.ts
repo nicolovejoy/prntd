@@ -249,4 +249,82 @@ describe("buildCartCheckoutSessionParams", () => {
       Math.floor(now / 1000) + CHECKOUT_SESSION_TTL_SECONDS
     );
   });
+
+  it("with no uiMode deep-equals the hosted shape (pins the cart's hosted params key for key)", () => {
+    const now = 1_700_000_000_000;
+    const cents = (n: number) => Math.round(n * 100);
+    const p = buildCartCheckoutSessionParams({ ...cartBase, now });
+    expect(p).toEqual({
+      mode: "payment",
+      allow_promotion_codes: true,
+      expires_at: Math.floor(now / 1000) + CHECKOUT_SESSION_TTL_SECONDS,
+      shipping_address_collection: { allowed_countries: ["US"] },
+      line_items: cartBase.lineItems.map((li) => ({
+        price_data: {
+          currency: "usd",
+          product_data: {
+            name: `PRNTD ${li.name}`,
+            description: li.description,
+            images: li.imageUrl ? [li.imageUrl] : [],
+          },
+          unit_amount: cents(li.unitPrice),
+        },
+        quantity: li.quantity,
+      })),
+      shipping_options: [
+        {
+          shipping_rate_data: {
+            type: "fixed_amount",
+            fixed_amount: { amount: cents(cartBase.shippingPrice), currency: "usd" },
+            display_name: "Standard shipping",
+          },
+        },
+      ],
+      metadata: { orderId: cartBase.orderId, designId: cartBase.designId },
+      success_url: `${cartBase.appUrl}/order/confirm?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: cartBase.cancelUrl,
+    });
+  });
+
+  it("uiMode: 'hosted' produces the identical shape as omitting uiMode", () => {
+    const now = 1_700_000_000_000;
+    expect(
+      buildCartCheckoutSessionParams({ ...cartBase, now, uiMode: "hosted" })
+    ).toEqual(buildCartCheckoutSessionParams({ ...cartBase, now }));
+  });
+
+  it("uiMode: 'embedded' sets ui_mode + return_url, omits success_url/cancel_url, and otherwise matches hosted", () => {
+    const now = 1_700_000_000_000;
+    const hosted = buildCartCheckoutSessionParams({ ...cartBase, now });
+    const embedded = buildCartCheckoutSessionParams({
+      ...cartBase,
+      now,
+      uiMode: "embedded",
+    });
+
+    expect(embedded).toEqual({
+      ...hosted,
+      ui_mode: "embedded",
+      return_url: `${cartBase.appUrl}/order/confirm?session_id={CHECKOUT_SESSION_ID}`,
+      success_url: undefined,
+      cancel_url: undefined,
+    });
+    expect(embedded).not.toHaveProperty("success_url");
+    expect(embedded).not.toHaveProperty("cancel_url");
+    // Still one Stripe line per cart line and one shipping option.
+    expect(embedded.line_items).toHaveLength(cartBase.lineItems.length);
+    expect(embedded.shipping_options).toHaveLength(1);
+  });
+
+  it("embedded: return_url is built from the appUrl it is given, so a Preview origin stays on the Preview", () => {
+    const origin = "https://prntd-git-x-nico-lovejoys-projects.vercel.app";
+    const p = buildCartCheckoutSessionParams({
+      ...cartBase,
+      appUrl: origin,
+      uiMode: "embedded",
+    });
+    expect(p.return_url).toBe(
+      `${origin}/order/confirm?session_id={CHECKOUT_SESSION_ID}`
+    );
+  });
 });

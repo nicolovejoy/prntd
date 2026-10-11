@@ -53,8 +53,11 @@ stripe listen --api-key "$STRIPE_SECRET_KEY" \
 LISTENER_PID=$!
 trap 'kill "$LISTENER_PID" 2>/dev/null || true' EXIT
 
-# Stripe's success/cancel URLs build from NEXT_PUBLIC_APP_URL — point them at
-# the server under test so the post-payment redirect lands back on :3100.
+# An embedded session's return_url builds from NEXT_PUBLIC_APP_URL unless the
+# request's Origin is a trusted Preview host — point it at the server under
+# test so the post-payment return lands back on :3100. The run is local because
+# the order only leaves `pending` through the webhook the listener above
+# forwards, and no Stripe webhook reaches a Preview deployment.
 export NEXT_PUBLIC_APP_URL="http://localhost:3100"
 # Belt over the playwright.config suspenders: never submit a real Printful order.
 export PRINTFUL_DRY_RUN=true

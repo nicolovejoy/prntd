@@ -25,9 +25,10 @@ const SESSION_ID_RE = /^cs_(test|live)_[A-Za-z0-9]+$/;
 
 /**
  * Stripe Embedded Checkout, mounted on our own origin (#135 slices 2-3).
- * Serves both buy surfaces, the image detail page (EMBEDDED_CHECKOUT_ENABLED)
- * and /preview (PREVIEW_EMBEDDED_CHECKOUT_ENABLED), and 404s unless either
- * is on. Never renders a price of its own — Stripe's embedded form is the
+ * Serves the image detail page and the cart (both EMBEDDED_CHECKOUT_ENABLED;
+ * a cart session arrives with `from=/cart`) and /preview
+ * (PREVIEW_EMBEDDED_CHECKOUT_ENABLED), and 404s unless either switch is on.
+ * Never renders a price of its own — Stripe's embedded form is the
  * one place that shows line items, shipping and the total, since a promo
  * code applied inside it would make a number of ours go stale instantly.
  */
@@ -172,13 +173,16 @@ function StatusScreen({
  * designs have one; every primary move clears it); else the artwork centered
  * on a flat panel of the shirt color, so the box is never empty. The per-line
  * markup lives in `checkout-line.tsx`, a client component, because a tap on
- * the image opens the full-window viewer (#285).
+ * the image opens the full-window viewer (#285). One row per order line; a
+ * cart order has several, and then every row is compact.
  */
 function ReviewBlock({ summary }: { summary: CheckoutLineSummary[] }) {
+  // More than one line is a cart order (#278 slice 6b): rows at every width.
+  const compact = summary.length > 1;
   return (
-    <div className="space-y-4">
+    <div data-testid="checkout-review" className="space-y-4">
       {summary.map((line, i) => (
-        <CheckoutLine key={i} line={line} />
+        <CheckoutLine key={i} line={line} compact={compact} />
       ))}
     </div>
   );

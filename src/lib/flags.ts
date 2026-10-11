@@ -28,16 +28,17 @@ export function cartEnabled(): boolean {
 
 /**
  * Embedded checkout (#135 slice 2): the raw on/off switch, nothing else. When
- * on, purchases started on the image detail page open Stripe Embedded
- * Checkout on our own /checkout page instead of the hosted Stripe page. This
- * is only "the flag is on" — it says nothing about whether a usable
- * publishable/secret key pair is configured. Callers that actually create or
- * mount an embedded session use the config resolvers in
+ * on, purchases started on the image detail page or from the cart (#278 slice
+ * 6b) open Stripe Embedded Checkout on our own /checkout page instead of the
+ * hosted Stripe page. This is only "the flag is on" — it says nothing about
+ * whether a usable publishable/secret key pair is configured. Callers that
+ * actually create or mount an embedded session use the config resolvers in
  * src/lib/embedded-checkout.ts, which also validate the keys and fail closed
  * to hosted checkout when they're missing or mismatched: creating on the
- * image detail page uses `embeddedCheckoutConfig()`, creating on /preview uses
- * `previewEmbeddedCheckoutConfig()`, and mounting (/checkout, its loader, the
- * confirm page's resume link) uses `embeddedCheckoutPageConfig()`. Default off.
+ * image detail page or from the cart uses `embeddedCheckoutConfig()`, creating
+ * on /preview uses `previewEmbeddedCheckoutConfig()`, and mounting (/checkout,
+ * its loader, the confirm page's resume link) uses
+ * `embeddedCheckoutPageConfig()`. Default off.
  */
 export function embeddedCheckoutFlag(): boolean {
   return process.env.EMBEDDED_CHECKOUT_ENABLED === "true";

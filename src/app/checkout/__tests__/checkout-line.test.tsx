@@ -91,3 +91,29 @@ describe("CheckoutLine lightbox (#285)", () => {
     expect(btn.querySelector("div")).toBeNull();
   });
 });
+
+describe("CheckoutLine compact (a cart order's lines, #278 slice 6b)", () => {
+  it("default: the laptop layout's full-width square, as before", () => {
+    render(<CheckoutLine line={base} />);
+    const tile = screen.getByTestId("checkout-preview");
+    expect(tile.className).toContain("md:aspect-square");
+    expect(tile.parentElement?.className).toContain("md:flex-col");
+  });
+
+  it("compact: the row layout at every width, with the same tile, text and viewer", () => {
+    render(<CheckoutLine line={{ ...base, quantity: 2 }} compact />);
+    const tile = screen.getByTestId("checkout-preview");
+    expect(tile.className).not.toMatch(/\bmd:/);
+    expect(tile.className).toContain("w-24");
+    expect(tile.className).toContain("h-24");
+    expect(tile.parentElement?.className).not.toMatch(/\bmd:/);
+    expect(screen.getByText(/×2/)).toBeInTheDocument();
+    expect(screen.getByText("Black / M")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "View larger: Classic Tee" }));
+    expect(screen.getByTestId("checkout-viewer-face")).toHaveAttribute(
+      "data-side",
+      "front"
+    );
+  });
+});

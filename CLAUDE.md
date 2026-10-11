@@ -29,7 +29,7 @@ Session history (every dated record through 2026-09-10) lives in `docs/session-l
 - Ideogram (direct API): v4 `generate-transparent` with `json_prompt` for new designs; `/v1/edit` with `transparent_background` for edits and placement re-renders. Replicate is out of the generation path (only ops scripts still import `removeBackground`)
 - Claude (Anthropic API, `claude-sonnet-4-6`) turns casual messages into a typed `DesignSpec` brief (`constructDesignBrief`) and chat replies
 - Printful API for fulfillment and mockups
-- Stripe Checkout (hosted) for payments
+- Stripe Checkout for payments: embedded on our own `/checkout` page, hosted as the fail-closed fallback
 - Resend for email
 
 ## Commands
@@ -77,7 +77,7 @@ Local `npm run build` needs env. Use CI's dummy block (copy it from `ci.yml`'s `
 /                       → Landing: composer-first hero + Shop feed below
 /studio                 → Studio bench: composer on top, one lane per conversation (guests with a session allowed while GUEST_FUNNEL_ENABLED; #248); `?conversation=&image=` is the focused stage (#188 slice 4): one result large on its backdrop, composer under it, other results, history disclosure
 /designs                → My Designs (top nav): every owned image, Active/All filter (guests too; #258)
-/checkout?session=      → Stripe Embedded Checkout for image-detail-page buys; 404 unless EMBEDDED_CHECKOUT_ENABLED (or the unused PREVIEW_EMBEDDED_CHECKOUT_ENABLED) is on (#250, #135)
+/checkout?session=      → Stripe Embedded Checkout for purchases from the image detail page and the cart; 404 unless EMBEDDED_CHECKOUT_ENABLED (or the unused PREVIEW_EMBEDDED_CHECKOUT_ENABLED) is on (#250, #135, #278 slice 6b)
 /design?id=             → One conversation thread (older make surface; still reachable)
 /preview?id=            → Redirect to the image detail page with the same picks (#278 slice 4); `/design?id=` when the conversation has no image
 /d/[imageId]            → Image detail page: public for published images, owner view for private ones; buy, add to cart, start a new design from it
@@ -129,7 +129,7 @@ Price = `baseCost × 1.4` per size (Nico, 2026-10-01), plus a separate flat ship
 - **Ideogram:** $0.03 per generate, $0.20 per edit (`costFor()`; the edit price is secondhand, check it against a bill). No transparency support in v4's text endpoints; only `generate-transparent` and `/v1/edit` have it.
 - **R2:** every generated image is kept (`images/{imageId}.png`; legacy `designs/{designId}/{n}.png` keys stay). Mockup keys come from `src/lib/mockup-cache.ts`, the single builder for both the R2 key and the DB cache key.
 - **Printful:** product catalog in `src/lib/blanks.ts`; mockups; order submission; status webhooks (redeliveries at the target status return 200 `ignored`). `PRINTFUL_AUTO_CONFIRM` defaults ON. Printful's field constraints are invisible to mocks; the nightly contract check is the only test that sees them.
-- **Stripe:** hosted checkout, webhooks, admin refunds. Embedded checkout (`ui_mode: "embedded"`, `/checkout`) is switched by `EMBEDDED_CHECKOUT_ENABLED` (image detail page, #250), which needs `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` in the secret key's mode or fails closed to hosted. The cart stays hosted. Radar goes to $0.05/transaction after 2027-01-22 — switch to Radar Lite or decide by January.
+- **Stripe:** hosted checkout, webhooks, admin refunds. Embedded checkout (`ui_mode: "embedded"`, `/checkout`) is switched by `EMBEDDED_CHECKOUT_ENABLED` (image detail page, #250), which needs `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` in the secret key's mode or fails closed to hosted. The cart uses the same switch and the same fallback (#278 slice 6b), so that one switch turns embedded checkout off for both. Radar goes to $0.05/transaction after 2027-01-22 — switch to Radar Lite or decide by January. A publishable key of the right mode from another Stripe account passes the config check, so there is no fallback: the session is embedded and the form never mounts. After any Stripe key change, confirm one checkout from the image detail page and one from the cart reach the payment form.
 
 ### Conventions
 
@@ -168,7 +168,7 @@ CRON_SECRET                                # Bearer token for /api/cron/* (Produ
 GUEST_FUNNEL_ENABLED, CART_ENABLED, MULTI_PLACEMENT_ENABLED   # all ON in prod
 USER_GEN_DAILY_CAP, GUEST_GEN_DAILY_CAP, IP_GEN_DAILY_CAP, USER_IP_GEN_DAILY_CAP   # generation quota overrides
 GUEST_CHAT_DAILY_CAP, USER_CHAT_DAILY_CAP, IP_CHAT_DAILY_CAP, USER_IP_CHAT_DAILY_CAP   # chat quota overrides (#260; 0 refuses every call)
-EMBEDDED_CHECKOUT_ENABLED, PREVIEW_EMBEDDED_CHECKOUT_ENABLED  # embedded checkout for the image detail page (ON in prod); PREVIEW_EMBEDDED_CHECKOUT_ENABLED has no caller since slice 4, removed in slice 6
+EMBEDDED_CHECKOUT_ENABLED, PREVIEW_EMBEDDED_CHECKOUT_ENABLED  # embedded checkout for the image detail page and the cart (ON in prod; one switch for both); PREVIEW_EMBEDDED_CHECKOUT_ENABLED has no caller since slice 4, removed in slice 6a
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY         # pk_ matching STRIPE_SECRET_KEY's mode; without it either switch fails closed to hosted
 NEXT_PUBLIC_FEEDBACK_PROJECT_ID            # feedback widget target
 REPLICATE_API_TOKEN                        # ops scripts only

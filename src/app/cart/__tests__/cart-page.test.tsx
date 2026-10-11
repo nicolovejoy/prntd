@@ -7,6 +7,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import type { CartView } from "../actions";
 import CartPage from "../page";
+import { CHECKOUT_FAILED, CART_LINE_UNAVAILABLE } from "@/lib/action-copy";
 
 const getCart = vi.fn();
 const removeCartItem = vi.fn();
@@ -325,5 +326,142 @@ describe("cart line controls (#282)", () => {
     const inc = await screen.findByRole("button", { name: "Increase quantity" });
     expect(inc.className).toMatch(/\bw-11\b/);
     expect(inc.className).toMatch(/\bh-11\b/);
+  });
+});
+
+/**
+ * Replace window.location so an href assignment is recorded instead of
+ * attempted (jsdom does not navigate). Call `restore` in a `finally`.
+ */
+function stubLocationHref() {
+  const hrefSet = vi.fn();
+  const original = window.location;
+  Object.defineProperty(window, "location", {
+    configurable: true,
+    value: {
+      get pathname() {
+        return original.pathname;
+      },
+      get search() {
+        return original.search;
+      },
+      set href(value: string) {
+        hrefSet(value);
+      },
+    },
+  });
+  return {
+    hrefSet,
+    restore: () =>
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        value: original,
+      }),
+  };
+}
+
+describe("CartPage checkout (#278 slice 6b)", () => {
+  const EMBEDDED_PATH = "/checkout?session=cs_test_abc&from=%2Fcart";
+
+  it("follows the url checkoutCart returns, our own relative /checkout path included", async () => {
+    const loc = stubLocationHref();
+    try {
+      getCart.mockResolvedValue(ONE_ITEM);
+      checkoutCart.mockResolvedValue({ url: EMBEDDED_PATH });
+      render(<CartPage />);
+
+      fireEvent.click(await screen.findByRole("button", { name: /^Checkout/ }));
+
+      await waitFor(() =>
+        expect(loc.hrefSet).toHaveBeenCalledWith(EMBEDDED_PATH)
+      );
+      expect(screen.queryByTestId("cart-checkout-error")).not.toBeInTheDocument();
+    } finally {
+      loc.restore();
+    }
+  });
+
+  it("needsAuth sends the buyer to sign-in and back to the cart", async () => {
+    const loc = stubLocationHref();
+    try {
+      getCart.mockResolvedValue(ONE_ITEM);
+      checkoutCart.mockResolvedValue({ url: null, needsAuth: true });
+      render(<CartPage />);
+
+      fireEvent.click(await screen.findByRole("button", { name: /^Checkout/ }));
+
+      await waitFor(() =>
+        expect(loc.hrefSet).toHaveBeenCalledWith("/sign-in?next=/cart")
+      );
+    } finally {
+      loc.restore();
+    }
+  });
+
+  it("a thrown checkout shows the checkout-failed line, not the thrown message, and gives the button back", async () => {
+    const loc = stubLocationHref();
+    try {
+      getCart.mockResolvedValue(ONE_ITEM);
+      checkoutCart.mockRejectedValue(new Error("digest 123: masked in production"));
+      render(<CartPage />);
+
+      fireEvent.click(await screen.findByRole("button", { name: /^Checkout/ }));
+
+      const notice = await screen.findByTestId("cart-checkout-error");
+      expect(notice).toHaveTextContent(CHECKOUT_FAILED);
+      expect(notice).not.toHaveTextContent("masked in production");
+      expect(
+        await screen.findByRole("button", { name: /^Checkout/ })
+      ).toBeEnabled();
+      expect(loc.hrefSet).not.toHaveBeenCalled();
+      // Nothing about the cart changed, so it is not re-read.
+      expect(getCart).toHaveBeenCalledTimes(1);
+    } finally {
+      loc.restore();
+    }
+  });
+
+  it("the next attempt clears the notice", async () => {
+    const loc = stubLocationHref();
+    try {
+      getCart.mockResolvedValue(ONE_ITEM);
+      checkoutCart
+        .mockRejectedValueOnce(new Error("boom"))
+        .mockResolvedValueOnce({ url: EMBEDDED_PATH });
+      render(<CartPage />);
+
+      fireEvent.click(await screen.findByRole("button", { name: /^Checkout/ }));
+      await screen.findByTestId("cart-checkout-error");
+      fireEvent.click(await screen.findByRole("button", { name: /^Checkout/ }));
+
+      await waitFor(() =>
+        expect(loc.hrefSet).toHaveBeenCalledWith(EMBEDDED_PATH)
+      );
+      expect(screen.queryByTestId("cart-checkout-error")).not.toBeInTheDocument();
+    } finally {
+      loc.restore();
+    }
+  });
+
+  it("a refusal keeps its own message when the cart re-read after it fails", async () => {
+    getCart
+      .mockResolvedValueOnce(ONE_ITEM)
+      .mockRejectedValue(new Error("re-read failed"));
+    checkoutCart.mockResolvedValue({ url: null, error: CART_LINE_UNAVAILABLE });
+    render(<CartPage />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /^Checkout/ }));
+
+    const notice = await screen.findByTestId("cart-checkout-error");
+    expect(notice).toHaveTextContent(CART_LINE_UNAVAILABLE);
+    expect(
+      await screen.findByRole("button", { name: /^Checkout/ })
+    ).toBeEnabled();
+    expect(screen.getByTestId("cart-checkout-error")).not.toHaveTextContent(
+      CHECKOUT_FAILED
+    );
+    // The initial load plus the re-read after the refusal, which is the one
+    // that failed.
+    expect(getCart).toHaveBeenCalledTimes(2);
   });
 });

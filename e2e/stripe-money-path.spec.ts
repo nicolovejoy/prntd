@@ -4,17 +4,20 @@
  * and the dry-run Printful submission — asserted all the way to the order row
  * and ledger.
  *
- * Three tests. The cart test pays through Stripe's hosted page (the cart stays
- * hosted). The other two pay through Stripe Embedded Checkout on our own
+ * Three tests, all paying through Stripe Embedded Checkout on our own
  * /checkout page, which is how production sells from the image detail page
- * (EMBEDDED_CHECKOUT_ENABLED, with NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY set at
- * build time); both require that switch, and landing on checkout.stripe.com
- * fails the test instead of falling back, so a missing or mismatched
- * publishable key turns the run red. The image-detail-page test orders the
- * owner's own UNPUBLISHED image from the Order panel (one buy surface, slice
- * 3), and the order it creates must carry no Shop composition. The last test
- * does the same purchase but enters through an old /preview link, which
- * redirects to the image detail page with the picks (slice 4).
+ * and, since #278 slice 6b, from the cart (EMBEDDED_CHECKOUT_ENABLED, with
+ * NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY set at build time). All three require
+ * that switch, and landing on checkout.stripe.com fails the test instead of
+ * falling back, so a missing, malformed or other-mode publishable key turns the
+ * run red. The cart test checks out two designs together and asserts both order
+ * lines and the emptied cart. The image-detail-page test orders the owner's
+ * own UNPUBLISHED image from the Order panel (one buy surface, slice 3), and
+ * the order it creates must carry no Shop composition. The last test does
+ * the same purchase but enters through an old /preview link, which redirects
+ * to the image detail page with the picks (slice 4). Nothing here pays
+ * through Stripe's hosted page any more; hosted is the fail-closed fallback
+ * and is covered by the parameter tests in Vitest.
  *
  * This is the test class that catches real vendor constraints invisible to
  * mocks (e.g. the 2026-07-19 incident: Printful rejects external_id > 32
@@ -25,9 +28,10 @@
  * `stripe listen` forwarder on :3100. Run via `npm run e2e:stripe`
  * (docs/stripe-e2e.md); it self-skips everywhere else:
  *   - E2E_STRIPE unset          → plain `npm run e2e` skips it
- *   - E2E_BASE_URL set          → CI-against-preview skips it (Stripe redirect
- *     URLs build from NEXT_PUBLIC_APP_URL, which is prod on previews — the
- *     checkout would bounce off the deployment under test)
+ *   - E2E_BASE_URL set          → CI-against-preview skips it (no Stripe
+ *     webhook reaches a Preview deployment, so the order never leaves
+ *     `pending` and the assertions on the submitted order and the ledger
+ *     cannot pass)
  *   - STRIPE_SECRET_KEY not sk_test_ → never pays with a live key
  */
 import {
@@ -48,6 +52,7 @@ import {
   orderItemsForOrder,
   primaryImageIdForDesign,
   storeProductIdForOrder,
+  cartItemsForUser,
 } from "./helpers/db";
 import { waitForSessionCookie } from "./helpers/session";
 import { signUpFreshAccount } from "./helpers/auth";
@@ -79,7 +84,9 @@ async function fillFirstVisible(
 
 /** Where Stripe's checkout form lives: the page itself (hosted checkout) or
  * the iframe Stripe mounts on /checkout (embedded checkout). Both expose the
- * locator/getBy* methods the helper below uses. */
+ * locator/getBy* methods the helper below uses. Since #278 slice 6b every test
+ * passes the embedded iframe; the page (hosted) branch is kept for the hosted
+ * fallback and is not exercised by any test. */
 type StripeRoot = Page | FrameLocator;
 
 /**
@@ -119,7 +126,9 @@ async function embeddedStripeRoot(page: Page): Promise<FrameLocator> {
  * Drive Stripe's test checkout, hosted (`root` is the page) or embedded
  * (`root` is the Stripe iframe): email, US shipping address, 4242 test card,
  * Pay. Optional fields (Link prompts, autocomplete) are handled when present
- * and skipped when not.
+ * and skipped when not. Since #278 slice 6b every test passes the embedded
+ * iframe; the hosted (page) branch is kept for the hosted fallback and is not
+ * exercised by any test.
  */
 async function completeStripeCheckout(root: StripeRoot, email: string) {
   // The form is interactable once the email field renders. (The card fields
@@ -251,7 +260,7 @@ test.describe("stripe money path", { tag: "@stripe" }, () => {
   );
   test.skip(
     Boolean(process.env.E2E_BASE_URL),
-    "local-only: on previews the Stripe success/cancel URLs point at prod (NEXT_PUBLIC_APP_URL)"
+    "local-only: no Stripe webhook reaches a Preview deployment, so the order never leaves pending"
   );
   test.skip(
     !stripeKey.startsWith("sk_test_"),
@@ -277,18 +286,25 @@ test.describe("stripe money path", { tag: "@stripe" }, () => {
     await page.waitForURL(/\/cart/, { timeout: 30_000 });
   }
 
-  test("hosted checkout → signed webhook → submitted order + sale/fee ledger", async ({
+  test("cart: two designs → embedded checkout on /checkout → signed webhook → submitted order + sale/fee ledger, cart emptied", async ({
     page,
   }, testInfo) => {
-    // Stripe page load + payment settle + webhook forward all add up.
+    // Stripe iframe load + payment settle + webhook forward all add up.
     test.setTimeout(300_000);
+    // Production's setting for the cart since #278 slice 6b: it rides the
+    // image detail page's switch. Not optional here: the point of this test
+    // is the path production runs.
+    expect(
+      process.env.EMBEDDED_CHECKOUT_ENABLED,
+      "this test covers the embedded path: set EMBEDDED_CHECKOUT_ENABLED=true (the nightly workflow does)"
+    ).toBe("true");
     const key = `${Date.now()}-${testInfo.project.name}`;
     const seeded: string[] = [];
     let userId = "";
 
     try {
       // Checkout is the funnel's auth gate, so pay as a fresh real account
-      // (a guest would be bounced to sign-in instead of Stripe).
+      // (a guest would be bounced to sign-in instead of the payment form).
       await signUpFreshAccount(page, key);
       const cookie = await waitForSessionCookie(page);
       userId = await userIdForSessionCookie(cookie);
@@ -312,13 +328,41 @@ test.describe("stripe money path", { tag: "@stripe" }, () => {
         .getByRole("button", { name: /^Checkout/ })
         .click({ timeout: 30_000 });
 
-      await page.waitForURL(/checkout\.stripe\.com/, { timeout: 60_000 });
-      const sessionId = page.url().match(/cs_test_[A-Za-z0-9]+/)?.[0];
-      expect(sessionId, `no cs_test_… in checkout URL: ${page.url()}`).toBeTruthy();
+      // Waiting on either URL and then asserting turns a fail-closed fallback
+      // to the hosted page into a red run.
+      await page.waitForURL(
+        /\/checkout\?session=cs_test_|checkout\.stripe\.com/,
+        { timeout: 60_000 }
+      );
+      expect(
+        page.url(),
+        "cart checkout opened on Stripe's hosted page — is EMBEDDED_CHECKOUT_ENABLED on and NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY set at build time, from the same Stripe test account as STRIPE_SECRET_KEY?"
+      ).toMatch(/\/checkout\?session=cs_test_/);
+      const checkoutUrl = new URL(page.url());
+      const sessionId = checkoutUrl.searchParams.get("session");
+      expect(sessionId, `no cs_test_… in checkout URL: ${page.url()}`).toMatch(
+        /^cs_test_[A-Za-z0-9]+$/
+      );
+      // A cart session's way back is the cart.
+      expect(checkoutUrl.searchParams.get("from")).toBe("/cart");
+      await expect(
+        page.getByRole("link", { name: "← Back" }).first()
+      ).toHaveAttribute("href", "/cart");
 
-      await completeStripeCheckout(page, `e2e-buyer-${key}@prntd.test`);
+      // One review row per cart line, and no price of ours beside them
+      // (Stripe's form, in its own iframe, is where prices show).
+      const review = page.getByTestId("checkout-review");
+      await expect(review.getByTestId("checkout-preview")).toHaveCount(2, {
+        timeout: 30_000,
+      });
+      expect(await review.innerText()).not.toContain("$");
 
-      // Stripe settles the payment and redirects to success_url.
+      await completeStripeCheckout(
+        await embeddedStripeRoot(page),
+        `e2e-buyer-${key}@prntd.test`
+      );
+
+      // Stripe settles the payment and sends the browser to return_url.
       await page.waitForURL(/\/order\/confirm/, { timeout: 120_000 });
 
       // The CLI listener forwards the signed checkout.session.completed to the
@@ -337,7 +381,7 @@ test.describe("stripe money path", { tag: "@stripe" }, () => {
         .toBe("submitted");
 
       const order = await orderForStripeSession(sessionId!);
-      // Dry-run Printful: fake id, no real shirt, costs 0.00 → no COGS row.
+      // Dry-run Printful: fake id, no real shirt and no cost, so no COGS row.
       expect(order!.printfulOrderId).toMatch(/^dry-run-/);
       const types = await ledgerTypesForOrder(order!.id);
       expect(types).toContain("sale");
@@ -364,6 +408,14 @@ test.describe("stripe money path", { tag: "@stripe" }, () => {
       // different designs) — not the same image id twice.
       const pins = items.map((i) => i.placements?.front);
       expect(new Set(pins).size).toBe(2);
+
+      // The webhook clears the purchased lines on payment (#38). The cart
+      // survived session creation, so this is the first point it is empty.
+      await expect
+        .poll(async () => (await cartItemsForUser(userId)).length, {
+          timeout: 30_000,
+        })
+        .toBe(0);
     } finally {
       // Orders first (FK to design + user), then designs, then the account.
       await cleanupOrdersForDesigns(seeded);
@@ -428,7 +480,8 @@ test.describe("stripe money path", { tag: "@stripe" }, () => {
       ).toMatch(/\/checkout\?session=cs_test_/);
       const sessionId = page.url().match(/cs_test_[A-Za-z0-9]+/)?.[0];
       expect(sessionId, `no cs_test_… in checkout URL: ${page.url()}`).toBeTruthy();
-      await expect(page.getByTestId("checkout-preview")).toBeVisible({
+      // One order line, so one review row (a cart order has one per line).
+      await expect(page.getByTestId("checkout-preview")).toHaveCount(1, {
         timeout: 30_000,
       });
 
@@ -451,6 +504,7 @@ test.describe("stripe money path", { tag: "@stripe" }, () => {
       expect(stripeFrame, "no Stripe iframe on /checkout").not.toBeNull();
       await page
         .getByTestId("checkout-preview")
+        .first()
         .getByRole("button", { name: "View larger" })
         .click();
       await expect(page.getByTestId("fullscreen-viewer")).toBeVisible();
