@@ -33,6 +33,12 @@ import { estimateOrderCosts } from "@/lib/printful";
 import { stripe } from "@/lib/stripe";
 import { abandonSessionlessOrder } from "@/lib/order-checkout";
 import { buildCartCheckoutSessionParams } from "@/lib/checkout";
+import { embeddedCheckoutFlag } from "@/lib/flags";
+import {
+  embeddedCheckoutConfig,
+  embeddedCheckoutPath,
+  resolveReturnOrigin,
+} from "@/lib/embedded-checkout";
 import { cartLineStillValid } from "@/lib/cart-line-check";
 import { cartOrderStoreProductId } from "@/lib/cart-attribution";
 import { requireMirrorProduct } from "@/lib/model-b-writes";
@@ -45,16 +51,21 @@ import {
   cartLineEditHref,
 } from "@/lib/cart-line-edit";
 
-// Indicative destination for the cart's shipping estimate. Hosted Stripe
-// Checkout can't recompute shipping after the buyer enters their address, so we
-// quote bundled shipping at cart time against a representative US address; that
-// quoted amount is what gets charged (#26 B2/B4).
+// Indicative destination for the cart's shipping estimate. Shipping is quoted
+// once, at cart time, against a representative US address, and that quoted
+// amount is what gets charged (#26 B2/B4). Hosted Stripe Checkout cannot
+// recompute it after the buyer enters an address; Embedded Checkout could,
+// and deliberately does not here (#278 slice 6b left shipping unchanged).
 const QUOTE_RECIPIENT = {
   countryCode: "US",
   stateCode: "CA",
   zip: "90001",
   city: "Los Angeles",
 };
+
+// Where a buyer who backs out of checkout lands: Stripe's cancel link (hosted)
+// or /checkout's Back link (embedded). A constant, never a client-sent path.
+const CART_PATH = "/cart";
 
 export type CartLine = {
   id: string;
@@ -530,6 +541,12 @@ async function buildCart(
  * it was. A line whose page image is published but has no Shop composition
  * throws (`MISSING_COMPOSITION_ERROR`) before anything is written; see the
  * attribution block.
+ *
+ * The returned `url` is where the cart page sends the browser (#278 slice
+ * 6b). With EMBEDDED_CHECKOUT_ENABLED on and a usable key pair the session is
+ * embedded and `url` is our own `/checkout?session=…&from=/cart` path;
+ * otherwise it is Stripe's hosted URL, as before. Each call makes a new order
+ * and session; an earlier session stays payable until it expires.
  */
 export async function checkoutCart(): Promise<{
   url: string | null;
@@ -606,6 +623,29 @@ export async function checkoutCart(): Promise<{
     })
   );
 
+  // #278 slice 6b: mount on our own /checkout page instead of Stripe's hosted
+  // page when the switch is on and a usable key pair is configured, as the
+  // image detail page does (buyPublishedDesign). The switch on with the config
+  // disabled is a key problem, not a deliberate off: log the reason (never a
+  // key) and use hosted checkout. Resolved here, before the order is written,
+  // so nothing new can throw between the insert and the Stripe call.
+  const embedded = embeddedCheckoutConfig();
+  if (embeddedCheckoutFlag() && !embedded.enabled) {
+    console.error(
+      `embedded checkout disabled for the cart: ${embedded.reason} — using hosted checkout`
+    );
+  }
+  // Hosted checkout always returns to NEXT_PUBLIC_APP_URL: the buyer leaves
+  // for Stripe's page, so the building deployment does not matter. An embedded
+  // session returns to the deployment it was created on, so a purchase on a
+  // Preview lands on that Preview.
+  const appUrl = embedded.enabled
+    ? resolveReturnOrigin(
+        (await headers()).get("origin"),
+        process.env.NEXT_PUBLIC_APP_URL!
+      )
+    : process.env.NEXT_PUBLIC_APP_URL!;
+
   // Order-level row: money + linkage only (Phase 1c). designId mirrors the
   // first line as header linkage; what was bought lives in order_item.
   // Price split is order-level (shipping once). Order + items commit together
@@ -653,8 +693,11 @@ export async function checkoutCart(): Promise<{
           quantity: i.quantity,
         })),
         shippingPrice: view.shipping,
-        cancelUrl: `${process.env.NEXT_PUBLIC_APP_URL}/cart`,
-        appUrl: process.env.NEXT_PUBLIC_APP_URL!,
+        // Ignored by an embedded session, whose way back is /checkout's own
+        // Back link (the `from` in the returned path below).
+        cancelUrl: `${process.env.NEXT_PUBLIC_APP_URL}${CART_PATH}`,
+        appUrl,
+        uiMode: embedded.enabled ? "embedded" : "hosted",
       })
     );
   } catch (err) {
@@ -670,10 +713,13 @@ export async function checkoutCart(): Promise<{
     .set({ stripeSessionId: checkoutSession.id })
     .where(eq(orderTable.id, orderId));
 
-  // The cart is NOT cleared here (#38): backing out of Stripe returns to the
-  // cancel URL /cart, which must still hold the items. The webhook clears the
-  // purchased lines on checkout.session.completed.
+  // The cart is NOT cleared here (#38): backing out returns to the cart (the
+  // hosted cancel URL, or /checkout's Back link), which must still hold the
+  // items. The webhook clears the purchased lines on payment.
 
+  if (embedded.enabled) {
+    return { url: embeddedCheckoutPath(checkoutSession.id, CART_PATH) };
+  }
   return { url: checkoutSession.url };
 }
 

@@ -6,7 +6,7 @@
  * next/navigation and the client form component.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
 import CheckoutPage from "../page";
 import { embeddedCheckoutPath } from "@/lib/embedded-checkout";
 
@@ -38,13 +38,18 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("../embedded-checkout-form", () => ({
-  EmbeddedCheckoutForm: (props: { publishableKey: string; clientSecret: string }) => {
+  EmbeddedCheckoutForm: (props: {
+    publishableKey: string;
+    clientSecret: string;
+    backHref: string;
+  }) => {
     h.formRenders();
     return (
       <div
         data-testid="embedded-checkout-form-mock"
         data-secret={props.clientSecret}
         data-key={props.publishableKey}
+        data-back={props.backHref}
       />
     );
   },
@@ -315,5 +320,124 @@ describe("CheckoutPage", () => {
 
     expect(screen.getByTestId("embedded-checkout-form-mock")).toBe(form);
     expect(h.formRenders.mock.calls.length).toBe(rendersBefore);
+  });
+
+  const TWO_LINES = {
+    kind: "ready",
+    clientSecret: "cs_secret_abc",
+    publishableKey: "pk_test_abc123",
+    summary: [
+      {
+        productName: "Classic Tee",
+        color: "Black",
+        size: "M",
+        quantity: 1,
+        frontImageUrl: "https://img.example/a.png",
+        backImageUrl: null,
+        colorHex: "#0c0c0c",
+        mockupUrl: null,
+      },
+      {
+        productName: "Classic Tee",
+        color: "White",
+        size: "L",
+        quantity: 2,
+        frontImageUrl: "https://img.example/b.png",
+        backImageUrl: "https://img.example/b-back.png",
+        colorHex: "#ffffff",
+        mockupUrl: null,
+      },
+    ],
+  };
+
+  it("a cart session: one review row per line in compact rows, Back to the cart, one form, no $", async () => {
+    h.loadEmbeddedCheckout.mockResolvedValue(TWO_LINES);
+
+    render(await renderCheckout({ session: VALID_SESSION, from: "/cart" }));
+
+    const review = screen.getByTestId("checkout-review");
+    const tiles = within(review).getAllByTestId("checkout-preview");
+    expect(tiles).toHaveLength(2);
+    for (const tile of tiles) {
+      expect(tile.className).not.toContain("md:aspect-square");
+    }
+    expect(within(review).getByText("Black / M")).toBeInTheDocument();
+    expect(within(review).getByText("White / L")).toBeInTheDocument();
+    expect(within(review).getByText(/×2/)).toBeInTheDocument();
+    expect(within(review).getAllByText("Back design")).toHaveLength(1);
+    expect(review.textContent).not.toContain("$");
+
+    expect(screen.getByRole("link", { name: "← Back" })).toHaveAttribute(
+      "href",
+      "/cart"
+    );
+    const forms = screen.getAllByTestId("embedded-checkout-form-mock");
+    expect(forms).toHaveLength(1);
+    expect(forms[0]).toHaveAttribute("data-back", "/cart");
+  });
+
+  it("a cart session: each line's viewer opens that line's artwork", async () => {
+    h.loadEmbeddedCheckout.mockResolvedValue(TWO_LINES);
+    render(await renderCheckout({ session: VALID_SESSION, from: "/cart" }));
+
+    const buttons = screen.getAllByRole("button", {
+      name: "View larger: Classic Tee",
+    });
+    expect(buttons).toHaveLength(2);
+    fireEvent.click(buttons[1]);
+
+    const face = screen.getByTestId("checkout-viewer-face");
+    expect(within(face).getByRole("img")).toHaveAttribute(
+      "src",
+      "https://img.example/b.png"
+    );
+  });
+
+  it("a single-line order keeps the laptop square inside the review block", async () => {
+    h.loadEmbeddedCheckout.mockResolvedValue({
+      ...TWO_LINES,
+      summary: [TWO_LINES.summary[0]],
+    });
+
+    render(await renderCheckout({ session: VALID_SESSION, from: "/d/img-1" }));
+
+    const review = screen.getByTestId("checkout-review");
+    expect(
+      within(review).getByTestId("checkout-preview").className
+    ).toContain("md:aspect-square");
+  });
+
+  it("a cart session's sign-in round trip returns to the same /checkout url", async () => {
+    h.session = null;
+    const expectedNext = embeddedCheckoutPath(VALID_SESSION, "/cart");
+
+    await expect(
+      renderCheckout({ session: VALID_SESSION, from: "/cart" })
+    ).rejects.toThrow(
+      `NEXT_REDIRECT:/sign-in?next=${encodeURIComponent(expectedNext)}`
+    );
+    expect(h.loadEmbeddedCheckout).not.toHaveBeenCalled();
+  });
+
+  it("a cart session's expired screen backs out to the cart", async () => {
+    h.loadEmbeddedCheckout.mockResolvedValue({ kind: "expired" });
+
+    render(await renderCheckout({ session: VALID_SESSION, from: "/cart" }));
+
+    expect(screen.getByRole("link", { name: "← Back" })).toHaveAttribute(
+      "href",
+      "/cart"
+    );
+  });
+
+  it("no from (the link /order/confirm builds for an open session): Back is the Shop", async () => {
+    h.loadEmbeddedCheckout.mockResolvedValue(TWO_LINES);
+
+    render(await renderCheckout({ session: VALID_SESSION }));
+
+    expect(screen.getByRole("link", { name: "← Back" })).toHaveAttribute(
+      "href",
+      "/shop"
+    );
   });
 });

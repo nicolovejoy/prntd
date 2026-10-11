@@ -59,7 +59,7 @@ export function deleteImageConsequence(isLastImage: boolean): string {
   return `This is the conversation's last image, so the conversation and its chat go too. ${kept}`;
 }
 
-// --- image detail page (InlineNotice: one line) ---
+// --- image detail page (InlineNotice: one line; CHECKOUT_FAILED is shared with the cart page) ---
 
 export const OPEN_CONVERSATION_FAILED = "Couldn't open this conversation. Try again.";
 export const DELETE_CONVERSATION_FAILED = "Couldn't delete this conversation. Try again.";
@@ -71,6 +71,9 @@ export const SAVE_TITLE_FAILED = "Couldn't save this title. Try again.";
 // No "Try again" on these two: the same failure can be a refusal (a back on a
 // garment with no back print area, a pick hidden since it was chosen) that
 // fails identically on every retry — the DELETE_IMAGE_ERROR lesson.
+// CHECKOUT_FAILED is also what the cart page shows when `checkoutCart` throws.
+// The line is true there too: no session reached the buyer, so nothing can
+// have been charged.
 export const CHECKOUT_FAILED = "Couldn't start checkout. Nothing was charged.";
 export const ADD_TO_CART_FAILED = "Couldn't add this to your cart.";
 

@@ -256,7 +256,7 @@ export async function clearPrimaryImage(designId: string): Promise<void> {
 }
 
 /** Order row for a Stripe Checkout session id (the Stripe spec extracts
- * `cs_test_…` from the hosted-checkout URL). */
+ * `cs_test_…` from the /checkout URL). */
 export async function orderForStripeSession(
   sessionId: string
 ): Promise<{ id: string; status: string; printfulOrderId: string | null } | null> {
