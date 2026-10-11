@@ -7,7 +7,8 @@
  * logic so it can be typechecked and run against a real libSQL database
  * (`__tests__/feed-visibility-parity.integration.test.ts`).
  *
- * Raw SQL over `@libsql/client`, SELECTs only. It reports two things:
+ * Raw SQL over `@libsql/client`, SELECTs only, in one read batch. It reports
+ * two things:
  *
  *   - Disagreements: rows where `image_publication` and `product.status` say
  *     different things about one image. When the two tables agree, a
@@ -23,7 +24,7 @@
  * image on `front_image_id`, → user on `image.owner_id`). The two must stay
  * in step: change one, change the other.
  */
-import type { Client } from "@libsql/client";
+import type { Client, ResultSet } from "@libsql/client";
 
 export type FeedVisibilityDisagreement = {
   /**
@@ -71,24 +72,42 @@ const NEW_FEED_SQL = `select i.id as image_id ${FEED_FROM}
   join \`image_publication\` ip on ip.image_id = i.id
   where ip.is_hidden = 0`;
 
-async function imageIds(client: Client, sql: string): Promise<string[]> {
-  const res = await client.execute(sql);
-  return res.rows.map((r) => String(r.image_id)).sort(byString);
+// Every publication row against the composition that fronts its image.
+const PUBLICATIONS_SQL = `select ip.image_id, ip.is_hidden, p.id as product_id, p.status
+  from \`image_publication\` ip
+  left join \`product\` p on p.front_image_id = ip.image_id`;
+
+// Every non-draft composition whose front image has no publication row. A
+// composition with no front slot is skipped: the feed's join on the front
+// image cannot reach it either way.
+const ORPHANS_SQL = `select p.front_image_id as image_id, p.id as product_id, p.status
+  from \`product\` p
+  left join \`image_publication\` ip on ip.image_id = p.front_image_id
+ where p.status <> 'draft'
+   and p.front_image_id is not null
+   and ip.image_id is null`;
+
+const STATUS_SQL = "select status, count(*) as n from `product` group by status";
+
+function imageIds(rows: ResultSet["rows"]): string[] {
+  return rows.map((r) => String(r.image_id)).sort(byString);
 }
 
 export async function checkFeedVisibilityParity(
   client: Client
 ): Promise<FeedVisibilityParityReport> {
+  // One read batch, so every statement sees the same snapshot: a publish or
+  // hide on Production landing between separate statements could otherwise
+  // fail the run for a row that was never out of step.
+  const [publicationsRes, orphansRes, oldFeedRes, newFeedRes, statusRes] =
+    await client.batch(
+      [PUBLICATIONS_SQL, ORPHANS_SQL, OLD_FEED_SQL, NEW_FEED_SQL, STATUS_SQL],
+      "read"
+    );
+
   const disagreements: FeedVisibilityDisagreement[] = [];
 
-  // Every publication row against the composition that fronts its image.
-  const publications = (
-    await client.execute(
-      `select ip.image_id, ip.is_hidden, p.id as product_id, p.status
-         from \`image_publication\` ip
-         left join \`product\` p on p.front_image_id = ip.image_id`
-    )
-  ).rows;
+  const publications = publicationsRes.rows;
   for (const r of publications) {
     const imageId = String(r.image_id);
     const hidden = Number(r.is_hidden) === 1;
@@ -116,20 +135,7 @@ export async function checkFeedVisibilityParity(
     }
   }
 
-  // Every non-draft composition against its image's publication row. A
-  // composition with no front slot is skipped: the feed's join on the front
-  // image cannot reach it either way.
-  const orphans = (
-    await client.execute(
-      `select p.front_image_id as image_id, p.id as product_id, p.status
-         from \`product\` p
-         left join \`image_publication\` ip on ip.image_id = p.front_image_id
-        where p.status <> 'draft'
-          and p.front_image_id is not null
-          and ip.image_id is null`
-    )
-  ).rows;
-  for (const r of orphans) {
+  for (const r of orphansRes.rows) {
     const status = String(r.status);
     disagreements.push({
       kind: "composition",
@@ -145,18 +151,14 @@ export async function checkFeedVisibilityParity(
     (a, b) => byString(a.imageId, b.imageId) || byString(a.kind, b.kind)
   );
 
-  const oldFeedImageIds = await imageIds(client, OLD_FEED_SQL);
-  const newFeedImageIds = await imageIds(client, NEW_FEED_SQL);
+  const oldFeedImageIds = imageIds(oldFeedRes.rows);
+  const newFeedImageIds = imageIds(newFeedRes.rows);
   const inNew = new Set(newFeedImageIds);
   const inOld = new Set(oldFeedImageIds);
   const onlyOld = oldFeedImageIds.filter((id) => !inNew.has(id));
   const onlyNew = newFeedImageIds.filter((id) => !inOld.has(id));
 
-  const statusRows = (
-    await client.execute(
-      "select status, count(*) as n from `product` group by status"
-    )
-  ).rows;
+  const statusRows = statusRes.rows;
   const byStatus = new Map(statusRows.map((r) => [String(r.status), Number(r.n)]));
 
   return {

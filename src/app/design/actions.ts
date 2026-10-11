@@ -1167,9 +1167,10 @@ export async function uploadReferenceImage(
 }
 
 /**
- * Make the image at `imageUrl` the conversation's primary. Refuses an
- * admin-hidden image (#310): hidden artwork is not something the owner can
- * pin as the design's current image.
+ * Make the image at `imageUrl` the conversation's primary. A URL that names
+ * none of this thread's images clears the primary (the design then falls back
+ * to its latest image). Refuses an admin-hidden image (#310): hidden artwork
+ * is not something the owner can pin as the design's current image.
  */
 export async function selectImage(designId: string, imageUrl: string) {
   const session = await auth.api.getSession({ headers: await headers() });
