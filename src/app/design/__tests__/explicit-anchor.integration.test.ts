@@ -243,6 +243,56 @@ describe("generateDesign with an explicit anchor", () => {
     expect(await jobs(designId)).toEqual([]);
   });
 
+  it("refuses an anchor an admin has hidden, before any row exists", async () => {
+    const designId = await seedDesign();
+    await makeSourceImage(testDb, {
+      designId,
+      ownerId: "u1",
+      imageUrl: "https://r2/visible.png",
+      createdAt: new Date(Date.now() - 60_000),
+    });
+    const hiddenId = await makeSourceImage(testDb, {
+      designId,
+      ownerId: "u1",
+      imageUrl: "https://r2/hidden.png",
+      publishedAt: new Date(Date.now() - 30_000),
+      isHidden: true,
+    });
+
+    await expect(
+      generateDesign(designId, "make it blue", { anchorImageId: hiddenId })
+    ).rejects.toThrow(/not part of this conversation/);
+
+    expect(await jobs(designId)).toEqual([]);
+  });
+
+  it("an edit with no explicit anchor skips a hidden latest output", async () => {
+    const designId = await seedDesign();
+    const visibleId = await makeSourceImage(testDb, {
+      designId,
+      ownerId: "u1",
+      imageUrl: "https://r2/visible.png",
+      createdAt: new Date(Date.now() - 60_000),
+    });
+    await makeSourceImage(testDb, {
+      designId,
+      ownerId: "u1",
+      imageUrl: "https://r2/hidden.png",
+      publishedAt: new Date(Date.now() - 30_000),
+      isHidden: true,
+    });
+    briefMock.mockResolvedValue({
+      operation: "edit",
+      message: "Made it bigger",
+      editInstruction: "increase the size of the subject",
+      referenceImage: null,
+    });
+
+    expectQueued(await generateDesign(designId, "bigger"));
+    const [job] = await jobs(designId);
+    expect(job.anchorImageId).toBe(visibleId);
+  });
+
   it("a fresh design id creates the conversation and generates into it", async () => {
     await testDb.insert(schema.user).values({ id: "u1", email: "a@b.c", name: "A" });
     const designId = crypto.randomUUID();

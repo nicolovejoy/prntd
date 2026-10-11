@@ -267,7 +267,7 @@ describe("getStudioLanesData", () => {
     expect(await getStudioLanesData("owner", { db })).toEqual([]);
   });
 
-  it("a published cell carries its pinned backdrop; unpublished and hidden carry null", async () => {
+  it("a published cell carries its pinned backdrop; an unpublished one carries null", async () => {
     const design = await makeOpenDesign("owner");
     const published = await makeSourceImage(db, {
       designId: design.id,
@@ -276,15 +276,6 @@ describe("getStudioLanesData", () => {
       createdAt: minutesAgo(30),
       publishedAt: minutesAgo(20),
       backgroundColor: "Navy",
-    });
-    const hidden = await makeSourceImage(db, {
-      designId: design.id,
-      ownerId: "owner",
-      imageUrl: "https://cdn.example/hidden.png",
-      createdAt: minutesAgo(25),
-      publishedAt: minutesAgo(20),
-      backgroundColor: "Black",
-      isHidden: true,
     });
     const privateId = await makeSourceImage(db, {
       designId: design.id,
@@ -297,7 +288,6 @@ describe("getStudioLanesData", () => {
 
     const byId = new Map(lane.cells.map((c) => [c.imageId, c.backdropColor]));
     expect(byId.get(published)).toBe("Navy");
-    expect(byId.get(hidden)).toBeNull();
     expect(byId.get(privateId)).toBeNull();
   });
 
@@ -382,6 +372,196 @@ describe("getStudioLanesData", () => {
     await makeOpenDesign("owner");
     const [lane] = await getStudioLanesData("owner", { db });
     expect(lane.messageCount).toBe(0);
+  });
+});
+
+describe("getStudioLanesData and admin-hidden images", () => {
+  const HIDDEN_URL = "https://cdn.example/admin-hidden.png";
+
+  it("a lane with one visible and one hidden image has one cell", async () => {
+    const design = await makeOpenDesign("owner");
+    const visible = await makeSourceImage(db, {
+      designId: design.id,
+      ownerId: "owner",
+      imageUrl: "https://cdn.example/visible.png",
+      createdAt: minutesAgo(30),
+    });
+    await makeSourceImage(db, {
+      designId: design.id,
+      ownerId: "owner",
+      imageUrl: HIDDEN_URL,
+      createdAt: minutesAgo(20),
+      publishedAt: minutesAgo(15),
+      isHidden: true,
+      backgroundColor: "Black",
+    });
+
+    const [lane] = await getStudioLanesData("owner", { db });
+
+    expect(lane.cells.map((c) => c.imageId)).toEqual([visible]);
+  });
+
+  it("a lane whose only image is hidden is still listed, with no cells", async () => {
+    const design = await makeOpenDesign("owner");
+    await makeSourceImage(db, {
+      designId: design.id,
+      ownerId: "owner",
+      imageUrl: HIDDEN_URL,
+      createdAt: minutesAgo(20),
+      publishedAt: minutesAgo(15),
+      isHidden: true,
+    });
+    await db.insert(schema.chatMessage).values([
+      { designId: design.id, role: "user", content: "a fox", createdAt: minutesAgo(25) },
+      { designId: design.id, role: "assistant", content: "done", createdAt: minutesAgo(24) },
+    ]);
+
+    const lanes = await getStudioLanesData("owner", { db });
+
+    expect(lanes.map((l) => l.designId)).toEqual([design.id]);
+    expect(lanes[0].cells).toEqual([]);
+    // Its words are still the lane: title and turn count do not depend on cells.
+    expect(lanes[0].title).toBe("a fox");
+    expect(lanes[0].messageCount).toBe(2);
+  });
+
+  it("no cell is the primary when the primary image is hidden", async () => {
+    const design = await makeOpenDesign("owner");
+    await makeSourceImage(db, {
+      designId: design.id,
+      ownerId: "owner",
+      imageUrl: "https://cdn.example/visible.png",
+      createdAt: minutesAgo(30),
+    });
+    const hidden = await makeSourceImage(db, {
+      designId: design.id,
+      ownerId: "owner",
+      imageUrl: HIDDEN_URL,
+      createdAt: minutesAgo(20),
+      publishedAt: minutesAgo(15),
+      isHidden: true,
+    });
+    await db
+      .update(schema.design)
+      .set({ primaryImageId: hidden })
+      .where(eq(schema.design.id, design.id));
+
+    const [lane] = await getStudioLanesData("owner", { db });
+
+    expect(lane.cells).toHaveLength(1);
+    expect(lane.cells.map((c) => c.isPrimary)).toEqual([false]);
+  });
+
+  it("a hidden seed is not a cell either", async () => {
+    const design = await makeOpenDesign("owner");
+    await makeUser(db, "other");
+    const [otherDesign] = await db
+      .insert(schema.design)
+      .values({ userId: "other" })
+      .returning();
+    const hiddenSeed = await makeSourceImage(db, {
+      designId: otherDesign.id,
+      ownerId: "other",
+      imageUrl: HIDDEN_URL,
+      createdAt: minutesAgo(120),
+      publishedAt: minutesAgo(100),
+      isHidden: true,
+    });
+    await db.insert(schema.conversationImage).values({
+      designId: design.id,
+      imageId: hiddenSeed,
+      role: "seed",
+    });
+    const own = await makeSourceImage(db, {
+      designId: design.id,
+      ownerId: "owner",
+      imageUrl: "https://cdn.example/own.png",
+      createdAt: minutesAgo(10),
+    });
+
+    const [lane] = await getStudioLanesData("owner", { db });
+
+    expect(lane.cells.map((c) => c.imageId)).toEqual([own]);
+  });
+
+  it("the serialised lanes carry the hidden image's URL nowhere", async () => {
+    const design = await makeOpenDesign("owner");
+    await makeSourceImage(db, {
+      designId: design.id,
+      ownerId: "owner",
+      imageUrl: "https://cdn.example/visible.png",
+      createdAt: minutesAgo(30),
+    });
+    const hidden = await makeSourceImage(db, {
+      designId: design.id,
+      ownerId: "owner",
+      imageUrl: HIDDEN_URL,
+      createdAt: minutesAgo(20),
+      publishedAt: minutesAgo(15),
+      isHidden: true,
+      backgroundColor: "Black",
+    });
+    await db
+      .update(schema.design)
+      .set({ primaryImageId: hidden })
+      .where(eq(schema.design.id, design.id));
+
+    const json = JSON.stringify(await getStudioLanesData("owner", { db }));
+
+    expect(json).toContain("https://cdn.example/visible.png");
+    expect(json).not.toContain(HIDDEN_URL);
+    expect(json).not.toContain(hidden);
+  });
+
+  it("the title falls back to the first visible image's prompt, not a hidden one's", async () => {
+    const design = await makeOpenDesign("owner");
+    await makeSourceImage(db, {
+      designId: design.id,
+      ownerId: "owner",
+      imageUrl: HIDDEN_URL,
+      prompt: "the hidden prompt",
+      createdAt: minutesAgo(30),
+      publishedAt: minutesAgo(25),
+      isHidden: true,
+    });
+    await makeSourceImage(db, {
+      designId: design.id,
+      ownerId: "owner",
+      imageUrl: "https://cdn.example/visible.png",
+      prompt: "the visible prompt",
+      createdAt: minutesAgo(20),
+    });
+    const onlyHidden = await makeOpenDesign("owner", { updatedAt: minutesAgo(40) });
+    await makeSourceImage(db, {
+      designId: onlyHidden.id,
+      ownerId: "owner",
+      imageUrl: "https://cdn.example/hidden-2.png",
+      prompt: "another hidden prompt",
+      createdAt: minutesAgo(45),
+      publishedAt: minutesAgo(44),
+      isHidden: true,
+    });
+
+    const lanes = await getStudioLanesData("owner", { db });
+
+    expect(lanes.find((l) => l.designId === design.id)?.title).toBe("the visible prompt");
+    expect(lanes.find((l) => l.designId === onlyHidden.id)?.title).toBeNull();
+  });
+
+  it("a hidden newest image does not move the lane's last-active time", async () => {
+    const design = await makeOpenDesign("owner", { updatedAt: minutesAgo(60) });
+    await makeSourceImage(db, {
+      designId: design.id,
+      ownerId: "owner",
+      imageUrl: HIDDEN_URL,
+      createdAt: minutesAgo(5),
+      publishedAt: minutesAgo(4),
+      isHidden: true,
+    });
+
+    const [lane] = await getStudioLanesData("owner", { db });
+
+    expect(lane.lastActiveAt).toEqual(minutesAgo(60));
   });
 });
 

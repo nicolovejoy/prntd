@@ -1,9 +1,10 @@
 /**
  * Owner ruling (Nico, 2026-10-05): once an admin hides an image, nobody can
  * buy or print it, its owner included, and the owner must not be able to undo
- * the hide. Hidden is recorded in two places (the `image_publication` row's is_hidden
- * and the mirror product's status), and `unpublishImage` deletes the first and
- * drafts the second, so without a refusal an owner could erase a hide by
+ * the hide. Hidden is written in two places (the `image_publication` row's
+ * is_hidden and the mirror product's status) but read from one, the
+ * publication row (`isImageAdminHidden`). `unpublishImage` deletes that row
+ * and drafts the mirror, so without a refusal an owner could erase a hide by
  * unpublishing and then publish again.
  *
  * Real in-memory libSQL; db, session and Stripe mocked.
@@ -159,11 +160,15 @@ describe("an admin hide cannot be undone by the owner", () => {
     expect(await state(db, imageId)).toEqual(before);
   });
 
-  it("refuses when only the mirror records the hide", async () => {
+  it("refuses when only the publication row records the hide", async () => {
     const db = h.db as Db;
     const { imageId } = await publishHidden(db);
-    await db.update(schema.imagePublication).set({ isHidden: false });
+    await db.update(schema.product).set({ status: "listed" });
     const before = await state(db, imageId);
+    expect(before).toEqual({
+      publication: { hidden: true },
+      mirror: { status: "listed", title: "Original" },
+    });
 
     h.session = OWNER;
     await expect(unpublishImage(imageId)).rejects.toThrow();
