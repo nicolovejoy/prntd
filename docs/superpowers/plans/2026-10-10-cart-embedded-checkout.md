@@ -28,14 +28,14 @@ Hand this section to every implementer and every reviewer as it stands.
 - **Lint.** `@typescript-eslint/no-explicit-any` is an error outside tests. `catch (err)` and narrow with `err instanceof Error ? err.message : String(err)`; a bare `catch {` is fine when the error is not used.
 - **This is not the Next.js in your training data** (`AGENTS.md`). Before writing code, read the guide for what you touch under `node_modules/next/dist/docs/`: `01-app/03-api-reference/04-functions/headers.md` (Task 2), `01-app/01-getting-started/07-mutating-data.md` (Tasks 2 and 3), `01-app/03-api-reference/03-file-conventions/page.md` (Task 4).
 - **Tests.** Real-DB integration tests use `createTestDb()` (`src/lib/__tests__/test-db.ts`) and the factories in `src/lib/__tests__/factories.ts`. `src/lib/**` tests run under node, `src/app/**` under jsdom. Vitest does not load `.env.local`; tests set env with `vi.stubEnv` and clear it with `vi.unstubAllEnvs()`. Never read a `.env*` file.
-- **Money path.** This changes how a cart is paid for. It gets real-DB tests (Task 2) and a dedicated adversarial review (Task 7). Re-run tests yourself; do not rely on an implementer's report.
+- **Money path.** This changes how a cart is paid for. It gets real-DB tests (Task 2) and a dedicated adversarial review, run by the controlling session after the implementer tasks (Task 7). Re-run tests yourself; do not rely on an implementer's report.
 - **Phone-first.** 44px touch targets and no horizontal scroll at 390px. Nothing here changes a phone layout.
 - **Words.** Say "image detail page", not "/d", in comments, commit messages, PR text and messages to Nico. Comments say what the code does and why, plainly.
 - **Shell.** Work only in the worktree for branch `claude/cart-embedded-checkout`. When the shell's working directory is not the worktree, use absolute paths and `git -C <worktree>`. Do not build slice 6a (removing `/preview` checkout code and `PREVIEW_EMBEDDED_CHECKOUT_ENABLED`) on this branch.
-- **Commits.** One commit per task. End each message with the attribution trailer lines the executing session's own instructions give; do not copy a trailer from another plan.
+- **Commits.** One commit per task. End each message with the attribution trailer lines the controlling session pastes into the task's dispatch; do not copy a trailer from another plan.
 - **Gate before the PR:** `npm run lint && npm run typecheck && npm test && npm run build` (build env: the dummy block in `ci.yml`'s `check` job), `npm run db:generate` printing "No schema changes", then `npm run e2e`.
 - **Reviews.** Never tell a reviewer what not to flag. State the rulings and let them flag anything. A review another agent must act on is posted on the PR as a comment.
-- **Nico merges.** The PR title starts with `HOLD:` until the three gates in Task 8 have passed on the PR's final commit.
+- **Nico merges.** The controlling session opens the PR as a draft with a title starting `HOLD:`; both stay until its three gates (a dispatched Stripe e2e run, the adversarial review, Nico's Preview smoke; Task 8) have passed on the PR's final commit. Implementers do not push or open a PR.
 
 ## Review Focus
 
@@ -159,7 +159,7 @@ No two implementer tasks edit the same file. The dependencies are interfaces.
 
 - [ ] **Step 1: Write the tests**
 
-Append these four cases to the existing `describe("buildCartCheckoutSessionParams", …)` block. They use the file's existing `cartBase` fixture; do not add a new fixture and do not write an amount.
+Append these four cases to the existing `describe("buildCartCheckoutSessionParams", …)` block: it is the last block in the file, so insert them before its closing `});`. They use the file's existing `cartBase` fixture; do not add a new fixture and do not write an amount.
 
 ```ts
   it("with no uiMode deep-equals the hosted shape (pins the cart's hosted params key for key)", () => {
@@ -914,8 +914,9 @@ Inside `checkoutCart`, after the attribution block (the statement that ends `con
     );
   }
   // Hosted checkout always returns to NEXT_PUBLIC_APP_URL: the buyer leaves
-  // our origin either way. An embedded session returns to the deployment it
-  // was created on, so a purchase on a Preview lands on that Preview.
+  // for Stripe's page, so the building deployment does not matter. An embedded
+  // session returns to the deployment it was created on, so a purchase on a
+  // Preview lands on that Preview.
   const appUrl = embedded.enabled
     ? resolveReturnOrigin(
         (await headers()).get("origin"),
@@ -976,6 +977,7 @@ Do not move, reorder or wrap anything else in the function. The `db.batch`, the 
 `src/lib/flags.ts`, the docblock above `embeddedCheckoutFlag` (`:29-41`): change "purchases started on the image detail page open Stripe Embedded Checkout" to "purchases started on the image detail page or from the cart (#278 slice 6b) open Stripe Embedded Checkout", and "creating on the image detail page uses `embeddedCheckoutConfig()`" to "creating on the image detail page or from the cart uses `embeddedCheckoutConfig()`". Leave the rest of the comment alone (slice 6a rewrites it). These phrases wrap across comment lines in the source; reflow the lines you touch.
 
 `src/lib/embedded-checkout.ts`:
+- `:5` — "Each buy surface has its own switch" becomes "The image detail page and the cart share one switch; /preview has its own". (`flags.ts`'s `previewEmbeddedCheckoutFlag` docblock has the same "independently" wording; slice 6a rewrites it, leave it.)
 - `:8` — "`embeddedCheckoutConfig()` (image detail page, EMBEDDED_CHECKOUT_ENABLED)" becomes "`embeddedCheckoutConfig()` (image detail page and cart, EMBEDDED_CHECKOUT_ENABLED)".
 - `:60-63` — "for the image detail page's buy action (EMBEDDED_CHECKOUT_ENABLED)" becomes "for the image detail page's buy action and the cart's checkout (EMBEDDED_CHECKOUT_ENABLED)".
 - `:121-123` — "The relative path `buyPublishedDesign` and `createCheckoutSession` return" becomes "The relative path `buyPublishedDesign`, `checkoutCart` and `createCheckoutSession` return".
@@ -1501,7 +1503,7 @@ vi.mock("../embedded-checkout-form", () => ({
 }));
 ```
 
-Append inside `describe("CheckoutPage", …)`:
+Append inside `describe("CheckoutPage", …)`, before its closing `});` (the last line of the file):
 
 ```tsx
   const TWO_LINES = {
@@ -1915,7 +1917,7 @@ Replace the paragraph that starts "Three tests. The cart test pays through Strip
 - [ ] **Step 4: Check the spec without running it**
 
 Run: `npm run typecheck && npx playwright test e2e/stripe-money-path.spec.ts --list`
-Expected: typecheck clean; the listing shows three tests under "stripe money path", the first named "cart: two designs → embedded checkout on /checkout → …".
+Expected: typecheck clean; the listing shows three tests under "stripe money path", the first named "cart: two designs → embedded checkout on /checkout → …". `playwright.config.ts` loads `.env.local` through dotenv; the worktree has no such file and the listing does not need one. Do not create one.
 
 - [ ] **Step 5: `docs/stripe-e2e.md`**
 
@@ -1992,7 +1994,7 @@ Run by the controlling session, not an implementer.
 - [ ] **Step 1: Combined tree.** `git fetch origin`; if main has moved, merge it into the branch and `npm ci`.
 - [ ] **Step 2: Gate.** `npm run lint && npm run typecheck && npm test && npm run build` (build env: the dummy block in `ci.yml`'s `check` job). `npm run db:generate` must print "No schema changes" and leave `drizzle/` untouched. Then `npm run e2e`; if the worktree has no local database env, say so in the PR body and rely on the PR's own `e2e` job, which runs the same suite on an ephemeral Turso branch.
 - [ ] **Step 3: Whole-branch review.** One independent Opus review of `git diff origin/main...HEAD` with the spec, this plan's Global Constraints and Review Focus. Do not tell it what not to flag. Fix rounds go back to the task's implementer; re-run the gate after each.
-- [ ] **Step 4: Push and open the PR.** Title: `HOLD: Cart on embedded checkout (#278 slice 6b, #135 slice 4)`. The body leads with:
+- [ ] **Step 4: Push and open the PR as a draft** (`gh pr create --draft`: GitHub cannot merge a draft, and admin bypass does not change that; HOLD PRs here have been merged before their gate three times). Title: `HOLD: Cart on embedded checkout (#278 slice 6b, #135 slice 4)`. The body leads with:
 
 ```md
 ## HOLD until all three have passed on this PR's final commit
@@ -2066,7 +2068,11 @@ you verified as well as what you found.
 5. A foreign user, an anonymous session and a signed-out visitor opening
    /checkout?session=<a cart session>. Is the client secret ever in the
    response? A session id from the other Stripe mode. An order whose
-   stripe_session_id was never saved.
+   stripe_session_id was never saved. Also getOrderBySession
+   (src/app/order/confirm/actions.ts), an exported "use server" function:
+   what does it check before returning an order, and what does anyone
+   holding a cart session id get from it (artwork URLs, sizes, colours,
+   status, total)? The cart now puts that id in our own URLs.
 6. The open-redirect surface of `from`: values such as //host, /\host, a path
    with control characters, an absolute URL, an array, a very long value;
    the sign-in round trip built from it; whether a client can influence the
@@ -2092,10 +2098,21 @@ you verified as well as what you found.
     proves it, and is that proof independent of the code under test?
 12. Promotion codes and totals in an embedded cart session: what the webhook
     reconciles, and whether anything of ours on /checkout shows a number that
-    a promotion code could make wrong.
+    a promotion code could make wrong. A 100% promotion code gives
+    payment_status no_payment_required, which isSettledPaymentStatus
+    (src/lib/webhook-handlers.ts) accepts: trace the cart claim path with a
+    zero-amount session.
 13. A delayed payment method in a cart session: session complete but unpaid,
-    then succeeded or failed. What /order/confirm and /checkout show.
-14. Anything else in the money path that this change touches or newly
+    then succeeded or failed. What /order/confirm and /checkout show. A
+    redirect-based payment method: the buyer returns on return_url unpaid and
+    /order/confirm shows the incomplete state with the resume link
+    /checkout?session=<id> (no `from`, src/lib/checkout-session-status.ts).
+    The session expiring while the embedded form is open.
+14. checkoutCart has no rate limit (no quota call in
+    src/app/cart/actions.ts). Each call writes an order and creates a Stripe
+    session that stays payable for two hours. Size the abuse: what one
+    signed-in account can create, and what it costs us.
+15. Anything else in the money path that this change touches or newly
     exposes, including tests that would pass with the feature broken.
 
 For each finding give: the scenario, the exact file and line, what happens,
@@ -2142,12 +2159,14 @@ B. The Preview has an empty Shop, so you need two designs of your own. Open
    Wait until both have a result.
 
 Steps:
-1. In the Studio, tap the first result, tap Order, pick size M, tap
-   Add to cart. You land on the cart with one line.
+1. In the Studio, tap the first result, then tap the Order link under the
+   big image. On the page that opens, pick size M and tap Add to cart. You
+   land on the cart with one line.
 2. Open
    https://prntd-git-claude-cart-embedded-checkout-nico-lovejoys-projects.vercel.app/studio
-   again, tap the second result, tap Order, pick size L, tap Add to cart. The
-   cart shows two lines.
+   again, tap the second result, then tap the Order link under the big
+   image. On the page that opens, pick size L and tap Add to cart. The cart
+   shows two lines.
 3. Tap Checkout.
 4. In the payment form enter any email, card 4242 4242 4242 4242, any future
    expiry, any CVC, any name, any US address, and tap Pay.
@@ -2174,7 +2193,7 @@ lines, no email arrives, and Orders does not list the order. A Preview gets
 no Stripe webhook, so the order stays pending there.
 ```
 
-- [ ] **Step 5: Lift HOLD.** When the run is green, the adversarial findings are closed on the PR and the smoke has passed, all on the same final commit: tick the three boxes with their evidence, remove `HOLD:` from the title, and tell Nico it is ready to merge. Say again in that message that the merge makes it live in Production at once.
+- [ ] **Step 5: Lift HOLD.** When the run is green, the adversarial findings are closed on the PR and the smoke has passed, all on the same final commit: tick the three boxes with their evidence, remove `HOLD:` from the title, mark the PR ready (`gh pr ready`), and tell Nico it is ready to merge. Say again in that message that the merge makes it live in Production at once.
 
 ---
 
@@ -2182,10 +2201,10 @@ no Stripe webhook, so the order stays pending there.
 
 Run by the controlling session.
 
-- [ ] **Step 1: Open the follow-up issue** (decision 7). Write the text below to `expire-earlier-session.md` in the session's scratch directory (not in the repo) and run the command from there:
+- [ ] **Step 1: Open the follow-up issue** (decision 7). Write the text below to `expire-earlier-session.md` in the session's scratch directory (not in the repo) and pass its absolute path to `--body-file` (do not `cd`):
 
 ```bash
-gh issue create --title "Checkout: expire the earlier Stripe session when a new one is created" --body-file expire-earlier-session.md
+gh issue create --title "Checkout: expire the earlier Stripe session when a new one is created" --body-file "$SCRATCH/expire-earlier-session.md"
 ```
 
 ```md
