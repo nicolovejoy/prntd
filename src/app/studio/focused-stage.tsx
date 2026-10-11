@@ -81,9 +81,12 @@ export function FocusedStage({
     ? publishedBackdrop(cell.backdropColor)
     : { className: wellClass(cell.luminance), style: undefined };
 
-  // minmax(0,1fr), not 1fr: a bare 1fr track is at least as wide as its
-  // content, and the composer's anchor chip is one unbroken line, so a long
-  // conversation title widened the column past the viewport.
+  // minmax(0,1fr), not 1fr: a bare 1fr track cannot be narrower than its
+  // content's min-content width, and two things in this column have a wide
+  // one: the composer's anchor chip (one unbroken line holding the whole
+  // first prompt) and the strip of other results (fixed-width cells in a
+  // scroller). Either widened the column past the viewport. With a zero
+  // minimum the chip truncates and the strip scrolls inside the column.
   return (
     <div data-testid="focused-stage" className="lg:grid lg:grid-cols-[600px_minmax(0,1fr)] lg:gap-12">
       <div className={`h-11 flex items-center justify-between ${MONO} lg:col-span-2`}>
@@ -255,7 +258,8 @@ function History({ lane }: { lane: StudioLane }) {
           {turns?.map((t) => (
             <div key={t.id} className="py-2.5 border-t border-border flex flex-col gap-1">
               <span className={MONO_FAINT}>{historyTurnLabel(t, lane.cells)}</span>
-              <p className={`m-0 whitespace-pre-wrap ${t.role === "assistant" ? "text-text-muted" : ""}`}>{t.content}</p>
+              {/* break-words: a pasted URL has no break opportunity and would scroll the page sideways. */}
+              <p className={`m-0 whitespace-pre-wrap break-words ${t.role === "assistant" ? "text-text-muted" : ""}`}>{t.content}</p>
             </div>
           ))}
         </div>

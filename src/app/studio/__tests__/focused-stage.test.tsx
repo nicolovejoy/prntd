@@ -56,9 +56,10 @@ describe("FocusedStage", () => {
     expect(screen.getByTestId("composer-slot")).toBeTruthy();
   });
 
-  it("the composer column may shrink below its content, so a long title cannot widen the page", () => {
-    // jsdom has no layout. This pins the track that lets the anchor chip
-    // truncate: a bare `1fr` has an automatic minimum of the column's content.
+  it("the composer column may shrink below its content, so neither a long title nor a long strip widens the page", () => {
+    // jsdom has no layout, so this only pins the class. A bare `1fr` track is
+    // at least its content's min-content width, which the anchor chip (one
+    // line) and the result strip (fixed-width cells) both make wide.
     renderStage();
     expect(screen.getByTestId("focused-stage").className).toContain("lg:grid-cols-[600px_minmax(0,1fr)]");
   });
@@ -157,6 +158,8 @@ describe("FocusedStage", () => {
     fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     await waitFor(() => expect(screen.getByText("a bear reading")).toBeTruthy());
+    // A turn can hold one long unbroken run (a pasted URL); it must wrap.
+    expect(screen.getByText("a bear reading").className).toContain("break-words");
     expect(screen.getByText("You")).toBeTruthy();
     expect(screen.getByText("PRNTD · Result 2")).toBeTruthy();
     expect(getConversationHistory).toHaveBeenCalledTimes(1);
