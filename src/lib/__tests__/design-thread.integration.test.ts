@@ -91,3 +91,104 @@ describe("getDesignThreadData", () => {
     expect(await getDesignThreadData("nope", "owner")).toBeNull();
   });
 });
+
+describe("getDesignThreadData and admin-hidden images", () => {
+  const publishedAt = new Date(Date.UTC(2026, 0, 1, 11, 55));
+  const ART_URL = "https://r2/primary-art.png";
+  const RENDER_URL = "https://r2/primary-render.png";
+
+  // A conversation whose primary image has a placement render sourced from it
+  // and a chat turn naming it. `hidden` flips the primary to admin-hidden.
+  async function seedThread(hidden: boolean) {
+    const db = h.db as Db;
+    const design = await makeDesign(db, "owner");
+    const primaryId = await makeSourceImage(db, {
+      designId: design.id,
+      ownerId: "owner",
+      imageUrl: ART_URL,
+      publishedAt,
+      isHidden: hidden,
+    });
+    await db
+      .update(schema.design)
+      .set({ primaryImageId: primaryId })
+      .where(eq(schema.design.id, design.id));
+    await db.insert(schema.placementRender).values({
+      designId: design.id,
+      sourceImageId: primaryId,
+      blankId: "bella-canvas-3001",
+      placementId: "front",
+      imageUrl: RENDER_URL,
+      aspectRatio: "1:1",
+    });
+    await db.insert(schema.chatMessage).values([
+      { designId: design.id, role: "user", content: "a fox" },
+      {
+        designId: design.id,
+        role: "assistant",
+        content: "here you go",
+        imageId: primaryId,
+      },
+    ]);
+    return { designId: design.id, primaryId };
+  }
+
+  it("a thread with nothing hidden carries the artwork and its render", async () => {
+    const { designId } = await seedThread(false);
+    const json = JSON.stringify(await getDesignThreadData(designId, "owner"));
+    expect(json).toContain(ART_URL);
+    expect(json).toContain(RENDER_URL);
+  });
+
+  it("a hidden primary and its render appear nowhere in the payload", async () => {
+    const { designId, primaryId } = await seedThread(true);
+    const thread = await getDesignThreadData(designId, "owner");
+    const json = JSON.stringify(thread);
+    expect(json).not.toContain(ART_URL);
+    expect(json).not.toContain(RENDER_URL);
+    expect(thread!.design.displayImageUrl).toBeNull();
+    expect(thread!.sources).toEqual([]);
+    expect(thread!.productGroups).toEqual([]);
+    // The chat row keeps its image id (an id, not artwork); the client shows
+    // no picture for an id with no matching source.
+    expect(thread!.chat.map((m) => m.imageId)).toEqual([null, primaryId]);
+  });
+
+  it("a hidden primary falls back to the latest visible output for the display image", async () => {
+    const db = h.db as Db;
+    const { designId } = await seedThread(true);
+    await makeSourceImage(db, {
+      designId,
+      ownerId: "owner",
+      imageUrl: "https://r2/visible-older.png",
+    });
+    await makeSourceImage(db, {
+      designId,
+      ownerId: "owner",
+      imageUrl: "https://r2/visible-newest.png",
+    });
+    const thread = await getDesignThreadData(designId, "owner");
+    expect(thread!.design.displayImageUrl).toBe("https://r2/visible-newest.png");
+    expect(thread!.sources.map((s) => s.imageUrl)).toEqual([
+      "https://r2/visible-older.png",
+      "https://r2/visible-newest.png",
+    ]);
+  });
+
+  it("keeps a render that has no recorded source image", async () => {
+    const db = h.db as Db;
+    const { designId } = await seedThread(true);
+    await db.insert(schema.placementRender).values({
+      designId,
+      sourceImageId: null,
+      blankId: "bella-canvas-3001",
+      placementId: "front",
+      imageUrl: "https://r2/legacy-render.png",
+      aspectRatio: "1:1",
+    });
+    const thread = await getDesignThreadData(designId, "owner");
+    expect(
+      thread!.productGroups.flatMap((g) => g.images.map((i) => i.imageUrl))
+    ).toEqual(["https://r2/legacy-render.png"]);
+  });
+});
