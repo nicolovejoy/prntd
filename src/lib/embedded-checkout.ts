@@ -4,8 +4,10 @@
  * that want to create or mount an embedded Stripe session call one of the
  * env-reading wrappers below rather than the raw flags in src/lib/flags.ts,
  * so a misconfigured key pair degrades to hosted checkout instead of
- * building a broken embedded session. Each buy surface has its own switch:
- * `embeddedCheckoutConfig()` (image detail page, EMBEDDED_CHECKOUT_ENABLED),
+ * building a broken embedded session. The image detail page and the cart share
+ * one switch; /preview has its own:
+ * `embeddedCheckoutConfig()` (image detail page and cart,
+ * EMBEDDED_CHECKOUT_ENABLED),
  * `previewEmbeddedCheckoutConfig()` (/preview, PREVIEW_EMBEDDED_CHECKOUT_ENABLED),
  * and `embeddedCheckoutPageConfig()` for the /checkout page and its loader,
  * which serve both and so accept either switch.
@@ -59,7 +61,7 @@ export function resolveEmbeddedCheckoutConfig(params: {
 
 /**
  * env-reading wrapper around `resolveEmbeddedCheckoutConfig` for the image
- * detail page's buy action (EMBEDDED_CHECKOUT_ENABLED).
+ * detail page's buy action and the cart's checkout (EMBEDDED_CHECKOUT_ENABLED).
  */
 export function embeddedCheckoutConfig(): EmbeddedCheckoutResolution {
   return resolveEmbeddedCheckoutConfig({
@@ -119,9 +121,10 @@ export function safeCheckoutReturnPath(from: unknown): string {
 }
 
 /**
- * The relative path `buyPublishedDesign` and `createCheckoutSession` return as
- * `url` for the client to navigate to when embedded checkout is enabled — same-origin, so it works
- * unchanged on a preview deploy (a preview and prod have different origins).
+ * The relative path `buyPublishedDesign`, `checkoutCart` and
+ * `createCheckoutSession` return as `url` for the client to navigate to when
+ * embedded checkout is enabled — same-origin, so it works unchanged on a
+ * preview deploy (a preview and prod have different origins).
  */
 export function embeddedCheckoutPath(sessionId: string, backPath: string): string {
   const safeBack = safeCheckoutReturnPath(backPath);
