@@ -41,3 +41,5 @@ Rulings: #310 comment of 2026-10-11 (Nico agreed with every recommendation). Nic
 - Ruling: nit "`selectImage` docstring hides the clear-on-unmatched-URL behaviour" is taken: the docstring says it.
 - Out of scope, recorded: `executeImageDeletion`'s primary move (`src/lib/delete-image.ts`) can pick a hidden output as the new primary. A system write, not an owner pin; the #309 readers handle a hidden primary. Listed in the PR body under "Found, not changed".
 - Fix commit `3108a8e`. Controller gate on it: lint 0 errors, typecheck clean, `npm test` 251 / 3886, `db:generate` "No schema changes", build ok; the parity CLI re-run under tsx on migration-built file DBs: clean → `PARITY CLEAN` exit 0, drift → exit 1, token never printed.
+- Draft PR opened: https://github.com/nicolovejoy/prntd/pull/319 (`HOLD:` title; gate = Nico's Production parity read). Review and rulings posted: https://github.com/nicolovejoy/prntd/pull/319#issuecomment-6111216840
+- Slice complete on the branch (commits `b458964..` this entry): review READY, one fix round, Production parity read and the post-merge smoke owed by Nico.
