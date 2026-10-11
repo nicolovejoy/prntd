@@ -1534,7 +1534,8 @@ export async function getDesignChat(designId: string): Promise<ChatMessage[]> {
 /**
  * Fetch the gallery payload for /design: source images (1:1 explorations)
  * and placement renders grouped by product. Single round trip so the page
- * can refresh both sections after every action.
+ * can refresh both sections after every action. Admin-hidden images, and
+ * renders of them, are left out by the readers.
  */
 export async function getDesignGallery(
   designId: string

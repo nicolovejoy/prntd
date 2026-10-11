@@ -164,7 +164,7 @@ export async function getBackSourceGroups(params: {
   userId: string | null;
 }): Promise<BackSourceGroup[]> {
   const [thisDesign, myDesigns, shop] = await Promise.all([
-    getDesignSourceImages(params.designId, { excludeHidden: true }),
+    getDesignSourceImages(params.designId),
     params.userId
       ? getOtherDesignPrimaries(params.userId, params.designId)
       : Promise.resolve([]),
