@@ -11,7 +11,11 @@ import {
   type CartView,
 } from "./actions";
 import { Button, EmptyState, InlineNotice } from "@/components/ui";
-import { CART_LINE_UNAVAILABLE_LABEL, QUANTITY_UPDATE_FAILED } from "@/lib/action-copy";
+import {
+  CART_LINE_UNAVAILABLE_LABEL,
+  CHECKOUT_FAILED,
+  QUANTITY_UPDATE_FAILED,
+} from "@/lib/action-copy";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
 import { CART_LINE_MIN_QUANTITY, CART_LINE_MAX_QUANTITY } from "@/lib/cart-line-edit";
@@ -45,8 +49,9 @@ export default function CartPage() {
   const [quantityFailed, setQuantityFailed] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
   const [checkingOut, setCheckingOut] = useState(false);
-  // checkoutCart's refusal ({ error }), shown above the buttons; the lines
-  // that caused it are marked by getCart.
+  // checkoutCart's refusal ({ error }) or, when the action throws, the fixed
+  // checkout-failed line; shown above the buttons. A refused line is marked by
+  // getCart.
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
   async function refresh() {
@@ -114,17 +119,35 @@ export default function CartPage() {
     setCheckingOut(true);
     setCheckoutError(null);
     try {
-      const { url, needsAuth, error } = await checkoutCart();
+      let result: Awaited<ReturnType<typeof checkoutCart>>;
+      try {
+        result = await checkoutCart();
+      } catch {
+        // The action threw (Stripe unavailable, a lost response). Production
+        // masks the message, so the notice is fixed copy, the line the image
+        // detail page shows. It is true here: no session reached the buyer,
+        // so nothing was charged. The cart is unchanged, so no re-read.
+        setCheckoutError(CHECKOUT_FAILED);
+        return;
+      }
+      const { url, needsAuth, error } = result;
       if (error) {
         setCheckoutError(error);
-        // Re-read the cart so the line that failed carries its label.
-        await refresh();
+        // Re-read the cart so the line that failed carries its label. If the
+        // re-read fails the refusal stays on screen.
+        try {
+          await refresh();
+        } catch {
+          // Keep the refusal; the next attempt re-reads.
+        }
         return;
       }
       if (needsAuth) {
         window.location.href = "/sign-in?next=/cart";
         return;
       }
+      // Hosted checkout is an absolute Stripe URL; embedded checkout is our
+      // own /checkout path (#278 slice 6b). Both are document navigations.
       if (url) window.location.href = url;
     } finally {
       setCheckingOut(false);
