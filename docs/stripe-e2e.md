@@ -5,8 +5,15 @@ through real Stripe test mode (4242 test card), land on `/order/confirm`, then
 assert the order row reaches `submitted` (dry-run Printful) with `sale` +
 `stripe_fee` ledger rows:
 
-- The cart test adds two designs to the cart from their image detail pages and
-  pays on Stripe's hosted checkout page (the cart stays hosted).
+- The cart test adds two designs to the cart from their image detail pages,
+  taps Checkout, and pays through embedded checkout on our `/checkout` page,
+  as production does since #278 slice 6b (the cart rides
+  `EMBEDDED_CHECKOUT_ENABLED`). It requires that switch to be `true` and fails
+  rather than skipping when it is not, and it fails if checkout opens on
+  Stripe's hosted page. Beyond the common assertions it checks that
+  `/checkout` shows one review row per line with no price, that Back points
+  at `/cart`, that the order has both lines with their own pinned images, and
+  that the cart is empty once the webhook has run.
 - The old-`/preview`-link test seeds a design, opens
   `/preview?id=<design>&product=…&color=…&size=M` (the redirect sends it to the
   image's page with the same picks), Orders, and pays through embedded checkout
@@ -59,7 +66,7 @@ What the script (`scripts/e2e-stripe.sh`) does:
    `PRINTFUL_DRY_RUN=true` (also forced in `playwright.config.ts` — no local
    e2e can place a real Printful order), a dummy `RESEND_API_KEY` (no real
    order emails), and `E2E_STRIPE=1`.
-4. Runs the spec on the mobile project only — two payments per run.
+4. Runs the spec on the mobile project only — three payments per run.
 
 The spec self-cleans: its order + `order_item` + ledger rows, seeded design,
 and throwaway account are deleted from the dev DB afterward.
@@ -80,12 +87,12 @@ via manual `workflow_dispatch`. It is intentionally **not** wired into
 actual checkout DOM, which is third-party flake every PR shouldn't
 have to eat.
 
-It moves money through two Stripe surfaces: hosted checkout DOM (the cart
-test) and the embedded checkout iframe on `/checkout` (the image detail page
-test and the old-`/preview`-link test). The image detail page's switch
-(`EMBEDDED_CHECKOUT_ENABLED`) is on in production, so the nightly matches
-production there. Nothing in the nightly reads
-`PREVIEW_EMBEDDED_CHECKOUT_ENABLED` any more.
+All three tests pay through the embedded checkout iframe on `/checkout`. The
+switch (`EMBEDDED_CHECKOUT_ENABLED`) is on in production for the image detail
+page and the cart, so the nightly matches production on both. Nothing in the
+nightly pays through Stripe's hosted page: hosted checkout is the fail-closed
+fallback (a missing or mismatched publishable key) and is covered by the
+parameter tests in Vitest. Nothing reads `PREVIEW_EMBEDDED_CHECKOUT_ENABLED`.
 
 The workflow installs the Stripe CLI, branches an ephemeral Turso DB off
 `prntd-preview` (same mechanism as the per-PR e2e job, #31/#108 — named so it
@@ -102,13 +109,13 @@ Repo secrets required: `STRIPE_SECRET_KEY` (test-mode), `TURSO_API_TOKEN`
 below). On failure the job files/comments on a GitHub issue labeled
 `stripe-e2e-nightly` so a red run isn't silent.
 
-## Embedded checkout (image detail page)
+## Embedded checkout (image detail page and cart)
 
 The nightly sets `EMBEDDED_CHECKOUT_ENABLED=true` and
 `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` from the repo variable
 `STRIPE_TEST_PUBLISHABLE_KEY` (a variable, not a secret). The key must come
 from the same Stripe account and test mode as the `STRIPE_SECRET_KEY` secret,
-or checkout fails closed to hosted and the two image-detail tests fail.
+or checkout fails closed to hosted and all three tests fail.
 
 The publishable key is inlined at build. A local run needs both variables set
 in the local env file before the build that `npm run e2e:stripe` triggers, and
@@ -183,8 +190,10 @@ API; the nightly run is the only live exercise.
 - Stripe's checkout DOM changes without notice. The spec resolves each field
   through candidate locators (`#cardNumber`, placeholder, label); if a fill
   fails, update the candidates in `completeStripeCheckout`.
-- An image-detail test times out waiting for the embedded form, or lands on
-  Stripe's hosted page: the publishable key is missing, or from a different
-  Stripe account or mode than `STRIPE_SECRET_KEY`, so checkout failed closed
-  to hosted. Otherwise the iframe selectors in `embeddedStripeRoot` need
-  calibrating.
+- A test times out waiting for the embedded form, or lands on Stripe's hosted
+  page: the publishable key is missing, or from a different Stripe account or
+  mode than `STRIPE_SECRET_KEY`, so checkout failed closed to hosted.
+  Otherwise the iframe selectors in `embeddedStripeRoot` need calibrating.
+- The cart test fails at "toHaveCount(2)" on `checkout-preview`: `/checkout`
+  rendered a different number of review rows than the cart had lines. Read
+  the order's `order_item` rows before suspecting the selectors.

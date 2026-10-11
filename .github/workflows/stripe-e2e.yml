@@ -3,9 +3,9 @@ name: Stripe E2E (nightly)
 # The one real-money-path test (e2e/stripe-money-path.spec.ts, docs/stripe-e2e.md)
 # only ever ran when someone remembered `npm run e2e:stripe` locally (#104).
 # This gives it a nightly run + a manual trigger, entirely separate from PR CI:
-# it pays through Stripe's real test checkout (the cart through the hosted
-# page; the image detail page, once from an old /preview link, through Embedded
-# Checkout on our /checkout page) and depends
+# it pays through Stripe's real test checkout, always through Embedded
+# Checkout on our /checkout page (the cart, the image detail page, and the
+# image detail page entered from an old /preview link) and depends
 # on Stripe's live checkout DOM (three layout fixes needed on the first live
 # run, 2026-07-21), so it is deliberately NOT wired into the pull_request/push
 # `check`/`e2e` jobs in ci.yml — that would add third-party flake to every PR.
@@ -38,11 +38,10 @@ jobs:
       # scripts/e2e-stripe.sh), but a missing/misconfigured secret must fail
       # loud, not silently self-skip and report green.
       STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
-      # Purchases from the image detail page open Embedded Checkout on our own
-      # /checkout page, which is how production sells from that page
-      # (EMBEDDED_CHECKOUT_ENABLED is on there). The two image-detail tests
-      # (the owner's own unpublished image, and the same purchase entered
-      # through an old /preview link) fail if the switch is off.
+      # Purchases from the image detail page and from the cart open Embedded
+      # Checkout on our own /checkout page, which is how production sells
+      # (EMBEDDED_CHECKOUT_ENABLED is on there). All three tests fail if the
+      # switch is off.
       # The publishable key is a repo variable, not a secret (it ships to
       # browsers). It is inlined at `next build`, and must belong to the same
       # Stripe test account as STRIPE_SECRET_KEY: otherwise checkout fails
