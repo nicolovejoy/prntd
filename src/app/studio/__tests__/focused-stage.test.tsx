@@ -56,6 +56,13 @@ describe("FocusedStage", () => {
     expect(screen.getByTestId("composer-slot")).toBeTruthy();
   });
 
+  it("the composer column may shrink below its content, so a long title cannot widen the page", () => {
+    // jsdom has no layout. This pins the track that lets the anchor chip
+    // truncate: a bare `1fr` has an automatic minimum of the column's content.
+    renderStage();
+    expect(screen.getByTestId("focused-stage").className).toContain("lg:grid-cols-[600px_minmax(0,1fr)]");
+  });
+
   it("paints a published result on its backdrop with the caption; unpublished on the well without one", () => {
     const { unmount } = render(
       <FocusedStage {...renderStageProps({ lane: lane({ cells: [cell("a", { backdropColor: "Navy" })] }), index: 0 })} />

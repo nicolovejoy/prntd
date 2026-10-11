@@ -81,8 +81,11 @@ export function FocusedStage({
     ? publishedBackdrop(cell.backdropColor)
     : { className: wellClass(cell.luminance), style: undefined };
 
+  // minmax(0,1fr), not 1fr: a bare 1fr track is at least as wide as its
+  // content, and the composer's anchor chip is one unbroken line, so a long
+  // conversation title widened the column past the viewport.
   return (
-    <div data-testid="focused-stage" className="lg:grid lg:grid-cols-[600px_1fr] lg:gap-12">
+    <div data-testid="focused-stage" className="lg:grid lg:grid-cols-[600px_minmax(0,1fr)] lg:gap-12">
       <div className={`h-11 flex items-center justify-between ${MONO} lg:col-span-2`}>
         <a href={benchHref} onClick={onBack} className="text-text-muted no-underline hover:text-foreground min-h-11 inline-flex items-center">
           ← Studio
