@@ -43,6 +43,7 @@ process.env.ADMIN_EMAIL = "admin@example.com";
 const { getImagePage } = await import("./normal-image-page");
 
 const { getImageShareCard } = await import("@/lib/image-share");
+const { isImageAdminHidden } = await import("@/lib/model-b-writes");
 const { getRecentPublishedForAdmin } = await import("@/app/admin/actions");
 
 beforeEach(async () => {
@@ -166,5 +167,35 @@ describe("the admin published grid reads visibility from image_publication", () 
     const row = (await getRecentPublishedForAdmin())[0];
     expect(row.isHidden).toBe(true);
     expect(row.publishedAt).toEqual(new Date("2026-01-01T00:00:00Z"));
+  });
+});
+
+describe("isImageAdminHidden reads image_publication only", () => {
+  it("a hidden publication reads as hidden even if the mirror is still listed", async () => {
+    const imageId = await seed();
+    await patchPublication(imageId, { isHidden: true });
+    await patchMirror(imageId, { status: "listed" });
+    expect(await isImageAdminHidden(testDb, imageId)).toBe(true);
+  });
+
+  it("a visible publication reads as not hidden even if the mirror says hidden", async () => {
+    const imageId = await seed();
+    await patchPublication(imageId, { isHidden: false });
+    await patchMirror(imageId, { status: "hidden" });
+    expect(await isImageAdminHidden(testDb, imageId)).toBe(false);
+  });
+
+  it("no publication row reads as not hidden, whatever the mirror says", async () => {
+    const imageId = await seed();
+    await testDb
+      .delete(schema.imagePublication)
+      .where(eq(schema.imagePublication.imageId, imageId));
+    await patchMirror(imageId, { status: "hidden" });
+    expect(await isImageAdminHidden(testDb, imageId)).toBe(false);
+  });
+
+  it("an image with neither row reads as not hidden", async () => {
+    const imageId = await seed({ publishedAt: null });
+    expect(await isImageAdminHidden(testDb, imageId)).toBe(false);
   });
 });

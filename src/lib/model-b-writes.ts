@@ -294,13 +294,15 @@ export async function findMirrorProduct(
 }
 
 /**
- * Whether an admin has hidden this image. Hidden is recorded in two places:
- * the `image_publication` row's `is_hidden` (what the pure buy/view guards
- * read) and the mirror product's `status = 'hidden'` (`setImageHidden` writes both). Either
- * one counts, so a state where only one survived still reads as hidden. Owner
- * ruling (2026-10-05): a hidden image can be neither bought nor printed by
- * anyone, and its owner must not be able to undo the hide — which
- * `unpublishImage` would otherwise do by deleting the publication row.
+ * Whether an admin has hidden this image: the `image_publication` row's
+ * `is_hidden`, and nothing else. An image with no publication row is not
+ * hidden. `image_publication` is the one reader of image visibility (#289);
+ * `setImageHidden` still writes the mirror product's `status = 'hidden'`
+ * beside it, but that column is not read here, so a mirror that disagrees with
+ * the publication row does not change the answer. Owner ruling (2026-10-05): a
+ * hidden image can be neither bought nor printed by anyone, and its owner must
+ * not be able to undo the hide — which `unpublishImage` would otherwise do by
+ * deleting the publication row.
  */
 export async function isImageAdminHidden(
   db: typeof appDb,
@@ -311,13 +313,7 @@ export async function isImageAdminHidden(
     .from(imagePublicationTable)
     .where(eq(imagePublicationTable.imageId, imageId))
     .limit(1);
-  if (publication?.isHidden) return true;
-  const [mirror] = await db
-    .select({ status: productTable.status })
-    .from(productTable)
-    .where(mirrorProductWhere(imageId))
-    .limit(1);
-  return mirror?.status === "hidden";
+  return publication?.isHidden === true;
 }
 
 /**

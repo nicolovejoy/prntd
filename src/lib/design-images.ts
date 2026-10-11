@@ -129,7 +129,9 @@ export async function insertChatMessage(params: {
  * constructDesignBrief to populate the "Images so far" gallery
  * context. Uploads stored with prompt='[user upload] ...' surface as-is.
  * Includes the thread's seed image (fresh-start, slice 3) so the AI can
- * reference the starting point from turn one.
+ * reference the starting point from turn one. Admin-hidden images are left
+ * out (getDesignSourceImages drops them), so the numbers match the /design
+ * gallery's.
  */
 export async function getDesignImagesForAIContext(
   designId: string
@@ -612,12 +614,17 @@ export type SourceImage = {
  * slice 3), role-tagged; a seed's image.created_at predates every output the
  * thread generates, so the shared ordering keeps it first. Default excludes
  * them so existing callers (the back-source "This design" group) keep their
- * outputs-only semantics. `excludeHidden` drops admin-hidden images (the
- * back-source group: nobody may print one); the conversation views keep them.
+ * outputs-only semantics.
+ *
+ * Admin-hidden images are never returned, from any caller: nobody may buy,
+ * print or mock one up, and the owner's own pages leave it out (the image
+ * detail page keeps the notice for an old link). The /design gallery and the
+ * AI context number images by position in this one list, so filtering here
+ * keeps their numbering in agreement.
  */
 export async function getDesignSourceImages(
   designId: string,
-  opts: { includeSeeds?: boolean; excludeHidden?: boolean } = {}
+  opts: { includeSeeds?: boolean } = {}
 ): Promise<SourceImage[]> {
   const rows = await db
     .select({
@@ -643,9 +650,7 @@ export async function getDesignSourceImages(
           ? inArray(conversationImageTable.role, ["output", "seed"])
           : eq(conversationImageTable.role, "output"),
         // image_publication.is_hidden is NULL for an image with no publication row.
-        ...(opts.excludeHidden
-          ? [or(isNull(imagePublicationTable.isHidden), eq(imagePublicationTable.isHidden, false))]
-          : [])
+        or(isNull(imagePublicationTable.isHidden), eq(imagePublicationTable.isHidden, false))
       )
     )
     .orderBy(asc(imageTable.createdAt), IMAGE_SEQ_ASC);
@@ -685,6 +690,18 @@ export type ProductVersionGroup = {
  * Fetch placement-targeted renders for a design, grouped by blank. Each
  * group's `images` is ordered oldest → newest. Blanks with no renders for
  * this design are omitted entirely.
+ *
+ * A render of an admin-hidden source image is left out: it is the hidden
+ * artwork on a shirt, and the callers are the owner's /design views. The check
+ * is one level deep, on `source_image_id` against `image_publication`. Two
+ * cases cannot be judged and are kept: a legacy render with no recorded source
+ * (`source_image_id` NULL), and a render whose source is itself a render (a
+ * render id has no publication row). The buy path follows that chain
+ * (`hiddenThroughSources` in back-sources.ts); this reader does not.
+ * `placement_render` has no live writer: its only writer is
+ * `insertDesignImage`'s `productId` branch, and that function's one caller
+ * outside tests (the upload action) passes no `productId`. The rows that exist
+ * are from before that.
  */
 export async function getDesignPlacementRenders(
   designId: string
@@ -699,7 +716,17 @@ export async function getDesignPlacementRenders(
       createdAt: placementRenderTable.createdAt,
     })
     .from(placementRenderTable)
-    .where(eq(placementRenderTable.designId, designId))
+    .leftJoin(
+      imagePublicationTable,
+      eq(imagePublicationTable.imageId, placementRenderTable.sourceImageId)
+    )
+    .where(
+      and(
+        eq(placementRenderTable.designId, designId),
+        // NULL when the render has no source or its source has no publication row.
+        or(isNull(imagePublicationTable.isHidden), eq(imagePublicationTable.isHidden, false))
+      )
+    )
     .orderBy(asc(placementRenderTable.createdAt), RENDER_SEQ_ASC);
 
   const byProduct = new Map<string, ProductVersionGroup>();
@@ -725,6 +752,21 @@ export async function getDesignPlacementRenders(
   return Array.from(byProduct.values());
 }
 
+export type DisplayImageOptions = {
+  /** Treat an admin-hidden image as if it did not exist: a hidden primary
+   * falls through to the latest output, and a hidden output is never that
+   * fallback. For the owner's own pages. Off by default: admin pages, order
+   * emails, the Stripe webhook and fulfillment show what was ordered or what
+   * is being moderated.
+   *
+   * Only an image id with a hidden `image_publication` row is dropped. Not
+   * judged, and kept: a primary that is a `placement_render` id, even when the
+   * render's source image is hidden (`selectImage` can still write a render id
+   * as the primary). `placement_render` has no live writer (see
+   * getDesignPlacementRenders), so only older rows can be in that state. */
+  excludeHidden?: boolean;
+};
+
 /**
  * Resolve the display image URL for a design — the URL surfaced on
  * /orders rows, the design hydration on /design, etc. (the old /designs
@@ -732,16 +774,20 @@ export async function getDesignPlacementRenders(
  *
  * Resolution: design.primary_image_id → its image URL. Fallback: the
  * most recent source image (product_id IS NULL). Null when neither.
+ * `excludeHidden` (see DisplayImageOptions) treats an admin-hidden image as
+ * absent at both steps. It does not judge a primary that is a
+ * `placement_render` id; DisplayImageOptions says why that case is kept.
  *
  * Use this everywhere a design's "main image URL" is needed —
  * card thumbnails, hydration. Callers today: the order actions, admin pages,
  * the Stripe webhook, order emails, the retry-fulfillment cron and
- * design-thread.
+ * design-thread. Only design-thread passes `excludeHidden`.
  */
 export async function getDesignDisplayImageUrl(
-  designId: string
+  designId: string,
+  opts: DisplayImageOptions = {}
 ): Promise<string | null> {
-  const map = await resolveDesignDisplayImageUrls([designId]);
+  const map = await resolveDesignDisplayImageUrls([designId], opts);
   return map.get(designId) ?? null;
 }
 
@@ -749,10 +795,13 @@ export async function getDesignDisplayImageUrl(
  * Batch version of getDesignDisplayImageUrl — for list pages (/orders,
  * /admin; also the old /designs card grid, retired) that would otherwise
  * N+1 the design_image table.
- * One query for primary lookups, one for latest-source fallbacks.
+ * One query for primary lookups, one for latest-source fallbacks; with
+ * `excludeHidden`, one more finds the primaries whose `image_publication` row
+ * is hidden (render ids are not judged, see DisplayImageOptions).
  */
 export async function resolveDesignDisplayImageUrls(
-  designIds: string[]
+  designIds: string[],
+  opts: DisplayImageOptions = {}
 ): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   if (designIds.length === 0) return out;
@@ -770,6 +819,20 @@ export async function resolveDesignDisplayImageUrls(
     .filter((v): v is string => Boolean(v));
 
   const urlByImageId = await resolveImagesByIds(primaryIds);
+  if (opts.excludeHidden && primaryIds.length > 0) {
+    // A hidden primary reads as a primary that no longer exists, which sends
+    // its design to the fallback below.
+    const hidden = await db
+      .select({ imageId: imagePublicationTable.imageId })
+      .from(imagePublicationTable)
+      .where(
+        and(
+          inArray(imagePublicationTable.imageId, primaryIds),
+          eq(imagePublicationTable.isHidden, true)
+        )
+      );
+    for (const h of hidden) urlByImageId.delete(h.imageId);
+  }
 
   // First pass: pick up everything with a working primary pointer.
   const needFallback: string[] = [];
@@ -793,10 +856,14 @@ export async function resolveDesignDisplayImageUrls(
       })
       .from(conversationImageTable)
       .innerJoin(imageTable, eq(imageTable.id, conversationImageTable.imageId))
+      .leftJoin(imagePublicationTable, eq(imagePublicationTable.imageId, imageTable.id))
       .where(
         and(
           inArray(conversationImageTable.designId, needFallback),
-          eq(conversationImageTable.role, "output")
+          eq(conversationImageTable.role, "output"),
+          ...(opts.excludeHidden
+            ? [or(isNull(imagePublicationTable.isHidden), eq(imagePublicationTable.isHidden, false))]
+            : [])
         )
       )
       .orderBy(desc(imageTable.createdAt), IMAGE_SEQ_DESC);

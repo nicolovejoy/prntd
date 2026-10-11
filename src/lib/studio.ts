@@ -1,7 +1,8 @@
 /**
  * Studio read model (docs/studio-plan.md, slice 2). One lane per open
- * conversation; cells are the conversation's images in creation order; a
- * running `image_generation` row is a pending cell.
+ * conversation; cells are the conversation's images in creation order, minus
+ * any an admin has hidden; a running `image_generation` row is a pending
+ * cell.
  *
  * Assembled in a fixed number of statements regardless of lane count — the
  * client re-reads this whole surface on a poll while a generation is in
@@ -13,7 +14,7 @@
  * Server-only (imports drizzle + schema). Client components import types
  * only; display helpers live in `studio-view.ts`.
  */
-import { and, asc, eq, inArray, isNotNull, isNull, ne, sql, desc } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, ne, or, sql, desc } from "drizzle-orm";
 import type { db as appDb } from "./db";
 import {
   design as designTable,
@@ -42,10 +43,10 @@ export type StudioCell = {
   createdAt: Date;
   /**
    * The pinned Shop backdrop (`product.backdrop_color`) when the image is
-   * published and not admin-hidden (`image_publication` is the one
-   * visibility reader, #300); null otherwise. The focused stage paints a
-   * published result on it; unpublished artwork sits on a well that follows
-   * its luminance (#139).
+   * published; null otherwise. An admin-hidden image is never a cell, so a
+   * cell here is always visible (`image_publication` is the one visibility
+   * reader, #300). The focused stage paints a published result on it;
+   * unpublished artwork sits on a well that follows its luminance (#139).
    */
   backdropColor: string | null;
   /** image.luminance (#139): picks the well under an unpublished cell. */
@@ -69,12 +70,14 @@ export type StudioPendingCell = {
 
 export type StudioLane = {
   designId: string;
-  /** First user chat turn, falling back to the first image's prompt. */
+  /** First user chat turn, falling back to the first cell's prompt. */
   title: string | null;
   /** What "most recently active" is judged on — see laneLastActiveAt. */
   lastActiveAt: Date;
   /** `chat_message` rows in this conversation — the stage's history label. */
   messageCount: number;
+  /** The conversation's images that are not admin-hidden. A conversation
+   * whose images are all hidden is still a lane, with no cells. */
   cells: StudioCell[];
   pending: StudioPendingCell[];
 };
@@ -201,6 +204,7 @@ export async function getStudioLanesData(
     // image.created_at predates every output the thread generates, so the
     // shared ordering keeps it first (getDesignSourceImages convention,
     // rowid tiebreak included — created_at is seconds-resolution).
+    // Admin-hidden images are left out: the owner's pages do not show them.
     db
       .select({
         designId: conversationImageTable.designId,
@@ -209,7 +213,6 @@ export async function getStudioLanesData(
         prompt: imageTable.prompt,
         createdAt: imageTable.createdAt,
         publishedAt: imagePublicationTable.publishedAt,
-        isHidden: imagePublicationTable.isHidden,
         backdropColor: productTable.backdropColor,
         luminance: imageTable.luminance,
       })
@@ -222,7 +225,13 @@ export async function getStudioLanesData(
         eq(imagePublicationTable.imageId, imageTable.id)
       )
       .leftJoin(productTable, eq(mirrorFrontImageId, imageTable.id))
-      .where(inArray(conversationImageTable.designId, designIds))
+      .where(
+        and(
+          inArray(conversationImageTable.designId, designIds),
+          // is_hidden is NULL for an image with no publication row.
+          or(isNull(imagePublicationTable.isHidden), eq(imagePublicationTable.isHidden, false))
+        )
+      )
       .orderBy(asc(imageTable.createdAt), sql`image.rowid asc`),
     // One user-scoped read (the user_status index), not one per lane.
     // `cancelled_at is null` because this is DISPLAY accounting: cancel does
@@ -277,13 +286,13 @@ export async function getStudioLanesData(
         imageUrl: row.imageUrl,
         isPrimary: false, // filled in per-design below
         createdAt: row.createdAt,
-        // Published and not hidden: the pinned Shop backdrop, defaulting the
-        // way every other surface does (publishedBackdrop) when the mirror
-        // has none. Otherwise null, even if a mirror row carries one.
-        backdropColor:
-          row.publishedAt && !row.isHidden
-            ? (row.backdropColor ?? DEFAULT_PUBLISH_BACKGROUND)
-            : null,
+        // Published: the pinned Shop backdrop, defaulting the way every
+        // other surface does (publishedBackdrop) when the mirror has none.
+        // Otherwise null, even if a mirror row carries one. (Hidden images
+        // are filtered out of the query above.)
+        backdropColor: row.publishedAt
+          ? (row.backdropColor ?? DEFAULT_PUBLISH_BACKGROUND)
+          : null,
         luminance: row.luminance,
       },
       prompt: row.prompt,
