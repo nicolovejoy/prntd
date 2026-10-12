@@ -24,11 +24,12 @@ import {
   STRIPE_SESSION_READ_TIMEOUT_MS,
   describeStripeError,
 } from "@/lib/checkout-session-status";
-import { resolveOrderLines } from "@/lib/order-lines";
+import { resolveOrderLines, type OrderLine } from "@/lib/order-lines";
 import { resolveOrderLineIdentities } from "@/lib/order-line-identity";
 import { getBlank, getColorHex } from "@/lib/blanks";
 import { mockupCacheKey } from "@/lib/mockup-cache";
 import { withTimeout } from "@/lib/timeout";
+import { lineHiddenArt } from "@/lib/line-hidden-art";
 
 export type CheckoutLineSummary = {
   productName: string | null;
@@ -61,9 +62,7 @@ export type EmbeddedCheckoutResult =
       summary: CheckoutLineSummary[];
     };
 
-async function loadCheckoutSummary(
-  orderId: string
-): Promise<CheckoutLineSummary[]> {
+async function loadOrderLines(orderId: string): Promise<OrderLine[]> {
   const items = await db
     .select({
       designId: orderItemTable.designId,
@@ -79,7 +78,12 @@ async function loadCheckoutSummary(
     .where(eq(orderItemTable.orderId, orderId))
     .orderBy(asc(orderItemTable.createdAt));
 
-  const lines = resolveOrderLines(items);
+  return resolveOrderLines(items);
+}
+
+async function loadCheckoutSummary(
+  lines: OrderLine[]
+): Promise<CheckoutLineSummary[]> {
   const identities = await resolveOrderLineIdentities(
     db,
     lines.map((l) => ({ designId: l.designId, placements: l.placements }))
@@ -140,7 +144,17 @@ async function loadCheckoutSummary(
 /**
  * Order of checks (cheapest first, and no Stripe call unless the DB already
  * agrees the session might still be open): ownership → status/abandoned →
- * key config → `stripe.checkout.sessions.retrieve` → session status/ui_mode.
+ * key config → `stripe.checkout.sessions.retrieve` → session status →
+ * hidden artwork → ui_mode.
+ *
+ * The hidden-artwork check (#310 item 7) returns `expired` when any line shows
+ * artwork an admin has since hidden. It runs after Stripe says the session is
+ * `open` because the expired screen says "Nothing was charged.", which is only
+ * known once the session is open: a `complete` session must still return
+ * `complete`, so a buyer who paid reaches /order/confirm, hidden or not. It
+ * runs before the ui_mode branch so a hidden line is not sent to Stripe's
+ * hosted page either. The order row stays `pending` and the Stripe session is
+ * not expired; a buyer who already has the payment form open can still pay.
  */
 export async function loadEmbeddedCheckout(params: {
   sessionId: string;
@@ -186,6 +200,14 @@ export async function loadEmbeddedCheckout(params: {
   if (session.status === "expired") return { kind: "expired" };
   if (session.status !== "open") return { kind: "unavailable" };
 
+  const lines = await loadOrderLines(found.id);
+  const hiddenArt = await Promise.all(
+    lines.map((l) =>
+      lineHiddenArt({ designId: l.designId, placements: l.placements })
+    )
+  );
+  if (hiddenArt.some((a) => a.front || a.back)) return { kind: "expired" };
+
   if (session.ui_mode !== "embedded") {
     if (session.url) return { kind: "hosted", url: session.url };
     return { kind: "unavailable" };
@@ -193,7 +215,7 @@ export async function loadEmbeddedCheckout(params: {
 
   if (!session.client_secret) return { kind: "unavailable" };
 
-  const summary = await loadCheckoutSummary(found.id);
+  const summary = await loadCheckoutSummary(lines);
   return {
     kind: "ready",
     clientSecret: session.client_secret,

@@ -752,3 +752,177 @@ describe("loadEmbeddedCheckout for a cart order (#278 slice 6b)", () => {
     expect(h.retrieve).not.toHaveBeenCalled();
   });
 });
+
+describe("loadEmbeddedCheckout and admin-hidden artwork (#310 item 7)", () => {
+  const SID = "cs_test_hidden";
+
+  async function image(db: Db, designId: string, published: boolean, hidden = false) {
+    return makeSourceImage(db, {
+      designId,
+      ownerId: "buyer",
+      imageUrl: `https://img.example/${crypto.randomUUID()}.png`,
+      publishedAt: published || hidden ? new Date() : null,
+      isHidden: hidden,
+    });
+  }
+
+  async function setHidden(db: Db, imageId: string, hidden: boolean) {
+    await db
+      .update(schema.imagePublication)
+      .set({ isHidden: hidden })
+      .where(eq(schema.imagePublication.imageId, imageId));
+  }
+
+  /** A pending order with one line per entry of `lines`, each with its pins. */
+  async function seed(
+    db: Db,
+    lines: Array<(designId: string) => Promise<Record<string, string>>>,
+    status: "pending" | "paid" = "pending"
+  ) {
+    await makeUser(db, "buyer");
+    const design = await makeDesign(db, "buyer");
+    const [order] = await db
+      .insert(schema.order)
+      .values({
+        userId: "buyer",
+        designId: design.id,
+        stripeSessionId: SID,
+        status,
+        totalPrice: 24.12,
+      })
+      .returning();
+    for (const pins of lines) {
+      await db.insert(schema.orderItem).values({
+        orderId: order.id,
+        designId: design.id,
+        productId: "bella-canvas-3001",
+        size: "M",
+        color: "Black",
+        placements: await pins(design.id),
+        quantity: 1,
+        itemPrice: 19.43,
+      });
+    }
+    return design.id;
+  }
+
+  const run = () => loadEmbeddedCheckout({ sessionId: SID, viewerId: "buyer" });
+
+  it("front hidden after the order exists: expired, after one Stripe read", async () => {
+    const db = h.db as Db;
+    let front = "";
+    await seed(db, [async (d) => ({ front: (front = await image(db, d, true)) })]);
+    h.retrieve.mockResolvedValue(OPEN_EMBEDDED);
+    expect((await run()).kind).toBe("ready");
+
+    await setHidden(db, front, true);
+    h.retrieve.mockClear();
+    expect(await run()).toEqual({ kind: "expired" });
+    expect(h.retrieve).toHaveBeenCalledTimes(1);
+  });
+
+  it("back hidden, front not: expired", async () => {
+    const db = h.db as Db;
+    await seed(db, [
+      async (d) => ({
+        front: await image(db, d, true),
+        back: await image(db, d, false, true),
+      }),
+    ]);
+    h.retrieve.mockResolvedValue(OPEN_EMBEDDED);
+    expect(await run()).toEqual({ kind: "expired" });
+  });
+
+  it("two lines, one hidden: expired", async () => {
+    const db = h.db as Db;
+    await seed(db, [
+      async (d) => ({ front: await image(db, d, true) }),
+      async (d) => ({ front: await image(db, d, false, true) }),
+    ]);
+    h.retrieve.mockResolvedValue(OPEN_EMBEDDED);
+    expect(await run()).toEqual({ kind: "expired" });
+  });
+
+  it("front hidden and Stripe reports the session complete: complete", async () => {
+    const db = h.db as Db;
+    await seed(db, [async (d) => ({ front: await image(db, d, false, true) })]);
+    h.retrieve.mockResolvedValue({ status: "complete", ui_mode: "embedded" });
+    expect(await run()).toEqual({ kind: "complete" });
+  });
+
+  it("front hidden and the order is no longer pending: complete, no Stripe call", async () => {
+    const db = h.db as Db;
+    await seed(db, [async (d) => ({ front: await image(db, d, false, true) })], "paid");
+    expect(await run()).toEqual({ kind: "complete" });
+    expect(h.retrieve).not.toHaveBeenCalled();
+  });
+
+  it("front hidden and the open session is hosted: expired, not hosted", async () => {
+    const db = h.db as Db;
+    await seed(db, [async (d) => ({ front: await image(db, d, false, true) })]);
+    h.retrieve.mockResolvedValue({
+      status: "open",
+      ui_mode: "hosted",
+      url: "https://checkout.stripe.example/hosted",
+      client_secret: null,
+    });
+    expect(await run()).toEqual({ kind: "expired" });
+  });
+
+  it("hidden, then unhidden: ready", async () => {
+    const db = h.db as Db;
+    let front = "";
+    await seed(db, [async (d) => ({ front: (front = await image(db, d, false, true)) })]);
+    h.retrieve.mockResolvedValue(OPEN_EMBEDDED);
+    expect(await run()).toEqual({ kind: "expired" });
+
+    await setHidden(db, front, false);
+    expect((await run()).kind).toBe("ready");
+  });
+
+  it("the owner unpublished the image (no publication row, not hidden): ready", async () => {
+    const db = h.db as Db;
+    await seed(db, [async (d) => ({ front: await image(db, d, false) })]);
+    h.retrieve.mockResolvedValue(OPEN_EMBEDDED);
+    expect((await run()).kind).toBe("ready");
+  });
+
+  it("a front pin that is a render of a hidden image: expired", async () => {
+    const db = h.db as Db;
+    await seed(db, [
+      async (d) => {
+        const source = await image(db, d, false, true);
+        const renderId = crypto.randomUUID();
+        await db.insert(schema.placementRender).values({
+          id: renderId,
+          designId: d,
+          sourceImageId: source,
+          blankId: "bella-canvas-3001",
+          placementId: "front",
+          imageUrl: "https://img.example/render.png",
+          aspectRatio: "1:1",
+        });
+        return { front: renderId };
+      },
+    ]);
+    h.retrieve.mockResolvedValue(OPEN_EMBEDDED);
+    expect(await run()).toEqual({ kind: "expired" });
+  });
+
+  it("nothing hidden: ready with the line summary", async () => {
+    const db = h.db as Db;
+    await seed(db, [async (d) => ({ front: await image(db, d, true) })]);
+    h.retrieve.mockResolvedValue(OPEN_EMBEDDED);
+    const result = await run();
+    if (result.kind !== "ready") throw new Error(`expected ready, got ${result.kind}`);
+    expect(result.clientSecret).toBe("cs_secret_preview");
+    expect(result.summary).toHaveLength(1);
+    expect(result.summary[0]).toMatchObject({
+      color: "Black",
+      size: "M",
+      quantity: 1,
+      backImageUrl: null,
+    });
+    expect(result.summary[0].frontImageUrl).toMatch(/^https:\/\/img\.example\//);
+  });
+});
