@@ -51,13 +51,9 @@ vi.mock("@/lib/printful", () => ({
   getOrderByExternalId: vi.fn(),
 }));
 
-import { addToCart, checkoutCart, getCart, removeCartItem } from "@/app/cart/actions";
-import { publishImage, unpublishImage } from "@/app/designs/actions";
+import { addToCart, getCart } from "@/app/cart/actions";
+import { unpublishImage } from "@/app/designs/actions";
 import { setImageHidden } from "@/app/admin/actions";
-import { CART_LINE_UNAVAILABLE } from "@/lib/action-copy";
-import { cartLineStillValid } from "@/lib/cart-line-check";
-import { getBlankOrThrow } from "@/lib/blanks";
-
 type Db = Awaited<ReturnType<typeof createTestDb>>;
 
 const OPTS = { productId: "bella-canvas-3001", size: "M", color: "Black" };
