@@ -110,10 +110,10 @@ export async function placementSourceUsable(
 
 /**
  * Whether an image, or the source it is a render of, is admin-hidden. Behind
- * `isPlacementImageHidden`, which decides the implicit primary
- * (`assertPrimaryNotHidden`, where only a hide is refused), a cart line's
- * thumbnails (`getCart`), the pinless-line rule (`lineHiddenArt`,
- * `cartLineStillValid`) and the `/checkout` re-check.
+ * `placementImageHiddenState` / `isPlacementImageHidden`, whose callers are
+ * `assertPrimaryNotHidden` (the primary an entry goes on to pin, where only a
+ * hide is refused) and `lineHiddenArt` (cart thumbnails, `cartLineStillValid`,
+ * the entries' pinless rule and the `/checkout` re-check).
  */
 async function hiddenThroughSources(image: ImageWithOwner): Promise<boolean> {
   let current: ImageWithOwner | null = image;
@@ -146,8 +146,20 @@ export async function assertPrimaryNotHidden(imageId: string): Promise<void> {
  * False for an id that resolves to nothing.
  */
 export async function isPlacementImageHidden(imageId: string): Promise<boolean> {
+  return (await placementImageHiddenState(imageId)) === true;
+}
+
+/**
+ * `isPlacementImageHidden` that tells an id resolving to nothing (null) from
+ * a visible image (false). Cart and order lines fall back to the design's
+ * display image for an unresolved front pin, so `lineHiddenArt` needs the
+ * difference.
+ */
+export async function placementImageHiddenState(
+  imageId: string
+): Promise<boolean | null> {
   const image = await getDesignImageWithOwner(imageId);
-  return image ? hiddenThroughSources(image) : false;
+  return image ? hiddenThroughSources(image) : null;
 }
 
 export type BackSourceImage = {

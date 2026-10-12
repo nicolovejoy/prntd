@@ -161,7 +161,7 @@ describe("getCart and admin-hidden artwork", () => {
     expect(line.backImageUrl).toBe("https://img.example/published-2.png");
   });
 
-  it("a cart with no stale line never calls lineHiddenArt", async () => {
+  it("an available line with a front pin never calls lineHiddenArt", async () => {
     const ids = await seed(h.db as Db);
     await addToCart({ frontImageId: ids.publishedId, back: ids.otherPublishedId, ...OPTS });
     vi.mocked(lineHiddenArt).mockClear();

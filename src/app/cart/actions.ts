@@ -24,7 +24,10 @@ import {
   resolveImagesByIds,
 } from "@/lib/design-images";
 import { resolveBuyableImage } from "@/lib/buyable-image";
-import { assertUsablePlacementImage } from "@/lib/back-sources";
+import {
+  assertPrimaryNotHidden,
+  assertUsablePlacementImage,
+} from "@/lib/back-sources";
 import { resolveBuyPageFront } from "@/lib/placement-pins";
 import { estimateOrderCosts } from "@/lib/printful";
 import { stripe } from "@/lib/stripe";
@@ -208,6 +211,8 @@ export async function addToCart(params: {
     if ((await lineHiddenArt({ designId, placements: null })).front) {
       throw new Error("Front image is not available");
     }
+    // The id pinned below is judged too, whatever the read above saw.
+    if (frontId) await assertPrimaryNotHidden(frontId);
   }
 
   const backId = multiPlacementEnabled() && params.back ? params.back : null;
@@ -528,8 +533,8 @@ async function buildCart(
   // dropped. Only unavailable lines are checked: `cartLineStillValid` refuses
   // a line when any image it shows is hidden (a pin through
   // `assertUsablePlacementImage`, a pinless line through `lineHiddenArt`, both
-  // following render sources), so an available line shows none and a cart
-  // with no stale line costs no extra query. A line unavailable for another
+  // following render sources), so an available line with a front pin
+  // shows none and a cart of such lines costs no extra query here. A line unavailable for another
   // reason (unpublished, size left the catalog) keeps its thumbnails.
   const stale = items.filter((i) => i.unavailable);
   const hiddenArt = await Promise.all(
@@ -537,7 +542,12 @@ async function buildCart(
       lineHiddenArt({ designId: i.designId, placements: i.placements }).catch(
         // The line is already unavailable; if it cannot be judged it shows
         // nothing rather than failing the whole cart.
-        () => ({ front: true, back: true })
+        (err) => {
+          console.error(
+            `getCart hidden-artwork check failed for line ${i.id}: ${err instanceof Error ? err.message : String(err)}`
+          );
+          return { front: true, back: true };
+        }
       )
     )
   );

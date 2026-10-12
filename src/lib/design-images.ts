@@ -781,7 +781,8 @@ export type DisplayImageOptions = {
  * Use this everywhere a design's "main image URL" is needed —
  * card thumbnails, hydration. Callers today: the order actions, admin pages,
  * the Stripe webhook, order emails, the retry-fulfillment cron and
- * design-thread. Only design-thread passes `excludeHidden`.
+ * design-thread, plus `lineHiddenArt`. design-thread and `lineHiddenArt` pass
+ * `excludeHidden`.
  */
 export async function getDesignDisplayImageUrl(
   designId: string,

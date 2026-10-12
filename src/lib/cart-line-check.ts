@@ -70,10 +70,11 @@ export async function cartLineStillValid(
     return false;
   }
 
-  // The queries are independent, so they run together: the design row, every
-  // pin's check, and (for a pinless line) nothing more. Roughly 1 query for the
-  // design plus 1-2 per pin (the image row, the render fallback, one more per
-  // render hop), and 1-2 for a pinless line's primary.
+  // The queries are independent, so they run together: the design row and
+  // every pin's check (the image row, the render fallback, one more per render
+  // hop). A pinless line then runs `lineHiddenArt`, which reads the design's
+  // display image twice and its primary, so it costs several more queries than
+  // a pinned line; such lines are legacy.
   const pins = Object.entries(line.placements ?? {});
   const pinChecks = pins.map(([placement, imageId]) =>
     assertUsablePlacementImage(
@@ -109,7 +110,8 @@ export async function cartLineStillValid(
   // primary, or the latest output when there is no primary) not hidden.
   if (!line.placements?.front) {
     if (design.userId !== userId) return false;
-    if ((await lineHiddenArt(line)).front) return false;
+    // A check that fails reads as hidden: the line is refused.
+    if (await lineHiddenArt(line).then((a) => a.front, () => true)) return false;
   }
   return true;
 }

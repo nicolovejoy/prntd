@@ -5,14 +5,15 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { design as designTable } from "@/lib/db/schema";
-import { isPlacementImageHidden } from "@/lib/back-sources";
+import { isPlacementImageHidden, placementImageHiddenState } from "@/lib/back-sources";
 import { getDesignDisplayImageUrl } from "@/lib/design-images";
 
 export type LineHiddenArt = { front: boolean; back: boolean };
 
 /**
  * Which sides of a cart or order line show admin-hidden artwork.
- * front: the `front` pin when the line has one. A line with no front pin
+ * front: the `front` pin when the line has one and it resolves. A line with
+ *   no front pin, or a pin that resolves to nothing,
  *   shows and prints the design's display image (the primary when it
  *   resolves, otherwise the design's latest output; `order-fulfillment`
  *   prints the same fallback), so it is judged by that image: hidden when the
@@ -32,12 +33,21 @@ export async function lineHiddenArt(line: {
   const backPin = line.placements?.back ?? null;
 
   const [front, back] = await Promise.all([
-    frontPin
-      ? isPlacementImageHidden(frontPin)
-      : pinlessFrontHidden(line.designId),
+    frontHidden(line.designId, frontPin),
     backPin ? isPlacementImageHidden(backPin) : false,
   ]);
   return { front, back };
+}
+
+async function frontHidden(
+  designId: string,
+  frontPin: string | null
+): Promise<boolean> {
+  if (!frontPin) return pinlessFrontHidden(designId);
+  const state = await placementImageHiddenState(frontPin);
+  // A pin that resolves to nothing prints the design's display image
+  // (fulfilment, the cart and the /checkout summary all fall back to it).
+  return state === null ? pinlessFrontHidden(designId) : state;
 }
 
 async function pinlessFrontHidden(designId: string): Promise<boolean> {

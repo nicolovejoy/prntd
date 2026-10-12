@@ -238,3 +238,117 @@ describe("a line whose hidden check throws (F3)", () => {
     expect(view.items[0].backImageUrl).toBeNull();
   });
 });
+
+describe("the entries judge the id they pin (G1)", () => {
+  // Simpler invariant than a primary moving mid-call: with the pinless rule
+  // stubbed to "not hidden", a hidden primary is still refused through the id
+  // each entry goes on to pin.
+  it("addToCart refuses a hidden primary even when lineHiddenArt says not hidden", async () => {
+    const db = h.db as Db;
+    const { designId } = await seed(db, "hidden", true);
+    vi.mocked(lineHiddenArt).mockResolvedValueOnce({ front: false, back: false });
+    await expect(addToCart({ designId, ...OPTS })).rejects.toThrow(
+      "Front image is not available"
+    );
+    expect(await db.select().from(schema.cartItem)).toHaveLength(0);
+  });
+
+  it("createCheckoutSession refuses a hidden primary even when lineHiddenArt says not hidden", async () => {
+    const db = h.db as Db;
+    const { designId } = await seed(db, "hidden", true);
+    vi.mocked(lineHiddenArt).mockResolvedValueOnce({ front: false, back: false });
+    await expect(createCheckoutSession({ designId, ...OPTS })).rejects.toThrow(
+      "Front image is not available"
+    );
+    expect(await db.select().from(schema.order)).toHaveLength(0);
+    expect(h.stripeCalls).toBe(0);
+  });
+});
+
+describe("a front pin that resolves to nothing uses the pinless rule (G2)", () => {
+  async function seedDangling(db: Db) {
+    const { designId, imageId } = await seed(db, "visible");
+    const ghost = crypto.randomUUID();
+    await db
+      .update(schema.design)
+      .set({ primaryImageId: ghost })
+      .where(eq(schema.design.id, designId));
+    return { designId, imageId, ghost };
+  }
+  async function hideImage(db: Db, imageId: string) {
+    await db.insert(schema.imagePublication).values({
+      imageId,
+      publishedAt: new Date(),
+      isHidden: true,
+    });
+  }
+
+  it("latest output visible: not hidden; hidden: front true", async () => {
+    const db = h.db as Db;
+    const { designId, imageId, ghost } = await seedDangling(db);
+    const line = { designId, placements: { front: ghost } };
+    expect((await lineHiddenArt(line)).front).toBe(false);
+    await hideImage(db, imageId);
+    expect((await lineHiddenArt(line)).front).toBe(true);
+  });
+
+  it("the cart line shows no thumbnail", async () => {
+    const db = h.db as Db;
+    const { designId, imageId, ghost } = await seedDangling(db);
+    await hideImage(db, imageId);
+    await db.insert(schema.cartItem).values({
+      userId: "owner",
+      designId,
+      ...OPTS,
+      placements: { front: ghost },
+    });
+    const [line] = (await getCart()).items;
+    expect(line.unavailable).toBe(true);
+    expect(line.imageUrl).toBeNull();
+  });
+
+  it("loadEmbeddedCheckout for a pending order of that shape: expired", async () => {
+    const db = h.db as Db;
+    const { designId, imageId, ghost } = await seedDangling(db);
+    await hideImage(db, imageId);
+    const [order] = await db
+      .insert(schema.order)
+      .values({
+        userId: "owner",
+        designId,
+        stripeSessionId: "cs_test_ghost",
+        status: "pending",
+        totalPrice: 24.12,
+      })
+      .returning();
+    await db.insert(schema.orderItem).values({
+      orderId: order.id,
+      designId,
+      productId: OPTS.productId,
+      size: OPTS.size,
+      color: OPTS.color,
+      placements: { front: ghost },
+      quantity: 1,
+      itemPrice: 19.43,
+    });
+    h.retrieve.mockResolvedValue({
+      status: "open",
+      ui_mode: "embedded",
+      client_secret: "cs_secret",
+      url: null,
+    });
+    expect(
+      await loadEmbeddedCheckout({ sessionId: "cs_test_ghost", viewerId: "owner" })
+    ).toEqual({ kind: "expired" });
+  });
+});
+
+describe("a failed hidden check refuses the line (G3)", () => {
+  it("cartLineStillValid returns false when the check rejects", async () => {
+    const { designId } = await seed(h.db as Db, "visible");
+    vi.mocked(lineHiddenArt).mockRejectedValueOnce(new Error("boom"));
+    expect(
+      await cartLineStillValid({ designId, ...OPTS, placements: null }, "owner")
+    ).toBe(false);
+  });
+});
