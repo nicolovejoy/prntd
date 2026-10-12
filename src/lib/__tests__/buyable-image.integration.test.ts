@@ -51,6 +51,10 @@ async function seedGoneConversation(db: Db, publishedAt: Date | null) {
   expect(row.id).toBe(imageId);
   const designs = await db.select().from(schema.design);
   expect(designs.map((d) => d.id)).toEqual([other.id]);
+  const pubs = await db.select().from(schema.imagePublication);
+  expect(pubs.map((p) => p.imageId)).toEqual(publishedAt ? [imageId] : []);
+  const products = await db.select().from(schema.product);
+  expect(products).toHaveLength(publishedAt ? 1 : 0);
   return { imageId };
 }
 

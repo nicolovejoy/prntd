@@ -433,8 +433,8 @@ export async function resolveInitialBack(
 /**
  * Front-placement Printful mockup for the image detail page's Order-expand
  * hero (#135 slice 1). Gated like the buy itself (`resolveBuyableImage`:
- * published && !hidden for anyone, or the owner's own unpublished image
- * through a live conversation of theirs) — deliberately NOT ownership-gated
+ * published && !hidden with its conversation existing, for anyone, or the
+ * owner's own unpublished image through a live conversation of theirs) — deliberately NOT ownership-gated
  * for published images, because any visitor who can see the Shop buy page must
  * be able to see the mockup.
  *
@@ -462,8 +462,8 @@ export async function getListingMockup(params: {
   const viewerId = session?.user.id ?? null;
 
   // The same gate as the buy itself (`resolveBuyableImage`): any visitor for a
-  // published, visible image; otherwise only its owner, through a live
-  // conversation of theirs. A placement render is never a page image.
+  // published, visible image whose conversation exists; otherwise only its
+  // owner, through a live conversation of theirs. A placement render is never a page image.
   const buyable = await resolveBuyableImage(params.imageId, viewerId);
   if (!buyable.ok) {
     throw new Error(
@@ -512,8 +512,9 @@ export async function getListingMockup(params: {
  *  2. The page image is an `image` row with a design (the render is cached on
  *     that design's `mockupUrls`, like every other mockup).
  *  3. `resolveBuyableImage` for the page image — the same gate the buy and the
- *     front mockup use: any visitor for a published, visible image, otherwise
- *     only its owner through a live conversation of theirs. A visitor who can
+ *     front mockup use: any visitor for a published, visible image whose
+ *     conversation exists, otherwise only its owner through a live
+ *     conversation of theirs. A visitor who can
  *     see the Shop buy page must be able to see its preview.
  *  4. `canUseAsPlacementSource` for the back pick, via the checkout guard
  *     `assertUsablePlacementImage` — the same bar `buyPublishedDesign` holds
@@ -572,8 +573,8 @@ export async function getListingBackMockup(params: {
  * The image detail page's Order: a logged-in user buys the image on the page.
  * Two kinds of image reach it, decided once by `resolveBuyableImage`:
  *
- *  - Published and not hidden (the Shop path): any signed-in real user, its
- *    owner included. The order's designId is the image's source design, the
+ *  - Published, not hidden, conversation still existing (the Shop path): any
+ *    signed-in real user, its owner included. The order's designId is the image's source design, the
  *    SELLER's conversation, NOT a new design, because the buyer isn't creating
  *    one. The order records the image's mirror composition
  *    (`storeProductId`, `requireMirrorProduct`), so a Shop sale is attributed.

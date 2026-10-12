@@ -124,7 +124,8 @@ async function currentUserId(): Promise<string | null> {
  *    line's designId is derived from the image server-side (never trusted
  *    from the client), and the image must pass `resolveBuyableImage`, the
  *    gate buyPublishedDesign uses: published and not admin-hidden for anyone,
- *    or the buyer's own unpublished image with a live conversation of theirs.
+ *    or the buyer's own unpublished image, either way with its conversation
+ *    still existing.
  *    A forged private, hidden or placement-render id throws. An anonymous
  *    guest may cart their own image (guests have carts; checkout gates
  *    sign-in). `front` on this entry is the page's swap
@@ -188,7 +189,7 @@ export async function addToCart(params: {
   // the design's CURRENT primary image, private or not, with no ownership
   // check at all. A cross-owner add must go through frontImageId instead,
   // which resolveBuyableImage gates (published and visible, or the buyer's
-  // own unpublished image through a live conversation of theirs).
+  // own unpublished image, either way through a conversation that exists).
   const design = await db.query.design.findFirst({
     where: eq(designTable.id, designId),
   });
@@ -592,10 +593,19 @@ export async function checkoutCart(): Promise<{
   //
   // A page image `resolveBuyableImage` refuses contributes nothing and is not
   // thrown: `getCart`'s `cartLineStillValid` already refused hidden and
-  // other-user-unpublished pins above; what is still refused here (renders,
-  // images with no live conversation) has no composition, so null is
-  // right. A hide landing between that check and this loop is the same race
-  // checkout already has for printing.
+  // other-user-unpublished pins above. What is still refused here is a
+  // render, an own image with no live conversation, and a published image
+  // whose conversation was deleted (it keeps its composition). The last case
+  // is reachable for one legacy line shape: a line added through the
+  // `designId` entry on the buyer's own design, with someone else's published
+  // image G pinned as the front. That line survives the deletion of G's
+  // conversation (the delete plan's `detach-cart-pin`) and still checks out,
+  // but the gate now refuses G as a page image, so the order is booked with
+  // `store_product_id` null where it used to be G's mirror. No UI sends the
+  // `designId` entry since one-buy-surface slice 4 (slice 6a removes it), and
+  // such a line's Edit link opens a page with no buy panel. A hide landing
+  // between the check above and this loop is the same race checkout already
+  // has for printing.
   const distinctPageIds = [
     ...new Set(
       view.items

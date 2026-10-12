@@ -141,9 +141,10 @@ export function canBuyPublishedImage(image: {
  * (`canBuyPublishedImage`); otherwise only its owner, and only when it is not
  * admin-hidden. Hidden beats ownership, as in `canViewImagePage`.
  *
- * This is the image-level rule only. Ordering an unpublished image also needs
- * a live conversation the buyer owns (`design.userId`), because
- * `order.design_id` is NOT NULL; that part needs the database and lives in
+ * This is the image-level rule only. Ordering any image also needs its
+ * conversation to exist, and an unpublished one needs it to be the buyer's
+ * (`design.userId`), because `order.design_id` is NOT NULL; that part needs
+ * the database and lives in
  * `resolveBuyableImage` (src/lib/buyable-image.ts).
  *
  * `userId` is nullable because signed-out viewers reach the page: null and the

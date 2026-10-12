@@ -91,6 +91,11 @@ async function seed(db: Db) {
   expect(
     (await db.select().from(schema.imagePublication)).map((p) => p.imageId)
   ).toContain(goneId);
+  expect(
+    (await db.select().from(schema.image)).some((i) => i.id === goneId)
+  ).toBe(true);
+  // The live image's composition and the gone image's both remain.
+  expect(await db.select().from(schema.product)).toHaveLength(2);
 
   return { liveId, goneId };
 }
