@@ -15,6 +15,12 @@ import { and, eq, ne } from "drizzle-orm";
 import { createTestDb } from "@/lib/__tests__/test-db";
 import { makeUser, makeDesign, makeSourceImage } from "@/lib/__tests__/factories";
 import * as schema from "@/lib/db/schema";
+import { planDesignDeletion } from "@/lib/delete-design";
+import {
+  productMirrorStatement,
+  publicationSyncStatement,
+} from "@/lib/model-b-writes";
+import { r2KeysForPlan } from "@/lib/delete-designs-since";
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
 let testDb: Db;
@@ -508,5 +514,199 @@ describe("deleteDesignImage — owning a design doesn't authorise every image id
         .from(schema.placementRender)
         .where(eq(schema.placementRender.id, render.id))
     ).toHaveLength(1);
+  });
+});
+
+/** Hide or unhide with the statements the admin action batches (setImageHidden). */
+async function setHidden(imageId: string, hidden: boolean) {
+  await testDb.batch([
+    publicationSyncStatement(testDb, imageId, {
+      kind: "update",
+      set: { isHidden: hidden },
+    }),
+    productMirrorStatement(testDb, imageId, {
+      kind: "update",
+      set: { isHidden: hidden },
+    }),
+  ]);
+}
+
+/** A conversation with a published image that an admin has hidden. */
+async function hiddenThread() {
+  const d = await makeDesign(testDb, "u1");
+  const hiddenId = await makeSourceImage(testDb, {
+    designId: d.id,
+    ownerId: "u1",
+    imageUrl: "https://img/hidden.png",
+    publishedAt: new Date(),
+  });
+  await setHidden(hiddenId, true);
+  return { designId: d.id, hiddenId };
+}
+
+const rowsOf = {
+  image: (id: string) =>
+    testDb.select().from(schema.image).where(eq(schema.image.id, id)),
+  publication: (id: string) =>
+    testDb
+      .select()
+      .from(schema.imagePublication)
+      .where(eq(schema.imagePublication.imageId, id)),
+  product: () => testDb.select().from(schema.product),
+};
+
+describe("deleting a conversation that holds an admin-hidden image (#310 item 2)", () => {
+  it("lane Delete removes the conversation and keeps the image, its publication row and its composition", async () => {
+    const { designId, hiddenId } = await hiddenThread();
+    await testDb.insert(schema.chatMessage).values({
+      designId,
+      role: "user",
+      content: "hi",
+    });
+
+    await deleteDesign(designId);
+
+    expect(await designRow(designId)).toBeUndefined();
+    expect(await rowsOf.image(hiddenId)).toHaveLength(1);
+    const [pub] = await rowsOf.publication(hiddenId);
+    expect(pub.isHidden).toBe(true);
+    const products = await rowsOf.product();
+    expect(products).toHaveLength(1);
+    expect(products[0].status).toBe("hidden");
+    expect(await testDb.select().from(schema.conversationImage)).toHaveLength(0);
+    expect(await testDb.select().from(schema.chatMessage)).toHaveLength(0);
+  });
+
+  it("deletes an ordinary image beside it and keeps the hidden one", async () => {
+    const { designId, hiddenId } = await hiddenThread();
+    const plainId = await makeSourceImage(testDb, {
+      designId,
+      ownerId: "u1",
+      imageUrl: "https://img/plain.png",
+    });
+
+    await deleteDesign(designId);
+
+    expect(await designRow(designId)).toBeUndefined();
+    expect(await rowsOf.image(plainId)).toHaveLength(0);
+    expect(await rowsOf.image(hiddenId)).toHaveLength(1);
+  });
+
+  it("plans keep-hidden: the image and its composition are not removable, and no R2 key is listed", async () => {
+    const { designId, hiddenId } = await hiddenThread();
+    const plainId = await makeSourceImage(testDb, {
+      designId,
+      ownerId: "u1",
+      imageUrl: "https://r2/images/plain.png",
+    });
+    await testDb
+      .update(schema.image)
+      .set({ r2Key: "images/hidden.png" })
+      .where(eq(schema.image.id, hiddenId));
+    const [mirror] = await rowsOf.product();
+
+    const plan = await planDesignDeletion(testDb, designId);
+
+    expect(plan.images.find((i) => i.imageId === hiddenId)?.outcome).toBe(
+      "keep-hidden"
+    );
+    expect(plan.images.find((i) => i.imageId === plainId)?.outcome).toBe(
+      "delete"
+    );
+    expect(plan.removableImageIds).toEqual([plainId]);
+    expect(plan.removableMirrorIds).not.toContain(mirror.id);
+    expect(
+      r2KeysForPlan(plan, (url) =>
+        url.startsWith("https://r2/") ? url.slice("https://r2/".length) : null
+      )
+    ).toEqual(["images/plain.png"]);
+  });
+
+  it("a hidden image that is also a seed elsewhere stays detach-seed and is kept", async () => {
+    const { designId, hiddenId } = await hiddenThread();
+    const other = await makeDesign(testDb, "u1");
+    await testDb.insert(schema.conversationImage).values({
+      designId: other.id,
+      imageId: hiddenId,
+      role: "seed",
+    });
+
+    const plan = await planDesignDeletion(testDb, designId);
+    expect(plan.images[0].outcome).toBe("detach-seed");
+
+    await deleteDesign(designId);
+    expect(await designRow(designId)).toBeUndefined();
+    expect(await rowsOf.image(hiddenId)).toHaveLength(1);
+    expect(await rowsOf.publication(hiddenId)).toHaveLength(1);
+  });
+
+  it("a hidden image pinned by an order line still blocks the plan", async () => {
+    const { designId, hiddenId } = await hiddenThread();
+    const other = await makeDesign(testDb, "u1");
+    await makeOrderWithLine({
+      userId: "u1",
+      headDesignId: other.id,
+      lineDesignId: other.id,
+      placements: { back: hiddenId },
+    });
+
+    const plan = await planDesignDeletion(testDb, designId);
+
+    expect(plan.orderReferenced).toBe(true);
+    expect(plan.images[0].outcome).toBe("blocked-by-order");
+  });
+
+  it("a published image that is not hidden is still deleted with its publication row and composition", async () => {
+    const d = await makeDesign(testDb, "u1");
+    const imageId = await makeSourceImage(testDb, {
+      designId: d.id,
+      ownerId: "u1",
+      imageUrl: "https://img/visible.png",
+      publishedAt: new Date(),
+    });
+
+    const plan = await planDesignDeletion(testDb, d.id);
+    expect(plan.images[0].outcome).toBe("delete");
+
+    await deleteDesign(d.id);
+
+    expect(await rowsOf.image(imageId)).toHaveLength(0);
+    expect(await rowsOf.publication(imageId)).toHaveLength(0);
+    expect(await rowsOf.product()).toHaveLength(0);
+  });
+
+  it("deleteDesignImage on the visible image keeps the conversation; a later lane Delete keeps the hidden image", async () => {
+    const { designId, hiddenId } = await hiddenThread();
+    const visibleId = await makeSourceImage(testDb, {
+      designId,
+      ownerId: "u1",
+      imageUrl: "https://img/visible.png",
+    });
+
+    const { designRemoved } = await deleteDesignImage(designId, visibleId);
+
+    expect(designRemoved).not.toBe("deleted");
+    expect(await designRow(designId)).toBeDefined();
+    expect(await rowsOf.image(visibleId)).toHaveLength(0);
+    expect(await rowsOf.image(hiddenId)).toHaveLength(1);
+
+    await deleteDesign(designId);
+
+    expect(await designRow(designId)).toBeUndefined();
+    expect(await rowsOf.image(hiddenId)).toHaveLength(1);
+    expect(await rowsOf.publication(hiddenId)).toHaveLength(1);
+  });
+
+  it("unhiding after the conversation is gone works and leaves the rows intact", async () => {
+    const { designId, hiddenId } = await hiddenThread();
+    await deleteDesign(designId);
+
+    await setHidden(hiddenId, false);
+
+    const [pub] = await rowsOf.publication(hiddenId);
+    expect(pub.isHidden).toBe(false);
+    expect(await rowsOf.image(hiddenId)).toHaveLength(1);
+    const [mirror] = await rowsOf.product();
+    expect(mirror.status).toBe("listed");
   });
 });
