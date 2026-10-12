@@ -51,6 +51,12 @@ vi.mock("@/lib/printful", () => ({
   getOrderByExternalId: vi.fn(),
 }));
 
+vi.mock("@/lib/line-hidden-art", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("@/lib/line-hidden-art")>();
+  return { ...orig, lineHiddenArt: vi.fn(orig.lineHiddenArt) };
+});
+
+import { lineHiddenArt } from "@/lib/line-hidden-art";
 import { addToCart, getCart } from "@/app/cart/actions";
 import { unpublishImage } from "@/app/designs/actions";
 import { setImageHidden } from "@/app/admin/actions";
@@ -153,6 +159,14 @@ describe("getCart and admin-hidden artwork", () => {
     expect(line.unavailable).toBe(false);
     expect(line.imageUrl).toBe("https://img.example/published.png");
     expect(line.backImageUrl).toBe("https://img.example/published-2.png");
+  });
+
+  it("a cart with no stale line never calls lineHiddenArt", async () => {
+    const ids = await seed(h.db as Db);
+    await addToCart({ frontImageId: ids.publishedId, back: ids.otherPublishedId, ...OPTS });
+    vi.mocked(lineHiddenArt).mockClear();
+    expect((await getCart()).items[0].unavailable).toBe(false);
+    expect(lineHiddenArt).not.toHaveBeenCalled();
   });
 
   it("hide, then unhide: the line and its thumbnail come back", async () => {

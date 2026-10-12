@@ -60,6 +60,15 @@ describe("lineHiddenArt", () => {
     });
   });
 
+  it("front hidden with a visible back pin present", async () => {
+    const front = await image(designId, { hidden: true });
+    const back = await image(designId, { published: true });
+    expect(await lineHiddenArt({ designId, placements: { front, back } })).toEqual({
+      front: true,
+      back: false,
+    });
+  });
+
   it("front visible and published, back pin hidden", async () => {
     const front = await image(designId, { published: true });
     const back = await image(designId, { hidden: true });

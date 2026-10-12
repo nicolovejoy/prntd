@@ -109,9 +109,11 @@ export async function placementSourceUsable(
 }
 
 /**
- * Whether an image, or the source it is a render of, is admin-hidden. Used for
- * the implicit primary, where only a hide is refused (see
- * `assertPrimaryNotHidden`).
+ * Whether an image, or the source it is a render of, is admin-hidden. Behind
+ * `isPlacementImageHidden`, which decides the implicit primary
+ * (`assertPrimaryNotHidden`, where only a hide is refused), a cart line's
+ * thumbnails (`getCart`), the pinless-line rule (`lineHiddenArt`,
+ * `cartLineStillValid`) and the `/checkout` re-check.
  */
 async function hiddenThroughSources(image: ImageWithOwner): Promise<boolean> {
   let current: ImageWithOwner | null = image;

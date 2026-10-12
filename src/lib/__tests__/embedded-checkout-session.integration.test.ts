@@ -2,7 +2,8 @@
  * loadEmbeddedCheckout (#135 slice 2) against a real in-memory libSQL (the
  * #28 pattern). Pins the cheapest-first check order: DB ownership/status
  * before any Stripe call, then embeddedCheckoutConfig() before ever
- * retrieving the session, then the session's own status/ui_mode/secret.
+ * retrieving the session, then the session's own status, then (on an open
+ * session) the hidden-artwork check (#310 item 7), then ui_mode/secret.
  *
  * The db singleton and Stripe client are mocked; the database is real (FKs
  * enforced, schema-derived).
