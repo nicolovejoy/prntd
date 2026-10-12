@@ -202,6 +202,20 @@ describe("the image detail page for the owner's unpublished image", () => {
     ).toBeInTheDocument();
   });
 
+  it("a published image whose conversation is gone gets no Order", async () => {
+    h.image = imagePage({
+      publishedAt: new Date(),
+      title: "Fox",
+      canOrder: false,
+      hasSourceConversation: false,
+    });
+    await renderPage({ order: "1" });
+    expect(screen.queryByTestId("order-expand")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /^Order/ })
+    ).not.toBeInTheDocument();
+  });
+
   it("a non-owner never reaches the page: the 404 is the data layer's", async () => {
     vi.mocked(getImagePage).mockResolvedValueOnce(null);
     await expect(renderPage()).rejects.toThrow("NEXT_NOT_FOUND");

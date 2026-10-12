@@ -125,7 +125,8 @@ export function publicationVisibility(row: {
  * that mean "this viewer" use `canBuyImage`, which adds the owner's own
  * unpublished work. A published image is bought through its Shop composition
  * (the mirror product the order records), so "published" also names which
- * ordering branch an image takes.
+ * ordering branch an image takes. It does not say the image can be ordered:
+ * `resolveBuyableImage` also needs its conversation to exist.
  */
 export function canBuyPublishedImage(image: {
   publishedAt: Date | null;

@@ -104,12 +104,13 @@ export type ImagePage = Omit<PublishedImage, "publishedAt"> & {
    */
   sourceConversationArchived: boolean;
   /**
-   * The viewer may order this image from the page: true for a published,
-   * visible image (the Shop sells it; `buyPublishedDesign` re-checks), and for
-   * an unpublished one only when it is the viewer's own with a live
-   * conversation of theirs (`resolveBuyableImage`, the gate every buy action
-   * uses). An anonymous owner counts: the panel then asks them to sign in.
-   * False means the page shows no Order.
+   * The viewer may order this image from the page, as decided by
+   * `resolveBuyableImage`, the gate every buy action uses: a published,
+   * visible image whose conversation still exists, and for an unpublished one
+   * only when it is the viewer's own with a live conversation of theirs. An
+   * anonymous owner counts: the panel then asks them to sign in. False means
+   * the page shows no Order, including for a published image whose
+   * conversation was deleted (it stays public but no order can be written).
    */
   canOrder: boolean;
 };
@@ -285,12 +286,11 @@ export async function getImagePage(
   // parent so admin moderation also breaks the public chain.
   const forkChain = await buildForkChain(r.forkedFromImageId, fetchForkChainRow);
 
-  // Published: the Shop sells it, no further lookup on this public page.
-  // Unpublished: only the owner gets here (canViewImagePage), and they can
-  // order it only through a live conversation of theirs.
-  const canOrder =
-    publishedAt !== null ||
-    (await resolveBuyableImage(imageId, viewerId)).ok;
+  // The gate every buy action uses, for both branches, so the page and the
+  // actions cannot disagree. The page query's conversation join reads
+  // `image.sourceDesignId` only, while the gate also falls back to the
+  // output link's design, so `r.sourceDesignRowId` is not a safe stand-in.
+  const canOrder = (await resolveBuyableImage(imageId, viewerId)).ok;
 
   return {
     imageId: r.imageId,

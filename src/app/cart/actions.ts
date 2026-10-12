@@ -593,7 +593,7 @@ export async function checkoutCart(): Promise<{
   // A page image `resolveBuyableImage` refuses contributes nothing and is not
   // thrown: `getCart`'s `cartLineStillValid` already refused hidden and
   // other-user-unpublished pins above; what is still refused here (renders,
-  // own images with no live conversation) has no composition, so null is
+  // images with no live conversation) has no composition, so null is
   // right. A hide landing between that check and this loop is the same race
   // checkout already has for printing.
   const distinctPageIds = [

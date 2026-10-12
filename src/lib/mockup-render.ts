@@ -2,8 +2,8 @@
  * Shared render-and-cache body behind the image detail page's two mockup
  * actions, `getListingMockup` and `getListingBackMockup`
  * (`src/app/d/actions.ts`, #135 slice 1). Both are gated like the buy itself
- * (`resolveBuyableImage`: a published, visible image for anyone, otherwise
- * only its owner through a live conversation of theirs), so a cross-owner Shop
+ * (`resolveBuyableImage`: a published, visible image with a live conversation
+ * for anyone, otherwise only its owner through a live conversation of theirs), so a cross-owner Shop
  * buyer can render a mockup for a listing they don't own.
  *
  * Every call names its source image (#278 slice 4). Auth on the page image
