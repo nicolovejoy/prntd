@@ -6,7 +6,8 @@
  * Per conversation this applies the same rules the Delete button does
  * (src/lib/delete-design.ts): an order reference skips the whole conversation
  * — never a partial delete; seed links, composition pins and cart pins detach
- * their image instead of deleting it; everything else goes. On `apply`, R2
+ * their image instead of deleting it; an admin-hidden image is kept too
+ * (`keep-hidden`); everything else goes. On `apply`, R2
  * objects for deleted image rows and the conversation's placement renders are
  * removed after the DB batch, best-effort (a failed object delete is logged,
  * never re-raised — the DB rows are already gone).

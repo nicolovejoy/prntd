@@ -63,7 +63,7 @@ type Db = typeof appDb;
 /** delete-design.ts's per-image vocabulary plus the two image-scoped
  * refusals (the design-scoped callers validated the design instead). */
 export type ImagePlanOutcome =
-  | ImageDeletionOutcome
+  | Exclude<ImageDeletionOutcome, "keep-hidden">
   | "not-owned"
   | "not-found";
 

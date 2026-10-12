@@ -22,6 +22,8 @@ so the script applies exactly the rules the UI does.
     referenced from another conversation, a shop product, or another design's
     cart line, so only this conversation's link goes; the image row and object
     survive.
+  - `keep-hidden` — an admin hid the image, so the conversation goes but the
+    image row, its publication row, its composition and its R2 object stay.
   - `BLOCKED-by-order` — the pin that blocked the conversation.
 
 Only designs owned by the `--user` email match (case-insensitive; Better-Auth

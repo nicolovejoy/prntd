@@ -1210,8 +1210,9 @@ export async function selectImage(designId: string, imageUrl: string) {
  * doesn't authorise deleting an image it never had. An admin-hidden image is
  * refused whatever the plan would have done (the 2026-10-05 ruling: the owner
  * cannot undo a hide or remove its record); the refusal comes after the
- * ownership, order and reachability checks so it never reveals that a foreign
- * id is hidden. primary_image_id moves
+ * ownership, order and reachability checks: an id this thread cannot reach
+ * reads "Image not found" before the hidden check, and an image the thread
+ * does hold (its own output or a seed) is refused as hidden. primary_image_id moves
  * inside the same batch when the deleted image was the primary.
  *
  * Every outcome above removes THIS design's own link to the image — even a
