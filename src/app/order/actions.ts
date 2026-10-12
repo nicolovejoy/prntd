@@ -17,10 +17,8 @@ import {
   getDesignDisplayImageUrl,
   resolveImagesByIds,
 } from "@/lib/design-images";
-import {
-  assertPrimaryNotHidden,
-  assertUsablePlacementImage,
-} from "@/lib/back-sources";
+import { assertUsablePlacementImage } from "@/lib/back-sources";
+import { lineHiddenArt } from "@/lib/line-hidden-art";
 import { previewEmbeddedCheckoutFlag } from "@/lib/flags";
 import {
   previewEmbeddedCheckoutConfig,
@@ -134,9 +132,12 @@ export async function createCheckoutSession(params: {
   // on a design with neither — rare, only designs that never produced a
   // source image.
   const pinnedImageId = frontImageId ?? found.primaryImageId ?? null;
-  // A picked front was guarded above; the implicit primary was not, and an
+  // A picked front was guarded above; with none, the order shows and prints
+  // the design's display image (the primary, else its latest output), and an
   // admin-hidden image must not print (owner ruling, 2026-10-05).
-  if (!frontImageId && pinnedImageId) await assertPrimaryNotHidden(pinnedImageId);
+  if (!frontImageId && (await lineHiddenArt({ designId: params.designId, placements: null })).front) {
+    throw new Error("Front image is not available");
+  }
   // Stripe line thumbnail follows the pin, not the design's display image —
   // they differ the moment the buyer picks a non-primary front (mirrors the
   // cart-thumbnail fix in #146).

@@ -24,10 +24,7 @@ import {
   resolveImagesByIds,
 } from "@/lib/design-images";
 import { resolveBuyableImage } from "@/lib/buyable-image";
-import {
-  assertPrimaryNotHidden,
-  assertUsablePlacementImage,
-} from "@/lib/back-sources";
+import { assertUsablePlacementImage } from "@/lib/back-sources";
 import { resolveBuyPageFront } from "@/lib/placement-pins";
 import { estimateOrderCosts } from "@/lib/printful";
 import { stripe } from "@/lib/stripe";
@@ -205,9 +202,12 @@ export async function addToCart(params: {
     frontId = params.front;
   } else {
     frontId = design.primaryImageId ?? null;
-    // The implicit primary is trusted as the front; an admin-hidden image
-    // must not print (owner ruling, 2026-10-05).
-    if (frontId) await assertPrimaryNotHidden(frontId);
+    // With no pick the line shows and prints the design's display image (the
+    // primary, else its latest output); an admin-hidden image must not print
+    // (owner ruling, 2026-10-05).
+    if ((await lineHiddenArt({ designId, placements: null })).front) {
+      throw new Error("Front image is not available");
+    }
   }
 
   const backId = multiPlacementEnabled() && params.back ? params.back : null;
@@ -523,18 +523,22 @@ async function buildCart(
     i.unavailable = !valid[n];
   });
 
-  // A hidden image is never shown, even to the cart's owner (#310 item 1): the
+  // A hidden image is never shown, even to its own owner (#310 item 1): the
   // line stays, labelled "No longer available", with that side's thumbnail
-  // dropped. Only unavailable lines are checked: a hidden pin always fails
-  // `cartLineStillValid` above (`assertUsablePlacementImage` and
-  // `assertPrimaryNotHidden` both refuse a hidden image, through render
-  // sources too), so an available line has none and a cart with no stale line
-  // costs no extra query. A line unavailable for another reason (unpublished,
-  // size left the catalog) keeps its thumbnails.
+  // dropped. Only unavailable lines are checked: `cartLineStillValid` refuses
+  // a line when any image it shows is hidden (a pin through
+  // `assertUsablePlacementImage`, a pinless line through `lineHiddenArt`, both
+  // following render sources), so an available line shows none and a cart
+  // with no stale line costs no extra query. A line unavailable for another
+  // reason (unpublished, size left the catalog) keeps its thumbnails.
   const stale = items.filter((i) => i.unavailable);
   const hiddenArt = await Promise.all(
     stale.map((i) =>
-      lineHiddenArt({ designId: i.designId, placements: i.placements })
+      lineHiddenArt({ designId: i.designId, placements: i.placements }).catch(
+        // The line is already unavailable; if it cannot be judged it shows
+        // nothing rather than failing the whole cart.
+        () => ({ front: true, back: true })
+      )
     )
   );
   stale.forEach((i, n) => {

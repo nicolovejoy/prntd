@@ -926,3 +926,30 @@ describe("loadEmbeddedCheckout and admin-hidden artwork (#310 item 7)", () => {
     expect(result.summary[0].frontImageUrl).toMatch(/^https:\/\/img\.example\//);
   });
 });
+
+describe("loadEmbeddedCheckout when the hidden-artwork check fails (#310 fix round)", () => {
+  it("an open hosted session with a failing order_item read: unavailable, not a rejection", async () => {
+    const db = h.db as Db;
+    await seedOrder(db, { userId: "buyer", stripeSessionId: "cs_test_fail" });
+    h.retrieve.mockResolvedValue({
+      status: "open",
+      ui_mode: "hosted",
+      url: "https://checkout.stripe.example/hosted",
+      client_secret: null,
+    });
+    const spy = vi.spyOn(db, "select").mockImplementation((() => {
+      throw new Error("injected order_item read failure");
+    }) as unknown as typeof db.select);
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const result = await loadEmbeddedCheckout({
+        sessionId: "cs_test_fail",
+        viewerId: "buyer",
+      });
+      expect(result).toEqual({ kind: "unavailable" });
+    } finally {
+      spy.mockRestore();
+      errSpy.mockRestore();
+    }
+  });
+});

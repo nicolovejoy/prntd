@@ -153,7 +153,7 @@ async function loadCheckoutSummary(
  * known once the session is open: a `complete` session must still return
  * `complete`, so a buyer who paid reaches /order/confirm, hidden or not. It
  * runs before the ui_mode branch so a hidden line is not sent to Stripe's
- * hosted page either. The order row stays `pending` and the Stripe session is
+ * hosted page either. A failed check reads as `unavailable`. The order row stays `pending` and the Stripe session is
  * not expired; a buyer who already has the payment form open can still pay.
  */
 export async function loadEmbeddedCheckout(params: {
@@ -200,13 +200,23 @@ export async function loadEmbeddedCheckout(params: {
   if (session.status === "expired") return { kind: "expired" };
   if (session.status !== "open") return { kind: "unavailable" };
 
-  const lines = await loadOrderLines(found.id);
-  const hiddenArt = await Promise.all(
-    lines.map((l) =>
-      lineHiddenArt({ designId: l.designId, placements: l.placements })
-    )
-  );
-  if (hiddenArt.some((a) => a.front || a.back)) return { kind: "expired" };
+  // A failure here (a database read) must not turn a redirect or the retry
+  // screen into a 500: it reads as unavailable, the same as a Stripe failure.
+  let lines: OrderLine[];
+  try {
+    lines = await loadOrderLines(found.id);
+    const hiddenArt = await Promise.all(
+      lines.map((l) =>
+        lineHiddenArt({ designId: l.designId, placements: l.placements })
+      )
+    );
+    if (hiddenArt.some((a) => a.front || a.back)) return { kind: "expired" };
+  } catch (err) {
+    console.error(
+      `loadEmbeddedCheckout hidden-artwork check failed: ${err instanceof Error ? err.message : String(err)}`
+    );
+    return { kind: "unavailable" };
+  }
 
   if (session.ui_mode !== "embedded") {
     if (session.url) return { kind: "hosted", url: session.url };

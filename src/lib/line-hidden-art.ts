@@ -6,14 +6,21 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { design as designTable } from "@/lib/db/schema";
 import { isPlacementImageHidden } from "@/lib/back-sources";
+import { getDesignDisplayImageUrl } from "@/lib/design-images";
 
 export type LineHiddenArt = { front: boolean; back: boolean };
 
 /**
  * Which sides of a cart or order line show admin-hidden artwork.
- * front: the `front` pin when the line has one; otherwise the design's
- *   `primary_image_id` (a pinless legacy line prints the primary); false when
- *   there is neither.
+ * front: the `front` pin when the line has one. A line with no front pin
+ *   shows and prints the design's display image (the primary when it
+ *   resolves, otherwise the design's latest output; `order-fulfillment`
+ *   prints the same fallback), so it is judged by that image: hidden when the
+ *   primary is hidden (followed through render sources, as for a pin), or when
+ *   the display image differs from what the display resolves to with
+ *   `excludeHidden` (the two differ exactly when the image it would show is
+ *   hidden, so no fallback order is restated here). False when the design has
+ *   no image at all.
  * back: the `back` pin when the line has one; otherwise false.
  * A pin that is a placement render is judged by the image it renders.
  */
@@ -24,12 +31,23 @@ export async function lineHiddenArt(line: {
   const frontPin = line.placements?.front ?? null;
   const backPin = line.placements?.back ?? null;
 
-  const frontId = frontPin ?? (await primaryImageId(line.designId));
   const [front, back] = await Promise.all([
-    frontId ? isPlacementImageHidden(frontId) : false,
+    frontPin
+      ? isPlacementImageHidden(frontPin)
+      : pinlessFrontHidden(line.designId),
     backPin ? isPlacementImageHidden(backPin) : false,
   ]);
   return { front, back };
+}
+
+async function pinlessFrontHidden(designId: string): Promise<boolean> {
+  const [primaryId, shown, shownVisible] = await Promise.all([
+    primaryImageId(designId),
+    getDesignDisplayImageUrl(designId),
+    getDesignDisplayImageUrl(designId, { excludeHidden: true }),
+  ]);
+  if (primaryId && (await isPlacementImageHidden(primaryId))) return true;
+  return shown !== shownVisible;
 }
 
 async function primaryImageId(designId: string): Promise<string | null> {
