@@ -33,6 +33,7 @@ import { estimateOrderCosts } from "@/lib/printful";
 import { stripe } from "@/lib/stripe";
 import { abandonSessionlessOrder } from "@/lib/order-checkout";
 import { buildCartCheckoutSessionParams } from "@/lib/checkout";
+import { lineHiddenArt } from "@/lib/line-hidden-art";
 import { embeddedCheckoutFlag } from "@/lib/flags";
 import {
   embeddedCheckoutConfig,
@@ -78,8 +79,11 @@ export type CartLine = {
   hasBack: boolean;
   quantity: number;
   unitPrice: number;
+  /** The front artwork; null when the image has no URL, or is admin-hidden
+   * (the line stays, marked unavailable, with no thumbnail). */
   imageUrl: string | null;
-  /** The back design's artwork, when the line has one (#282). */
+  /** The back design's artwork, when the line has one (#282); null for a
+   * line with no back and for an admin-hidden back image. */
   backImageUrl: string | null;
   /** The line would not be accepted if added now (an image it pins is no
    * longer something this user may order or print): the cart marks it and
@@ -517,6 +521,25 @@ async function buildCart(
   );
   items.forEach((i, n) => {
     i.unavailable = !valid[n];
+  });
+
+  // A hidden image is never shown, even to the cart's owner (#310 item 1): the
+  // line stays, labelled "No longer available", with that side's thumbnail
+  // dropped. Only unavailable lines are checked: a hidden pin always fails
+  // `cartLineStillValid` above (`assertUsablePlacementImage` and
+  // `assertPrimaryNotHidden` both refuse a hidden image, through render
+  // sources too), so an available line has none and a cart with no stale line
+  // costs no extra query. A line unavailable for another reason (unpublished,
+  // size left the catalog) keeps its thumbnails.
+  const stale = items.filter((i) => i.unavailable);
+  const hiddenArt = await Promise.all(
+    stale.map((i) =>
+      lineHiddenArt({ designId: i.designId, placements: i.placements })
+    )
+  );
+  stale.forEach((i, n) => {
+    if (hiddenArt[n].front) i.imageUrl = null;
+    if (hiddenArt[n].back) i.backImageUrl = null;
   });
 
   const shipping = await quoteCartShipping(items);

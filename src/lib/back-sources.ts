@@ -133,10 +133,19 @@ async function hiddenThroughSources(image: ImageWithOwner): Promise<boolean> {
  * image).
  */
 export async function assertPrimaryNotHidden(imageId: string): Promise<void> {
-  const image = await getDesignImageWithOwner(imageId);
-  if (image && (await hiddenThroughSources(image))) {
+  if (await isPlacementImageHidden(imageId)) {
     throw new Error("Front image is not available");
   }
+}
+
+/**
+ * Whether the artwork behind an image id is admin-hidden: the image itself,
+ * or, for a placement render, the image it renders (followed down the chain).
+ * False for an id that resolves to nothing.
+ */
+export async function isPlacementImageHidden(imageId: string): Promise<boolean> {
+  const image = await getDesignImageWithOwner(imageId);
+  return image ? hiddenThroughSources(image) : false;
 }
 
 export type BackSourceImage = {
