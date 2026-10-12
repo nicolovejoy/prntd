@@ -9,6 +9,7 @@
  * The db singleton, auth session and Stripe are mocked; the database is real.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { eq } from "drizzle-orm";
 import { createTestDb } from "@/lib/__tests__/test-db";
 import * as schema from "@/lib/db/schema";
 import {
@@ -47,6 +48,7 @@ vi.mock("@/lib/printful", () => ({
 }));
 
 import { buyPublishedDesign, getListingMockup } from "@/app/d/actions";
+import { resolveBuyableImage } from "@/lib/buyable-image";
 import { addToCart } from "@/app/cart/actions";
 import { getImagePage } from "./normal-image-page";
 
@@ -124,12 +126,47 @@ describe("a published image whose conversation is gone", () => {
     expect(page!.canOrder).toBe(true);
   });
 
+  it("the page's canOrder agrees with the gate", async () => {
+    const ids = await seed(h.db as Db);
+    for (const id of [ids.liveId, ids.goneId]) {
+      const page = await getImagePage(id);
+      expect(page!.canOrder).toBe((await resolveBuyableImage(id, "buyer")).ok);
+    }
+  });
+
+  it("a published image with a null source_design_id follows its output link", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    // Legacy shape: no source_design_id; the gate uses the output link.
+    await db
+      .update(schema.image)
+      .set({ sourceDesignId: null })
+      .where(eq(schema.image.id, ids.liveId));
+    const page = await getImagePage(ids.liveId);
+    expect(page!.canOrder).toBe(true);
+    expect((await resolveBuyableImage(ids.liveId, "buyer")).ok).toBe(true);
+
+    // The link's conversation cannot be removed while the link row exists
+    // (conversation_image.design_id is a foreign key), so a null source with
+    // an unresolved link cannot be built; with no link at all the gate
+    // answers not-found and the page offers no Order.
+    await db
+      .delete(schema.conversationImage)
+      .where(eq(schema.conversationImage.imageId, ids.liveId));
+    const orphan = await getImagePage(ids.liveId);
+    expect(orphan!.canOrder).toBe(false);
+    expect(await resolveBuyableImage(ids.liveId, "buyer")).toEqual({
+      ok: false,
+      reason: "not-found",
+    });
+  });
+
   it("buyPublishedDesign rejects and writes no order and no Stripe session", async () => {
     const db = h.db as Db;
     const ids = await seed(db);
     await expect(
       buyPublishedDesign({ imageId: ids.goneId, ...OPTS })
-    ).rejects.toThrow();
+    ).rejects.toThrow("Image is not available to buy");
     expect(await db.select().from(schema.order)).toHaveLength(0);
     expect(h.stripeCreate).not.toHaveBeenCalled();
   });

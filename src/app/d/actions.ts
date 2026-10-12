@@ -286,11 +286,18 @@ export async function getImagePage(
   // parent so admin moderation also breaks the public chain.
   const forkChain = await buildForkChain(r.forkedFromImageId, fetchForkChainRow);
 
-  // The gate every buy action uses, for both branches, so the page and the
-  // actions cannot disagree. The page query's conversation join reads
-  // `image.sourceDesignId` only, while the gate also falls back to the
-  // output link's design, so `r.sourceDesignRowId` is not a safe stand-in.
-  const canOrder = (await resolveBuyableImage(imageId, viewerId)).ok;
+  // `resolveBuyableImage` is the gate every buy action uses. For a published
+  // image with a `source_design_id`, the gate's designId is that same id
+  // (`getDesignImageWithOwner`: sourceDesignId ?? the output link's design),
+  // and published asks only that the row exist, which is what this query's
+  // `design` join already answered, so a public page load costs no extra
+  // query. With no `source_design_id` (legacy images) the gate falls back to
+  // the output link, which this query does not join, and unpublished also
+  // needs the buyer to own the conversation: both ask the gate.
+  const canOrder =
+    publishedAt !== null && r.sourceDesignId !== null
+      ? r.sourceDesignRowId !== null
+      : (await resolveBuyableImage(imageId, viewerId)).ok;
 
   return {
     imageId: r.imageId,
