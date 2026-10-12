@@ -79,3 +79,5 @@ Base for all three slices: 5a6576c (main, #314). Controller: main session (Opus)
 - Slice A: fix round 2/5 (5 addressed, 0 open; commits 46b2904..cef15fd).
 - Slice A: complete (commits 5a6576c..cef15fd, review clean, 2 fix rounds).
 - Slice A: PR opened, https://github.com/nicolovejoy/prntd/pull/324 (head cef15fd).
+- PR CI: #322, #323, #324 and #325 (docs) all green (check and e2e). Stripe e2e dispatched on slice A's branch at cef15fd: 3 of 3 passed, https://github.com/nicolovejoy/prntd/actions/runs/38296286785 .
+- Status recorded on #310: https://github.com/nicolovejoy/prntd/issues/310#issuecomment-6130920062 . Nothing merged; merging is Nico's call.
