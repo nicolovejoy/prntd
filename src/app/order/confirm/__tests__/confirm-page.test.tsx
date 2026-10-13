@@ -396,15 +396,36 @@ describe("ConfirmPage", () => {
     expect(backLink).toHaveAttribute("href", "/shop");
   });
 
-  it("flag on + pending + helper returns null: shows Order confirmed.", async () => {
+  it("pending + helper returns null: Checking your payment., Reload and View orders, no receipt (#317 item 1)", async () => {
     vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", "true");
     getOrderReceipt.mockResolvedValue(PENDING_ORDER);
     getCheckoutSessionState.mockResolvedValue(null);
 
+    await renderConfirm({ session_id: "cs_1", from: "/cart" });
+
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Checking your payment.");
+    expect(
+      screen.getByText(
+        "We couldn't confirm it just now. Reload in a moment. A paid order appears under Orders once it's confirmed."
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Reload" })).toHaveAttribute(
+      "href",
+      "/order/confirm?session_id=cs_1&from=%2Fcart"
+    );
+    expect(screen.getByRole("link", { name: "View orders" })).toHaveAttribute("href", "/orders");
+    expect(screen.queryByText("Total paid")).not.toBeInTheDocument();
+    expect(screen.queryByText("Order confirmed.")).not.toBeInTheDocument();
+    expect(screen.queryByText(/\$\d/)).not.toBeInTheDocument();
+  });
+
+  it("shows Order not found. for a viewer who does not own the order (loader returns null)", async () => {
+    getOrderReceipt.mockResolvedValue(null);
+
     await renderConfirm({ session_id: "cs_1" });
 
-    expect(screen.getByText("Order confirmed.")).toBeInTheDocument();
-    expect(screen.getByText("$24.12")).toBeInTheDocument();
+    expect(screen.getByText("Order not found.")).toBeInTheDocument();
+    expect(screen.queryByText("Order confirmed.")).not.toBeInTheDocument();
   });
 
   it("pending + complete + paid: prints Stripe's charged total, not the stored pre-discount one (#317)", async () => {

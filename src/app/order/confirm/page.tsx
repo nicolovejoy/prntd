@@ -43,10 +43,14 @@ type Search = Promise<Record<string, string | string[] | undefined>>;
  * as confirmed; `complete` but `unpaid` is a delayed payment, #272) from a session that's still `open` — reachable with embedded
  * checkout when Stripe redirects here without a completed payment (e.g. the
  * buyer backed out of a redirect-based payment method) or when the URL is
- * opened directly — or one that's `expired`. The read does not depend on the
+ * opened directly — or one that's `expired`. When that read fails or returns a status this code does not know, the order renders the "checking" state with a Reload link, never a receipt (#317 item 1). The read does not depend on the
  * embedded switches: a switch rolled back mid-checkout must never render
  * "Order confirmed." for an open, unpaid session. A non-`pending` order means
  * zero Stripe calls — the page stays the plain DB read it always was.
+ *
+ * The page requires the order's owner (#317 item 3): a signed-out visitor or
+ * an anonymous guest goes to sign-in and back here; any other account gets
+ * "Order not found." from `getOrderReceipt`.
  *
  * The resume link carries the `from` Stripe handed back on `return_url`, so
  * the resumed /checkout's Back link goes where the original one went (the
@@ -151,26 +155,34 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Sear
     view.kind === "incomplete" ||
     view.kind === "expired" ||
     view.kind === "processing" ||
-    view.kind === "failed"
+    view.kind === "failed" ||
+    view.kind === "checking"
   ) {
     // "Payment still processing" is the owner's wording (Nico, 2026-10-01);
     // a copy sweep must not change it. He approved both supporting lines the
     // same day. "failed" reuses the incomplete heading: the session is
     // complete and cannot be resumed, so no resume link.
+    // "checking" (#317 item 1): the Stripe read failed or returned a status
+    // this code does not know, so the page cannot say paid or unpaid. Wording
+    // is Claude's (Nico left it open, 2026-10-13).
     const heading =
       view.kind === "processing"
         ? "Payment still processing"
         : view.kind === "expired"
           ? "This checkout expired."
-          : "Payment not completed.";
+          : view.kind === "checking"
+            ? "Checking your payment."
+            : "Payment not completed.";
     const body =
       view.kind === "processing"
         ? "Your order will be placed once the payment clears."
-        : view.kind === "failed"
-          ? // Not "Nothing was charged.": that is not true for every delayed
-            // method (a bank debit can be taken and then returned).
-            "The payment didn't go through."
-          : "Nothing was charged.";
+        : view.kind === "checking"
+          ? "We couldn't confirm it just now. Reload in a moment. A paid order appears under Orders once it's confirmed."
+          : view.kind === "failed"
+            ? // Not "Nothing was charged.": that is not true for every delayed
+              // method (a bank debit can be taken and then returned).
+              "The payment didn't go through."
+            : "Nothing was charged.";
     return (
       <div className="min-h-screen flex flex-col px-4">
         <Breadcrumbs
@@ -192,12 +204,30 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Sear
                   </Button>
                 </Link>
               )}
-              <Link
-                href="/shop"
-                className="min-h-11 inline-flex items-center justify-center text-sm underline underline-offset-[3px]"
-              >
-                Back to Shop
-              </Link>
+              {view.kind === "checking" ? (
+                <>
+                  {/* A plain anchor: a full navigation, so the server read
+                      runs again. A Link to the same URL may be a no-op. */}
+                  <a href={selfPath}>
+                    <Button size="lg" className="w-full">
+                      Reload
+                    </Button>
+                  </a>
+                  <Link
+                    href="/orders"
+                    className="min-h-11 inline-flex items-center justify-center text-sm underline underline-offset-[3px]"
+                  >
+                    View orders
+                  </Link>
+                </>
+              ) : (
+                <Link
+                  href="/shop"
+                  className="min-h-11 inline-flex items-center justify-center text-sm underline underline-offset-[3px]"
+                >
+                  Back to Shop
+                </Link>
+              )}
             </div>
           </div>
         </div>

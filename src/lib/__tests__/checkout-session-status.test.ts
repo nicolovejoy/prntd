@@ -99,10 +99,10 @@ describe("resolveConfirmView", () => {
     ).toEqual({ kind: "confirmed", paidTotal: null });
   });
 
-  it("is confirmed when the Stripe read failed (stripe is null)", () => {
+  it("is checking when the Stripe read failed (stripe is null) for a pending order", () => {
     expect(
       resolveConfirmView({ ...base, orderStatus: "pending", abandoned: false, stripe: null })
-    ).toEqual({ kind: "confirmed", paidTotal: null });
+    ).toEqual({ kind: "checking" });
   });
 
   it("is confirmed when the session completed", () => {
@@ -264,7 +264,7 @@ describe("resolveConfirmView", () => {
     ).toEqual({ kind: "incomplete", resumeHref: "/checkout?session=cs_test_abc%26xyz&from=%2Fshop" });
   });
 
-  it("is confirmed for an unexpected Stripe status", () => {
+  it("is checking for an unexpected Stripe status", () => {
     expect(
       resolveConfirmView({
         ...base,
@@ -272,7 +272,7 @@ describe("resolveConfirmView", () => {
         abandoned: false,
         stripe: { status: null, paymentStatus: null, uiMode: null, url: null, amountTotal: null },
       })
-    ).toEqual({ kind: "confirmed", paidTotal: null });
+    ).toEqual({ kind: "checking" });
   });
 });
 
@@ -305,13 +305,16 @@ describe("resolveConfirmView exhaustive matrix", () => {
   const paymentStatuses = ["paid", "unpaid", "no_payment_required", "requires_review", null] as const;
 
   // The behaviour on main, before payment_status existed: confirmed unless a
-  // pending order had an open or expired session (or the read succeeded with
-  // anything else, which was also confirmed).
+  // pending order had an open or expired session. #317 item 1 changes the
+  // rest of the pending cases: a failed read, or a session status that is
+  // none of complete / expired / open, is "checking".
   function onMain(orderStatus: string, s: (typeof sessionStatuses)[number], read: boolean) {
-    if (orderStatus !== "pending" || !read) return "confirmed";
+    if (orderStatus !== "pending") return "confirmed";
+    if (!read) return "checking";
     if (s === "expired") return "expired";
     if (s === "open") return "incomplete";
-    return "confirmed";
+    if (s === "complete") return "confirmed";
+    return "checking";
   }
 
   for (const orderStatus of orderStatuses)
@@ -339,7 +342,7 @@ describe("resolveConfirmView exhaustive matrix", () => {
                 // exactly what main returned.
                 expect(view.kind).toBe(onMain(orderStatus, s, read));
               }
-              if (s === "complete" && (ps === "paid" || ps === "no_payment_required")) {
+              if ((orderStatus !== "pending" || read) && s === "complete" && (ps === "paid" || ps === "no_payment_required")) {
                 expect(view.kind).toBe("confirmed");
               }
               if (view.kind === "confirmed") {
