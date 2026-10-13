@@ -4,10 +4,8 @@ import { db } from "@/lib/db";
 import { design as designTable } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { productSupportsPlacement, resolveOrderVariant } from "@/lib/blanks";
-import {
-  assertPrimaryNotHidden,
-  assertUsablePlacementImage,
-} from "@/lib/back-sources";
+import { assertUsablePlacementImage } from "@/lib/back-sources";
+import { lineHiddenArt } from "@/lib/line-hidden-art";
 
 /**
  * Whether a cart line would still be accepted if `userId` added it now
@@ -40,8 +38,8 @@ import {
  *  - its design still exists;
  *  - every pinned placement passes `assertUsablePlacementImage` for this user;
  *  - and, with no front pinned (a legacy `/preview` line that prints the
- *    design's primary), the design is the user's own and its primary is not
- *    hidden. A line on someone else's design with no pins can't have come from
+ *    design's display image), the design is the user's own and that image is
+ *    not hidden. A line on someone else's design with no pins can't have come from
  *    `addToCart`, so it is refused.
  */
 export async function cartLineStillValid(
@@ -72,10 +70,11 @@ export async function cartLineStillValid(
     return false;
   }
 
-  // The queries are independent, so they run together: the design row, every
-  // pin's check, and (for a pinless line) nothing more. Roughly 1 query for the
-  // design plus 1-2 per pin (the image row, the render fallback, one more per
-  // render hop), and 1-2 for a pinless line's primary.
+  // The queries are independent, so they run together: the design row and
+  // every pin's check (the image row, the render fallback, one more per render
+  // hop). A pinless line then runs `lineHiddenArt`, which reads the design's
+  // display image twice and its primary, so it costs several more queries than
+  // a pinned line; such lines are legacy.
   const pins = Object.entries(line.placements ?? {});
   const pinChecks = pins.map(([placement, imageId]) =>
     assertUsablePlacementImage(
@@ -92,7 +91,6 @@ export async function cartLineStillValid(
     db
       .select({
         userId: designTable.userId,
-        primaryImageId: designTable.primaryImageId,
       })
       .from(designTable)
       .where(eq(designTable.id, line.designId))
@@ -108,16 +106,12 @@ export async function cartLineStillValid(
   if (pinResults.some((ok) => !ok)) return false;
 
   // No front pinned (a legacy /preview line prints the design's primary): the
-  // design must be the user's own and its primary not hidden.
+  // design must be the user's own and the image it shows and prints (the
+  // primary, or the latest output when there is no primary) not hidden.
   if (!line.placements?.front) {
     if (design.userId !== userId) return false;
-    if (design.primaryImageId) {
-      try {
-        await assertPrimaryNotHidden(design.primaryImageId);
-      } catch {
-        return false;
-      }
-    }
+    // A check that fails reads as hidden: the line is refused.
+    if (await lineHiddenArt(line).then((a) => a.front, () => true)) return false;
   }
   return true;
 }
