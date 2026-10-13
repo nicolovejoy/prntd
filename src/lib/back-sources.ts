@@ -234,7 +234,8 @@ export async function getBackSourceGroups(params: {
 export async function getBuyPageBackSourceGroups(params: {
   /** The page image's source design: the SELLER's conversation for a published
    * image, the viewer's own for their unpublished one (`resolveBuyableImage`
-   * decides which; this reads whose it is). */
+   * decides which, and refuses an image whose conversation is gone; this reads
+   * whose it is). */
   designId: string;
   viewerId: string;
 }): Promise<BackSourceGroup[]> {

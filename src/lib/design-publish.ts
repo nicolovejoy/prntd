@@ -125,7 +125,8 @@ export function publicationVisibility(row: {
  * that mean "this viewer" use `canBuyImage`, which adds the owner's own
  * unpublished work. A published image is bought through its Shop composition
  * (the mirror product the order records), so "published" also names which
- * ordering branch an image takes.
+ * ordering branch an image takes. It does not say the image can be ordered:
+ * `resolveBuyableImage` also needs its conversation to exist.
  */
 export function canBuyPublishedImage(image: {
   publishedAt: Date | null;
@@ -140,9 +141,10 @@ export function canBuyPublishedImage(image: {
  * (`canBuyPublishedImage`); otherwise only its owner, and only when it is not
  * admin-hidden. Hidden beats ownership, as in `canViewImagePage`.
  *
- * This is the image-level rule only. Ordering an unpublished image also needs
- * a live conversation the buyer owns (`design.userId`), because
- * `order.design_id` is NOT NULL; that part needs the database and lives in
+ * This is the image-level rule only. Ordering any image also needs its
+ * conversation to exist, and an unpublished one needs it to be the buyer's
+ * (`design.userId`), because `order.design_id` is NOT NULL; that part needs
+ * the database and lives in
  * `resolveBuyableImage` (src/lib/buyable-image.ts).
  *
  * `userId` is nullable because signed-out viewers reach the page: null and the
@@ -219,16 +221,20 @@ export function canUseAsPlacementSource(params: {
 /**
  * Decide whether `userId` may start a fresh conversation seeded from an
  * image (Model B slice 3). Same visibility rule as canUseAsPlacementSource,
- * minus the order framing: your own image, or a published + not-hidden one.
- * A private cross-owner image id — however obtained — is rejected.
+ * minus the order framing: your own image, or a published one. An
+ * admin-hidden image is refused for everyone, the owner included (the
+ * 2026-10-05 ruling; an owner who could still seed from it would keep a
+ * moderated design in use). A private cross-owner image id — however
+ * obtained — is rejected.
  */
 export function canStartFromImage(params: {
   image: { publishedAt: Date | null; isHidden: boolean };
   imageOwnerId: string;
   userId: string;
 }): boolean {
+  if (params.image.isHidden) return false;
   if (params.imageOwnerId === params.userId) return true;
-  return params.image.publishedAt !== null && !params.image.isHidden;
+  return params.image.publishedAt !== null;
 }
 
 /**

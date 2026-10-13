@@ -19,7 +19,7 @@
  * A published composition points at an image row nothing mutates, so
  * publishing is a snapshot by construction. `model-b-writes.test.ts` locks this in.
  */
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, inArray, ne } from "drizzle-orm";
 import type { db as appDb } from "@/lib/db";
 import type { DesignSpec } from "@/lib/design-spec";
 import type { ImageOperation } from "@/lib/image-provenance";
@@ -314,6 +314,28 @@ export async function isImageAdminHidden(
     .where(eq(imagePublicationTable.imageId, imageId))
     .limit(1);
   return publication?.isHidden === true;
+}
+
+/**
+ * The ids among `imageIds` that an admin has hidden: `isImageAdminHidden` for
+ * many images in one query. An empty list returns an empty set without a
+ * query.
+ */
+export async function adminHiddenImageIds(
+  db: typeof appDb,
+  imageIds: string[]
+): Promise<Set<string>> {
+  if (imageIds.length === 0) return new Set();
+  const rows = await db
+    .select({ imageId: imagePublicationTable.imageId })
+    .from(imagePublicationTable)
+    .where(
+      and(
+        inArray(imagePublicationTable.imageId, imageIds),
+        eq(imagePublicationTable.isHidden, true)
+      )
+    );
+  return new Set(rows.map((r) => r.imageId));
 }
 
 /**

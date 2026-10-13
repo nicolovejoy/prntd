@@ -246,6 +246,24 @@ describe("startConversationFromImage", () => {
     );
   });
 
+  it("rejects the owner's own admin-hidden image and writes nothing", async () => {
+    h.userId = "origin";
+    const { imageId } = await seedOrigin({
+      publishedAt: new Date(),
+      isHidden: true,
+    });
+    const designsBefore = await testDb.select().from(schema.design);
+    const linksBefore = await testDb.select().from(schema.conversationImage);
+
+    await expect(startConversationFromImage(imageId)).rejects.toThrow(
+      "Image is not available"
+    );
+    expect(await testDb.select().from(schema.design)).toEqual(designsBefore);
+    expect(await testDb.select().from(schema.conversationImage)).toEqual(
+      linksBefore
+    );
+  });
+
   it("rejects an unknown image id", async () => {
     await expect(startConversationFromImage("nope")).rejects.toThrow(
       "Image not found"

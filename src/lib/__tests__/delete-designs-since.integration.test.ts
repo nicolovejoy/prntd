@@ -14,6 +14,7 @@ import * as schema from "@/lib/db/schema";
 import {
   applyGuard,
   deleteDesignsSince,
+  formatReport,
   parseWindowTimestamp,
   r2KeysForPlan,
 } from "@/lib/delete-designs-since";
@@ -234,6 +235,62 @@ describe("deleteDesignsSince — apply", () => {
         .where(eq(schema.conversationImage.designId, other.id))
     ).toHaveLength(1);
     expect(deleteObject).not.toHaveBeenCalled();
+  });
+});
+
+describe("deleteDesignsSince — admin-hidden images (#310 item 2)", () => {
+  async function seedHidden() {
+    const d = await makeDesignAt("u1", sec(10));
+    const hiddenId = await makeSourceImage(db, {
+      designId: d.id,
+      ownerId: "u1",
+      imageUrl: "https://r2/images/hidden.png",
+      publishedAt: new Date(),
+      isHidden: true,
+    });
+    const plainId = await makeSourceImage(db, {
+      designId: d.id,
+      ownerId: "u1",
+      imageUrl: "https://r2/images/plain.png",
+    });
+    return { d, hiddenId, plainId };
+  }
+
+  it("reports a kept hidden image as keep-hidden in the dry run", async () => {
+    const { d, hiddenId } = await seedHidden();
+
+    const result = await run({ apply: false });
+
+    const lines = formatReport(result.reports[0], "dry-run");
+    expect(lines).toContain(`    ${hiddenId.slice(0, 8)}  keep-hidden`);
+    expect(await designIds()).toEqual([d.id]);
+  });
+
+  it("apply keeps the hidden image's rows and R2 object and deletes the rest", async () => {
+    const { d, hiddenId, plainId } = await seedHidden();
+    const deleted: string[] = [];
+
+    const result = await run({
+      apply: true,
+      deleteObject: async (key) => {
+        deleted.push(key);
+      },
+    });
+
+    expect(result.deleted).toEqual([d.id]);
+    expect(deleted).toEqual(["images/plain.png"]);
+    expect(
+      await db.select().from(schema.image).where(eq(schema.image.id, hiddenId))
+    ).toHaveLength(1);
+    expect(
+      await db.select().from(schema.image).where(eq(schema.image.id, plainId))
+    ).toHaveLength(0);
+    const [pub] = await db
+      .select()
+      .from(schema.imagePublication)
+      .where(eq(schema.imagePublication.imageId, hiddenId));
+    expect(pub.isHidden).toBe(true);
+    expect(await db.select().from(schema.product)).toHaveLength(1);
   });
 });
 

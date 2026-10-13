@@ -175,6 +175,38 @@ describe("deleteConversations — rules", () => {
     ]);
   });
 
+  it("keeps an admin-hidden image, its publication row, its composition and its R2 object (#310 item 2)", async () => {
+    const d = await makeDesign(testDb, "owner");
+    const hiddenId = await makeSourceImage(testDb, {
+      designId: d.id,
+      ownerId: "owner",
+      imageUrl: "https://r2.example/images/hidden.png",
+      publishedAt: new Date(),
+      isHidden: true,
+    });
+    const plainId = await makeSourceImage(testDb, {
+      designId: d.id,
+      ownerId: "owner",
+      imageUrl: "https://r2.example/images/plain.png",
+    });
+
+    const result = await deleteConversations([d.id]);
+
+    expect(result).toEqual({ deleted: [d.id], skipped: [] });
+    expect(await designRow(d.id)).toBeUndefined();
+    expect(await imageRow(plainId)).toBeUndefined();
+    expect(await imageRow(hiddenId)).toBeDefined();
+    const [pub] = await testDb
+      .select()
+      .from(schema.imagePublication)
+      .where(eq(schema.imagePublication.imageId, hiddenId));
+    expect(pub.isHidden).toBe(true);
+    expect(await testDb.select().from(schema.product)).toHaveLength(1);
+    expect(vi.mocked(deleteObjectByKey).mock.calls.map((c) => c[0])).toEqual([
+      "images/plain.png",
+    ]);
+  });
+
   it("skips an ordered conversation whole — not archived, image untouched — and reports it", async () => {
     const kept = await conversationWithImage("owner", "images/kept.png");
     const gone = await conversationWithImage("owner", "images/gone.png");

@@ -1207,7 +1207,12 @@ export async function selectImage(designId: string, imageUrl: string) {
  * link, a shop product pin or a cart pin downgrade the delete to a
  * link-detach; otherwise the image row, its publication row and its own
  * composition go. An id this thread can't reach is "Image not found" — owning the design
- * doesn't authorise deleting an image it never had. primary_image_id moves
+ * doesn't authorise deleting an image it never had. An admin-hidden image is
+ * refused whatever the plan would have done (the 2026-10-05 ruling: the owner
+ * cannot undo a hide or remove its record); the refusal comes after the
+ * ownership, order and reachability checks: an id this thread cannot reach
+ * reads "Image not found" before the hidden check, and an image the thread
+ * does hold (its own output or a seed) is refused as hidden. primary_image_id moves
  * inside the same batch when the deleted image was the primary.
  *
  * Every outcome above removes THIS design's own link to the image — even a
@@ -1249,6 +1254,10 @@ export async function deleteDesignImage(designId: string, imageId: string) {
   // conversation link of either role, or a render it produced). An id it
   // can't reach isn't this thread's to delete, whoever owns it.
   if (plan.outcome === "not-found") throw new Error("Image not found");
+
+  if (await isImageAdminHidden(db, imageId)) {
+    throw new Error("This image is not available");
+  }
 
   // One batch, including the primary_image_id move when this image was the
   // thread's primary — no follow-up write to fail after the rows are gone.
@@ -1474,8 +1483,8 @@ async function requireOwnedDesign(designId: string) {
  * parent_image_id = null with seed_image_id + original_designer_id looked up
  * from this seed link (getConversationSeedProvenance in design-images.ts).
  *
- * Visibility: own image, or published + not hidden (canStartFromImage) — a
- * forged private cross-owner id is rejected. Artifacts only; placement
+ * Visibility: own image or a published one, never an admin-hidden one
+ * (canStartFromImage) — a forged private cross-owner id is rejected. Artifacts only; placement
  * renders are cache, not seedable.
  */
 export async function startConversationFromImage(

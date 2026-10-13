@@ -7,7 +7,7 @@
  *
  * Dry run by default: one line per matching conversation and one per image
  * saying what WOULD happen (delete / detach-seed / detach-product-pin /
- * detach-cart-pin / BLOCKED-by-order). `--apply` performs it. Same rules as
+ * detach-cart-pin / keep-hidden / BLOCKED-by-order). `--apply` performs it. Same rules as
  * the Delete button (src/lib/delete-design.ts): a conversation referenced by
  * an order is skipped whole, never partially deleted.
  *

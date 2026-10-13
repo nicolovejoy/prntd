@@ -198,7 +198,9 @@ export default async function PublishedImagePage({
               publication to pin it on), so `canEdit` stays published-only.
               An image whose conversation is gone can't be ordered
               (`order.design_id` is NOT NULL), so it gets the plain hero and
-              no Order. */}
+              no Order. The owner of a published one keeps the backdrop
+              picker: that write goes to the mirror composition and does not
+              touch the conversation. */}
           {img.canOrder ? (
             <>
               <BuyHero
@@ -245,7 +247,7 @@ export default async function PublishedImagePage({
                   imageUrl={img.imageUrl}
                   alt={img.title?.trim() || "Design"}
                   initialBackgroundColor={img.backgroundColor}
-                  canEdit={false}
+                  canEdit={isOwner && isPublished}
                 />
               </div>
 
