@@ -22,7 +22,7 @@
  *
  * src/lib/feed-visibility-parity.ts re-runs this query's joins as raw SQL so
  * a production database can be checked against the visibility rule, and lists
- * the visible listings this rule leaves out. If the joins or the filters below
+ * the visible listings the conversation rule leaves out. If the joins or the filters below
  * change, change that module with them.
  */
 import { db } from "@/lib/db";

@@ -15,6 +15,12 @@
  *   - the image ids the feed's joins return under the old filter and under
  *     the new one, and the ids in only one of the two.
  *
+ *   - the image ids the feed returns now (visible, with a live conversation)
+ *     and the visible published listings it leaves out for lack of a
+ *     conversation (#321), each with image id, product id, title and the
+ *     conversation id that names nothing. Those cards leave the Shop; a
+ *     listing in this list is expected and does not affect the exit code.
+ *
  * Exits 0 and prints PARITY CLEAN when the two lists are identical, so the
  * filter change leaves the feed as it was. Exits 1 when they differ, or on
  * any error. A disagreement that does not change the feed (a hidden
@@ -61,6 +67,18 @@ async function main() {
   for (const id of report.onlyOld) console.log(`  ${id}`);
   console.log(`only in the new feed (${report.onlyNew.length}):`);
   for (const id of report.onlyNew) console.log(`  ${id}`);
+
+  console.log(`\nfeed now (visible, live conversation): ${report.feedImageIds.length}`);
+  for (const id of report.feedImageIds) console.log(`  ${id}`);
+
+  console.log(
+    `\nvisible listings left out for lack of a conversation (${report.leftOutNoConversation.length}):`
+  );
+  for (const l of report.leftOutNoConversation) {
+    console.log(
+      `  image ${l.imageId}  product ${l.productId}  title ${l.title === null ? "—" : JSON.stringify(l.title)}  conversation ${l.conversationId ?? "none"}`
+    );
+  }
 
   if (!report.clean) {
     console.error(
