@@ -76,6 +76,7 @@ export async function createCheckoutSession(params: {
   // sessionless) must sign in here; after sign-in the anonymous plugin
   // re-parents their design to the real account and the retried checkout
   // passes the ownership check below.
+  // Not counted against the checkout cap (#316): no UI reaches this action since one-buy-surface slice 4; slice 6a removes it.
   if (!session || isAnonymousUser(session.user)) {
     return { url: null, needsAuth: true };
   }

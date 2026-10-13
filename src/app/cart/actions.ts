@@ -44,11 +44,18 @@ import {
 import { cartLineStillValid } from "@/lib/cart-line-check";
 import { cartOrderStoreProductId } from "@/lib/cart-attribution";
 import { requireMirrorProduct } from "@/lib/model-b-writes";
-import { CART_LINE_UNAVAILABLE } from "@/lib/action-copy";
+import {
+  CART_LINE_UNAVAILABLE,
+  CART_TOO_FULL_TO_CHECKOUT,
+  checkoutLimitMessage,
+} from "@/lib/action-copy";
+import { consumeCheckoutQuota } from "@/lib/generation-quota";
+import { clientIp } from "@/lib/client-ip";
 import {
   isValidCartQuantity,
   CART_LINE_MIN_QUANTITY,
   CART_LINE_MAX_QUANTITY,
+  CART_MAX_LINES,
   cartLineEdit,
   cartLineEditHref,
 } from "@/lib/cart-line-edit";
@@ -574,7 +581,10 @@ async function buildCart(
  * order_item rows and charges N product lines + one bundled shipping line;
  * the cart itself is cleared by the webhook on payment (#38). Every line is
  * re-checked first (`cartLineStillValid`); any stale line refuses the whole
- * checkout with `{ error }` and writes nothing. If creating the Stripe session
+ * checkout with `{ error }` and writes nothing. Each call first counts one
+ * attempt against the daily checkout cap (`consumeCheckoutQuota`, #316,
+ * shared with the image detail page's Order); a refused attempt and a cart
+ * over CART_MAX_LINES come back as `{ error }` too. If creating the Stripe session
  * throws (including building its params), the order is marked abandoned
  * (`abandonSessionlessOrder`), the error is re-thrown, and the cart is left as
  * it was. A line whose page image is published but has no Shop composition
@@ -597,11 +607,21 @@ export async function checkoutCart(): Promise<{
   needsAuth?: boolean;
   error?: string;
 }> {
-  const session = await auth.api.getSession({ headers: await headers() });
+  const hdrs = await headers();
+  const session = await auth.api.getSession({ headers: hdrs });
   if (!session || isAnonymousUser(session.user)) {
     return { url: null, needsAuth: true };
   }
   const userId = session.user.id;
+
+  // Daily checkout cap (#316), counted before buildCart's Printful quote and
+  // before any write. Refused as data so the line survives production's
+  // masking of thrown server-action errors. A click that then finds an empty
+  // cart or a stale line still spent its attempt.
+  const quota = await consumeCheckoutQuota({ userId, ip: clientIp(hdrs) });
+  if (!quota.allowed) {
+    return { url: null, error: checkoutLimitMessage(quota.reason) };
+  }
 
   const { view, pageImageIds } = await buildCart(userId);
   if (view.items.length === 0) return { url: null };
@@ -614,6 +634,13 @@ export async function checkoutCart(): Promise<{
   // survives production's masking of server-action errors.
   if (view.items.some((i) => i.unavailable)) {
     return { url: null, error: CART_LINE_UNAVAILABLE };
+  }
+
+  // addToCart stops at CART_MAX_LINES, but two adds landing together at the
+  // boundary can both succeed; a cart over the cap is refused here, before
+  // any order row, until a line is removed.
+  if (view.items.length > CART_MAX_LINES) {
+    return { url: null, error: CART_TOO_FULL_TO_CHECKOUT };
   }
 
   // Shop attribution (#289 item 2). `order.store_product_id` is a header
