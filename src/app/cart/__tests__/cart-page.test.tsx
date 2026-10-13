@@ -661,4 +661,45 @@ describe("CartPage Checkout stays disabled once a navigation is requested (#315)
       loc.restore();
     }
   });
+
+  it("after a persisted pageshow, Checkout works again: a second click calls checkoutCart a second time", async () => {
+    const loc = stubLocationHref();
+    try {
+      await startCheckout(loc);
+
+      firePageShow(true);
+      fireEvent.click(await screen.findByRole("button", { name: /^Checkout/ }));
+
+      await waitFor(() => expect(checkoutCart).toHaveBeenCalledTimes(2));
+    } finally {
+      loc.restore();
+    }
+  });
+
+  it("a line that goes stale after load: one notice and a disabled Checkout, and removing the line clears both", async () => {
+    const STALE_AFTER_CLICK: CartView = {
+      ...ONE_ITEM,
+      items: [{ ...ONE_ITEM.items[0], unavailable: true }],
+    };
+    getCart
+      .mockResolvedValueOnce(ONE_ITEM)
+      .mockResolvedValueOnce(STALE_AFTER_CLICK)
+      .mockResolvedValue(ONE_ITEM);
+    checkoutCart.mockResolvedValue({ url: null, error: CART_LINE_UNAVAILABLE });
+    removeCartItem.mockResolvedValue(undefined);
+    render(<CartPage />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /^Checkout/ }));
+
+    await screen.findByTestId("cart-line-unavailable");
+    expect(screen.getAllByTestId("cart-checkout-error")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: /^Checkout/ })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("cart-checkout-error")).not.toBeInTheDocument()
+    );
+    expect(screen.getByRole("button", { name: /^Checkout/ })).toBeEnabled();
+  });
 });

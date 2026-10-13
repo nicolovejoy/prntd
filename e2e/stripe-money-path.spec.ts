@@ -13,13 +13,14 @@
  * run red. The cart test checks out two designs together and asserts both order
  * lines and the emptied cart. The image-detail-page test orders the owner's
  * own UNPUBLISHED image from the Order panel (one buy surface, slice 3), and
- * the order it creates must carry no Shop composition. The last test does
- * the same purchase but enters through an old /preview link, which redirects
- * to the image detail page with the picks (slice 4). Nothing here pays
- * through Stripe's hosted page any more; hosted is the fail-closed fallback
- * and is covered by the parameter tests in Vitest. The fourth test pays
+ * the order it creates must carry no Shop composition. The third test pays
  * nothing: it orders twice from the image detail page and checks that the
- * first checkout link then shows the expired screen (#315).
+ * first checkout link then shows the expired screen (#315). The last test
+ * does the same purchase as the image-detail-page test but enters through an
+ * old /preview link, which redirects to the image detail page with the picks
+ * (slice 4). Nothing here pays through Stripe's hosted page any more; hosted
+ * is the fail-closed fallback and is covered by the parameter tests in
+ * Vitest.
  *
  * This is the test class that catches real vendor constraints invisible to
  * mocks (e.g. the 2026-07-19 incident: Printful rejects external_id > 32
@@ -608,9 +609,8 @@ test.describe("stripe money path", { tag: "@stripe" }, () => {
       expect(imageId, "seeded design has no primary image").toBeTruthy();
 
       const firstUrl = await orderOnce(imageId!);
-      // order.created_at holds whole seconds and the earlier/later rule breaks
-      // ties by order id, so a second order in the same second might not count
-      // as later. Wait out the second.
+      // The earlier/later rule is insertion order (rowid), so this wait is no
+      // longer required by it. It is kept as the test ran on real Stripe.
       await page.waitForTimeout(1_500);
       const secondUrl = await orderOnce(imageId!);
       expect(secondUrl).not.toBe(firstUrl);

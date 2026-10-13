@@ -587,7 +587,9 @@ async function buildCart(
  * otherwise it is Stripe's hosted URL, as before. Each call makes a new order
  * and session. Once the new session id is saved, the buyer's earlier open
  * sessions (from the cart or from the image detail page) are expired
- * (`expireEarlierCheckoutSessions`, #315), so only the newest can be paid. When
+ * (`expireEarlierCheckoutSessions`, #315), so normally only the newest can be paid. (If an earlier checkout's Stripe
+ * create is slow and this helper reads before its session id is saved, both
+ * stay payable until the next checkout or the two-hour expiry.) When
  * the Stripe create throws, the earlier sessions are left alone.
  */
 export async function checkoutCart(): Promise<{
@@ -765,8 +767,8 @@ export async function checkoutCart(): Promise<{
     .where(eq(orderTable.id, orderId));
 
   // The new session exists and is saved; only now are the buyer's earlier open
-  // sessions expired (#315), from either buy surface, so only the newest
-  // checkout can still be paid. Awaited so the attempt has been made before the
+  // sessions expired (#315), from either buy surface, so normally only
+  // the newest checkout can still be paid (see the window in the doc comment). Awaited so the attempt has been made before the
   // buyer reaches the new form; never throws.
   await expireEarlierCheckoutSessions({ userId, orderId });
 

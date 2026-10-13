@@ -56,8 +56,10 @@ export async function abandonSessionlessOrder(orderId: string): Promise<void> {
  * order is marked abandoned (`abandonSessionlessOrder`), the buyer's earlier
  * sessions are left alone, and the error is re-thrown unchanged. Once the new
  * session id is saved, the same buyer's earlier open sessions are expired
- * (`expireEarlierCheckoutSessions`, #315), so only the newest checkout can
- * still be paid. That step is awaited so it has been attempted before the buyer
+ * (`expireEarlierCheckoutSessions`, #315), so normally only the newest checkout
+ * can still be paid. (If this order's Stripe create is slow and a later
+ * checkout's helper reads before this session id is saved, both stay payable
+ * until the next checkout or the two-hour expiry.) That step is awaited so it has been attempted before the buyer
  * is sent to the new form; it never throws and cannot change the returned URL.
  */
 export async function createStripeCheckoutForOrder(params: {
