@@ -13,15 +13,18 @@
  *     (is_hidden=1 ⇒ hidden, is_hidden=0 ⇒ listed), and a non-draft
  *     composition whose front image has no publication row;
  *   - the image ids the feed's joins return under the old filter and under
- *     the new one, and the ids in only one of the two.
- *
- *   - the image ids the feed returns now (visible, with a live conversation)
+ *     the new one, and the ids in only one of the two;
+ *   - the image ids the feed returns as served (visible, with a live conversation)
  *     and the visible published listings it leaves out for lack of a
  *     conversation (#321), each with image id, product id, title and the
  *     conversation id that names nothing. Those cards leave the Shop; a
- *     listing in this list is expected and does not affect the exit code.
+ *      listing in this list is expected and does not affect the exit code;
+ *   - the visible published listings whose image has no source_design_id
+ *     (image id, product id, title, and the conversation its output link
+ *     names, or none). The feed groups each with its conversation's other
+ *     published images, one card per conversation.
  *
- * Exits 0 and prints PARITY CLEAN when the two lists are identical, so the
+ * Exits 0 and prints PARITY CLEAN when the old-filter and new-filter lists are identical, so the
  * filter change leaves the feed as it was. Exits 1 when they differ, or on
  * any error. A disagreement that does not change the feed (a hidden
  * publication on a draft composition, say) is printed but does not fail.
@@ -58,9 +61,9 @@ async function main() {
     );
   }
 
-  console.log(`\nold feed (product.status = 'listed'): ${report.oldFeedImageIds.length}`);
+  console.log(`\nfeed by product.status (visibility only, 'listed'): ${report.oldFeedImageIds.length}`);
   for (const id of report.oldFeedImageIds) console.log(`  ${id}`);
-  console.log(`\nnew feed (image_publication.is_hidden = 0): ${report.newFeedImageIds.length}`);
+  console.log(`\nfeed by image_publication (visibility only, is_hidden = 0): ${report.newFeedImageIds.length}`);
   for (const id of report.newFeedImageIds) console.log(`  ${id}`);
 
   console.log(`\nonly in the old feed (${report.onlyOld.length}):`);
@@ -68,13 +71,22 @@ async function main() {
   console.log(`only in the new feed (${report.onlyNew.length}):`);
   for (const id of report.onlyNew) console.log(`  ${id}`);
 
-  console.log(`\nfeed now (visible, live conversation): ${report.feedImageIds.length}`);
+  console.log(`\nfeed as served (visible, conversation exists): ${report.feedImageIds.length}`);
   for (const id of report.feedImageIds) console.log(`  ${id}`);
 
   console.log(
     `\nvisible listings left out for lack of a conversation (${report.leftOutNoConversation.length}):`
   );
   for (const l of report.leftOutNoConversation) {
+    console.log(
+      `  image ${l.imageId}  product ${l.productId}  title ${l.title === null ? "—" : JSON.stringify(l.title)}  conversation ${l.conversationId ?? "none"}`
+    );
+  }
+
+  console.log(
+    `\nvisible listings with no source_design_id (${report.nullSourceListings.length}):`
+  );
+  for (const l of report.nullSourceListings) {
     console.log(
       `  image ${l.imageId}  product ${l.productId}  title ${l.title === null ? "—" : JSON.stringify(l.title)}  conversation ${l.conversationId ?? "none"}`
     );

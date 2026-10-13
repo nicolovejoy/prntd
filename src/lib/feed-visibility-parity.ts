@@ -78,6 +78,12 @@ export type FeedVisibilityParityReport = {
   feedImageIds: string[];
   /** Visible published listings the feed leaves out for lack of a conversation, by image id. */
   leftOutNoConversation: FeedLeftOutListing[];
+  /**
+   * Visible published listings whose image has no `source_design_id`, with the
+   * conversation its `output` link names (null when none). The feed groups
+   * each with its conversation's other published images.
+   */
+  nullSourceListings: FeedLeftOutListing[];
   /** True when the old and new lists are identical. */
   clean: boolean;
   counts: Record<string, number>;
@@ -117,6 +123,11 @@ const LEFT_OUT_SQL = `select i.id as image_id, p.id as product_id, p.title, ${CO
   left join \`design\` d on d.id = ${CONVERSATION_ID}
   where ip.is_hidden = 0 and d.id is null`;
 
+// Visible listings whose image has no source_design_id.
+const NULL_SOURCE_SQL = `select i.id as image_id, p.id as product_id, p.title, ${CONVERSATION_ID} as conversation_id ${FEED_FROM}
+  join \`image_publication\` ip on ip.image_id = i.id
+  where ip.is_hidden = 0 and i.source_design_id is null`;
+
 // Every publication row against the composition that fronts its image.
 const PUBLICATIONS_SQL = `select ip.image_id, ip.is_hidden, p.id as product_id, p.status
   from \`image_publication\` ip
@@ -138,6 +149,17 @@ function imageIds(rows: ResultSet["rows"]): string[] {
   return rows.map((r) => String(r.image_id)).sort(byString);
 }
 
+function listings(rows: ResultSet["rows"]): FeedLeftOutListing[] {
+  return rows
+    .map((r) => ({
+      imageId: String(r.image_id),
+      productId: String(r.product_id),
+      title: str(r.title),
+      conversationId: str(r.conversation_id),
+    }))
+    .sort((a, b) => byString(a.imageId, b.imageId));
+}
+
 export async function checkFeedVisibilityParity(
   client: Client
 ): Promise<FeedVisibilityParityReport> {
@@ -152,6 +174,7 @@ export async function checkFeedVisibilityParity(
     statusRes,
     feedRes,
     leftOutRes,
+    nullSourceRes,
   ] = await client.batch(
     [
       PUBLICATIONS_SQL,
@@ -161,6 +184,7 @@ export async function checkFeedVisibilityParity(
       STATUS_SQL,
       FEED_SQL,
       LEFT_OUT_SQL,
+      NULL_SOURCE_SQL,
     ],
     "read"
   );
@@ -228,14 +252,8 @@ export async function checkFeedVisibilityParity(
     onlyOld,
     onlyNew,
     feedImageIds: imageIds(feedRes.rows),
-    leftOutNoConversation: leftOutRes.rows
-      .map((r) => ({
-        imageId: String(r.image_id),
-        productId: String(r.product_id),
-        title: str(r.title),
-        conversationId: str(r.conversation_id),
-      }))
-      .sort((a, b) => byString(a.imageId, b.imageId)),
+    leftOutNoConversation: listings(leftOutRes.rows),
+    nullSourceListings: listings(nullSourceRes.rows),
     clean:
       oldFeedImageIds.length === newFeedImageIds.length &&
       oldFeedImageIds.every((id, i) => id === newFeedImageIds[i]),

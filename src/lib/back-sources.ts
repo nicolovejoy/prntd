@@ -5,7 +5,8 @@
  * The back of a shirt can print any of three image origins:
  *  - This design: the current thread's source images (the original picker).
  *  - My Designs: the display (primary) image of the user's other designs.
- *  - Shop: published, not-hidden images — the discover-feed surface.
+ *  - Shop: published, not-hidden images, as the Shop feed lists them except
+ *    that an image whose conversation is gone stays in (#321).
  * An admin-hidden image is in none of them: nobody may print one.
  *
  * Mirror of `canUseAsPlacementSource` (design-publish.ts): everything this

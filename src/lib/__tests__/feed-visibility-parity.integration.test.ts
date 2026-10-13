@@ -270,6 +270,27 @@ describe("checkFeedVisibilityParity", () => {
     ]);
   });
 
+  it("a null source_design_id with a live output link is in the feed, not left out, and listed as null-source", async () => {
+    const ordinary = await seed();
+    const legacy = await seed();
+    await testDb
+      .update(schema.image)
+      .set({ sourceDesignId: null })
+      .where(eq(schema.image.id, legacy));
+
+    const report = await check();
+    expect(report.feedImageIds).toEqual([ordinary, legacy].sort());
+    expect(report.leftOutNoConversation).toEqual([]);
+    expect(report.nullSourceListings.map((l) => l.imageId)).toEqual([legacy]);
+    expect(report.nullSourceListings[0].conversationId).toEqual(expect.any(String));
+    expect(report.clean).toBe(true);
+  });
+
+  it("reports no null-source listings when every image has a source_design_id", async () => {
+    await seed();
+    expect((await check()).nullSourceListings).toEqual([]);
+  });
+
   it("writes nothing", async () => {
     const stale = await seed();
     await setHidden(stale, true);

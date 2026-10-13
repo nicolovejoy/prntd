@@ -379,7 +379,11 @@ describe("getPublishedFeed leaves out a listing with no live conversation (#321)
   });
 
   it("a dropped row does not take a slot: limit 1 returns the ordinary listing", async () => {
-    await publishConversationGone({ feedRank: 1 });
+    // More dropped listings than the SQL window (limit * 4), all ranked ahead,
+    // so a filter applied after the SQL limit would return nothing.
+    for (let i = 1; i <= 6; i++) {
+      await publishConversationGone({ feedRank: i });
+    }
     const ok = await publish({ minutesAgo: 30 });
     const feed = await getPublishedFeed(1);
     expect(feed.map((r) => r.imageId)).toEqual([ok.imageId]);

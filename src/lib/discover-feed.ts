@@ -22,8 +22,8 @@
  *
  * src/lib/feed-visibility-parity.ts re-runs this query's joins as raw SQL so
  * a production database can be checked against the visibility rule, and lists
- * the visible listings the conversation rule leaves out. If the joins or the filters below
- * change, change that module with them.
+ * the visible listings the conversation rule leaves out. If the joins or the
+ * filters below change, change that module with them.
  */
 import { db } from "@/lib/db";
 import {
@@ -149,8 +149,9 @@ export async function getPublishedFeed(limit = 60): Promise<FeedRow[]> {
     .limit(Math.min(limit * 4, 240));
 
   // Every row has a live conversation (the join above), so designId is never
-  // null and there is no per-image fallback group. The publish timestamp goes through the shared rule so the feed, /d, the
-  // admin grid and the share card can never disagree about it.
+  // null and there is no per-image fallback group. The publish timestamp
+  // goes through the shared rule so the feed, /d, the admin grid and the
+  // share card can never disagree about it.
   return orderFeedByRank(
     rows.map(({ listedAt, productCreatedAt, ...r }) => ({
       ...r,
