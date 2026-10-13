@@ -47,7 +47,7 @@ vi.mock("@/lib/printful", () => ({
   estimateOrderCosts: vi.fn(async () => null),
 }));
 
-import { buyPublishedDesign, getListingMockup } from "@/app/d/actions";
+import { buyPublishedDesign, getListingMockup, getDiscoverFeed } from "@/app/d/actions";
 import { resolveBuyableImage } from "@/lib/buyable-image";
 import { addToCart } from "@/app/cart/actions";
 import { getImagePage } from "./normal-image-page";
@@ -129,6 +129,13 @@ describe("a published image whose conversation is gone", () => {
     const ids = await seed(h.db as Db);
     const page = await getImagePage(ids.liveId);
     expect(page!.canOrder).toBe(true);
+  });
+
+  it("the Shop feed leaves it out and keeps the ordinary published image", async () => {
+    const ids = await seed(h.db as Db);
+    const feedIds = (await getDiscoverFeed()).map((c) => c.imageId);
+    expect(feedIds).not.toContain(ids.goneId);
+    expect(feedIds).toContain(ids.liveId);
   });
 
   it("the page's canOrder agrees with the gate", async () => {

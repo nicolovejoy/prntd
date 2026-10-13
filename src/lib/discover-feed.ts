@@ -12,12 +12,23 @@
  * at all is read from `image_publication` (#300), like every other visibility
  * check; `product.status` is not consulted.
  *
+ * A listing also needs a live conversation (#321): the image's conversation id
+ * (`image.source_design_id`, else the design of its `output` link, the id
+ * `getDesignImageWithOwner` derives) must name an existing `design` row, which
+ * is the condition under which `resolveBuyableImage` lets a signed-out visitor
+ * order it. A published image can outlive its conversation; its card would
+ * lead to a page with no Order, so the feed leaves it out. That conversation
+ * id is also the dedupe key.
+ *
  * src/lib/feed-visibility-parity.ts re-runs this query's joins as raw SQL so
- * a production database can be checked against the visibility rule. If the
- * joins or the visibility filter below change, change that module with them.
+ * a production database can be checked against the visibility rule, and lists
+ * the visible listings this rule leaves out. If the joins or the filters below
+ * change, change that module with them.
  */
 import { db } from "@/lib/db";
 import {
+  conversationImage as conversationImageTable,
+  design as designTable,
   image as imageTable,
   imagePublication as imagePublicationTable,
   product as productTable,
@@ -98,11 +109,18 @@ export async function getPublishedFeed(limit = 60): Promise<FeedRow[]> {
   // the inner join drops an image with no publication row (unpublished) and
   // `is_hidden = false` drops one an admin hid. `product.status` is still
   // written on publish, unpublish and hide but is not read here. The designer
-  // comes off image.ownerId (denormalized in Model B) — no design join left.
+  // comes off image.ownerId (denormalized in Model B).
+  //
+  // The inner join on `design` keeps a listing only when its conversation id
+  // names a live conversation (see the header). It is a primary-key join, so
+  // it cannot multiply rows, and it sits in the same query before the limit,
+  // so a dropped row never takes a slot from one that should show. The output
+  // link is a scalar subquery rather than a join for the same reason.
+  const conversationId = sql<string>`coalesce(${imageTable.sourceDesignId}, (select ${conversationImageTable.designId} from ${conversationImageTable} where ${conversationImageTable.imageId} = ${imageTable.id} and ${conversationImageTable.role} = 'output' limit 1))`;
   const rows = await db
     .select({
       imageId: imageTable.id,
-      designId: imageTable.sourceDesignId,
+      designId: designTable.id,
       imageUrl: imageTable.imageUrl,
       title: productTable.title,
       description: productTable.description,
@@ -121,6 +139,7 @@ export async function getPublishedFeed(limit = 60): Promise<FeedRow[]> {
       imagePublicationTable,
       eq(imagePublicationTable.imageId, imageTable.id)
     )
+    .innerJoin(designTable, eq(designTable.id, conversationId))
     .where(eq(imagePublicationTable.isHidden, false))
     .orderBy(
       sql`${productTable.feedRank} is null`,
@@ -129,13 +148,12 @@ export async function getPublishedFeed(limit = 60): Promise<FeedRow[]> {
     )
     .limit(Math.min(limit * 4, 240));
 
-  // An image with no source conversation is its own dedupe group.
-  // The publish timestamp goes through the shared rule so the feed, /d, the
+  // Every row has a live conversation (the join above), so designId is never
+  // null and there is no per-image fallback group. The publish timestamp goes through the shared rule so the feed, /d, the
   // admin grid and the share card can never disagree about it.
   return orderFeedByRank(
     rows.map(({ listedAt, productCreatedAt, ...r }) => ({
       ...r,
-      designId: r.designId ?? r.imageId,
       publishedAt: listedMirrorPublishedAt(listedAt, productCreatedAt),
     }))
   ).slice(0, limit);

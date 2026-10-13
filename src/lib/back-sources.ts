@@ -331,8 +331,9 @@ async function getOtherDesignPrimaries(
 }
 
 /**
- * Published, not-hidden images — the getDiscoverFeed surface, collapsed to
- * one card per design (dedupeFeedByDesign), newest published first. Pass
+ * Published, not-hidden images, collapsed to one card per design
+ * (dedupeFeedByDesign), newest published first. Unlike getDiscoverFeed, this
+ * does not drop an image whose conversation is gone (#321). Pass
  * `excludeDesignId` when the caller renders a This-design group (those
  * published images already appear there); null keeps every design in — the
  * /d cross-owner case, where the source design's published images are only
