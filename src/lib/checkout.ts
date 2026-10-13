@@ -10,7 +10,10 @@ import type Stripe from "stripe";
  * Stripe would otherwise sit on it before its own default expiry. The
  * `/orders` staleness window (`STALE_PENDING_MS`, src/lib/user-orders.ts)
  * sits 15 minutes above this value so a session that's still technically
- * live never gets flagged stale first.
+ * live never gets flagged stale first. A buyer's session can also end sooner:
+ * a newer checkout by the same buyer expires it, and `/checkout` expires one
+ * whose artwork an admin hid (#315). Both call `stripe.checkout.sessions.expire`
+ * and mark the order abandoned once Stripe confirms.
  */
 export const CHECKOUT_SESSION_TTL_SECONDS = 2 * 60 * 60;
 

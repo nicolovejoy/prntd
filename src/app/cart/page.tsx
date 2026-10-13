@@ -115,9 +115,15 @@ export default function CartPage() {
     }
   }
 
+  // Set once a navigation has been requested. checkingOut then stays true
+  // until the page unloads: resetting it as soon as the assignment returns
+  // would re-enable the button, the steppers and the Edit links during the wait
+  // for the next page, and a second tap would create a second order (#315).
   async function handleCheckout() {
+    if (checkingOut) return;
     setCheckingOut(true);
     setCheckoutError(null);
+    let navigating = false;
     try {
       let result: Awaited<ReturnType<typeof checkoutCart>>;
       try {
@@ -143,16 +149,31 @@ export default function CartPage() {
         return;
       }
       if (needsAuth) {
+        navigating = true;
         window.location.href = "/sign-in?next=/cart";
         return;
       }
       // Hosted checkout is an absolute Stripe URL; embedded checkout is our
       // own /checkout path (#278 slice 6b). Both are document navigations.
-      if (url) window.location.href = url;
+      if (url) {
+        navigating = true;
+        window.location.href = url;
+      }
     } finally {
-      setCheckingOut(false);
+      if (!navigating) setCheckingOut(false);
     }
   }
+
+  // Back can restore this page from the back/forward cache with its state as
+  // it was when the buyer left: Checkout on "Redirecting…". A persisted
+  // pageshow means exactly that, so hand the page back.
+  useEffect(() => {
+    function onPageShow(event: PageTransitionEvent) {
+      if (event.persisted) setCheckingOut(false);
+    }
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, []);
 
   const empty = !loadFailed && cart !== null && cart.items.length === 0;
 

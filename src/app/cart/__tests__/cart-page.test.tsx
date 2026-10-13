@@ -477,3 +477,110 @@ describe("CartPage checkout (#278 slice 6b)", () => {
     expect(getCart).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("CartPage Checkout stays disabled once a navigation is requested (#315)", () => {
+  const EMBEDDED_PATH = "/checkout?session=cs_test_abc&from=%2Fcart";
+  const WITH_EDIT: CartView = {
+    ...ONE_ITEM_WITH_IMAGE,
+    items: [
+      {
+        ...ONE_ITEM_WITH_IMAGE.items[0],
+        editHref: "/d/img-1?order=1&size=M&line=line-1&from=%2Fcart",
+      },
+    ],
+  };
+
+  function firePageShow(persisted: boolean) {
+    const event = new Event("pageshow") as Event & { persisted: boolean };
+    Object.defineProperty(event, "persisted", { value: persisted });
+    window.dispatchEvent(event);
+  }
+
+  async function startCheckout(loc: ReturnType<typeof stubLocationHref>) {
+    getCart.mockResolvedValue(WITH_EDIT);
+    checkoutCart.mockResolvedValue({ url: EMBEDDED_PATH });
+    render(<CartPage />);
+    fireEvent.click(await screen.findByRole("button", { name: /^Checkout/ }));
+    await waitFor(() => expect(loc.hrefSet).toHaveBeenCalledWith(EMBEDDED_PATH));
+  }
+
+  it("after the url is followed: the button reads Redirecting, the steppers are disabled and Edit is not a link", async () => {
+    const loc = stubLocationHref();
+    try {
+      await startCheckout(loc);
+
+      const button = screen.getByRole("button", { name: "Redirecting…" });
+      expect(button).toBeDisabled();
+      expect(screen.getByRole("button", { name: /^Increase quantity/ })).toBeDisabled();
+      expect(screen.getByRole("button", { name: /^Decrease quantity/ })).toBeDisabled();
+      expect(screen.queryByRole("link", { name: "Edit" })).not.toBeInTheDocument();
+    } finally {
+      loc.restore();
+    }
+  });
+
+  it("a persisted pageshow gives the page back; a non-persisted one does not", async () => {
+    const loc = stubLocationHref();
+    try {
+      await startCheckout(loc);
+
+      firePageShow(false);
+      expect(screen.getByRole("button", { name: "Redirecting…" })).toBeDisabled();
+
+      firePageShow(true);
+      expect(await screen.findByRole("button", { name: /^Checkout/ })).toBeEnabled();
+      expect(screen.getByRole("button", { name: /^Increase quantity/ })).toBeEnabled();
+      expect(screen.getByRole("link", { name: "Edit" })).toBeInTheDocument();
+    } finally {
+      loc.restore();
+    }
+  });
+
+  it("needsAuth also stays disabled", async () => {
+    const loc = stubLocationHref();
+    try {
+      getCart.mockResolvedValue(ONE_ITEM);
+      checkoutCart.mockResolvedValue({ url: null, needsAuth: true });
+      render(<CartPage />);
+      fireEvent.click(await screen.findByRole("button", { name: /^Checkout/ }));
+      await waitFor(() =>
+        expect(loc.hrefSet).toHaveBeenCalledWith("/sign-in?next=/cart")
+      );
+      expect(screen.getByRole("button", { name: "Redirecting…" })).toBeDisabled();
+    } finally {
+      loc.restore();
+    }
+  });
+
+  it.each([
+    ["a returned error", () => checkoutCart.mockResolvedValue({ url: null, error: CART_LINE_UNAVAILABLE })],
+    ["a thrown action", () => checkoutCart.mockRejectedValue(new Error("boom"))],
+    ["a null url", () => checkoutCart.mockResolvedValue({ url: null })],
+  ])("%s leaves the button enabled", async (_label, arrange) => {
+    const loc = stubLocationHref();
+    try {
+      getCart.mockResolvedValue(ONE_ITEM);
+      arrange();
+      render(<CartPage />);
+      fireEvent.click(await screen.findByRole("button", { name: /^Checkout/ }));
+      await waitFor(() => expect(checkoutCart).toHaveBeenCalledTimes(1));
+      expect(await screen.findByRole("button", { name: /^Checkout/ })).toBeEnabled();
+      expect(loc.hrefSet).not.toHaveBeenCalled();
+    } finally {
+      loc.restore();
+    }
+  });
+
+  it("a second click while disabled does not call checkoutCart again", async () => {
+    const loc = stubLocationHref();
+    try {
+      await startCheckout(loc);
+
+      fireEvent.click(screen.getByRole("button", { name: "Redirecting…" }));
+
+      expect(checkoutCart).toHaveBeenCalledTimes(1);
+    } finally {
+      loc.restore();
+    }
+  });
+});
