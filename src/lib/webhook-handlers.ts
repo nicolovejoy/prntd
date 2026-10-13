@@ -184,6 +184,14 @@ export async function handleStripeCheckoutCompleted(
     throw err;
   }
 
+  // The claim cleared abandoned_at (#327). By Stripe's rules this should not
+  // happen, so the cleared mark is logged rather than lost.
+  if (foundOrder.abandonedAt) {
+    console.warn(
+      `Order ${orderId}: paid after it was marked abandoned at ${foundOrder.abandonedAt.toISOString()}`
+    );
+  }
+
   // #38: the cart survives Stripe-session creation, so backing out of checkout
   // returns to an intact /cart. Payment is the point of no return — clear the
   // purchased lines here, matched per line so anything added to the cart

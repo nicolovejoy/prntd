@@ -150,29 +150,32 @@ describe("payment_status gate (#266)", () => {
 
     expect(result.action).toBe("submitted");
     const after = await load(db, order.id);
-    expect(after?.status).not.toBe("pending");
+    expect(after?.status).toBe("submitted");
     expect(after?.abandonedAt).toBeNull();
     const types = await ledgerTypes(db, order.id);
     expect(types.filter((t) => t === "sale")).toHaveLength(1);
     expect(types.filter((t) => t === "stripe_fee")).toHaveLength(1);
   });
 
-  it("a redelivery after that claim is skipped and changes nothing (#327)", async () => {
+  it("a late expiry after the claim ignores the order and leaves abandonedAt null (#327)", async () => {
     const { order, design } = await seed(db);
     await db
       .update(schema.order)
       .set({ abandonedAt: new Date() })
       .where(eq(schema.order.id, order.id));
     const { deps, createPrintfulOrder } = makeDeps(db);
-    const session = makeSession(order.id, design.id, "paid");
-    await handleStripeCheckoutCompleted(session, deps);
-    const before = await load(db, order.id);
+    await handleStripeCheckoutCompleted(
+      makeSession(order.id, design.id, "paid"),
+      deps
+    );
     const ledgerBefore = await ledgerTypes(db, order.id);
 
-    const again = await handleStripeCheckoutCompleted(session, deps);
+    const result = await handleStripeCheckoutExpired(order.id, { db });
 
-    expect(again.action).toBe("skipped");
-    expect(await load(db, order.id)).toEqual(before);
+    expect(result).toEqual({ action: "ignored" });
+    const after = await load(db, order.id);
+    expect(after?.abandonedAt).toBeNull();
+    expect(after?.status).toBe("submitted");
     expect(await ledgerTypes(db, order.id)).toEqual(ledgerBefore);
     expect(createPrintfulOrder).toHaveBeenCalledTimes(1);
   });
