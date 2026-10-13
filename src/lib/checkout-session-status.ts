@@ -26,6 +26,7 @@
 import Stripe from "stripe";
 import { stripe } from "@/lib/stripe";
 import { withTimeout } from "@/lib/timeout";
+import { embeddedCheckoutPath } from "@/lib/embedded-checkout";
 
 /** Shared by `loadEmbeddedCheckout` too — both reads sit on the same
  * post-payment critical path and get the same bound. */
@@ -95,6 +96,9 @@ export type ConfirmView =
  * charged or not charged). For a pending order: `open` and `expired` as
  * above; `complete` is confirmed when `payment_status` is paid,
  * no_payment_required or absent; any other value is "processing", or "failed" once the webhook has abandoned the order.
+ * An open embedded session resumes at `/checkout` through
+ * `embeddedCheckoutPath`, carrying `from` so the Back link goes where the
+ * original one went (#317).
  */
 export function resolveConfirmView(params: {
   orderStatus: string;
@@ -102,6 +106,12 @@ export function resolveConfirmView(params: {
   stripe: CheckoutSessionState | null;
   embeddedEnabled: boolean;
   sessionId: string;
+  /** The `from` Stripe handed back on `return_url` (written by
+   * `buildCheckoutSessionParams`, #317): where /checkout's Back link went on
+   * the first visit. It arrives in the query string, so `embeddedCheckoutPath`
+   * sanitises it again; missing or unsafe becomes the Shop. Used only for an
+   * embedded resume link. */
+  from?: string;
 }): ConfirmView {
   if (params.orderStatus !== "pending") return { kind: "confirmed" };
 
@@ -120,7 +130,7 @@ export function resolveConfirmView(params: {
   if (stripeState.status === "open") {
     const resumeHref =
       stripeState.uiMode === "embedded" && params.embeddedEnabled
-        ? `/checkout?session=${encodeURIComponent(params.sessionId)}`
+        ? embeddedCheckoutPath(params.sessionId, params.from ?? "")
         : stripeState.url ?? null;
     return { kind: "incomplete", resumeHref };
   }

@@ -38,10 +38,17 @@ type Search = Promise<Record<string, string | string[] | undefined>>;
  * embedded switches: a switch rolled back mid-checkout must never render
  * "Order confirmed." for an open, unpaid session. A non-`pending` order means
  * zero Stripe calls — the page stays the plain DB read it always was.
+ *
+ * The resume link carries the `from` Stripe handed back on `return_url`, so
+ * the resumed /checkout's Back link goes where the original one went (the
+ * cart or the image detail page) instead of the Shop (#317).
  */
 export default async function ConfirmPage({ searchParams }: { searchParams: Search }) {
-  const raw = (await searchParams).session_id;
+  const query = await searchParams;
+  const raw = query.session_id;
   const sessionId = typeof raw === "string" && raw ? raw : null;
+  const rawFrom = query.from;
+  const from = typeof rawFrom === "string" ? rawFrom : undefined;
 
   let order = null;
   let loadFailed = false;
@@ -113,6 +120,7 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Sear
       stripe: stripeState,
       embeddedEnabled: embeddedCheckoutPageConfig().enabled,
       sessionId,
+      from,
     });
   }
 

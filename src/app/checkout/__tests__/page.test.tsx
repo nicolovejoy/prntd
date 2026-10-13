@@ -430,7 +430,7 @@ describe("CheckoutPage", () => {
     );
   });
 
-  it("no from (the link /order/confirm builds for an open session): Back is the Shop", async () => {
+  it("no from (a link made before #317): Back is the Shop", async () => {
     h.loadEmbeddedCheckout.mockResolvedValue(TWO_LINES);
 
     render(await renderCheckout({ session: VALID_SESSION }));
