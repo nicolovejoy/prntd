@@ -188,6 +188,7 @@ describe("ConfirmPage", () => {
       status: "open",
       uiMode: "hosted",
       url: "https://checkout.stripe.com/x",
+      amountTotal: null,
     });
 
     await renderConfirm({ session_id: "cs_1" });
@@ -205,7 +206,7 @@ describe("ConfirmPage", () => {
     vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", undefined);
     vi.stubEnv("PREVIEW_EMBEDDED_CHECKOUT_ENABLED", undefined);
     getOrderBySession.mockResolvedValue(PENDING_ORDER);
-    getCheckoutSessionState.mockResolvedValue({ status: "open", uiMode: "embedded", url: null });
+    getCheckoutSessionState.mockResolvedValue({ status: "open", uiMode: "embedded", url: null, amountTotal: null });
 
     await renderConfirm({ session_id: "cs_1" });
 
@@ -217,7 +218,7 @@ describe("ConfirmPage", () => {
     vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", undefined);
     vi.stubEnv("PREVIEW_EMBEDDED_CHECKOUT_ENABLED", undefined);
     getOrderBySession.mockResolvedValue(PENDING_ORDER);
-    getCheckoutSessionState.mockResolvedValue({ status: "complete", uiMode: "hosted", url: null });
+    getCheckoutSessionState.mockResolvedValue({ status: "complete", uiMode: "hosted", url: null, amountTotal: null });
 
     await renderConfirm({ session_id: "cs_1" });
 
@@ -242,7 +243,7 @@ describe("ConfirmPage", () => {
     vi.stubEnv("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", "pk_test_abc123");
     vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_abc123");
     getOrderBySession.mockResolvedValue(PENDING_ORDER);
-    getCheckoutSessionState.mockResolvedValue({ status: "open", uiMode: "embedded", url: null });
+    getCheckoutSessionState.mockResolvedValue({ status: "open", uiMode: "embedded", url: null, amountTotal: null });
 
     await renderConfirm({ session_id: "cs_1" });
 
@@ -268,7 +269,7 @@ describe("ConfirmPage", () => {
     vi.stubEnv("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", "pk_test_abc123");
     vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_abc123");
     getOrderBySession.mockResolvedValue(PENDING_ORDER);
-    getCheckoutSessionState.mockResolvedValue({ status: "open", uiMode: "embedded", url: null });
+    getCheckoutSessionState.mockResolvedValue({ status: "open", uiMode: "embedded", url: null, amountTotal: null });
 
     await renderConfirm({ session_id: "cs_1" });
 
@@ -287,7 +288,7 @@ describe("ConfirmPage", () => {
     vi.stubEnv("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", "pk_test_abc123");
     vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_abc123");
     getOrderBySession.mockResolvedValue(PENDING_ORDER);
-    getCheckoutSessionState.mockResolvedValue({ status: "open", uiMode: "embedded", url: null });
+    getCheckoutSessionState.mockResolvedValue({ status: "open", uiMode: "embedded", url: null, amountTotal: null });
 
     await renderConfirm({ session_id: "cs_1", from });
 
@@ -300,7 +301,7 @@ describe("ConfirmPage", () => {
     // come back null rather than pointing at a page that can't render.
     vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", "true");
     getOrderBySession.mockResolvedValue(PENDING_ORDER);
-    getCheckoutSessionState.mockResolvedValue({ status: "open", uiMode: "embedded", url: null });
+    getCheckoutSessionState.mockResolvedValue({ status: "open", uiMode: "embedded", url: null, amountTotal: null });
 
     await renderConfirm({ session_id: "cs_1" });
 
@@ -315,6 +316,7 @@ describe("ConfirmPage", () => {
       status: "open",
       uiMode: "hosted",
       url: "https://checkout.stripe.com/x",
+      amountTotal: null,
     });
 
     await renderConfirm({ session_id: "cs_1" });
@@ -327,7 +329,7 @@ describe("ConfirmPage", () => {
   it("flag on + pending + complete session: shows Order confirmed.", async () => {
     vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", "true");
     getOrderBySession.mockResolvedValue(PENDING_ORDER);
-    getCheckoutSessionState.mockResolvedValue({ status: "complete", uiMode: "embedded", url: null });
+    getCheckoutSessionState.mockResolvedValue({ status: "complete", uiMode: "embedded", url: null, amountTotal: null });
 
     await renderConfirm({ session_id: "cs_1" });
 
@@ -337,7 +339,7 @@ describe("ConfirmPage", () => {
   it("flag on + pending + expired session: shows the expired copy with a Back to Shop link, no Return to checkout", async () => {
     vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", "true");
     getOrderBySession.mockResolvedValue(PENDING_ORDER);
-    getCheckoutSessionState.mockResolvedValue({ status: "expired", uiMode: "embedded", url: null });
+    getCheckoutSessionState.mockResolvedValue({ status: "expired", uiMode: "embedded", url: null, amountTotal: null });
 
     await renderConfirm({ session_id: "cs_1" });
 
@@ -356,6 +358,50 @@ describe("ConfirmPage", () => {
     await renderConfirm({ session_id: "cs_1" });
 
     expect(screen.getByText("Order confirmed.")).toBeInTheDocument();
+    expect(screen.getByText("$24.12")).toBeInTheDocument();
+  });
+
+  it("pending + complete + paid: prints Stripe's charged total, not the stored pre-discount one (#317)", async () => {
+    vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", "true");
+    getOrderBySession.mockResolvedValue(PENDING_ORDER);
+    getCheckoutSessionState.mockResolvedValue({
+      status: "complete",
+      paymentStatus: "paid",
+      uiMode: "embedded",
+      url: null,
+      amountTotal: 1912,
+    });
+
+    await renderConfirm({ session_id: "cs_1" });
+
+    expect(screen.getByText("Order confirmed.")).toBeInTheDocument();
+    expect(screen.getByText("$19.12")).toBeInTheDocument();
+    expect(screen.queryByText("$24.12")).not.toBeInTheDocument();
+  });
+
+  it("pending + complete + paid with no amount_total: falls back to the stored total", async () => {
+    vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", "true");
+    getOrderBySession.mockResolvedValue(PENDING_ORDER);
+    getCheckoutSessionState.mockResolvedValue({
+      status: "complete",
+      paymentStatus: "paid",
+      uiMode: "embedded",
+      url: null,
+      amountTotal: null,
+    });
+
+    await renderConfirm({ session_id: "cs_1" });
+
+    expect(screen.getByText("$24.12")).toBeInTheDocument();
+  });
+
+  it("a paid order prints its stored (webhook-reconciled) total with no Stripe read", async () => {
+    getOrderBySession.mockResolvedValue({ ...FRONT_ONLY_ORDER, totalPrice: 19.12 });
+
+    await renderConfirm({ session_id: "cs_1" });
+
+    expect(getCheckoutSessionState).not.toHaveBeenCalled();
+    expect(screen.getByText("$19.12")).toBeInTheDocument();
   });
   describe("delayed payment (#272)", () => {
     const PENDING = { ...FRONT_ONLY_ORDER, status: "pending", abandoned: false };
@@ -364,6 +410,7 @@ describe("ConfirmPage", () => {
       paymentStatus,
       uiMode: "hosted",
       url: null,
+      amountTotal: null,
     });
 
     it("shows Payment still processing for a pending order on a complete, unpaid session", async () => {
