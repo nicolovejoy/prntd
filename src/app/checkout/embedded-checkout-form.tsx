@@ -48,8 +48,10 @@ function getStripePromise(key: string): Promise<Stripe | null> {
 /**
  * Mounts Stripe's embedded payment form for an already-open checkout
  * session (#135 slice 2). A broken checkout SESSION (expired, wrong state)
- * is the `/checkout` page's job, resolved before this component ever
- * mounts. This component handles two separate failure shapes on top of
+ * is the `/checkout` page's job, resolved before this component mounts. A
+ * session that expires while the form is open (a newer checkout by the same
+ * buyer, or a hidden-artwork refusal in another tab, #315) is not detected
+ * here; Stripe's form reports it. This component handles two separate failure shapes on top of
  * that: the loader script itself failing (network blocked, a bad
  * publishable key) shows a plain retry in place of the whole form; and the
  * loader succeeding but the iframe never appearing (e.g. a publishable key

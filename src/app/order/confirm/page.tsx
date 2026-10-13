@@ -20,7 +20,8 @@ type Search = Promise<Record<string, string | string[] | undefined>>;
  * back here the row already exists — there is no race with the webhook to guard against for the
  * receipt, which renders no field the webhook writes (ruling P3). The one
  * webhook-written field it does read is `abandoned` (set when a delayed
- * payment fails), and the processing → failed change is a race with the
+ * payment fails, and also when a session is expired by a newer checkout or a
+ * hidden-artwork refusal, #315, where the session never completes), and the processing → failed change is a race with the
  * webhook: the page does not poll, so the buyer sees it on the next load.
  * That keeps this a plain awaited server read with no retry/poll island.
  * `/orders` hides young pending rows (src/lib/user-orders.ts,

@@ -40,7 +40,7 @@ jobs:
       STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
       # Purchases from the image detail page and from the cart open Embedded
       # Checkout on our own /checkout page, which is how production sells
-      # (EMBEDDED_CHECKOUT_ENABLED is on there). All three tests fail if the
+      # (EMBEDDED_CHECKOUT_ENABLED is on there). All four tests fail if the
       # switch is off.
       # The publishable key is a repo variable, not a secret (it ships to
       # browsers). It is inlined at `next build`, and must belong to the same

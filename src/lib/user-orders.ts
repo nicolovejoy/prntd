@@ -12,7 +12,9 @@ export type UserOrder = Awaited<ReturnType<typeof getUserOrdersData>>[number];
 
 // Stripe Checkout Sessions expire CHECKOUT_SESSION_TTL_SECONDS (2h,
 // src/lib/checkout.ts) after creation, at which point the
-// checkout.session.expired webhook sets order.abandonedAt. This window sits
+// checkout.session.expired webhook sets order.abandonedAt (a newer checkout by
+// the same buyer, or a hidden-artwork refusal at /checkout, can also expire a
+// session sooner and set it, #315). This window sits
 // 15 minutes above that TTL — margin for webhook-delivery lag, so a pending
 // row that is merely mid-flight (session not yet expired, webhook not yet
 // fired) doesn't get misread as webhook-stranded below.
@@ -39,7 +41,7 @@ export async function getUserOrdersData(buyerId: string, now = Date.now()) {
     .from(orderTable)
     // pending covers four populations: young (in-flight or not-yet-expired
     // checkout — hidden, it may still complete), abandoned (Stripe's
-    // checkout.session.expired webhook confirmed the session died — hidden),
+    // checkout.session.expired webhook, or our own expiry call (#315), confirmed the session died — hidden),
     // old-and-not-abandoned-with-a-session (the checkout session expired or
     // is long past its TTL but no completed/expired webhook ever landed — a
     // paid order the webhook never recorded, or an expiry Stripe never told
