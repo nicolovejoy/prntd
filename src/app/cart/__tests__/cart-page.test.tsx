@@ -222,6 +222,18 @@ describe("CartPage unavailable lines (one buy surface, slice 3)", () => {
     expect(screen.getAllByTestId("cart-line-item")).toHaveLength(2);
   });
 
+  it("an unavailable line with no image URLs renders no thumbnail image", async () => {
+    getCart.mockResolvedValue({
+      ...ONE_ITEM,
+      items: [{ ...ONE_ITEM.items[0], unavailable: true, imageUrl: null, backImageUrl: null }],
+    });
+    render(<CartPage />);
+    const line = await screen.findByTestId("cart-line-item");
+    expect(line.querySelector("img")).toBeNull();
+    expect(screen.queryByTestId("cart-line-back")).not.toBeInTheDocument();
+    expect(screen.getByTestId("cart-line-unavailable")).toHaveTextContent("No longer available");
+  });
+
   it("shows no label for a valid line", async () => {
     getCart.mockResolvedValue(ONE_ITEM);
     render(<CartPage />);
