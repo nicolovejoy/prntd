@@ -131,7 +131,7 @@ describe("expireEarlierCheckoutSessions (#315)", () => {
     expect(after.status).toBe("pending");
   });
 
-  it.each([
+  it.each<[string, NonNullable<Parameters<typeof seedOrder>[1]>]>([
     ["a paid order", { status: "paid" as const }],
     ["an already abandoned order", { abandonedAt: new Date() }],
     ["an order with no session id", { sessionId: null }],

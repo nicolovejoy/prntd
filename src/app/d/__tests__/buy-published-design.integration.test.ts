@@ -41,6 +41,7 @@ vi.mock("@/lib/stripe", () => ({
   stripe: {
     checkout: {
       sessions: {
+        expire: vi.fn(async (id: string) => ({ id, status: "expired" })),
         create: vi.fn(async () => ({
           id: "cs_test_back",
           url: "https://checkout.stripe.example/cs_test_back",
