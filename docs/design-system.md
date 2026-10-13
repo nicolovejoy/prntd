@@ -782,19 +782,32 @@ section used to describe now live on `/preview`, above.
 
 ### `/order/confirm` (`app/order/confirm/page.tsx`)
 
-Job: confirm the money was well spent; route onward.
+Job: confirm the money was well spent; route onward. Owner only (#317 item 3,
+#338): with a `session_id` the page reads the session first; signed out or an
+anonymous guest goes to `/sign-in?next=` this page and back; any other account
+gets "Order not found."
 
 1. Ruled receipt — mono opening line (= Part 1 surface 7), order ID (mono),
    per-line thumbnails (front + back when both were ordered), size/color,
-   total. Server-rendered (PR #221 — no client fetch, no "Loading…"), so the
-   first paint is the receipt; the decorative checkmark went with the Paper
-   sweep.
-2. **View My Orders** (primary) + Start another design (underlined link).
-3. Three states, verified against the file: the receipt, order-not-found
-   ("Order not found." + Start a new design), and
-   receipt-couldn't-be-loaded (a caught loader failure — "The receipt
-   couldn't be loaded. Your order is listed in My Orders." — which must not
-   read as a failed payment).
+   total ("Total paid": Stripe's charged total for a pending order on a
+   settled session, else the stored total, #335). Server-rendered (PR #221 —
+   no client fetch, no "Loading…"), so the first paint is the receipt; the
+   decorative checkmark went with the Paper sweep.
+2. **View orders** (primary) + Start another design (underlined link).
+3. States, verified against the file (2026-10-13): the receipt;
+   order-not-found ("Order not found." + Start a new design, also what a
+   non-owner sees); and the status screens, which share one layout (mono
+   heading, one body line, breadcrumb "Checkout"): incomplete ("Payment not
+   completed." / "Nothing was charged." + Return to checkout when the session
+   can be resumed), expired ("This checkout expired." / "Nothing was
+   charged."), processing ("Payment still processing" / "Your order will be
+   placed once the payment clears.", Nico's wording), failed ("Payment not
+   completed." / "The payment didn't go through."), and checking ("Payment
+   not confirmed yet." / "Couldn't confirm it just now. Reload in a moment. A
+   paid order appears under Orders once it's confirmed." + Reload + View
+   orders; shown when the Stripe read or the order read fails, #317 item 1,
+   #338). Every status screen but checking ends in Back to Shop. No state
+   claims a payment went through without Stripe or the webhook saying so.
 
 ### `/cart` (`app/cart/page.tsx`) — flag `CART_ENABLED`
 
