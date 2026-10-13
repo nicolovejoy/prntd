@@ -14,8 +14,11 @@
  *  - Per image: a conversation link from ANOTHER design (a seed carried into a
  *    fresh-start thread), another composition's placements, or another
  *    design's cart line's placements downgrade the delete to a link-detach —
- *    the image row survives, only this design's link goes. Otherwise the
- *    image row, its publication row and its own composition are deleted.
+ *    the image row survives, only this design's link goes. An image an admin
+ *    has hidden is kept too ("keep-hidden"): the conversation and its link
+ *    go, the image row, its publication row (the moderation record) and its
+ *    composition stay, and so does the R2 object. Otherwise the image row,
+ *    its publication row and its own composition are deleted.
  *    (Until composition slice 5 a `product` could also FK the design directly
  *    — an organizer sellable — and blocked the delete; that column is gone.)
  *  - Everything else that FKs design.id (chat_message, conversation_image,
@@ -38,7 +41,10 @@ import {
   imageGeneration as imageGenerationTable,
 } from "@/lib/db/schema";
 import { imageReferences } from "@/lib/design-publish";
-import { compositionFrontImageId } from "@/lib/model-b-writes";
+import {
+  adminHiddenImageIds,
+  compositionFrontImageId,
+} from "@/lib/model-b-writes";
 
 type Db = typeof appDb;
 
@@ -47,6 +53,7 @@ export type ImageDeletionOutcome =
   | "detach-seed"
   | "detach-product-pin"
   | "detach-cart-pin"
+  | "keep-hidden"
   | "blocked-by-order";
 
 export interface PlannedImage {
@@ -167,13 +174,14 @@ export async function planDesignDeletion(
   // slot) IS pinned by it and detaches, and a composition fronted by an image
   // outside this design pins everything of ours it places.
   const mirrorIdByImage = new Map<string, string>();
+  let hiddenIds = new Set<string>();
   let imageRows: {
     id: string;
     imageUrl: string;
     r2Key: string | null;
   }[] = [];
   if (imageIds.length > 0) {
-    const [sharedRows, productPins, cartPins, rows] = await Promise.all([
+    const [sharedRows, productPins, cartPins, rows, hidden] = await Promise.all([
       db
         .select({ imageId: conversationImageTable.imageId })
         .from(conversationImageTable)
@@ -219,8 +227,10 @@ export async function planDesignDeletion(
         })
         .from(imageTable)
         .where(inArray(imageTable.id, imageIds)),
+      adminHiddenImageIds(db, imageIds),
     ]);
     imageRows = rows;
+    hiddenIds = hidden;
     for (const r of sharedRows) linkedElsewhere.add(r.imageId);
     const imageIdSet = new Set(imageIds);
     for (const row of productPins) {
@@ -255,7 +265,10 @@ export async function planDesignDeletion(
     else if (flags.otherConversation) outcome = "detach-seed";
     else if (flags.product) outcome = "detach-product-pin";
     else outcome = "detach-cart-pin";
-    if (decision === "delete") removableImageIds.push(id);
+    // An admin-hidden image nothing else references is kept rather than
+    // deleted: its publication row is the moderation record.
+    if (decision === "delete" && hiddenIds.has(id)) outcome = "keep-hidden";
+    else if (decision === "delete") removableImageIds.push(id);
 
     const row = imageRowById.get(id);
     // Placement-render ids have no image row; they're reported via
@@ -335,7 +348,8 @@ export async function executeDesignDeletion(
         ]
       : []),
     // Compositions of deleted images go with them (a detached image —
-    // referenced elsewhere — keeps its publication row AND its composition).
+    // referenced elsewhere — and an admin-hidden image keep their publication
+    // row AND their composition).
     ...(removableMirrorIds.length
       ? [
           db

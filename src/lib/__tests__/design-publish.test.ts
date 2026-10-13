@@ -342,13 +342,19 @@ describe("canStartFromImage (Model B slice 3)", () => {
     ).toBe(false);
   });
 
-  it("rejects a hidden published image for non-owners, but not the owner", () => {
+  it("rejects a hidden published image for everyone, the owner included", () => {
     const hidden = { publishedAt: new Date(), isHidden: true };
     expect(
       canStartFromImage({ image: hidden, imageOwnerId: "u1", userId: "u2" })
     ).toBe(false);
     expect(
       canStartFromImage({ image: hidden, imageOwnerId: "u1", userId: "u1" })
+    ).toBe(false);
+  });
+
+  it("allows the owner to seed from their own published, visible image", () => {
+    expect(
+      canStartFromImage({ image: published, imageOwnerId: "u1", userId: "u1" })
     ).toBe(true);
   });
 });
