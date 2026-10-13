@@ -20,9 +20,28 @@
  *     the limit are applied to the same rows afterwards. Compared before any
  *     of those, so no limit hides a difference.
  *
+ * It also reports what the feed does with a visible listing's conversation
+ * (#321). `getPublishedFeed` returns a listing only when the image's
+ * conversation id (`image.source_design_id`, else the design of its `output`
+ * link) names an existing `design` row, because that is when the buy gate
+ * lets a visitor order it. Three more lists come from the same read batch:
+ *
+ *   - `feedImageIds`: the image ids the feed now returns (visible, with a
+ *     live conversation), before the dedupe per conversation and the limit.
+ *   - `leftOutNoConversation`: the visible published listings the feed leaves
+ *     out for lack of a conversation, with the conversation id that names
+ *     nothing (null when the image has none). Expected, not a failure: these
+ *     are the cards that leave the Shop. `clean` and `disagreements` do not
+ *     count them.
+ *   - `nullSourceListings`: the visible published listings whose image has no
+ *     `source_design_id`, with the conversation id its `output` link gives
+ *     (null when it has none). The feed groups each with its conversation's
+ *     other published images, one card per conversation. Informational.
+ *
  * The feed SQL below mirrors the joins in `getPublishedFeed` (product →
- * image on `front_image_id`, → user on `image.owner_id`). The two must stay
- * in step: change one, change the other.
+ * image on `front_image_id`, → user on `image.owner_id`, → image_publication,
+ * → design on the conversation id). The two must stay in step: change one,
+ * change the other.
  */
 import type { Client, ResultSet } from "@libsql/client";
 
@@ -42,6 +61,15 @@ export type FeedVisibilityDisagreement = {
   reason: string;
 };
 
+/** A visible published listing the feed leaves out because it has no live conversation. */
+export type FeedLeftOutListing = {
+  imageId: string;
+  productId: string;
+  title: string | null;
+  /** The conversation id that names no `design` row, or null when the image has none. */
+  conversationId: string | null;
+};
+
 export type FeedVisibilityParityReport = {
   disagreements: FeedVisibilityDisagreement[];
   /** Image ids the feed's joins return under `product.status = 'listed'`, sorted. */
@@ -50,6 +78,16 @@ export type FeedVisibilityParityReport = {
   newFeedImageIds: string[];
   onlyOld: string[];
   onlyNew: string[];
+  /** Image ids the feed returns now: visible and with a live conversation, sorted. */
+  feedImageIds: string[];
+  /** Visible published listings the feed leaves out for lack of a conversation, by image id. */
+  leftOutNoConversation: FeedLeftOutListing[];
+  /**
+   * Visible published listings whose image has no `source_design_id`, with the
+   * conversation its `output` link names (null when none). The feed groups
+   * each with its conversation's other published images.
+   */
+  nullSourceListings: FeedLeftOutListing[];
   /** True when the old and new lists are identical. */
   clean: boolean;
   counts: Record<string, number>;
@@ -72,6 +110,28 @@ const NEW_FEED_SQL = `select i.id as image_id ${FEED_FROM}
   join \`image_publication\` ip on ip.image_id = i.id
   where ip.is_hidden = 0`;
 
+// The image's conversation id, as getDesignImageWithOwner and getPublishedFeed
+// derive it: source_design_id, else the design of its output link.
+const CONVERSATION_ID = `coalesce(i.source_design_id, (select ci.design_id from \`conversation_image\` ci where ci.image_id = i.id and ci.role = 'output' limit 1))`;
+
+// What getPublishedFeed returns, before its dedupe and limit: the new filter
+// plus a live conversation.
+const FEED_SQL = `select i.id as image_id ${FEED_FROM}
+  join \`image_publication\` ip on ip.image_id = i.id
+  join \`design\` d on d.id = ${CONVERSATION_ID}
+  where ip.is_hidden = 0`;
+
+// Visible listings the join on design drops.
+const LEFT_OUT_SQL = `select i.id as image_id, p.id as product_id, p.title, ${CONVERSATION_ID} as conversation_id ${FEED_FROM}
+  join \`image_publication\` ip on ip.image_id = i.id
+  left join \`design\` d on d.id = ${CONVERSATION_ID}
+  where ip.is_hidden = 0 and d.id is null`;
+
+// Visible listings whose image has no source_design_id.
+const NULL_SOURCE_SQL = `select i.id as image_id, p.id as product_id, p.title, ${CONVERSATION_ID} as conversation_id ${FEED_FROM}
+  join \`image_publication\` ip on ip.image_id = i.id
+  where ip.is_hidden = 0 and i.source_design_id is null`;
+
 // Every publication row against the composition that fronts its image.
 const PUBLICATIONS_SQL = `select ip.image_id, ip.is_hidden, p.id as product_id, p.status
   from \`image_publication\` ip
@@ -93,17 +153,45 @@ function imageIds(rows: ResultSet["rows"]): string[] {
   return rows.map((r) => String(r.image_id)).sort(byString);
 }
 
+function listings(rows: ResultSet["rows"]): FeedLeftOutListing[] {
+  return rows
+    .map((r) => ({
+      imageId: String(r.image_id),
+      productId: String(r.product_id),
+      title: str(r.title),
+      conversationId: str(r.conversation_id),
+    }))
+    .sort((a, b) => byString(a.imageId, b.imageId));
+}
+
 export async function checkFeedVisibilityParity(
   client: Client
 ): Promise<FeedVisibilityParityReport> {
   // One read batch, so every statement sees the same snapshot: a publish or
   // hide on Production landing between separate statements could otherwise
   // fail the run for a row that was never out of step.
-  const [publicationsRes, orphansRes, oldFeedRes, newFeedRes, statusRes] =
-    await client.batch(
-      [PUBLICATIONS_SQL, ORPHANS_SQL, OLD_FEED_SQL, NEW_FEED_SQL, STATUS_SQL],
-      "read"
-    );
+  const [
+    publicationsRes,
+    orphansRes,
+    oldFeedRes,
+    newFeedRes,
+    statusRes,
+    feedRes,
+    leftOutRes,
+    nullSourceRes,
+  ] = await client.batch(
+    [
+      PUBLICATIONS_SQL,
+      ORPHANS_SQL,
+      OLD_FEED_SQL,
+      NEW_FEED_SQL,
+      STATUS_SQL,
+      FEED_SQL,
+      LEFT_OUT_SQL,
+      NULL_SOURCE_SQL,
+    ],
+    "read"
+  );
 
   const disagreements: FeedVisibilityDisagreement[] = [];
 
@@ -167,6 +255,9 @@ export async function checkFeedVisibilityParity(
     newFeedImageIds,
     onlyOld,
     onlyNew,
+    feedImageIds: imageIds(feedRes.rows),
+    leftOutNoConversation: listings(leftOutRes.rows),
+    nullSourceListings: listings(nullSourceRes.rows),
     clean:
       oldFeedImageIds.length === newFeedImageIds.length &&
       oldFeedImageIds.every((id, i) => id === newFeedImageIds[i]),

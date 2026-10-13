@@ -14,6 +14,7 @@ import { makeUser, makeDesign, makeSourceImage } from "./factories";
 import { orderFeedByRank, compareFeedOrder } from "@/lib/discover-feed";
 import * as schema from "@/lib/db/schema";
 import { eq, sql } from "drizzle-orm";
+import { planDesignDeletion, executeDesignDeletion } from "@/lib/delete-design";
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
 let testDb: Db;
@@ -27,6 +28,7 @@ vi.mock("@/lib/db", () => ({
 }));
 
 const { getPublishedFeed } = await import("@/lib/discover-feed");
+const { resolveBuyableImage } = await import("@/lib/buyable-image");
 
 const at = (minutesAgo: number) =>
   new Date(Date.UTC(2026, 0, 1, 12, 0) - minutesAgo * 60_000);
@@ -283,5 +285,115 @@ describe("getPublishedFeed visibility follows image_publication", () => {
 
     const feed = await getPublishedFeed();
     expect(feed.map((r) => r.imageId)).toEqual([visible]);
+  });
+});
+
+describe("getPublishedFeed leaves out a listing with no live conversation (#321)", () => {
+  beforeEach(async () => {
+    testDb = await createTestDb();
+    await makeUser(testDb, "nico");
+  });
+
+  async function publish(
+    opts: { minutesAgo?: number; feedRank?: number | null; hidden?: boolean; designId?: string } = {}
+  ) {
+    const designId = opts.designId ?? (await makeDesign(testDb, "nico")).id;
+    const imageId = await makeSourceImage(testDb, {
+      designId,
+      ownerId: "nico",
+      imageUrl: `https://img.example/${crypto.randomUUID()}.png`,
+      publishedAt: at(opts.minutesAgo ?? 10),
+      isHidden: opts.hidden ?? false,
+      feedRank: opts.feedRank ?? null,
+    });
+    return { designId, imageId };
+  }
+
+  // The real delete path: the image is also a seed in a second conversation,
+  // so deleting its home conversation detaches it and the image survives.
+  async function publishConversationGone(
+    opts: { minutesAgo?: number; feedRank?: number | null } = {}
+  ) {
+    const p = await publish(opts);
+    const other = await makeDesign(testDb, "nico");
+    await testDb
+      .insert(schema.conversationImage)
+      .values({ designId: other.id, imageId: p.imageId, role: "seed" });
+    const plan = await planDesignDeletion(testDb, p.designId);
+    await executeDesignDeletion(testDb, plan);
+    const [gone] = await testDb
+      .select()
+      .from(schema.design)
+      .where(eq(schema.design.id, p.designId));
+    expect(gone).toBeUndefined();
+    return p;
+  }
+
+  it("an ordinary published listing is in the feed", async () => {
+    const ok = await publish();
+    expect((await getPublishedFeed()).map((r) => r.imageId)).toEqual([ok.imageId]);
+  });
+
+  it("drops a visible listing whose conversation was deleted, keeps the ordinary one", async () => {
+    const gone = await publishConversationGone();
+    const ok = await publish();
+    const ids = (await getPublishedFeed()).map((r) => r.imageId);
+    expect(ids).toEqual([ok.imageId]);
+    expect(ids).not.toContain(gone.imageId);
+  });
+
+  it("agrees with resolveBuyableImage(id, null) over a mix of states", async () => {
+    const ordinary = await publish({ minutesAgo: 1 });
+    const hidden = await publish({ minutesAgo: 2, hidden: true });
+    const gone = await publishConversationGone({ minutesAgo: 3 });
+    const nullSourceLive = await publish({ minutesAgo: 4 });
+    await testDb
+      .update(schema.image)
+      .set({ sourceDesignId: null })
+      .where(eq(schema.image.id, nullSourceLive.imageId));
+    const nullSourceNoLink = await publish({ minutesAgo: 5 });
+    await testDb
+      .update(schema.image)
+      .set({ sourceDesignId: null })
+      .where(eq(schema.image.id, nullSourceNoLink.imageId));
+    await testDb
+      .delete(schema.conversationImage)
+      .where(eq(schema.conversationImage.imageId, nullSourceNoLink.imageId));
+    // source_design_id names a missing row while the output link names a live
+    // conversation: the schema has no foreign key on source_design_id, so this
+    // can be built. Neither the gate nor the feed falls back to the link.
+    const staleSource = await publish({ minutesAgo: 6 });
+    await testDb
+      .update(schema.image)
+      .set({ sourceDesignId: "missing-design" })
+      .where(eq(schema.image.id, staleSource.imageId));
+
+    const all = [ordinary, hidden, gone, nullSourceLive, nullSourceNoLink, staleSource];
+    const buyable = new Set<string>();
+    for (const p of all) {
+      if ((await resolveBuyableImage(p.imageId, null)).ok) buyable.add(p.imageId);
+    }
+    const feedIds = new Set((await getPublishedFeed()).map((r) => r.imageId));
+    expect(feedIds).toEqual(buyable);
+    expect(feedIds).toEqual(new Set([ordinary.imageId, nullSourceLive.imageId]));
+  });
+
+  it("a dropped row does not take a slot: limit 1 returns the ordinary listing", async () => {
+    // More dropped listings than the SQL window (limit * 4), all ranked ahead,
+    // so a filter applied after the SQL limit would return nothing.
+    for (let i = 1; i <= 6; i++) {
+      await publishConversationGone({ feedRank: i });
+    }
+    const ok = await publish({ minutesAgo: 30 });
+    const feed = await getPublishedFeed(1);
+    expect(feed.map((r) => r.imageId)).toEqual([ok.imageId]);
+  });
+
+  it("two published images of one live conversation still collapse to the ranked one", async () => {
+    const first = await publish({ minutesAgo: 60, feedRank: 1 });
+    await publish({ minutesAgo: 1, designId: first.designId });
+    const feed = await getPublishedFeed();
+    expect(feed.map((r) => r.imageId)).toEqual([first.imageId]);
+    expect(feed[0].designId).toBe(first.designId);
   });
 });

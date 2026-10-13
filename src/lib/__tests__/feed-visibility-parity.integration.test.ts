@@ -12,6 +12,7 @@ import { createTestDb } from "./test-db";
 import { makeUser, makeDesign, makeSourceImage } from "./factories";
 import * as schema from "@/lib/db/schema";
 import { checkFeedVisibilityParity } from "@/lib/feed-visibility-parity";
+import { planDesignDeletion, executeDesignDeletion } from "@/lib/delete-design";
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
 let testDb: Db;
@@ -209,6 +210,85 @@ describe("checkFeedVisibilityParity", () => {
       isHidden: false,
     });
     expect(report.newFeedImageIds).toEqual([]);
+  });
+
+  it("lists the visible listing whose conversation is gone, and only that one", async () => {
+    const ordinary = await seed();
+    const hidden = await seed({ hidden: true });
+
+    // Real delete path: the image is also a seed elsewhere, so it survives.
+    const homeId = (await makeDesign(testDb, "nico")).id;
+    const gone = await makeSourceImage(testDb, {
+      designId: homeId,
+      ownerId: "nico",
+      imageUrl: "https://img.example/gone.png",
+      publishedAt: new Date(Date.UTC(2026, 0, 1, 12, 0)),
+      title: "Gone title",
+    });
+    const other = await makeDesign(testDb, "nico");
+    await testDb
+      .insert(schema.conversationImage)
+      .values({ designId: other.id, imageId: gone, role: "seed" });
+    await executeDesignDeletion(testDb, await planDesignDeletion(testDb, homeId));
+
+    const report = await check();
+    expect(report.feedImageIds).toEqual([ordinary]);
+    expect(report.leftOutNoConversation).toHaveLength(1);
+    expect(report.leftOutNoConversation[0]).toMatchObject({
+      imageId: gone,
+      title: "Gone title",
+      conversationId: homeId,
+    });
+    expect(report.leftOutNoConversation[0].productId).toEqual(expect.any(String));
+    expect(report.leftOutNoConversation.map((l) => l.imageId)).not.toContain(hidden);
+
+    // The old-versus-new comparison is untouched by the conversation rule.
+    expect(report.clean).toBe(true);
+    expect(report.disagreements).toEqual([]);
+    expect(report.onlyOld).toEqual([]);
+    expect(report.onlyNew).toEqual([]);
+    expect(report.newFeedImageIds).toEqual([ordinary, gone].sort());
+
+    const feed = await getPublishedFeed();
+    expect(feed.map((r) => r.imageId).sort()).toEqual(report.feedImageIds);
+  });
+
+  it("reports a null conversation id for a listing with no source and no output link", async () => {
+    const orphan = await seed();
+    await testDb
+      .update(schema.image)
+      .set({ sourceDesignId: null })
+      .where(eq(schema.image.id, orphan));
+    await testDb
+      .delete(schema.conversationImage)
+      .where(eq(schema.conversationImage.imageId, orphan));
+
+    const report = await check();
+    expect(report.feedImageIds).toEqual([]);
+    expect(report.leftOutNoConversation.map((l) => [l.imageId, l.conversationId])).toEqual([
+      [orphan, null],
+    ]);
+  });
+
+  it("a null source_design_id with a live output link is in the feed, not left out, and listed as null-source", async () => {
+    const ordinary = await seed();
+    const legacy = await seed();
+    await testDb
+      .update(schema.image)
+      .set({ sourceDesignId: null })
+      .where(eq(schema.image.id, legacy));
+
+    const report = await check();
+    expect(report.feedImageIds).toEqual([ordinary, legacy].sort());
+    expect(report.leftOutNoConversation).toEqual([]);
+    expect(report.nullSourceListings.map((l) => l.imageId)).toEqual([legacy]);
+    expect(report.nullSourceListings[0].conversationId).toEqual(expect.any(String));
+    expect(report.clean).toBe(true);
+  });
+
+  it("reports no null-source listings when every image has a source_design_id", async () => {
+    await seed();
+    expect((await check()).nullSourceListings).toEqual([]);
   });
 
   it("writes nothing", async () => {
