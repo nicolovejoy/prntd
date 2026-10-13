@@ -17,16 +17,18 @@ type Search = Promise<Record<string, string | string[] | undefined>>;
 /**
  * The order row is written before the Stripe session is created, and its
  * stripeSessionId is saved right after, so by the time Stripe sends the buyer
- * back here the row already exists. The receipt reads that row, plus one
- * webhook-written field, `abandoned` (set when a delayed payment fails, and
- * also when a session is expired by a newer checkout or a hidden-artwork
- * refusal, #315, where the session never completes). The processing → failed
- * change is a race with the webhook: the page does not poll, so the buyer sees
- * it on the next load. The total is the other field the webhook writes: it
- * reconciles `totalPrice` to the amount Stripe charged. So for a pending order
- * the total comes from the Stripe read (`paidTotal`), not the row, whose
- * `totalPrice` is still the pre-discount figure (#317).
- * That keeps this a plain awaited server read with no retry/poll island.
+ * back here the row already exists. The receipt reads that row. Three of its
+ * fields are written by the webhook: `status`, `abandoned` (set when a delayed
+ * payment fails, and also when a session is expired by a newer checkout or a
+ * hidden-artwork refusal, #315, where the session never completes) and
+ * `totalPrice`, which the webhook reconciles to the amount Stripe charged. The
+ * processing → failed change is a race with the webhook: the page does not
+ * poll, so the buyer sees it on the next load. The total does not race it: a
+ * pending order whose session is complete and settled prints Stripe's
+ * `amount_total` from the read below (`paidTotal`); otherwise the row's total
+ * prints, which for a pending order is the pre-discount figure written at
+ * creation and for any other order is already reconciled (#317). That keeps
+ * this a plain awaited server read with no retry/poll island.
  * `/orders` hides young pending rows (src/lib/user-orders.ts,
  * `STALE_PENDING_MS`), so the "View orders" link below can briefly not show
  * an order that was just paid here.

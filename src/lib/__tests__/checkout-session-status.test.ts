@@ -22,7 +22,7 @@ describe("getCheckoutSessionState", () => {
     vi.useRealTimers();
   });
 
-  it("returns status/uiMode/url from the retrieved session", async () => {
+  it("returns status/paymentStatus/uiMode/url/amountTotal from the retrieved session", async () => {
     retrieve.mockResolvedValue({ status: "open", ui_mode: "embedded", url: null, payment_status: "unpaid", amount_total: 2412 });
 
     const result = await getCheckoutSessionState("cs_1");
