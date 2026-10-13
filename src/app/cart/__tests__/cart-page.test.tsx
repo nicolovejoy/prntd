@@ -4,7 +4,7 @@
  * lie to the customer and invisible to the e2e suite.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import type { CartView } from "../actions";
 import CartPage from "../page";
 import { CHECKOUT_FAILED, CART_LINE_UNAVAILABLE } from "@/lib/action-copy";
@@ -251,18 +251,47 @@ describe("CartPage unavailable lines (one buy surface, slice 3)", () => {
     expect(await screen.findByText("Your cart is empty.")).toBeInTheDocument();
   });
 
-  it("a refused checkout shows the plain message and does not navigate", async () => {
+  it("a line that is no longer available: the notice shows on load, Checkout is disabled and never calls the action", async () => {
     getCart.mockResolvedValue(STALE);
-    checkoutCart.mockResolvedValue({
-      url: null,
-      error: "A design in your cart is no longer available. Remove it to continue.",
-    });
     render(<CartPage />);
     await screen.findByTestId("cart-line-unavailable");
-    fireEvent.click(screen.getByRole("button", { name: /^Checkout/ }));
-    expect(await screen.findByTestId("cart-checkout-error")).toHaveTextContent(
-      "A design in your cart is no longer available. Remove it to continue."
+
+    expect(screen.getByTestId("cart-checkout-error")).toHaveTextContent(
+      CART_LINE_UNAVAILABLE
     );
+    const button = screen.getByRole("button", { name: /^Checkout/ });
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(checkoutCart).not.toHaveBeenCalled();
+  });
+
+  it("removing the unavailable line clears the notice and re-enables Checkout", async () => {
+    const OK_AND_STALE: CartView = {
+      ...STALE,
+      items: [
+        { ...ONE_ITEM.items[0], id: "ok" },
+        { ...STALE.items[0], id: "gone" },
+      ],
+    };
+    getCart.mockResolvedValueOnce(OK_AND_STALE).mockResolvedValue(ONE_ITEM);
+    removeCartItem.mockResolvedValue(undefined);
+    render(<CartPage />);
+    await screen.findByTestId("cart-line-unavailable");
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[1]);
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("cart-checkout-error")).not.toBeInTheDocument()
+    );
+    expect(screen.getByRole("button", { name: /^Checkout/ })).toBeEnabled();
+  });
+
+  it("a cart with no unavailable line shows no notice and an enabled Checkout", async () => {
+    getCart.mockResolvedValue(ONE_ITEM);
+    render(<CartPage />);
+    await screen.findByTestId("cart-line-item");
+    expect(screen.queryByTestId("cart-checkout-error")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Checkout/ })).toBeEnabled();
   });
 });
 
@@ -475,5 +504,202 @@ describe("CartPage checkout (#278 slice 6b)", () => {
     // The initial load plus the re-read after the refusal, which is the one
     // that failed.
     expect(getCart).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("CartPage Checkout stays disabled once a navigation is requested (#315)", () => {
+  const EMBEDDED_PATH = "/checkout?session=cs_test_abc&from=%2Fcart";
+  const WITH_EDIT: CartView = {
+    ...ONE_ITEM_WITH_IMAGE,
+    items: [
+      {
+        ...ONE_ITEM_WITH_IMAGE.items[0],
+        editHref: "/d/img-1?order=1&size=M&line=line-1&from=%2Fcart",
+      },
+    ],
+  };
+
+  function firePageShow(persisted: boolean) {
+    const event = new Event("pageshow") as Event & { persisted: boolean };
+    Object.defineProperty(event, "persisted", { value: persisted });
+    window.dispatchEvent(event);
+  }
+
+  async function startCheckout(loc: ReturnType<typeof stubLocationHref>) {
+    getCart.mockResolvedValue(WITH_EDIT);
+    checkoutCart.mockResolvedValue({ url: EMBEDDED_PATH });
+    render(<CartPage />);
+    fireEvent.click(await screen.findByRole("button", { name: /^Checkout/ }));
+    await waitFor(() => expect(loc.hrefSet).toHaveBeenCalledWith(EMBEDDED_PATH));
+  }
+
+  it("after the url is followed: the button reads Redirecting, the steppers are disabled and Edit is not a link", async () => {
+    const loc = stubLocationHref();
+    try {
+      await startCheckout(loc);
+
+      const button = screen.getByRole("button", { name: "Redirecting…" });
+      expect(button).toBeDisabled();
+      expect(screen.getByRole("button", { name: /^Increase quantity/ })).toBeDisabled();
+      expect(screen.getByRole("button", { name: /^Decrease quantity/ })).toBeDisabled();
+      expect(screen.queryByRole("link", { name: "Edit" })).not.toBeInTheDocument();
+    } finally {
+      loc.restore();
+    }
+  });
+
+  it("a persisted pageshow gives the page back; a non-persisted one does not", async () => {
+    const loc = stubLocationHref();
+    try {
+      await startCheckout(loc);
+
+      firePageShow(false);
+      expect(screen.getByRole("button", { name: "Redirecting…" })).toBeDisabled();
+
+      firePageShow(true);
+      expect(await screen.findByRole("button", { name: /^Checkout/ })).toBeEnabled();
+      expect(screen.getByRole("button", { name: /^Increase quantity/ })).toBeEnabled();
+      expect(screen.getByRole("link", { name: "Edit" })).toBeInTheDocument();
+    } finally {
+      loc.restore();
+    }
+  });
+
+  it("needsAuth also stays disabled", async () => {
+    const loc = stubLocationHref();
+    try {
+      getCart.mockResolvedValue(ONE_ITEM);
+      checkoutCart.mockResolvedValue({ url: null, needsAuth: true });
+      render(<CartPage />);
+      fireEvent.click(await screen.findByRole("button", { name: /^Checkout/ }));
+      await waitFor(() =>
+        expect(loc.hrefSet).toHaveBeenCalledWith("/sign-in?next=/cart")
+      );
+      expect(screen.getByRole("button", { name: "Redirecting…" })).toBeDisabled();
+    } finally {
+      loc.restore();
+    }
+  });
+
+  it.each([
+    ["a returned error", () => checkoutCart.mockResolvedValue({ url: null, error: CART_LINE_UNAVAILABLE })],
+    ["a thrown action", () => checkoutCart.mockRejectedValue(new Error("boom"))],
+    ["a null url", () => checkoutCart.mockResolvedValue({ url: null })],
+  ])("%s leaves the button enabled", async (_label, arrange) => {
+    const loc = stubLocationHref();
+    try {
+      getCart.mockResolvedValue(ONE_ITEM);
+      arrange();
+      render(<CartPage />);
+      fireEvent.click(await screen.findByRole("button", { name: /^Checkout/ }));
+      await waitFor(() => expect(checkoutCart).toHaveBeenCalledTimes(1));
+      expect(await screen.findByRole("button", { name: /^Checkout/ })).toBeEnabled();
+      expect(loc.hrefSet).not.toHaveBeenCalled();
+    } finally {
+      loc.restore();
+    }
+  });
+
+  it("a second click while disabled does not call checkoutCart again", async () => {
+    const loc = stubLocationHref();
+    try {
+      await startCheckout(loc);
+
+      fireEvent.click(screen.getByRole("button", { name: "Redirecting…" }));
+
+      expect(checkoutCart).toHaveBeenCalledTimes(1);
+    } finally {
+      loc.restore();
+    }
+  });
+
+  it("two clicks dispatched before React re-renders call checkoutCart once", async () => {
+    const loc = stubLocationHref();
+    try {
+      getCart.mockResolvedValue(ONE_ITEM);
+      checkoutCart.mockResolvedValue({ url: EMBEDDED_PATH });
+      render(<CartPage />);
+      const button = await screen.findByRole("button", { name: /^Checkout/ });
+
+      await act(async () => {
+        button.click();
+        button.click();
+      });
+
+      expect(checkoutCart).toHaveBeenCalledTimes(1);
+    } finally {
+      loc.restore();
+    }
+  });
+
+  it("a persisted pageshow re-reads the cart and shows what it returns", async () => {
+    const loc = stubLocationHref();
+    try {
+      getCart.mockResolvedValueOnce(ONE_ITEM).mockResolvedValue(EMPTY);
+      checkoutCart.mockResolvedValue({ url: EMBEDDED_PATH });
+      render(<CartPage />);
+      fireEvent.click(await screen.findByRole("button", { name: /^Checkout/ }));
+      await waitFor(() => expect(loc.hrefSet).toHaveBeenCalled());
+
+      firePageShow(true);
+
+      expect(await screen.findByText("Your cart is empty.")).toBeInTheDocument();
+      expect(getCart).toHaveBeenCalledTimes(2);
+    } finally {
+      loc.restore();
+    }
+  });
+
+  it("a non-persisted pageshow does not re-read the cart", async () => {
+    const loc = stubLocationHref();
+    try {
+      await startCheckout(loc);
+      getCart.mockClear();
+      firePageShow(false);
+      expect(getCart).not.toHaveBeenCalled();
+    } finally {
+      loc.restore();
+    }
+  });
+
+  it("after a persisted pageshow, Checkout works again: a second click calls checkoutCart a second time", async () => {
+    const loc = stubLocationHref();
+    try {
+      await startCheckout(loc);
+
+      firePageShow(true);
+      fireEvent.click(await screen.findByRole("button", { name: /^Checkout/ }));
+
+      await waitFor(() => expect(checkoutCart).toHaveBeenCalledTimes(2));
+    } finally {
+      loc.restore();
+    }
+  });
+
+  it("a line that goes stale after load: one notice and a disabled Checkout, and removing the line clears both", async () => {
+    const STALE_AFTER_CLICK: CartView = {
+      ...ONE_ITEM,
+      items: [{ ...ONE_ITEM.items[0], unavailable: true }],
+    };
+    getCart
+      .mockResolvedValueOnce(ONE_ITEM)
+      .mockResolvedValueOnce(STALE_AFTER_CLICK)
+      .mockResolvedValue(ONE_ITEM);
+    checkoutCart.mockResolvedValue({ url: null, error: CART_LINE_UNAVAILABLE });
+    removeCartItem.mockResolvedValue(undefined);
+    render(<CartPage />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /^Checkout/ }));
+
+    await screen.findByTestId("cart-line-unavailable");
+    expect(screen.getAllByTestId("cart-checkout-error")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: /^Checkout/ })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("cart-checkout-error")).not.toBeInTheDocument()
+    );
+    expect(screen.getByRole("button", { name: /^Checkout/ })).toBeEnabled();
   });
 });

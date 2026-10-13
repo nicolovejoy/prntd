@@ -10,6 +10,7 @@ import { computeOrderTotal } from "@/lib/pricing";
 import { buildCheckoutSessionParams } from "@/lib/checkout";
 import { embeddedCheckoutPath } from "@/lib/embedded-checkout";
 import { resolveOrderVariant } from "@/lib/blanks";
+import { expireEarlierCheckoutSessions } from "@/lib/expire-checkout-sessions";
 
 /**
  * Marks a checkout that never got a Stripe session as abandoned (#289). The
@@ -47,13 +48,19 @@ export async function abandonSessionlessOrder(orderId: string): Promise<void> {
 /**
  * Shared order-creation + Stripe-checkout step for the single-item purchase
  * flows: design-your-own (`createCheckoutSession`, order/actions.ts) and
- * buy-existing (`buyPublishedDesign`, d/actions.ts). The cart builds its own session in `checkoutCart`. Inserts the order row,
+ * buy-existing (`buyPublishedDesign`, d/actions.ts). The cart builds its own session in `checkoutCart`, which expires earlier sessions the same way. Inserts the order row,
  * creates the Stripe session with `buildCheckoutSessionParams`, persists
  * the session id, and returns the redirect URL. Callers own auth, pricing, image-pinning
  * and the cancel URL; this owns the parts that would otherwise drift. If
  * creating the Stripe session throws (including building its params), the
- * order is marked abandoned (`abandonSessionlessOrder`) and the error is
- * re-thrown unchanged.
+ * order is marked abandoned (`abandonSessionlessOrder`), the buyer's earlier
+ * sessions are left alone, and the error is re-thrown unchanged. Once the new
+ * session id is saved, the same buyer's earlier open sessions are expired
+ * (`expireEarlierCheckoutSessions`, #315), so normally only the newest checkout
+ * can still be paid. (If this order's Stripe create is slow and a later
+ * checkout's helper reads before this session id is saved, both stay payable
+ * until the next checkout or the two-hour expiry.) That step is awaited so it has been attempted before the buyer
+ * is sent to the new form; it never throws and cannot change the returned URL.
  */
 export async function createStripeCheckoutForOrder(params: {
   userId: string;
@@ -157,6 +164,10 @@ export async function createStripeCheckoutForOrder(params: {
     .update(orderTable)
     .set({ stripeSessionId: checkoutSession.id })
     .where(eq(orderTable.id, orderId));
+
+  // The new session exists and is saved; only now is it safe to retire the
+  // earlier ones (#315). Never throws.
+  await expireEarlierCheckoutSessions({ userId: params.userId, orderId });
 
   if (params.embedded) {
     return {

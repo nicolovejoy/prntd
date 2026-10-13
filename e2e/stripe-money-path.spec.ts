@@ -4,20 +4,23 @@
  * and the dry-run Printful submission — asserted all the way to the order row
  * and ledger.
  *
- * Three tests, all paying through Stripe Embedded Checkout on our own
+ * Four tests, three of them paying through Stripe Embedded Checkout on our own
  * /checkout page, which is how production sells from the image detail page
  * and, since #278 slice 6b, from the cart (EMBEDDED_CHECKOUT_ENABLED, with
- * NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY set at build time). All three require
+ * NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY set at build time). All four require
  * that switch, and landing on checkout.stripe.com fails the test instead of
  * falling back, so a missing, malformed or other-mode publishable key turns the
  * run red. The cart test checks out two designs together and asserts both order
  * lines and the emptied cart. The image-detail-page test orders the owner's
  * own UNPUBLISHED image from the Order panel (one buy surface, slice 3), and
- * the order it creates must carry no Shop composition. The last test does
- * the same purchase but enters through an old /preview link, which redirects
- * to the image detail page with the picks (slice 4). Nothing here pays
- * through Stripe's hosted page any more; hosted is the fail-closed fallback
- * and is covered by the parameter tests in Vitest.
+ * the order it creates must carry no Shop composition. The third test pays
+ * nothing: it orders twice from the image detail page and checks that the
+ * first checkout link then shows the expired screen (#315). The last test
+ * does the same purchase as the image-detail-page test but enters through an
+ * old /preview link, which redirects to the image detail page with the picks
+ * (slice 4). Nothing here pays through Stripe's hosted page any more; hosted
+ * is the fail-closed fallback and is covered by the parameter tests in
+ * Vitest.
  *
  * This is the test class that catches real vendor constraints invisible to
  * mocks (e.g. the 2026-07-19 incident: Printful rejects external_id > 32
@@ -560,6 +563,70 @@ test.describe("stripe money path", { tag: "@stripe" }, () => {
         `/d/${imageId}?order=1&product=${PRODUCT}&color=Black&size=M`
       );
     });
+  });
+
+  test("a second order from the image detail page expires the first checkout session; opening the first /checkout link shows the expired screen (#315)", async ({
+    page,
+  }, testInfo) => {
+    test.setTimeout(300_000);
+    expect(
+      process.env.EMBEDDED_CHECKOUT_ENABLED,
+      "this test covers the embedded path: set EMBEDDED_CHECKOUT_ENABLED=true (the nightly workflow does)"
+    ).toBe("true");
+    const key = `${Date.now()}-${testInfo.project.name}`;
+    const seeded: string[] = [];
+    let userId = "";
+
+    /** Opens the image's page on the size M / Black shirt, clicks Order and
+     * returns the /checkout URL the browser lands on. No payment is made. */
+    async function orderOnce(imageId: string): Promise<string> {
+      await page.goto(
+        `/d/${imageId}?order=1&product=${PRODUCT}&color=Black&size=M`
+      );
+      const orderButton = page.getByRole("button", { name: /^Order/ });
+      await expect(orderButton.first()).toBeEnabled({ timeout: 30_000 });
+      await waitForHydrated(orderButton);
+      await orderButton.first().click({ timeout: 30_000 });
+      await page.waitForURL(
+        /\/checkout\?session=cs_test_|checkout\.stripe\.com/,
+        { timeout: 60_000 }
+      );
+      expect(
+        page.url(),
+        "checkout opened on Stripe's hosted page — is EMBEDDED_CHECKOUT_ENABLED on and NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY set at build time, from the same Stripe test account as STRIPE_SECRET_KEY?"
+      ).toMatch(/\/checkout\?session=cs_test_/);
+      // The payment form mounted: the session is open and usable.
+      await embeddedStripeRoot(page);
+      return page.url();
+    }
+
+    try {
+      await signUpFreshAccount(page, key);
+      const cookie = await waitForSessionCookie(page);
+      userId = await userIdForSessionCookie(cookie);
+      seeded.push(await seedDesign(userId, `${key}-supersede`, IMAGE_A));
+      const imageId = await primaryImageIdForDesign(seeded[0]);
+      expect(imageId, "seeded design has no primary image").toBeTruthy();
+
+      const firstUrl = await orderOnce(imageId!);
+      // The earlier/later rule is insertion order (rowid), so this wait is no
+      // longer required by it. It is kept as the test ran on real Stripe.
+      await page.waitForTimeout(1_500);
+      const secondUrl = await orderOnce(imageId!);
+      expect(secondUrl).not.toBe(firstUrl);
+
+      // The first session was expired by the second order, so its link now
+      // shows the expired screen instead of a payment form.
+      await page.goto(firstUrl);
+      await expect(page.getByText("This checkout expired.")).toBeVisible({
+        timeout: 30_000,
+      });
+      await expect(page.getByText("Nothing was charged.")).toBeVisible();
+    } finally {
+      await cleanupOrdersForDesigns(seeded);
+      await cleanupDesigns(seeded);
+      await cleanupUser(userId);
+    }
   });
 
   test("an old /preview link → image detail page → embedded checkout → signed webhook → submitted order + sale/fee ledger", async ({

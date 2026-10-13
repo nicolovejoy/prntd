@@ -223,6 +223,12 @@ export async function handleStripeCheckoutCompleted(
  * shape as the paid-claim in `handleStripeCheckoutCompleted`: only a
  * still-`pending`, not-yet-abandoned order is touched, and `rowsAffected`
  * tells us whether this call did that or found nothing to do.
+ *
+ * Two server paths call it too, after Stripe confirms that they expired a
+ * session themselves (#315): `expireEarlierCheckoutSessions` for a buyer's
+ * earlier checkout and `loadEmbeddedCheckout` for a session whose artwork an
+ * admin hid. The `checkout.session.expired` event Stripe then sends finds the
+ * order already abandoned and does nothing.
  */
 export async function handleStripeCheckoutExpired(
   orderId: string,

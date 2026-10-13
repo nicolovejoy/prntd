@@ -54,6 +54,7 @@ vi.mock("@/lib/stripe", () => ({
   stripe: {
     checkout: {
       sessions: {
+        expire: vi.fn(async (id: string) => ({ id, status: "expired" })),
         create: vi.fn(),
         retrieve: (...a: unknown[]) => h.retrieve(...a),
       },

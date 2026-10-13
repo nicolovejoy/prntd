@@ -1,9 +1,9 @@
 # Stripe test-mode e2e
 
-One spec file — `e2e/stripe-money-path.spec.ts` — with three tests that pay
+One spec file — `e2e/stripe-money-path.spec.ts` — with four tests. Three pay
 through real Stripe test mode (4242 test card), land on `/order/confirm`, then
 assert the order row reaches `submitted` (dry-run Printful) with `sale` +
-`stripe_fee` ledger rows:
+`stripe_fee` ledger rows; the fourth pays nothing:
 
 - The cart test adds two designs to the cart from their image detail pages,
   taps Checkout, and pays through embedded checkout on our `/checkout` page,
@@ -31,10 +31,17 @@ assert the order row reaches `submitted` (dry-run Printful) with `sale` +
   their-own-unpublished-image path of one buy surface, slice 3 (#278). Before
   paying it also opens and closes the checkout page's preview lightbox and
   asserts Stripe's iframe element is still attached (#285).
+- The superseded-session test signs up, seeds an image the account owns, and
+  Orders it from the image detail page twice, waiting for the payment form each
+  time. It then opens the first `/checkout?session=…` URL and expects "This
+  checkout expired." and "Nothing was charged.": the second order expired the
+  first session (#315). No payment is made. It requires
+  `EMBEDDED_CHECKOUT_ENABLED=true` and is the only check that sees Stripe accept
+  `expire` on an embedded session whose form is open.
 
 This is the test class that would have caught the 2026-07-19 external_id
 incident's siblings: real vendor constraints (Stripe here) that mocks can't
-see. Keep it to these three tests. Printful stays dry-run inside the spec; the
+see. Keep the suite this small (four tests, three payments). Printful stays dry-run inside the spec; the
 Printful side is covered separately by the contract check below.
 
 ## Prerequisites
@@ -67,7 +74,7 @@ What the script (`scripts/e2e-stripe.sh`) does:
    `PRINTFUL_DRY_RUN=true` (also forced in `playwright.config.ts` — no local
    e2e can place a real Printful order), a dummy `RESEND_API_KEY` (no real
    order emails), and `E2E_STRIPE=1`.
-4. Runs the spec on the mobile project only — three payments per run.
+4. Runs the spec on the mobile project only — three payments per run (the fourth test makes none).
 
 The spec self-cleans: its order + `order_item` + ledger rows, seeded design,
 and throwaway account are deleted from the dev DB afterward.
@@ -89,7 +96,7 @@ via manual `workflow_dispatch`. It is intentionally **not** wired into
 actual checkout DOM, which is third-party flake every PR shouldn't
 have to eat.
 
-All three tests pay through the embedded checkout iframe on `/checkout`. The
+The three paying tests use the embedded checkout iframe on `/checkout`. The
 switch (`EMBEDDED_CHECKOUT_ENABLED`) is on in production for the image detail
 page and the cart, so the nightly matches production on both. Nothing in the
 nightly pays through Stripe's hosted page: hosted checkout is the fail-closed
@@ -119,7 +126,7 @@ The nightly sets `EMBEDDED_CHECKOUT_ENABLED=true` and
 `STRIPE_TEST_PUBLISHABLE_KEY` (a variable, not a secret). The key must come
 from the same Stripe account and test mode as the `STRIPE_SECRET_KEY` secret.
 A missing, malformed or other-mode publishable key falls back to hosted
-checkout, and all three tests fail. A key of the right mode from a different
+checkout, and all four tests fail. A key of the right mode from a different
 Stripe account passes the config check: the session is embedded, the form never
 mounts, and the tests time out waiting for it.
 

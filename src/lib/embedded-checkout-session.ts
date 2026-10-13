@@ -30,6 +30,8 @@ import { getBlank, getColorHex } from "@/lib/blanks";
 import { mockupCacheKey } from "@/lib/mockup-cache";
 import { withTimeout } from "@/lib/timeout";
 import { lineHiddenArt } from "@/lib/line-hidden-art";
+import { expireCheckoutSession } from "@/lib/expire-checkout-sessions";
+import { handleStripeCheckoutExpired } from "@/lib/webhook-handlers";
 
 export type CheckoutLineSummary = {
   productName: string | null;
@@ -153,8 +155,11 @@ async function loadCheckoutSummary(
  * known once the session is open: a `complete` session must still return
  * `complete`, so a buyer who paid reaches /order/confirm, hidden or not. It
  * runs before the ui_mode branch so a hidden line is not sent to Stripe's
- * hosted page either. A failed check reads as `unavailable`. The order row stays `pending` and the Stripe session is
- * not expired; a buyer who already has the payment form open can still pay.
+ * hosted page either. A failed check reads as `unavailable`, and nothing is
+ * expired. When the check does refuse, the Stripe session is expired too
+ * (#315), so a buyer who already has the payment form open can no longer pay
+ * for hidden artwork; the order is marked abandoned only once Stripe confirms
+ * the expiry. `expired` is returned whether or not the expiry succeeded.
  */
 export async function loadEmbeddedCheckout(params: {
   sessionId: string;
@@ -203,6 +208,7 @@ export async function loadEmbeddedCheckout(params: {
   // A failure here (a database read) must not turn a redirect or the retry
   // screen into a 500: it reads as unavailable, the same as a Stripe failure.
   let lines: OrderLine[];
+  let hidden: boolean;
   try {
     lines = await loadOrderLines(found.id);
     const hiddenArt = await Promise.all(
@@ -210,12 +216,25 @@ export async function loadEmbeddedCheckout(params: {
         lineHiddenArt({ designId: l.designId, placements: l.placements })
       )
     );
-    if (hiddenArt.some((a) => a.front || a.back)) return { kind: "expired" };
+    hidden = hiddenArt.some((a) => a.front || a.back);
   } catch (err) {
     console.error(
       `loadEmbeddedCheckout hidden-artwork check failed: ${err instanceof Error ? err.message : String(err)}`
     );
     return { kind: "unavailable" };
+  }
+
+  if (hidden) {
+    if (await expireCheckoutSession(params.sessionId)) {
+      try {
+        await handleStripeCheckoutExpired(found.id, { db });
+      } catch (err) {
+        console.error(
+          `loadEmbeddedCheckout: could not mark order ${found.id} abandoned after expiring its session: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+    }
+    return { kind: "expired" };
   }
 
   if (session.ui_mode !== "embedded") {

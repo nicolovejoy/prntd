@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -12,6 +12,7 @@ import {
 } from "./actions";
 import { Button, EmptyState, InlineNotice } from "@/components/ui";
 import {
+  CART_LINE_UNAVAILABLE,
   CART_LINE_UNAVAILABLE_LABEL,
   CHECKOUT_FAILED,
   QUANTITY_UPDATE_FAILED,
@@ -49,6 +50,9 @@ export default function CartPage() {
   const [quantityFailed, setQuantityFailed] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
   const [checkingOut, setCheckingOut] = useState(false);
+  // Set synchronously when a checkout starts, so a second tap dispatched before
+  // React re-renders is dropped; `checkingOut` state only drives the display.
+  const checkoutStarted = useRef(false);
   // checkoutCart's refusal ({ error }) or, when the action throws, the fixed
   // checkout-failed line; shown above the buttons. A refused line is marked by
   // getCart.
@@ -85,6 +89,7 @@ export default function CartPage() {
 
   async function handleRemove(id: string) {
     setBusy(id);
+    setCheckoutError(null);
     setRemoving(id);
     try {
       await removeCartItem(id);
@@ -115,9 +120,16 @@ export default function CartPage() {
     }
   }
 
+  // Set once a navigation has been requested. checkingOut then stays true
+  // until the page unloads: resetting it as soon as the assignment returns
+  // would re-enable the button, the steppers and the Edit links during the wait
+  // for the next page, and a second tap would create a second order (#315).
   async function handleCheckout() {
+    if (checkoutStarted.current) return;
+    checkoutStarted.current = true;
     setCheckingOut(true);
     setCheckoutError(null);
+    let navigating = false;
     try {
       let result: Awaited<ReturnType<typeof checkoutCart>>;
       try {
@@ -143,17 +155,46 @@ export default function CartPage() {
         return;
       }
       if (needsAuth) {
+        navigating = true;
         window.location.href = "/sign-in?next=/cart";
         return;
       }
       // Hosted checkout is an absolute Stripe URL; embedded checkout is our
       // own /checkout path (#278 slice 6b). Both are document navigations.
-      if (url) window.location.href = url;
+      if (url) {
+        navigating = true;
+        window.location.href = url;
+      }
     } finally {
-      setCheckingOut(false);
+      if (!navigating) {
+        checkoutStarted.current = false;
+        setCheckingOut(false);
+      }
     }
   }
 
+  // Back can restore this page from the back/forward cache with its state as
+  // it was when the buyer left: Checkout on "Redirecting…", and lines that may
+  // have been paid for in the meantime. A persisted pageshow means exactly
+  // that, so hand the page back and re-read the cart.
+  useEffect(() => {
+    function onPageShow(event: PageTransitionEvent) {
+      if (!event.persisted) return;
+      checkoutStarted.current = false;
+      setCheckingOut(false);
+      getCart()
+        .then(setCart)
+        .catch(() => {
+          // Keep what is on screen; the next action re-reads.
+        });
+    }
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, []);
+
+  // A line the server will refuse blocks Checkout up front with the same notice
+  // the refusal would show after a click; removing the line clears it.
+  const hasUnavailable = cart?.items.some((i) => i.unavailable) ?? false;
   const empty = !loadFailed && cart !== null && cart.items.length === 0;
 
   return (
@@ -376,9 +417,9 @@ export default function CartPage() {
               </div>
             </div>
 
-            {checkoutError && (
+            {(hasUnavailable || checkoutError) && (
               <InlineNotice
-                message={checkoutError}
+                message={hasUnavailable ? CART_LINE_UNAVAILABLE : checkoutError!}
                 className="mt-4"
                 testId="cart-checkout-error"
               />
@@ -387,7 +428,7 @@ export default function CartPage() {
             <div className="mt-6 flex flex-col sm:flex-row gap-3">
               <Button
                 onClick={handleCheckout}
-                disabled={checkingOut || busy !== null}
+                disabled={checkingOut || busy !== null || hasUnavailable}
                 size="lg"
                 className="w-full"
               >

@@ -27,6 +27,11 @@ const h = vi.hoisted(() => ({
   rowsAtCreateTime: [] as { orders: unknown[]; items: unknown[] }[],
   /** Simulated `Origin` request header, read by resolveReturnOrigin (F6). */
   originHeader: null as string | null,
+  /** `stripe.checkout.sessions.expire`, called for a buyer's earlier sessions. */
+  expire: vi.fn(),
+  /** "create:<id>" and "expire:<id>" in the order Stripe was called. */
+  calls: [] as string[],
+  stripeError: null as Error | null,
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -46,12 +51,24 @@ vi.mock("next/headers", () => ({
     new Headers(h.originHeader ? { origin: h.originHeader } : {}),
 }));
 
+// The cart's shipping quote falls back to the flat estimate.
+vi.mock("@/lib/printful", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/printful")>()),
+  estimateOrderCosts: vi.fn(async () => null),
+}));
+
 vi.mock("@/lib/stripe", () => ({
   stripe: {
     checkout: {
       sessions: {
+        expire: async (id: string) => {
+          h.calls.push(`expire:${id}`);
+          return h.expire(id);
+        },
         create: vi.fn(async (params: Stripe.Checkout.SessionCreateParams) => {
+          if (h.stripeError) throw h.stripeError;
           h.sessionParams.push(params);
+          h.calls.push(`create:cs_test_${h.sessionParams.length}`);
           // Snapshot the order + order_item rows at the moment Stripe is
           // called, proving they're written first in both modes.
           const db = h.db as Awaited<ReturnType<typeof createTestDb>>;
@@ -71,6 +88,7 @@ vi.mock("@/lib/stripe", () => ({
 
 import { buyPublishedDesign } from "@/app/d/actions";
 import { createCheckoutSession } from "@/app/order/actions";
+import { addToCart, checkoutCart } from "@/app/cart/actions";
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
 
@@ -145,6 +163,10 @@ beforeEach(async () => {
   h.sessionParams = [];
   h.rowsAtCreateTime = [];
   h.originHeader = null;
+  h.calls = [];
+  h.stripeError = null;
+  h.expire.mockReset();
+  h.expire.mockImplementation(async (id: string) => ({ id, status: "expired" }));
   vi.stubEnv("MULTI_PLACEMENT_ENABLED", "false");
   vi.stubEnv("NEXT_PUBLIC_APP_URL", "http://localhost:3000");
   vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", undefined);
@@ -371,5 +393,108 @@ describe("createCheckoutSession stays hosted regardless of the embedded flag (#1
     const [params] = h.sessionParams;
     expect(params).not.toHaveProperty("ui_mode");
     expect(params.success_url).toContain("/order/confirm?session_id=");
+  });
+});
+
+describe("buyPublishedDesign expires the buyer's earlier sessions (#315)", () => {
+  it("two orders: the first session is expired after the second was created", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+
+    await buyPublishedDesign({ imageId: ids.listingId, ...OPTS });
+    const { url } = await buyPublishedDesign({ imageId: ids.listingId, ...OPTS });
+
+    expect(url).toBe("https://checkout.stripe.example/cs_test_hosted");
+    expect(h.expire).toHaveBeenCalledTimes(1);
+    expect(h.expire).toHaveBeenCalledWith("cs_test_1");
+    expect(h.calls).toEqual([
+      "create:cs_test_1",
+      "create:cs_test_2",
+      "expire:cs_test_1",
+    ]);
+    const orders = await db.select().from(schema.order);
+    const bySession = new Map(orders.map((o) => [o.stripeSessionId, o]));
+    expect(bySession.get("cs_test_1")?.abandonedAt).not.toBeNull();
+    expect(bySession.get("cs_test_2")?.abandonedAt).toBeNull();
+    expect(bySession.get("cs_test_2")?.status).toBe("pending");
+  });
+
+  it("the second create throws: expire is not called and the first order stays pending", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    await buyPublishedDesign({ imageId: ids.listingId, ...OPTS });
+    h.stripeError = new Error("stripe boom");
+
+    await expect(
+      buyPublishedDesign({ imageId: ids.listingId, ...OPTS })
+    ).rejects.toThrow("stripe boom");
+
+    expect(h.expire).not.toHaveBeenCalled();
+    const first = await db.query.order.findFirst({
+      where: eq(schema.order.stripeSessionId, "cs_test_1"),
+    });
+    expect(first?.status).toBe("pending");
+    expect(first?.abandonedAt).toBeNull();
+  });
+
+  it("expire rejects: the second order still returns its url", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const db = h.db as Db;
+    const ids = await seed(db);
+    await buyPublishedDesign({ imageId: ids.listingId, ...OPTS });
+    h.expire.mockRejectedValue(new Error("session is complete"));
+
+    const { url } = await buyPublishedDesign({ imageId: ids.listingId, ...OPTS });
+
+    expect(url).toBe("https://checkout.stripe.example/cs_test_hosted");
+    const first = await db.query.order.findFirst({
+      where: eq(schema.order.stripeSessionId, "cs_test_1"),
+    });
+    expect(first?.abandonedAt).toBeNull();
+  });
+
+  it("another buyer's open session is not expired", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    await makeUser(db, "stranger");
+    const strangerDesign = await makeDesign(db, "stranger");
+    await db.insert(schema.order).values({
+      id: "stranger-order",
+      userId: "stranger",
+      designId: strangerDesign.id,
+      stripeSessionId: "cs_stranger",
+      status: "pending",
+      createdAt: new Date(Date.now() - 60_000),
+      totalPrice: 24.12,
+    });
+
+    await buyPublishedDesign({ imageId: ids.listingId, ...OPTS });
+
+    expect(h.expire).not.toHaveBeenCalled();
+    const other = await db.query.order.findFirst({
+      where: eq(schema.order.id, "stranger-order"),
+    });
+    expect(other?.abandonedAt).toBeNull();
+  });
+
+  it("across surfaces: a cart Checkout expires the session from the image detail page", async () => {
+    const db = h.db as Db;
+    const ids = await seed(db);
+    await buyPublishedDesign({ imageId: ids.listingId, ...OPTS });
+    await addToCart({ frontImageId: ids.listingId, ...OPTS });
+
+    await checkoutCart();
+
+    expect(h.expire).toHaveBeenCalledTimes(1);
+    expect(h.expire).toHaveBeenCalledWith("cs_test_1");
+    expect(h.calls).toEqual([
+      "create:cs_test_1",
+      "create:cs_test_2",
+      "expire:cs_test_1",
+    ]);
+    const first = await db.query.order.findFirst({
+      where: eq(schema.order.stripeSessionId, "cs_test_1"),
+    });
+    expect(first?.abandonedAt).not.toBeNull();
   });
 });

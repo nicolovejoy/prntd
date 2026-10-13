@@ -6,8 +6,8 @@
  * Back is the cart; on with a bad key pair is hosted plus one console.error
  * naming the reason. Also pinned: the order and every line are written before
  * Stripe is called in both modes, the Origin rules for return_url, the
- * Stripe-failure path, and the known behaviour that each Checkout makes its
- * own order and session. One case carries the order checkoutCart wrote into
+ * Stripe-failure path, and that each Checkout makes its own order and session
+ * while the buyer's earlier session is expired (#315). One case carries the order checkoutCart wrote into
  * the real /checkout loader, so a change to the rows checkoutCart writes reaches
  * the loader's summary test.
  *
@@ -16,6 +16,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import type Stripe from "stripe";
+import { eq } from "drizzle-orm";
 import { createTestDb } from "@/lib/__tests__/test-db";
 import * as schema from "@/lib/db/schema";
 import {
@@ -47,6 +48,10 @@ const h = vi.hoisted(() => ({
   hostedUrl: "https://checkout.stripe.example/cs_test_hosted",
   /** `stripe.checkout.sessions.retrieve`, read by the /checkout loader. */
   retrieve: vi.fn(),
+  /** `stripe.checkout.sessions.expire`, called for a buyer's earlier sessions. */
+  expire: vi.fn(),
+  /** "create:<id>" and "expire:<id>" in the order Stripe was called. */
+  calls: [] as string[],
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -85,10 +90,15 @@ vi.mock("@/lib/stripe", () => ({
   stripe: {
     checkout: {
       sessions: {
+        expire: async (id: string) => {
+          h.calls.push(`expire:${id}`);
+          return h.expire(id);
+        },
         retrieve: (...args: unknown[]) => h.retrieve(...args),
         create: vi.fn(async (params: Stripe.Checkout.SessionCreateParams) => {
           if (h.stripeError) throw h.stripeError;
           h.sessionParams.push(params);
+          h.calls.push(`create:cs_test_${h.sessionParams.length}`);
           const db = h.db as Awaited<ReturnType<typeof createTestDb>>;
           h.rowsAtCreateTime.push({
             orders: await db.select().from(schema.order),
@@ -237,6 +247,9 @@ beforeEach(async () => {
   h.originHeader = null;
   h.originReadThrows = false;
   h.stripeError = null;
+  h.calls = [];
+  h.expire.mockReset();
+  h.expire.mockImplementation(async (id: string) => ({ id, status: "expired" }));
   vi.stubEnv("MULTI_PLACEMENT_ENABLED", "true");
   vi.stubEnv("NEXT_PUBLIC_APP_URL", APP_URL);
   vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", undefined);
@@ -533,8 +546,8 @@ describe("checkoutCart refusals and failures with the switch on (#278 slice 6b)"
   });
 });
 
-describe("each Checkout makes its own order and session (known behaviour, #278 slice 6b)", () => {
-  it("switch on: a second Checkout leaves the first order pending with its own session", async () => {
+describe("each Checkout makes its own order and session; the earlier session is expired (#278 slice 6b, #315)", () => {
+  it("two Checkouts: two orders and sessions, the first session expired after the second was created", async () => {
     embeddedOn();
     const db = h.db as Db;
     await seedCart(db);
@@ -544,15 +557,79 @@ describe("each Checkout makes its own order and session (known behaviour, #278 s
 
     expect(first.url).toBe(embeddedCheckoutPath("cs_test_1", "/cart"));
     expect(second.url).toBe(embeddedCheckoutPath("cs_test_2", "/cart"));
-    const orders = await db.select().from(schema.order);
-    expect(orders.map((o) => o.stripeSessionId).sort()).toEqual([
-      "cs_test_1",
-      "cs_test_2",
+    expect(h.expire).toHaveBeenCalledTimes(1);
+    expect(h.expire).toHaveBeenCalledWith("cs_test_1");
+    expect(h.calls).toEqual([
+      "create:cs_test_1",
+      "create:cs_test_2",
+      "expire:cs_test_1",
     ]);
-    expect(
-      orders.every((o) => o.status === "pending" && o.abandonedAt === null)
-    ).toBe(true);
+    const orders = await db.select().from(schema.order);
+    const bySession = new Map(orders.map((o) => [o.stripeSessionId, o]));
+    expect(bySession.get("cs_test_1")?.abandonedAt).not.toBeNull();
+    expect(bySession.get("cs_test_1")?.status).toBe("pending");
+    expect(bySession.get("cs_test_2")?.abandonedAt).toBeNull();
+    expect(bySession.get("cs_test_2")?.status).toBe("pending");
     expect(await db.select().from(schema.orderItem)).toHaveLength(4);
+  });
+
+  it("the second create throws: expire is not called and the first order stays pending", async () => {
+    embeddedOn();
+    const db = h.db as Db;
+    await seedCart(db);
+    await checkoutCart();
+    h.stripeError = new Error("stripe boom");
+
+    await expect(checkoutCart()).rejects.toThrow("stripe boom");
+
+    expect(h.expire).not.toHaveBeenCalled();
+    const first = await db.query.order.findFirst({
+      where: eq(schema.order.stripeSessionId, "cs_test_1"),
+    });
+    expect(first?.status).toBe("pending");
+    expect(first?.abandonedAt).toBeNull();
+  });
+
+  it("expire rejects: the second Checkout still returns its url", async () => {
+    embeddedOn();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const db = h.db as Db;
+    await seedCart(db);
+    await checkoutCart();
+    h.expire.mockRejectedValue(new Error("session is complete"));
+
+    const second = await checkoutCart();
+
+    expect(second.url).toBe(embeddedCheckoutPath("cs_test_2", "/cart"));
+    const first = await db.query.order.findFirst({
+      where: eq(schema.order.stripeSessionId, "cs_test_1"),
+    });
+    expect(first?.abandonedAt).toBeNull();
+  });
+
+  it("another buyer's open session is not expired by this buyer's Checkout", async () => {
+    embeddedOn();
+    const db = h.db as Db;
+    await seedCart(db);
+    await makeUser(db, "stranger");
+    const strangerDesign = await makeDesign(db, "stranger");
+    await db.insert(schema.order).values({
+      id: "stranger-order",
+      userId: "stranger",
+      designId: strangerDesign.id,
+      stripeSessionId: "cs_stranger",
+      status: "pending",
+      createdAt: new Date(Date.now() - 60_000),
+      totalPrice: 24.12,
+    });
+
+    await checkoutCart();
+
+    expect(h.expire).not.toHaveBeenCalled();
+    const other = await db.query.order.findFirst({
+      where: eq(schema.order.id, "stranger-order"),
+    });
+    expect(other?.abandonedAt).toBeNull();
   });
 });
 
