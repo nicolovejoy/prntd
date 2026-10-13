@@ -143,6 +143,21 @@ describe("safeCheckoutReturnPath", () => {
     expect(safeCheckoutReturnPath(path)).toBe(path);
   });
 
+  it("caps the resolved output: a 2048-char non-ASCII input that resolves longer is rejected", () => {
+    const path = "/d/" + "é".repeat(MAX_CHECKOUT_RETURN_PATH_LENGTH - 3);
+    expect(path.length).toBe(2048);
+    expect(safeCheckoutReturnPath(path)).toBe("/shop");
+  });
+
+  it.each([
+    "/d/img-1?front=a&back=b&size=M&swap=1",
+    "/cart",
+    "/d/" + "a".repeat(1997),
+  ])("is idempotent for %#", (x) => {
+    const once = safeCheckoutReturnPath(x);
+    expect(safeCheckoutReturnPath(once)).toBe(once);
+  });
+
   it("caps the length at MAX_CHECKOUT_RETURN_PATH_LENGTH", () => {
     const at = "/d/" + "a".repeat(MAX_CHECKOUT_RETURN_PATH_LENGTH - 3);
     expect(at.length).toBe(2048);

@@ -101,8 +101,8 @@ export function embeddedCheckoutPageConfig(): EmbeddedCheckoutResolution {
 // Control characters (C0 + DEL) — reject a path carrying any of them.
 const CONTROL_CHAR_RE = /[\u0000-\u001f\u007f]/;
 
-// The value travels inside Stripe's `return_url` and the sign-in `next=`, both
-// of which have URL length limits of their own.
+// Bounds the incoming query value (`from` on /checkout and /order/confirm, and
+// the sign-in `next=` built from it), checked on the resolved output.
 export const MAX_CHECKOUT_RETURN_PATH_LENGTH = 2048;
 
 /**
@@ -112,7 +112,7 @@ export const MAX_CHECKOUT_RETURN_PATH_LENGTH = 2048;
  * anything that isn't an unambiguous relative path: must start with a single
  * `/` (never `//`, which browsers treat as protocol-relative to another
  * host), must not contain a backslash (some browsers normalize `\` to `/`),
- * must not contain control characters, and must not exceed
+ * must not contain control characters, and and neither the input nor the resolved path may exceed
  * MAX_CHECKOUT_RETURN_PATH_LENGTH. Those raw checks reject outright; then the
  * value is resolved the way a browser would resolve it (dot segments
  * collapsed, `/.//evil.example` caught) by `safeNextPath`, the repo's shared
@@ -122,12 +122,16 @@ export const MAX_CHECKOUT_RETURN_PATH_LENGTH = 2048;
 export function safeCheckoutReturnPath(from: unknown): string {
   if (typeof from !== "string") return "/shop";
   if (from.length === 0) return "/shop";
-  if (from.length > MAX_CHECKOUT_RETURN_PATH_LENGTH) return "/shop";
+  if (from.length > MAX_CHECKOUT_RETURN_PATH_LENGTH) return "/shop"; // cheap pre-check
   if (!from.startsWith("/")) return "/shop";
   if (from.startsWith("//")) return "/shop";
   if (from.includes("\\")) return "/shop";
   if (CONTROL_CHAR_RE.test(from)) return "/shop";
-  return safeNextPath(from, "/shop");
+  // safeNextPath percent-encodes, so the output can be longer than the input;
+  // capping it here keeps the function idempotent across /order/confirm and
+  // /checkout.
+  const out = safeNextPath(from, "/shop");
+  return out.length > MAX_CHECKOUT_RETURN_PATH_LENGTH ? "/shop" : out;
 }
 
 /**
