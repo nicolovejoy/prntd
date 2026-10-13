@@ -76,6 +76,7 @@ export async function createCheckoutSession(params: {
   // sessionless) must sign in here; after sign-in the anonymous plugin
   // re-parents their design to the real account and the retried checkout
   // passes the ownership check below.
+  // Not counted against the checkout cap (#316): nothing imports it (so Next registers no action id and it is not reachable over HTTP); slice 6a removes it.
   if (!session || isAnonymousUser(session.user)) {
     return { url: null, needsAuth: true };
   }

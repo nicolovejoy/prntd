@@ -7,7 +7,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import type { CartView } from "../actions";
 import CartPage from "../page";
-import { CHECKOUT_FAILED, CART_LINE_UNAVAILABLE } from "@/lib/action-copy";
+import {
+  CHECKOUT_FAILED,
+  CART_LINE_UNAVAILABLE,
+  CART_TOO_FULL_TO_CHECKOUT,
+} from "@/lib/action-copy";
+import { CART_MAX_LINES } from "@/lib/cart-line-edit";
 
 const getCart = vi.fn();
 const removeCartItem = vi.fn();
@@ -292,6 +297,61 @@ describe("CartPage unavailable lines (one buy surface, slice 3)", () => {
     await screen.findByTestId("cart-line-item");
     expect(screen.queryByTestId("cart-checkout-error")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Checkout/ })).toBeEnabled();
+  });
+});
+
+describe("CartPage cart line cap (#316)", () => {
+  function cartOf(lines: number): CartView {
+    return {
+      ...ONE_ITEM,
+      items: Array.from({ length: lines }, (_, i) => ({ ...ONE_ITEM.items[0], id: `line-${i}` })),
+    };
+  }
+
+  it("a cart over the cap: the notice shows on load, Checkout is disabled and never calls the action", async () => {
+    getCart.mockResolvedValue(cartOf(CART_MAX_LINES + 1));
+    render(<CartPage />);
+    await screen.findAllByTestId("cart-line-item");
+
+    expect(screen.getByTestId("cart-checkout-error")).toHaveTextContent(
+      CART_TOO_FULL_TO_CHECKOUT
+    );
+    const button = screen.getByRole("button", { name: /^Checkout/ });
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(checkoutCart).not.toHaveBeenCalled();
+  });
+
+  it("a cart of exactly the cap shows no notice and an enabled Checkout", async () => {
+    getCart.mockResolvedValue(cartOf(CART_MAX_LINES));
+    render(<CartPage />);
+    await screen.findAllByTestId("cart-line-item");
+    expect(screen.queryByTestId("cart-checkout-error")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Checkout/ })).toBeEnabled();
+  });
+
+  it("a cap refusal from the server does not re-read the cart", async () => {
+    getCart.mockResolvedValue(ONE_ITEM);
+    checkoutCart.mockResolvedValue({ url: null, error: CART_TOO_FULL_TO_CHECKOUT });
+    render(<CartPage />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /^Checkout/ }));
+
+    expect(await screen.findByTestId("cart-checkout-error")).toHaveTextContent(
+      CART_TOO_FULL_TO_CHECKOUT
+    );
+    expect(getCart).toHaveBeenCalledTimes(1);
+  });
+
+  it("an unavailable-line refusal still re-reads the cart", async () => {
+    getCart.mockResolvedValue(ONE_ITEM);
+    checkoutCart.mockResolvedValue({ url: null, error: CART_LINE_UNAVAILABLE });
+    render(<CartPage />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /^Checkout/ }));
+
+    await screen.findByTestId("cart-checkout-error");
+    await waitFor(() => expect(getCart).toHaveBeenCalledTimes(2));
   });
 });
 

@@ -1,4 +1,5 @@
 import type Stripe from "stripe";
+import { safeCheckoutReturnPath } from "@/lib/embedded-checkout";
 
 /**
  * Stripe Checkout Sessions expire on their own — after that,
@@ -52,9 +53,19 @@ export function buildCheckoutSessionParams(params: {
    * `return_url` in place of `success_url`/`cancel_url` — there is no
    * separate cancel destination, because the customer never leaves our
    * origin in the first place. `cancelUrl` is ignored in embedded mode; the
-   * back link lives on `/checkout` itself (`safeCheckoutReturnPath`).
+   * back link lives on `/checkout` itself (`safeCheckoutReturnPath`), and
+   * `returnPath` (below) carries its target through Stripe's return.
    */
   uiMode?: "hosted" | "embedded";
+  /**
+   * Embedded only: the same-origin path /checkout's Back link goes to. It is
+   * appended to `return_url` as `from=`, so when Stripe sends the buyer to
+   * /order/confirm without a completed payment the "Return to checkout" link
+   * there can hand it back to /checkout (#317). Run through
+   * `safeCheckoutReturnPath` here, the point where it leaves our control.
+   * Ignored for a hosted session, whose way back is `cancelUrl`.
+   */
+  returnPath?: string;
 }): Stripe.Checkout.SessionCreateParams {
   const embedded = params.uiMode === "embedded";
   return {
@@ -105,7 +116,11 @@ export function buildCheckoutSessionParams(params: {
     ...(embedded
       ? {
           ui_mode: "embedded" as const,
-          return_url: `${params.appUrl}/order/confirm?session_id={CHECKOUT_SESSION_ID}`,
+          return_url: `${params.appUrl}/order/confirm?session_id={CHECKOUT_SESSION_ID}${
+            params.returnPath === undefined
+              ? ""
+              : `&from=${encodeURIComponent(safeCheckoutReturnPath(params.returnPath))}`
+          }`,
         }
       : {
           success_url: `${params.appUrl}/order/confirm?session_id={CHECKOUT_SESSION_ID}`,
@@ -148,6 +163,15 @@ export function buildCartCheckoutSessionParams(params: {
    * `/checkout`'s own Back link, which `checkoutCart` points at the cart).
    */
   uiMode?: "hosted" | "embedded";
+  /**
+   * Embedded only: the same-origin path /checkout's Back link goes to. It is
+   * appended to `return_url` as `from=`, so when Stripe sends the buyer to
+   * /order/confirm without a completed payment the "Return to checkout" link
+   * there can hand it back to /checkout (#317). Run through
+   * `safeCheckoutReturnPath` here, the point where it leaves our control.
+   * Ignored for a hosted session, whose way back is `cancelUrl`.
+   */
+  returnPath?: string;
 }): Stripe.Checkout.SessionCreateParams {
   const embedded = params.uiMode === "embedded";
   return {
@@ -185,7 +209,11 @@ export function buildCartCheckoutSessionParams(params: {
     ...(embedded
       ? {
           ui_mode: "embedded" as const,
-          return_url: `${params.appUrl}/order/confirm?session_id={CHECKOUT_SESSION_ID}`,
+          return_url: `${params.appUrl}/order/confirm?session_id={CHECKOUT_SESSION_ID}${
+            params.returnPath === undefined
+              ? ""
+              : `&from=${encodeURIComponent(safeCheckoutReturnPath(params.returnPath))}`
+          }`,
         }
       : {
           success_url: `${params.appUrl}/order/confirm?session_id={CHECKOUT_SESSION_ID}`,

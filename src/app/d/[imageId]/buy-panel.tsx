@@ -479,7 +479,7 @@ export function BuyPanel({
     setLoading(true);
     setNotice(null);
     try {
-      const { url, needsAuth } = await buyPublishedDesign({
+      const { url, needsAuth, error } = await buyPublishedDesign({
         imageId,
         productId,
         size,
@@ -487,6 +487,14 @@ export function BuyPanel({
         backImageId: sides.back?.id,
         ...(frontOverride ? { frontImageId: frontOverride } : {}),
       });
+      // A refusal returned as data (the daily checkout cap, #316): show it,
+      // stay on the page, and let Order be pressed again.
+      if (error) {
+        navigatingAway.current = false;
+        setNotice(error);
+        setLoading(false);
+        return;
+      }
       if (needsAuth) {
         window.location.href = signInHref;
         return;
@@ -509,7 +517,7 @@ export function BuyPanel({
       // carts (the guest funnel re-parents on sign-in); the auth gate stays
       // at checkout. No-op when any session already exists.
       await ensureGuestSession();
-      await addToCart({
+      const result = await addToCart({
         // Pin the exact image (#146): the server derives the design from it
         // and rejects anything not published or owned by the buyer. After a
         // swap it rides on the back and `front` names the pick (#138 slice 3).
@@ -520,6 +528,13 @@ export function BuyPanel({
         ...(sides.back ? { back: sides.back.id } : {}),
         ...(frontOverride ? { front: frontOverride } : {}),
       });
+      // A full cart comes back as data (#316): show it and stay here.
+      if (!result.ok && result.error) {
+        navigatingAway.current = false;
+        setNotice(result.error);
+        setAddingToCart(false);
+        return;
+      }
       // A hard navigation to the cart, not router.push: a concurrent header
       // action can swallow a client-side push (see CLAUDE.md, Runtime gotchas).
       window.location.href = "/cart";

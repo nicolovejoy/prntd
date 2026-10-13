@@ -367,6 +367,11 @@ test.describe("stripe money path", { tag: "@stripe" }, () => {
 
       // Stripe settles the payment and sends the browser to return_url.
       await page.waitForURL(/\/order\/confirm/, { timeout: 120_000 });
+      // Stripe substitutes {CHECKOUT_SESSION_ID} and keeps the rest of
+      // return_url, so `from` survives the round trip (#317).
+      expect(new URL(page.url()).searchParams.get("from")).toBe(
+        checkoutUrl.searchParams.get("from")
+      );
 
       // The CLI listener forwards the signed checkout.session.completed to the
       // local webhook: pending → paid (sale + stripe_fee ledger) → dry-run
@@ -483,6 +488,8 @@ test.describe("stripe money path", { tag: "@stripe" }, () => {
       ).toMatch(/\/checkout\?session=cs_test_/);
       const sessionId = page.url().match(/cs_test_[A-Za-z0-9]+/)?.[0];
       expect(sessionId, `no cs_test_… in checkout URL: ${page.url()}`).toBeTruthy();
+      const checkoutFrom = new URL(page.url()).searchParams.get("from");
+      expect(checkoutFrom, `no from= in checkout URL: ${page.url()}`).toBeTruthy();
       // One order line, so one review row (a cart order has one per line).
       await expect(page.getByTestId("checkout-preview")).toHaveCount(1, {
         timeout: 30_000,
@@ -521,6 +528,9 @@ test.describe("stripe money path", { tag: "@stripe" }, () => {
       );
 
       await page.waitForURL(/\/order\/confirm/, { timeout: 120_000 });
+      // Stripe substitutes {CHECKOUT_SESSION_ID} and keeps the rest of
+      // return_url, so `from` survives the round trip (#317).
+      expect(new URL(page.url()).searchParams.get("from")).toBe(checkoutFrom);
 
       await expect
         .poll(
