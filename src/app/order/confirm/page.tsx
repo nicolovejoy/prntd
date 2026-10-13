@@ -17,13 +17,18 @@ type Search = Promise<Record<string, string | string[] | undefined>>;
 /**
  * The order row is written before the Stripe session is created, and its
  * stripeSessionId is saved right after, so by the time Stripe sends the buyer
- * back here the row already exists — there is no race with the webhook to guard against for the
- * receipt, which renders no field the webhook writes (ruling P3). The one
- * webhook-written field it does read is `abandoned` (set when a delayed
+ * back here the row already exists. The receipt reads that row. Three of its
+ * fields are written by the webhook: `status`, `abandoned` (set when a delayed
  * payment fails, and also when a session is expired by a newer checkout or a
- * hidden-artwork refusal, #315, where the session never completes), and the processing → failed change is a race with the
- * webhook: the page does not poll, so the buyer sees it on the next load.
- * That keeps this a plain awaited server read with no retry/poll island.
+ * hidden-artwork refusal, #315, where the session never completes) and
+ * `totalPrice`, which the webhook reconciles to the amount Stripe charged. The
+ * processing → failed change is a race with the webhook: the page does not
+ * poll, so the buyer sees it on the next load. The total does not race it: a
+ * pending order whose session is complete and settled prints Stripe's
+ * `amount_total` from the read below (`paidTotal`); otherwise the row's total
+ * prints, which for a pending order is the pre-discount figure written at
+ * creation and for any other order is already reconciled (#317). That keeps
+ * this a plain awaited server read with no retry/poll island.
  * `/orders` hides young pending rows (src/lib/user-orders.ts,
  * `STALE_PENDING_MS`), so the "View orders" link below can briefly not show
  * an order that was just paid here.
@@ -109,7 +114,7 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Sear
     );
   }
 
-  let view: ConfirmView = { kind: "confirmed" };
+  let view: ConfirmView = { kind: "confirmed", paidTotal: null };
   // Not gated on the embedded switches; see the docblock. `embeddedEnabled`
   // below only decides whether an open session offers a resume link.
   if (sessionId && order.status === "pending") {
@@ -181,6 +186,12 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Sear
       </div>
     );
   }
+
+  // For a pending order the stored total is the pre-discount figure written at
+  // creation, so the receipt prints Stripe's charged total; once the webhook
+  // has reconciled the row the stored total is that same number (#317).
+  const totalPaid =
+    view.kind === "confirmed" && view.paidTotal != null ? view.paidTotal : order.totalPrice;
 
   return (
     <div className="min-h-screen flex flex-col px-4">
@@ -263,7 +274,7 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Sear
                 Total paid
               </span>
               <span className="font-mono text-base font-medium">
-                ${order.totalPrice.toFixed(2)}
+                ${totalPaid.toFixed(2)}
               </span>
             </div>
           </div>

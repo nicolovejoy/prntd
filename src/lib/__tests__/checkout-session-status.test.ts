@@ -22,8 +22,8 @@ describe("getCheckoutSessionState", () => {
     vi.useRealTimers();
   });
 
-  it("returns status/uiMode/url from the retrieved session", async () => {
-    retrieve.mockResolvedValue({ status: "open", ui_mode: "embedded", url: null, payment_status: "unpaid" });
+  it("returns status/paymentStatus/uiMode/url/amountTotal from the retrieved session", async () => {
+    retrieve.mockResolvedValue({ status: "open", ui_mode: "embedded", url: null, payment_status: "unpaid", amount_total: 2412 });
 
     const result = await getCheckoutSessionState("cs_1");
 
@@ -33,6 +33,7 @@ describe("getCheckoutSessionState", () => {
       paymentStatus: "unpaid",
       uiMode: "embedded",
       url: null,
+      amountTotal: 2412,
     });
   });
 
@@ -87,21 +88,21 @@ describe("resolveConfirmView", () => {
   it("is confirmed for a non-pending order regardless of stripe state", () => {
     expect(
       resolveConfirmView({ ...base, orderStatus: "paid", abandoned: false, stripe: null })
-    ).toEqual({ kind: "confirmed" });
+    ).toEqual({ kind: "confirmed", paidTotal: null });
     expect(
       resolveConfirmView({
         ...base,
         orderStatus: "submitted",
         abandoned: false,
-        stripe: { status: "open", paymentStatus: null, uiMode: "embedded", url: null },
+        stripe: { status: "open", paymentStatus: null, uiMode: "embedded", url: null, amountTotal: null },
       })
-    ).toEqual({ kind: "confirmed" });
+    ).toEqual({ kind: "confirmed", paidTotal: null });
   });
 
   it("is confirmed when the Stripe read failed (stripe is null)", () => {
     expect(
       resolveConfirmView({ ...base, orderStatus: "pending", abandoned: false, stripe: null })
-    ).toEqual({ kind: "confirmed" });
+    ).toEqual({ kind: "confirmed", paidTotal: null });
   });
 
   it("is confirmed when the session completed", () => {
@@ -110,9 +111,60 @@ describe("resolveConfirmView", () => {
         ...base,
         orderStatus: "pending",
         abandoned: false,
-        stripe: { status: "complete", paymentStatus: "paid", uiMode: "embedded", url: null },
+        stripe: { status: "complete", paymentStatus: "paid", uiMode: "embedded", url: null, amountTotal: 2412 },
       })
-    ).toEqual({ kind: "confirmed" });
+    ).toEqual({ kind: "confirmed", paidTotal: 24.12 });
+  });
+
+  const pending = { ...base, orderStatus: "pending", abandoned: false };
+
+  it("carries paidTotal null for a settled session with no amount_total", () => {
+    expect(
+      resolveConfirmView({
+        ...pending,
+        stripe: { status: "complete", paymentStatus: "paid", uiMode: "embedded", url: null, amountTotal: null },
+      })
+    ).toEqual({ kind: "confirmed", paidTotal: null });
+  });
+
+  it("treats a zero amount_total as a value (no_payment_required)", () => {
+    expect(
+      resolveConfirmView({
+        ...pending,
+        stripe: { status: "complete", paymentStatus: "no_payment_required", uiMode: "embedded", url: null, amountTotal: 0 },
+      })
+    ).toEqual({ kind: "confirmed", paidTotal: 0 });
+  });
+
+  it("converts cents to dollars the way the webhook does (1912, 1005)", () => {
+    for (const [cents, dollars] of [[1912, 19.12], [1005, 10.05]] as const) {
+      expect(
+        resolveConfirmView({
+          ...pending,
+          stripe: { status: "complete", paymentStatus: "paid", uiMode: "embedded", url: null, amountTotal: cents },
+        })
+      ).toEqual({ kind: "confirmed", paidTotal: dollars });
+    }
+  });
+
+  it("keeps paidTotal null for a non-pending order even with a Stripe amount", () => {
+    expect(
+      resolveConfirmView({
+        ...base,
+        orderStatus: "paid",
+        abandoned: false,
+        stripe: { status: "complete", paymentStatus: "paid", uiMode: "embedded", url: null, amountTotal: 2412 },
+      })
+    ).toEqual({ kind: "confirmed", paidTotal: null });
+  });
+
+  it("stays processing for a complete but unpaid session", () => {
+    expect(
+      resolveConfirmView({
+        ...pending,
+        stripe: { status: "complete", paymentStatus: "unpaid", uiMode: "embedded", url: null, amountTotal: 2412 },
+      })
+    ).toEqual({ kind: "processing" });
   });
 
   it("is expired when Stripe reports an expired session", () => {
@@ -121,7 +173,7 @@ describe("resolveConfirmView", () => {
         ...base,
         orderStatus: "pending",
         abandoned: false,
-        stripe: { status: "expired", paymentStatus: null, uiMode: "embedded", url: null },
+        stripe: { status: "expired", paymentStatus: null, uiMode: "embedded", url: null, amountTotal: null },
       })
     ).toEqual({ kind: "expired" });
   });
@@ -132,7 +184,7 @@ describe("resolveConfirmView", () => {
         ...base,
         orderStatus: "pending",
         abandoned: false,
-        stripe: { status: "open", paymentStatus: null, uiMode: "embedded", url: null },
+        stripe: { status: "open", paymentStatus: null, uiMode: "embedded", url: null, amountTotal: null },
       })
     ).toEqual({ kind: "incomplete", resumeHref: "/checkout?session=cs_1&from=%2Fshop" });
   });
@@ -148,7 +200,7 @@ describe("resolveConfirmView", () => {
         from,
         orderStatus: "pending",
         abandoned: false,
-        stripe: { status: "open", paymentStatus: null, uiMode: "embedded", url: null },
+        stripe: { status: "open", paymentStatus: null, uiMode: "embedded", url: null, amountTotal: null },
       })
     ).toEqual({ kind: "incomplete", resumeHref });
   });
@@ -161,7 +213,7 @@ describe("resolveConfirmView", () => {
         embeddedEnabled: false,
         orderStatus: "pending",
         abandoned: false,
-        stripe: { status: "open", paymentStatus: null, uiMode: "embedded", url: "https://checkout.stripe.com/x" },
+        stripe: { status: "open", paymentStatus: null, uiMode: "embedded", url: "https://checkout.stripe.com/x", amountTotal: null },
       })
     ).toEqual({ kind: "incomplete", resumeHref: "https://checkout.stripe.com/x" });
   });
@@ -173,7 +225,7 @@ describe("resolveConfirmView", () => {
         embeddedEnabled: false,
         orderStatus: "pending",
         abandoned: false,
-        stripe: { status: "open", paymentStatus: null, uiMode: "embedded", url: "https://checkout.stripe.com/x" },
+        stripe: { status: "open", paymentStatus: null, uiMode: "embedded", url: "https://checkout.stripe.com/x", amountTotal: null },
       })
     ).toEqual({ kind: "incomplete", resumeHref: "https://checkout.stripe.com/x" });
   });
@@ -184,7 +236,7 @@ describe("resolveConfirmView", () => {
         ...base,
         orderStatus: "pending",
         abandoned: false,
-        stripe: { status: "open", paymentStatus: null, uiMode: "hosted", url: "https://checkout.stripe.com/x" },
+        stripe: { status: "open", paymentStatus: null, uiMode: "hosted", url: "https://checkout.stripe.com/x", amountTotal: null },
       })
     ).toEqual({ kind: "incomplete", resumeHref: "https://checkout.stripe.com/x" });
   });
@@ -195,7 +247,7 @@ describe("resolveConfirmView", () => {
         ...base,
         orderStatus: "pending",
         abandoned: false,
-        stripe: { status: "open", paymentStatus: null, uiMode: "hosted", url: null },
+        stripe: { status: "open", paymentStatus: null, uiMode: "hosted", url: null, amountTotal: null },
       })
     ).toEqual({ kind: "incomplete", resumeHref: null });
   });
@@ -207,7 +259,7 @@ describe("resolveConfirmView", () => {
         sessionId: "cs_test_abc&xyz",
         orderStatus: "pending",
         abandoned: false,
-        stripe: { status: "open", paymentStatus: null, uiMode: "embedded", url: null },
+        stripe: { status: "open", paymentStatus: null, uiMode: "embedded", url: null, amountTotal: null },
       })
     ).toEqual({ kind: "incomplete", resumeHref: "/checkout?session=cs_test_abc%26xyz&from=%2Fshop" });
   });
@@ -218,9 +270,18 @@ describe("resolveConfirmView", () => {
         ...base,
         orderStatus: "pending",
         abandoned: false,
-        stripe: { status: null, paymentStatus: null, uiMode: null, url: null },
+        stripe: { status: null, paymentStatus: null, uiMode: null, url: null, amountTotal: null },
       })
-    ).toEqual({ kind: "confirmed" });
+    ).toEqual({ kind: "confirmed", paidTotal: null });
+  });
+});
+
+describe("getCheckoutSessionState amountTotal", () => {
+  beforeEach(() => retrieve.mockReset());
+
+  it("reads a missing amount_total as null", async () => {
+    retrieve.mockResolvedValue({ status: "complete", ui_mode: "hosted", url: null, payment_status: "paid" });
+    expect((await getCheckoutSessionState("cs_1"))?.amountTotal).toBeNull();
   });
 });
 
@@ -264,7 +325,7 @@ describe("resolveConfirmView exhaustive matrix", () => {
                 sessionId: "cs_1",
                 orderStatus,
                 abandoned,
-                stripe: read ? { status: s, paymentStatus: ps, uiMode: "embedded", url: null } : null,
+                stripe: read ? { status: s, paymentStatus: ps, uiMode: "embedded", url: null, amountTotal: 2412 } : null,
               });
               // Intentional difference from main: a complete session whose payment_status
               // is anything but paid / no_payment_required / absent (fail closed).
@@ -280,6 +341,12 @@ describe("resolveConfirmView exhaustive matrix", () => {
               }
               if (s === "complete" && (ps === "paid" || ps === "no_payment_required")) {
                 expect(view.kind).toBe("confirmed");
+              }
+              if (view.kind === "confirmed") {
+                const settled =
+                  orderStatus === "pending" && read && s === "complete" &&
+                  (ps === null || ps === "paid" || ps === "no_payment_required");
+                expect(view.paidTotal).toBe(settled ? 24.12 : null);
               }
             });
           }
