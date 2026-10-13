@@ -4,7 +4,7 @@
  * lie to the customer and invisible to the e2e suite.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import type { CartView } from "../actions";
 import CartPage from "../page";
 import { CHECKOUT_FAILED, CART_LINE_UNAVAILABLE } from "@/lib/action-copy";
@@ -251,18 +251,47 @@ describe("CartPage unavailable lines (one buy surface, slice 3)", () => {
     expect(await screen.findByText("Your cart is empty.")).toBeInTheDocument();
   });
 
-  it("a refused checkout shows the plain message and does not navigate", async () => {
+  it("a line that is no longer available: the notice shows on load, Checkout is disabled and never calls the action", async () => {
     getCart.mockResolvedValue(STALE);
-    checkoutCart.mockResolvedValue({
-      url: null,
-      error: "A design in your cart is no longer available. Remove it to continue.",
-    });
     render(<CartPage />);
     await screen.findByTestId("cart-line-unavailable");
-    fireEvent.click(screen.getByRole("button", { name: /^Checkout/ }));
-    expect(await screen.findByTestId("cart-checkout-error")).toHaveTextContent(
-      "A design in your cart is no longer available. Remove it to continue."
+
+    expect(screen.getByTestId("cart-checkout-error")).toHaveTextContent(
+      CART_LINE_UNAVAILABLE
     );
+    const button = screen.getByRole("button", { name: /^Checkout/ });
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(checkoutCart).not.toHaveBeenCalled();
+  });
+
+  it("removing the unavailable line clears the notice and re-enables Checkout", async () => {
+    const OK_AND_STALE: CartView = {
+      ...STALE,
+      items: [
+        { ...ONE_ITEM.items[0], id: "ok" },
+        { ...STALE.items[0], id: "gone" },
+      ],
+    };
+    getCart.mockResolvedValueOnce(OK_AND_STALE).mockResolvedValue(ONE_ITEM);
+    removeCartItem.mockResolvedValue(undefined);
+    render(<CartPage />);
+    await screen.findByTestId("cart-line-unavailable");
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[1]);
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("cart-checkout-error")).not.toBeInTheDocument()
+    );
+    expect(screen.getByRole("button", { name: /^Checkout/ })).toBeEnabled();
+  });
+
+  it("a cart with no unavailable line shows no notice and an enabled Checkout", async () => {
+    getCart.mockResolvedValue(ONE_ITEM);
+    render(<CartPage />);
+    await screen.findByTestId("cart-line-item");
+    expect(screen.queryByTestId("cart-checkout-error")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Checkout/ })).toBeEnabled();
   });
 });
 
@@ -579,6 +608,55 @@ describe("CartPage Checkout stays disabled once a navigation is requested (#315)
       fireEvent.click(screen.getByRole("button", { name: "Redirecting…" }));
 
       expect(checkoutCart).toHaveBeenCalledTimes(1);
+    } finally {
+      loc.restore();
+    }
+  });
+
+  it("two clicks dispatched before React re-renders call checkoutCart once", async () => {
+    const loc = stubLocationHref();
+    try {
+      getCart.mockResolvedValue(ONE_ITEM);
+      checkoutCart.mockResolvedValue({ url: EMBEDDED_PATH });
+      render(<CartPage />);
+      const button = await screen.findByRole("button", { name: /^Checkout/ });
+
+      await act(async () => {
+        button.click();
+        button.click();
+      });
+
+      expect(checkoutCart).toHaveBeenCalledTimes(1);
+    } finally {
+      loc.restore();
+    }
+  });
+
+  it("a persisted pageshow re-reads the cart and shows what it returns", async () => {
+    const loc = stubLocationHref();
+    try {
+      getCart.mockResolvedValueOnce(ONE_ITEM).mockResolvedValue(EMPTY);
+      checkoutCart.mockResolvedValue({ url: EMBEDDED_PATH });
+      render(<CartPage />);
+      fireEvent.click(await screen.findByRole("button", { name: /^Checkout/ }));
+      await waitFor(() => expect(loc.hrefSet).toHaveBeenCalled());
+
+      firePageShow(true);
+
+      expect(await screen.findByText("Your cart is empty.")).toBeInTheDocument();
+      expect(getCart).toHaveBeenCalledTimes(2);
+    } finally {
+      loc.restore();
+    }
+  });
+
+  it("a non-persisted pageshow does not re-read the cart", async () => {
+    const loc = stubLocationHref();
+    try {
+      await startCheckout(loc);
+      getCart.mockClear();
+      firePageShow(false);
+      expect(getCart).not.toHaveBeenCalled();
     } finally {
       loc.restore();
     }

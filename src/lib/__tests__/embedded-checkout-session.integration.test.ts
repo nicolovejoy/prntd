@@ -926,7 +926,11 @@ describe("loadEmbeddedCheckout and admin-hidden artwork (#310 item 7)", () => {
     expect(await run()).toEqual({ kind: "expired" });
 
     expect(h.expire).toHaveBeenCalledTimes(1);
-    expect(h.expire).toHaveBeenCalledWith(SID);
+    expect(h.expire).toHaveBeenCalledWith(
+      SID,
+      undefined,
+      expect.objectContaining({ maxNetworkRetries: 0 })
+    );
     const order = await db.query.order.findFirst({
       where: eq(schema.order.stripeSessionId, SID),
     });
@@ -998,7 +1002,11 @@ describe("loadEmbeddedCheckout and admin-hidden artwork (#310 item 7)", () => {
       client_secret: null,
     });
     expect(await run()).toEqual({ kind: "expired" });
-    expect(h.expire).toHaveBeenCalledWith(SID);
+    expect(h.expire).toHaveBeenCalledWith(
+      SID,
+      undefined,
+      expect.objectContaining({ maxNetworkRetries: 0 })
+    );
   });
 
   it("not hidden: ready, nothing expired", async () => {
