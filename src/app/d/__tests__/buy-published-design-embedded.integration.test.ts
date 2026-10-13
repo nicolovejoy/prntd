@@ -214,7 +214,8 @@ describe("buyPublishedDesign embedded-checkout gating (#135)", () => {
     const [params] = h.sessionParams;
     expect((params as { ui_mode?: string }).ui_mode).toBe("embedded");
     expect(params.return_url).toBe(
-      "http://localhost:3000/order/confirm?session_id={CHECKOUT_SESSION_ID}"
+      "http://localhost:3000/order/confirm?session_id={CHECKOUT_SESSION_ID}" +
+        `&from=${encodeURIComponent(returnPath(ids.listingId))}`
     );
     expect(params).not.toHaveProperty("success_url");
     expect(params).not.toHaveProperty("cancel_url");
@@ -322,7 +323,8 @@ describe("buyPublishedDesign embedded-checkout gating (#135)", () => {
 
     const [params] = h.sessionParams;
     expect(params.return_url).toBe(
-      "https://prntd-git-feature-x-nico-lovejoys-projects.vercel.app/order/confirm?session_id={CHECKOUT_SESSION_ID}"
+      "https://prntd-git-feature-x-nico-lovejoys-projects.vercel.app/order/confirm?session_id={CHECKOUT_SESSION_ID}" +
+        `&from=${encodeURIComponent(returnPath(ids.listingId))}`
     );
   });
 
@@ -338,7 +340,8 @@ describe("buyPublishedDesign embedded-checkout gating (#135)", () => {
 
     const [params] = h.sessionParams;
     expect(params.return_url).toBe(
-      "http://localhost:3000/order/confirm?session_id={CHECKOUT_SESSION_ID}"
+      "http://localhost:3000/order/confirm?session_id={CHECKOUT_SESSION_ID}" +
+        `&from=${encodeURIComponent(returnPath(ids.listingId))}`
     );
   });
 

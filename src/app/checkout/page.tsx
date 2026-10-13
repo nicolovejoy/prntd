@@ -26,7 +26,8 @@ const SESSION_ID_RE = /^cs_(test|live)_[A-Za-z0-9]+$/;
 /**
  * Stripe Embedded Checkout, mounted on our own origin (#135 slices 2-3).
  * Serves the image detail page and the cart (both EMBEDDED_CHECKOUT_ENABLED;
- * a cart session arrives with `from=/cart`) and /preview
+ * a cart session arrives with `from=/cart`, and a session resumed from
+ * /order/confirm arrives with the `from` its first visit had) and /preview
  * (PREVIEW_EMBEDDED_CHECKOUT_ENABLED), and 404s unless either switch is on.
  * Never renders a price of its own — Stripe's embedded form is the
  * one place that shows line items, shipping and the total, since a promo

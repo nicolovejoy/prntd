@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   resolveEmbeddedCheckoutConfig,
   safeCheckoutReturnPath,
+  MAX_CHECKOUT_RETURN_PATH_LENGTH,
   embeddedCheckoutPath,
   resolveReturnOrigin,
 } from "../embedded-checkout";
@@ -124,6 +125,44 @@ describe("safeCheckoutReturnPath", () => {
 
   it("rejects control characters", () => {
     expect(safeCheckoutReturnPath("/d/abc\n/evil")).toBe("/shop");
+  });
+
+  it.each(["/.//evil.example", "/..//evil.example", "/cart/..//evil.example"])(
+    "rejects the dot-segment shape %j that resolves to //host",
+    (value) => {
+      expect(safeCheckoutReturnPath(value)).toBe("/shop");
+    }
+  );
+
+  it("returns a path with a dot segment resolved", () => {
+    expect(safeCheckoutReturnPath("/cart/./x")).toBe("/cart/x");
+  });
+
+  it("leaves a normal image detail path with picks unchanged", () => {
+    const path = "/d/img-1?front=a&back=b&size=M&swap=1";
+    expect(safeCheckoutReturnPath(path)).toBe(path);
+  });
+
+  it("caps the resolved output: a 2048-char non-ASCII input that resolves longer is rejected", () => {
+    const path = "/d/" + "é".repeat(MAX_CHECKOUT_RETURN_PATH_LENGTH - 3);
+    expect(path.length).toBe(2048);
+    expect(safeCheckoutReturnPath(path)).toBe("/shop");
+  });
+
+  it.each([
+    "/d/img-1?front=a&back=b&size=M&swap=1",
+    "/cart",
+    "/d/" + "a".repeat(1997),
+  ])("is idempotent for %#", (x) => {
+    const once = safeCheckoutReturnPath(x);
+    expect(safeCheckoutReturnPath(once)).toBe(once);
+  });
+
+  it("caps the length at MAX_CHECKOUT_RETURN_PATH_LENGTH", () => {
+    const at = "/d/" + "a".repeat(MAX_CHECKOUT_RETURN_PATH_LENGTH - 3);
+    expect(at.length).toBe(2048);
+    expect(safeCheckoutReturnPath(at)).toBe(at);
+    expect(safeCheckoutReturnPath(at + "a")).toBe("/shop");
   });
 });
 
