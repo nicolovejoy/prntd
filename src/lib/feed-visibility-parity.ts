@@ -24,7 +24,7 @@
  * (#321). `getPublishedFeed` returns a listing only when the image's
  * conversation id (`image.source_design_id`, else the design of its `output`
  * link) names an existing `design` row, because that is when the buy gate
- * lets a visitor order it. Two more lists come from the same read batch:
+ * lets a visitor order it. Three more lists come from the same read batch:
  *
  *   - `feedImageIds`: the image ids the feed now returns (visible, with a
  *     live conversation), before the dedupe per conversation and the limit.
@@ -33,6 +33,10 @@
  *     nothing (null when the image has none). Expected, not a failure: these
  *     are the cards that leave the Shop. `clean` and `disagreements` do not
  *     count them.
+ *   - `nullSourceListings`: the visible published listings whose image has no
+ *     `source_design_id`, with the conversation id its `output` link gives
+ *     (null when it has none). The feed groups each with its conversation's
+ *     other published images, one card per conversation. Informational.
  *
  * The feed SQL below mirrors the joins in `getPublishedFeed` (product →
  * image on `front_image_id`, → user on `image.owner_id`, → image_publication,

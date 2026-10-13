@@ -14,20 +14,21 @@
  *     composition whose front image has no publication row;
  *   - the image ids the feed's joins return under the old filter and under
  *     the new one, and the ids in only one of the two;
- *   - the image ids the feed returns as served (visible, with a live conversation)
- *     and the visible published listings it leaves out for lack of a
- *     conversation (#321), each with image id, product id, title and the
+ *   - the image ids the feed returns as served (visible, with a live
+ *     conversation) and the visible published listings it leaves out for lack
+ *     of a conversation (#321), each with image id, product id, title and the
  *     conversation id that names nothing. Those cards leave the Shop; a
- *      listing in this list is expected and does not affect the exit code;
+ *     listing in this list is expected and does not affect the exit code;
  *   - the visible published listings whose image has no source_design_id
  *     (image id, product id, title, and the conversation its output link
  *     names, or none). The feed groups each with its conversation's other
  *     published images, one card per conversation.
  *
- * Exits 0 and prints PARITY CLEAN when the old-filter and new-filter lists are identical, so the
- * filter change leaves the feed as it was. Exits 1 when they differ, or on
- * any error. A disagreement that does not change the feed (a hidden
- * publication on a draft composition, say) is printed but does not fail.
+ * Exits 0 and prints PARITY CLEAN when the old-filter and new-filter lists are
+ * identical, so the filter change leaves the feed as it was. Exits 1 when
+ * they differ, or on any error. A disagreement that does not change the feed
+ * (a hidden publication on a draft composition, say) is printed but does not
+ * fail.
  *
  * Read-only (SELECTs). Safe on prod. Not run by CI. Run it on Production
  * before the change merges and again after it deploys.
