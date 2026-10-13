@@ -765,7 +765,7 @@ export async function buyPublishedDesign(params: {
           embedded: {
             backPath: returnPath,
             returnOrigin: resolveReturnOrigin(
-              (await headers()).get("origin"),
+              hdrs.get("origin"),
               process.env.NEXT_PUBLIC_APP_URL!
             ),
           },

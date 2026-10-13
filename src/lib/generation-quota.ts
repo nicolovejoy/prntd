@@ -7,7 +7,7 @@ import { generationUsage } from "./db/schema";
 // The runtime db is pulled in lazily inside the consume/refund functions.
 type AppDb = typeof appDb;
 
-// Two independent cap families share this module and the generation_usage
+// Three independent cap families share this module and the generation_usage
 // table, distinguished only by bucket prefix: generation functions read and
 // write `user:<id>` / `ip:<addr>` buckets, chat functions read and write
 // `chat:user:<id>` / `chat:ip:<addr>` buckets, checkout functions read and
@@ -54,8 +54,9 @@ export const USER_IP_CHAT_DAILY_CAP = parseDailyCap(process.env.USER_IP_CHAT_DAI
 // per IP on the same UTC day as the other caps. Guests never reach either
 // action (both return needsAuth first), so there is no guest cap. The
 // numbers are far above what a buyer does in a day; their job is to bound
-// the pending orders, Stripe sessions and Printful quotes one account can
-// make us create.
+// the pending orders and Stripe sessions one account can make us create. They
+// do not bound Printful quotes: getCart runs the same quote for any session,
+// guests included, with no cap.
 export const USER_CHECKOUT_DAILY_CAP = parseDailyCap(process.env.USER_CHECKOUT_DAILY_CAP, 30);
 export const USER_IP_CHECKOUT_DAILY_CAP = parseDailyCap(process.env.USER_IP_CHECKOUT_DAILY_CAP, 100);
 
@@ -106,7 +107,7 @@ async function bump(
 }
 
 /**
- * Shared by the generation and chat families. Bumps the identity bucket first
+ * Shared by the generation, chat and checkout families. Bumps the identity bucket first
  * and refuses on `identity` without touching the IP bucket, so one caller
  * spamming refused attempts doesn't spend other callers' IP allowance. Every
  * attempt that passes the identity check bumps the IP bucket when an IP is

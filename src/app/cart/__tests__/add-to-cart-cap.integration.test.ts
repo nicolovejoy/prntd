@@ -103,4 +103,47 @@ describe("addToCart line cap (#316)", () => {
 
     expect(result).toEqual({ ok: false, count: CART_MAX_LINES, error: CART_FULL });
   });
+
+  it("frontImageId entry: 20 concurrent adds at 39 lines land exactly one (hard cap)", async () => {
+    const db = h.db as Db;
+    const { imageId } = await seed(db, CART_MAX_LINES - 1);
+
+    const results = await Promise.all(
+      Array.from({ length: 20 }, () => addToCart({ frontImageId: imageId, ...OPTS }))
+    );
+
+    expect(await lineCount(db)).toBe(CART_MAX_LINES);
+    expect(results.filter((r) => r.ok)).toHaveLength(1);
+    const refused = results.filter((r) => !r.ok);
+    expect(refused).toHaveLength(19);
+    for (const r of refused) {
+      expect(r).toEqual({ ok: false, count: CART_MAX_LINES, error: CART_FULL });
+    }
+    expect(results.find((r) => r.ok)?.count).toBe(CART_MAX_LINES);
+  });
+
+  it("designId entry: 20 concurrent adds at 39 lines land exactly one", async () => {
+    const db = h.db as Db;
+    const { designId, imageId } = await seed(db, CART_MAX_LINES - 1);
+
+    const results = await Promise.all(
+      Array.from({ length: 20 }, () => addToCart({ designId, front: imageId, ...OPTS }))
+    );
+
+    expect(await lineCount(db)).toBe(CART_MAX_LINES);
+    expect(results.filter((r) => r.ok)).toHaveLength(1);
+    expect(results.filter((r) => r.error === CART_FULL)).toHaveLength(19);
+  });
+
+  it("100 concurrent adds on an empty cart land exactly the cap", async () => {
+    const db = h.db as Db;
+    const { imageId } = await seed(db, 0);
+
+    const results = await Promise.all(
+      Array.from({ length: 100 }, () => addToCart({ frontImageId: imageId, ...OPTS }))
+    );
+
+    expect(await lineCount(db)).toBe(CART_MAX_LINES);
+    expect(results.filter((r) => r.ok)).toHaveLength(CART_MAX_LINES);
+  });
 });

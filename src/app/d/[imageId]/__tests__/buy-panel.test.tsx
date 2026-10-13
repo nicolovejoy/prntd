@@ -732,32 +732,64 @@ describe("BuyPanel failure notices", () => {
     expect((await screen.findAllByText(ADD_TO_CART_FAILED)).length).toBeGreaterThan(0);
   });
 
+  /** Replace window.location with a stub that records href assignments. */
+  function stubLocation() {
+    const hrefSet = vi.fn();
+    const original = window.location;
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        get pathname() {
+          return original.pathname;
+        },
+        get search() {
+          return original.search;
+        },
+        set href(value: string) {
+          hrefSet(value);
+        },
+      },
+    });
+    return {
+      hrefSet,
+      restore: () =>
+        Object.defineProperty(window, "location", { configurable: true, value: original }),
+    };
+  }
+
   it("a returned checkout-cap refusal shows its line, does not navigate and re-enables Order (#316)", async () => {
     vi.mocked(buyPublishedDesign).mockResolvedValueOnce({
-      url: null,
+      url: "https://checkout.example/should-not-be-used",
       error: CHECKOUT_LIMIT_REACHED,
     });
-    const before = window.location.href;
-    render(<BuyPanel imageId="img-1" isLoggedIn />);
-    expand();
-    fireEvent.click(screen.getByRole("button", { name: "M" }));
-    fireEvent.click(buyButton());
-    expect((await screen.findAllByText(CHECKOUT_LIMIT_REACHED)).length).toBeGreaterThan(0);
-    expect(window.location.href).toBe(before);
-    expect(buyButton()).toBeEnabled();
+    const { hrefSet, restore } = stubLocation();
+    try {
+      render(<BuyPanel imageId="img-1" isLoggedIn />);
+      expand();
+      fireEvent.click(screen.getByRole("button", { name: "M" }));
+      fireEvent.click(buyButton());
+      expect((await screen.findAllByText(CHECKOUT_LIMIT_REACHED)).length).toBeGreaterThan(0);
+      expect(hrefSet).not.toHaveBeenCalled();
+      expect(buyButton()).toBeEnabled();
+    } finally {
+      restore();
+    }
   });
 
   it("a returned full-cart refusal shows its line, does not go to the cart and re-enables Add to cart (#316)", async () => {
     vi.mocked(addToCart).mockResolvedValueOnce({ ok: false, count: 40, error: CART_FULL });
-    const before = window.location.href;
-    render(<BuyPanel imageId="img-1" isLoggedIn cartEnabled />);
-    expand();
-    fireEvent.click(screen.getByRole("button", { name: "M" }));
-    fireEvent.click(screen.getAllByTestId("add-to-cart")[0]);
-    expect((await screen.findAllByText(CART_FULL)).length).toBeGreaterThan(0);
-    expect(window.location.href).toBe(before);
-    expect(window.location.href).not.toContain("/cart");
-    expect(screen.getAllByTestId("add-to-cart")[0]).toBeEnabled();
+    const { hrefSet, restore } = stubLocation();
+    try {
+      render(<BuyPanel imageId="img-1" isLoggedIn cartEnabled />);
+      expand();
+      fireEvent.click(screen.getByRole("button", { name: "M" }));
+      fireEvent.click(screen.getAllByTestId("add-to-cart")[0]);
+      expect((await screen.findAllByText(CART_FULL)).length).toBeGreaterThan(0);
+      expect(hrefSet).not.toHaveBeenCalled();
+      expect(screen.getAllByTestId("add-to-cart")[0]).toBeEnabled();
+    } finally {
+      restore();
+    }
   });
 
   it("the notice clears on the next attempt", async () => {

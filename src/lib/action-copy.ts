@@ -91,8 +91,9 @@ export const CHECKOUT_LIMIT_REACHED_IP =
  * Returned as data. */
 export const CART_FULL = "Your cart is full. Remove a line to add another.";
 
-/** checkoutCart refused: the cart holds more than CART_MAX_LINES lines
- * (only reachable through concurrent adds at the boundary). Returned as data. */
+/** checkoutCart refused: the cart holds more than CART_MAX_LINES lines (only
+ * reachable when a guest cart is merged into the account's cart on sign-in,
+ * which moves every row with no cap). Returned as data. */
 export const CART_TOO_FULL_TO_CHECKOUT =
   "Your cart has too many lines to check out. Remove some to continue.";
 

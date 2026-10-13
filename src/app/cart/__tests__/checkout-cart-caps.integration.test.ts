@@ -15,6 +15,7 @@ import {
   CHECKOUT_LIMIT_REACHED,
   CHECKOUT_LIMIT_REACHED_IP,
   CART_TOO_FULL_TO_CHECKOUT,
+  CART_LINE_UNAVAILABLE,
 } from "@/lib/action-copy";
 import { CART_MAX_LINES } from "@/lib/cart-line-edit";
 import { dayKeyUTC } from "@/lib/generation-quota";
@@ -235,5 +236,23 @@ describe("checkoutCart cart line cap (#316)", () => {
     expect(result.error).toBeUndefined();
     expect(h.create).toHaveBeenCalledTimes(1);
     expect(await orderCount(db)).toBe(1);
+  });
+
+  it("refusal order: a stale line in an over-cap cart gives the unavailable refusal, nothing written, the attempt counted", async () => {
+    const db = h.db as Db;
+    await seedCart(db, CART_MAX_LINES + 1);
+    // Make one line stale: its size is no longer orderable.
+    const [row] = await db.select().from(schema.cartItem);
+    await db
+      .update(schema.cartItem)
+      .set({ size: "ZZZ" })
+      .where(eq(schema.cartItem.id, row.id));
+
+    const result = await checkoutCart();
+
+    expect(result).toEqual({ url: null, error: CART_LINE_UNAVAILABLE });
+    expect(await orderCount(db)).toBe(0);
+    expect(h.create).not.toHaveBeenCalled();
+    expect(await bucketCount(db, "checkout:user:buyer")).toBe(1);
   });
 });

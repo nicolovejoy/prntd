@@ -72,8 +72,11 @@ vi.mock("next/headers", () => ({
     // read of the `Origin` entry throws, as a throw there would.
     if (h.originReadThrows) {
       return {
-        get: () => {
-          throw new Error("origin read failed");
+        get: (name: string) => {
+          if (name.toLowerCase() === "origin") {
+            throw new Error("origin read failed");
+          }
+          return null;
         },
       };
     }
@@ -503,6 +506,13 @@ describe("checkoutCart refusals and failures with the switch on (#278 slice 6b)"
     expect(await db.select().from(schema.orderItem)).toHaveLength(0);
     expect(create).not.toHaveBeenCalled();
     expect(h.sessionParams).toHaveLength(0);
+    // The attempt was counted (the quota runs before the Origin read); the
+    // throw is from the Origin read, not from an earlier step.
+    const [bucket] = await db
+      .select()
+      .from(schema.generationUsage)
+      .where(eq(schema.generationUsage.bucket, "checkout:user:buyer"));
+    expect(bucket?.count).toBe(1);
   });
 
   it("an anonymous session: needsAuth, nothing written, Stripe not called", async () => {

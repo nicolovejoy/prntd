@@ -1,7 +1,7 @@
 "use server";
 
 import { headers } from "next/headers";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, sql } from "drizzle-orm";
 import { auth, isAnonymousUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
@@ -152,8 +152,10 @@ async function currentUserId(): Promise<string | null> {
  * A cart holds at most CART_MAX_LINES lines (#316). On either entry, after
  * validation and before the insert, a full cart returns `{ ok: false, count,
  * error: CART_FULL }` as data (a throw would be masked in production). The
- * check is a count then an insert, so two adds landing together at the
- * boundary can both succeed; `checkoutCart` refuses such a cart.
+ * cap is part of the INSERT statement, so concurrent adds cannot pass it.
+ * A cart can still exceed it when a guest cart is merged into the account's
+ * cart on sign-in (`reparentUserData` moves every row with no cap);
+ * `checkoutCart` refuses such a cart until lines are removed.
  *
  * No revalidatePath here, nor in removeCartItem/clearCart: nothing renders cart
  * data on the server. /cart is a client page that calls getCart() itself and
@@ -187,12 +189,7 @@ export async function addToCart(params: {
       { ...params, frontImageId: params.frontImageId },
       userId
     );
-    const lines = await getCartCount();
-    if (lines >= CART_MAX_LINES) {
-      return { ok: false, count: lines, error: CART_FULL };
-    }
-    await db.insert(cartItemTable).values({ userId, ...next });
-    return { ok: true, count: lines + 1 };
+    return insertCappedCartLine(userId, next);
   }
 
   // Reject an unfulfillable product/size/color before it can reach checkout.
@@ -251,20 +248,53 @@ export async function addToCart(params: {
     ? { front: frontId, ...(backId ? { back: backId } : {}) }
     : null;
 
-  const lines = await getCartCount();
-  if (lines >= CART_MAX_LINES) {
-    return { ok: false, count: lines, error: CART_FULL };
-  }
-  await db.insert(cartItemTable).values({
-    userId,
+  return insertCappedCartLine(userId, {
     designId,
     productId: params.productId,
     size: params.size,
     color: params.color,
     placements,
   });
+}
 
-  return { ok: true, count: lines + 1 };
+/**
+ * Insert one cart line unless the user already holds CART_MAX_LINES (#316).
+ * The cap predicate is part of the INSERT (the pattern insertGenerationJob
+ * uses): libSQL over HTTP has no interactive transaction, so a count read
+ * followed by an insert lets concurrent adds all observe the same count.
+ * `INSERT … SELECT … WHERE (select count(*)) < cap` is one statement; a loser
+ * affects zero rows. `count` is read after the statement, so it is the real
+ * number of lines either way.
+ */
+async function insertCappedCartLine(
+  userId: string,
+  line: {
+    designId: string;
+    productId: string;
+    size: string;
+    color: string;
+    placements: Record<string, string> | null;
+  }
+): Promise<{ ok: boolean; count: number; error?: string }> {
+  const result = await db.run(sql`
+    insert into cart_item (
+      id, user_id, design_id, product_id, size, color, placements, quantity,
+      created_at
+    )
+    select
+      ${crypto.randomUUID()}, ${userId}, ${line.designId}, ${line.productId},
+      ${line.size}, ${line.color},
+      ${line.placements ? JSON.stringify(line.placements) : null}, 1,
+      ${Math.floor(Date.now() / 1000)}
+    where (
+      select count(*) from cart_item where user_id = ${userId}
+    ) < ${CART_MAX_LINES}
+  `);
+  const count = await getCartCount();
+  if (result.rowsAffected !== 1) {
+    return { ok: false, count, error: CART_FULL };
+  }
+  return { ok: true, count };
 }
 
 /**
@@ -651,9 +681,9 @@ export async function checkoutCart(): Promise<{
     return { url: null, error: CART_LINE_UNAVAILABLE };
   }
 
-  // addToCart stops at CART_MAX_LINES, but two adds landing together at the
-  // boundary can both succeed; a cart over the cap is refused here, before
-  // any order row, until a line is removed.
+  // addToCart stops at CART_MAX_LINES, but signing in merges a guest cart
+  // into the account's with no cap (reparentUserData), so a cart can be over
+  // it; it is refused here, before any order row, until lines are removed.
   if (view.items.length > CART_MAX_LINES) {
     return { url: null, error: CART_TOO_FULL_TO_CHECKOUT };
   }
@@ -736,7 +766,7 @@ export async function checkoutCart(): Promise<{
   // Preview lands on that Preview.
   const appUrl = embedded.enabled
     ? resolveReturnOrigin(
-        (await headers()).get("origin"),
+        hdrs.get("origin"),
         process.env.NEXT_PUBLIC_APP_URL!
       )
     : process.env.NEXT_PUBLIC_APP_URL!;
