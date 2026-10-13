@@ -1,5 +1,9 @@
 import Link from "next/link";
-import { getOrderBySession } from "./actions";
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
+import { auth, isAnonymousUser } from "@/lib/auth";
+import { getOrderReceipt } from "@/lib/order-receipt";
+import { withNext } from "@/lib/safe-next";
 import { Button } from "@/components/ui";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
@@ -39,10 +43,18 @@ type Search = Promise<Record<string, string | string[] | undefined>>;
  * as confirmed; `complete` but `unpaid` is a delayed payment, #272) from a session that's still `open` — reachable with embedded
  * checkout when Stripe redirects here without a completed payment (e.g. the
  * buyer backed out of a redirect-based payment method) or when the URL is
- * opened directly — or one that's `expired`. The read does not depend on the
+ * opened directly — or one that's `expired`. When that read fails or returns a status this code does not know, the order renders the "checking" state with a Reload link, never a receipt (#317 item 1). The read does not depend on the
  * embedded switches: a switch rolled back mid-checkout must never render
  * "Order confirmed." for an open, unpaid session. A non-`pending` order means
  * zero Stripe calls — the page stays the plain DB read it always was.
+ *
+ * If the order read itself throws (the database is unreachable), nothing is
+ * known about the order, so the page shows the same "checking" screen with no
+ * receipt and makes no Stripe read.
+ *
+ * The page requires the order's owner (#317 item 3): a signed-out visitor or
+ * an anonymous guest goes to sign-in and back here; any other account gets
+ * "Order not found." from `getOrderReceipt`.
  *
  * The resume link carries the `from` Stripe handed back on `return_url`, so
  * the resumed /checkout's Back link goes where the original one went (the
@@ -55,11 +67,25 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Sear
   const rawFrom = query.from;
   const from = typeof rawFrom === "string" ? rawFrom : undefined;
 
+  // This page's own path and query, rebuilt from the two params it reads.
+  // Sign-in sends the buyer back here, and Reload re-requests it.
+  const selfQuery = new URLSearchParams();
+  if (sessionId) selfQuery.set("session_id", sessionId);
+  if (from !== undefined) selfQuery.set("from", from);
+  const selfQueryString = selfQuery.toString();
+  const selfPath = selfQueryString ? `/order/confirm?${selfQueryString}` : "/order/confirm";
+
   let order = null;
   let loadFailed = false;
   if (sessionId) {
+    // The receipt is for the order's owner (#317 item 3). Checked before the
+    // order read; a bare /order/confirm has nothing to protect.
+    const session = await auth.api.getSession({ headers: await headers() });
+    if (!session || isAnonymousUser(session.user)) {
+      redirect(withNext("/sign-in", selfPath));
+    }
     try {
-      order = await getOrderBySession(sessionId);
+      order = await getOrderReceipt({ stripeSessionId: sessionId, viewerId: session.user.id });
     } catch (err) {
       loadFailed = true;
       // Structured line so `vercel logs | grep app_error` finds this the same
@@ -72,33 +98,7 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Sear
     }
   }
 
-  if (loadFailed) {
-    return (
-      <div className="min-h-screen flex flex-col px-4">
-        <Breadcrumbs
-          trail={breadcrumbTrail("/order/confirm")}
-          current="Confirmed"
-          className="py-4"
-        />
-        <div className="flex-1 flex flex-col items-center justify-center">
-          <div className="max-w-md w-full space-y-6 text-center">
-            <h1 className="font-mono text-[13px] leading-5 tracking-[0.08em] uppercase">
-              Order confirmed.
-            </h1>
-            <p className="text-text-muted">
-              The receipt couldn&apos;t be loaded. Your payment went through. The order
-              appears under Orders once it&apos;s confirmed.
-            </p>
-            <Link href="/orders">
-              <Button size="lg" className="w-full">View orders</Button>
-            </Link>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!order) {
+  if (!loadFailed && !order) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
@@ -115,9 +115,13 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Sear
   }
 
   let view: ConfirmView = { kind: "confirmed", paidTotal: null };
-  // Not gated on the embedded switches; see the docblock. `embeddedEnabled`
-  // below only decides whether an open session offers a resume link.
-  if (sessionId && order.status === "pending") {
+  // The order read threw: nothing is known about the order, so no receipt and
+  // no Stripe read (the database is the likeliest thing to be down).
+  if (loadFailed) {
+    view = { kind: "checking" };
+  } else if (order && sessionId && order.status === "pending") {
+    // Not gated on the embedded switches; see the docblock. `embeddedEnabled`
+    // below only decides whether an open session offers a resume link.
     const stripeState = await getCheckoutSessionState(sessionId);
     view = resolveConfirmView({
       orderStatus: order.status,
@@ -129,30 +133,34 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Sear
     });
   }
 
-  if (
-    view.kind === "incomplete" ||
-    view.kind === "expired" ||
-    view.kind === "processing" ||
-    view.kind === "failed"
-  ) {
+  // Anything but "confirmed" is a status screen, so a kind added later fails
+  // closed instead of rendering a receipt.
+  if (view.kind !== "confirmed") {
     // "Payment still processing" is the owner's wording (Nico, 2026-10-01);
     // a copy sweep must not change it. He approved both supporting lines the
     // same day. "failed" reuses the incomplete heading: the session is
     // complete and cannot be resumed, so no resume link.
+    // "checking" (#317 item 1): the order read or the Stripe read failed, or
+    // Stripe returned a status this code does not know, so the page cannot say
+    // paid or unpaid. Wording is Claude's (Nico left it open, 2026-10-13).
     const heading =
       view.kind === "processing"
         ? "Payment still processing"
         : view.kind === "expired"
           ? "This checkout expired."
-          : "Payment not completed.";
+          : view.kind === "checking"
+            ? "Payment not confirmed yet."
+            : "Payment not completed.";
     const body =
       view.kind === "processing"
         ? "Your order will be placed once the payment clears."
-        : view.kind === "failed"
-          ? // Not "Nothing was charged.": that is not true for every delayed
-            // method (a bank debit can be taken and then returned).
-            "The payment didn't go through."
-          : "Nothing was charged.";
+        : view.kind === "checking"
+          ? "Couldn't confirm it just now. Reload in a moment. A paid order appears under Orders once it's confirmed."
+          : view.kind === "failed"
+            ? // Not "Nothing was charged.": that is not true for every delayed
+              // method (a bank debit can be taken and then returned).
+              "The payment didn't go through."
+            : "Nothing was charged.";
     return (
       <div className="min-h-screen flex flex-col px-4">
         <Breadcrumbs
@@ -174,12 +182,30 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Sear
                   </Button>
                 </Link>
               )}
-              <Link
-                href="/shop"
-                className="min-h-11 inline-flex items-center justify-center text-sm underline underline-offset-[3px]"
-              >
-                Back to Shop
-              </Link>
+              {view.kind === "checking" ? (
+                <>
+                  {/* A plain anchor forces a full navigation, so the server
+                      read runs again. */}
+                  <a href={selfPath}>
+                    <Button size="lg" className="w-full">
+                      Reload
+                    </Button>
+                  </a>
+                  <Link
+                    href="/orders"
+                    className="min-h-11 inline-flex items-center justify-center text-sm underline underline-offset-[3px]"
+                  >
+                    View orders
+                  </Link>
+                </>
+              ) : (
+                <Link
+                  href="/shop"
+                  className="min-h-11 inline-flex items-center justify-center text-sm underline underline-offset-[3px]"
+                >
+                  Back to Shop
+                </Link>
+              )}
             </div>
           </div>
         </div>
@@ -190,8 +216,8 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Sear
   // For a pending order the stored total is the pre-discount figure written at
   // creation, so the receipt prints Stripe's charged total; once the webhook
   // has reconciled the row the stored total is that same number (#317).
-  const totalPaid =
-    view.kind === "confirmed" && view.paidTotal != null ? view.paidTotal : order.totalPrice;
+  if (!order) return null; // unreachable: no order is either "not found" or "checking"
+  const totalPaid = view.paidTotal != null ? view.paidTotal : order.totalPrice;
 
   return (
     <div className="min-h-screen flex flex-col px-4">
