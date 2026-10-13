@@ -80,6 +80,29 @@ describe("buildCheckoutSessionParams", () => {
     expect((embedded as { ui_mode?: string }).ui_mode).toBe("embedded");
   });
 
+  it("embedded with returnPath carries it as an encoded from= on return_url", () => {
+    const p = buildCheckoutSessionParams({ ...base, uiMode: "embedded", returnPath: "/d/img-1?size=M" });
+    expect(p.return_url).toBe(
+      "https://prntd.org/order/confirm?session_id={CHECKOUT_SESSION_ID}&from=%2Fd%2Fimg-1%3Fsize%3DM"
+    );
+  });
+
+  it("embedded with an unsafe returnPath falls back to /shop", () => {
+    const p = buildCheckoutSessionParams({ ...base, uiMode: "embedded", returnPath: "//evil.example" });
+    expect(p.return_url).toBe(
+      "https://prntd.org/order/confirm?session_id={CHECKOUT_SESSION_ID}&from=%2Fshop"
+    );
+  });
+
+  it("hosted ignores returnPath: urls are exactly as without it", () => {
+    const now = 1_700_000_000_000;
+    const p = buildCheckoutSessionParams({ ...base, now, uiMode: "hosted", returnPath: "/cart" });
+    expect(p).toEqual(buildCheckoutSessionParams({ ...base, now }));
+    expect(p).not.toHaveProperty("return_url");
+    expect(p.success_url).toBe("https://prntd.org/order/confirm?session_id={CHECKOUT_SESSION_ID}");
+    expect(p.cancel_url).toBe(base.cancelUrl);
+  });
+
   it("prices the single line item in cents, rounded", () => {
     const p = buildCheckoutSessionParams({ ...base, itemPrice: 19.43 });
     const item = p.line_items![0];
@@ -314,6 +337,29 @@ describe("buildCartCheckoutSessionParams", () => {
     // Still one Stripe line per cart line and one shipping option.
     expect(embedded.line_items).toHaveLength(cartBase.lineItems.length);
     expect(embedded.shipping_options).toHaveLength(1);
+  });
+
+  it("embedded with returnPath carries it as an encoded from= on return_url", () => {
+    const p = buildCartCheckoutSessionParams({ ...cartBase, uiMode: "embedded", returnPath: "/d/img-1?size=M" });
+    expect(p.return_url).toBe(
+      "https://prntd.org/order/confirm?session_id={CHECKOUT_SESSION_ID}&from=%2Fd%2Fimg-1%3Fsize%3DM"
+    );
+  });
+
+  it("embedded with an unsafe returnPath falls back to /shop", () => {
+    const p = buildCartCheckoutSessionParams({ ...cartBase, uiMode: "embedded", returnPath: "//evil.example" });
+    expect(p.return_url).toBe(
+      "https://prntd.org/order/confirm?session_id={CHECKOUT_SESSION_ID}&from=%2Fshop"
+    );
+  });
+
+  it("hosted ignores returnPath: urls are exactly as without it", () => {
+    const now = 1_700_000_000_000;
+    const p = buildCartCheckoutSessionParams({ ...cartBase, now, uiMode: "hosted", returnPath: "/cart" });
+    expect(p).toEqual(buildCartCheckoutSessionParams({ ...cartBase, now }));
+    expect(p).not.toHaveProperty("return_url");
+    expect(p.success_url).toBe("https://prntd.org/order/confirm?session_id={CHECKOUT_SESSION_ID}");
+    expect(p.cancel_url).toBe(cartBase.cancelUrl);
   });
 
   it("embedded: return_url is built from the appUrl it is given, so a Preview origin stays on the Preview", () => {

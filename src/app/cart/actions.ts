@@ -583,8 +583,9 @@ async function buildCart(
  *
  * The returned `url` is where the cart page sends the browser (#278 slice
  * 6b). With EMBEDDED_CHECKOUT_ENABLED on and a usable key pair the session is
- * embedded and `url` is our own `/checkout?session=…&from=/cart` path;
- * otherwise it is Stripe's hosted URL, as before. Each call makes a new order
+ * embedded and `url` is our own `/checkout?session=…&from=/cart` path
+ * (Stripe's `return_url` carries the same `from=/cart`, so the resume link on
+ * /order/confirm keeps the cart as its Back target, #317); otherwise it is Stripe's hosted URL, as before. Each call makes a new order
  * and session. Once the new session id is saved, the buyer's earlier open
  * sessions (from the cart or from the image detail page) are expired
  * (`expireEarlierCheckoutSessions`, #315), so normally only the newest can be paid. (If an earlier checkout's Stripe
@@ -747,10 +748,12 @@ export async function checkoutCart(): Promise<{
         })),
         shippingPrice: view.shipping,
         // Ignored by an embedded session, whose way back is /checkout's own
-        // Back link (the `from` in the returned path below).
+        // Back link (the `from` in the returned path below, and the `from` on
+        // Stripe's return_url via `returnPath`, #317).
         cancelUrl: `${process.env.NEXT_PUBLIC_APP_URL}${CART_PATH}`,
         appUrl,
         uiMode: embedded.enabled ? "embedded" : "hosted",
+        returnPath: embedded.enabled ? CART_PATH : undefined,
       })
     );
   } catch (err) {
