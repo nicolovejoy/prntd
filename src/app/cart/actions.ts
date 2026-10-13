@@ -45,6 +45,7 @@ import { cartLineStillValid } from "@/lib/cart-line-check";
 import { cartOrderStoreProductId } from "@/lib/cart-attribution";
 import { requireMirrorProduct } from "@/lib/model-b-writes";
 import {
+  CART_FULL,
   CART_LINE_UNAVAILABLE,
   CART_TOO_FULL_TO_CHECKOUT,
   checkoutLimitMessage,
@@ -148,6 +149,12 @@ async function currentUserId(): Promise<string | null> {
  * A back image is honored only when MULTI_PLACEMENT_ENABLED, guarded the same
  * way at this choke point.
  *
+ * A cart holds at most CART_MAX_LINES lines (#316). On either entry, after
+ * validation and before the insert, a full cart returns `{ ok: false, count,
+ * error: CART_FULL }` as data (a throw would be masked in production). The
+ * check is a count then an insert, so two adds landing together at the
+ * boundary can both succeed; `checkoutCart` refuses such a cart.
+ *
  * No revalidatePath here, nor in removeCartItem/clearCart: nothing renders cart
  * data on the server. /cart is a client page that calls getCart() itself and
  * the header count calls getCartCount(), so the only thing the revalidation
@@ -170,7 +177,7 @@ export async function addToCart(params: {
   color: string;
   /** Source design_image id to print on the back (#25), if any. */
   back?: string;
-}): Promise<{ ok: boolean; count: number }> {
+}): Promise<{ ok: boolean; count: number; error?: string }> {
   const userId = await currentUserId();
   if (!userId) throw new Error("Unauthorized");
 
@@ -180,8 +187,12 @@ export async function addToCart(params: {
       { ...params, frontImageId: params.frontImageId },
       userId
     );
+    const lines = await getCartCount();
+    if (lines >= CART_MAX_LINES) {
+      return { ok: false, count: lines, error: CART_FULL };
+    }
     await db.insert(cartItemTable).values({ userId, ...next });
-    return { ok: true, count: await getCartCount() };
+    return { ok: true, count: lines + 1 };
   }
 
   // Reject an unfulfillable product/size/color before it can reach checkout.
@@ -240,6 +251,10 @@ export async function addToCart(params: {
     ? { front: frontId, ...(backId ? { back: backId } : {}) }
     : null;
 
+  const lines = await getCartCount();
+  if (lines >= CART_MAX_LINES) {
+    return { ok: false, count: lines, error: CART_FULL };
+  }
   await db.insert(cartItemTable).values({
     userId,
     designId,
@@ -249,7 +264,7 @@ export async function addToCart(params: {
     placements,
   });
 
-  return { ok: true, count: await getCartCount() };
+  return { ok: true, count: lines + 1 };
 }
 
 /**

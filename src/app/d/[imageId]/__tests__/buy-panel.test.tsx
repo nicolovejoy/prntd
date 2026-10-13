@@ -36,8 +36,10 @@ import { buyPublishedDesign } from "../../actions";
 import { addToCart, updateCartItem } from "@/app/cart/actions";
 import {
   ADD_TO_CART_FAILED,
+  CART_FULL,
   CART_LINE_GONE,
   CHECKOUT_FAILED,
+  CHECKOUT_LIMIT_REACHED,
   UPDATE_CART_FAILED,
 } from "@/lib/action-copy";
 
@@ -728,6 +730,34 @@ describe("BuyPanel failure notices", () => {
     fireEvent.click(screen.getByRole("button", { name: "M" }));
     fireEvent.click(screen.getAllByTestId("add-to-cart")[0]);
     expect((await screen.findAllByText(ADD_TO_CART_FAILED)).length).toBeGreaterThan(0);
+  });
+
+  it("a returned checkout-cap refusal shows its line, does not navigate and re-enables Order (#316)", async () => {
+    vi.mocked(buyPublishedDesign).mockResolvedValueOnce({
+      url: null,
+      error: CHECKOUT_LIMIT_REACHED,
+    });
+    const before = window.location.href;
+    render(<BuyPanel imageId="img-1" isLoggedIn />);
+    expand();
+    fireEvent.click(screen.getByRole("button", { name: "M" }));
+    fireEvent.click(buyButton());
+    expect((await screen.findAllByText(CHECKOUT_LIMIT_REACHED)).length).toBeGreaterThan(0);
+    expect(window.location.href).toBe(before);
+    expect(buyButton()).toBeEnabled();
+  });
+
+  it("a returned full-cart refusal shows its line, does not go to the cart and re-enables Add to cart (#316)", async () => {
+    vi.mocked(addToCart).mockResolvedValueOnce({ ok: false, count: 40, error: CART_FULL });
+    const before = window.location.href;
+    render(<BuyPanel imageId="img-1" isLoggedIn cartEnabled />);
+    expand();
+    fireEvent.click(screen.getByRole("button", { name: "M" }));
+    fireEvent.click(screen.getAllByTestId("add-to-cart")[0]);
+    expect((await screen.findAllByText(CART_FULL)).length).toBeGreaterThan(0);
+    expect(window.location.href).toBe(before);
+    expect(window.location.href).not.toContain("/cart");
+    expect(screen.getAllByTestId("add-to-cart")[0]).toBeEnabled();
   });
 
   it("the notice clears on the next attempt", async () => {
