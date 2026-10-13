@@ -258,6 +258,9 @@ beforeEach(async () => {
   vi.stubEnv("MULTI_PLACEMENT_ENABLED", "true");
   vi.stubEnv("NEXT_PUBLIC_APP_URL", APP_URL);
   vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", undefined);
+  vi.stubEnv("VERCEL_ENV", undefined);
+  vi.stubEnv("VERCEL_URL", undefined);
+  vi.stubEnv("VERCEL_BRANCH_URL", undefined);
   vi.stubEnv("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", undefined);
   vi.stubEnv("STRIPE_SECRET_KEY", undefined);
 });
@@ -437,13 +440,15 @@ describe("checkoutCart return_url origin (#278 slice 6b)", () => {
 
   it.each([
     "https://evil.example",
-    // A prntd-* host without the team suffix is not this project's.
+    // A vercel.app host that is not one of the deployment's own two.
     "https://prntd-git-x.vercel.app",
     "javascript:alert(1)",
   ])(
     "switch on: an untrusted Origin (%s) falls back to NEXT_PUBLIC_APP_URL",
     async (origin) => {
       embeddedOn();
+      vi.stubEnv("VERCEL_ENV", "preview");
+      vi.stubEnv("VERCEL_URL", "prntd-abc123def-nico-lovejoys-projects.vercel.app");
       h.originHeader = origin;
       const db = h.db as Db;
       await seedCart(db);

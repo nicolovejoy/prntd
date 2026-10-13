@@ -185,8 +185,9 @@ export function vercelDeployment(): VercelDeployment {
  * it also trusts the deployment's own two hosts, `VERCEL_URL` and
  * `VERCEL_BRANCH_URL`, over https, compared case-insensitively and including
  * any port. It does not trust: any `vercel.app` host in Production,
- * including its own `VERCEL_URL` (the buyer is on prntd.org and has no
- * session cookie on another host); a `vercel.app` host whose name merely
+ * including its own `VERCEL_URL` (Production buyers shop on prntd.org; a
+ * Production deployment's vercel.app hosts are not a buying surface, and the
+ * canonical domain is the only Production return); a `vercel.app` host whose name merely
  * looks like ours or belongs to another deployment; plain http (other than
  * an `appUrl` that is itself http); or any other prntd.org subdomain. The
  * value decides where a live payment session returns, so it is matched

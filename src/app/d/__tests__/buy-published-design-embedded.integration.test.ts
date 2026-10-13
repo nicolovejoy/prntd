@@ -170,6 +170,9 @@ beforeEach(async () => {
   vi.stubEnv("MULTI_PLACEMENT_ENABLED", "false");
   vi.stubEnv("NEXT_PUBLIC_APP_URL", "http://localhost:3000");
   vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", undefined);
+  vi.stubEnv("VERCEL_ENV", undefined);
+  vi.stubEnv("VERCEL_URL", undefined);
+  vi.stubEnv("VERCEL_BRANCH_URL", undefined);
   vi.stubEnv("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", undefined);
   vi.stubEnv("STRIPE_SECRET_KEY", undefined);
 });
