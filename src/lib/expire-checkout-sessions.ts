@@ -1,7 +1,7 @@
 // Not a "use server" module on purpose: these functions trust the ids they
 // are given (a user id, an order id, a Stripe session id), so exporting them
 // from a "use server" file would make them callable Server Actions.
-import { and, desc, eq, gte, isNotNull, isNull, lt, ne, or } from "drizzle-orm";
+import { and, desc, eq, gte, isNotNull, isNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { order as orderTable } from "@/lib/db/schema";
 import { stripe } from "@/lib/stripe";
@@ -17,8 +17,12 @@ import { handleStripeCheckoutExpired } from "@/lib/webhook-handlers";
  * that Stripe already expired on its own. */
 const OPEN_WINDOW_MARGIN_SECONDS = 5 * 60;
 
-/** Most earlier sessions one checkout will try to expire. */
-const MAX_EXPIRED_PER_CHECKOUT = 10;
+/** Most earlier sessions one checkout will try to expire. A buyer normally has
+ * at most one live checkout, so this is a bound on Stripe writes per click. */
+const MAX_EXPIRED_PER_CHECKOUT = 3;
+
+/** SQLite's insertion counter for the order table (an ordinary rowid table). */
+const orderRowid = sql<number>`"order"."rowid"`;
 
 /**
  * Asks Stripe to expire one open Checkout session. True when Stripe reports
@@ -31,7 +35,13 @@ export async function expireCheckoutSession(sessionId: string): Promise<boolean>
     const session = await withTimeout(
       "expireCheckoutSession",
       STRIPE_SESSION_READ_TIMEOUT_MS,
-      () => stripe.checkout.sessions.expire(sessionId)
+      // Per-request options make the SDK stop when we stop waiting: its own
+      // default is 80 s with two retries, and withTimeout cannot cancel it.
+      () =>
+        stripe.checkout.sessions.expire(sessionId, undefined, {
+          timeout: STRIPE_SESSION_READ_TIMEOUT_MS,
+          maxNetworkRetries: 0,
+        })
     );
     if (session.status === "expired") return true;
     console.error(
@@ -51,10 +61,12 @@ export async function expireCheckoutSession(sessionId: string): Promise<boolean>
  * earlier open sessions. Never throws. Returns what it attempted, for tests
  * and logs.
  *
- * "Earlier" is a total order on (created_at, id). `order.created_at` is stored
- * as whole seconds, so two checkouts can share a value; the id breaks the tie,
- * which means that of two checkouts created together exactly one counts as the
- * earlier, and two concurrent checkouts never expire each other.
+ * "Earlier" means inserted earlier: a lower SQLite `rowid` on `order`.
+ * `order.created_at` is stored in whole seconds and ids are random, so neither
+ * can say which of two checkouts in the same second came first; the rowid is
+ * assigned at insert and does. Of any two orders exactly one is earlier, so two
+ * concurrent checkouts never expire each other, and the newer one is never the
+ * one expired. At most three sessions are expired per call.
  *
  * An order is marked abandoned only when Stripe confirms its session expired.
  * When Stripe refuses (the session is complete, or being paid) or the call
@@ -65,13 +77,15 @@ export async function expireEarlierCheckoutSessions(params: {
   orderId: string;
 }): Promise<{ orderId: string; sessionId: string; expired: boolean }[]> {
   try {
-    const current = await db.query.order.findFirst({
-      where: and(
-        eq(orderTable.id, params.orderId),
-        eq(orderTable.userId, params.userId)
-      ),
-      columns: { id: true, createdAt: true },
-    });
+    const [current] = await db
+      .select({ id: orderTable.id, rowid: orderRowid })
+      .from(orderTable)
+      .where(
+        and(
+          eq(orderTable.id, params.orderId),
+          eq(orderTable.userId, params.userId)
+        )
+      );
     if (!current) return [];
 
     const windowStart = new Date(
@@ -87,18 +101,11 @@ export async function expireEarlierCheckoutSessions(params: {
           eq(orderTable.status, "pending"),
           isNull(orderTable.abandonedAt),
           isNotNull(orderTable.stripeSessionId),
-          ne(orderTable.id, current.id),
           gte(orderTable.createdAt, windowStart),
-          or(
-            lt(orderTable.createdAt, current.createdAt),
-            and(
-              eq(orderTable.createdAt, current.createdAt),
-              lt(orderTable.id, current.id)
-            )
-          )
+          sql`${orderRowid} < ${current.rowid}`
         )
       )
-      .orderBy(desc(orderTable.createdAt), desc(orderTable.id))
+      .orderBy(desc(orderRowid))
       .limit(MAX_EXPIRED_PER_CHECKOUT);
 
     const targets = earlier.flatMap((row) =>

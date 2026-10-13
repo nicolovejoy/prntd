@@ -45,6 +45,10 @@ import {
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
 
+const REQUEST_OPTIONS = {
+  timeout: STRIPE_SESSION_READ_TIMEOUT_MS,
+  maxNetworkRetries: 0,
+};
 const NOW = () => new Date();
 const ago = (seconds: number) => new Date(Date.now() - seconds * 1000);
 
@@ -120,7 +124,7 @@ describe("expireEarlierCheckoutSessions (#315)", () => {
     });
 
     expect(h.expire).toHaveBeenCalledTimes(1);
-    expect(h.expire).toHaveBeenCalledWith(`cs_${old.id}`);
+    expect(h.expire).toHaveBeenCalledWith(`cs_${old.id}`, undefined, REQUEST_OPTIONS);
     expect(result).toEqual([
       { orderId: old.id, sessionId: `cs_${old.id}`, expired: true },
     ]);
@@ -168,21 +172,31 @@ describe("expireEarlierCheckoutSessions (#315)", () => {
     expect((await load(db, later.id)).abandonedAt).toBeNull();
   });
 
-  it("two orders with the same created time: at most one is expired, never both", async () => {
-    const db = h.db as Db;
-    const created = ago(30);
-    const a = await seedOrder(db, { id: "order-a", createdAt: created });
-    const b = await seedOrder(db, { id: "order-b", createdAt: created });
+  it.each([
+    ["z-first", "a-second"],
+    ["a-first", "z-second"],
+  ])(
+    "same created time, inserted %s then %s: the second expires the first, never the reverse",
+    async (firstId, secondId) => {
+      const db = h.db as Db;
+      const created = ago(30);
+      const first = await seedOrder(db, { id: firstId, createdAt: created });
+      const second = await seedOrder(db, { id: secondId, createdAt: created });
 
-    await expireEarlierCheckoutSessions({ userId: "buyer", orderId: a.id });
-    await expireEarlierCheckoutSessions({ userId: "buyer", orderId: b.id });
+      // The first-inserted order never expires the second.
+      expect(
+        await expireEarlierCheckoutSessions({ userId: "buyer", orderId: first.id })
+      ).toEqual([]);
+      expect(h.expire).not.toHaveBeenCalled();
 
-    expect(h.expire).toHaveBeenCalledTimes(1);
-    const abandoned = [await load(db, a.id), await load(db, b.id)].filter(
-      (o) => o.abandonedAt !== null
-    );
-    expect(abandoned).toHaveLength(1);
-  });
+      await expireEarlierCheckoutSessions({ userId: "buyer", orderId: second.id });
+
+      expect(h.expire).toHaveBeenCalledTimes(1);
+      expect(h.expire).toHaveBeenCalledWith(`cs_${first.id}`, undefined, REQUEST_OPTIONS);
+      expect((await load(db, first.id)).abandonedAt).not.toBeNull();
+      expect((await load(db, second.id)).abandonedAt).toBeNull();
+    }
+  );
 
   it("Stripe refuses (the session is complete): expired false, the order stays pending, nothing thrown", async () => {
     const db = h.db as Db;
@@ -257,11 +271,10 @@ describe("expireEarlierCheckoutSessions (#315)", () => {
     expect(h.expire).not.toHaveBeenCalled();
   });
 
-  it("twelve earlier open orders: ten expire calls, for the ten newest", async () => {
+  it("twelve earlier open orders: three expire calls, for the three newest, with request options", async () => {
     const db = h.db as Db;
     const ids: string[] = [];
     for (let i = 0; i < 12; i++) {
-      // i = 0 is the oldest.
       const o = await seedOrder(db, { createdAt: ago(1200 - i * 10) });
       ids.push(o.id);
     }
@@ -269,9 +282,24 @@ describe("expireEarlierCheckoutSessions (#315)", () => {
 
     await expireEarlierCheckoutSessions({ userId: "buyer", orderId: fresh.id });
 
-    expect(h.expire).toHaveBeenCalledTimes(10);
+    expect(h.expire).toHaveBeenCalledTimes(3);
     const called = h.expire.mock.calls.map((c) => c[0]).sort();
-    expect(called).toEqual(ids.slice(2).map((id) => `cs_${id}`).sort());
+    expect(called).toEqual(ids.slice(9).map((id) => `cs_${id}`).sort());
+    for (const call of h.expire.mock.calls) {
+      expect(call[1]).toBeUndefined();
+      expect(call[2]).toEqual(REQUEST_OPTIONS);
+    }
+  });
+
+  it("with expire rejecting, twelve sequential checkouts make at most three expire calls each", async () => {
+    const db = h.db as Db;
+    h.expire.mockRejectedValue(new Error("session is complete"));
+    for (let i = 0; i < 12; i++) {
+      const o = await seedOrder(db, { createdAt: NOW() });
+      h.expire.mockClear();
+      await expireEarlierCheckoutSessions({ userId: "buyer", orderId: o.id });
+      expect(h.expire.mock.calls.length).toBeLessThanOrEqual(3);
+    }
   });
 
   it("the database read throws: nothing is thrown and Stripe is not called", async () => {
@@ -344,7 +372,7 @@ describe("expireEarlierCheckoutSessions (#315)", () => {
 describe("expireCheckoutSession (#315)", () => {
   it("true when Stripe reports the session expired", async () => {
     expect(await expireCheckoutSession("cs_1")).toBe(true);
-    expect(h.expire).toHaveBeenCalledWith("cs_1");
+    expect(h.expire).toHaveBeenCalledWith("cs_1", undefined, REQUEST_OPTIONS);
   });
 
   it("false, with one log line and no throw, when Stripe rejects", async () => {

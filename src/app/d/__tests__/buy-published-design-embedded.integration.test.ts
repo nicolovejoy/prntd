@@ -396,22 +396,12 @@ describe("createCheckoutSession stays hosted regardless of the embedded flag (#1
   });
 });
 
-/** Moves an order's created time back so a later order counts as newer; the
- * column holds whole seconds, so two calls in one test would otherwise tie. */
-async function backdate(db: Db, sessionId: string, seconds: number) {
-  await db
-    .update(schema.order)
-    .set({ createdAt: new Date(Date.now() - seconds * 1000) })
-    .where(eq(schema.order.stripeSessionId, sessionId));
-}
-
 describe("buyPublishedDesign expires the buyer's earlier sessions (#315)", () => {
   it("two orders: the first session is expired after the second was created", async () => {
     const db = h.db as Db;
     const ids = await seed(db);
 
     await buyPublishedDesign({ imageId: ids.listingId, ...OPTS });
-    await backdate(db, "cs_test_1", 30);
     const { url } = await buyPublishedDesign({ imageId: ids.listingId, ...OPTS });
 
     expect(url).toBe("https://checkout.stripe.example/cs_test_hosted");
@@ -433,7 +423,6 @@ describe("buyPublishedDesign expires the buyer's earlier sessions (#315)", () =>
     const db = h.db as Db;
     const ids = await seed(db);
     await buyPublishedDesign({ imageId: ids.listingId, ...OPTS });
-    await backdate(db, "cs_test_1", 30);
     h.stripeError = new Error("stripe boom");
 
     await expect(
@@ -453,7 +442,6 @@ describe("buyPublishedDesign expires the buyer's earlier sessions (#315)", () =>
     const db = h.db as Db;
     const ids = await seed(db);
     await buyPublishedDesign({ imageId: ids.listingId, ...OPTS });
-    await backdate(db, "cs_test_1", 30);
     h.expire.mockRejectedValue(new Error("session is complete"));
 
     const { url } = await buyPublishedDesign({ imageId: ids.listingId, ...OPTS });
@@ -493,7 +481,6 @@ describe("buyPublishedDesign expires the buyer's earlier sessions (#315)", () =>
     const db = h.db as Db;
     const ids = await seed(db);
     await buyPublishedDesign({ imageId: ids.listingId, ...OPTS });
-    await backdate(db, "cs_test_1", 30);
     await addToCart({ frontImageId: ids.listingId, ...OPTS });
 
     await checkoutCart();

@@ -546,15 +546,6 @@ describe("checkoutCart refusals and failures with the switch on (#278 slice 6b)"
   });
 });
 
-/** Moves an order's created time back so a later order counts as newer; the
- * column holds whole seconds, so two calls in one test would otherwise tie. */
-async function backdate(db: Db, sessionId: string, seconds: number) {
-  await db
-    .update(schema.order)
-    .set({ createdAt: new Date(Date.now() - seconds * 1000) })
-    .where(eq(schema.order.stripeSessionId, sessionId));
-}
-
 describe("each Checkout makes its own order and session; the earlier session is expired (#278 slice 6b, #315)", () => {
   it("two Checkouts: two orders and sessions, the first session expired after the second was created", async () => {
     embeddedOn();
@@ -562,7 +553,6 @@ describe("each Checkout makes its own order and session; the earlier session is 
     await seedCart(db);
 
     const first = await checkoutCart();
-    await backdate(db, "cs_test_1", 30);
     const second = await checkoutCart();
 
     expect(first.url).toBe(embeddedCheckoutPath("cs_test_1", "/cart"));
@@ -588,7 +578,6 @@ describe("each Checkout makes its own order and session; the earlier session is 
     const db = h.db as Db;
     await seedCart(db);
     await checkoutCart();
-    await backdate(db, "cs_test_1", 30);
     h.stripeError = new Error("stripe boom");
 
     await expect(checkoutCart()).rejects.toThrow("stripe boom");
@@ -607,7 +596,6 @@ describe("each Checkout makes its own order and session; the earlier session is 
     const db = h.db as Db;
     await seedCart(db);
     await checkoutCart();
-    await backdate(db, "cs_test_1", 30);
     h.expire.mockRejectedValue(new Error("session is complete"));
 
     const second = await checkoutCart();
