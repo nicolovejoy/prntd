@@ -29,7 +29,7 @@ import {
   productSupportsPlacement,
 } from "@/lib/blanks";
 import { createStripeCheckoutForOrder } from "@/lib/order-checkout";
-import { embeddedCheckoutConfig, resolveReturnOrigin } from "@/lib/embedded-checkout";
+import { embeddedCheckoutConfig, resolveReturnOrigin, vercelDeployment } from "@/lib/embedded-checkout";
 import { embeddedCheckoutFlag } from "@/lib/flags";
 import { renderAndCacheMockup } from "@/lib/mockup-render";
 import { getPublishedFeed } from "@/lib/discover-feed";
@@ -766,7 +766,8 @@ export async function buyPublishedDesign(params: {
             backPath: returnPath,
             returnOrigin: resolveReturnOrigin(
               hdrs.get("origin"),
-              process.env.NEXT_PUBLIC_APP_URL!
+              process.env.NEXT_PUBLIC_APP_URL!,
+              vercelDeployment()
             ),
           },
         }

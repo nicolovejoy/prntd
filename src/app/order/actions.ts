@@ -26,6 +26,7 @@ import { previewEmbeddedCheckoutFlag } from "@/lib/flags";
 import {
   previewEmbeddedCheckoutConfig,
   resolveReturnOrigin,
+  vercelDeployment,
 } from "@/lib/embedded-checkout";
 
 /**
@@ -188,7 +189,8 @@ export async function createCheckoutSession(params: {
             backPath: previewPath,
             returnOrigin: resolveReturnOrigin(
               (await headers()).get("origin"),
-              process.env.NEXT_PUBLIC_APP_URL!
+              process.env.NEXT_PUBLIC_APP_URL!,
+              vercelDeployment()
             ),
           },
         }

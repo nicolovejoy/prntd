@@ -311,10 +311,15 @@ describe("buyPublishedDesign embedded-checkout gating (#135)", () => {
     );
   });
 
-  it("flag on: return_url follows the request's Origin when it's a trusted preview host (F6)", async () => {
+  it("flag on: return_url follows the request's Origin when it's the Preview's own host (F6)", async () => {
     vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", "true");
     vi.stubEnv("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", "pk_test_abc123");
     vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_abc123");
+    vi.stubEnv("VERCEL_ENV", "preview");
+    vi.stubEnv(
+      "VERCEL_BRANCH_URL",
+      "prntd-git-feature-x-nico-lovejoys-projects.vercel.app"
+    );
     h.originHeader = "https://prntd-git-feature-x-nico-lovejoys-projects.vercel.app";
     const db = h.db as Db;
     const ids = await seed(db);

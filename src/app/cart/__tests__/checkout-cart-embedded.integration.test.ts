@@ -405,8 +405,10 @@ describe("checkoutCart embedded-checkout gating (#278 slice 6b)", () => {
 });
 
 describe("checkoutCart return_url origin (#278 slice 6b)", () => {
-  it("switch on: return_url follows a trusted Preview Origin, so a Preview purchase returns to that Preview", async () => {
+  it("switch on: return_url follows the Preview's own Origin, so a Preview purchase returns to that Preview", async () => {
     embeddedOn();
+    vi.stubEnv("VERCEL_ENV", "preview");
+    vi.stubEnv("VERCEL_URL", PREVIEW_ORIGIN.replace("https://", ""));
     h.originHeader = PREVIEW_ORIGIN;
     const db = h.db as Db;
     await seedCart(db);
@@ -418,6 +420,19 @@ describe("checkoutCart return_url origin (#278 slice 6b)", () => {
     );
     // The page URL handed to the browser is relative, so it stays there too.
     expect(result.url).toBe("/checkout?session=cs_test_1&from=%2Fcart");
+  });
+
+  it("switch on: a Preview-shaped Origin outside a Vercel Preview falls back to NEXT_PUBLIC_APP_URL", async () => {
+    embeddedOn();
+    h.originHeader = PREVIEW_ORIGIN;
+    const db = h.db as Db;
+    await seedCart(db);
+
+    await checkoutCart();
+
+    expect(h.sessionParams[0].return_url).toBe(
+      `${APP_URL}${CONFIRM_PATH}${EMBEDDED_FROM}`
+    );
   });
 
   it.each([

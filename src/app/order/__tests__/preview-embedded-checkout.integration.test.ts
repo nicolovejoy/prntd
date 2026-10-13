@@ -306,8 +306,10 @@ describe("createCheckoutSession embedded-checkout gating (#135 slice 3)", () => 
     );
   });
 
-  it("preview flag on: return_url follows a trusted preview Origin", async () => {
+  it("preview flag on: return_url follows the Preview's own Origin", async () => {
     enablePreviewEmbedded();
+    vi.stubEnv("VERCEL_ENV", "preview");
+    vi.stubEnv("VERCEL_URL", PREVIEW_HOST.replace("https://", ""));
     h.originHeader = PREVIEW_HOST;
     const db = h.db as Db;
     const ids = await seed(db);
