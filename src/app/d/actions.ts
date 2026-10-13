@@ -127,8 +127,10 @@ export type HiddenImagePage = {
 };
 
 /**
- * Public discover feed. Returns published, non-hidden images — admin-ranked
- * first, then newest first (see src/lib/discover-feed.ts). No auth required.
+ * Public discover feed. Returns published, non-hidden images whose
+ * conversation still exists (a listing that cannot be ordered is left out) —
+ * admin-ranked first, then newest first (see src/lib/discover-feed.ts). No
+ * auth required.
  */
 export async function getDiscoverFeed(limit = 60): Promise<PublishedImage[]> {
   // Identify the viewer so we can tag their own designs "by you". Best-effort:
