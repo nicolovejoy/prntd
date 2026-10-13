@@ -202,6 +202,55 @@ describe("the image detail page for the owner's unpublished image", () => {
     ).toBeInTheDocument();
   });
 
+  it("a published image whose conversation is gone gets no Order", async () => {
+    h.image = imagePage({
+      publishedAt: new Date(),
+      title: "Fox",
+      canOrder: false,
+      hasSourceConversation: false,
+    });
+    await renderPage({ order: "1" });
+    expect(screen.queryByTestId("order-expand")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /^Order/ })
+    ).not.toBeInTheDocument();
+  });
+
+  it("the owner of a published image with no conversation keeps the backdrop control, and gets no Order", async () => {
+    h.image = imagePage({
+      publishedAt: new Date(),
+      title: "Fox",
+      backgroundColor: "Black",
+      canOrder: false,
+      hasSourceConversation: false,
+    });
+    await renderPage();
+    expect(screen.getByText("Background — Black")).toBeInTheDocument();
+    expect(screen.queryByTestId("order-expand")).not.toBeInTheDocument();
+  });
+
+  it("a stranger on such an image gets neither the backdrop control nor Order", async () => {
+    h.session = { user: { id: "stranger", isAnonymous: false } };
+    h.image = imagePage({
+      publishedAt: new Date(),
+      title: "Fox",
+      backgroundColor: "Black",
+      isOwn: false,
+      designerId: "someone-else",
+      canOrder: false,
+      hasSourceConversation: false,
+    });
+    await renderPage();
+    expect(screen.queryByText(/^Background/)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("order-expand")).not.toBeInTheDocument();
+  });
+
+  it("an unpublished image with no conversation has no backdrop control", async () => {
+    h.image = imagePage({ canOrder: false, hasSourceConversation: false });
+    await renderPage();
+    expect(screen.queryByText(/^Background/)).not.toBeInTheDocument();
+  });
+
   it("a non-owner never reaches the page: the 404 is the data layer's", async () => {
     vi.mocked(getImagePage).mockResolvedValueOnce(null);
     await expect(renderPage()).rejects.toThrow("NEXT_NOT_FOUND");

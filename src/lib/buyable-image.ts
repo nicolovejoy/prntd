@@ -44,12 +44,17 @@ export type BuyableImageResult =
  *    never a page image: the page itself 404s it.
  *  - `canBuyImage`: published and not hidden for anyone; otherwise only the
  *    image's owner, and never when admin-hidden.
- *  - Published: nothing more is asked, exactly as before this slice.
- *  - Unpublished: the image's conversation must still exist and belong to the
- *    buyer. `order.design_id` is NOT NULL and the mockup cache lives on the
- *    design row, so an image with no live conversation cannot be ordered, and
- *    an image whose conversation id names someone else's thread must not put
- *    their design on an order or write to their mockup cache. This is the
+ *  - The image's conversation row (`image.designId`) must exist, because
+ *    `order.design_id` and `cart_item.design_id` are NOT NULL foreign keys and
+ *    the mockup cache lives on the design row. A published image can outlive
+ *    its conversation (a seed, a composition or a cart pin keeps it), and the
+ *    order insert would fail on the foreign key after the buyer had picked
+ *    everything, so it is refused here: `not-allowed`.
+ *  - Published: that is all. The conversation is the seller's on a Shop sale,
+ *    so its owner is not checked.
+ *  - Unpublished: the conversation must also belong to the buyer. An image
+ *    whose conversation id names someone else's thread must not put their
+ *    design on an order or write to their mockup cache. This is the
  *    `design.userId === session.user.id` check `/preview` made, so the image
  *    detail page is never a weaker way in than `/preview` was.
  */
@@ -72,21 +77,20 @@ export async function resolveBuyableImage(
     return { ok: false, reason: "not-allowed" };
   }
 
-  if (canBuyPublishedImage(image)) {
-    return { ok: true, image, designId: image.designId, published: true };
-  }
-
+  const published = canBuyPublishedImage(image);
   // Unpublished, so canBuyImage passed on ownership: userId is the owner.
-  if (userId === null || userId === "") {
+  if (!published && (userId === null || userId === "")) {
     return { ok: false, reason: "not-allowed" };
   }
+
   const [conversation] = await db
     .select({ userId: designTable.userId })
     .from(designTable)
     .where(eq(designTable.id, image.designId))
     .limit(1);
-  if (!conversation || conversation.userId !== userId) {
+  if (!conversation) return { ok: false, reason: "not-allowed" };
+  if (!published && conversation.userId !== userId) {
     return { ok: false, reason: "not-allowed" };
   }
-  return { ok: true, image, designId: image.designId, published: false };
+  return { ok: true, image, designId: image.designId, published };
 }

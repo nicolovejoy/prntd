@@ -104,12 +104,13 @@ export type ImagePage = Omit<PublishedImage, "publishedAt"> & {
    */
   sourceConversationArchived: boolean;
   /**
-   * The viewer may order this image from the page: true for a published,
-   * visible image (the Shop sells it; `buyPublishedDesign` re-checks), and for
-   * an unpublished one only when it is the viewer's own with a live
-   * conversation of theirs (`resolveBuyableImage`, the gate every buy action
-   * uses). An anonymous owner counts: the panel then asks them to sign in.
-   * False means the page shows no Order.
+   * The viewer may order this image from the page, as decided by
+   * `resolveBuyableImage`, the gate every buy action uses: a published,
+   * visible image whose conversation still exists, and for an unpublished one
+   * only when it is the viewer's own with a live conversation of theirs. An
+   * anonymous owner counts: the panel then asks them to sign in. False means
+   * the page shows no Order, including for a published image whose
+   * conversation was deleted (it stays public but no order can be written).
    */
   canOrder: boolean;
 };
@@ -285,12 +286,18 @@ export async function getImagePage(
   // parent so admin moderation also breaks the public chain.
   const forkChain = await buildForkChain(r.forkedFromImageId, fetchForkChainRow);
 
-  // Published: the Shop sells it, no further lookup on this public page.
-  // Unpublished: only the owner gets here (canViewImagePage), and they can
-  // order it only through a live conversation of theirs.
+  // `resolveBuyableImage` is the gate every buy action uses. For a published
+  // image with a `source_design_id`, the gate's designId is that same id
+  // (`getDesignImageWithOwner`: sourceDesignId ?? the output link's design),
+  // and published asks only that the row exist, which is what this query's
+  // `design` join already answered, so a public page load costs no extra
+  // query. With no `source_design_id` (legacy images) the gate falls back to
+  // the output link, which this query does not join, and unpublished also
+  // needs the buyer to own the conversation: both ask the gate.
   const canOrder =
-    publishedAt !== null ||
-    (await resolveBuyableImage(imageId, viewerId)).ok;
+    publishedAt !== null && r.sourceDesignId !== null
+      ? r.sourceDesignRowId !== null
+      : (await resolveBuyableImage(imageId, viewerId)).ok;
 
   return {
     imageId: r.imageId,
@@ -426,8 +433,8 @@ export async function resolveInitialBack(
 /**
  * Front-placement Printful mockup for the image detail page's Order-expand
  * hero (#135 slice 1). Gated like the buy itself (`resolveBuyableImage`:
- * published && !hidden for anyone, or the owner's own unpublished image
- * through a live conversation of theirs) — deliberately NOT ownership-gated
+ * published && !hidden with its conversation existing, for anyone, or the
+ * owner's own unpublished image through a live conversation of theirs) — deliberately NOT ownership-gated
  * for published images, because any visitor who can see the Shop buy page must
  * be able to see the mockup.
  *
@@ -455,8 +462,8 @@ export async function getListingMockup(params: {
   const viewerId = session?.user.id ?? null;
 
   // The same gate as the buy itself (`resolveBuyableImage`): any visitor for a
-  // published, visible image; otherwise only its owner, through a live
-  // conversation of theirs. A placement render is never a page image.
+  // published, visible image whose conversation exists; otherwise only its
+  // owner, through a live conversation of theirs. A placement render is never a page image.
   const buyable = await resolveBuyableImage(params.imageId, viewerId);
   if (!buyable.ok) {
     throw new Error(
@@ -505,8 +512,9 @@ export async function getListingMockup(params: {
  *  2. The page image is an `image` row with a design (the render is cached on
  *     that design's `mockupUrls`, like every other mockup).
  *  3. `resolveBuyableImage` for the page image — the same gate the buy and the
- *     front mockup use: any visitor for a published, visible image, otherwise
- *     only its owner through a live conversation of theirs. A visitor who can
+ *     front mockup use: any visitor for a published, visible image whose
+ *     conversation exists, otherwise only its owner through a live
+ *     conversation of theirs. A visitor who can
  *     see the Shop buy page must be able to see its preview.
  *  4. `canUseAsPlacementSource` for the back pick, via the checkout guard
  *     `assertUsablePlacementImage` — the same bar `buyPublishedDesign` holds
@@ -565,8 +573,8 @@ export async function getListingBackMockup(params: {
  * The image detail page's Order: a logged-in user buys the image on the page.
  * Two kinds of image reach it, decided once by `resolveBuyableImage`:
  *
- *  - Published and not hidden (the Shop path): any signed-in real user, its
- *    owner included. The order's designId is the image's source design, the
+ *  - Published, not hidden, conversation still existing (the Shop path): any
+ *    signed-in real user, its owner included. The order's designId is the image's source design, the
  *    SELLER's conversation, NOT a new design, because the buyer isn't creating
  *    one. The order records the image's mirror composition
  *    (`storeProductId`, `requireMirrorProduct`), so a Shop sale is attributed.
