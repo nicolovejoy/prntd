@@ -1,5 +1,9 @@
 import Link from "next/link";
-import { getOrderBySession } from "./actions";
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
+import { auth, isAnonymousUser } from "@/lib/auth";
+import { getOrderReceipt } from "@/lib/order-receipt";
+import { withNext } from "@/lib/safe-next";
 import { Button } from "@/components/ui";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
@@ -55,11 +59,25 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Sear
   const rawFrom = query.from;
   const from = typeof rawFrom === "string" ? rawFrom : undefined;
 
+  // This page's own path and query, rebuilt from the two params it reads.
+  // Sign-in sends the buyer back here, and Reload re-requests it.
+  const selfQuery = new URLSearchParams();
+  if (sessionId) selfQuery.set("session_id", sessionId);
+  if (from !== undefined) selfQuery.set("from", from);
+  const selfQueryString = selfQuery.toString();
+  const selfPath = selfQueryString ? `/order/confirm?${selfQueryString}` : "/order/confirm";
+
   let order = null;
   let loadFailed = false;
   if (sessionId) {
+    // The receipt is for the order's owner (#317 item 3). Checked before the
+    // order read; a bare /order/confirm has nothing to protect.
+    const session = await auth.api.getSession({ headers: await headers() });
+    if (!session || isAnonymousUser(session.user)) {
+      redirect(withNext("/sign-in", selfPath));
+    }
     try {
-      order = await getOrderBySession(sessionId);
+      order = await getOrderReceipt({ stripeSessionId: sessionId, viewerId: session.user.id });
     } catch (err) {
       loadFailed = true;
       // Structured line so `vercel logs | grep app_error` finds this the same
