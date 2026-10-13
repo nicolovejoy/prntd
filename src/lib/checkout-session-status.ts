@@ -20,9 +20,9 @@
  * read sits on the critical path of the receipt page. Bounded to
  * `STRIPE_SESSION_READ_TIMEOUT_MS` (well under the SDK's own 80s/2-retry
  * default) so a slow Stripe can't hang the page, and every failure is logged
- * server-side — the fail-safe return is silent to the buyer by design (see
- * below), so without a log a systematic failure (e.g. a restricted key with
- * no session-read permission) would dead-end every purchase with no trace.
+ * server-side. A failed read shows the buyer the "checking" screen until the
+ * webhook lands, and the log line is how a systematic failure (e.g. a
+ * restricted key with no session-read permission) is diagnosed.
  */
 import Stripe from "stripe";
 import { stripe } from "@/lib/stripe";
@@ -89,8 +89,8 @@ export async function getCheckoutSessionState(
 export type ConfirmView =
   /** `paidTotal` is what Stripe charged, in dollars, for a pending order
    * whose session is complete and settled; `null` otherwise (a non-pending
-   * order's stored total is already reconciled by the webhook, a failed read
-   * or a session with no `amount_total` has nothing better). */
+   * order's stored total is already reconciled by the webhook, a session
+   * with no `amount_total` has nothing better). */
   | { kind: "confirmed"; paidTotal: number | null }
   | { kind: "incomplete"; resumeHref: string | null }
   | { kind: "expired" }

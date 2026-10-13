@@ -7,6 +7,8 @@
  * `Breadcrumbs` is a client island rendered on the page, so `next/navigation`
  * is mocked with both `useRouter` (Breadcrumbs calls it) and `usePathname`
  * (not used here, but mocked per the plan so the module shape is complete).
+ * `redirect` is mocked to throw (as Next's does) so the page stops, and
+ * `@/lib/auth` returns whatever session the test sets.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
@@ -111,6 +113,18 @@ describe("ConfirmPage", () => {
     expect(safeNextPath(next)).toBe(next);
   });
 
+  it("round-trips a from that carries its own query", async () => {
+    h.session = null;
+    const from = "/d/x?size=M&color=Black";
+
+    const err = await renderConfirm({ session_id: "cs_1", from }).catch((e) => e);
+
+    const url = String(err.message).replace("NEXT_REDIRECT:", "");
+    const next = new URL(url, "http://x").searchParams.get("next");
+    expect(next).toBe("/order/confirm?session_id=cs_1&from=%2Fd%2Fx%3Fsize%3DM%26color%3DBlack");
+    expect(safeNextPath(next)).toBe(next);
+  });
+
   it("sends an anonymous guest session to sign-in the same way", async () => {
     h.session = { user: { id: "guest", isAnonymous: true } };
 
@@ -202,21 +216,28 @@ describe("ConfirmPage", () => {
     expect(screen.getByText("Order not found.")).toBeInTheDocument();
   });
 
-  it("shows a receipt-unavailable state, not Order not found., when the loader rejects", async () => {
+  it("shows the checking screen, not a receipt or a payment claim, when the order read rejects", async () => {
     const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     getOrderReceipt.mockRejectedValue(new Error("turso blip"));
 
-    await renderConfirm({ session_id: "cs_1" });
+    await renderConfirm({ session_id: "cs_1", from: "/cart" });
 
-    expect(screen.getByText("Order confirmed.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Payment not confirmed yet.");
     expect(
       screen.getByText(
-        "The receipt couldn't be loaded. Your payment went through. The order appears under Orders once it's confirmed."
+        "Couldn't confirm it just now. Reload in a moment. A paid order appears under Orders once it's confirmed."
       )
     ).toBeInTheDocument();
-    const link = screen.getByRole("link", { name: "View orders" });
-    expect(link).toHaveAttribute("href", "/orders");
+    expect(screen.getByRole("link", { name: "Reload" })).toHaveAttribute(
+      "href",
+      "/order/confirm?session_id=cs_1&from=%2Fcart"
+    );
+    expect(screen.getByRole("link", { name: "View orders" })).toHaveAttribute("href", "/orders");
+    expect(screen.queryByText("Order confirmed.")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Your payment went through/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\$\d/)).not.toBeInTheDocument();
     expect(screen.queryByText("Order not found.")).not.toBeInTheDocument();
+    expect(getCheckoutSessionState).not.toHaveBeenCalled();
     expect(consoleErrorSpy).toHaveBeenCalled();
 
     consoleErrorSpy.mockRestore();
@@ -396,17 +417,17 @@ describe("ConfirmPage", () => {
     expect(backLink).toHaveAttribute("href", "/shop");
   });
 
-  it("pending + helper returns null: Checking your payment., Reload and View orders, no receipt (#317 item 1)", async () => {
+  it("pending + helper returns null: Payment not confirmed yet., Reload and View orders, no receipt (#317 item 1)", async () => {
     vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", "true");
     getOrderReceipt.mockResolvedValue(PENDING_ORDER);
     getCheckoutSessionState.mockResolvedValue(null);
 
     await renderConfirm({ session_id: "cs_1", from: "/cart" });
 
-    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Checking your payment.");
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Payment not confirmed yet.");
     expect(
       screen.getByText(
-        "We couldn't confirm it just now. Reload in a moment. A paid order appears under Orders once it's confirmed."
+        "Couldn't confirm it just now. Reload in a moment. A paid order appears under Orders once it's confirmed."
       )
     ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Reload" })).toHaveAttribute(

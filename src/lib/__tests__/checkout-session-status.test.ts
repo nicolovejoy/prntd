@@ -304,11 +304,12 @@ describe("resolveConfirmView exhaustive matrix", () => {
   const sessionStatuses = ["open", "complete", "expired", null] as const;
   const paymentStatuses = ["paid", "unpaid", "no_payment_required", "requires_review", null] as const;
 
-  // The behaviour on main, before payment_status existed: confirmed unless a
-  // pending order had an open or expired session. #317 item 1 changes the
-  // rest of the pending cases: a failed read, or a session status that is
-  // none of complete / expired / open, is "checking".
-  function onMain(orderStatus: string, s: (typeof sessionStatuses)[number], read: boolean) {
+  // Invariants the matrix encodes: a non-pending order is always confirmed;
+  // a pending order with a failed read, or with a session status that is none
+  // of complete / expired / open, is "checking"; open is "incomplete",
+  // expired is "expired", and complete is "confirmed" (the unpaid-complete
+  // cases are overridden below).
+  function expected(orderStatus: string, s: (typeof sessionStatuses)[number], read: boolean) {
     if (orderStatus !== "pending") return "confirmed";
     if (!read) return "checking";
     if (s === "expired") return "expired";
@@ -338,9 +339,8 @@ describe("resolveConfirmView exhaustive matrix", () => {
               if (unpaidComplete) {
                 expect(view.kind).toBe(abandoned ? "failed" : "processing");
               } else {
-                // Every other combination, including every paid one, is
-                // exactly what main returned.
-                expect(view.kind).toBe(onMain(orderStatus, s, read));
+                // Every other combination follows `expected` above.
+                expect(view.kind).toBe(expected(orderStatus, s, read));
               }
               if ((orderStatus !== "pending" || read) && s === "complete" && (ps === "paid" || ps === "no_payment_required")) {
                 expect(view.kind).toBe("confirmed");

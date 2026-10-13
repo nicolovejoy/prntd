@@ -48,6 +48,10 @@ type Search = Promise<Record<string, string | string[] | undefined>>;
  * "Order confirmed." for an open, unpaid session. A non-`pending` order means
  * zero Stripe calls — the page stays the plain DB read it always was.
  *
+ * If the order read itself throws (the database is unreachable), nothing is
+ * known about the order, so the page shows the same "checking" screen with no
+ * receipt and makes no Stripe read.
+ *
  * The page requires the order's owner (#317 item 3): a signed-out visitor or
  * an anonymous guest goes to sign-in and back here; any other account gets
  * "Order not found." from `getOrderReceipt`.
@@ -94,33 +98,7 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Sear
     }
   }
 
-  if (loadFailed) {
-    return (
-      <div className="min-h-screen flex flex-col px-4">
-        <Breadcrumbs
-          trail={breadcrumbTrail("/order/confirm")}
-          current="Confirmed"
-          className="py-4"
-        />
-        <div className="flex-1 flex flex-col items-center justify-center">
-          <div className="max-w-md w-full space-y-6 text-center">
-            <h1 className="font-mono text-[13px] leading-5 tracking-[0.08em] uppercase">
-              Order confirmed.
-            </h1>
-            <p className="text-text-muted">
-              The receipt couldn&apos;t be loaded. Your payment went through. The order
-              appears under Orders once it&apos;s confirmed.
-            </p>
-            <Link href="/orders">
-              <Button size="lg" className="w-full">View orders</Button>
-            </Link>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!order) {
+  if (!loadFailed && !order) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
@@ -137,9 +115,13 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Sear
   }
 
   let view: ConfirmView = { kind: "confirmed", paidTotal: null };
-  // Not gated on the embedded switches; see the docblock. `embeddedEnabled`
-  // below only decides whether an open session offers a resume link.
-  if (sessionId && order.status === "pending") {
+  // The order read threw: nothing is known about the order, so no receipt and
+  // no Stripe read (the database is the likeliest thing to be down).
+  if (loadFailed) {
+    view = { kind: "checking" };
+  } else if (order && sessionId && order.status === "pending") {
+    // Not gated on the embedded switches; see the docblock. `embeddedEnabled`
+    // below only decides whether an open session offers a resume link.
     const stripeState = await getCheckoutSessionState(sessionId);
     view = resolveConfirmView({
       orderStatus: order.status,
@@ -151,33 +133,29 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Sear
     });
   }
 
-  if (
-    view.kind === "incomplete" ||
-    view.kind === "expired" ||
-    view.kind === "processing" ||
-    view.kind === "failed" ||
-    view.kind === "checking"
-  ) {
+  // Anything but "confirmed" is a status screen, so a kind added later fails
+  // closed instead of rendering a receipt.
+  if (view.kind !== "confirmed") {
     // "Payment still processing" is the owner's wording (Nico, 2026-10-01);
     // a copy sweep must not change it. He approved both supporting lines the
     // same day. "failed" reuses the incomplete heading: the session is
     // complete and cannot be resumed, so no resume link.
-    // "checking" (#317 item 1): the Stripe read failed or returned a status
-    // this code does not know, so the page cannot say paid or unpaid. Wording
-    // is Claude's (Nico left it open, 2026-10-13).
+    // "checking" (#317 item 1): the order read or the Stripe read failed, or
+    // Stripe returned a status this code does not know, so the page cannot say
+    // paid or unpaid. Wording is Claude's (Nico left it open, 2026-10-13).
     const heading =
       view.kind === "processing"
         ? "Payment still processing"
         : view.kind === "expired"
           ? "This checkout expired."
           : view.kind === "checking"
-            ? "Checking your payment."
+            ? "Payment not confirmed yet."
             : "Payment not completed.";
     const body =
       view.kind === "processing"
         ? "Your order will be placed once the payment clears."
         : view.kind === "checking"
-          ? "We couldn't confirm it just now. Reload in a moment. A paid order appears under Orders once it's confirmed."
+          ? "Couldn't confirm it just now. Reload in a moment. A paid order appears under Orders once it's confirmed."
           : view.kind === "failed"
             ? // Not "Nothing was charged.": that is not true for every delayed
               // method (a bank debit can be taken and then returned).
@@ -206,8 +184,8 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Sear
               )}
               {view.kind === "checking" ? (
                 <>
-                  {/* A plain anchor: a full navigation, so the server read
-                      runs again. A Link to the same URL may be a no-op. */}
+                  {/* A plain anchor forces a full navigation, so the server
+                      read runs again. */}
                   <a href={selfPath}>
                     <Button size="lg" className="w-full">
                       Reload
@@ -238,8 +216,8 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Sear
   // For a pending order the stored total is the pre-discount figure written at
   // creation, so the receipt prints Stripe's charged total; once the webhook
   // has reconciled the row the stored total is that same number (#317).
-  const totalPaid =
-    view.kind === "confirmed" && view.paidTotal != null ? view.paidTotal : order.totalPrice;
+  if (!order) return null; // unreachable: no order is either "not found" or "checking"
+  const totalPaid = view.paidTotal != null ? view.paidTotal : order.totalPrice;
 
   return (
     <div className="min-h-screen flex flex-col px-4">
