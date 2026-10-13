@@ -11,7 +11,8 @@
  * closed tab never reaches this page at all; there's no redirect to make.
  * `getCheckoutSessionState` is the one Stripe read this needs — a plain
  * server-side lib, not a `"use server"` action, so it's never reachable as
- * an action endpoint. `resolveConfirmView` is pure so the branching is
+ * an action endpoint. The same read supplies the charged total for the
+ * receipt (`amountTotal`, #317). `resolveConfirmView` is pure so the branching is
  * unit-testable without touching Stripe.
  *
  * Most `/order/confirm` visits land here before the webhook has marked the
@@ -54,6 +55,10 @@ export type CheckoutSessionState = {
   paymentStatus: "paid" | "unpaid" | "no_payment_required" | (string & {}) | null;
   uiMode: string | null;
   url: string | null;
+  /** `session.amount_total` in cents: what Stripe charged after any
+   * discount, the number the webhook writes to `order.totalPrice`
+   * (`handleStripeCheckoutCompleted`). `null` when Stripe reported none. */
+  amountTotal: number | null;
 };
 
 /** `null` means the Stripe call threw or timed out — callers treat that like
@@ -72,6 +77,7 @@ export async function getCheckoutSessionState(
       paymentStatus: session.payment_status ?? null,
       uiMode: session.ui_mode,
       url: session.url,
+      amountTotal: session.amount_total ?? null,
     };
   } catch (err) {
     console.error(`getCheckoutSessionState failed: ${describeStripeError(err)}`);
@@ -80,7 +86,11 @@ export async function getCheckoutSessionState(
 }
 
 export type ConfirmView =
-  | { kind: "confirmed" }
+  /** `paidTotal` is what Stripe charged, in dollars, for a pending order
+   * whose session is complete and settled; `null` otherwise (a non-pending
+   * order's stored total is already reconciled by the webhook, a failed read
+   * or a session with no `amount_total` has nothing better). */
+  | { kind: "confirmed"; paidTotal: number | null }
   | { kind: "incomplete"; resumeHref: string | null }
   | { kind: "expired" }
   /** Session `complete` but the payment hasn't cleared; order still pending. */
@@ -96,6 +106,9 @@ export type ConfirmView =
  * charged or not charged). For a pending order: `open` and `expired` as
  * above; `complete` is confirmed when `payment_status` is paid,
  * no_payment_required or absent; any other value is "processing", or "failed" once the webhook has abandoned the order.
+ * A pending order whose session is complete and settled carries Stripe's
+ * `amount_total` (dollars) as `paidTotal`, since the stored total is the
+ * pre-discount figure until the webhook reconciles it (#317).
  * An open embedded session resumes at `/checkout` through
  * `embeddedCheckoutPath`, carrying `from` so the Back link goes where the
  * original one went (#317).
@@ -113,15 +126,19 @@ export function resolveConfirmView(params: {
    * unsafe becomes the Shop. Used only for an embedded resume link. */
   from?: string;
 }): ConfirmView {
-  if (params.orderStatus !== "pending") return { kind: "confirmed" };
+  if (params.orderStatus !== "pending") return { kind: "confirmed", paidTotal: null };
 
   const stripeState = params.stripe;
-  if (stripeState === null) return { kind: "confirmed" };
+  if (stripeState === null) return { kind: "confirmed", paidTotal: null };
   if (stripeState.status === "complete") {
     const ps = stripeState.paymentStatus;
     // Fail closed: a payment_status Stripe adds later reads as not yet paid.
     if (ps == null || ps === "paid" || ps === "no_payment_required") {
-      return { kind: "confirmed" };
+      return {
+        kind: "confirmed",
+        // Same expression as handleStripeCheckoutCompleted.
+        paidTotal: stripeState.amountTotal != null ? stripeState.amountTotal / 100 : null,
+      };
     }
     return { kind: params.abandoned ? "failed" : "processing" };
   }
@@ -135,5 +152,5 @@ export function resolveConfirmView(params: {
     return { kind: "incomplete", resumeHref };
   }
 
-  return { kind: "confirmed" };
+  return { kind: "confirmed", paidTotal: null };
 }
