@@ -21,6 +21,7 @@ import { getBlank, getColorHex } from "@/lib/blanks";
 const h = vi.hoisted(() => ({
   db: null as unknown,
   retrieve: vi.fn(),
+  expire: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -34,6 +35,7 @@ vi.mock("@/lib/stripe", () => ({
     checkout: {
       sessions: {
         retrieve: (...args: unknown[]) => h.retrieve(...args),
+        expire: (...args: unknown[]) => h.expire(...args),
       },
     },
   },
@@ -87,6 +89,8 @@ async function seedOrder(
 beforeEach(async () => {
   h.db = await createTestDb();
   h.retrieve.mockReset();
+  h.expire.mockReset();
+  h.expire.mockImplementation(async (id: string) => ({ id, status: "expired" }));
   vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", "true");
   vi.stubEnv("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", "pk_test_abc123");
   vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_abc123");
@@ -870,11 +874,15 @@ describe("loadEmbeddedCheckout and admin-hidden artwork (#310 item 7)", () => {
     expect(await run()).toEqual({ kind: "expired" });
   });
 
-  it("hidden, then unhidden: ready", async () => {
+  // The refusal expires the Stripe session, so an unhide afterwards cannot
+  // revive it; this case is about the check itself, so the expiry fails here.
+  it("hidden with the expiry failing, then unhidden: ready", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
     const db = h.db as Db;
     let front = "";
     await seed(db, [async (d) => ({ front: (front = await image(db, d, false, true)) })]);
     h.retrieve.mockResolvedValue(OPEN_EMBEDDED);
+    h.expire.mockRejectedValue(new Error("expire unavailable"));
     expect(await run()).toEqual({ kind: "expired" });
 
     await setHidden(db, front, false);
@@ -908,6 +916,124 @@ describe("loadEmbeddedCheckout and admin-hidden artwork (#310 item 7)", () => {
     ]);
     h.retrieve.mockResolvedValue(OPEN_EMBEDDED);
     expect(await run()).toEqual({ kind: "expired" });
+  });
+
+  it("hidden, open embedded session: expired, the Stripe session is expired and the order abandoned", async () => {
+    const db = h.db as Db;
+    await seed(db, [async (d) => ({ front: await image(db, d, false, true) })]);
+    h.retrieve.mockResolvedValue(OPEN_EMBEDDED);
+
+    expect(await run()).toEqual({ kind: "expired" });
+
+    expect(h.expire).toHaveBeenCalledTimes(1);
+    expect(h.expire).toHaveBeenCalledWith(SID);
+    const order = await db.query.order.findFirst({
+      where: eq(schema.order.stripeSessionId, SID),
+    });
+    expect(order?.abandonedAt).not.toBeNull();
+    expect(order?.status).toBe("pending");
+  });
+
+  it("hidden, then unhidden after a successful expiry: still expired", async () => {
+    const db = h.db as Db;
+    let front = "";
+    await seed(db, [async (d) => ({ front: (front = await image(db, d, false, true)) })]);
+    h.retrieve.mockResolvedValue(OPEN_EMBEDDED);
+    expect(await run()).toEqual({ kind: "expired" });
+
+    await setHidden(db, front, false);
+    expect(await run()).toEqual({ kind: "expired" });
+  });
+
+  it("the expiry is rejected: still expired, the order stays pending and not abandoned", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const db = h.db as Db;
+    await seed(db, [async (d) => ({ front: await image(db, d, false, true) })]);
+    h.retrieve.mockResolvedValue(OPEN_EMBEDDED);
+    h.expire.mockRejectedValue(new Error("session is complete"));
+
+    expect(await run()).toEqual({ kind: "expired" });
+
+    const order = await db.query.order.findFirst({
+      where: eq(schema.order.stripeSessionId, SID),
+    });
+    expect(order?.status).toBe("pending");
+    expect(order?.abandonedAt).toBeNull();
+  });
+
+  it("the expiry never answers: still expired once the timeout passes", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const db = h.db as Db;
+    await seed(db, [async (d) => ({ front: await image(db, d, false, true) })]);
+    h.retrieve.mockResolvedValue(OPEN_EMBEDDED);
+    h.expire.mockImplementation(() => new Promise(() => {}));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+
+    const pending = run();
+    await vi.waitFor(() => expect(h.expire).toHaveBeenCalled());
+    await vi.advanceTimersByTimeAsync(STRIPE_SESSION_READ_TIMEOUT_MS + 1);
+
+    expect(await pending).toEqual({ kind: "expired" });
+    const order = await db.query.order.findFirst({
+      where: eq(schema.order.stripeSessionId, SID),
+    });
+    expect(order?.abandonedAt).toBeNull();
+  });
+
+  it("hidden and Stripe says complete: complete, nothing expired", async () => {
+    const db = h.db as Db;
+    await seed(db, [async (d) => ({ front: await image(db, d, false, true) })]);
+    h.retrieve.mockResolvedValue({ status: "complete", ui_mode: "embedded" });
+    expect(await run()).toEqual({ kind: "complete" });
+    expect(h.expire).not.toHaveBeenCalled();
+  });
+
+  it("hidden, open, hosted session: expired, and the session is expired", async () => {
+    const db = h.db as Db;
+    await seed(db, [async (d) => ({ front: await image(db, d, false, true) })]);
+    h.retrieve.mockResolvedValue({
+      status: "open",
+      ui_mode: "hosted",
+      url: "https://checkout.stripe.example/hosted",
+      client_secret: null,
+    });
+    expect(await run()).toEqual({ kind: "expired" });
+    expect(h.expire).toHaveBeenCalledWith(SID);
+  });
+
+  it("not hidden: ready, nothing expired", async () => {
+    const db = h.db as Db;
+    await seed(db, [async (d) => ({ front: await image(db, d, true) })]);
+    h.retrieve.mockResolvedValue(OPEN_EMBEDDED);
+    expect((await run()).kind).toBe("ready");
+    expect(h.expire).not.toHaveBeenCalled();
+  });
+
+  it("the hidden check throws: unavailable, nothing expired", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const db = h.db as Db;
+    await seed(db, [async (d) => ({ front: await image(db, d, false, true) })]);
+    h.retrieve.mockResolvedValue(OPEN_EMBEDDED);
+    vi.spyOn(db, "select").mockImplementation((() => {
+      throw new Error("injected read failure");
+    }) as unknown as typeof db.select);
+
+    expect(await run()).toEqual({ kind: "unavailable" });
+    expect(h.expire).not.toHaveBeenCalled();
+  });
+
+  it("a second load after a successful expiry: expired without calling Stripe at all", async () => {
+    const db = h.db as Db;
+    await seed(db, [async (d) => ({ front: await image(db, d, false, true) })]);
+    h.retrieve.mockResolvedValue(OPEN_EMBEDDED);
+    expect(await run()).toEqual({ kind: "expired" });
+    h.retrieve.mockClear();
+    h.expire.mockClear();
+
+    expect(await run()).toEqual({ kind: "expired" });
+
+    expect(h.retrieve).not.toHaveBeenCalled();
+    expect(h.expire).not.toHaveBeenCalled();
   });
 
   it("nothing hidden: ready with the line summary", async () => {
