@@ -40,6 +40,9 @@ import {
   type BackSourceGroup,
 } from "@/lib/back-sources";
 import { resolveBuyableImage } from "@/lib/buyable-image";
+import { consumeCheckoutQuota } from "@/lib/generation-quota";
+import { checkoutLimitMessage } from "@/lib/action-copy";
+import { clientIp } from "@/lib/client-ip";
 import {
   canViewImagePage,
   publicationVisibility,
@@ -585,7 +588,9 @@ export async function getListingBackMockup(params: {
  *    that conversation and no composition is recorded, as for every
  *    design-your-own order.
  *
- * Anything else throws before a row or a Stripe call is made. Account-gated by
+ * Anything else throws before a row or a Stripe call is made. Each call
+ * counts one attempt against the daily checkout cap (#316, shared with the
+ * cart's Checkout); a refusal comes back as `{ error }`, not a throw. Account-gated by
  * decision (orders must tie to an account so they're trackable in /orders): a
  * guest, an anonymous owner included, gets `needsAuth`, and signs in first.
  * The auth check and userId resolution are isolated here so a future guest
@@ -618,13 +623,25 @@ export async function buyPublishedDesign(params: {
    * otherwise. Absent (or equal to `imageId`) means the page image, as
    * before. */
   frontImageId?: string;
-}): Promise<{ url: string | null; needsAuth?: boolean }> {
-  const session = await auth.api.getSession({ headers: await headers() });
+}): Promise<{ url: string | null; needsAuth?: boolean; error?: string }> {
+  const hdrs = await headers();
+  const session = await auth.api.getSession({ headers: hdrs });
   // Purchase point — guests (anonymous-plugin sessions) and the sessionless
   // must sign in to buy. The buy panel's "Sign in to buy" CTA is the primary
   // path; this is the server backstop.
   if (!session || isAnonymousUser(session.user)) {
     return { url: null, needsAuth: true };
+  }
+
+  // Daily checkout cap (#316), counted before the image is read. Refused as
+  // data (`{ error }`) so the buy panel can show it in production, where
+  // thrown server-action errors are masked.
+  const quota = await consumeCheckoutQuota({
+    userId: session.user.id,
+    ip: clientIp(hdrs),
+  });
+  if (!quota.allowed) {
+    return { url: null, error: checkoutLimitMessage(quota.reason) };
   }
 
   // The one gate (src/lib/buyable-image.ts): an `image` row the buyer may
@@ -748,7 +765,7 @@ export async function buyPublishedDesign(params: {
           embedded: {
             backPath: returnPath,
             returnOrigin: resolveReturnOrigin(
-              (await headers()).get("origin"),
+              hdrs.get("origin"),
               process.env.NEXT_PUBLIC_APP_URL!
             ),
           },

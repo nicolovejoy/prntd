@@ -72,8 +72,11 @@ vi.mock("next/headers", () => ({
     // read of the `Origin` entry throws, as a throw there would.
     if (h.originReadThrows) {
       return {
-        get: () => {
-          throw new Error("origin read failed");
+        get: (name: string) => {
+          if (name.toLowerCase() === "origin") {
+            throw new Error("origin read failed");
+          }
+          return null;
         },
       };
     }
@@ -137,6 +140,8 @@ const MINE_URL = "https://img.example/mine.png";
 const SECOND_URL = "https://img.example/mine-second.png";
 const BUYER = { user: { id: "buyer", isAnonymous: false } };
 const CONFIRM_PATH = "/order/confirm?session_id={CHECKOUT_SESSION_ID}";
+// An embedded cart session carries the cart as the way back on return_url (#317).
+const EMBEDDED_FROM = "&from=%2Fcart";
 
 /**
  * A two-line cart for "buyer". Line 1: a seller's published image with the
@@ -292,7 +297,7 @@ describe("checkoutCart embedded-checkout gating (#278 slice 6b)", () => {
       ...hosted,
       expires_at: expect.any(Number),
       ui_mode: "embedded",
-      return_url: `${APP_URL}${CONFIRM_PATH}`,
+      return_url: `${APP_URL}${CONFIRM_PATH}${EMBEDDED_FROM}`,
       success_url: undefined,
       cancel_url: undefined,
     });
@@ -409,7 +414,7 @@ describe("checkoutCart return_url origin (#278 slice 6b)", () => {
     const result = await checkoutCart();
 
     expect(h.sessionParams[0].return_url).toBe(
-      `${PREVIEW_ORIGIN}${CONFIRM_PATH}`
+      `${PREVIEW_ORIGIN}${CONFIRM_PATH}${EMBEDDED_FROM}`
     );
     // The page URL handed to the browser is relative, so it stays there too.
     expect(result.url).toBe("/checkout?session=cs_test_1&from=%2Fcart");
@@ -430,7 +435,7 @@ describe("checkoutCart return_url origin (#278 slice 6b)", () => {
 
       await checkoutCart();
 
-      expect(h.sessionParams[0].return_url).toBe(`${APP_URL}${CONFIRM_PATH}`);
+      expect(h.sessionParams[0].return_url).toBe(`${APP_URL}${CONFIRM_PATH}${EMBEDDED_FROM}`);
     }
   );
 
@@ -503,6 +508,13 @@ describe("checkoutCart refusals and failures with the switch on (#278 slice 6b)"
     expect(await db.select().from(schema.orderItem)).toHaveLength(0);
     expect(create).not.toHaveBeenCalled();
     expect(h.sessionParams).toHaveLength(0);
+    // The attempt was counted (the quota runs before the Origin read); the
+    // throw is from the Origin read, not from an earlier step.
+    const [bucket] = await db
+      .select()
+      .from(schema.generationUsage)
+      .where(eq(schema.generationUsage.bucket, "checkout:user:buyer"));
+    expect(bucket?.count).toBe(1);
   });
 
   it("an anonymous session: needsAuth, nothing written, Stripe not called", async () => {

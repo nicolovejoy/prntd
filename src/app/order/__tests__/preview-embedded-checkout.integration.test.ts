@@ -138,6 +138,11 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/** The /checkout Back path createCheckoutSession passes for OPTS (#317: also the `from` on return_url). */
+function previewBack(designId: string) {
+  return `/preview?id=${designId}&size=M&color=Black&product=bella-canvas-3001`;
+}
+
 describe("createCheckoutSession embedded-checkout gating (#135 slice 3)", () => {
   it("both flags off: hosted params and cancel_url exactly as before, whatever the Origin", async () => {
     h.originHeader = PREVIEW_HOST;
@@ -193,11 +198,12 @@ describe("createCheckoutSession embedded-checkout gating (#135 slice 3)", () => 
     const [params] = h.sessionParams;
     expect((params as { ui_mode?: string }).ui_mode).toBe("embedded");
     expect(params.return_url).toBe(
-      "http://localhost:3000/order/confirm?session_id={CHECKOUT_SESSION_ID}"
+      "http://localhost:3000/order/confirm?session_id={CHECKOUT_SESSION_ID}" +
+        `&from=${encodeURIComponent(previewBack(ids.designId))}`
     );
     expect(params).not.toHaveProperty("success_url");
     expect(params).not.toHaveProperty("cancel_url");
-    const from = `/preview?id=${ids.designId}&size=M&color=Black&product=bella-canvas-3001`;
+    const from = previewBack(ids.designId);
     expect(url).toBe(
       `/checkout?session=cs_test_1&from=${encodeURIComponent(from)}`
     );
@@ -309,7 +315,8 @@ describe("createCheckoutSession embedded-checkout gating (#135 slice 3)", () => 
     await createCheckoutSession({ designId: ids.designId, ...OPTS });
 
     expect(h.sessionParams[0].return_url).toBe(
-      `${PREVIEW_HOST}/order/confirm?session_id={CHECKOUT_SESSION_ID}`
+      `${PREVIEW_HOST}/order/confirm?session_id={CHECKOUT_SESSION_ID}` +
+        `&from=${encodeURIComponent(previewBack(ids.designId))}`
     );
   });
 
@@ -322,7 +329,8 @@ describe("createCheckoutSession embedded-checkout gating (#135 slice 3)", () => 
     await createCheckoutSession({ designId: ids.designId, ...OPTS });
 
     expect(h.sessionParams[0].return_url).toBe(
-      "http://localhost:3000/order/confirm?session_id={CHECKOUT_SESSION_ID}"
+      "http://localhost:3000/order/confirm?session_id={CHECKOUT_SESSION_ID}" +
+        `&from=${encodeURIComponent(previewBack(ids.designId))}`
     );
   });
 

@@ -134,7 +134,36 @@ describe("resolveConfirmView", () => {
         abandoned: false,
         stripe: { status: "open", paymentStatus: null, uiMode: "embedded", url: null },
       })
-    ).toEqual({ kind: "incomplete", resumeHref: "/checkout?session=cs_1" });
+    ).toEqual({ kind: "incomplete", resumeHref: "/checkout?session=cs_1&from=%2Fshop" });
+  });
+
+  it.each([
+    ["/cart", "/checkout?session=cs_1&from=%2Fcart"],
+    ["/d/img-1?size=M", `/checkout?session=cs_1&from=${encodeURIComponent("/d/img-1?size=M")}`],
+    ["//evil.example", "/checkout?session=cs_1&from=%2Fshop"],
+  ])("carries from %j onto the embedded resume link", (from, resumeHref) => {
+    expect(
+      resolveConfirmView({
+        ...base,
+        from,
+        orderStatus: "pending",
+        abandoned: false,
+        stripe: { status: "open", paymentStatus: null, uiMode: "embedded", url: null },
+      })
+    ).toEqual({ kind: "incomplete", resumeHref });
+  });
+
+  it("ignores from when embedded is disabled: the Stripe url, as before", () => {
+    expect(
+      resolveConfirmView({
+        ...base,
+        from: "/cart",
+        embeddedEnabled: false,
+        orderStatus: "pending",
+        abandoned: false,
+        stripe: { status: "open", paymentStatus: null, uiMode: "embedded", url: "https://checkout.stripe.com/x" },
+      })
+    ).toEqual({ kind: "incomplete", resumeHref: "https://checkout.stripe.com/x" });
   });
 
   it("does not resume to /checkout for an open embedded session when embedded is disabled", () => {
@@ -180,7 +209,7 @@ describe("resolveConfirmView", () => {
         abandoned: false,
         stripe: { status: "open", paymentStatus: null, uiMode: "embedded", url: null },
       })
-    ).toEqual({ kind: "incomplete", resumeHref: "/checkout?session=cs_test_abc%26xyz" });
+    ).toEqual({ kind: "incomplete", resumeHref: "/checkout?session=cs_test_abc%26xyz&from=%2Fshop" });
   });
 
   it("is confirmed for an unexpected Stripe status", () => {

@@ -84,8 +84,10 @@ export async function createStripeCheckoutForOrder(params: {
    * `previewEmbeddedCheckoutConfig()` for /preview) to enabled (#135 slices
    * 2-3): the session mounts on our own /checkout page
    * instead of Stripe's hosted page. `backPath` is where /checkout's back
-   * link goes; `cancelUrl` above is ignored in this mode (buildCheckoutSessionParams
-   * doesn't take a cancel_url for an embedded session). `returnOrigin` is the
+   * link goes, and it rides on Stripe's `return_url` as `from=` so
+   * /order/confirm's resume link keeps it (#317); `cancelUrl` above is
+   * ignored in this mode (buildCheckoutSessionParams doesn't take a
+   * cancel_url for an embedded session). `returnOrigin` is the
    * origin Stripe's `return_url` is built from — the caller resolves it via
    * `resolveReturnOrigin` so a preview deployment's session returns to that
    * same preview instead of always landing on `NEXT_PUBLIC_APP_URL`; hosted
@@ -153,6 +155,7 @@ export async function createStripeCheckoutForOrder(params: {
           ? params.embedded.returnOrigin
           : process.env.NEXT_PUBLIC_APP_URL!,
         uiMode: params.embedded ? "embedded" : "hosted",
+        returnPath: params.embedded?.backPath,
       })
     );
   } catch (err) {

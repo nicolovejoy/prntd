@@ -36,8 +36,10 @@ import { buyPublishedDesign } from "../../actions";
 import { addToCart, updateCartItem } from "@/app/cart/actions";
 import {
   ADD_TO_CART_FAILED,
+  CART_FULL,
   CART_LINE_GONE,
   CHECKOUT_FAILED,
+  CHECKOUT_LIMIT_REACHED,
   UPDATE_CART_FAILED,
 } from "@/lib/action-copy";
 
@@ -728,6 +730,66 @@ describe("BuyPanel failure notices", () => {
     fireEvent.click(screen.getByRole("button", { name: "M" }));
     fireEvent.click(screen.getAllByTestId("add-to-cart")[0]);
     expect((await screen.findAllByText(ADD_TO_CART_FAILED)).length).toBeGreaterThan(0);
+  });
+
+  /** Replace window.location with a stub that records href assignments. */
+  function stubLocation() {
+    const hrefSet = vi.fn();
+    const original = window.location;
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        get pathname() {
+          return original.pathname;
+        },
+        get search() {
+          return original.search;
+        },
+        set href(value: string) {
+          hrefSet(value);
+        },
+      },
+    });
+    return {
+      hrefSet,
+      restore: () =>
+        Object.defineProperty(window, "location", { configurable: true, value: original }),
+    };
+  }
+
+  it("a returned checkout-cap refusal shows its line, does not navigate and re-enables Order (#316)", async () => {
+    vi.mocked(buyPublishedDesign).mockResolvedValueOnce({
+      url: "https://checkout.example/should-not-be-used",
+      error: CHECKOUT_LIMIT_REACHED,
+    });
+    const { hrefSet, restore } = stubLocation();
+    try {
+      render(<BuyPanel imageId="img-1" isLoggedIn />);
+      expand();
+      fireEvent.click(screen.getByRole("button", { name: "M" }));
+      fireEvent.click(buyButton());
+      expect((await screen.findAllByText(CHECKOUT_LIMIT_REACHED)).length).toBeGreaterThan(0);
+      expect(hrefSet).not.toHaveBeenCalled();
+      expect(buyButton()).toBeEnabled();
+    } finally {
+      restore();
+    }
+  });
+
+  it("a returned full-cart refusal shows its line, does not go to the cart and re-enables Add to cart (#316)", async () => {
+    vi.mocked(addToCart).mockResolvedValueOnce({ ok: false, count: 40, error: CART_FULL });
+    const { hrefSet, restore } = stubLocation();
+    try {
+      render(<BuyPanel imageId="img-1" isLoggedIn cartEnabled />);
+      expand();
+      fireEvent.click(screen.getByRole("button", { name: "M" }));
+      fireEvent.click(screen.getAllByTestId("add-to-cart")[0]);
+      expect((await screen.findAllByText(CART_FULL)).length).toBeGreaterThan(0);
+      expect(hrefSet).not.toHaveBeenCalled();
+      expect(screen.getAllByTestId("add-to-cart")[0]).toBeEnabled();
+    } finally {
+      restore();
+    }
   });
 
   it("the notice clears on the next attempt", async () => {
