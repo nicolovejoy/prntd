@@ -586,12 +586,14 @@ async function buildCart(
  * embedded and `url` is our own `/checkout?session=…&from=/cart` path
  * (Stripe's `return_url` carries the same `from=/cart`, so the resume link on
  * /order/confirm keeps the cart as its Back target, #317); otherwise it is
- * Stripe's hosted URL, as before. Each call makes a new order and session. Once the new session id is saved, the buyer's earlier open
- * sessions (from the cart or from the image detail page) are expired
- * (`expireEarlierCheckoutSessions`, #315), so normally only the newest can be paid. (If an earlier checkout's Stripe
- * create is slow and this helper reads before its session id is saved, both
- * stay payable until the next checkout or the two-hour expiry.) When
- * the Stripe create throws, the earlier sessions are left alone.
+ * Stripe's hosted URL, as before. Each call makes a new order and session.
+ * Once the new session id is saved, the buyer's earlier open sessions (from
+ * the cart or from the image detail page) are expired
+ * (`expireEarlierCheckoutSessions`, #315), so normally only the newest can be
+ * paid. (If an earlier checkout's Stripe create is slow and this helper reads
+ * before its session id is saved, both stay payable until the next checkout
+ * or the two-hour expiry.) When the Stripe create throws, the earlier
+ * sessions are left alone.
  */
 export async function checkoutCart(): Promise<{
   url: string | null;

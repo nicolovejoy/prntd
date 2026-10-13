@@ -107,10 +107,10 @@ export function resolveConfirmView(params: {
   embeddedEnabled: boolean;
   sessionId: string;
   /** The `from` Stripe handed back on `return_url` (written by
-   * `buildCheckoutSessionParams` and `buildCartCheckoutSessionParams`, #317): where /checkout's Back link went on
-   * the first visit. It arrives in the query string, so `embeddedCheckoutPath`
-   * sanitises it again; missing or unsafe becomes the Shop. Used only for an
-   * embedded resume link. */
+   * `buildCheckoutSessionParams` and `buildCartCheckoutSessionParams`,
+   * #317): where /checkout's Back link went on the first visit. It arrives in
+   * the query string, so `embeddedCheckoutPath` sanitises it again; missing or
+   * unsafe becomes the Shop. Used only for an embedded resume link. */
   from?: string;
 }): ConfirmView {
   if (params.orderStatus !== "pending") return { kind: "confirmed" };

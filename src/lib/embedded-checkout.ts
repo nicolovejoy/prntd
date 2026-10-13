@@ -112,9 +112,9 @@ export const MAX_CHECKOUT_RETURN_PATH_LENGTH = 2048;
  * anything that isn't an unambiguous relative path: must start with a single
  * `/` (never `//`, which browsers treat as protocol-relative to another
  * host), must not contain a backslash (some browsers normalize `\` to `/`),
- * must not contain control characters, and and neither the input nor the resolved path may exceed
- * MAX_CHECKOUT_RETURN_PATH_LENGTH. Those raw checks reject outright; then the
- * value is resolved the way a browser would resolve it (dot segments
+ * must not contain control characters, and neither the input nor the
+ * resolved path may exceed MAX_CHECKOUT_RETURN_PATH_LENGTH. Those raw checks
+ * reject outright; then the value is resolved the way a browser would resolve it (dot segments
  * collapsed, `/.//evil.example` caught) by `safeNextPath`, the repo's shared
  * rule, and the resolved path is returned. Falls back to `/shop` rather than
  * throwing, since this runs on the redirect path itself.
