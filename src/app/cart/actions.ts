@@ -1,7 +1,7 @@
 "use server";
 
 import { headers } from "next/headers";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, sql } from "drizzle-orm";
 import { auth, isAnonymousUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
@@ -44,11 +44,19 @@ import {
 import { cartLineStillValid } from "@/lib/cart-line-check";
 import { cartOrderStoreProductId } from "@/lib/cart-attribution";
 import { requireMirrorProduct } from "@/lib/model-b-writes";
-import { CART_LINE_UNAVAILABLE } from "@/lib/action-copy";
+import {
+  CART_FULL,
+  CART_LINE_UNAVAILABLE,
+  CART_TOO_FULL_TO_CHECKOUT,
+  checkoutLimitMessage,
+} from "@/lib/action-copy";
+import { consumeCheckoutQuota } from "@/lib/generation-quota";
+import { clientIp } from "@/lib/client-ip";
 import {
   isValidCartQuantity,
   CART_LINE_MIN_QUANTITY,
   CART_LINE_MAX_QUANTITY,
+  CART_MAX_LINES,
   cartLineEdit,
   cartLineEditHref,
 } from "@/lib/cart-line-edit";
@@ -141,6 +149,14 @@ async function currentUserId(): Promise<string | null> {
  * A back image is honored only when MULTI_PLACEMENT_ENABLED, guarded the same
  * way at this choke point.
  *
+ * A cart holds at most CART_MAX_LINES lines (#316). On either entry, after
+ * validation and before the insert, a full cart returns `{ ok: false, count,
+ * error: CART_FULL }` as data (a throw would be masked in production). The
+ * cap is part of the INSERT statement, so concurrent adds cannot pass it.
+ * A cart can still exceed it when a guest cart is merged into the account's
+ * cart on sign-in (`reparentUserData` moves every row with no cap);
+ * `checkoutCart` refuses such a cart until lines are removed.
+ *
  * No revalidatePath here, nor in removeCartItem/clearCart: nothing renders cart
  * data on the server. /cart is a client page that calls getCart() itself and
  * the header count calls getCartCount(), so the only thing the revalidation
@@ -163,7 +179,7 @@ export async function addToCart(params: {
   color: string;
   /** Source design_image id to print on the back (#25), if any. */
   back?: string;
-}): Promise<{ ok: boolean; count: number }> {
+}): Promise<{ ok: boolean; count: number; error?: string }> {
   const userId = await currentUserId();
   if (!userId) throw new Error("Unauthorized");
 
@@ -173,8 +189,7 @@ export async function addToCart(params: {
       { ...params, frontImageId: params.frontImageId },
       userId
     );
-    await db.insert(cartItemTable).values({ userId, ...next });
-    return { ok: true, count: await getCartCount() };
+    return insertCappedCartLine(userId, next);
   }
 
   // Reject an unfulfillable product/size/color before it can reach checkout.
@@ -233,16 +248,53 @@ export async function addToCart(params: {
     ? { front: frontId, ...(backId ? { back: backId } : {}) }
     : null;
 
-  await db.insert(cartItemTable).values({
-    userId,
+  return insertCappedCartLine(userId, {
     designId,
     productId: params.productId,
     size: params.size,
     color: params.color,
     placements,
   });
+}
 
-  return { ok: true, count: await getCartCount() };
+/**
+ * Insert one cart line unless the user already holds CART_MAX_LINES (#316).
+ * The cap predicate is part of the INSERT (the pattern insertGenerationJob
+ * uses): libSQL over HTTP has no interactive transaction, so a count read
+ * followed by an insert lets concurrent adds all observe the same count.
+ * `INSERT … SELECT … WHERE (select count(*)) < cap` is one statement; a loser
+ * affects zero rows. `count` is read after the statement, so it is the real
+ * number of lines either way.
+ */
+async function insertCappedCartLine(
+  userId: string,
+  line: {
+    designId: string;
+    productId: string;
+    size: string;
+    color: string;
+    placements: Record<string, string> | null;
+  }
+): Promise<{ ok: boolean; count: number; error?: string }> {
+  const result = await db.run(sql`
+    insert into cart_item (
+      id, user_id, design_id, product_id, size, color, placements, quantity,
+      created_at
+    )
+    select
+      ${crypto.randomUUID()}, ${userId}, ${line.designId}, ${line.productId},
+      ${line.size}, ${line.color},
+      ${line.placements ? JSON.stringify(line.placements) : null}, 1,
+      ${Math.floor(Date.now() / 1000)}
+    where (
+      select count(*) from cart_item where user_id = ${userId}
+    ) < ${CART_MAX_LINES}
+  `);
+  const count = await getCartCount();
+  if (result.rowsAffected !== 1) {
+    return { ok: false, count, error: CART_FULL };
+  }
+  return { ok: true, count };
 }
 
 /**
@@ -574,7 +626,10 @@ async function buildCart(
  * order_item rows and charges N product lines + one bundled shipping line;
  * the cart itself is cleared by the webhook on payment (#38). Every line is
  * re-checked first (`cartLineStillValid`); any stale line refuses the whole
- * checkout with `{ error }` and writes nothing. If creating the Stripe session
+ * checkout with `{ error }` and writes nothing. Each call first counts one
+ * attempt against the daily checkout cap (`consumeCheckoutQuota`, #316,
+ * shared with the image detail page's Order); a refused attempt and a cart
+ * over CART_MAX_LINES come back as `{ error }` too. If creating the Stripe session
  * throws (including building its params), the order is marked abandoned
  * (`abandonSessionlessOrder`), the error is re-thrown, and the cart is left as
  * it was. A line whose page image is published but has no Shop composition
@@ -600,11 +655,21 @@ export async function checkoutCart(): Promise<{
   needsAuth?: boolean;
   error?: string;
 }> {
-  const session = await auth.api.getSession({ headers: await headers() });
+  const hdrs = await headers();
+  const session = await auth.api.getSession({ headers: hdrs });
   if (!session || isAnonymousUser(session.user)) {
     return { url: null, needsAuth: true };
   }
   const userId = session.user.id;
+
+  // Daily checkout cap (#316), counted before buildCart's Printful quote and
+  // before any write. Refused as data so the line survives production's
+  // masking of thrown server-action errors. A click that then finds an empty
+  // cart or a stale line still spent its attempt.
+  const quota = await consumeCheckoutQuota({ userId, ip: clientIp(hdrs) });
+  if (!quota.allowed) {
+    return { url: null, error: checkoutLimitMessage(quota.reason) };
+  }
 
   const { view, pageImageIds } = await buildCart(userId);
   if (view.items.length === 0) return { url: null };
@@ -617,6 +682,13 @@ export async function checkoutCart(): Promise<{
   // survives production's masking of server-action errors.
   if (view.items.some((i) => i.unavailable)) {
     return { url: null, error: CART_LINE_UNAVAILABLE };
+  }
+
+  // addToCart stops at CART_MAX_LINES, but signing in merges a guest cart
+  // into the account's with no cap (reparentUserData), so a cart can be over
+  // it; it is refused here, before any order row, until lines are removed.
+  if (view.items.length > CART_MAX_LINES) {
+    return { url: null, error: CART_TOO_FULL_TO_CHECKOUT };
   }
 
   // Shop attribution (#289 item 2). `order.store_product_id` is a header
@@ -697,7 +769,7 @@ export async function checkoutCart(): Promise<{
   // Preview lands on that Preview.
   const appUrl = embedded.enabled
     ? resolveReturnOrigin(
-        (await headers()).get("origin"),
+        hdrs.get("origin"),
         process.env.NEXT_PUBLIC_APP_URL!
       )
     : process.env.NEXT_PUBLIC_APP_URL!;

@@ -13,6 +13,7 @@ import {
   CHAT_MESSAGE_MAX_CHARS,
   CHAT_HISTORY_MAX_MESSAGES,
 } from "@/lib/generation-quota";
+import { clientIp } from "@/lib/client-ip";
 import {
   insertGenerationJob,
   failGenerationJob,
@@ -119,11 +120,6 @@ async function getOrCreateDesign(designId: string, userId: string) {
     })
     .returning();
   return created;
-}
-
-/** First IP from the forwarded-for chain (the client), or null. */
-function clientIp(hdrs: Headers): string | null {
-  return hdrs.get("x-forwarded-for")?.split(",")[0]?.trim() || null;
 }
 
 /**

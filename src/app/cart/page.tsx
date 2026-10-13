@@ -14,12 +14,17 @@ import { Button, EmptyState, InlineNotice } from "@/components/ui";
 import {
   CART_LINE_UNAVAILABLE,
   CART_LINE_UNAVAILABLE_LABEL,
+  CART_TOO_FULL_TO_CHECKOUT,
   CHECKOUT_FAILED,
   QUANTITY_UPDATE_FAILED,
 } from "@/lib/action-copy";
 import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
-import { CART_LINE_MIN_QUANTITY, CART_LINE_MAX_QUANTITY } from "@/lib/cart-line-edit";
+import {
+  CART_LINE_MIN_QUANTITY,
+  CART_LINE_MAX_QUANTITY,
+  CART_MAX_LINES,
+} from "@/lib/cart-line-edit";
 
 /** Reject if `p` doesn't settle within `ms` — so one slow/lost server-action
  * response doesn't strand the load forever (a retry issues a fresh call). */
@@ -146,11 +151,15 @@ export default function CartPage() {
       if (error) {
         setCheckoutError(error);
         // Re-read the cart so the line that failed carries its label. If the
-        // re-read fails the refusal stays on screen.
-        try {
-          await refresh();
-        } catch {
-          // Keep the refusal; the next attempt re-reads.
+        // re-read fails the refusal stays on screen. Only that refusal needs
+        // it: any other leaves the cart as it was, and a re-read costs a
+        // Printful quote.
+        if (error === CART_LINE_UNAVAILABLE) {
+          try {
+            await refresh();
+          } catch {
+            // Keep the refusal; the next attempt re-reads.
+          }
         }
         return;
       }
@@ -195,6 +204,14 @@ export default function CartPage() {
   // A line the server will refuse blocks Checkout up front with the same notice
   // the refusal would show after a click; removing the line clears it.
   const hasUnavailable = cart?.items.some((i) => i.unavailable) ?? false;
+  // A guest cart merged on sign-in can exceed the cap (reparentUserData has
+  // none); checkoutCart refuses it, so the page says so up front.
+  const overCap = (cart?.items.length ?? 0) > CART_MAX_LINES;
+  const blockedNotice = hasUnavailable
+    ? CART_LINE_UNAVAILABLE
+    : overCap
+      ? CART_TOO_FULL_TO_CHECKOUT
+      : null;
   const empty = !loadFailed && cart !== null && cart.items.length === 0;
 
   return (
@@ -417,9 +434,9 @@ export default function CartPage() {
               </div>
             </div>
 
-            {(hasUnavailable || checkoutError) && (
+            {(blockedNotice || checkoutError) && (
               <InlineNotice
-                message={hasUnavailable ? CART_LINE_UNAVAILABLE : checkoutError!}
+                message={blockedNotice ?? checkoutError!}
                 className="mt-4"
                 testId="cart-checkout-error"
               />
@@ -428,7 +445,7 @@ export default function CartPage() {
             <div className="mt-6 flex flex-col sm:flex-row gap-3">
               <Button
                 onClick={handleCheckout}
-                disabled={checkingOut || busy !== null || hasUnavailable}
+                disabled={checkingOut || busy !== null || blockedNotice !== null}
                 size="lg"
                 className="w-full"
               >
