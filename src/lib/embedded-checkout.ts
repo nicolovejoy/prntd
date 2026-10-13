@@ -13,6 +13,8 @@
  * which serve both and so accept either switch.
  */
 
+import { safeNextPath } from "@/lib/safe-next";
+
 const PUBLISHABLE_KEY_RE = /^pk_(test|live)_[A-Za-z0-9]+$/;
 const SECRET_KEY_MODE_RE = /^(?:sk|rk)_(test|live)_/;
 
@@ -99,25 +101,33 @@ export function embeddedCheckoutPageConfig(): EmbeddedCheckoutResolution {
 // Control characters (C0 + DEL) — reject a path carrying any of them.
 const CONTROL_CHAR_RE = /[\u0000-\u001f\u007f]/;
 
+// The value travels inside Stripe's `return_url` and the sign-in `next=`, both
+// of which have URL length limits of their own.
+export const MAX_CHECKOUT_RETURN_PATH_LENGTH = 2048;
+
 /**
- * A same-origin, single-segment-safe redirect target. Used for the
- * `/checkout?...&from=` back link and the `?next=` sign-in redirect built
- * from it — both are attacker-influenceable (query params), so this refuses
+ * A same-origin redirect target. Used for the `/checkout?...&from=` back link,
+ * the `?next=` sign-in redirect built from it, and the `from=` on Stripe's
+ * `return_url` — all attacker-influenceable (query params), so this refuses
  * anything that isn't an unambiguous relative path: must start with a single
  * `/` (never `//`, which browsers treat as protocol-relative to another
- * host), must not contain a backslash (some browsers normalize `\` to `/`,
- * which can smuggle a `//host` past a naive check), and must not contain
- * control characters. Falls back to `/shop` rather than throwing, since this
- * runs on the redirect path itself.
+ * host), must not contain a backslash (some browsers normalize `\` to `/`),
+ * must not contain control characters, and must not exceed
+ * MAX_CHECKOUT_RETURN_PATH_LENGTH. Those raw checks reject outright; then the
+ * value is resolved the way a browser would resolve it (dot segments
+ * collapsed, `/.//evil.example` caught) by `safeNextPath`, the repo's shared
+ * rule, and the resolved path is returned. Falls back to `/shop` rather than
+ * throwing, since this runs on the redirect path itself.
  */
 export function safeCheckoutReturnPath(from: unknown): string {
   if (typeof from !== "string") return "/shop";
   if (from.length === 0) return "/shop";
+  if (from.length > MAX_CHECKOUT_RETURN_PATH_LENGTH) return "/shop";
   if (!from.startsWith("/")) return "/shop";
   if (from.startsWith("//")) return "/shop";
   if (from.includes("\\")) return "/shop";
   if (CONTROL_CHAR_RE.test(from)) return "/shop";
-  return from;
+  return safeNextPath(from, "/shop");
 }
 
 /**
