@@ -149,6 +149,10 @@ export async function handleStripeCheckoutCompleted(
         .set({
           status: "paid",
           classification: "customer",
+          // A paid order is never abandoned (#327): an abandon mark can land
+          // first (sessionless failure, expiry webhook, #315), and the claim
+          // still wins because that order is still `pending`.
+          abandonedAt: null,
           stripeSessionId: session.id,
           stripePaymentIntentId: session.paymentIntentId,
           totalPrice: actualTotal,
