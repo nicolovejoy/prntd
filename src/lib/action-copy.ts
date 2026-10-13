@@ -77,6 +77,30 @@ export const SAVE_TITLE_FAILED = "Couldn't save this title. Try again.";
 export const CHECKOUT_FAILED = "Couldn't start checkout. Nothing was charged.";
 export const ADD_TO_CART_FAILED = "Couldn't add this to your cart.";
 
+/** consumeCheckoutQuota refused this account for the day (#316). Returned as
+ * data (`{ error }`) by buyPublishedDesign and checkoutCart. Mirrors the
+ * generation limit line in src/app/design/actions.ts. */
+export const CHECKOUT_LIMIT_REACHED =
+  "You've reached today's checkout limit. Try again later.";
+
+/** The same refusal on the IP bucket. */
+export const CHECKOUT_LIMIT_REACHED_IP =
+  "This network has hit today's checkout limit. Try again later.";
+
+/** addToCart refused: the cart already holds CART_MAX_LINES lines (#316).
+ * Returned as data. */
+export const CART_FULL = "Your cart is full. Remove a line to add another.";
+
+/** checkoutCart refused: the cart holds more than CART_MAX_LINES lines
+ * (only reachable through concurrent adds at the boundary). Returned as data. */
+export const CART_TOO_FULL_TO_CHECKOUT =
+  "Your cart has too many lines to check out. Remove some to continue.";
+
+/** The line a checkout-cap refusal shows, by the bucket that refused. */
+export function checkoutLimitMessage(reason: "identity" | "ip" | undefined): string {
+  return reason === "ip" ? CHECKOUT_LIMIT_REACHED_IP : CHECKOUT_LIMIT_REACHED;
+}
+
 // --- admin (InlineNotice: one line, plus the raw error as a hint) ---
 
 export const ADMIN_RETRY_FAILED = "Retry failed.";

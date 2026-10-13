@@ -16,6 +16,12 @@ import { buyPageHref } from "@/lib/buy-page-picks";
 export const CART_LINE_MIN_QUANTITY = 1;
 export const CART_LINE_MAX_QUANTITY = 12;
 
+/** Most lines one cart holds (#316). `addToCart` refuses the next add and
+ * `checkoutCart` refuses a cart over it. Soft at the boundary: two adds
+ * landing together at cap - 1 can both succeed; checkout then refuses until
+ * one is removed. Stripe takes up to 100 line items per session. */
+export const CART_MAX_LINES = 40;
+
 /** An integer from 1 to 12 (Nico, 2026-10-01). */
 export function isValidCartQuantity(q: unknown): q is number {
   return (

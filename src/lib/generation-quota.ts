@@ -10,8 +10,9 @@ type AppDb = typeof appDb;
 // Two independent cap families share this module and the generation_usage
 // table, distinguished only by bucket prefix: generation functions read and
 // write `user:<id>` / `ip:<addr>` buckets, chat functions read and write
-// `chat:user:<id>` / `chat:ip:<addr>` buckets. Neither family touches the
-// other's buckets.
+// `chat:user:<id>` / `chat:ip:<addr>` buckets, checkout functions read and
+// write `checkout:user:<id>` / `checkout:ip:<addr>` buckets. No family touches
+// another's buckets.
 
 /**
  * Parse a daily-cap env value. Unset, empty or whitespace-only, non-finite and
@@ -48,6 +49,16 @@ export const USER_CHAT_DAILY_CAP = parseDailyCap(process.env.USER_CHAT_DAILY_CAP
 export const IP_CHAT_DAILY_CAP = parseDailyCap(process.env.IP_CHAT_DAILY_CAP, 60);
 export const USER_IP_CHAT_DAILY_CAP = parseDailyCap(process.env.USER_IP_CHAT_DAILY_CAP, 300);
 
+// Checkout attempts (#316): one unit per Checkout click or Order click that
+// reaches the point of creating an order, counted per signed-in account and
+// per IP on the same UTC day as the other caps. Guests never reach either
+// action (both return needsAuth first), so there is no guest cap. The
+// numbers are far above what a buyer does in a day; their job is to bound
+// the pending orders, Stripe sessions and Printful quotes one account can
+// make us create.
+export const USER_CHECKOUT_DAILY_CAP = parseDailyCap(process.env.USER_CHECKOUT_DAILY_CAP, 30);
+export const USER_IP_CHECKOUT_DAILY_CAP = parseDailyCap(process.env.USER_IP_CHECKOUT_DAILY_CAP, 100);
+
 /** Longest chat message accepted, in characters; longer is refused before any quota spend. */
 export const CHAT_MESSAGE_MAX_CHARS = 4000;
 
@@ -60,6 +71,14 @@ function chatUserBucket(userId: string): string {
 
 function chatIpBucket(ip: string): string {
   return `chat:ip:${ip}`;
+}
+
+function checkoutUserBucket(userId: string): string {
+  return `checkout:user:${userId}`;
+}
+
+function checkoutIpBucket(ip: string): string {
+  return `checkout:ip:${ip}`;
 }
 
 export type QuotaResult = { allowed: boolean; reason?: "identity" | "ip" };
@@ -233,4 +252,27 @@ export async function refundChatQuota(opts: {
   const day = opts.day;
   await unbump(chatUserBucket(opts.userId), day, db);
   if (opts.ip) await unbump(chatIpBucket(opts.ip), day, db);
+}
+
+/**
+ * Count one checkout attempt against the daily caps (#316). Same shape as
+ * consumeChatQuota: identity first (`checkout:user:<id>`), then IP
+ * (`checkout:ip:<ip>`) when one is present. Never refunded: a refused or
+ * failed attempt still spent a Stripe or Printful call, or was about to.
+ */
+export async function consumeCheckoutQuota(opts: {
+  userId: string;
+  ip: string | null;
+  now?: Date;
+  db?: AppDb;
+}): Promise<QuotaResult> {
+  const db = opts.db ?? (await import("./db")).db;
+  return consumeBuckets({
+    identityBucket: checkoutUserBucket(opts.userId),
+    ipBucket: opts.ip ? checkoutIpBucket(opts.ip) : null,
+    identityCap: USER_CHECKOUT_DAILY_CAP,
+    ipCap: USER_IP_CHECKOUT_DAILY_CAP,
+    day: dayKeyUTC(opts.now ?? new Date()),
+    db,
+  });
 }
