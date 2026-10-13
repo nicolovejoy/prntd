@@ -109,9 +109,11 @@ export async function placementSourceUsable(
 }
 
 /**
- * Whether an image, or the source it is a render of, is admin-hidden. Used for
- * the implicit primary, where only a hide is refused (see
- * `assertPrimaryNotHidden`).
+ * Whether an image, or the source it is a render of, is admin-hidden. Behind
+ * `placementImageHiddenState` / `isPlacementImageHidden`, whose callers are
+ * `assertPrimaryNotHidden` (the primary an entry goes on to pin, where only a
+ * hide is refused) and `lineHiddenArt` (cart thumbnails, `cartLineStillValid`,
+ * the entries' pinless rule and the `/checkout` re-check).
  */
 async function hiddenThroughSources(image: ImageWithOwner): Promise<boolean> {
   let current: ImageWithOwner | null = image;
@@ -133,10 +135,31 @@ async function hiddenThroughSources(image: ImageWithOwner): Promise<boolean> {
  * image).
  */
 export async function assertPrimaryNotHidden(imageId: string): Promise<void> {
-  const image = await getDesignImageWithOwner(imageId);
-  if (image && (await hiddenThroughSources(image))) {
+  if (await isPlacementImageHidden(imageId)) {
     throw new Error("Front image is not available");
   }
+}
+
+/**
+ * Whether the artwork behind an image id is admin-hidden: the image itself,
+ * or, for a placement render, the image it renders (followed down the chain).
+ * False for an id that resolves to nothing.
+ */
+export async function isPlacementImageHidden(imageId: string): Promise<boolean> {
+  return (await placementImageHiddenState(imageId)) === true;
+}
+
+/**
+ * `isPlacementImageHidden` that tells an id resolving to nothing (null) from
+ * a visible image (false). Cart and order lines fall back to the design's
+ * display image for an unresolved front pin, so `lineHiddenArt` needs the
+ * difference.
+ */
+export async function placementImageHiddenState(
+  imageId: string
+): Promise<boolean | null> {
+  const image = await getDesignImageWithOwner(imageId);
+  return image ? hiddenThroughSources(image) : null;
 }
 
 export type BackSourceImage = {
