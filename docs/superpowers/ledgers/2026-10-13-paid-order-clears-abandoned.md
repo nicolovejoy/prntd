@@ -71,3 +71,4 @@ re-installed the laptop's stale `node_modules` (`fflate` from #261 was missing) 
 itself (one jsdom file timed out under the parallel reviewers and passed alone, as the batch lesson
 says); one Opus whole-branch review and one Opus adversarial review in parallel with the gate; one
 fix round to the same implementer.
+- Merged by Nico 2026-10-14 as `d0e659c` (second try; the first merge command did not take). Production had 0 affected rows before the merge.
