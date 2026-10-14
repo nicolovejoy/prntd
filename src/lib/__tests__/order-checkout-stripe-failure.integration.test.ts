@@ -205,6 +205,7 @@ describe("createStripeCheckoutForOrder when Stripe throws", () => {
     expect(result.action).toBe("submitted");
     const claimed = await onlyOrder(db);
     expect(claimed.status).toBe("submitted");
+    expect(claimed.abandonedAt).toBeNull();
     const types = (await db.select().from(schema.ledgerEntry))
       .map((e) => e.type)
       .sort();
