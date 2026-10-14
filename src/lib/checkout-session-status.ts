@@ -11,7 +11,8 @@
  * closed tab never reaches this page at all; there's no redirect to make.
  * `getCheckoutSessionState` is the one Stripe read this needs — a plain
  * server-side lib, not a `"use server"` action, so it's never reachable as
- * an action endpoint. `resolveConfirmView` is pure so the branching is
+ * an action endpoint. The same read supplies the charged total for the
+ * receipt (`amountTotal`, #317). `resolveConfirmView` is pure so the branching is
  * unit-testable without touching Stripe.
  *
  * Most `/order/confirm` visits land here before the webhook has marked the
@@ -19,9 +20,9 @@
  * read sits on the critical path of the receipt page. Bounded to
  * `STRIPE_SESSION_READ_TIMEOUT_MS` (well under the SDK's own 80s/2-retry
  * default) so a slow Stripe can't hang the page, and every failure is logged
- * server-side — the fail-safe return is silent to the buyer by design (see
- * below), so without a log a systematic failure (e.g. a restricted key with
- * no session-read permission) would dead-end every purchase with no trace.
+ * server-side. A failed read shows the buyer the "checking" screen until the
+ * webhook lands, and the log line is how a systematic failure (e.g. a
+ * restricted key with no session-read permission) is diagnosed.
  */
 import Stripe from "stripe";
 import { stripe } from "@/lib/stripe";
@@ -54,10 +55,15 @@ export type CheckoutSessionState = {
   paymentStatus: "paid" | "unpaid" | "no_payment_required" | (string & {}) | null;
   uiMode: string | null;
   url: string | null;
+  /** `session.amount_total` in cents: what Stripe charged after any
+   * discount, the number the webhook writes to `order.totalPrice`
+   * (`handleStripeCheckoutCompleted`). `null` when Stripe reported none. */
+  amountTotal: number | null;
 };
 
-/** `null` means the Stripe call threw or timed out — callers treat that like
- * today's behaviour (render the order as confirmed) rather than guessing. */
+/** `null` means the Stripe call threw or timed out. For a pending order the
+ * receipt page then shows the "checking" state (#317 item 1) rather than
+ * guessing at a paid or unpaid receipt. */
 export async function getCheckoutSessionState(
   sessionId: string
 ): Promise<CheckoutSessionState | null> {
@@ -72,6 +78,7 @@ export async function getCheckoutSessionState(
       paymentStatus: session.payment_status ?? null,
       uiMode: session.ui_mode,
       url: session.url,
+      amountTotal: session.amount_total ?? null,
     };
   } catch (err) {
     console.error(`getCheckoutSessionState failed: ${describeStripeError(err)}`);
@@ -80,22 +87,33 @@ export async function getCheckoutSessionState(
 }
 
 export type ConfirmView =
-  | { kind: "confirmed" }
+  /** `paidTotal` is what Stripe charged, in dollars, for a pending order
+   * whose session is complete and settled; `null` otherwise (a non-pending
+   * order's stored total is already reconciled by the webhook, a session
+   * with no `amount_total` has nothing better). */
+  | { kind: "confirmed"; paidTotal: number | null }
   | { kind: "incomplete"; resumeHref: string | null }
   | { kind: "expired" }
   /** Session `complete` but the payment hasn't cleared; order still pending. */
   | { kind: "processing" }
   /** Same, but the async payment failed (webhook set `abandoned_at`). */
-  | { kind: "failed" };
+  | { kind: "failed" }
+  /** A pending order whose session could not be read (the call threw or timed
+   * out) or reported a status this code does not know. Neither a receipt nor
+   * a failure: the page asks the buyer to reload. */
+  | { kind: "checking" };
 
 /**
  * Pure. Only a `pending` order is anything other than "confirmed" — a
- * paid/submitted/shipped/etc. order and a Stripe read that failed render the
- * normal receipt (the failure case matches today's behaviour: we don't know
- * the session's state, so we don't tell the buyer anything alarming was
- * charged or not charged). For a pending order: `open` and `expired` as
- * above; `complete` is confirmed when `payment_status` is paid,
+ * paid/submitted/shipped/etc. order renders the normal receipt. A pending
+ * order whose Stripe read failed, or whose session status is none of
+ * `complete`, `expired` and `open`, is "checking" (#317 item 1): the page
+ * cannot tell whether it was paid, so it prints no receipt and no total. For
+ * a pending order: `open` and `expired` as above; `complete` is confirmed when `payment_status` is paid,
  * no_payment_required or absent; any other value is "processing", or "failed" once the webhook has abandoned the order.
+ * A pending order whose session is complete and settled carries Stripe's
+ * `amount_total` (dollars) as `paidTotal`, since the stored total is the
+ * pre-discount figure until the webhook reconciles it (#317).
  * An open embedded session resumes at `/checkout` through
  * `embeddedCheckoutPath`, carrying `from` so the Back link goes where the
  * original one went (#317).
@@ -113,15 +131,19 @@ export function resolveConfirmView(params: {
    * unsafe becomes the Shop. Used only for an embedded resume link. */
   from?: string;
 }): ConfirmView {
-  if (params.orderStatus !== "pending") return { kind: "confirmed" };
+  if (params.orderStatus !== "pending") return { kind: "confirmed", paidTotal: null };
 
   const stripeState = params.stripe;
-  if (stripeState === null) return { kind: "confirmed" };
+  if (stripeState === null) return { kind: "checking" };
   if (stripeState.status === "complete") {
     const ps = stripeState.paymentStatus;
     // Fail closed: a payment_status Stripe adds later reads as not yet paid.
     if (ps == null || ps === "paid" || ps === "no_payment_required") {
-      return { kind: "confirmed" };
+      return {
+        kind: "confirmed",
+        // Same expression as handleStripeCheckoutCompleted.
+        paidTotal: stripeState.amountTotal != null ? stripeState.amountTotal / 100 : null,
+      };
     }
     return { kind: params.abandoned ? "failed" : "processing" };
   }
@@ -135,5 +157,5 @@ export function resolveConfirmView(params: {
     return { kind: "incomplete", resumeHref };
   }
 
-  return { kind: "confirmed" };
+  return { kind: "checking" };
 }
