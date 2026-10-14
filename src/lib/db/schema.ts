@@ -150,7 +150,7 @@ export const order = sqliteTable("order", {
   // Set by the Stripe `checkout.session.expired` webhook on a still-pending
   // order, and by `expireEarlierCheckoutSessions` / `loadEmbeddedCheckout`
   // when they expire a session themselves (#315), only after Stripe confirms
-  // the expiry. A paid webhook can still claim an abandoned order. Nullable, no backfill at migration time: legacy pending rows stay
+  // the expiry. A paid webhook can still claim an abandoned order, and the claim clears abandoned_at (#327). Nullable, no backfill at migration time: legacy pending rows stay
   // null until scripts/mark-legacy-pending-abandoned.ts marks them abandoned
   // at deploy time (they do NOT age out on their own). A pending row that is
   // old and NOT abandoned is a webhook-stranded payment — but only if it has

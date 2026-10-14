@@ -365,7 +365,9 @@ describe("expireEarlierCheckoutSessions (#315)", () => {
 
     await handleStripeCheckoutCompleted(session, deps);
 
-    expect((await load(db, old.id)).status).not.toBe("pending");
+    const claimed = await load(db, old.id);
+    expect(claimed.status).not.toBe("pending");
+    expect(claimed.abandonedAt).toBeNull();
   });
 });
 

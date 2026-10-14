@@ -135,6 +135,51 @@ describe("payment_status gate (#266)", () => {
     expect(createPrintfulOrder).toHaveBeenCalledTimes(1);
   });
 
+  it("a paid completion on an abandoned order clears abandonedAt (#327)", async () => {
+    const { order, design } = await seed(db);
+    await db
+      .update(schema.order)
+      .set({ abandonedAt: new Date() })
+      .where(eq(schema.order.id, order.id));
+    const { deps } = makeDeps(db);
+
+    const result = await handleStripeCheckoutCompleted(
+      makeSession(order.id, design.id, "paid"),
+      deps
+    );
+
+    expect(result.action).toBe("submitted");
+    const after = await load(db, order.id);
+    expect(after?.status).toBe("submitted");
+    expect(after?.abandonedAt).toBeNull();
+    const types = await ledgerTypes(db, order.id);
+    expect(types.filter((t) => t === "sale")).toHaveLength(1);
+    expect(types.filter((t) => t === "stripe_fee")).toHaveLength(1);
+  });
+
+  it("a late expiry after the claim ignores the order and leaves abandonedAt null (#327)", async () => {
+    const { order, design } = await seed(db);
+    await db
+      .update(schema.order)
+      .set({ abandonedAt: new Date() })
+      .where(eq(schema.order.id, order.id));
+    const { deps, createPrintfulOrder } = makeDeps(db);
+    await handleStripeCheckoutCompleted(
+      makeSession(order.id, design.id, "paid"),
+      deps
+    );
+    const ledgerBefore = await ledgerTypes(db, order.id);
+
+    const result = await handleStripeCheckoutExpired(order.id, { db });
+
+    expect(result).toEqual({ action: "ignored" });
+    const after = await load(db, order.id);
+    expect(after?.abandonedAt).toBeNull();
+    expect(after?.status).toBe("submitted");
+    expect(await ledgerTypes(db, order.id)).toEqual(ledgerBefore);
+    expect(createPrintfulOrder).toHaveBeenCalledTimes(1);
+  });
+
   it("claims when payment_status is no_payment_required", async () => {
     const { order, design } = await seed(db);
     const { deps } = makeDeps(db);
