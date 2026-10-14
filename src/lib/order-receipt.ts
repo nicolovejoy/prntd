@@ -1,5 +1,3 @@
-"use server";
-
 import { db } from "@/lib/db";
 import {
   order as orderTable,
@@ -9,12 +7,21 @@ import { asc, eq } from "drizzle-orm";
 import { resolveOrderLines } from "@/lib/order-lines";
 import { resolveOrderLineIdentities } from "@/lib/order-line-identity";
 
-export async function getOrderBySession(stripeSessionId: string) {
+/**
+ * The /order/confirm receipt, for the order's owner only (#317 item 3): any
+ * other viewer gets `null`, the same as an unknown session id, so the page
+ * leaks nothing about whether the order exists. A plain lib read, not a
+ * `"use server"` action, so it is never reachable as an action endpoint.
+ */
+export async function getOrderReceipt(params: {
+  stripeSessionId: string;
+  viewerId: string;
+}) {
   const found = await db.query.order.findFirst({
-    where: eq(orderTable.stripeSessionId, stripeSessionId),
+    where: eq(orderTable.stripeSessionId, params.stripeSessionId),
   });
 
-  if (!found) return null;
+  if (!found || found.userId !== params.viewerId) return null;
 
   // Every purchased shirt is an order_item row (authoritative since Phase 1c),
   // so a multi-item confirmation lists them all, not just the first.
