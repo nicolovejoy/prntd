@@ -149,6 +149,10 @@ export async function handleStripeCheckoutCompleted(
         .set({
           status: "paid",
           classification: "customer",
+          // A paid order is never abandoned (#327): an abandon mark can land
+          // first (sessionless failure, expiry webhook, #315), and the claim
+          // still wins because that order is still `pending`.
+          abandonedAt: null,
           stripeSessionId: session.id,
           stripePaymentIntentId: session.paymentIntentId,
           totalPrice: actualTotal,
@@ -178,6 +182,14 @@ export async function handleStripeCheckoutCompleted(
   } catch (err) {
     if (isUniqueViolation(err)) return { action: "skipped" };
     throw err;
+  }
+
+  // The claim cleared abandoned_at (#327). By Stripe's rules this should not
+  // happen, so the cleared mark is logged rather than lost.
+  if (foundOrder.abandonedAt) {
+    console.warn(
+      `Order ${orderId}: paid after it was marked abandoned at ${foundOrder.abandonedAt.toISOString()}`
+    );
   }
 
   // #38: the cart survives Stripe-session creation, so backing out of checkout
