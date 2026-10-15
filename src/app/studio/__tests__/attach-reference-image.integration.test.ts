@@ -86,7 +86,7 @@ vi.mock("@/lib/generators/registry", () => {
 });
 
 const { attachReferenceImage, getStudioLanes } = await import("@/app/studio/actions");
-const { generateDesign } = await import("@/app/design/actions");
+const { generateDesign, uploadReferenceImage } = await import("@/app/design/actions");
 const r2 = await import("@/lib/r2");
 
 let savedFlag: string | undefined;
@@ -270,5 +270,65 @@ describe("attachReferenceImage", () => {
     expect(lanes[0].cells).toHaveLength(1);
     expect(lanes[0].cells[0].imageId).toBe(r.imageId);
     expect(lanes[0].title).toBe("Uploaded reference image: cat.png");
+  });
+
+  it("a failed R2 write on a new id leaves no design row (no empty lane)", async () => {
+    (r2.uploadImageObject as Mock).mockRejectedValueOnce(new Error("R2 down"));
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const designId = crypto.randomUUID();
+    const r = await attachReferenceImage(designId, await png(), "a.png");
+    spy.mockRestore();
+    expect(r).toEqual({ kind: "refused", message: ATTACH_FAILED });
+    expect(await designRows(designId)).toHaveLength(0);
+    expect(await getStudioLanes()).toHaveLength(0);
+  });
+
+  it("a failed R2 write on an existing conversation keeps that conversation", async () => {
+    const d = await makeDesign(testDb, "owner");
+    (r2.uploadImageObject as Mock).mockRejectedValueOnce(new Error("R2 down"));
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await attachReferenceImage(d.id, await png(), "a.png");
+    spy.mockRestore();
+    expect(await designRows(d.id)).toHaveLength(1);
+  });
+
+  it("the file name is capped at 120 characters in the prompt, chat turn and title", async () => {
+    const designId = crypto.randomUUID();
+    const name = "x".repeat(300) + ".png";
+    await attachReferenceImage(designId, await png(), name);
+    const msgs = await testDb
+      .select()
+      .from(schema.chatMessage)
+      .where(eq(schema.chatMessage.designId, designId));
+    expect(msgs[0].content).toBe("Uploaded reference image: " + "x".repeat(120));
+    const [img] = await testDb.select().from(schema.image);
+    expect(img.prompt).toBe("[user upload] " + "x".repeat(120));
+  });
+
+  it("the design action's upload spends the same quota, so a direct call is capped", async () => {
+    for (let i = 0; i < USER_UPLOAD_DAILY_CAP; i++) {
+      await consumeUploadQuota({ userId: "owner", ip: null, db: testDb });
+    }
+    const designId = crypto.randomUUID();
+    await expect(uploadReferenceImage(designId, await png(), "a.png")).rejects.toThrow(
+      ATTACH_LIMIT_REACHED
+    );
+    expect(await designRows(designId)).toHaveLength(0);
+    expect(r2.uploadImageObject).not.toHaveBeenCalled();
+  });
+
+  it("an attach and a direct upload draw on one bucket", async () => {
+    await attachReferenceImage(crypto.randomUUID(), await png(), "a.png");
+    await uploadReferenceImage(crypto.randomUUID(), await png(), "b.png");
+    const rows = await testDb.select().from(schema.generationUsage);
+    expect(rows.find((r) => r.bucket === "upload:user:owner")?.count).toBe(2);
+  });
+
+  it("a refused upload on a new id through the design action leaves zero design rows", async () => {
+    const designId = crypto.randomUUID();
+    await expect(
+      uploadReferenceImage(designId, Buffer.from("junk").toString("base64"), "x.png")
+    ).rejects.toThrow("unsupported");
+    expect(await designRows(designId)).toHaveLength(0);
   });
 });

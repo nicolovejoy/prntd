@@ -3,7 +3,6 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { headers } from "next/headers";
 import { after } from "next/server";
-import { uploadReferenceImage } from "@/app/design/actions";
 import {
   ATTACH_CONVERSATION_CLOSED,
   ATTACH_FAILED,
@@ -13,7 +12,7 @@ import {
 } from "@/lib/action-copy";
 import { clientIp } from "@/lib/client-ip";
 import { db } from "@/lib/db";
-import { design as designTable, image as imageTable } from "@/lib/db/schema";
+import { design as designTable } from "@/lib/db/schema";
 import {
   executeDesignDeletion,
   isDeletionBlocked,
@@ -25,10 +24,7 @@ import { getGenerationJobStatusForUser } from "@/lib/generation-job";
 import { consumeUploadQuota } from "@/lib/generation-quota";
 import type { GenerationJobStatus } from "@/lib/lost-submit";
 import { deleteObjectByKey, imageKeyFromUrl } from "@/lib/r2";
-import {
-  REFERENCE_IMAGE_TOO_LARGE,
-  REFERENCE_IMAGE_UNSUPPORTED,
-} from "@/lib/reference-image-limits";
+import { storeReferenceImage } from "@/lib/store-reference-image";
 import { requireStudioActionSession } from "@/lib/require-user";
 import {
   getStudioLanesData,
@@ -212,8 +208,8 @@ export type AttachReferenceImageResult =
  * Order: session; ownership (another user's conversation throws
  * Unauthorized, as the other actions do); a closed conversation is refused
  * before any quota is spent; then the upload quota (never refunded); then
- * `uploadReferenceImage`, which validates and normalizes the bytes before it
- * writes anything, so a refused file leaves no design row for a new id.
+ * `storeReferenceImage`, which normalizes the bytes before it writes anything,
+ * so a refused or failed file leaves no design row for a new id.
  * Refusals are data; anything unexpected maps to ATTACH_FAILED and the thrown
  * text stays in the log.
  */
@@ -245,28 +241,34 @@ export async function attachReferenceImage(
   }
 
   try {
-    const { imageId, imageUrl } = await uploadReferenceImage(designId, base64Data, fileName);
-    const [row] = await db
-      .select({ luminance: imageTable.luminance })
-      .from(imageTable)
-      .where(eq(imageTable.id, imageId))
-      .limit(1);
+    const stored = await storeReferenceImage({
+      designId,
+      userId: session.user.id,
+      base64Data,
+      fileName,
+    });
+    if (!stored.ok) {
+      // "closed" here is the race with the check above.
+      const message =
+        stored.reason === "too_large"
+          ? ATTACH_TOO_LARGE
+          : stored.reason === "unsupported"
+            ? ATTACH_UNSUPPORTED
+            : ATTACH_CONVERSATION_CLOSED;
+      return { kind: "refused", message };
+    }
     return {
       kind: "attached",
       designId,
-      imageId,
-      imageUrl,
-      luminance: row?.luminance ?? null,
+      imageId: stored.imageId,
+      imageUrl: stored.imageUrl,
+      luminance: stored.luminance,
     };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message === REFERENCE_IMAGE_TOO_LARGE) {
-      return { kind: "refused", message: ATTACH_TOO_LARGE };
-    }
-    if (message === REFERENCE_IMAGE_UNSUPPORTED) {
-      return { kind: "refused", message: ATTACH_UNSUPPORTED };
-    }
-    console.error("[attach] reference image failed", { designId, error: message });
+    console.error("[attach] reference image failed", {
+      designId,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return { kind: "refused", message: ATTACH_FAILED };
   }
 }
