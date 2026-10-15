@@ -27,6 +27,7 @@ import {
   ATTACH_TOO_LARGE,
   ATTACH_UNSUPPORTED,
 } from "@/lib/action-copy";
+import { downscaleForUpload } from "@/lib/client-image-downscale";
 import {
   REFERENCE_IMAGE_MAX_BYTES,
   REFERENCE_IMAGE_TYPES,
@@ -976,10 +977,6 @@ export function StudioClient({
       setAttachNotice(ATTACH_UNSUPPORTED);
       return;
     }
-    if (file.size > REFERENCE_IMAGE_MAX_BYTES) {
-      setAttachNotice(ATTACH_TOO_LARGE);
-      return;
-    }
     attachingRef.current = true;
     setAttaching(true);
     const fromStage = stage !== null;
@@ -987,8 +984,15 @@ export function StudioClient({
       ? stage.lane.designId
       : (anchor?.designId ?? crypto.randomUUID());
     try {
-      const base64 = await readAsBase64(file);
-      const result = await attachReferenceImage(designId, base64, file.name);
+      // Camera photos are often over the cap: shrink on the device first
+      // (a no-op where canvas is missing), then apply the cap to the result.
+      const prepared = await downscaleForUpload(file);
+      if (prepared.size > REFERENCE_IMAGE_MAX_BYTES) {
+        setAttachNotice(ATTACH_TOO_LARGE);
+        return;
+      }
+      const base64 = await readAsBase64(prepared);
+      const result = await attachReferenceImage(designId, base64, prepared.name);
       if (!mountedRef.current) return;
       if (result.kind === "refused") {
         setAttachNotice(result.message);
@@ -1536,15 +1540,15 @@ function Composer({
           </p>
         )}
         {notice && <p className="text-xs text-text-muted">{notice}</p>}
-        {attachNotice && (
-          <p
-            className="text-xs text-text-muted"
-            role="status"
-            data-testid="attach-notice"
-          >
-            {attachNotice}
-          </p>
-        )}
+        {/* Always mounted: a live region is announced when its text changes,
+            not when it mounts with its text. */}
+        <p
+          className="text-xs text-text-muted empty:hidden"
+          role="status"
+          data-testid="attach-notice"
+        >
+          {attachNotice}
+        </p>
         <span className="text-xs leading-4 text-text-muted">
           Each line starts a design. Tap a result to change it.
         </span>
@@ -1554,10 +1558,14 @@ function Composer({
               only way in. */}
           <button
             type="button"
-            disabled={attaching}
+            aria-disabled={attaching}
             aria-busy={attaching}
-            onClick={() => fileInputRef.current?.click()}
-            className="min-h-11 px-4 border border-foreground bg-transparent font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-foreground disabled:opacity-60"
+            onClick={() => {
+              // aria-disabled, not disabled: a disabled button drops keyboard
+              // focus to the body while the upload runs.
+              if (!attaching) fileInputRef.current?.click();
+            }}
+            className="min-h-11 px-4 border border-foreground bg-transparent font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-foreground aria-disabled:cursor-not-allowed aria-disabled:border-dotted aria-disabled:border-border aria-disabled:text-text-muted"
             data-testid="studio-attach"
           >
             {attaching ? ATTACH_BUSY : ATTACH_LABEL}
@@ -1565,7 +1573,7 @@ function Composer({
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/png,image/jpeg,image/webp"
+            accept={REFERENCE_IMAGE_TYPES.join(",")}
             className="hidden"
             tabIndex={-1}
             aria-hidden="true"

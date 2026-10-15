@@ -44,6 +44,9 @@ vi.mock("@/app/design/actions", () => ({
   closeConversation: vi.fn(async () => {}),
   cancelGeneration: vi.fn(async () => true),
 }));
+vi.mock("@/lib/client-image-downscale", () => ({
+  downscaleForUpload: vi.fn(async (f: File) => f),
+}));
 vi.mock("@/app/designs/actions", () => ({
   deleteDesign: vi.fn(async () => ({})),
 }));
@@ -61,6 +64,7 @@ import {
   ATTACH_TOO_LARGE,
   ATTACH_UNSUPPORTED,
 } from "@/lib/action-copy";
+import { downscaleForUpload } from "@/lib/client-image-downscale";
 import { REFERENCE_IMAGE_MAX_BYTES } from "@/lib/reference-image-limits";
 import {
   generateDesign,
@@ -3213,11 +3217,23 @@ describe("attach image (#188 slice 2a)", () => {
       expect(screen.getByTestId("studio-attach")).toBeTruthy();
     });
 
-    it("a file over the cap shows the too-large line and calls no action", () => {
+    it("a file still over the cap after the downscale shows the too-large line and calls no action", async () => {
       render(<StudioClient initialLanes={[]} />);
       choose(file("big.png", "image/png", REFERENCE_IMAGE_MAX_BYTES + 1));
-      expect(screen.getByTestId("attach-notice").textContent).toBe(ATTACH_TOO_LARGE);
+      await waitFor(() =>
+        expect(screen.getByTestId("attach-notice").textContent).toBe(ATTACH_TOO_LARGE)
+      );
+      expect(downscaleForUpload).toHaveBeenCalledTimes(1);
       expect(attachReferenceImage).not.toHaveBeenCalled();
+    });
+
+    it("the downscaled file, not the original, is what gets uploaded", async () => {
+      vi.mocked(downscaleForUpload).mockResolvedValueOnce(file("photo.jpg", "image/jpeg", 2000));
+      attachLands();
+      render(<StudioClient initialLanes={[]} />);
+      choose(file("IMG_0001.png", "image/png", REFERENCE_IMAGE_MAX_BYTES * 2));
+      await waitFor(() => expect(attachReferenceImage).toHaveBeenCalled());
+      expect(vi.mocked(attachReferenceImage).mock.calls[0][2]).toBe("photo.jpg");
     });
 
     it("a non-image type shows the unsupported line and calls no action", () => {
@@ -3227,10 +3243,14 @@ describe("attach image (#188 slice 2a)", () => {
       expect(attachReferenceImage).not.toHaveBeenCalled();
     });
 
-    it("the attach notice is a status region", () => {
+    it("the attach notice is a status region, mounted and empty before any notice", () => {
       render(<StudioClient initialLanes={[]} />);
+      const region = screen.getByTestId("attach-notice");
+      expect(region.getAttribute("role")).toBe("status");
+      expect(region.textContent).toBe("");
       choose(file("a.gif", "image/gif"));
-      expect(screen.getByTestId("attach-notice").getAttribute("role")).toBe("status");
+      expect(screen.getByTestId("attach-notice")).toBe(region);
+      expect(region.textContent).toBe(ATTACH_UNSUPPORTED);
     });
 
     it("the same file can be chosen twice (the input is reset)", () => {
@@ -3246,8 +3266,15 @@ describe("attach image (#188 slice 2a)", () => {
       choose(file());
       const btn = screen.getByTestId("studio-attach") as HTMLButtonElement;
       await waitFor(() => expect(btn.textContent).toBe(ATTACH_BUSY));
-      expect(btn.disabled).toBe(true);
+      // aria-disabled, so keyboard focus is not dropped while uploading.
+      expect(btn.getAttribute("aria-disabled")).toBe("true");
+      expect(btn.disabled).toBe(false);
       expect(btn.getAttribute("aria-busy")).toBe("true");
+      const click = vi
+        .spyOn(screen.getByTestId("studio-attach-input") as HTMLInputElement, "click")
+        .mockImplementation(() => {});
+      fireEvent.click(btn);
+      expect(click).not.toHaveBeenCalled();
       const field = screen.getByTestId("studio-composer") as HTMLInputElement;
       expect(field.disabled).toBe(false);
       fireEvent.change(field, { target: { value: "a wolf" } });
@@ -3296,6 +3323,18 @@ describe("attach image (#188 slice 2a)", () => {
       choose(file());
       await waitFor(() => expect(attachReferenceImage).toHaveBeenCalled());
       expect(vi.mocked(attachReferenceImage).mock.calls[0][0]).toBe("design-1");
+    });
+
+    it("a second attach while the anchor points at the first upload joins that lane", async () => {
+      attachLands("up-1");
+      render(<StudioClient initialLanes={[]} />);
+      choose(file("one.png"));
+      await waitFor(() => expect(screen.getByTestId("anchor-chip")).toBeTruthy());
+      const first = vi.mocked(attachReferenceImage).mock.calls[0][0];
+      attachLands("up-2", ["up-1"]);
+      choose(file("two.png"));
+      await waitFor(() => expect(attachReferenceImage).toHaveBeenCalledTimes(2));
+      expect(vi.mocked(attachReferenceImage).mock.calls[1][0]).toBe(first);
     });
 
     it("after an attach the next Generate sends anchorImageId equal to the upload's id", async () => {
