@@ -19,7 +19,7 @@ import {
   design as designTable,
 } from "@/lib/db/schema";
 import { stripe } from "@/lib/stripe";
-import { embeddedCheckoutPageConfig } from "@/lib/embedded-checkout";
+import { embeddedCheckoutConfig } from "@/lib/embedded-checkout";
 import {
   STRIPE_SESSION_READ_TIMEOUT_MS,
   describeStripeError,
@@ -184,7 +184,7 @@ export async function loadEmbeddedCheckout(params: {
     return { kind: "expired" };
   }
 
-  const config = embeddedCheckoutPageConfig();
+  const config = embeddedCheckoutConfig();
   if (!config.enabled) {
     return { kind: "unavailable" };
   }

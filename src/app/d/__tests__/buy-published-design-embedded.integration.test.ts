@@ -87,7 +87,6 @@ vi.mock("@/lib/stripe", () => ({
 }));
 
 import { buyPublishedDesign } from "@/app/d/actions";
-import { createCheckoutSession } from "@/app/order/actions";
 import { addToCart, checkoutCart } from "@/app/cart/actions";
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
@@ -371,39 +370,6 @@ describe("buyPublishedDesign embedded-checkout gating (#135)", () => {
       `http://localhost:3000${returnPath(ids.listingId)}`
     );
     expect(params).toEqual({ ...expected, expires_at: expect.any(Number) });
-  });
-});
-
-describe("createCheckoutSession stays hosted regardless of the embedded flag (#135)", () => {
-  it("flag on + a valid key pair still creates a hosted session", async () => {
-    vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", "true");
-    vi.stubEnv("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", "pk_test_abc123");
-    vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_abc123");
-    const db = h.db as Db;
-    await makeUser(db, "nico");
-    const design = await makeDesign(db, "nico");
-    const primaryId = await makeSourceImage(db, {
-      designId: design.id,
-      ownerId: "nico",
-      imageUrl: "https://img.example/primary.png",
-    });
-    await db
-      .update(schema.design)
-      .set({ primaryImageId: primaryId })
-      .where(eq(schema.design.id, design.id));
-    h.session = { user: { id: "nico", isAnonymous: false } };
-
-    const { url } = await createCheckoutSession({
-      designId: design.id,
-      productId: "bella-canvas-3001",
-      size: "M",
-      color: "Black",
-    });
-
-    expect(url).toBe("https://checkout.stripe.example/cs_test_hosted");
-    const [params] = h.sessionParams;
-    expect(params).not.toHaveProperty("ui_mode");
-    expect(params.success_url).toContain("/order/confirm?session_id=");
   });
 });
 

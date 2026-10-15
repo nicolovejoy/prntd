@@ -9,7 +9,7 @@ import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbTrail } from "@/lib/nav";
 import { getColorHex } from "@/lib/blanks";
 import { appErrorLogLine, shapeAppError } from "@/lib/app-error";
-import { embeddedCheckoutPageConfig } from "@/lib/embedded-checkout";
+import { embeddedCheckoutConfig } from "@/lib/embedded-checkout";
 import {
   getCheckoutSessionState,
   resolveConfirmView,
@@ -127,7 +127,7 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Sear
       orderStatus: order.status,
       abandoned: order.abandoned,
       stripe: stripeState,
-      embeddedEnabled: embeddedCheckoutPageConfig().enabled,
+      embeddedEnabled: embeddedCheckoutConfig().enabled,
       sessionId,
       from,
     });

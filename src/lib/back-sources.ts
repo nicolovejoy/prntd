@@ -37,7 +37,7 @@ import {
  * (which covers the order's own thread, where design ownership is checked
  * first) or a published + not-hidden Shop image.
  * Throws on anything else — called at the checkout choke points
- * (createCheckoutSession, addToCart, buyPublishedDesign) so a forged id
+ * (addToCart, buyPublishedDesign) so a forged id
  * can't get a private image printed. On a Shop buy of a published image
  * `designId` is the SELLER's design, and on the owner's own unpublished image
  * their own; the guard deliberately gives either no weight (see
@@ -111,10 +111,9 @@ export async function placementSourceUsable(
 
 /**
  * Whether an image, or the source it is a render of, is admin-hidden. Behind
- * `placementImageHiddenState` / `isPlacementImageHidden`, whose callers are
- * `assertPrimaryNotHidden` (the primary an entry goes on to pin, where only a
- * hide is refused) and `lineHiddenArt` (cart thumbnails, `cartLineStillValid`,
- * the entries' pinless rule and the `/checkout` re-check).
+ * `placementImageHiddenState` / `isPlacementImageHidden`, whose caller is
+ * `lineHiddenArt` (cart thumbnails, `cartLineStillValid`, the pinless rule for
+ * legacy lines and the `/checkout` re-check).
  */
 async function hiddenThroughSources(image: ImageWithOwner): Promise<boolean> {
   let current: ImageWithOwner | null = image;
@@ -124,21 +123,6 @@ async function hiddenThroughSources(image: ImageWithOwner): Promise<boolean> {
     current = await getDesignImageWithOwner(current.sourceImageId);
   }
   return false;
-}
-
-/**
- * Refuse an image the order would pin as its front WITHOUT a pick: the
- * design's current primary, when the caller sends no `front`. A pick is held
- * to `assertUsablePlacementImage`; the implicit primary used to be trusted
- * outright, which let an admin-hidden primary print. Only a hidden primary is
- * refused here (a primary that no longer resolves keeps its old behaviour:
- * the order pins the id and fulfillment falls back to the design's display
- * image).
- */
-export async function assertPrimaryNotHidden(imageId: string): Promise<void> {
-  if (await isPlacementImageHidden(imageId)) {
-    throw new Error("Front image is not available");
-  }
 }
 
 /**

@@ -12,8 +12,8 @@ import type { PurchaseDefaults } from "@/lib/purchase-defaults";
  * localStorage fallback. Values are validated against the active catalog in
  * resolveLastPurchaseDefaults.
  *
- * `/preview` is a redirect now (#278 slice 4) and this is all that is left of
- * its actions; slice 6 moves this one out of the directory.
+ * `/preview` is a redirect now (#278 slice 4); this is all that is left of its
+ * actions. The image detail page imports it from here.
  */
 export async function getLastPurchaseDefaults(): Promise<PurchaseDefaults | null> {
   const session = await auth.api.getSession({ headers: await headers() });

@@ -246,10 +246,9 @@ describe("ConfirmPage", () => {
   const PENDING_ORDER = { ...FRONT_ONLY_ORDER, status: "pending" };
 
   // A switch rolled back mid-checkout must not turn an open, unpaid session
-  // into "Order confirmed.", so the Stripe read runs with both switches off.
-  it("both switches off + pending + open hosted session: Payment not completed., resume link is the hosted url", async () => {
+  // into "Order confirmed.", so the Stripe read runs with the switch off.
+  it("switch off + pending + open hosted session: Payment not completed., resume link is the hosted url", async () => {
     vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", undefined);
-    vi.stubEnv("PREVIEW_EMBEDDED_CHECKOUT_ENABLED", undefined);
     getOrderReceipt.mockResolvedValue(PENDING_ORDER);
     getCheckoutSessionState.mockResolvedValue({
       status: "open",
@@ -269,9 +268,8 @@ describe("ConfirmPage", () => {
     );
   });
 
-  it("both switches off + pending + open embedded session: Payment not completed., no resume link", async () => {
+  it("switch off + pending + open embedded session: Payment not completed., no resume link", async () => {
     vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", undefined);
-    vi.stubEnv("PREVIEW_EMBEDDED_CHECKOUT_ENABLED", undefined);
     getOrderReceipt.mockResolvedValue(PENDING_ORDER);
     getCheckoutSessionState.mockResolvedValue({ status: "open", uiMode: "embedded", url: null, amountTotal: null });
 
@@ -281,9 +279,8 @@ describe("ConfirmPage", () => {
     expect(screen.queryByRole("link", { name: "Return to checkout" })).not.toBeInTheDocument();
   });
 
-  it("both switches off + pending + complete session: Order confirmed.", async () => {
+  it("switch off + pending + complete session: Order confirmed.", async () => {
     vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", undefined);
-    vi.stubEnv("PREVIEW_EMBEDDED_CHECKOUT_ENABLED", undefined);
     getOrderReceipt.mockResolvedValue(PENDING_ORDER);
     getCheckoutSessionState.mockResolvedValue({ status: "complete", uiMode: "hosted", url: null, amountTotal: null });
 
@@ -293,32 +290,14 @@ describe("ConfirmPage", () => {
     expect(screen.getByText("Order confirmed.")).toBeInTheDocument();
   });
 
-  it("both switches off + paid order: never calls the Stripe helper", async () => {
+  it("switch off + paid order: never calls the Stripe helper", async () => {
     vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", undefined);
-    vi.stubEnv("PREVIEW_EMBEDDED_CHECKOUT_ENABLED", undefined);
     getOrderReceipt.mockResolvedValue(FRONT_ONLY_ORDER);
 
     await renderConfirm({ session_id: "cs_1" });
 
     expect(getCheckoutSessionState).not.toHaveBeenCalled();
     expect(screen.getByText("Order confirmed.")).toBeInTheDocument();
-  });
-
-  it("only the preview flag on + pending + open embedded session: shows Payment not completed.", async () => {
-    vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", undefined);
-    vi.stubEnv("PREVIEW_EMBEDDED_CHECKOUT_ENABLED", "true");
-    vi.stubEnv("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", "pk_test_abc123");
-    vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_abc123");
-    getOrderReceipt.mockResolvedValue(PENDING_ORDER);
-    getCheckoutSessionState.mockResolvedValue({ status: "open", uiMode: "embedded", url: null, amountTotal: null });
-
-    await renderConfirm({ session_id: "cs_1" });
-
-    expect(getCheckoutSessionState).toHaveBeenCalledWith("cs_1");
-    expect(screen.getByText("Payment not completed.")).toBeInTheDocument();
-    expect(screen.queryByText("Order confirmed.")).not.toBeInTheDocument();
-    const link = screen.getByRole("link", { name: "Return to checkout" });
-    expect(link).toHaveAttribute("href", "/checkout?session=cs_1&from=%2Fshop");
   });
 
   it("flag on + paid order: never calls the Stripe helper", async () => {
@@ -364,7 +343,7 @@ describe("ConfirmPage", () => {
 
   it("flag on + pending + open embedded session but no publishable key configured: no Return to checkout link", async () => {
     // A usable /checkout page needs a real key pair too
-    // (embeddedCheckoutPageConfig()) — with the key missing, resumeHref must
+    // (embeddedCheckoutConfig()) — with the key missing, resumeHref must
     // come back null rather than pointing at a page that can't render.
     vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", "true");
     getOrderReceipt.mockResolvedValue(PENDING_ORDER);

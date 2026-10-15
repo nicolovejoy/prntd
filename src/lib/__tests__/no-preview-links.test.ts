@@ -14,7 +14,6 @@ const ROOT = join(__dirname, "../../..");
 // Files that may name /preview, each for a reason that outlives this slice.
 const ALLOWED: Record<string, string> = {
   "src/app/order/page.tsx": "the legacy /order redirect forwards to /preview, which redirects on",
-  "src/app/order/actions.ts": "createCheckoutSession: no caller since slice 4, removed in slice 6",
   "src/lib/preview-redirect.ts": "the sign-in detour returns to the redirect itself",
   "src/proxy.ts": "route list, not a link",
   "src/lib/funnel-routes.ts": "route list, not a link",

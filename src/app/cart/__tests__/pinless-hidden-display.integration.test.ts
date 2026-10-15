@@ -61,8 +61,7 @@ vi.mock("@/lib/line-hidden-art", async (importOriginal) => {
   return { ...orig, lineHiddenArt: vi.fn(orig.lineHiddenArt) };
 });
 
-import { addToCart, checkoutCart, getCart } from "@/app/cart/actions";
-import { createCheckoutSession } from "@/app/order/actions";
+import { checkoutCart, getCart } from "@/app/cart/actions";
 import { cartLineStillValid } from "@/lib/cart-line-check";
 import { lineHiddenArt } from "@/lib/line-hidden-art";
 import { loadEmbeddedCheckout } from "@/lib/embedded-checkout-session";
@@ -144,25 +143,6 @@ describe("a design with no primary whose only output is hidden", () => {
     expect(h.stripeCalls).toBe(0);
   });
 
-  it("addToCart through the designId entry rejects and writes no line", async () => {
-    const db = h.db as Db;
-    const { designId } = await seed(db, "hidden");
-    await expect(addToCart({ designId, ...OPTS })).rejects.toThrow(
-      "Front image is not available"
-    );
-    expect(await db.select().from(schema.cartItem)).toHaveLength(0);
-  });
-
-  it("createCheckoutSession rejects with no order row and no Stripe call", async () => {
-    const db = h.db as Db;
-    const { designId } = await seed(db, "hidden");
-    await expect(createCheckoutSession({ designId, ...OPTS })).rejects.toThrow(
-      "Front image is not available"
-    );
-    expect(await db.select().from(schema.order)).toHaveLength(0);
-    expect(h.stripeCalls).toBe(0);
-  });
-
   it("loadEmbeddedCheckout for a pending pinless order: expired", async () => {
     const db = h.db as Db;
     const { designId } = await seed(db, "hidden");
@@ -237,32 +217,6 @@ describe("a line whose hidden check throws (F3)", () => {
     expect(view.items[0].unavailable).toBe(true);
     expect(view.items[0].imageUrl).toBeNull();
     expect(view.items[0].backImageUrl).toBeNull();
-  });
-});
-
-describe("the entries judge the id they pin (G1)", () => {
-  // Simpler invariant than a primary moving mid-call: with the pinless rule
-  // stubbed to "not hidden", a hidden primary is still refused through the id
-  // each entry goes on to pin.
-  it("addToCart refuses a hidden primary even when lineHiddenArt says not hidden", async () => {
-    const db = h.db as Db;
-    const { designId } = await seed(db, "hidden", true);
-    vi.mocked(lineHiddenArt).mockResolvedValueOnce({ front: false, back: false });
-    await expect(addToCart({ designId, ...OPTS })).rejects.toThrow(
-      "Front image is not available"
-    );
-    expect(await db.select().from(schema.cartItem)).toHaveLength(0);
-  });
-
-  it("createCheckoutSession refuses a hidden primary even when lineHiddenArt says not hidden", async () => {
-    const db = h.db as Db;
-    const { designId } = await seed(db, "hidden", true);
-    vi.mocked(lineHiddenArt).mockResolvedValueOnce({ front: false, back: false });
-    await expect(createCheckoutSession({ designId, ...OPTS })).rejects.toThrow(
-      "Front image is not available"
-    );
-    expect(await db.select().from(schema.order)).toHaveLength(0);
-    expect(h.stripeCalls).toBe(0);
   });
 });
 

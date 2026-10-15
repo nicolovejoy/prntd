@@ -182,8 +182,7 @@ export function canBuyImage(params: {
  *    canBuyPublishedImage).
  *
  * Checked through `assertUsablePlacementImage` at every choke point that pins
- * or renders a placement: `createCheckoutSession`, `addToCart`,
- * `buyPublishedDesign`, `getListingMockup` / `getListingBackMockup`,
+ * or renders a placement: `addToCart`, `buyPublishedDesign`, `getListingMockup` / `getListingBackMockup`,
  * `resolveInitialBack`, `cartLineStillValid`, and (through
  * `placementSourceUsable`) `renderAndCacheMockup`, which judges every explicit
  * source before its cached-mockup and cached-render lookups, so a source
