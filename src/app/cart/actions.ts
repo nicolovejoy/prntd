@@ -8,7 +8,6 @@ import {
   cartItem as cartItemTable,
   order as orderTable,
   orderItem as orderItemTable,
-  design as designTable,
   conversationImage as conversationImageTable,
 } from "@/lib/db/schema";
 import {
@@ -25,7 +24,6 @@ import {
 } from "@/lib/design-images";
 import { resolveBuyableImage } from "@/lib/buyable-image";
 import {
-  assertPrimaryNotHidden,
   assertUsablePlacementImage,
 } from "@/lib/back-sources";
 import { resolveBuyPageFront } from "@/lib/placement-pins";
@@ -120,18 +118,8 @@ async function currentUserId(): Promise<string | null> {
  * Add a line to the current user's cart (#26). Works for anonymous guests — the
  * cart re-parents to their account on sign-in.
  *
- * Two entry shapes, one per surface:
- *  - `designId` (/preview): requires the caller own the design (#251, same
- *    check as createCheckoutSession) — without `front` this entry trusts the
- *    design's CURRENT primary image as the front, so without the check any
- *    design id (public on any published image via getImagePage's
- *    sourceDesignId) could cart a stranger's private artwork. /preview always
- *    sends `front` (#269), the image it is showing; the primary is only the
- *    fallback when `front` is absent. A `front` is guarded the same way
- *    `back` is (#138), so a front pin grants no reach a back pin didn't
- *    already have. A cross-owner add must go through
- *    `frontImageId` instead.
- *  - `frontImageId` (image detail page, #146): the image detail page's image. The front
+ * One entry, from the image detail page:
+ *  - `frontImageId` (#146): the image detail page's image. The front
  *    placement is pinned to that EXACT image, mirroring buyPublishedDesign —
  *    the design's primary can change after the add, and the buyer must get
  *    the image they tapped, not the seller's current display image. The
@@ -150,9 +138,9 @@ async function currentUserId(): Promise<string | null> {
  * A back image is honored only when MULTI_PLACEMENT_ENABLED, guarded the same
  * way at this choke point.
  *
- * A cart holds at most CART_MAX_LINES lines (#316). On either entry, after
- * validation and before the insert, a full cart returns `{ ok: false, count,
- * error: CART_FULL }` as data (a throw would be masked in production). The
+ * A cart holds at most CART_MAX_LINES lines (#316). After validation and
+ * before the insert, a full cart returns `{ ok: false, count, error:
+ * CART_FULL }` as data (a throw would be masked in production). The
  * cap is part of the INSERT statement, so concurrent adds cannot pass it.
  * A cart can still exceed it when a guest cart is merged into the account's
  * cart on sign-in (`reparentUserData` moves every row with no cap);
@@ -165,15 +153,12 @@ async function currentUserId(): Promise<string | null> {
  * action.
  */
 export async function addToCart(params: {
-  /** The design to cart (/preview path). Ignored when frontImageId is set. */
-  designId?: string;
-  /** The image detail page's image (image detail page, #146): the line's designId
-   * derives from it, and it is pinned as the front unless `front` swaps it
-   * to the back. */
-  frontImageId?: string;
-  /** Front pick. On the designId path (/preview, #138) any guarded image.
-   * On the frontImageId path (image detail page, #138 slice 3) a swap only: accepted when
-   * `back` is the page image, refused otherwise. */
+  /** The image detail page's image (#146): the line's designId derives from
+   * it, and it is pinned as the front unless `front` swaps it to the back.
+   * Required; a hand-built call without it is refused at runtime too. */
+  frontImageId: string;
+  /** Front pick (#138 slice 3): a swap only, accepted when `back` is the page
+   * image, refused otherwise. */
   front?: string;
   productId: string;
   size: string;
@@ -184,78 +169,11 @@ export async function addToCart(params: {
   const userId = await currentUserId();
   if (!userId) throw new Error("Unauthorized");
 
-  if (params.frontImageId) {
-    // Image detail page path: the shared validation chain, then insert what it resolved.
-    const next = await resolveLineInput(
-      { ...params, frontImageId: params.frontImageId },
-      userId
-    );
-    return insertCappedCartLine(userId, next);
-  }
-
-  // Reject an unfulfillable product/size/color before it can reach checkout.
-  const { product } = resolveOrderVariant({
-    productId: params.productId,
-    size: params.size,
-    color: params.color,
-  });
-
-  if (!params.designId) throw new Error("designId or frontImageId required");
-  const designId = params.designId;
-  let frontId: string | null;
-  // Owner check (#251), mirroring createCheckoutSession: this entry is the
-  // design-id one (the former /preview path), which only ever operates on
-  // the viewer's own design. Without this check, a design id — public on any
-  // published image via getImagePage's sourceDesignId — let any caller cart
-  // the design's CURRENT primary image, private or not, with no ownership
-  // check at all. A cross-owner add must go through frontImageId instead,
-  // which resolveBuyableImage gates (published and visible, or the buyer's
-  // own unpublished image, either way through a conversation that exists).
-  const design = await db.query.design.findFirst({
-    where: eq(designTable.id, designId),
-  });
-  if (!design || design.userId !== userId) {
-    throw new Error("Design not found");
-  }
-  if (params.front) {
-    // Explicit front pick (#138) — same choke-point guard as the back.
-    await assertUsablePlacementImage(params.front, designId, userId, "front");
-    frontId = params.front;
-  } else {
-    frontId = design.primaryImageId ?? null;
-    // With no pick the line shows and prints the design's display image (the
-    // primary, else its latest output); an admin-hidden image must not print
-    // (owner ruling, 2026-10-05).
-    if ((await lineHiddenArt({ designId, placements: null })).front) {
-      throw new Error("Front image is not available");
-    }
-    // The id pinned below is judged too, whatever the read above saw.
-    if (frontId) await assertPrimaryNotHidden(frontId);
-  }
-
-  const backId = multiPlacementEnabled() && params.back ? params.back : null;
-  if (backId) {
-    // Fulfillment drops a placement the blank can't print — a paid-for back
-    // would silently vanish.
-    if (!productSupportsPlacement(product, "back")) {
-      throw new Error("This product has no back print area");
-    }
-    // Same choke-point guard as createCheckoutSession (#72): the user's own
-    // images or published Shop images, never an admin-hidden one. The guard
-    // deliberately gives the design id no weight (see canUseAsPlacementSource).
-    await assertUsablePlacementImage(backId, designId, userId);
-  }
-  const placements: Record<string, string> | null = frontId
-    ? { front: frontId, ...(backId ? { back: backId } : {}) }
-    : null;
-
-  return insertCappedCartLine(userId, {
-    designId,
-    productId: params.productId,
-    size: params.size,
-    color: params.color,
-    placements,
-  });
+  // A hand-built call without the image (the retired designId entry) is
+  // refused rather than guessed at.
+  if (!params.frontImageId) throw new Error("frontImageId required");
+  const next = await resolveLineInput(params, userId);
+  return insertCappedCartLine(userId, next);
 }
 
 /**
@@ -346,7 +264,7 @@ async function resolveLineInput(
     if (!productSupportsPlacement(product, "back")) {
       throw new Error("This product has no back print area");
     }
-    // Same choke-point guard as createCheckoutSession (#72): the user's own
+    // Same choke-point guard as buyPublishedDesign (#72): the user's own
     // images or published Shop images, never an admin-hidden one. designId is
     // the SELLER's design for a published image and the user's own for their
     // unpublished one; the guard deliberately gives either no weight (see

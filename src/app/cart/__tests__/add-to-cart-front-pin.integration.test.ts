@@ -252,11 +252,11 @@ describe("addToCart with frontImageId (#146)", () => {
     expect(lines[0].placements).toEqual({ front: ids.listingId });
   });
 
-  it("still requires designId or frontImageId", async () => {
+  it("requires frontImageId", async () => {
     const db = h.db as Db;
     await seed(db);
     await expect(addToCart({ ...OPTS })).rejects.toThrow(
-      "designId or frontImageId required"
+      "frontImageId required"
     );
   });
 });

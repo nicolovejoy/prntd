@@ -62,7 +62,7 @@ beforeEach(async () => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("addToCart line cap (#316)", () => {
-  it("frontImageId entry: the 41st add is refused as data and nothing is inserted", async () => {
+  it("the 41st add is refused as data and nothing is inserted", async () => {
     const db = h.db as Db;
     const { imageId } = await seed(db, CART_MAX_LINES);
 
@@ -72,26 +72,16 @@ describe("addToCart line cap (#316)", () => {
     expect(await lineCount(db)).toBe(CART_MAX_LINES);
   });
 
-  it("designId entry: refused the same way", async () => {
-    const db = h.db as Db;
-    const { designId, imageId } = await seed(db, CART_MAX_LINES);
-
-    const result = await addToCart({ designId, front: imageId, ...OPTS });
-
-    expect(result).toEqual({ ok: false, count: CART_MAX_LINES, error: CART_FULL });
-    expect(await lineCount(db)).toBe(CART_MAX_LINES);
-  });
-
   it("one under the cap: the add succeeds and returns the new count", async () => {
     const db = h.db as Db;
-    const { imageId, designId } = await seed(db, CART_MAX_LINES - 1);
+    const { imageId } = await seed(db, CART_MAX_LINES - 1);
 
     const viaImage = await addToCart({ frontImageId: imageId, ...OPTS });
     expect(viaImage).toEqual({ ok: true, count: CART_MAX_LINES });
     expect(await lineCount(db)).toBe(CART_MAX_LINES);
 
-    // Now full: the designId entry is refused.
-    expect((await addToCart({ designId, front: imageId, ...OPTS })).error).toBe(CART_FULL);
+    // Now full: the next add is refused.
+    expect((await addToCart({ frontImageId: imageId, ...OPTS })).error).toBe(CART_FULL);
   });
 
   it("a guest (anonymous user row) is capped the same way", async () => {
@@ -104,7 +94,7 @@ describe("addToCart line cap (#316)", () => {
     expect(result).toEqual({ ok: false, count: CART_MAX_LINES, error: CART_FULL });
   });
 
-  it("frontImageId entry: 20 concurrent adds at 39 lines land exactly one (hard cap)", async () => {
+  it("20 concurrent adds at 39 lines land exactly one (hard cap)", async () => {
     const db = h.db as Db;
     const { imageId } = await seed(db, CART_MAX_LINES - 1);
 
@@ -120,19 +110,6 @@ describe("addToCart line cap (#316)", () => {
       expect(r).toEqual({ ok: false, count: CART_MAX_LINES, error: CART_FULL });
     }
     expect(results.find((r) => r.ok)?.count).toBe(CART_MAX_LINES);
-  });
-
-  it("designId entry: 20 concurrent adds at 39 lines land exactly one", async () => {
-    const db = h.db as Db;
-    const { designId, imageId } = await seed(db, CART_MAX_LINES - 1);
-
-    const results = await Promise.all(
-      Array.from({ length: 20 }, () => addToCart({ designId, front: imageId, ...OPTS }))
-    );
-
-    expect(await lineCount(db)).toBe(CART_MAX_LINES);
-    expect(results.filter((r) => r.ok)).toHaveLength(1);
-    expect(results.filter((r) => r.error === CART_FULL)).toHaveLength(19);
   });
 
   it("100 concurrent adds on an empty cart land exactly the cap", async () => {
