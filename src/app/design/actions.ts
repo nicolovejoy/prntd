@@ -45,6 +45,7 @@ import {
 import { chatAboutDesign, constructDesignBrief, type ChatOption } from "@/lib/ai";
 import { uploadImageObject, deleteImageObject } from "@/lib/r2";
 import { meanLuminance } from "@/lib/image-luminance";
+import { normalizeReferenceImage } from "@/lib/reference-image";
 import { getGenerator } from "@/lib/generators/registry";
 import type { GenerateOperation } from "@/lib/generators/types";
 import {
@@ -1121,13 +1122,18 @@ export async function uploadReferenceImage(
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) throw new Error("Unauthorized");
 
+  // Validate and normalize before getOrCreateDesign, so a refused file leaves
+  // no empty design row behind for a new id. The reason is the thrown message.
+  const normalized = await normalizeReferenceImage(Buffer.from(base64Data, "base64"));
+  if (!normalized.ok) throw new Error(normalized.reason);
+  const buffer = normalized.png;
+
   const found = await getOrCreateDesign(designId, session.user.id);
   // Closed conversation = read-only thread (slice 3): no uploads.
   assertConversationOpen(found);
 
   // Upload under the pre-minted image id (images/{id}.png, slice 4 §6).
   const newImageId = crypto.randomUUID();
-  const buffer = Buffer.from(base64Data, "base64");
   const luminance = await meanLuminance(buffer);
   if (luminance === null) {
     console.warn("[luminance] not computed for an upload", { imageId: newImageId });
