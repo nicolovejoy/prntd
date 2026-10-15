@@ -11,7 +11,8 @@ const JPEG_QUALITY = 0.9;
  * over REFERENCE_IMAGE_MAX_BYTES or its longest side is over
  * REFERENCE_IMAGE_MAX_SIDE, it is redrawn on a canvas at most that many
  * pixels on the longest side (orientation applied by the decoder) and
- * exported as JPEG at quality 0.9; transparency is flattened onto white.
+ * exported as JPEG at quality 0.9 (flattened onto white), except a PNG source,
+ * which stays PNG so transparency survives.
  * Anything else, and any environment without createImageBitmap or canvas
  * (jsdom, old browsers), or any failure, returns the original file. The
  * caller still applies the byte cap to the result.
@@ -33,15 +34,22 @@ export async function downscaleForUpload(file: File): Promise<File> {
     canvas.height = Math.max(1, Math.round(bitmap.height * scale));
     const ctx = canvas.getContext("2d");
     if (!ctx) return file;
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    const keepPng = file.type === "image/png";
+    if (!keepPng) {
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
     ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
     const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob(resolve, "image/jpeg", JPEG_QUALITY)
+      keepPng
+        ? canvas.toBlob(resolve, "image/png")
+        : canvas.toBlob(resolve, "image/jpeg", JPEG_QUALITY)
     );
     if (!blob) return file;
     const base = file.name.replace(/\.[^./]+$/, "") || "image";
-    return new File([blob], `${base}.jpg`, { type: "image/jpeg" });
+    return keepPng
+      ? new File([blob], `${base}.png`, { type: "image/png" })
+      : new File([blob], `${base}.jpg`, { type: "image/jpeg" });
   } catch {
     return file;
   } finally {

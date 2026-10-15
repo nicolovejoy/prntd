@@ -39,7 +39,7 @@ describe("downscaleForUpload", () => {
     };
     vi.stubGlobal("createImageBitmap", vi.fn(async () => ({ width, height, close })));
     vi.stubGlobal("document", { createElement: () => canvas });
-    return { canvas, close, drawImage };
+    return { canvas, close, drawImage, fillRect };
   }
 
   it("leaves a small file with a small raster alone", async () => {
@@ -64,6 +64,22 @@ describe("downscaleForUpload", () => {
     const out = await downscaleForUpload(file("big.png", "image/png", MAX_BYTES + 1));
     expect(canvas.width).toBe(1500);
     expect(out.size).toBe(500);
-    expect(out.name).toBe("big.jpg");
+    expect(out.name).toBe("big.png");
+    expect(out.type).toBe("image/png");
+  });
+
+  it("a PNG source is exported as PNG with no fill and no quality argument", async () => {
+    const { canvas, fillRect } = stubCanvas(4000, 3000);
+    const out = await downscaleForUpload(file("logo.png", "image/png", 2000));
+    expect(canvas.requested).toEqual({ type: "image/png", q: undefined });
+    expect(fillRect).not.toHaveBeenCalled();
+    expect(out.type).toBe("image/png");
+  });
+
+  it("a JPEG or WebP source is flattened onto white and exported as JPEG", async () => {
+    const { fillRect } = stubCanvas(4000, 3000);
+    const out = await downscaleForUpload(file("a.webp", "image/webp", 2000));
+    expect(fillRect).toHaveBeenCalled();
+    expect(out.name).toBe("a.jpg");
   });
 });
