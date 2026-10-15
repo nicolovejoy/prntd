@@ -184,7 +184,7 @@ describe("closed conversation blocks the write actions", () => {
     const { designId } = await seedClosedDesign();
 
     await expect(
-      uploadReferenceImage(designId, Buffer.from("x").toString("base64"), "ref.png")
+      uploadReferenceImage(designId, "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADElEQVQImWNgYGAAAAAEAAGjChXjAAAAAElFTkSuQmCC" /* a 1x1 PNG: uploads are decoded now */, "ref.png")
     ).rejects.toThrow(CONVERSATION_CLOSED_MESSAGE);
   });
 

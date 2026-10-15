@@ -210,7 +210,7 @@ describe("image provenance is persisted (#169)", () => {
     const designId = await seedDesign();
     const { imageId } = await uploadReferenceImage(
       designId,
-      Buffer.from("png").toString("base64"),
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADElEQVQImWNgYGAAAAAEAAGjChXjAAAAAElFTkSuQmCC" /* a 1x1 PNG: uploads are decoded now */,
       "logo.png"
     );
 

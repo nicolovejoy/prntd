@@ -9,6 +9,7 @@ import {
   refundGenerationQuota,
   consumeChatQuota,
   refundChatQuota,
+  consumeUploadQuota,
   dayKeyUTC,
   CHAT_MESSAGE_MAX_CHARS,
   CHAT_HISTORY_MAX_MESSAGES,
@@ -45,10 +46,11 @@ import {
 import { chatAboutDesign, constructDesignBrief, type ChatOption } from "@/lib/ai";
 import { uploadImageObject, deleteImageObject } from "@/lib/r2";
 import { meanLuminance } from "@/lib/image-luminance";
+import { storeReferenceImage } from "@/lib/store-reference-image";
+import { attachLimitMessage } from "@/lib/action-copy";
 import { getGenerator } from "@/lib/generators/registry";
 import type { GenerateOperation } from "@/lib/generators/types";
 import {
-  insertDesignImage,
   reserveGenerationNumbers,
   findDesignImageByUrl,
   getDesignSourceImages,
@@ -69,7 +71,11 @@ import {
   getDesignThreadData,
   type DesignThreadData,
 } from "@/lib/design-thread";
-import { dedupeById, assertConversationOpen } from "@/lib/design-view";
+import {
+  dedupeById,
+  assertConversationOpen,
+  CONVERSATION_CLOSED_MESSAGE,
+} from "@/lib/design-view";
 import {
   classifyGenerationFailure,
   type GenerationFailure,
@@ -97,16 +103,17 @@ async function findOwnedDesign(designId: string, userId: string) {
 }
 
 /**
- * Used by `sendChatMessage` and `uploadReferenceImage`. Unlike `generateDesign`
+ * Used by `sendChatMessage`. Unlike `generateDesign`
  * this leaves the plain find-then-insert race unguarded: two concurrent calls
  * on the same unseen id can both see `null` and both try to insert, and the
  * loser's insert throws instead of recovering onto the winner's row.
  * `sendChatMessage` calls this after spending a chat-quota unit (#253); it
  * refunds that unit when the insert loses (as it does for any failure before
  * Claude answers). Acceptable here because nothing is at stake but a
- * double-tapped Ask (or upload) surfacing an error to retry. A later failure
- * in the same turn leaves the design row this call created (empty, and
- * harmless).
+ * double-tapped Ask surfacing an error to retry. A later failure in the same
+ * turn leaves the design row this call created (an empty conversation, which
+ * the Studio lists as a lane with no results; uploads avoid this, see
+ * storeReferenceImage).
  */
 async function getOrCreateDesign(designId: string, userId: string) {
   const found = await findOwnedDesign(designId, userId);
@@ -1121,45 +1128,26 @@ export async function uploadReferenceImage(
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) throw new Error("Unauthorized");
 
-  const found = await getOrCreateDesign(designId, session.user.id);
-  // Closed conversation = read-only thread (slice 3): no uploads.
-  assertConversationOpen(found);
+  // Public action: spend the upload quota like the Studio's attach does, so
+  // the caps limit uploads whichever surface (or direct call) they come from.
+  const quota = await consumeUploadQuota({
+    userId: session.user.id,
+    ip: clientIp(await headers()),
+  });
+  if (!quota.allowed) throw new Error(attachLimitMessage(quota.reason));
 
-  // Upload under the pre-minted image id (images/{id}.png, slice 4 §6).
-  const newImageId = crypto.randomUUID();
-  const buffer = Buffer.from(base64Data, "base64");
-  const luminance = await meanLuminance(buffer);
-  if (luminance === null) {
-    console.warn("[luminance] not computed for an upload", { imageId: newImageId });
+  const stored = await storeReferenceImage({
+    designId,
+    userId: session.user.id,
+    base64Data,
+    fileName,
+  });
+  if (!stored.ok) {
+    throw new Error(
+      stored.reason === "closed" ? CONVERSATION_CLOSED_MESSAGE : stored.reason
+    );
   }
-  const r2Url = await uploadImageObject(newImageId, buffer);
-
-  // Record as an image row so the gallery picks it up and the
-  // AI gallery context can reference it.
-  await insertDesignImage({
-    id: newImageId,
-    designId,
-    imageUrl: r2Url,
-    aspectRatio: "1:1",
-    prompt: `[user upload] ${fileName}`,
-    operation: "upload",
-    generationCost: 0,
-    luminance,
-  });
-
-  await insertChatMessage({
-    designId,
-    role: "user",
-    content: `Uploaded reference image: ${fileName}`,
-    imageId: newImageId,
-  });
-
-  await db
-    .update(designTable)
-    .set({ updatedAt: new Date() })
-    .where(eq(designTable.id, designId));
-
-  return { imageUrl: r2Url, imageId: newImageId };
+  return { imageUrl: stored.imageUrl, imageId: stored.imageId };
 }
 
 /**
