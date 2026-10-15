@@ -32,6 +32,7 @@ vi.mock("../actions", () => ({
     skipped: [],
   })),
   getGenerationJobStatus: vi.fn(async () => ({ status: "none" })),
+  attachReferenceImage: vi.fn(),
 }));
 vi.mock("@/app/design/actions", () => ({
   generateDesign: vi.fn(async () => ({
@@ -48,10 +49,19 @@ vi.mock("@/app/designs/actions", () => ({
 }));
 
 import {
+  attachReferenceImage,
   deleteConversations,
   getGenerationJobStatus,
   getStudioLanes,
 } from "../actions";
+import {
+  ATTACH_BUSY,
+  ATTACH_FAILED,
+  ATTACH_LABEL,
+  ATTACH_TOO_LARGE,
+  ATTACH_UNSUPPORTED,
+} from "@/lib/action-copy";
+import { REFERENCE_IMAGE_MAX_BYTES } from "@/lib/reference-image-limits";
 import {
   generateDesign,
   closeConversation,
@@ -3118,5 +3128,296 @@ describe("the anchor clears after an accepted Generate (2026-10-01)", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("attach image (#188 slice 2a)", () => {
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+  function file(name = "cat.png", type = "image/png", size = 1000) {
+    const f = new File(["x"], name, { type });
+    Object.defineProperty(f, "size", { value: size });
+    return f;
+  }
+
+  function choose(f: File) {
+    fireEvent.change(screen.getByTestId("studio-attach-input"), { target: { files: [f] } });
+  }
+
+  function attachedFor(designId: string, imageId: string) {
+    return {
+      kind: "attached" as const,
+      designId,
+      imageId,
+      imageUrl: `https://cdn.example/${imageId}.png`,
+      luminance: null,
+    };
+  }
+
+  /** Resolves as attached and makes the refetch list the upload, as the server would. */
+  function attachLands(imageId = "up-1", extraCells: string[] = []) {
+    vi.mocked(attachReferenceImage).mockImplementationOnce((async (designId: string) => {
+      h.polledLanes = [
+        lane({
+          designId,
+          title: "Uploaded reference image: cat.png",
+          cells: [...extraCells.map((id) => cell(id)), cell(imageId)],
+        }),
+      ];
+      return attachedFor(designId, imageId);
+    }) as never);
+  }
+
+  function deferAttach() {
+    let settle!: (r: unknown) => void;
+    vi.mocked(attachReferenceImage).mockReturnValueOnce(
+      new Promise((resolve) => {
+        settle = resolve;
+      }) as never
+    );
+    return settle;
+  }
+
+  describe("the control", () => {
+    it("the composer shows an Attach image button 44px tall", () => {
+      render(<StudioClient initialLanes={[]} />);
+      const btn = screen.getByTestId("studio-attach");
+      expect(btn.textContent).toBe(ATTACH_LABEL);
+      expect(btn.className).toContain("min-h-11");
+      expect(screen.getByRole("button", { name: ATTACH_LABEL })).toBe(btn);
+    });
+
+    it("the file input accepts png, jpeg and webp, takes one file, and is not focusable", () => {
+      render(<StudioClient initialLanes={[]} />);
+      const input = screen.getByTestId("studio-attach-input") as HTMLInputElement;
+      expect(input.type).toBe("file");
+      expect(input.accept).toBe("image/png,image/jpeg,image/webp");
+      expect(input.multiple).toBe(false);
+      expect(input.tabIndex).toBe(-1);
+      expect(input.getAttribute("aria-hidden")).toBe("true");
+    });
+
+    it("clicking Attach opens the picker", () => {
+      render(<StudioClient initialLanes={[]} />);
+      const input = screen.getByTestId("studio-attach-input") as HTMLInputElement;
+      const click = vi.spyOn(input, "click").mockImplementation(() => {});
+      fireEvent.click(screen.getByTestId("studio-attach"));
+      expect(click).toHaveBeenCalledTimes(1);
+    });
+
+    it("the Attach button is on the bench composer and on the stage composer", () => {
+      render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+      expect(screen.getByTestId("studio-attach")).toBeTruthy();
+      openStage();
+      expect(screen.getByTestId("focused-stage")).toBeTruthy();
+      expect(screen.getByTestId("studio-attach")).toBeTruthy();
+    });
+
+    it("a file over the cap shows the too-large line and calls no action", () => {
+      render(<StudioClient initialLanes={[]} />);
+      choose(file("big.png", "image/png", REFERENCE_IMAGE_MAX_BYTES + 1));
+      expect(screen.getByTestId("attach-notice").textContent).toBe(ATTACH_TOO_LARGE);
+      expect(attachReferenceImage).not.toHaveBeenCalled();
+    });
+
+    it("a non-image type shows the unsupported line and calls no action", () => {
+      render(<StudioClient initialLanes={[]} />);
+      choose(file("a.gif", "image/gif"));
+      expect(screen.getByTestId("attach-notice").textContent).toBe(ATTACH_UNSUPPORTED);
+      expect(attachReferenceImage).not.toHaveBeenCalled();
+    });
+
+    it("the attach notice is a status region", () => {
+      render(<StudioClient initialLanes={[]} />);
+      choose(file("a.gif", "image/gif"));
+      expect(screen.getByTestId("attach-notice").getAttribute("role")).toBe("status");
+    });
+
+    it("the same file can be chosen twice (the input is reset)", () => {
+      render(<StudioClient initialLanes={[]} />);
+      const input = screen.getByTestId("studio-attach-input") as HTMLInputElement;
+      choose(file("a.gif", "image/gif"));
+      expect(input.value).toBe("");
+    });
+
+    it("while attaching the button reads Uploading… and is disabled; Generate and the field stay usable", async () => {
+      const settle = deferAttach();
+      render(<StudioClient initialLanes={[]} />);
+      choose(file());
+      const btn = screen.getByTestId("studio-attach") as HTMLButtonElement;
+      await waitFor(() => expect(btn.textContent).toBe(ATTACH_BUSY));
+      expect(btn.disabled).toBe(true);
+      expect(btn.getAttribute("aria-busy")).toBe("true");
+      const field = screen.getByTestId("studio-composer") as HTMLInputElement;
+      expect(field.disabled).toBe(false);
+      fireEvent.change(field, { target: { value: "a wolf" } });
+      expect((screen.getByTestId("studio-generate") as HTMLButtonElement).disabled).toBe(false);
+      await act(async () => {
+        settle({ kind: "refused", message: "nope" });
+      });
+      await waitFor(() => expect(screen.getByTestId("studio-attach").textContent).toBe(ATTACH_LABEL));
+    });
+  });
+
+  describe("the bench", () => {
+    it("attach with no anchor sends a fresh uuid, refetches lanes, then shows the anchor chip for the upload", async () => {
+      attachLands();
+      render(<StudioClient initialLanes={[]} />);
+      choose(file("cat.png"));
+      await waitFor(() => expect(screen.getByTestId("anchor-chip")).toBeTruthy());
+      const [designId, base64, name] = vi.mocked(attachReferenceImage).mock.calls[0];
+      expect(designId).toMatch(UUID);
+      expect(typeof base64).toBe("string");
+      expect(name).toBe("cat.png");
+      expect(getStudioLanes).toHaveBeenCalled();
+      expect(screen.getByTestId("anchor-chip").textContent).toContain("Editing ·");
+      expect((screen.getByTestId("studio-composer") as HTMLInputElement).placeholder).toBe(
+        "Describe the change"
+      );
+    });
+
+    it("the chip is not cleared by the refetch", async () => {
+      attachLands();
+      render(<StudioClient initialLanes={[]} />);
+      choose(file());
+      await waitFor(() => expect(screen.getByTestId("anchor-chip")).toBeTruthy());
+      // Let any lanes-change effect and a second poll settle.
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 20));
+      });
+      expect(screen.getByTestId("anchor-chip")).toBeTruthy();
+    });
+
+    it("with a restored bench anchor the upload joins the anchor's conversation", async () => {
+      h.polledLanes = [lane({ cells: [cell("img-1")] })];
+      render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+      await anchorOnBench();
+      attachLands("up-1", ["img-1"]);
+      choose(file());
+      await waitFor(() => expect(attachReferenceImage).toHaveBeenCalled());
+      expect(vi.mocked(attachReferenceImage).mock.calls[0][0]).toBe("design-1");
+    });
+
+    it("after an attach the next Generate sends anchorImageId equal to the upload's id", async () => {
+      attachLands("up-9");
+      render(<StudioClient initialLanes={[]} />);
+      choose(file());
+      await waitFor(() => expect(screen.getByTestId("anchor-chip")).toBeTruthy());
+      const designId = vi.mocked(attachReferenceImage).mock.calls[0][0];
+      fireEvent.change(screen.getByTestId("studio-composer"), {
+        target: { value: "add a red border" },
+      });
+      fireEvent.submit(screen.getByTestId("studio-composer").closest("form")!);
+      await waitFor(() => expect(generateDesign).toHaveBeenCalled());
+      const [target, , opts] = vi.mocked(generateDesign).mock.calls[0];
+      expect(target).toBe(designId);
+      expect(opts).toMatchObject({ anchorImageId: "up-9" });
+    });
+  });
+
+  describe("the stage", () => {
+    it("passes the focused conversation's id, moves the stage to the upload by push, and never calls replaceState", async () => {
+      h.polledLanes = [];
+      render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+      openStage();
+      attachLands("up-1", ["img-1"]);
+      const push = vi.spyOn(window.history, "pushState");
+      const replace = vi.spyOn(window.history, "replaceState");
+      push.mockClear();
+      replace.mockClear();
+      choose(file());
+      await waitFor(() => expect(screen.getByText("Result 2 of 2")).toBeTruthy());
+      expect(vi.mocked(attachReferenceImage).mock.calls[0][0]).toBe("design-1");
+      expect(window.location.search).toBe("?conversation=design-1&image=up-1");
+      expect(push).toHaveBeenCalledTimes(1);
+      expect(replace).not.toHaveBeenCalled();
+      push.mockRestore();
+      replace.mockRestore();
+    });
+
+    it("the draft text typed before the attach is still in the box after it", async () => {
+      render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+      openStage();
+      fireEvent.change(screen.getByTestId("studio-composer"), { target: { value: "make it blue" } });
+      attachLands("up-1", ["img-1"]);
+      choose(file());
+      await waitFor(() => expect(screen.getByText("Result 2 of 2")).toBeTruthy());
+      expect((screen.getByTestId("studio-composer") as HTMLInputElement).value).toBe("make it blue");
+    });
+  });
+
+  describe("failures and concurrency", () => {
+    it("a refused attach shows the message, keeps the draft, keeps the anchor, and calls no refetch", async () => {
+      render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+      openStage();
+      fireEvent.change(screen.getByTestId("studio-composer"), { target: { value: "keep me" } });
+      vi.mocked(getStudioLanes).mockClear();
+      vi.mocked(attachReferenceImage).mockResolvedValueOnce({
+        kind: "refused",
+        message: "You've reached today's upload limit. Try again later.",
+      });
+      choose(file());
+      await waitFor(() =>
+        expect(screen.getByTestId("attach-notice").textContent).toBe(
+          "You've reached today's upload limit. Try again later."
+        )
+      );
+      expect((screen.getByTestId("studio-composer") as HTMLInputElement).value).toBe("keep me");
+      expect(screen.getByText("Result 1 of 1")).toBeTruthy();
+      expect(getStudioLanes).not.toHaveBeenCalled();
+    });
+
+    it("a thrown attach shows the generic failure line", async () => {
+      vi.mocked(attachReferenceImage).mockRejectedValueOnce(new Error("boom"));
+      render(<StudioClient initialLanes={[]} />);
+      choose(file());
+      await waitFor(() =>
+        expect(screen.getByTestId("attach-notice").textContent).toBe(ATTACH_FAILED)
+      );
+    });
+
+    it("a second attach while one is in flight does nothing", async () => {
+      const settle = deferAttach();
+      render(<StudioClient initialLanes={[]} />);
+      choose(file());
+      await waitFor(() => expect(screen.getByTestId("studio-attach").textContent).toBe(ATTACH_BUSY));
+      await waitFor(() => expect(attachReferenceImage).toHaveBeenCalledTimes(1));
+      choose(file("two.png"));
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 20));
+      });
+      expect(attachReferenceImage).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        settle({ kind: "refused", message: "x" });
+      });
+    });
+
+    it("attach is allowed at the generation cap (Generate is disabled)", () => {
+      render(
+        <StudioClient
+          initialLanes={[
+            lane({ pending: [pendingJob("j1"), pendingJob("j2"), pendingJob("j3")] }),
+          ]}
+        />
+      );
+      expect((screen.getByTestId("studio-attach") as HTMLButtonElement).disabled).toBe(false);
+      expect((screen.getByTestId("studio-generate") as HTMLButtonElement).disabled).toBe(true);
+    });
+
+    it("an attach while a Generate is in flight leaves that cell alone", async () => {
+      render(<StudioClient initialLanes={[lane({ cells: [cell("img-1")] })]} />);
+      vi.mocked(generateDesign).mockReturnValueOnce(new Promise(() => {}) as never);
+      fireEvent.change(screen.getByTestId("studio-composer"), { target: { value: "a fox" } });
+      fireEvent.submit(screen.getByTestId("studio-composer").closest("form")!);
+      await waitFor(() => expect(screen.getAllByTestId("studio-pending-cell")).toHaveLength(1));
+      attachLands("up-1");
+      h.polledLanes = [];
+      choose(file());
+      await waitFor(() => expect(attachReferenceImage).toHaveBeenCalled());
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 20));
+      });
+      expect(screen.getAllByTestId("studio-pending-cell")).toHaveLength(1);
+    });
   });
 });

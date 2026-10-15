@@ -21,6 +21,17 @@ import {
 } from "@/app/design/actions";
 import { deleteDesign } from "@/app/designs/actions";
 import {
+  ATTACH_BUSY,
+  ATTACH_FAILED,
+  ATTACH_LABEL,
+  ATTACH_TOO_LARGE,
+  ATTACH_UNSUPPORTED,
+} from "@/lib/action-copy";
+import {
+  REFERENCE_IMAGE_MAX_BYTES,
+  REFERENCE_IMAGE_TYPES,
+} from "@/lib/reference-image-limits";
+import {
   DELETE_CONVERSATION_CONSEQUENCE,
   DELETE_CONVERSATION_TITLE,
 } from "@/lib/design-view";
@@ -62,7 +73,12 @@ import {
   resolveFocus,
   type StudioFocus,
 } from "@/lib/studio-focus";
-import { deleteConversations, getGenerationJobStatus, getStudioLanes } from "./actions";
+import {
+  attachReferenceImage,
+  deleteConversations,
+  getGenerationJobStatus,
+  getStudioLanes,
+} from "./actions";
 import { FocusedStage } from "./focused-stage";
 import { GuestKeepLine } from "./guest-keep-line";
 
@@ -184,6 +200,21 @@ const GENERATE_FAILED_COPY = "Something went wrong. Try again.";
  */
 const MOUNT_RECONCILE_DELAY_MS = 1500;
 
+/** The file's bytes as base64 (the part of a data URL after the comma). */
+function readAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const url = typeof reader.result === "string" ? reader.result : "";
+      const comma = url.indexOf(",");
+      if (comma < 0) reject(new Error("unreadable file"));
+      else resolve(url.slice(comma + 1));
+    };
+    reader.onerror = () => reject(reader.error ?? new Error("unreadable file"));
+    reader.readAsDataURL(file);
+  });
+}
+
 /**
  * A click the browser should handle itself: a new tab or window, a download.
  * The stage's links are real hrefs so these work (#188 slice 4); only a plain
@@ -223,6 +254,11 @@ export function StudioClient({
   // a poll's setLanes(fresh) can never wipe a cell mid-flight.
   const [optimistic, setOptimistic] = useState<OptimisticEntry[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
+  // Reference-image attach (#188 slice 2a). Its own notice, so a refused file
+  // never touches the draft, the anchor or the Generate notice (ruling R6).
+  const [attaching, setAttaching] = useState(false);
+  const [attachNotice, setAttachNotice] = useState<string | null>(null);
+  const attachingRef = useRef(false);
   const [pollErrors, setPollErrors] = useState(0);
   // Bumped after every completed poll so the timer effect re-arms.
   const [pollNonce, setPollNonce] = useState(0);
@@ -356,9 +392,12 @@ export function StudioClient({
     optimistic.filter((e) => e.jobId === null).map((e) => e.localId)
   );
 
-  const pollOnce = useCallback(async () => {
-    if (polling.current) return;
+  // Resolves with the lanes this poll fetched, or null when it did not fetch
+  // (a poll was already running, or the read failed).
+  const pollOnce = useCallback(async (): Promise<StudioLane[] | null> => {
+    if (polling.current) return null;
     polling.current = true;
+    let result: StudioLane[] | null = null;
     let settle!: () => void;
     pollInFlight.current = new Promise<void>((resolve) => {
       settle = resolve;
@@ -372,6 +411,7 @@ export function StudioClient({
       // the draft are the local state this refresh must not clobber; both
       // live in their own useState and are untouched here.
       setLanes(fresh);
+      result = fresh;
       // Drop the overlay entries this refresh has made redundant — server
       // truth wins for everything the server can now see.
       setOptimistic((entries) =>
@@ -386,6 +426,7 @@ export function StudioClient({
       setPollNonce((n) => n + 1);
       settle();
     }
+    return result;
   }, []);
 
   // Poll only while a generation is in flight; stop entirely otherwise.
@@ -921,6 +962,79 @@ export function StudioClient({
     }
   }
 
+  // Attach one reference image (#188 slice 2a). Target conversation (R1): the
+  // stage's, else the bench anchor's (a restored anchor), else a new
+  // client-minted id, so a bench attach becomes its own lane. The draft text
+  // and the generation machinery are never touched (R6). On success the
+  // lanes are refetched first, because the bench anchor effect clears an
+  // anchor whose image is not in `lanes`; then the stage follows the upload
+  // (R4) or the bench anchors to it.
+  async function attach(file: File) {
+    if (attachingRef.current) return;
+    setAttachNotice(null);
+    if (!(REFERENCE_IMAGE_TYPES as readonly string[]).includes(file.type)) {
+      setAttachNotice(ATTACH_UNSUPPORTED);
+      return;
+    }
+    if (file.size > REFERENCE_IMAGE_MAX_BYTES) {
+      setAttachNotice(ATTACH_TOO_LARGE);
+      return;
+    }
+    attachingRef.current = true;
+    setAttaching(true);
+    const fromStage = stage !== null;
+    const designId = stage
+      ? stage.lane.designId
+      : (anchor?.designId ?? crypto.randomUUID());
+    try {
+      const base64 = await readAsBase64(file);
+      const result = await attachReferenceImage(designId, base64, file.name);
+      if (!mountedRef.current) return;
+      if (result.kind === "refused") {
+        setAttachNotice(result.message);
+        return;
+      }
+      let fresh = await pollOnce();
+      if (fresh === null) {
+        // A poll was running (it may predate the upload) or the read failed.
+        await pollInFlight.current;
+        fresh = await pollOnce();
+      }
+      if (!mountedRef.current) return;
+      const uploadLane = fresh?.find(
+        (l) =>
+          l.designId === result.designId &&
+          l.cells.some((c) => c.imageId === result.imageId)
+      );
+      // The lane did not come back: the upload is stored and shows on the
+      // next refetch; do not point the composer at an image that is not here.
+      if (!uploadLane) return;
+      const where = focusRef.current;
+      if (fromStage) {
+        // Only if the stage is still on that conversation.
+        if (where?.designId === result.designId) {
+          go({ designId: result.designId, imageId: result.imageId }, "push");
+          window.scrollTo({ top: 0 });
+        }
+      } else if (where === null) {
+        setAnchor({
+          designId: result.designId,
+          imageId: result.imageId,
+          imageUrl: result.imageUrl,
+          title: uploadLane.title,
+          luminance: result.luminance,
+        });
+        setFocusComposerNonce((n) => n + 1);
+      }
+    } catch (err) {
+      console.error("[studio] attach failed", err instanceof Error ? err.message : String(err));
+      if (mountedRef.current) setAttachNotice(ATTACH_FAILED);
+    } finally {
+      attachingRef.current = false;
+      if (mountedRef.current) setAttaching(false);
+    }
+  }
+
   async function submit() {
     const trimmed = text.trim();
     // Only the cap blocks — an in-flight submit does not: firing the next
@@ -1193,6 +1307,9 @@ export function StudioClient({
                     onChangeText={setText}
                     onSubmit={() => void submit()}
                     onClearAnchor={() => setAnchorCleared(true)}
+                    attaching={attaching}
+                    attachNotice={attachNotice}
+                    onAttach={(f) => void attach(f)}
                   />
                   {isGuest && <GuestKeepLine className="-mt-2" />}
                 </>
@@ -1214,6 +1331,9 @@ export function StudioClient({
                     onChangeText={setText}
                     onSubmit={() => void submit()}
                     onClearAnchor={() => setAnchor(null)}
+                    attaching={attaching}
+                    attachNotice={attachNotice}
+                    onAttach={(f) => void attach(f)}
                   />
                 </div>
                 {/* The guest line (#241) goes BELOW the composer, never above:
@@ -1335,9 +1455,12 @@ function Composer({
   atCap,
   capNotice,
   notice,
+  attaching,
+  attachNotice,
   onChangeText,
   onSubmit,
   onClearAnchor,
+  onAttach,
 }: {
   panelRef: RefObject<HTMLDivElement | null>;
   text: string;
@@ -1345,10 +1468,14 @@ function Composer({
   atCap: boolean;
   capNotice: string;
   notice: string | null;
+  attaching: boolean;
+  attachNotice: string | null;
   onChangeText: (value: string) => void;
   onSubmit: () => void;
   onClearAnchor: () => void;
+  onAttach: (file: File) => void;
 }) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
   return (
     <div
       ref={panelRef}
@@ -1409,10 +1536,46 @@ function Composer({
           </p>
         )}
         {notice && <p className="text-xs text-text-muted">{notice}</p>}
+        {attachNotice && (
+          <p
+            className="text-xs text-text-muted"
+            role="status"
+            data-testid="attach-notice"
+          >
+            {attachNotice}
+          </p>
+        )}
+        <span className="text-xs leading-4 text-text-muted">
+          Each line starts a design. Tap a result to change it.
+        </span>
         <div className="flex items-center justify-between gap-3">
-          <span className="text-xs leading-4 text-text-muted">
-            Each line starts a design. Tap a result to change it.
-          </span>
+          {/* The visible text is the accessible name. The file input is out
+              of the tab order and the accessibility tree; the button is its
+              only way in. */}
+          <button
+            type="button"
+            disabled={attaching}
+            aria-busy={attaching}
+            onClick={() => fileInputRef.current?.click()}
+            className="min-h-11 px-4 border border-foreground bg-transparent font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-foreground disabled:opacity-60"
+            data-testid="studio-attach"
+          >
+            {attaching ? ATTACH_BUSY : ATTACH_LABEL}
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            className="hidden"
+            tabIndex={-1}
+            aria-hidden="true"
+            data-testid="studio-attach-input"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (f) onAttach(f);
+            }}
+          />
           <Button
             type="submit"
             variant="generate"
