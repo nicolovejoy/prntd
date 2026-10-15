@@ -1,9 +1,19 @@
 "use server";
 
 import { and, eq, inArray } from "drizzle-orm";
+import { headers } from "next/headers";
 import { after } from "next/server";
+import { uploadReferenceImage } from "@/app/design/actions";
+import {
+  ATTACH_CONVERSATION_CLOSED,
+  ATTACH_FAILED,
+  ATTACH_TOO_LARGE,
+  ATTACH_UNSUPPORTED,
+  attachLimitMessage,
+} from "@/lib/action-copy";
+import { clientIp } from "@/lib/client-ip";
 import { db } from "@/lib/db";
-import { design as designTable } from "@/lib/db/schema";
+import { design as designTable, image as imageTable } from "@/lib/db/schema";
 import {
   executeDesignDeletion,
   isDeletionBlocked,
@@ -12,8 +22,13 @@ import {
 import { r2KeysForPlan } from "@/lib/delete-designs-since";
 import { getDesignMessages } from "@/lib/design-images";
 import { getGenerationJobStatusForUser } from "@/lib/generation-job";
+import { consumeUploadQuota } from "@/lib/generation-quota";
 import type { GenerationJobStatus } from "@/lib/lost-submit";
 import { deleteObjectByKey, imageKeyFromUrl } from "@/lib/r2";
+import {
+  REFERENCE_IMAGE_TOO_LARGE,
+  REFERENCE_IMAGE_UNSUPPORTED,
+} from "@/lib/reference-image-limits";
 import { requireStudioActionSession } from "@/lib/require-user";
 import {
   getStudioLanesData,
@@ -176,4 +191,82 @@ export async function getConversationHistory(
     imageId: m.imageId ?? null,
     createdAt: m.createdAt,
   }));
+}
+
+export type AttachReferenceImageResult =
+  | {
+      kind: "attached";
+      designId: string;
+      imageId: string;
+      imageUrl: string;
+      luminance: number | null;
+    }
+  | { kind: "refused"; message: string };
+
+/**
+ * The Studio composer's "Attach image" (#188 slice 2a). Stores one reference
+ * image as an `upload` result of `designId` (a new client-minted id starts a
+ * conversation, an existing one gains a cell), so the next Generate can be
+ * anchored to it. Same gate as the other Studio actions.
+ *
+ * Order: session; ownership (another user's conversation throws
+ * Unauthorized, as the other actions do); a closed conversation is refused
+ * before any quota is spent; then the upload quota (never refunded); then
+ * `uploadReferenceImage`, which validates and normalizes the bytes before it
+ * writes anything, so a refused file leaves no design row for a new id.
+ * Refusals are data; anything unexpected maps to ATTACH_FAILED and the thrown
+ * text stays in the log.
+ */
+export async function attachReferenceImage(
+  designId: string,
+  base64Data: string,
+  fileName: string
+): Promise<AttachReferenceImageResult> {
+  const session = await requireStudioActionSession();
+
+  const [existing] = await db
+    .select({ userId: designTable.userId, closedAt: designTable.closedAt })
+    .from(designTable)
+    .where(eq(designTable.id, designId))
+    .limit(1);
+  if (existing && existing.userId !== session.user.id) {
+    throw new Error("Unauthorized");
+  }
+  if (existing && existing.closedAt !== null) {
+    return { kind: "refused", message: ATTACH_CONVERSATION_CLOSED };
+  }
+
+  const quota = await consumeUploadQuota({
+    userId: session.user.id,
+    ip: clientIp(await headers()),
+  });
+  if (!quota.allowed) {
+    return { kind: "refused", message: attachLimitMessage(quota.reason) };
+  }
+
+  try {
+    const { imageId, imageUrl } = await uploadReferenceImage(designId, base64Data, fileName);
+    const [row] = await db
+      .select({ luminance: imageTable.luminance })
+      .from(imageTable)
+      .where(eq(imageTable.id, imageId))
+      .limit(1);
+    return {
+      kind: "attached",
+      designId,
+      imageId,
+      imageUrl,
+      luminance: row?.luminance ?? null,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message === REFERENCE_IMAGE_TOO_LARGE) {
+      return { kind: "refused", message: ATTACH_TOO_LARGE };
+    }
+    if (message === REFERENCE_IMAGE_UNSUPPORTED) {
+      return { kind: "refused", message: ATTACH_UNSUPPORTED };
+    }
+    console.error("[attach] reference image failed", { designId, error: message });
+    return { kind: "refused", message: ATTACH_FAILED };
+  }
 }
