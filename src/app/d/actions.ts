@@ -752,8 +752,8 @@ export async function buyPublishedDesign(params: {
       front: frontImageId,
       ...(backImageId ? { back: backImageId } : {}),
     },
-    // The Stripe line thumbnail follows the front pin, like
-    // createCheckoutSession's (#138 slice 1).
+    // The Stripe line thumbnail follows the front pin, not the page image
+    // (#138 slice 1).
     checkoutImageUrl: frontSwapped
       ? (await resolveImagesByIds([frontImageId])).get(frontImageId)
           ?.imageUrl ?? null

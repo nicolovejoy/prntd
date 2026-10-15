@@ -197,7 +197,7 @@ describe("a mixed cart", () => {
     const db = h.db as Db;
     const ids = await seed(db);
     await addToCart({ frontImageId: ids.publishedId, ...OPTS });
-    await addToCart({ designId: ids.myDesignId, front: ids.myId, ...OPTS });
+    await addToCart({ frontImageId: ids.myId, ...OPTS });
 
     h.session = SELLER;
     await unpublishImage(ids.publishedId);
@@ -265,7 +265,7 @@ describe("an untouched valid cart behaves as before", () => {
     const db = h.db as Db;
     const ids = await seed(db);
     await addToCart({ frontImageId: ids.publishedId, ...OPTS });
-    await addToCart({ designId: ids.myDesignId, front: ids.myId, back: ids.publishedId, ...OPTS });
+    await addToCart({ frontImageId: ids.myId, back: ids.publishedId, ...OPTS });
     const view = await getCart();
     expect(view.items.every((i) => i.unavailable === false)).toBe(true);
 
@@ -319,7 +319,7 @@ describe("the catalog moved under a line (second round, fix 4)", () => {
   it("a back on a product that lost its back print area is refused, so checkout cannot charge for a dropped side", async () => {
     const db = h.db as Db;
     const { ids } = await lineFor(db);
-    await addToCart({ designId: ids.myDesignId, front: ids.myId, back: ids.publishedId, ...OPTS });
+    await addToCart({ frontImageId: ids.myId, back: ids.publishedId, ...OPTS });
     expect((await getCart()).items[0].unavailable).toBe(false);
 
     const blank = getBlankOrThrow(OPTS.productId);

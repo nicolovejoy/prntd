@@ -61,7 +61,6 @@ vi.mock("@/lib/mockup-render", () => mockupRender);
 
 import { buyPublishedDesign, getListingBackMockup, resolveInitialBack } from "@/app/d/actions";
 import { addToCart, checkoutCart, getCart } from "@/app/cart/actions";
-import { createCheckoutSession } from "@/app/order/actions";
 import { cartLineStillValid } from "@/lib/cart-line-check";
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
@@ -140,23 +139,6 @@ beforeEach(async () => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("a render of a hidden image is refused as a pin", () => {
-  it("createCheckoutSession front and back", async () => {
-    const db = h.db as Db;
-    const ids = await seed(db);
-    await expect(
-      createCheckoutSession({ designId: ids.myDesignId, front: ids.renderOfHidden, ...OPTS })
-    ).rejects.toThrow("Front image is not available");
-    await expect(
-      createCheckoutSession({
-        designId: ids.myDesignId,
-        front: ids.goodId,
-        back: ids.renderOfHidden,
-        ...OPTS,
-      })
-    ).rejects.toThrow("Back image is not available");
-    await expectNothingWritten(db);
-  });
-
   it("buyPublishedDesign back and swapped front", async () => {
     const db = h.db as Db;
     const ids = await seed(db);
@@ -174,11 +156,16 @@ describe("a render of a hidden image is refused as a pin", () => {
     await expectNothingWritten(db);
   });
 
-  it("addToCart front and back, both paths", async () => {
+  it("addToCart swapped front and back", async () => {
     const db = h.db as Db;
     const ids = await seed(db);
     await expect(
-      addToCart({ designId: ids.myDesignId, front: ids.renderOfHidden, ...OPTS })
+      addToCart({
+        frontImageId: ids.goodId,
+        front: ids.renderOfHidden,
+        back: ids.goodId,
+        ...OPTS,
+      })
     ).rejects.toThrow("Front image is not available");
     await expect(
       addToCart({ frontImageId: ids.goodId, back: ids.renderOfHidden, ...OPTS })
@@ -237,7 +224,7 @@ describe("a render whose source went away is refused", () => {
     const sourceless = await makeRender(db, ids.myDesignId, null);
     for (const pin of [orphan, sourceless]) {
       await expect(
-        addToCart({ designId: ids.myDesignId, front: pin, ...OPTS })
+        addToCart({ frontImageId: ids.goodId, front: pin, back: ids.goodId, ...OPTS })
       ).rejects.toThrow("Front image is not available");
     }
     await expectNothingWritten(db);
@@ -248,10 +235,10 @@ describe("a render whose source went away is refused", () => {
     const ids = await seed(db);
     const chained = await makeRender(db, ids.myDesignId, ids.renderOfHidden);
     await expect(
-      addToCart({ designId: ids.myDesignId, front: chained, ...OPTS })
+      addToCart({ frontImageId: ids.goodId, front: chained, back: ids.goodId, ...OPTS })
     ).rejects.toThrow("Front image is not available");
     const ok = await makeRender(db, ids.myDesignId, ids.renderOfGood);
-    await addToCart({ designId: ids.myDesignId, front: ok, ...OPTS });
+    await addToCart({ frontImageId: ids.goodId, front: ok, back: ids.goodId, ...OPTS });
     expect(await db.select().from(schema.cartItem)).toHaveLength(1);
   });
 });
@@ -273,17 +260,17 @@ describe("a stranger's render of a seller's image follows the seller's image", (
 
     // The seller's image itself and its render agree while published.
     await addToCart({ frontImageId: ids.sellerPublishedId, back: r2, ...OPTS });
-    await addToCart({ designId: theirs.id, front: ownImage, back: r2, ...OPTS });
+    await addToCart({ frontImageId: ownImage, back: r2, ...OPTS });
     expect(await db.select().from(schema.cartItem)).toHaveLength(2);
     expect((await getCart()).items.every((i) => !i.unavailable)).toBe(true);
 
     // Hidden: back S is refused, and so is back R2 (it was not before).
     await setPublication(db, ids.sellerPublishedId, { isHidden: true });
     await expect(
-      addToCart({ designId: theirs.id, front: ownImage, back: ids.sellerPublishedId, ...OPTS })
+      addToCart({ frontImageId: ownImage, back: ids.sellerPublishedId, ...OPTS })
     ).rejects.toThrow("Back image is not available");
     await expect(
-      addToCart({ designId: theirs.id, front: ownImage, back: r2, ...OPTS })
+      addToCart({ frontImageId: ownImage, back: r2, ...OPTS })
     ).rejects.toThrow("Back image is not available");
     // The carted line that pins R2 is flagged, and checkout is refused.
     expect((await getCart()).items.every((i) => i.unavailable)).toBe(true);
@@ -296,7 +283,7 @@ describe("a stranger's render of a seller's image follows the seller's image", (
     await setPublication(db, ids.sellerPublishedId, { isHidden: false });
     await db.delete(schema.imagePublication).where(eq(schema.imagePublication.imageId, ids.sellerPublishedId));
     await expect(
-      addToCart({ designId: theirs.id, front: ownImage, back: r2, ...OPTS })
+      addToCart({ frontImageId: ownImage, back: r2, ...OPTS })
     ).rejects.toThrow("Back image is not available");
   });
 });
@@ -305,24 +292,23 @@ describe("renders that are fine still work", () => {
   it("a render of the user's own not-hidden image", async () => {
     const db = h.db as Db;
     const ids = await seed(db);
-    await addToCart({ designId: ids.myDesignId, front: ids.renderOfGood, ...OPTS });
-    await buyPublishedDesign({ imageId: ids.goodId, backImageId: ids.renderOfGood, ...OPTS });
-    await createCheckoutSession({
-      designId: ids.myDesignId,
-      front: ids.goodId,
-      back: ids.renderOfGood,
+    await addToCart({
+      frontImageId: ids.goodId,
+      front: ids.renderOfGood,
+      back: ids.goodId,
       ...OPTS,
     });
-    expect(await db.select().from(schema.orderItem)).toHaveLength(2);
+    await buyPublishedDesign({ imageId: ids.goodId, backImageId: ids.renderOfGood, ...OPTS });
+    expect(await db.select().from(schema.cartItem)).toHaveLength(1);
+    expect(await db.select().from(schema.orderItem)).toHaveLength(1);
   });
 
   it("a render of a stranger's still-published image, as a back", async () => {
     const db = h.db as Db;
     const ids = await seed(db);
-    await createCheckoutSession({
-      designId: ids.myDesignId,
-      front: ids.goodId,
-      back: ids.renderOfSellers,
+    await buyPublishedDesign({
+      imageId: ids.goodId,
+      backImageId: ids.renderOfSellers,
       ...OPTS,
     });
     const [line] = await db.select().from(schema.orderItem);

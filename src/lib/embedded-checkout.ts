@@ -4,13 +4,9 @@
  * that want to create or mount an embedded Stripe session call one of the
  * env-reading wrappers below rather than the raw flags in src/lib/flags.ts,
  * so a misconfigured key pair degrades to hosted checkout instead of
- * building a broken embedded session. The image detail page and the cart share
- * one switch; /preview has its own:
- * `embeddedCheckoutConfig()` (image detail page and cart,
- * EMBEDDED_CHECKOUT_ENABLED),
- * `previewEmbeddedCheckoutConfig()` (/preview, PREVIEW_EMBEDDED_CHECKOUT_ENABLED),
- * and `embeddedCheckoutPageConfig()` for the /checkout page and its loader,
- * which serve both and so accept either switch. `resolveReturnOrigin` picks
+ * building a broken embedded session. The image detail page, the cart, the
+ * /checkout page and its loader share one switch, `embeddedCheckoutConfig()`
+ * (EMBEDDED_CHECKOUT_ENABLED). `resolveReturnOrigin` picks
  * the origin an embedded session returns to; `vercelDeployment()` reads the
  * Vercel system variables it needs.
  */
@@ -30,10 +26,8 @@ export type EmbeddedCheckoutResolution =
 /**
  * Resolve whether embedded checkout can actually be used. `flag` is the raw
  * env string, so this stays a pure function of its inputs, testable without
- * touching `process.env`. Three wrappers read the env: `embeddedCheckoutConfig()`
- * (EMBEDDED_CHECKOUT_ENABLED), `previewEmbeddedCheckoutConfig()`
- * (PREVIEW_EMBEDDED_CHECKOUT_ENABLED) and `embeddedCheckoutPageConfig()`
- * (either switch).
+ * touching `process.env`. `embeddedCheckoutConfig()` reads the env
+ * (EMBEDDED_CHECKOUT_ENABLED).
  */
 export function resolveEmbeddedCheckoutConfig(params: {
   flag: string | undefined;
@@ -65,36 +59,12 @@ export function resolveEmbeddedCheckoutConfig(params: {
 
 /**
  * env-reading wrapper around `resolveEmbeddedCheckoutConfig` for the image
- * detail page's buy action and the cart's checkout (EMBEDDED_CHECKOUT_ENABLED).
+ * detail page's buy action, the cart's checkout, the /checkout page and its
+ * loader (EMBEDDED_CHECKOUT_ENABLED).
  */
 export function embeddedCheckoutConfig(): EmbeddedCheckoutResolution {
   return resolveEmbeddedCheckoutConfig({
     flag: process.env.EMBEDDED_CHECKOUT_ENABLED,
-    publishableKey: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
-    secretKey: process.env.STRIPE_SECRET_KEY,
-  });
-}
-
-/** Same resolution for /preview's checkout action (PREVIEW_EMBEDDED_CHECKOUT_ENABLED). */
-export function previewEmbeddedCheckoutConfig(): EmbeddedCheckoutResolution {
-  return resolveEmbeddedCheckoutConfig({
-    flag: process.env.PREVIEW_EMBEDDED_CHECKOUT_ENABLED,
-    publishableKey: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
-    secretKey: process.env.STRIPE_SECRET_KEY,
-  });
-}
-
-/**
- * Same resolution for the /checkout page and its loader, which mount sessions
- * from either buy surface: the flag counts as on when either env flag is
- * exactly "true".
- */
-export function embeddedCheckoutPageConfig(): EmbeddedCheckoutResolution {
-  const either =
-    process.env.EMBEDDED_CHECKOUT_ENABLED === "true" ||
-    process.env.PREVIEW_EMBEDDED_CHECKOUT_ENABLED === "true";
-  return resolveEmbeddedCheckoutConfig({
-    flag: either ? "true" : undefined,
     publishableKey: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
     secretKey: process.env.STRIPE_SECRET_KEY,
   });
@@ -137,8 +107,8 @@ export function safeCheckoutReturnPath(from: unknown): string {
 }
 
 /**
- * The relative path `buyPublishedDesign`, `checkoutCart` and
- * `createCheckoutSession` return as `url` for the client to navigate to when
+ * The relative path `buyPublishedDesign` and `checkoutCart`
+ * return as `url` for the client to navigate to when
  * embedded checkout is enabled — same-origin, so it works unchanged on a
  * preview deploy (a preview and prod have different origins).
  */

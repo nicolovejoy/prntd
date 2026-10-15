@@ -304,17 +304,6 @@ describe("addToCart swap on the frontImageId entry (#138 slice 3)", () => {
     expect(row.placements).toEqual({ front: ids.listingId });
   });
 
-  it("the /preview designId entry keeps its own front rule (no swap requirement)", async () => {
-    const db = h.db as Db;
-    const ids = await seed(db);
-
-    // A published Shop image as the front with no back: allowed on /preview.
-    await addToCart({ designId: ids.myDesignId, front: ids.otherShopId, ...OPTS });
-    const [row] = await cartRows(db);
-    expect(row.designId).toBe(ids.myDesignId);
-    expect(row.placements).toEqual({ front: ids.otherShopId });
-  });
-
   it("refuses a back (swapped or not) on a blank with no back print area, carting nothing", async () => {
     const db = h.db as Db;
     const ids = await seed(db);
@@ -330,10 +319,6 @@ describe("addToCart swap on the frontImageId entry (#138 slice 3)", () => {
           back: ids.listingId,
           ...OPTS,
         })
-      ).rejects.toThrow("This product has no back print area");
-      // The /preview designId entry shares the check.
-      await expect(
-        addToCart({ designId: ids.myDesignId, back: ids.otherShopId, ...OPTS })
       ).rejects.toThrow("This product has no back print area");
       // Front-only is unaffected.
       await addToCart({ frontImageId: ids.listingId, ...OPTS });

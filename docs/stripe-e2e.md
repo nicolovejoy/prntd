@@ -17,9 +17,7 @@ assert the order row reaches `submitted` (dry-run Printful) with `sale` +
 - The old-`/preview`-link test seeds a design, opens
   `/preview?id=<design>&product=…&color=…&size=M` (the redirect sends it to the
   image's page with the same picks), Orders, and pays through embedded checkout
-  on our `/checkout` page. It requires `EMBEDDED_CHECKOUT_ENABLED=true`. No test
-  reads `PREVIEW_EMBEDDED_CHECKOUT_ENABLED` since slice 4 of one buy surface
-  (#278); the switch and its code go in slice 6a.
+  on our `/checkout` page. It requires `EMBEDDED_CHECKOUT_ENABLED=true`.
 - The image detail page test signs up, seeds an image the account owns and has
   not published, opens `/d/<image id>` with the link's picks (product, size,
   colour), taps Order and pays through embedded checkout on our `/checkout`
@@ -101,8 +99,7 @@ switch (`EMBEDDED_CHECKOUT_ENABLED`) is on in production for the image detail
 page and the cart, so the nightly matches production on both. Nothing in the
 nightly pays through Stripe's hosted page: hosted checkout is the fail-closed
 fallback (a missing, malformed or other-mode publishable key) and is covered
-by the parameter tests in Vitest. Nothing reads
-`PREVIEW_EMBEDDED_CHECKOUT_ENABLED`.
+by the parameter tests in Vitest.
 
 The workflow installs the Stripe CLI, branches an ephemeral Turso DB off
 `prntd-preview` (same mechanism as the per-PR e2e job, #31/#108 — named so it

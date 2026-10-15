@@ -61,7 +61,6 @@ import {
   getBuyPageBackSources,
 } from "@/app/d/actions";
 import { addToCart } from "@/app/cart/actions";
-import { createCheckoutSession } from "@/app/order/actions";
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
 
@@ -162,36 +161,13 @@ describe("addToCart refuses the owner's hidden image as a placement", () => {
     await expectNothingWritten(db);
   });
 
-  it("as the front and the back on the design path", async () => {
+  it("as the page image itself", async () => {
     const db = h.db as Db;
     const ids = await seed(db);
     await expect(
-      addToCart({ designId: ids.conversationId, front: ids.hiddenId, ...OPTS })
-    ).rejects.toThrow("Front image is not available");
-    await expect(
-      addToCart({ designId: ids.conversationId, back: ids.hiddenId, ...OPTS })
-    ).rejects.toThrow("Back image is not available");
+      addToCart({ frontImageId: ids.hiddenId, ...OPTS })
+    ).rejects.toThrow("Image is not available");
     await expectNothingWritten(db);
-  });
-
-  it("as the design's implicit primary (no front sent)", async () => {
-    const db = h.db as Db;
-    const ids = await seed(db);
-    await db
-      .update(schema.design)
-      .set({ primaryImageId: ids.hiddenId })
-      .where(eq(schema.design.id, ids.conversationId));
-    await expect(
-      addToCart({ designId: ids.conversationId, ...OPTS })
-    ).rejects.toThrow("Front image is not available");
-    await expectNothingWritten(db);
-    // The same design with a not-hidden primary carts fine.
-    await db
-      .update(schema.design)
-      .set({ primaryImageId: ids.goodId })
-      .where(eq(schema.design.id, ids.conversationId));
-    await addToCart({ designId: ids.conversationId, ...OPTS });
-    expect(await db.select().from(schema.cartItem)).toHaveLength(1);
   });
 
   it("while a not-hidden own image still works", async () => {
@@ -199,57 +175,6 @@ describe("addToCart refuses the owner's hidden image as a placement", () => {
     const ids = await seed(db);
     await addToCart({ frontImageId: ids.pageId, back: ids.goodId, ...OPTS });
     expect(await db.select().from(schema.cartItem)).toHaveLength(1);
-  });
-});
-
-describe("createCheckoutSession refuses the owner's hidden image", () => {
-  it("as the front", async () => {
-    const db = h.db as Db;
-    const ids = await seed(db);
-    await expect(
-      createCheckoutSession({ designId: ids.conversationId, front: ids.hiddenId, ...OPTS })
-    ).rejects.toThrow("Front image is not available");
-    await expectNothingWritten(db);
-  });
-
-  it("as the back", async () => {
-    const db = h.db as Db;
-    const ids = await seed(db);
-    await expect(
-      createCheckoutSession({
-        designId: ids.conversationId,
-        front: ids.pageId,
-        back: ids.hiddenId,
-        ...OPTS,
-      })
-    ).rejects.toThrow("Back image is not available");
-    await expectNothingWritten(db);
-  });
-
-  it("as the design's implicit primary (no front sent)", async () => {
-    const db = h.db as Db;
-    const ids = await seed(db);
-    await db
-      .update(schema.design)
-      .set({ primaryImageId: ids.hiddenId })
-      .where(eq(schema.design.id, ids.conversationId));
-    await expect(
-      createCheckoutSession({ designId: ids.conversationId, ...OPTS })
-    ).rejects.toThrow("Front image is not available");
-    await expectNothingWritten(db);
-  });
-
-  it("while a not-hidden own image still works", async () => {
-    const db = h.db as Db;
-    const ids = await seed(db);
-    await createCheckoutSession({
-      designId: ids.conversationId,
-      front: ids.pageId,
-      back: ids.goodId,
-      ...OPTS,
-    });
-    const [line] = await db.select().from(schema.orderItem);
-    expect(line.placements).toEqual({ front: ids.pageId, back: ids.goodId });
   });
 });
 
