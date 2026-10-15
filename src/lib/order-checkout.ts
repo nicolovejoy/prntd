@@ -71,7 +71,7 @@ export async function createStripeCheckoutForOrder(params: {
   color: string;
   /** Product price (computePrice total). Shipping is added here. */
   itemPrice: number;
-  /** placement id → source design_image id. `front` is the pinned primary;
+  /** placement id → source design_image id. `front` is the bought image (`buyPublishedDesign` always pins it);
    * `back` (#25) is present only for multi-placement orders. */
   placements: Record<string, string> | null;
   checkoutImageUrl: string | null;

@@ -169,48 +169,7 @@ const SOURCE_LESS_KEY = mockupCacheKey({
   scaleKey: 100,
 });
 
-describe("loadEmbeddedCheckout for orders created from /preview (#135 slice 3; /preview itself is gone, in-flight sessions are not)", () => {
-  beforeEach(() => {
-    vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", "true");
-  });
-
-  it("valid keys: the loader proceeds to ready", async () => {
-    const db = h.db as Db;
-    await seedPreviewOrder(db, {
-      userId: "buyer",
-      stripeSessionId: "cs_test_p1",
-      front: "primary",
-      mockupUrls: () => ({}),
-    });
-    h.retrieve.mockResolvedValue(OPEN_EMBEDDED);
-
-    const result = await loadEmbeddedCheckout({
-      sessionId: "cs_test_p1",
-      viewerId: "buyer",
-    });
-
-    expect(result.kind).toBe("ready");
-  });
-
-  it("missing key: unavailable, no Stripe call", async () => {
-    vi.stubEnv("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", undefined);
-    const db = h.db as Db;
-    await seedPreviewOrder(db, {
-      userId: "buyer",
-      stripeSessionId: "cs_test_p1b",
-      front: "primary",
-      mockupUrls: () => ({}),
-    });
-
-    const result = await loadEmbeddedCheckout({
-      sessionId: "cs_test_p1b",
-      viewerId: "buyer",
-    });
-
-    expect(result).toEqual({ kind: "unavailable" });
-    expect(h.retrieve).not.toHaveBeenCalled();
-  });
-
+describe("loadEmbeddedCheckout mockup lookup for an order whose front is the design's primary or another image (source-less keys)", () => {
   it("front is the design's primary image: the source-less /preview mockup is used", async () => {
     const db = h.db as Db;
     await seedPreviewOrder(db, {

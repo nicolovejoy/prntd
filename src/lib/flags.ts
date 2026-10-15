@@ -5,7 +5,7 @@
  */
 
 /**
- * Guest funnel (#26): when on, the design → preview → order surface is open to
+ * Guest funnel (#26): when on, the studio and the image detail page (buy) are open to
  * signed-out visitors (a Better-Auth anonymous session is minted client-side on
  * entry); the sign-in gate moves to the purchase point. When off, those routes
  * stay behind the proxy auth check, exactly as before. Default off. The daily
@@ -17,7 +17,7 @@ export function guestFunnelEnabled(): boolean {
 
 /**
  * Multi-item cart (#26 Stage B): when on, the nav shows a Cart link and
- * /preview offers "Add to cart". When off, the cart entry points are hidden and
+ * the image detail page offers "Add to cart". When off, the cart entry points are hidden and
  * the single-item Buy-now flow is the only path (the /cart route and actions
  * still exist but are unreachable from the UI). Default off — flip CART_ENABLED
  * once the flow is verified.
