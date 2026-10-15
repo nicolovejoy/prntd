@@ -32,6 +32,12 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 vi.mock("next/headers", () => ({ headers: async () => new Headers() }));
+// studio/actions imports the design actions (attachReferenceImage), which load
+// the Anthropic client at module scope; it refuses to build under jsdom.
+vi.mock("@/lib/ai", () => ({
+  constructDesignBrief: vi.fn(),
+  chatAboutDesign: vi.fn(),
+}));
 vi.mock("@/lib/auth", () => ({
   auth: {
     api: {

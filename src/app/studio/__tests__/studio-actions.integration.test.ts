@@ -42,6 +42,12 @@ vi.mock("next/server", () => ({
     afterQueue.callbacks.push(cb);
   },
 }));
+// studio/actions imports the design actions (attachReferenceImage), which load
+// the Anthropic client at module scope; it refuses to build under jsdom.
+vi.mock("@/lib/ai", () => ({
+  constructDesignBrief: vi.fn(),
+  chatAboutDesign: vi.fn(),
+}));
 vi.mock("@/lib/auth", () => ({
   auth: {
     api: {
