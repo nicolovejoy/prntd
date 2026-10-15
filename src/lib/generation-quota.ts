@@ -60,6 +60,12 @@ export const USER_IP_CHAT_DAILY_CAP = parseDailyCap(process.env.USER_IP_CHAT_DAI
 export const USER_CHECKOUT_DAILY_CAP = parseDailyCap(process.env.USER_CHECKOUT_DAILY_CAP, 30);
 export const USER_IP_CHECKOUT_DAILY_CAP = parseDailyCap(process.env.USER_IP_CHECKOUT_DAILY_CAP, 100);
 
+// Reference-image uploads (#188 slice 2a). No upload quota existed before:
+// each attach writes an R2 object for any guest. The numbers sit well above
+// what one person attaches in a day; they bound storage abuse.
+export const USER_UPLOAD_DAILY_CAP = parseDailyCap(process.env.USER_UPLOAD_DAILY_CAP, 40);
+export const USER_IP_UPLOAD_DAILY_CAP = parseDailyCap(process.env.USER_IP_UPLOAD_DAILY_CAP, 100);
+
 /** Longest chat message accepted, in characters; longer is refused before any quota spend. */
 export const CHAT_MESSAGE_MAX_CHARS = 4000;
 
@@ -80,6 +86,14 @@ function checkoutUserBucket(userId: string): string {
 
 function checkoutIpBucket(ip: string): string {
   return `checkout:ip:${ip}`;
+}
+
+function uploadUserBucket(userId: string): string {
+  return `upload:user:${userId}`;
+}
+
+function uploadIpBucket(ip: string): string {
+  return `upload:ip:${ip}`;
 }
 
 export type QuotaResult = { allowed: boolean; reason?: "identity" | "ip" };
@@ -273,6 +287,29 @@ export async function consumeCheckoutQuota(opts: {
     ipBucket: opts.ip ? checkoutIpBucket(opts.ip) : null,
     identityCap: USER_CHECKOUT_DAILY_CAP,
     ipCap: USER_IP_CHECKOUT_DAILY_CAP,
+    day: dayKeyUTC(opts.now ?? new Date()),
+    db,
+  });
+}
+
+/**
+ * Count one reference-image attach against the daily caps. Same shape as
+ * consumeCheckoutQuota: identity (`upload:user:<id>`), then IP
+ * (`upload:ip:<ip>`) when one is present. Never refunded: a failed or refused
+ * file still cost a decode and possibly an R2 write.
+ */
+export async function consumeUploadQuota(opts: {
+  userId: string;
+  ip: string | null;
+  now?: Date;
+  db?: AppDb;
+}): Promise<QuotaResult> {
+  const db = opts.db ?? (await import("./db")).db;
+  return consumeBuckets({
+    identityBucket: uploadUserBucket(opts.userId),
+    ipBucket: opts.ip ? uploadIpBucket(opts.ip) : null,
+    identityCap: USER_UPLOAD_DAILY_CAP,
+    ipCap: USER_IP_UPLOAD_DAILY_CAP,
     day: dayKeyUTC(opts.now ?? new Date()),
     db,
   });

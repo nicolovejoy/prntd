@@ -190,3 +190,65 @@ describe("the upload action writes image.luminance (#139)", () => {
     expect(row.luminance).toBeCloseTo(1, 3);
   });
 });
+
+describe("the upload action validates and normalizes the bytes", () => {
+  async function imageRows(designId: string) {
+    return testDb
+      .select({ id: schema.image.id })
+      .from(schema.conversationImage)
+      .innerJoin(schema.image, eq(schema.image.id, schema.conversationImage.imageId))
+      .where(eq(schema.conversationImage.designId, designId));
+  }
+
+  it("an upload over the cap is refused and writes nothing", async () => {
+    const designId = await seedDesign();
+    const big = Buffer.alloc(3 * 1024 * 1024 + 1).toString("base64");
+
+    await expect(uploadReferenceImage(designId, big, "big.png")).rejects.toThrow("too_large");
+
+    expect(await imageRows(designId)).toHaveLength(0);
+    const r2 = await import("@/lib/r2");
+    expect(r2.uploadImageObject).not.toHaveBeenCalled();
+  });
+
+  it("an undecodable upload is refused and writes nothing", async () => {
+    const designId = await seedDesign();
+    const junk = Buffer.from([1, 2, 3, 4]).toString("base64");
+
+    await expect(uploadReferenceImage(designId, junk, "junk.png")).rejects.toThrow("unsupported");
+
+    expect(await imageRows(designId)).toHaveLength(0);
+  });
+
+  it("the stored object is a PNG", async () => {
+    const designId = await seedDesign();
+    const jpeg = await sharp({
+      create: { width: 8, height: 8, channels: 3, background: { r: 10, g: 20, b: 30 } },
+    })
+      .jpeg()
+      .toBuffer();
+
+    await uploadReferenceImage(designId, jpeg.toString("base64"), "photo.jpg");
+
+    const r2 = await import("@/lib/r2");
+    const stored = (r2.uploadImageObject as Mock).mock.calls[0][1] as Buffer;
+    expect(stored.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
+  });
+
+  it("an oversized photo is stored at most 2048 px on its longest side", async () => {
+    const designId = await seedDesign();
+    const wide = await sharp({
+      create: { width: 3000, height: 600, channels: 3, background: { r: 1, g: 2, b: 3 } },
+    })
+      .jpeg()
+      .toBuffer();
+
+    await uploadReferenceImage(designId, wide.toString("base64"), "wide.jpg");
+
+    const r2 = await import("@/lib/r2");
+    const stored = (r2.uploadImageObject as Mock).mock.calls[0][1] as Buffer;
+    const m = await sharp(stored).metadata();
+    expect(m.width).toBe(2048);
+    expect(m.height).toBe(410);
+  });
+});

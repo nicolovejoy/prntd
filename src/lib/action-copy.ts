@@ -102,6 +102,26 @@ export function checkoutLimitMessage(reason: "identity" | "ip" | undefined): str
   return reason === "ip" ? CHECKOUT_LIMIT_REACHED_IP : CHECKOUT_LIMIT_REACHED;
 }
 
+// --- Studio reference-image attach (#188 slice 2a) ---
+// Refusals cross the wire as data and the client shows `message` verbatim.
+
+export const ATTACH_LABEL = "Attach image";
+/** Replaces the label while an upload is in flight. */
+export const ATTACH_BUSY = "Uploading…";
+/** The device check and the server refusal for a file over the cap. */
+export const ATTACH_TOO_LARGE = "That image is over 3 MB. Choose a smaller one.";
+export const ATTACH_UNSUPPORTED = "That file isn't a supported image. Use a PNG, JPEG or WebP.";
+export const ATTACH_FAILED = "Couldn't attach that image. Try again.";
+export const ATTACH_LIMIT_REACHED = "You've reached today's upload limit. Try again later.";
+export const ATTACH_LIMIT_REACHED_IP = "This network has hit today's upload limit. Try again later.";
+/** A stage attach to a conversation that was closed in the meantime. */
+export const ATTACH_CONVERSATION_CLOSED = "This conversation is closed.";
+
+/** The line an upload-cap refusal shows, by the bucket that refused. */
+export function attachLimitMessage(reason: "identity" | "ip" | undefined): string {
+  return reason === "ip" ? ATTACH_LIMIT_REACHED_IP : ATTACH_LIMIT_REACHED;
+}
+
 // --- admin (InlineNotice: one line, plus the raw error as a hint) ---
 
 export const ADMIN_RETRY_FAILED = "Retry failed.";
