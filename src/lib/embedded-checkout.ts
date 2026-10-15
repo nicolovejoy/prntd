@@ -10,7 +10,9 @@
  * EMBEDDED_CHECKOUT_ENABLED),
  * `previewEmbeddedCheckoutConfig()` (/preview, PREVIEW_EMBEDDED_CHECKOUT_ENABLED),
  * and `embeddedCheckoutPageConfig()` for the /checkout page and its loader,
- * which serve both and so accept either switch.
+ * which serve both and so accept either switch. `resolveReturnOrigin` picks
+ * the origin an embedded session returns to; `vercelDeployment()` reads the
+ * Vercel system variables it needs.
  */
 
 import { safeNextPath } from "@/lib/safe-next";
@@ -145,19 +147,27 @@ export function embeddedCheckoutPath(sessionId: string, backPath: string): strin
   return `/checkout?session=${encodeURIComponent(sessionId)}&from=${encodeURIComponent(safeBack)}`;
 }
 
-// This project's Vercel preview host shapes only — a branch preview
-// (`prntd-git-<branch>-nico-lovejoys-projects.vercel.app`) or a per-deploy
-// hash preview (`prntd-<hash>-nico-lovejoys-projects.vercel.app`), both under
-// the `nico-lovejoys-projects` team. Deliberately narrower than
-// `src/lib/auth.ts`'s `trustedOrigins`, which trusts any `prntd-*.vercel.app`
-// host — a host shape any Vercel account can create, not just this project's
-// team, since `*.vercel.app` subdomains aren't scoped per-account. auth.ts's
-// wider match is a lower-stakes trade (it only affects CORS/CSRF origin
-// checks on top of Next's own Origin/Host enforcement); this one decides
-// where a live payment session's `return_url` points, so it stays scoped to
-// hosts this project can actually deploy to.
-const PREVIEW_HOST_RE =
-  /^prntd-[a-z0-9-]+-nico-lovejoys-projects\.vercel\.app$/;
+/**
+ * The three Vercel system variables this module reads. Pure data so
+ * `resolveReturnOrigin` stays a function of its inputs; `vercelDeployment()`
+ * fills it from the process environment. Vercel sets `VERCEL_ENV` to
+ * `production`, `preview` or `development`, and `VERCEL_URL` /
+ * `VERCEL_BRANCH_URL` to the deployment's own hosts (no scheme). All three
+ * are absent outside Vercel.
+ */
+export type VercelDeployment = {
+  env: string | undefined;
+  url: string | undefined;
+  branchUrl: string | undefined;
+};
+
+export function vercelDeployment(): VercelDeployment {
+  return {
+    env: process.env.VERCEL_ENV,
+    url: process.env.VERCEL_URL,
+    branchUrl: process.env.VERCEL_BRANCH_URL,
+  };
+}
 
 /**
  * The origin an embedded checkout session's `return_url` should point at.
@@ -169,20 +179,26 @@ const PREVIEW_HOST_RE =
  * test-key phone check on a preview pays there and then gets sent to prod's
  * `/order/confirm`, where the preview's order doesn't exist.
  *
- * Trusts `https://prntd.org` / `https://*.prntd.org`, and this project's own
- * preview host shapes over https (see `PREVIEW_HOST_RE` above) — not every
- * `prntd-*.vercel.app` host the way `src/lib/auth.ts`'s `trustedOrigins`
- * does. Local dev and the e2e harness (where `NEXT_PUBLIC_APP_URL` itself is
- * a localhost URL) are covered by the same-origin-as-`appUrl` check below,
- * not a separate localhost branch — that matches auth.ts, which only widens
- * its trusted set for localhost when `NODE_ENV=development` or
- * `E2E_TRUST_LOCALHOST=true`, never in production. Anything else — missing,
- * malformed, a different host, a non-http(s) scheme like `javascript:`, or a
- * `*.vercel.app` host that doesn't match this project's shape — falls back to
- * `appUrl`'s origin. Always returns a bare origin (no path, no trailing
- * slash). Next.js already rejects a server action POST whose `Origin`
- * doesn't match `Host`/its own trusted-origins config, so this check is
- * defence in depth, not the only guard.
+ * Trusts the origin of `appUrl` anywhere (this covers prntd.org in
+ * Production, and local dev and the e2e harness, where `NEXT_PUBLIC_APP_URL`
+ * is a localhost URL). On a Vercel Preview (`deployment.env === "preview"`)
+ * it also trusts the deployment's own two hosts, `VERCEL_URL` and
+ * `VERCEL_BRANCH_URL`, over https, compared case-insensitively and including
+ * any port. It does not trust: any `vercel.app` host in Production,
+ * including its own `VERCEL_URL` (Production buyers shop on prntd.org; a
+ * Production deployment's vercel.app hosts are not a buying surface, and the
+ * canonical domain is the only Production return); a `vercel.app` host whose name merely
+ * looks like ours or belongs to another deployment; plain http (other than
+ * an `appUrl` that is itself http); or any other prntd.org subdomain. The
+ * value decides where a live payment session returns, so it is matched
+ * against the deployment's own hosts rather than a name shape. This is
+ * narrower than `src/lib/auth.ts`'s `trustedOrigins`, which accepts any
+ * `prntd-*.vercel.app` and `*.prntd.org` host for CSRF checks. Anything else
+ * — missing, malformed, a different host, a non-http(s) scheme like
+ * `javascript:` — falls back to `appUrl`'s origin. Always returns a bare
+ * origin (no path, no trailing slash). Next.js already rejects a server
+ * action POST whose `Origin` doesn't match `Host`/its own trusted-origins
+ * config, so this check is defence in depth, not the only guard.
  *
  * Never throws, including when `appUrl` is missing or malformed (e.g.
  * `NEXT_PUBLIC_APP_URL` unset) — an empty fallback then degrades the same
@@ -191,7 +207,8 @@ const PREVIEW_HOST_RE =
  */
 export function resolveReturnOrigin(
   originHeader: string | null,
-  appUrl: string | undefined
+  appUrl: string | undefined,
+  deployment: VercelDeployment
 ): string {
   if (typeof appUrl !== "string") return "";
   let fallback: string;
@@ -211,10 +228,11 @@ export function resolveReturnOrigin(
 
   if (origin.origin === fallback) return origin.origin;
 
-  const host = origin.hostname;
-  if (origin.protocol === "https:") {
-    if (PREVIEW_HOST_RE.test(host)) return origin.origin;
-    if (host === "prntd.org" || host.endsWith(".prntd.org")) return origin.origin;
+  if (deployment.env === "preview" && origin.protocol === "https:") {
+    const own = [deployment.url, deployment.branchUrl]
+      .map((h) => (h ?? "").trim().toLowerCase())
+      .filter((h) => h !== "");
+    if (own.includes(origin.host.toLowerCase())) return origin.origin;
   }
 
   return fallback;

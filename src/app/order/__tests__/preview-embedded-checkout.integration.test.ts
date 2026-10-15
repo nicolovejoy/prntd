@@ -128,6 +128,9 @@ beforeEach(async () => {
   vi.stubEnv("MULTI_PLACEMENT_ENABLED", "false");
   vi.stubEnv("NEXT_PUBLIC_APP_URL", "http://localhost:3000");
   vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", undefined);
+  vi.stubEnv("VERCEL_ENV", undefined);
+  vi.stubEnv("VERCEL_URL", undefined);
+  vi.stubEnv("VERCEL_BRANCH_URL", undefined);
   vi.stubEnv("PREVIEW_EMBEDDED_CHECKOUT_ENABLED", undefined);
   vi.stubEnv("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", undefined);
   vi.stubEnv("STRIPE_SECRET_KEY", undefined);
@@ -306,8 +309,10 @@ describe("createCheckoutSession embedded-checkout gating (#135 slice 3)", () => 
     );
   });
 
-  it("preview flag on: return_url follows a trusted preview Origin", async () => {
+  it("preview flag on: return_url follows the Preview's own Origin", async () => {
     enablePreviewEmbedded();
+    vi.stubEnv("VERCEL_ENV", "preview");
+    vi.stubEnv("VERCEL_URL", PREVIEW_HOST.replace("https://", ""));
     h.originHeader = PREVIEW_HOST;
     const db = h.db as Db;
     const ids = await seed(db);

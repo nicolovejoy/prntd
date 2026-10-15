@@ -40,6 +40,7 @@ import {
   embeddedCheckoutConfig,
   embeddedCheckoutPath,
   resolveReturnOrigin,
+  vercelDeployment,
 } from "@/lib/embedded-checkout";
 import { cartLineStillValid } from "@/lib/cart-line-check";
 import { cartOrderStoreProductId } from "@/lib/cart-attribution";
@@ -770,7 +771,8 @@ export async function checkoutCart(): Promise<{
   const appUrl = embedded.enabled
     ? resolveReturnOrigin(
         hdrs.get("origin"),
-        process.env.NEXT_PUBLIC_APP_URL!
+        process.env.NEXT_PUBLIC_APP_URL!,
+        vercelDeployment()
       )
     : process.env.NEXT_PUBLIC_APP_URL!;
 

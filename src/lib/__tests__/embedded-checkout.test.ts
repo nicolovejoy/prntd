@@ -189,126 +189,213 @@ describe("embeddedCheckoutPath", () => {
 const APP_URL = "https://prntd.org";
 
 describe("resolveReturnOrigin", () => {
+  const OUTSIDE_VERCEL = { env: undefined, url: undefined, branchUrl: undefined };
+  const PREVIEW = {
+    env: "preview",
+    url: "prntd-abc123def-nico-lovejoys-projects.vercel.app",
+    branchUrl: "prntd-git-feature-x-nico-lovejoys-projects.vercel.app",
+  };
+  const PRODUCTION = {
+    env: "production",
+    url: "prntd-9f8e7d6c-nico-lovejoys-projects.vercel.app",
+    branchUrl: "prntd-git-main-nico-lovejoys-projects.vercel.app",
+  };
+  const BRANCH_ORIGIN =
+    "https://prntd-git-feature-x-nico-lovejoys-projects.vercel.app";
+  const HASH_ORIGIN = "https://prntd-abc123def-nico-lovejoys-projects.vercel.app";
+
   it("falls back to appUrl's origin when there's no Origin header", () => {
-    expect(resolveReturnOrigin(null, APP_URL)).toBe("https://prntd.org");
+    expect(resolveReturnOrigin(null, APP_URL, OUTSIDE_VERCEL)).toBe(
+      "https://prntd.org"
+    );
   });
 
   it("falls back to appUrl's origin when the header doesn't parse as a URL", () => {
-    expect(resolveReturnOrigin("not a url", APP_URL)).toBe(
+    expect(resolveReturnOrigin("not a url", APP_URL, OUTSIDE_VERCEL)).toBe(
       "https://prntd.org"
     );
   });
 
   it("trusts an origin identical to appUrl's", () => {
-    expect(resolveReturnOrigin("https://prntd.org", APP_URL)).toBe(
+    expect(
+      resolveReturnOrigin("https://prntd.org", APP_URL, OUTSIDE_VERCEL)
+    ).toBe("https://prntd.org");
+  });
+
+  it("trusts the Preview's branch host when it is VERCEL_BRANCH_URL", () => {
+    expect(resolveReturnOrigin(BRANCH_ORIGIN, APP_URL, PREVIEW)).toBe(
+      BRANCH_ORIGIN
+    );
+  });
+
+  it("trusts the Preview's per-deploy host when it is VERCEL_URL", () => {
+    expect(resolveReturnOrigin(HASH_ORIGIN, APP_URL, PREVIEW)).toBe(HASH_ORIGIN);
+  });
+
+  it("does not trust either preview host shape outside Vercel", () => {
+    expect(resolveReturnOrigin(BRANCH_ORIGIN, APP_URL, OUTSIDE_VERCEL)).toBe(
+      "https://prntd.org"
+    );
+    expect(resolveReturnOrigin(HASH_ORIGIN, APP_URL, OUTSIDE_VERCEL)).toBe(
       "https://prntd.org"
     );
   });
 
-  it("trusts a branch preview host (prntd-git-<branch>-nico-lovejoys-projects.vercel.app) over https", () => {
+  it("does not trust another host of the same shape on a Preview", () => {
     expect(
       resolveReturnOrigin(
-        "https://prntd-git-feature-x-nico-lovejoys-projects.vercel.app",
-        APP_URL
+        "https://prntd-git-other-nico-lovejoys-projects.vercel.app",
+        APP_URL,
+        PREVIEW
       )
-    ).toBe("https://prntd-git-feature-x-nico-lovejoys-projects.vercel.app");
+    ).toBe("https://prntd.org");
   });
 
-  it("trusts a hash preview host (prntd-<hash>-nico-lovejoys-projects.vercel.app) over https", () => {
+  it("does not trust a Production deployment's own VERCEL_URL", () => {
     expect(
       resolveReturnOrigin(
-        "https://prntd-abc123def-nico-lovejoys-projects.vercel.app",
-        APP_URL
+        "https://prntd-9f8e7d6c-nico-lovejoys-projects.vercel.app",
+        APP_URL,
+        PRODUCTION
       )
-    ).toBe("https://prntd-abc123def-nico-lovejoys-projects.vercel.app");
+    ).toBe("https://prntd.org");
+  });
+
+  it("does not trust a Production deployment's VERCEL_BRANCH_URL", () => {
+    expect(
+      resolveReturnOrigin(
+        "https://prntd-git-main-nico-lovejoys-projects.vercel.app",
+        APP_URL,
+        PRODUCTION
+      )
+    ).toBe("https://prntd.org");
+  });
+
+  it("does not trust a Preview host over plain http", () => {
+    expect(
+      resolveReturnOrigin(
+        "http://prntd-abc123def-nico-lovejoys-projects.vercel.app",
+        APP_URL,
+        PREVIEW
+      )
+    ).toBe("https://prntd.org");
+  });
+
+  it("does not trust a Preview host on a different port", () => {
+    expect(
+      resolveReturnOrigin(`${HASH_ORIGIN}:8443`, APP_URL, PREVIEW)
+    ).toBe("https://prntd.org");
+  });
+
+  it("trusts the branch host when VERCEL_URL is undefined, and nothing when both are", () => {
+    expect(
+      resolveReturnOrigin(BRANCH_ORIGIN, APP_URL, { ...PREVIEW, url: undefined })
+    ).toBe(BRANCH_ORIGIN);
+    expect(
+      resolveReturnOrigin(BRANCH_ORIGIN, APP_URL, {
+        env: "preview",
+        url: undefined,
+        branchUrl: undefined,
+      })
+    ).toBe("https://prntd.org");
+  });
+
+  it("matches the host case-insensitively", () => {
+    expect(
+      resolveReturnOrigin(HASH_ORIGIN, APP_URL, {
+        ...PREVIEW,
+        url: "PRNTD-ABC123DEF-Nico-Lovejoys-Projects.vercel.app",
+      })
+    ).toBe(HASH_ORIGIN);
   });
 
   it("does not trust an unrelated *.vercel.app host", () => {
     expect(
-      resolveReturnOrigin("https://someone-else.vercel.app", APP_URL)
+      resolveReturnOrigin("https://someone-else.vercel.app", APP_URL, PREVIEW)
     ).toBe("https://prntd.org");
   });
 
   it("does not trust a prntd-* host missing the team suffix", () => {
-    expect(resolveReturnOrigin("https://prntd-git-x.vercel.app", APP_URL)).toBe(
-      "https://prntd.org"
-    );
+    expect(
+      resolveReturnOrigin("https://prntd-git-x.vercel.app", APP_URL, PREVIEW)
+    ).toBe("https://prntd.org");
   });
 
   it("does not trust a prntd-* host claiming to be someone else's project", () => {
     expect(
       resolveReturnOrigin(
         "https://prntd-evil-someone-else.vercel.app",
-        APP_URL
+        APP_URL,
+        PREVIEW
       )
     ).toBe("https://prntd.org");
   });
 
-  it("trusts the bare prntd.org host over https", () => {
-    expect(resolveReturnOrigin("https://prntd.org", "https://other.example")).toBe(
-      "https://prntd.org"
-    );
+  it("does not trust prntd.org when it is not appUrl's origin", () => {
+    expect(
+      resolveReturnOrigin("https://prntd.org", "https://other.example", OUTSIDE_VERCEL)
+    ).toBe("https://other.example");
   });
 
-  it("trusts any *.prntd.org subdomain over https", () => {
-    expect(resolveReturnOrigin("https://staging.prntd.org", APP_URL)).toBe(
-      "https://staging.prntd.org"
-    );
+  it("does not trust a *.prntd.org subdomain", () => {
+    expect(
+      resolveReturnOrigin("https://staging.prntd.org", APP_URL, OUTSIDE_VERCEL)
+    ).toBe("https://prntd.org");
   });
 
   it("does not trust localhost when appUrl is a different origin", () => {
-    expect(resolveReturnOrigin("http://localhost:3000", APP_URL)).toBe(
-      "https://prntd.org"
-    );
+    expect(
+      resolveReturnOrigin("http://localhost:3000", APP_URL, OUTSIDE_VERCEL)
+    ).toBe("https://prntd.org");
   });
 
   it("trusts localhost when it's the same origin as appUrl (local dev / e2e)", () => {
     expect(
-      resolveReturnOrigin("http://localhost:3000", "http://localhost:3000")
+      resolveReturnOrigin(
+        "http://localhost:3000",
+        "http://localhost:3000",
+        OUTSIDE_VERCEL
+      )
     ).toBe("http://localhost:3000");
   });
 
-  it("does not trust vercel.app over plain http", () => {
+  it("falls back to appUrl's origin for an untrusted host", () => {
     expect(
-      resolveReturnOrigin(
-        "http://prntd-git-feature-x-nico-lovejoys-projects.vercel.app",
-        APP_URL
-      )
+      resolveReturnOrigin("https://evil.example", APP_URL, OUTSIDE_VERCEL)
     ).toBe("https://prntd.org");
   });
 
-  it("falls back to appUrl's origin for an untrusted host", () => {
-    expect(resolveReturnOrigin("https://evil.example", APP_URL)).toBe(
-      "https://prntd.org"
-    );
-  });
-
   it("falls back to appUrl's origin for a non-http(s) scheme", () => {
-    expect(resolveReturnOrigin("javascript:alert(1)", APP_URL)).toBe(
-      "https://prntd.org"
-    );
+    expect(
+      resolveReturnOrigin("javascript:alert(1)", APP_URL, OUTSIDE_VERCEL)
+    ).toBe("https://prntd.org");
   });
 
   it("returns a bare origin with no path even when the header carries one", () => {
     expect(
-      resolveReturnOrigin(
-        "https://prntd-git-feature-x-nico-lovejoys-projects.vercel.app/some/path",
-        APP_URL
-      )
-    ).toBe("https://prntd-git-feature-x-nico-lovejoys-projects.vercel.app");
+      resolveReturnOrigin(`${BRANCH_ORIGIN}/some/path`, APP_URL, PREVIEW)
+    ).toBe(BRANCH_ORIGIN);
   });
 
   it("returns a malformed appUrl unchanged rather than throwing", () => {
-    expect(resolveReturnOrigin(null, "not-a-url")).toBe("not-a-url");
-    expect(resolveReturnOrigin("https://evil.example", "not-a-url/")).toBe(
+    expect(resolveReturnOrigin(null, "not-a-url", OUTSIDE_VERCEL)).toBe(
       "not-a-url"
     );
+    expect(
+      resolveReturnOrigin("https://evil.example", "not-a-url/", OUTSIDE_VERCEL)
+    ).toBe("not-a-url");
   });
 
   it("does not throw when appUrl is undefined (e.g. NEXT_PUBLIC_APP_URL unset)", () => {
-    expect(() => resolveReturnOrigin(null, undefined)).not.toThrow();
-    expect(resolveReturnOrigin(null, undefined)).toBe("");
-    expect(() => resolveReturnOrigin("https://prntd.org", undefined)).not.toThrow();
-    expect(resolveReturnOrigin("https://prntd.org", undefined)).toBe("");
+    expect(() =>
+      resolveReturnOrigin(null, undefined, OUTSIDE_VERCEL)
+    ).not.toThrow();
+    expect(resolveReturnOrigin(null, undefined, OUTSIDE_VERCEL)).toBe("");
+    expect(() =>
+      resolveReturnOrigin("https://prntd.org", undefined, OUTSIDE_VERCEL)
+    ).not.toThrow();
+    expect(
+      resolveReturnOrigin("https://prntd.org", undefined, OUTSIDE_VERCEL)
+    ).toBe("");
   });
 });

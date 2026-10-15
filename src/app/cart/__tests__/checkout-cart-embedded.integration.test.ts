@@ -258,6 +258,9 @@ beforeEach(async () => {
   vi.stubEnv("MULTI_PLACEMENT_ENABLED", "true");
   vi.stubEnv("NEXT_PUBLIC_APP_URL", APP_URL);
   vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", undefined);
+  vi.stubEnv("VERCEL_ENV", undefined);
+  vi.stubEnv("VERCEL_URL", undefined);
+  vi.stubEnv("VERCEL_BRANCH_URL", undefined);
   vi.stubEnv("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", undefined);
   vi.stubEnv("STRIPE_SECRET_KEY", undefined);
 });
@@ -405,8 +408,10 @@ describe("checkoutCart embedded-checkout gating (#278 slice 6b)", () => {
 });
 
 describe("checkoutCart return_url origin (#278 slice 6b)", () => {
-  it("switch on: return_url follows a trusted Preview Origin, so a Preview purchase returns to that Preview", async () => {
+  it("switch on: return_url follows the Preview's own Origin, so a Preview purchase returns to that Preview", async () => {
     embeddedOn();
+    vi.stubEnv("VERCEL_ENV", "preview");
+    vi.stubEnv("VERCEL_URL", PREVIEW_ORIGIN.replace("https://", ""));
     h.originHeader = PREVIEW_ORIGIN;
     const db = h.db as Db;
     await seedCart(db);
@@ -420,15 +425,30 @@ describe("checkoutCart return_url origin (#278 slice 6b)", () => {
     expect(result.url).toBe("/checkout?session=cs_test_1&from=%2Fcart");
   });
 
+  it("switch on: a Preview-shaped Origin outside a Vercel Preview falls back to NEXT_PUBLIC_APP_URL", async () => {
+    embeddedOn();
+    h.originHeader = PREVIEW_ORIGIN;
+    const db = h.db as Db;
+    await seedCart(db);
+
+    await checkoutCart();
+
+    expect(h.sessionParams[0].return_url).toBe(
+      `${APP_URL}${CONFIRM_PATH}${EMBEDDED_FROM}`
+    );
+  });
+
   it.each([
     "https://evil.example",
-    // A prntd-* host without the team suffix is not this project's.
+    // A vercel.app host that is not one of the deployment's own two.
     "https://prntd-git-x.vercel.app",
     "javascript:alert(1)",
   ])(
     "switch on: an untrusted Origin (%s) falls back to NEXT_PUBLIC_APP_URL",
     async (origin) => {
       embeddedOn();
+      vi.stubEnv("VERCEL_ENV", "preview");
+      vi.stubEnv("VERCEL_URL", "prntd-abc123def-nico-lovejoys-projects.vercel.app");
       h.originHeader = origin;
       const db = h.db as Db;
       await seedCart(db);
