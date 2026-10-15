@@ -247,7 +247,6 @@ describe("runtimeExports helper", () => {
 
 describe('"use server" export pins', () => {
   const pins: Record<string, string[]> = {
-    "src/app/order/actions.ts": ["calculatePrice", "createCheckoutSession"],
     "src/app/preview/actions.ts": ["getLastPurchaseDefaults"],
     "src/app/d/actions.ts": [
       "buyPublishedDesign",

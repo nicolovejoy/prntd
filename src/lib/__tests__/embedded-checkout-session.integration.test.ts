@@ -169,13 +169,12 @@ const SOURCE_LESS_KEY = mockupCacheKey({
   scaleKey: 100,
 });
 
-describe("loadEmbeddedCheckout for /preview orders (#135 slice 3)", () => {
+describe("loadEmbeddedCheckout for orders created from /preview (#135 slice 3; /preview itself is gone, in-flight sessions are not)", () => {
   beforeEach(() => {
-    vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", undefined);
-    vi.stubEnv("PREVIEW_EMBEDDED_CHECKOUT_ENABLED", "true");
+    vi.stubEnv("EMBEDDED_CHECKOUT_ENABLED", "true");
   });
 
-  it("only the preview flag on + valid keys: the loader proceeds to ready", async () => {
+  it("valid keys: the loader proceeds to ready", async () => {
     const db = h.db as Db;
     await seedPreviewOrder(db, {
       userId: "buyer",
@@ -193,7 +192,7 @@ describe("loadEmbeddedCheckout for /preview orders (#135 slice 3)", () => {
     expect(result.kind).toBe("ready");
   });
 
-  it("only the preview flag on + missing key: unavailable, no Stripe call", async () => {
+  it("missing key: unavailable, no Stripe call", async () => {
     vi.stubEnv("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", undefined);
     const db = h.db as Db;
     await seedPreviewOrder(db, {

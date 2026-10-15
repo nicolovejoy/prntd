@@ -255,7 +255,9 @@ describe("addToCart with frontImageId (#146)", () => {
   it("requires frontImageId", async () => {
     const db = h.db as Db;
     await seed(db);
-    await expect(addToCart({ ...OPTS })).rejects.toThrow(
+    await expect(
+      addToCart({ ...OPTS } as unknown as Parameters<typeof addToCart>[0])
+    ).rejects.toThrow(
       "frontImageId required"
     );
   });

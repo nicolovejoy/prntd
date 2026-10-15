@@ -47,10 +47,11 @@ export async function abandonSessionlessOrder(orderId: string): Promise<void> {
 
 /**
  * Shared order-creation + Stripe-checkout step for the single-item purchase
- * flows: design-your-own (`createCheckoutSession`, order/actions.ts) and
- * buy-existing (`buyPublishedDesign`, d/actions.ts). The cart builds its own session in `checkoutCart`, which expires earlier sessions the same way. Inserts the order row,
- * creates the Stripe session with `buildCheckoutSessionParams`, persists
- * the session id, and returns the redirect URL. Callers own auth, pricing, image-pinning
+ * flow: buy-existing (`buyPublishedDesign`, d/actions.ts, from the image
+ * detail page). The cart builds its own session in `checkoutCart`, which
+ * expires earlier sessions the same way. Inserts the order row, creates the
+ * Stripe session with `buildCheckoutSessionParams`, persists the session id,
+ * and returns the redirect URL. Callers own auth, pricing, image-pinning
  * and the cancel URL; this owns the parts that would otherwise drift. If
  * creating the Stripe session throws (including building its params), the
  * order is marked abandoned (`abandonSessionlessOrder`), the buyer's earlier
@@ -80,9 +81,7 @@ export async function createStripeCheckoutForOrder(params: {
    * comment on `order`. */
   storeProductId?: string | null;
   /** Present only when the caller has resolved its embedded config
-   * (`embeddedCheckoutConfig()` for the image detail page,
-   * `previewEmbeddedCheckoutConfig()` for /preview) to enabled (#135 slices
-   * 2-3): the session mounts on our own /checkout page
+   * (`embeddedCheckoutConfig()`) to enabled (#135 slice 2): the session mounts on our own /checkout page
    * instead of Stripe's hosted page. `backPath` is where /checkout's back
    * link goes, and it rides on Stripe's `return_url` as `from=` so
    * /order/confirm's resume link keeps it (#317); `cancelUrl` above is

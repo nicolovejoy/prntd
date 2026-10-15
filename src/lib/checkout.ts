@@ -23,8 +23,7 @@ export const CHECKOUT_SESSION_TTL_SECONDS = 2 * 60 * 60;
  * Pure — no db, no network — so the wiring is unit-tested independently
  * of the server actions that create the order row and call Stripe.
  *
- * Both the design-your-own flow (`createCheckoutSession`) and the
- * buy-existing flow (`buyPublishedDesign`) build their session through
+ * The buy-existing flow (`buyPublishedDesign`) builds its session through
  * here so the line-item shape, metadata, and URLs can't drift apart.
  * Two things vary per flow/mode: `cancelUrl` — where the customer lands
  * if they back out — and `uiMode`, which switches between Stripe's hosted

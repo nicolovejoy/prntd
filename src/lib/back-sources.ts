@@ -37,7 +37,7 @@ import {
  * (which covers the order's own thread, where design ownership is checked
  * first) or a published + not-hidden Shop image.
  * Throws on anything else — called at the checkout choke points
- * (createCheckoutSession, addToCart, buyPublishedDesign) so a forged id
+ * (addToCart, buyPublishedDesign) so a forged id
  * can't get a private image printed. On a Shop buy of a published image
  * `designId` is the SELLER's design, and on the owner's own unpublished image
  * their own; the guard deliberately gives either no weight (see
