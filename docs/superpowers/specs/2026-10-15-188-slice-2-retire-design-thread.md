@@ -1,10 +1,10 @@
-# #188 slice 2: retire the `/design?id=` thread view (spec draft)
+# #188 slice 2: retire the `/design?id=` thread view (spec)
 
-Status: draft for Nico's answers. No code written. Written 2026-10-15 from a read of main at `c5cd1e8`.
+Status: Nico ruled on all eight questions on 2026-10-15 ("all as recommended"; see Rulings below). No code written. Written 2026-10-15 from a read of main at `c5cd1e8`. The plan for the first PR is `docs/superpowers/plans/2026-10-15-188-slice-2a.md`.
 
 ## What this slice is
 
-The Studio (`/studio`) with its focused stage (`/studio?conversation=&image=`, #305) is the make surface. `/design` is the older thread view: chat column, gallery, lightbox. It is still reachable and still does three jobs the Studio does not: it mints the guest session, it takes the landing page's seed prompt, and it is where several links send people to resume a conversation. So it cannot be a bare redirect. This draft traces every way in, lists what the thread does that the stage does not, and proposes a shape.
+The Studio (`/studio`) with its focused stage (`/studio?conversation=&image=`, #305) is the make surface. `/design` is the older thread view: chat column, gallery, lightbox. It is still reachable and still does three jobs the Studio does not: it mints the guest session, it takes the landing page's seed prompt, and it is where several links send people to resume a conversation. So it cannot be a bare redirect. This draft traces every way in, lists what the thread does that the stage does not, and proposes a shape. Where the text below says a question "is settled" or "depends on Q", read the Rulings section.
 
 Two standing constraints:
 
@@ -70,29 +70,29 @@ Principle: `/design` stays as a route that never renders a thread. It becomes a 
 
 Redirect rules, evaluated on the server in `src/app/design/page.tsx` (keeps `maxDuration` only if a generation still starts from it; see Q1):
 
-- `/design?id=<id>`, signed in or guest, owner of the conversation: `/studio?conversation=<id>&image=<imageId>` where `imageId` is the conversation's primary image, else its newest output (same rule as `laneStageHref`, `src/lib/studio-focus.ts`). A conversation with no image: `/studio` (the bench, where its lane shows) until Q2 is settled.
+- `/design?id=<id>`, signed in or guest, owner of the conversation: `/studio?conversation=<id>&image=<imageId>` where `imageId` is the conversation's primary image, else its newest output (same rule as `laneStageHref`, `src/lib/studio-focus.ts`). A conversation with no image: `/studio` (the bench, where its lane shows) per the Q2 ruling.
 - `/design?id=<id>`, not the owner or missing: `/studio`.
-- `/design?prompt=<text>`: the landing entry. Signed in or guest with a cookie: `/studio?prompt=<text>`; the Studio fires one generation and then drops the param. Sessionless: see Q1.
+- `/design?prompt=<text>`: the landing entry. Signed in or guest with a cookie: `/studio?prompt=<text>`; the Studio fires one generation and then drops the param. Sessionless: see Q1 (ruled: thin client page).
 - `/design` with neither: `/studio` with a cookie; sessionless: Q1.
 - Anything else in the query is dropped. Use `pathWithSearch` (`src/lib/redirect-path.ts`) only where a param should survive.
 
 What moves into the Studio:
 
-- Seed handling: `?prompt=` on `/studio`, a ref-guarded mount effect that calls the existing composer submit path, then removes the param. Per #311 the removal uses `history.pushState(null, …)`-style writes the stage already uses, or better, the server redirect removes it first (the page renders the Studio with the seed as a prop read once; the URL is then left alone). Recommended: a server-side `redirect` that strips the param after stashing nothing, with the seed passed as `initialSeed` prop on first render only. This avoids any history write racing the action. (Open design detail for the plan, not for Nico.)
-- Guest mint: an opening step on the Studio client (`ensureGuestSession`) is not enough alone, because the proxy blocks the first request. Options in Q1.
-- Reference upload and Ask: Q3 and Q4.
+- Seed handling: `?prompt=` on `/studio`, a ref-guarded mount effect that calls the existing composer submit path, then removes the param. Per #311 the removal uses `history.pushState(null, …)`-style writes the stage already uses, or better, the server redirect removes it first (the page renders the Studio with the seed as a prop read once; the URL is then left alone). Recommended: a server-side `redirect` that strips the param after stashing nothing, with the seed passed as `initialSeed` prop on first render only. This avoids any history write racing the action. (A design detail for the plan, not a question for Nico.)
+- Guest mint: an opening step on the Studio client (`ensureGuestSession`) is not enough alone, because the proxy blocks the first request. Ruled in Q1.
+- Reference upload and Ask: Q3 (Ask is dropped) and Q4 (upload moves into the composer).
 
 What is dropped:
 
-- `src/app/design/design-client.tsx`, `chat-panel.tsx`, `design-stage.tsx`, `image-gallery.tsx`, `image-lightbox.tsx`, `mobile-gallery-*.tsx`, `src/lib/design-thread.ts`, `design-thread-cache.ts` and their tests, once nothing imports them. `actions.ts` stays (the Studio and `/d` import it: `generateDesign`, `cancelGeneration`, `closeConversation`, `selectImage`-family, `startConversationFromImage`). Dead exports (`getDesignThread`, `getDesignChat`, `getDesignGallery`, probably `sendChatMessage` and `uploadReferenceImage` depending on Q3 and Q4) are removed in the same slice; `server-action-exports.test.ts` pins exports and will need the matching edit.
+- `src/app/design/design-client.tsx`, `chat-panel.tsx`, `design-stage.tsx`, `image-gallery.tsx`, `image-lightbox.tsx`, `mobile-gallery-*.tsx`, `src/lib/design-thread.ts`, `design-thread-cache.ts` and their tests, once nothing imports them. `actions.ts` stays (the Studio and `/d` import it: `generateDesign`, `cancelGeneration`, `closeConversation`, `selectImage`-family, `startConversationFromImage`). Dead exports (`getDesignThread`, `getDesignChat`, `getDesignGallery`, probably `sendChatMessage` and `uploadReferenceImage` depending on the Q3 and Q4 rulings: `sendChatMessage` goes, `uploadReferenceImage` stays) are removed in the same slice; `server-action-exports.test.ts` pins exports and will need the matching edit.
 - Nav and funnel references (A12, A13), the proxy's `/design` entries when Q1 allows.
 - `GUEST_FUNNEL_ENABLED=false` path for `/design`: with the route a redirect, the flag gates only the Studio.
 
-Link updates (A3 to A10): point at `/studio` where a session is certain (A5, A6 fallback, A7, A8, A9, A10); the pair that can be sessionless (A1, A2, A3, A4) stays on `/design` until Q1 is settled, then moves.
+Link updates (A3 to A10): point at `/studio` where a session is certain (A5, A6 fallback, A7, A8, A9, A10); the pair that can be sessionless (A1, A2, A3, A4) stays on `/design` (Q1 ruling: `/design` remains the sessionless entry).
 
 Order of work (each its own PR, none needs a migration):
 
-1. Studio takes `?prompt=` and handles a conversation with no result (Q2). `/design` still serves the old thread.
+1. Studio takes `?prompt=` and handles a conversation with no result (Q2: a conversation with no result redirects to the bench). `/design` still serves the old thread.
 2. Redirect `/design?id=` and `/design?prompt=` per the rules above; update A6 to A10 and their tests.
 3. Delete the thread code, the dead exports, and the e2e rewrites in A16.
 
@@ -107,7 +107,7 @@ Order of work (each its own PR, none needs a migration):
 - Cancelled or in-flight generations started from `/design` when the deploy lands: the job rows are conversation-keyed and the Studio polls the same `image_generation` table, so they finish and appear on the bench. No state is lost, but a user mid-thread sees the page change.
 - The `design-client.tsx` state (`userActed`, `seedFired`, cache write-back) encode fixes (#245 client job id, #127 revalidate). The Studio already ports the job-id one (`jobId: clientJobId`, studio-client.tsx:989); confirm the rest are not needed by reading the commit history before deleting.
 
-## (e) Questions for Nico
+## (e) Questions (answered; see Rulings)
 
 1. How should a sessionless visitor (landing hero, empty cart, "Order not found.") get a guest session if `/design` stops rendering a page?
    Recommendation: keep `/design` as the only sessionless entry, as a thin client page that calls `ensureGuestSession()` and then `router.replace`s to `/studio` (carrying `prompt`). The proxy stays unchanged except that `/design` stays in `FUNNEL_ROUTES`. Cost if wrong: if instead `/studio` is opened to sessionless requests and mints a guest itself, the proxy and `requireStudioUser` (src/lib/require-user.ts:70) change, and the "sessionless `/studio` goes to sign-in" behaviour (ruling in #241 R2, pinned in `proxy.test.ts`) is reversed; more change, but one fewer hop for guests. Choosing the thin page costs one extra navigation on first visit.
@@ -131,4 +131,17 @@ Order of work (each its own PR, none needs a migration):
    Recommendation: keep it indefinitely; the cost is one small file and it protects every old `next=` link and A18. Cost if wrong: none beyond that file.
 
 8. Should the empty-cart link (A3) and the order-confirm links (A4, A5) change in this slice?
-   Recommendation: yes, in redirect step 2: A5 to `/studio`; A3 and A4 stay on `/design` until Q1's page exists, because they can be sessionless. Cost if wrong: a signed-out visitor from A3 lands on sign-in (reverse of ruling W1, accepted for the non-empty cart only).
+   Recommendation: yes, in redirect step 2: A5 to `/studio`; A3 and A4 stay on `/design` because they can be sessionless. Cost if wrong: a signed-out visitor from A3 lands on sign-in (reverse of ruling W1, accepted for the non-empty cart only).
+
+## Rulings (Nico, 2026-10-15)
+
+Nico answered "all as recommended". Each line restates the recommendation above as the ruling.
+
+1. Sessionless entry: `/design` stays as the only sessionless entry, a thin client page that calls `ensureGuestSession()` and then `router.replace`s to `/studio` (carrying `prompt`). The proxy keeps `/design` in `FUNNEL_ROUTES`; sessionless `/studio` still goes to sign-in.
+2. A conversation with no result yet redirects to the bench (`/studio`), where its lane shows; there is no stage for it.
+3. Ask is dropped in this slice; `sendChatMessage`, the chat call site and the chat quota are removed in a follow-up PR of their own.
+4. Reference-image upload is kept and moves into the Studio composer as an attach control, built before the redirect step.
+5. Per-image Delete and Set primary stay on the image detail page and My Designs; neither is added to the stage.
+6. `/design?id=<closed id>` lands on `/studio` and does not reopen the conversation (a GET does not write); My Designs shows it.
+7. `/design` keeps redirecting indefinitely.
+8. In redirect step 2, A5 goes to `/studio`; A3 and A4 stay on `/design` because they can be sessionless.
