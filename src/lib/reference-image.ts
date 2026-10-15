@@ -7,6 +7,11 @@ export {
   REFERENCE_IMAGE_UNSUPPORTED,
 } from "./reference-image-limits";
 
+/** Decoded pixels allowed per input image. */
+const REFERENCE_IMAGE_MAX_PIXELS = 40_000_000;
+/** sharp's names for the formats the file picker offers, plus gif (first frame). */
+const ACCEPTED_FORMATS = ["png", "jpeg", "webp", "gif"];
+
 export type NormalizedReferenceImage =
   | { ok: true; png: Buffer }
   | { ok: false; reason: "too_large" | "unsupported" };
@@ -22,7 +27,15 @@ export async function normalizeReferenceImage(buffer: Buffer): Promise<Normalize
   try {
     // Loaded here, not at module scope, as image-luminance.ts does.
     const { default: sharp } = await import("sharp");
-    const png = await sharp(buffer, { animated: false })
+    // limitInputPixels refuses a small file that declares a huge raster
+    // (a 1.1 MB 16383x16383 PNG took 1.33 GB of RSS before this); a 12 MP
+    // photo is well under it.
+    const input = { animated: false, limitInputPixels: REFERENCE_IMAGE_MAX_PIXELS } as const;
+    const meta = await sharp(buffer, input).metadata();
+    if (!meta.format || !ACCEPTED_FORMATS.includes(meta.format)) {
+      return { ok: false, reason: "unsupported" };
+    }
+    const png = await sharp(buffer, input)
       .rotate()
       .resize(REFERENCE_IMAGE_MAX_SIDE, REFERENCE_IMAGE_MAX_SIDE, { fit: "inside", withoutEnlargement: true })
       .png()

@@ -67,4 +67,38 @@ describe("normalizeReferenceImage", () => {
     expect(r.ok).toBe(true);
     if (r.ok) expect(await meta(r.png)).toMatchObject({ format: "png", width: 6, height: 6 });
   });
+
+  it("a raster over the pixel limit is refused as unsupported without decoding it", async () => {
+    // 8000x8000 flat colour: 64 MP declared, a small file once compressed.
+    const big = await sharp({
+      create: { width: 8000, height: 8000, channels: 3, background: { r: 0, g: 0, b: 0 } },
+      limitInputPixels: false,
+    })
+      .png({ compressionLevel: 1 })
+      .toBuffer();
+    expect(big.length).toBeLessThan(REFERENCE_IMAGE_MAX_BYTES);
+    expect(await normalizeReferenceImage(big)).toEqual({ ok: false, reason: "unsupported" });
+  }, 30_000);
+
+  it("a 12 MP photo still passes", async () => {
+    const photo = await sharp({
+      create: { width: 4000, height: 3000, channels: 3, background: { r: 9, g: 9, b: 9 } },
+    })
+      .jpeg()
+      .toBuffer();
+    const r = await normalizeReferenceImage(photo);
+    expect(r.ok).toBe(true);
+  }, 30_000);
+
+  it("formats other than png, jpeg, webp and gif are refused (SVG, TIFF)", async () => {
+    const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>');
+    expect(await normalizeReferenceImage(svg)).toEqual({ ok: false, reason: "unsupported" });
+    const tiff = await raw(4, 4).tiff().toBuffer();
+    expect(await normalizeReferenceImage(tiff)).toEqual({ ok: false, reason: "unsupported" });
+  });
+
+  it("webp is accepted", async () => {
+    const r = await normalizeReferenceImage(await raw(4, 4).webp().toBuffer());
+    expect(r.ok).toBe(true);
+  });
 });
