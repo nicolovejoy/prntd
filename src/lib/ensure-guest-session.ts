@@ -27,8 +27,10 @@ let ensured: Promise<void> | null = null;
  * visitor with no cookie, and resolving anyway sends them on to a page that
  * bounces them to /sign-in. So a refused mint rejects with a GuestSessionError
  * (HTTP status, Retry-After when the response had one) and the memo is
- * cleared, which lets a later call mint. The lookup-error path above is the
- * opposite on purpose: there a session may already exist.
+ * cleared, which lets a later call mint. One exception: if a session reads
+ * back after the refusal (another tab minted in the same moment), it
+ * resolves. The lookup-error path above is the opposite on purpose: there a
+ * session may already exist.
  */
 export function ensureGuestSession(): Promise<void> {
   if (!ensured) {
@@ -52,6 +54,12 @@ export function ensureGuestSession(): Promise<void> {
           },
         });
         if (minted?.error) {
+          // Another tab may have minted in the same moment: its cookie rode
+          // on this request, and Better-Auth refuses an anonymous user
+          // signing in anonymously again (400). If a session reads back now,
+          // the visitor has what they need.
+          const after = await authClient.getSession();
+          if (!after.error && after.data) return;
           throw new GuestSessionError(
             minted.error.message ?? "Couldn't start a guest session",
             typeof minted.error.status === "number" ? minted.error.status : null,

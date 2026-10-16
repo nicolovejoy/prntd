@@ -395,6 +395,10 @@ function DesignPageInner({ initialThreadPromise, canPublish }: Props) {
     });
   }, []);
 
+  // Unreachable since #188 slice 2b: this component renders only for ?id=,
+  // and /design without an id hands the landing idea to the Studio. Deleted
+  // with this file in slice 2c.
+  //
   // Landing seed: /design?prompt=… fires one generation with the seeded idea
   // (new designs only — never when resuming via ?id=). Ref-guarded so React
   // Strict Mode's double effect can't fire it twice; the param is stripped

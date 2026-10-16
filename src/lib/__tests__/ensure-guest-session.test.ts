@@ -171,6 +171,34 @@ describe("ensureGuestSession", () => {
       expect(signInAnonymous).toHaveBeenCalledTimes(2);
     });
 
+    it("resolves when a session reads back after the refusal (another tab minted first)", async () => {
+      getSession
+        .mockResolvedValueOnce({ data: null, error: null })
+        .mockResolvedValueOnce({ data: { user: { id: "anon-from-other-tab" } }, error: null });
+      signInAnonymous.mockResolvedValue({
+        data: null,
+        error: {
+          status: 400,
+          code: "ANONYMOUS_USERS_CANNOT_SIGN_IN_AGAIN_ANONYMOUSLY",
+          message: "Anonymous users cannot sign in again anonymously",
+        },
+      });
+      const ensureGuestSession = await loadFresh();
+
+      await expect(ensureGuestSession()).resolves.toBeUndefined();
+      expect(getSession).toHaveBeenCalledTimes(2);
+    });
+
+    it("still rejects when the read-back after a refusal fails", async () => {
+      getSession
+        .mockResolvedValueOnce({ data: null, error: null })
+        .mockResolvedValueOnce({ data: null, error: { status: 500 } });
+      signInAnonymous.mockResolvedValue(tooMany);
+      const ensureGuestSession = await loadFresh();
+
+      await expect(ensureGuestSession()).rejects.toMatchObject({ name: "GuestSessionError", status: 429 });
+    });
+
     it("rejects every caller that shared the failed attempt", async () => {
       getSession.mockResolvedValue({ data: null, error: null });
       signInAnonymous.mockResolvedValue(tooMany);
