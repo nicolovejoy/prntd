@@ -529,11 +529,18 @@ describe("focused stage", () => {
   });
 
   it("the lane title links to the stage of the primary cell, else the newest", () => {
-    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1"), cell("img-2", { isPrimary: true }), cell("img-3")] }), lane({ designId: "design-2", cells: [cell("x"), cell("y")] }), lane({ designId: "design-3", cells: [] })]} />);
+    render(<StudioClient initialLanes={[lane({ cells: [cell("img-1"), cell("img-2", { isPrimary: true }), cell("img-3")] }), lane({ designId: "design-2", cells: [cell("x"), cell("y")] })]} />);
     const links = screen.getAllByRole("link", { name: "geometric wolf head" });
+    expect(links).toHaveLength(2);
     expect(links[0].getAttribute("href")).toBe("/studio?conversation=design-1&image=img-2");
     expect(links[1].getAttribute("href")).toBe("/studio?conversation=design-2&image=y");
-    expect(links[2].getAttribute("href")).toBe("/design?id=design-3");
+  });
+
+  it("a lane with no cells shows its title as plain text, not a link (#188 slice 2c)", () => {
+    render(<StudioClient initialLanes={[lane({ designId: "design-3", cells: [] })]} />);
+    expect(screen.getByRole("heading", { name: "geometric wolf head" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "geometric wolf head" })).toBeNull();
+    expect(document.querySelector('a[href^="/design?"]')).toBeNull();
   });
 
   it("Generate on the stage edits the shown image and a second line still edits", async () => {

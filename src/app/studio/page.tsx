@@ -11,9 +11,14 @@ import {
 import { parseSeed, seedHref, type ParsedSeed } from "@/lib/studio-seed";
 import { StudioClient } from "./studio-client";
 
-// The landing visitor's first generation runs from this page now (the
-// seed, below), so its after() continuation gets this page's budget. Same
-// ceiling and same reason as src/app/design/page.tsx's maxDuration.
+// Generation finishes in an `after()` continuation started by the
+// generateDesign server action. A server action inherits the segment config
+// of the route that RENDERED it, not an API route's, so this budget is what
+// every background render gets: the composer's Generate and the landing
+// seed (below) both run from this page. 300 s is Fluid's max and covers an
+// Ideogram generate or edit round trip plus the R2 upload. (It lived on
+// /design's page until #188 slice 2c, when no generation started there any
+// more.)
 export const maxDuration = 300;
 
 // Server-rendered initial data (#127 shape): the lanes arrive in the first

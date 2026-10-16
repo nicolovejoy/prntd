@@ -49,6 +49,7 @@ export function OwnerActions({
         {sourceDesignId && (
           <ConversationActions
             designId={sourceDesignId}
+            imageId={imageId}
             archived={conversationArchived}
           />
         )}

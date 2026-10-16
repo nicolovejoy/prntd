@@ -51,7 +51,7 @@ async function seed(db: Db) {
   });
 
   const empty = await makeDesign(db, "owner");
-  await makeSourceImage(db, {
+  const emptyImage = await makeSourceImage(db, {
     designId: empty.id,
     ownerId: "owner",
     imageUrl: "https://img.example/empty.png",
@@ -74,6 +74,7 @@ async function seed(db: Db) {
     conv: conv.id,
     otherConv: otherConv.id,
     empty: empty.id,
+    emptyImage,
     hiddenConv: hiddenConv.id,
     primary,
     second,
@@ -134,10 +135,10 @@ describe("resolvePreviewRedirect (#278 slice 4)", () => {
     ).toBe(`/d/${ids.primary}?order=1`);
   });
 
-  it("a conversation with no primary goes to /design?id=", async () => {
+  it("a conversation with no primary goes where /design?id= goes: the stage on its newest result", async () => {
     const ids = await seed(h.db as Db);
     expect(await resolvePreviewRedirect({ id: ids.empty }, "owner")).toBe(
-      `/design?id=${ids.empty}`
+      `/studio?conversation=${ids.empty}&image=${ids.emptyImage}`
     );
   });
 
@@ -208,7 +209,7 @@ describe("resolvePreviewRedirect (#278 slice 4)", () => {
   it("a signed-in viewer who does not own the conversation never sees its primary", async () => {
     const ids = await seed(h.db as Db);
     const noFront = await resolvePreviewRedirect({ id: ids.conv }, "stranger");
-    expect(noFront).toBe("/design");
+    expect(noFront).toBe("/studio");
     expect(noFront).not.toContain(ids.primary);
     expect(
       await resolvePreviewRedirect(
@@ -221,7 +222,7 @@ describe("resolvePreviewRedirect (#278 slice 4)", () => {
   it("a conversation that does not exist is treated like someone else's", async () => {
     await seed(h.db as Db);
     expect(await resolvePreviewRedirect({ id: "no-such-design" }, "owner")).toBe(
-      "/design"
+      "/studio"
     );
   });
 

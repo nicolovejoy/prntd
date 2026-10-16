@@ -77,8 +77,8 @@ body {
    per the CSS cascade-layers spec beats any `@layer utilities` declaration
    regardless of specificity — a `border: 1px solid …` here silently ate
    every `border-2 border-accent` selection indicator applied alongside this
-   class (five call sites: preview back-picker, /d back-picker,
-   conversation-images aria-current, design-stage strip, studio isPrimary).
+   class (four call sites: preview back-picker, /d back-picker,
+   conversation-images aria-current, studio isPrimary).
    Call sites that want an edge on a plain well (no selection state) add
    `border border-border` themselves. See the guard test in
    src/app/__tests__/globals-css.test.ts — do not re-add a border here. */

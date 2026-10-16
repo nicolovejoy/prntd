@@ -190,6 +190,15 @@ describe("ConfirmPage", () => {
     expect(link).toHaveAttribute("href", "/orders");
   });
 
+  it("links Start another design to /studio: the receipt's viewer is the order's owner, so a session exists", async () => {
+    getOrderReceipt.mockResolvedValue(FRONT_ONLY_ORDER);
+
+    await renderConfirm({ session_id: "cs_1" });
+
+    const link = screen.getByRole("link", { name: "Start another design" });
+    expect(link).toHaveAttribute("href", "/studio");
+  });
+
   it("does not read a session or call getOrderReceipt, and shows Order not found., when session_id is absent", async () => {
     h.session = null;
 
@@ -199,7 +208,7 @@ describe("ConfirmPage", () => {
     expect(screen.getByText("Order not found.")).toBeInTheDocument();
   });
 
-  it("shows Order not found. with a recovery link to /design when the loader resolves null", async () => {
+  it("shows Order not found. with a recovery link to /design (the viewer may have no session) when the loader resolves null", async () => {
     getOrderReceipt.mockResolvedValue(null);
 
     await renderConfirm({ session_id: "cs_missing" });

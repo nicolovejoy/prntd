@@ -16,8 +16,9 @@ export type StoreReferenceImageResult =
 /**
  * Stores one user-supplied reference image as an `upload` result of
  * `designId`, creating the conversation for an unseen id. The one body behind
- * `uploadReferenceImage` (/design) and `attachReferenceImage` (Studio); both
- * spend the upload quota before calling it.
+ * `attachReferenceImage` (Studio) and `uploadReferenceImage` (no product
+ * caller since the /design thread view was deleted, #188 slice 2c); both spend
+ * the upload quota before calling it.
  *
  * Order: normalize the bytes (size, decodable, format, rotation, resize, PNG)
  * FIRST, so a refused file touches nothing; then find or create the design

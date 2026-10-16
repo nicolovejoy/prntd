@@ -53,14 +53,10 @@ import type { GenerateOperation } from "@/lib/generators/types";
 import {
   reserveGenerationNumbers,
   findDesignImageByUrl,
-  getDesignSourceImages,
-  getDesignPlacementRenders,
   getDesignMessages,
   insertChatMessage,
   getDesignImagesForAIContext,
   getConversationSeedProvenance,
-  type SourceImage,
-  type ProductVersionGroup,
 } from "@/lib/design-images";
 import { canStartFromImage } from "@/lib/design-publish";
 import {
@@ -68,11 +64,6 @@ import {
   executeImageDeletion,
 } from "@/lib/delete-image";
 import {
-  getDesignThreadData,
-  type DesignThreadData,
-} from "@/lib/design-thread";
-import {
-  dedupeById,
   assertConversationOpen,
   CONVERSATION_CLOSED_MESSAGE,
 } from "@/lib/design-view";
@@ -165,6 +156,8 @@ function chatLimitMessage(isAnonymous: boolean): string {
     : "Daily chat limit reached. Try again later.";
 }
 
+// No product caller since the /design thread view was deleted (#188 slice 2c);
+// the Ask-removal follow-up PR removes it, the chat quota and its call site.
 export async function sendChatMessage(
   designId: string,
   userMessage: string
@@ -333,8 +326,8 @@ export async function generateDesign(
     /**
      * Client-minted job id (#245). Lets a lost/replayed response be
      * reconciled by looking this exact id up: `insertGenerationJob` uses it
-     * for the `image_generation` row instead of a random one. Optional — the
-     * older `/design` surface does not send one.
+     * for the `image_generation` row instead of a random one. Optional; every
+     * caller today (the Studio composer and its landing seed) sends one.
      */
     jobId?: string;
   } = {}
@@ -556,7 +549,7 @@ export async function generateDesign(
 
   // Past this line a job row exists and owns its own quota unit. Hand the
   // render to the background: `after` keeps the function instance alive past
-  // the response for up to the route's maxDuration (see design/page.tsx —
+  // the response for up to the route's maxDuration (see studio/page.tsx —
   // server actions inherit the RENDERING route's segment config), and the
   // continuation never throws past that boundary; an unhandled rejection can
   // take down the shared Fluid instance and with it other users' work.
@@ -1120,6 +1113,10 @@ async function runGenerationJob(params: GenerationJobParams): Promise<void> {
   }
 }
 
+// No product caller since the /design thread view was deleted (#188 slice 2c):
+// the Studio attaches through attachReferenceImage, which shares
+// storeReferenceImage. Left in place for now; the Ask-removal follow-up PR
+// decides whether it goes.
 export async function uploadReferenceImage(
   designId: string,
   base64Data: string,
@@ -1155,6 +1152,10 @@ export async function uploadReferenceImage(
  * none of this thread's images clears the primary (the design then falls back
  * to its latest image). Refuses an admin-hidden image (#310): hidden artwork
  * is not something the owner can pin as the design's current image.
+ *
+ * No product caller since the /design thread view was deleted (#188 slice
+ * 2c); the Ask-removal follow-up PR removes it. The image detail page pins
+ * through setPrimaryImage.
  */
 export async function selectImage(designId: string, imageUrl: string) {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -1208,6 +1209,10 @@ export async function selectImage(designId: string, imageUrl: string) {
  * `removeDesignIfNowEmpty` holds the full rule. `/studio` is revalidated
  * when the conversation went, on top of the library revalidation every image
  * delete needs.
+ *
+ * No product caller since the /design thread view was deleted (#188 slice
+ * 2c); the Ask-removal follow-up PR removes it. My Designs deletes through
+ * deleteImages.
  */
 export async function deleteDesignImage(designId: string, imageId: string) {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -1357,6 +1362,10 @@ export async function setPrimaryImage(designId: string, imageId: string) {
  * came back and discarded the result) is reported as settled with neither an
  * image nor a failure — it tells a tracking client (another tab, say) to stop
  * waiting, and nothing else.
+ *
+ * No product caller since the /design thread view was deleted (#188 slice
+ * 2c); the Studio polls through getGenerationJobStatus. The Ask-removal follow-up PR
+ * removes it.
  */
 export async function getDesignJobs(
   designId: string,
@@ -1521,67 +1530,3 @@ export async function startConversationFromImage(
 
   return { designId };
 }
-
-/**
- * Whole-thread fetch for warm prefetch (#87) and any client path that needs
- * chat + gallery in one invocation (so they can never hydrate out of step).
- * Null covers missing AND foreign designs — same view either way.
- */
-export async function getDesignThread(
-  designId: string
-): Promise<DesignThreadData | null> {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) throw new Error("Unauthorized");
-  return await getDesignThreadData(designId, session.user.id);
-}
-
-/**
- * Hydrate chat thread for a design. Append-only log read from the
- * chat_message table.
- */
-export async function getDesignChat(designId: string): Promise<ChatMessage[]> {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) throw new Error("Unauthorized");
-
-  const found = await db.query.design.findFirst({
-    where: eq(designTable.id, designId),
-    columns: { id: true, userId: true },
-  });
-  if (!found) return [];
-  if (found.userId !== session.user.id) throw new Error("Unauthorized");
-
-  return await getDesignMessages(designId);
-}
-
-/**
- * Fetch the gallery payload for /design: source images (1:1 explorations)
- * and placement renders grouped by product. Single round trip so the page
- * can refresh both sections after every action. Admin-hidden images, and
- * renders of them, are left out by the readers.
- */
-export async function getDesignGallery(
-  designId: string
-): Promise<{ sources: SourceImage[]; productGroups: ProductVersionGroup[] }> {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) throw new Error("Unauthorized");
-
-  const found = await db.query.design.findFirst({
-    where: eq(designTable.id, designId),
-    columns: { id: true, userId: true },
-  });
-  if (found && found.userId !== session.user.id)
-    throw new Error("Unauthorized");
-  if (!found) return { sources: [], productGroups: [] };
-
-  const [sources, productGroups] = await Promise.all([
-    // Seeds included (slice 3): a fresh-start thread opens showing its
-    // starting image in the gallery/strip, referenceable and orderable.
-    getDesignSourceImages(designId, { includeSeeds: true }),
-    getDesignPlacementRenders(designId),
-  ]);
-  // Guard against a duplicate row ever reaching the gallery — the header
-  // count and the mobile FAB badge both derive from this list, so a dupe
-  // would make them disagree (#19).
-  return { sources: dedupeById(sources), productGroups };
-}
-

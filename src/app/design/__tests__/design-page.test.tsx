@@ -1,15 +1,16 @@
 /**
- * /design after #188 slice 2b. With no `id` it never renders the thread: a
+ * /design after #188 slice 2c. It never renders a thread. With no `id` a
  * visitor with a session is redirected on the server to the Studio (the idea
- * kept), a visitor with none gets the thin DesignEntry hop. With an `id` it
- * renders the thread client as before (slice 2c retires that).
+ * kept) and a visitor with none gets the thin DesignEntry hop. With an `id`
+ * the visitor is redirected: to the conversation's stage or the bench when
+ * they have a session, to sign-in (and back) when they have none.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { parseSeed } from "@/lib/studio-seed";
 
 const h = vi.hoisted(() => ({
   getSession: vi.fn(),
-  getThread: vi.fn(),
+  studioHref: vi.fn(),
   redirect: vi.fn((url: string): never => {
     // next/navigation's redirect throws; mirror that.
     throw new Error(`NEXT_REDIRECT:${url}`);
@@ -26,14 +27,13 @@ vi.mock("@/lib/auth", () => ({
   auth: { api: { getSession: (...args: unknown[]) => h.getSession(...args) } },
   isAnonymousUser: (u: { isAnonymous?: boolean } | null | undefined) => Boolean(u?.isAnonymous),
 }));
-vi.mock("@/lib/design-thread", () => ({
-  getDesignThreadData: (...args: unknown[]) => h.getThread(...args),
+vi.mock("@/lib/studio-entry", () => ({
+  conversationStudioHref: (...args: unknown[]) => h.studioHref(...args),
 }));
-vi.mock("../design-client", () => ({ DesignPageClient: () => null }));
 vi.mock("../design-entry", () => ({ DesignEntry: () => null }));
 
-const { default: DesignPage, maxDuration } = await import("../page");
-const { DesignPageClient } = await import("../design-client");
+const pageModule = await import("../page");
+const DesignPage = pageModule.default;
 const { DesignEntry } = await import("../design-entry");
 
 const SESSION = { user: { id: "u1", isAnonymous: false } };
@@ -42,7 +42,7 @@ const GUEST = { user: { id: "g1", isAnonymous: true } };
 beforeEach(() => {
   vi.clearAllMocks();
   h.getSession.mockResolvedValue(null);
-  h.getThread.mockResolvedValue({ thread: true });
+  h.studioHref.mockResolvedValue("/studio");
 });
 
 async function redirectedTo(searchParams: Record<string, string | string[]>) {
@@ -119,43 +119,77 @@ describe("/design with no id", () => {
 });
 
 describe("/design?id=", () => {
-  it("still renders the thread client, loading the owner's thread", async () => {
+  it("sends a signed-in visitor to the stage conversationStudioHref names", async () => {
     h.getSession.mockResolvedValue(SESSION);
-    const element = await DesignPage({ searchParams: Promise.resolve({ id: "design-1" }) });
-    expect(element.type).toBe(DesignPageClient);
-    const props = element.props as { initialThreadPromise: Promise<unknown>; canPublish: boolean };
-    expect(await props.initialThreadPromise).toEqual({ thread: true });
-    expect(h.getThread).toHaveBeenCalledWith("design-1", "u1");
-    expect(props.canPublish).toBe(true);
-    expect(h.redirect).not.toHaveBeenCalled();
+    const stage = "/studio?conversation=design-1&image=img-9";
+    h.studioHref.mockResolvedValue(stage);
+    expect(await redirectedTo({ id: "design-1" })).toBe(stage);
+    expect(h.studioHref).toHaveBeenCalledWith("u1", "design-1");
   });
 
-  it("does not redirect a guest with an id, and a guest cannot publish", async () => {
+  it("sends them to the bench when it says so (no result, closed, foreign, missing)", async () => {
+    h.getSession.mockResolvedValue(SESSION);
+    h.studioHref.mockResolvedValue("/studio");
+    expect(await redirectedTo({ id: "design-1" })).toBe("/studio");
+  });
+
+  it("looks the conversation up as a guest too", async () => {
     h.getSession.mockResolvedValue(GUEST);
-    const element = await DesignPage({ searchParams: Promise.resolve({ id: "design-1" }) });
-    expect(element.type).toBe(DesignPageClient);
-    expect((element.props as { canPublish: boolean }).canPublish).toBe(false);
+    h.studioHref.mockResolvedValue("/studio?conversation=design-1&image=img-9");
+    expect(await redirectedTo({ id: "design-1" })).toBe(
+      "/studio?conversation=design-1&image=img-9"
+    );
+    expect(h.studioHref).toHaveBeenCalledWith("g1", "design-1");
   });
 
-  it("a sessionless id visit still renders the thread client with a null thread", async () => {
-    const element = await DesignPage({ searchParams: Promise.resolve({ id: "design-1" }) });
-    expect(element.type).toBe(DesignPageClient);
-    expect(await (element.props as { initialThreadPromise: Promise<unknown> }).initialThreadPromise).toBeNull();
-    expect(h.getThread).not.toHaveBeenCalled();
+  it("sends a sessionless visitor to sign-in, with the link encoded as next", async () => {
+    const url = await redirectedTo({ id: "design-1" });
+    expect(url).toBe("/sign-in?next=" + encodeURIComponent("/design?id=design-1"));
+    expect(h.studioHref).not.toHaveBeenCalled();
   });
 
-  it("an id wins over a prompt (the old seed effect does not run for it)", async () => {
+  it("encodes a hostile id inside next, so it cannot add or end a param", async () => {
+    const url = await redirectedTo({ id: "a&b=c#d?e/../f" });
+    const params = new URL(url, "http://prntd.invalid").searchParams;
+    expect([...params.keys()]).toEqual(["next"]);
+    expect(params.get("next")).toBe(
+      "/design?id=" + encodeURIComponent("a&b=c#d?e/../f")
+    );
+  });
+
+  it("an id wins over a prompt: the prompt is dropped, no seed is built", async () => {
     h.getSession.mockResolvedValue(SESSION);
+    h.studioHref.mockResolvedValue("/studio?conversation=design-1&image=img-9");
+    const url = await redirectedTo({ id: "design-1", prompt: "a heron" });
+    expect(url).toBe("/studio?conversation=design-1&image=img-9");
+    expect(url).not.toContain("prompt");
+  });
+
+  it("an id wins over a prompt for a sessionless visitor too", async () => {
+    const url = await redirectedTo({ id: "design-1", prompt: "a heron" });
+    expect(url).toBe("/sign-in?next=" + encodeURIComponent("/design?id=design-1"));
+  });
+
+  it("a failed session read treats the visitor as signed out (sign-in), not a 500", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    h.getSession.mockRejectedValue(new Error("db down"));
+    const url = await redirectedTo({ id: "design-1" });
+    expect(url.startsWith("/sign-in?next=")).toBe(true);
+    expect(log).toHaveBeenCalled();
+    log.mockRestore();
+  });
+
+  it("a repeated id is not an id: it falls through to the no-id rules", async () => {
     const element = await DesignPage({
-      searchParams: Promise.resolve({ id: "design-1", prompt: "a heron" }),
+      searchParams: Promise.resolve({ id: ["a", "b"] }),
     });
-    expect(element.type).toBe(DesignPageClient);
-    expect(h.redirect).not.toHaveBeenCalled();
+    expect(element.type).toBe(DesignEntry);
+    expect(h.studioHref).not.toHaveBeenCalled();
   });
 });
 
 describe("/design route config", () => {
-  it("keeps the 300 s budget the thread's generations run under", () => {
-    expect(maxDuration).toBe(300);
+  it("sets no maxDuration: no generation starts from this route any more (R7)", () => {
+    expect("maxDuration" in pageModule).toBe(false);
   });
 });

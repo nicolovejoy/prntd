@@ -618,9 +618,9 @@ export type SourceImage = {
  *
  * Admin-hidden images are never returned, from any caller: nobody may buy,
  * print or mock one up, and the owner's own pages leave it out (the image
- * detail page keeps the notice for an old link). The /design gallery and the
- * AI context number images by position in this one list, so filtering here
- * keeps their numbering in agreement.
+ * detail page keeps the notice for an old link). The AI context numbers
+ * images by position in this one list, so filtering here keeps its numbering
+ * in agreement.
  */
 export async function getDesignSourceImages(
   designId: string,
@@ -692,7 +692,8 @@ export type ProductVersionGroup = {
  * this design are omitted entirely.
  *
  * A render of an admin-hidden source image is left out: it is the hidden
- * artwork on a shirt, and the callers are the owner's /design views. The check
+ * artwork on a shirt (its owner-facing callers, the /design views, were deleted
+ * in #188 slice 2c; only tests call this reader now). The check
  * is one level deep, on `source_image_id` against `image_publication`. Two
  * cases cannot be judged and are kept: a legacy render with no recorded source
  * (`source_image_id` NULL), and a render whose source is itself a render (a
@@ -780,9 +781,8 @@ export type DisplayImageOptions = {
  *
  * Use this everywhere a design's "main image URL" is needed —
  * card thumbnails, hydration. Callers today: the order actions, admin pages,
- * the Stripe webhook, order emails, the retry-fulfillment cron and
- * design-thread, plus `lineHiddenArt`. design-thread and `lineHiddenArt` pass
- * `excludeHidden`.
+ * the Stripe webhook, order emails and the retry-fulfillment cron, plus
+ * `lineHiddenArt`, which also passes `excludeHidden`.
  */
 export async function getDesignDisplayImageUrl(
   designId: string,

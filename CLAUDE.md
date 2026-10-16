@@ -78,8 +78,8 @@ Local `npm run build` needs env. Use CI's dummy block (copy it from `ci.yml`'s `
 /studio                 → Studio bench: composer on top, one lane per conversation (guests with a session allowed while GUEST_FUNNEL_ENABLED; #248); `?conversation=&image=` is the focused stage (#188 slice 4): one result large on its backdrop, composer under it, other results, history disclosure
 /designs                → My Designs (top nav): every owned image, Active/All filter (guests too; #258)
 /checkout?session=      → Stripe Embedded Checkout for purchases from the image detail page and the cart; 404 unless EMBEDDED_CHECKOUT_ENABLED is on (#250, #135, #278 slices 6a and 6b)
-/design?id=             → One conversation thread (older make surface; still reachable)
-/preview?id=            → Redirect to the image detail page with the same picks (#278 slice 4); `/design?id=` when the conversation has no image
+/design                 → Doorway, never a thread (#188 slice 2c): `?id=` redirects to that conversation's stage in the Studio (primary or newest result), or to the bench when it has no result, is closed, is not the viewer's or does not exist (sessionless: sign-in and back; a GET never reopens); with no id, a visitor with a session goes to `/studio` (carrying `?prompt=` as a seed) and one without gets the guest-session hop first. The landing, the empty cart and "Order not found." link here
+/preview?id=            → Redirect to the image detail page with the same picks (#278 slice 4); for the owner, where `/design?id=` would go when the link names no image and the conversation has no primary (#188 slice 2c)
 /d/[imageId]            → Image detail page: public for published images, owner view for private ones; buy, add to cart, start a new design from it
 /shop                   → Shop feed of published designs
 /cart                   → Multi-item cart

@@ -310,7 +310,7 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Sear
               <Button size="lg" className="w-full">View orders</Button>
             </Link>
             <Link
-              href="/design"
+              href="/studio"
               className="min-h-11 inline-flex items-center justify-center text-sm underline underline-offset-[3px]"
             >
               Start another design

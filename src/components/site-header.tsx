@@ -53,7 +53,7 @@ export function SiteHeader({
 
   // Generations running for this user anywhere — the durable job outlives the
   // tab that started it, so the header is where you find out one is still
-  // going after navigating away from /design.
+  // going after navigating away from the Studio.
   const [runningJobs, setRunningJobs] = useState(0);
   useEffect(() => {
     getHeaderState(showCart)

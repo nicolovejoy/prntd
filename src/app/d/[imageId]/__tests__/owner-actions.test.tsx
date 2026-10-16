@@ -8,7 +8,11 @@ vi.mock("../publish-cta", () => ({
   PublishCta: () => <button>Publish</button>,
 }));
 vi.mock("../conversation-actions", () => ({
-  ConversationActions: () => <button>Open conversation</button>,
+  ConversationActions: ({ designId, imageId }: { designId: string; imageId: string }) => (
+    <button data-design-id={designId} data-image-id={imageId}>
+      Open conversation
+    </button>
+  ),
 }));
 
 import { OwnerActions } from "../owner-actions";
@@ -28,9 +32,11 @@ describe("OwnerActions", () => {
     expect(screen.getByText("Owner")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Un-publish" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Publish" })).not.toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Open conversation" })
-    ).toBeInTheDocument();
+    const open = screen.getByRole("button", { name: "Open conversation" });
+    expect(open).toBeInTheDocument();
+    // The stage opens on the image the page shows, so the row passes it down.
+    expect(open).toHaveAttribute("data-design-id", "design-1");
+    expect(open).toHaveAttribute("data-image-id", "img-1");
   });
 
   it("states unpublished status and offers Publish", () => {

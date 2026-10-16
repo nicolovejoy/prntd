@@ -105,7 +105,6 @@ const {
   uploadReferenceImage,
   closeConversation,
   reopenConversation,
-  getDesignChat,
 } = await import("@/app/design/actions");
 const { assertUsablePlacementImage } = await import("@/lib/back-sources");
 const ai = await import("@/lib/ai");
@@ -191,8 +190,15 @@ describe("closed conversation blocks the write actions", () => {
   it("keeps the history readable and the images usable as a back source", async () => {
     const { designId, imageId } = await seedClosedDesign();
 
-    // Read path unaffected.
-    expect(await getDesignChat(designId)).toEqual([]);
+    // Read path unaffected: closing writes nothing to the history. Read the
+    // rows directly; the thread's reader action was deleted with the thread
+    // view (#188 slice 2c).
+    expect(
+      await testDb
+        .select()
+        .from(schema.chatMessage)
+        .where(eq(schema.chatMessage.designId, designId))
+    ).toEqual([]);
     // The closed thread's image still passes the placement-source guard
     // (owner path) — closed constrains the thread, never the images.
     await expect(

@@ -1255,7 +1255,8 @@ export function StudioClient({
   }
 
   // Clear a lane by hand — Nico's "dead design" case. Close is the existing
-  // reversible verb (closed_at; Reopen lives on /designs and /design), so
+  // reversible verb (closed_at; Reopen is "Open conversation" on the image
+  // detail page, and My Designs lists closed conversations), so
   // this is a new caller of an existing state, same as slice 4's auto-archive
   // will be. Optimistic: the lane leaves now, comes back on error.
   async function closeLane(lane: StudioLane) {
@@ -1904,6 +1905,8 @@ function Lane({
   const scrollRef = useRef<HTMLDivElement>(null);
   const cellCount = lane.cells.length + lane.pending.length;
   const generating = lane.pending.length > 0;
+  // Null for a lane with no cells yet: its title is plain text.
+  const stageHref = laneStageHref(lane);
   // Selectable = nothing running. Deleting under a render would land the
   // image in a thread that just left the bench; the checkbox says why.
   const selectable = selectMode && !generating;
@@ -1963,17 +1966,19 @@ function Lane({
             />
           </label>
         )}
-        {selectMode ? (
+        {selectMode || !stageHref ? (
+          // Plain text while selecting, and for a lane with no cells yet: it
+          // is already on the bench and has no stage to open (#188 slice 2c).
           <h2 className="min-w-0 flex-1 text-sm font-medium truncate">
             {lane.title ?? "Untitled"}
           </h2>
         ) : (
           // The stage of the lane's primary cell, else its newest (#188
-          // slice 4); a lane with no cells yet keeps its thread link.
+          // slice 4).
           <Link
-            href={laneStageHref(lane) ?? `/design?id=${lane.designId}`}
+            href={stageHref}
             onClick={(e) => {
-              if (!laneStageHref(lane) || isModifiedClick(e)) return;
+              if (isModifiedClick(e)) return;
               e.preventDefault();
               const target = lane.cells.findIndex((c) => c.isPrimary);
               onOpenCell(lane, target === -1 ? lane.cells.length - 1 : target);
@@ -2037,9 +2042,8 @@ function Lane({
       <div ref={scrollRef} className="flex gap-2 overflow-x-auto pb-1">
         {lane.cells.map((cell, index) => {
           const anchored = cell.imageId === anchoredImageId;
-          // Creation order, same convention as the /design strip (#151):
-          // #1 is the lane's first image, and a later generation never
-          // renumbers an earlier one.
+          // Creation order (#151): #1 is the lane's first image, and a later
+          // generation never renumbers an earlier one.
           const label = `#${index + 1}`;
           // The ink well is the same colour as border-foreground and the
           // muted label colour, so on it the anchored cue and the #N / Primary
