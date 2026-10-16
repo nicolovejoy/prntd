@@ -1255,7 +1255,8 @@ export function StudioClient({
   }
 
   // Clear a lane by hand — Nico's "dead design" case. Close is the existing
-  // reversible verb (closed_at; Reopen lives on /designs and /design), so
+  // reversible verb (closed_at; Reopen is "Open conversation" on the image
+  // detail page, and My Designs lists closed conversations), so
   // this is a new caller of an existing state, same as slice 4's auto-archive
   // will be. Optimistic: the lane leaves now, comes back on error.
   async function closeLane(lane: StudioLane) {

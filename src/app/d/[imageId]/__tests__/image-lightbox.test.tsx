@@ -149,7 +149,7 @@ describe("ImageLightbox closing", () => {
     expect(screen.getByRole("button", { name: "Close" })).toHaveFocus();
   });
 
-  it("restores focus to whatever opened it on unmount (Studio's cell tap is now the primary gesture, #236 follow-up)", () => {
+  it("restores focus to whatever opened it on unmount (#236 follow-up)", () => {
     const opener = document.createElement("button");
     opener.textContent = "Opener cell";
     document.body.appendChild(opener);

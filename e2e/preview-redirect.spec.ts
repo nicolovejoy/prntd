@@ -38,6 +38,7 @@ test("an old /preview link opens the image detail page with the same picks (#278
     const noPrimary = await seedDesign(ownerId, `${key}-b`);
     seeded.push(withPrimary, noPrimary);
     const primary = (await primaryImageIdForDesign(withPrimary))!;
+    const noPrimaryImage = (await primaryImageIdForDesign(noPrimary))!;
     await clearPrimaryImage(noPrimary);
 
     // 1. A conversation with a primary: its page, panel open.
@@ -54,11 +55,16 @@ test("an old /preview link opens the image detail page with the same picks (#278
     await expect(page.getByRole("button", { name: "M", exact: true }).first()).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByText("Color — Black")).toBeVisible();
 
-    // 3. No primary: the Studio bench (#188 slice 2c; it was /design?id=).
+    // 3. No primary: where /design?id= goes (#188 slice 2c), the Studio stage
+    // on the conversation's newest result.
     await page.goto(`/preview?id=${noPrimary}`);
-    await page.waitForURL((url) => url.pathname === "/studio" && url.search === "", {
-      timeout: 30_000,
-    });
+    await page.waitForURL(
+      (url) =>
+        url.pathname === "/studio" &&
+        url.searchParams.get("conversation") === noPrimary &&
+        url.searchParams.get("image") === noPrimaryImage,
+      { timeout: 30_000 }
+    );
 
     // 4. /order forwards to /preview, which redirects on.
     await page.goto(`/order?id=${withPrimary}&size=L`);

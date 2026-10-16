@@ -51,7 +51,7 @@ async function seed(db: Db) {
   });
 
   const empty = await makeDesign(db, "owner");
-  await makeSourceImage(db, {
+  const emptyImage = await makeSourceImage(db, {
     designId: empty.id,
     ownerId: "owner",
     imageUrl: "https://img.example/empty.png",
@@ -74,6 +74,7 @@ async function seed(db: Db) {
     conv: conv.id,
     otherConv: otherConv.id,
     empty: empty.id,
+    emptyImage,
     hiddenConv: hiddenConv.id,
     primary,
     second,
@@ -134,9 +135,11 @@ describe("resolvePreviewRedirect (#278 slice 4)", () => {
     ).toBe(`/d/${ids.primary}?order=1`);
   });
 
-  it("a conversation with no primary goes to the bench", async () => {
+  it("a conversation with no primary goes where /design?id= goes: the stage on its newest result", async () => {
     const ids = await seed(h.db as Db);
-    expect(await resolvePreviewRedirect({ id: ids.empty }, "owner")).toBe("/studio");
+    expect(await resolvePreviewRedirect({ id: ids.empty }, "owner")).toBe(
+      `/studio?conversation=${ids.empty}&image=${ids.emptyImage}`
+    );
   });
 
   it("the front names the page", async () => {

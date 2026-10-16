@@ -326,8 +326,8 @@ export async function generateDesign(
     /**
      * Client-minted job id (#245). Lets a lost/replayed response be
      * reconciled by looking this exact id up: `insertGenerationJob` uses it
-     * for the `image_generation` row instead of a random one. Optional — the
-     * older `/design` surface does not send one.
+     * for the `image_generation` row instead of a random one. Optional; every
+     * caller today (the Studio composer and its landing seed) sends one.
      */
     jobId?: string;
   } = {}
@@ -549,7 +549,7 @@ export async function generateDesign(
 
   // Past this line a job row exists and owns its own quota unit. Hand the
   // render to the background: `after` keeps the function instance alive past
-  // the response for up to the route's maxDuration (see design/page.tsx —
+  // the response for up to the route's maxDuration (see studio/page.tsx —
   // server actions inherit the RENDERING route's segment config), and the
   // continuation never throws past that boundary; an unhandled rejection can
   // take down the shared Fluid instance and with it other users' work.

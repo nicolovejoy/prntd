@@ -112,7 +112,7 @@ test("the image detail page opens the Studio stage on its image, from Open conve
   }
 });
 
-test("signed out, an old /design?id= link goes to sign-in and comes back to it (#188 slice 2c)", async ({ browser }, testInfo) => {
+test("signed out, an old /design?id= link goes to sign-in carrying itself as next (#188 slice 2c)", async ({ browser }, testInfo) => {
   const context = await browser.newContext({ baseURL: testInfo.project.use.baseURL });
   try {
     const page = await context.newPage();

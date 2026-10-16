@@ -19,6 +19,7 @@ import {
   parseIdParam,
 } from "@/lib/buy-page-picks";
 import { withNext } from "@/lib/safe-next";
+import { conversationStudioHref } from "@/lib/studio-entry";
 
 type Search = Record<string, string | string[] | undefined>;
 
@@ -75,9 +76,12 @@ export function previewPath(link: PreviewLink): string {
  *  - a viewer who does not own the conversation: the front's page if the link
  *    names one (the page shows a published image and 404s a private one),
  *    else the bench (`/studio`). The conversation's primary is never revealed;
- *  - the owner: the front's page, or the primary's; the bench when there is
- *    neither. These last two always have a session, so they skip the
- *    doorway (#188 slice 2c, R6). A swapped link (front from elsewhere, back
+ *  - the owner: the front's page, or the primary's; when there is neither,
+ *    `resolvePreviewRedirect` sends them where `/design?id=` would
+ *    (`conversationStudioHref`: the stage on the newest result, else the
+ *    bench), and this function's own answer for that case is the bench.
+ *    These last two always have a session, so they skip the doorway (#188
+ *    slice 2c, R6). A swapped link (front from elsewhere, back
  *    from this conversation) opens the back's page with `swap=1`: the same
  *    shirt, ordered on the conversation the link named.
  */
@@ -137,6 +141,10 @@ export async function resolvePreviewRedirect(
   }
 
   const front = link.front ?? row.primaryImageId;
+  // The owner's link names no image and the conversation has no primary: the
+  // same place an old /design?id= link goes (the stage on its newest result,
+  // else the bench), so the two legacy links never disagree.
+  if (!front) return conversationStudioHref(viewerId, link.designId);
   const candidates = [front, link.back].filter((v): v is string => Boolean(v));
   const linked =
     candidates.length > 0
