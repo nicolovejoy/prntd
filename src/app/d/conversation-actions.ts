@@ -32,8 +32,8 @@ import { reopenConversation } from "@/app/design/actions";
  * promise that opening returns it would be false.
  *
  * Archived only ever means "was ordered", so that is the status it goes back
- * to. Navigation is the caller's: the client pushes /design?id= once this
- * resolves.
+ * to. Navigation is the caller's: the client opens the Studio's stage once
+ * this resolves.
  */
 export async function openConversation(designId: string): Promise<void> {
   await reopenConversation(designId);

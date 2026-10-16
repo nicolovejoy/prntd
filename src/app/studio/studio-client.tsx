@@ -1904,6 +1904,8 @@ function Lane({
   const scrollRef = useRef<HTMLDivElement>(null);
   const cellCount = lane.cells.length + lane.pending.length;
   const generating = lane.pending.length > 0;
+  // Null for a lane with no cells yet: its title is plain text.
+  const stageHref = laneStageHref(lane);
   // Selectable = nothing running. Deleting under a render would land the
   // image in a thread that just left the bench; the checkbox says why.
   const selectable = selectMode && !generating;
@@ -1963,17 +1965,19 @@ function Lane({
             />
           </label>
         )}
-        {selectMode ? (
+        {selectMode || !stageHref ? (
+          // Plain text while selecting, and for a lane with no cells yet: it
+          // is already on the bench and has no stage to open (#188 slice 2c).
           <h2 className="min-w-0 flex-1 text-sm font-medium truncate">
             {lane.title ?? "Untitled"}
           </h2>
         ) : (
           // The stage of the lane's primary cell, else its newest (#188
-          // slice 4); a lane with no cells yet keeps its thread link.
+          // slice 4).
           <Link
-            href={laneStageHref(lane) ?? `/design?id=${lane.designId}`}
+            href={stageHref}
             onClick={(e) => {
-              if (!laneStageHref(lane) || isModifiedClick(e)) return;
+              if (isModifiedClick(e)) return;
               e.preventDefault();
               const target = lane.cells.findIndex((c) => c.isPrimary);
               onOpenCell(lane, target === -1 ? lane.cells.length - 1 : target);

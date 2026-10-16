@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { startConversationFromImage } from "@/app/design/actions";
 import { ensureGuestSession } from "@/lib/ensure-guest-session";
+import { focusHref } from "@/lib/studio-focus";
 import { InlineNotice } from "@/components/ui";
 import { START_FROM_IMAGE_FAILED } from "@/lib/action-copy";
 
@@ -10,7 +11,9 @@ import { START_FROM_IMAGE_FAILED } from "@/lib/action-copy";
  * Fresh-start entry on the public image page (slice 3): open a new
  * conversation seeded by this published image — a reference link, not a
  * copy. Open to guests like the rest of the design funnel: a session is
- * minted on tap if needed (ensureGuestSession), same as /design.
+ * minted on tap if needed (ensureGuestSession), same as the /design doorway.
+ * It lands on the Studio's stage for this image, which is the new
+ * conversation's one cell (a seed is a cell, #188 slice 2c).
  *
  * Renders as a small text action beside the one primary "Order" (Paper
  * slice 5, #188) — it used to be a second full-width button, visually
@@ -26,7 +29,7 @@ export function StartFromImage({ imageId }: { imageId: string }) {
     try {
       await ensureGuestSession();
       const { designId } = await startConversationFromImage(imageId);
-      window.location.assign(`/design?id=${designId}`);
+      window.location.assign(focusHref({ designId, imageId }));
     } catch {
       // The thrown message is a Next.js digest in production, so the line
       // says what happened in our own words instead.

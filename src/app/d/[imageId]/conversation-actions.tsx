@@ -7,6 +7,7 @@ import {
   DELETE_CONVERSATION_CONSEQUENCE,
   DELETE_CONVERSATION_TITLE,
 } from "@/lib/design-view";
+import { focusHref } from "@/lib/studio-focus";
 import { useConfirm, InlineNotice } from "@/components/ui";
 import { DELETE_CONVERSATION_FAILED, OPEN_CONVERSATION_FAILED } from "@/lib/action-copy";
 
@@ -17,8 +18,9 @@ import { DELETE_CONVERSATION_FAILED, OPEN_CONVERSATION_FAILED } from "@/lib/acti
  * carry Delete is gone, where it is deleted from.
  *
  * "Open conversation" reopens the thread first when it has archived out of
- * the Studio, so the link always lands on a writable conversation rather than
- * a read-only record with no explanation.
+ * the Studio, then opens the Studio's stage on the image this page shows
+ * (#188 slice 2c). The reopen is what makes the stage resolvable: a closed
+ * conversation has no lane to focus.
  *
  * Root renders `display: contents` (see below) so its children join the
  * OWNER row's own flex layout — this component must only ever be mounted
@@ -26,9 +28,12 @@ import { DELETE_CONVERSATION_FAILED, OPEN_CONVERSATION_FAILED } from "@/lib/acti
  */
 export function ConversationActions({
   designId,
+  imageId,
   archived,
 }: {
   designId: string;
+  /** The image this page shows; the stage opens on it. */
+  imageId: string;
   /** Source conversation is closed — opening it reopens it first. */
   archived: boolean;
 }) {
@@ -41,7 +46,7 @@ export function ConversationActions({
     setError(null);
     try {
       await openConversation(designId);
-      window.location.assign(`/design?id=${designId}`);
+      window.location.assign(focusHref({ designId, imageId }));
     } catch {
       setError(OPEN_CONVERSATION_FAILED);
       setBusy(null);

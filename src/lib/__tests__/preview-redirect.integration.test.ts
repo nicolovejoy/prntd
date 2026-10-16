@@ -134,11 +134,9 @@ describe("resolvePreviewRedirect (#278 slice 4)", () => {
     ).toBe(`/d/${ids.primary}?order=1`);
   });
 
-  it("a conversation with no primary goes to /design?id=", async () => {
+  it("a conversation with no primary goes to the bench", async () => {
     const ids = await seed(h.db as Db);
-    expect(await resolvePreviewRedirect({ id: ids.empty }, "owner")).toBe(
-      `/design?id=${ids.empty}`
-    );
+    expect(await resolvePreviewRedirect({ id: ids.empty }, "owner")).toBe("/studio");
   });
 
   it("the front names the page", async () => {
@@ -208,7 +206,7 @@ describe("resolvePreviewRedirect (#278 slice 4)", () => {
   it("a signed-in viewer who does not own the conversation never sees its primary", async () => {
     const ids = await seed(h.db as Db);
     const noFront = await resolvePreviewRedirect({ id: ids.conv }, "stranger");
-    expect(noFront).toBe("/design");
+    expect(noFront).toBe("/studio");
     expect(noFront).not.toContain(ids.primary);
     expect(
       await resolvePreviewRedirect(
@@ -221,7 +219,7 @@ describe("resolvePreviewRedirect (#278 slice 4)", () => {
   it("a conversation that does not exist is treated like someone else's", async () => {
     await seed(h.db as Db);
     expect(await resolvePreviewRedirect({ id: "no-such-design" }, "owner")).toBe(
-      "/design"
+      "/studio"
     );
   });
 

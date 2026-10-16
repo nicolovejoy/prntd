@@ -1,7 +1,7 @@
 /**
  * One buy surface, slice 4 (#278): an old /preview link opens the image
  * detail page of the image it showed, with the panel open and the same picks.
- * A conversation with no primary image goes to the conversation; /order (which
+ * A conversation with no primary image goes to the Studio bench; /order (which
  * forwards to /preview) still lands; a signed-out visitor goes to sign-in and
  * is brought back to the same link.
  */
@@ -54,12 +54,11 @@ test("an old /preview link opens the image detail page with the same picks (#278
     await expect(page.getByRole("button", { name: "M", exact: true }).first()).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByText("Color — Black")).toBeVisible();
 
-    // 3. No primary: the conversation, as /preview did.
+    // 3. No primary: the Studio bench (#188 slice 2c; it was /design?id=).
     await page.goto(`/preview?id=${noPrimary}`);
-    await page.waitForURL(
-      (url) => url.pathname === "/design" && url.searchParams.get("id") === noPrimary,
-      { timeout: 30_000 }
-    );
+    await page.waitForURL((url) => url.pathname === "/studio" && url.search === "", {
+      timeout: 30_000,
+    });
 
     // 4. /order forwards to /preview, which redirects on.
     await page.goto(`/order?id=${withPrimary}&size=L`);
