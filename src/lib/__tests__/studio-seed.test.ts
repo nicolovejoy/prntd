@@ -1,9 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { BENCH_HREF } from "@/lib/studio-focus";
 import {
+  isSeedFired,
+  markSeedFired,
+  parseFiredSeeds,
   parseSeed,
   readSeedPrompt,
-  seedFiredKey,
+  SEED_FIRED_CAP,
+  SEED_FIRED_STORAGE_KEY,
   seedHref,
 } from "@/lib/studio-seed";
 import { isUuid } from "@/lib/uuid";
@@ -150,8 +154,75 @@ describe("readSeedPrompt", () => {
   });
 });
 
-describe("seedFiredKey", () => {
-  it("namespaces the sessionStorage key by the seed's job id", () => {
-    expect(seedFiredKey(JOB)).toBe(`studio-seed:${JOB}`);
+describe("the fired-seeds list", () => {
+  const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+
+  it("lives under one localStorage key and caps at 50", () => {
+    expect(SEED_FIRED_STORAGE_KEY).toBe("studio-seeds-fired");
+    expect(SEED_FIRED_CAP).toBe(50);
+  });
+
+  describe("parseFiredSeeds", () => {
+    it("reads a JSON array of ids", () => {
+      expect(parseFiredSeeds(JSON.stringify([id(1), id(2)]))).toEqual([id(1), id(2)]);
+    });
+    it("is empty for nothing stored", () => {
+      expect(parseFiredSeeds(null)).toEqual([]);
+      expect(parseFiredSeeds("")).toEqual([]);
+    });
+    it("counts a corrupt value as empty", () => {
+      expect(parseFiredSeeds("{not json")).toEqual([]);
+      expect(parseFiredSeeds('{"a":1}')).toEqual([]);
+      expect(parseFiredSeeds('"text"')).toEqual([]);
+      expect(parseFiredSeeds("null")).toEqual([]);
+    });
+    it("drops entries that are not strings", () => {
+      expect(parseFiredSeeds(JSON.stringify([id(1), 7, null, { a: 1 }, id(2)]))).toEqual([
+        id(1),
+        id(2),
+      ]);
+    });
+  });
+
+  describe("isSeedFired", () => {
+    it("is true only for an id on the list", () => {
+      const raw = JSON.stringify([id(1), id(2)]);
+      expect(isSeedFired(raw, id(2))).toBe(true);
+      expect(isSeedFired(raw, id(3))).toBe(false);
+      expect(isSeedFired(null, id(1))).toBe(false);
+      expect(isSeedFired("{not json", id(1))).toBe(false);
+    });
+  });
+
+  describe("markSeedFired", () => {
+    it("appends the id, newest last", () => {
+      const raw = markSeedFired(JSON.stringify([id(1)]), id(2));
+      expect(JSON.parse(raw)).toEqual([id(1), id(2)]);
+    });
+    it("starts a list from nothing, and rewrites a corrupt value", () => {
+      expect(JSON.parse(markSeedFired(null, id(1)))).toEqual([id(1)]);
+      expect(JSON.parse(markSeedFired("{not json", id(1)))).toEqual([id(1)]);
+    });
+    it("does not list an id twice; marking again makes it the newest", () => {
+      const raw = markSeedFired(JSON.stringify([id(1), id(2)]), id(1));
+      expect(JSON.parse(raw)).toEqual([id(2), id(1)]);
+    });
+    it("keeps the newest 50", () => {
+      let raw: string | null = null;
+      for (let n = 1; n <= 60; n++) raw = markSeedFired(raw, id(n));
+      const list = JSON.parse(raw as string) as string[];
+      expect(list).toHaveLength(50);
+      expect(list[0]).toBe(id(11));
+      expect(list[49]).toBe(id(60));
+      expect(isSeedFired(raw, id(10))).toBe(false);
+      expect(isSeedFired(raw, id(11))).toBe(true);
+    });
+    it("trims an oversized stored list as well", () => {
+      const big = JSON.stringify(Array.from({ length: 80 }, (_, i) => id(i + 1)));
+      const list = JSON.parse(markSeedFired(big, id(500))) as string[];
+      expect(list).toHaveLength(50);
+      expect(list[49]).toBe(id(500));
+      expect(list[0]).toBe(id(32));
+    });
   });
 });

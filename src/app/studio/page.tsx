@@ -45,7 +45,8 @@ export default async function StudioPage({
   // fresh ids (R3) — the gate below already points its sign-in bounce at
   // that address, so the idea survives either path. The page never strips
   // the params afterwards: a history write there races the Generate
-  // action (#311); the ids make a second fire a replay instead.
+  // action (#311). The client remembers a fired seed in localStorage, and
+  // the server's replay check on (lane, seed) backs that up.
   const parsed: ParsedSeed = focus ? { kind: "none" } : parseSeed(sp);
   const seedAddress =
     parsed.kind === "complete"

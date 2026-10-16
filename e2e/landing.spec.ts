@@ -59,7 +59,7 @@ async function expectLandingIdeaOnTheBench(page: Page, idea: string) {
   await expect(page.getByTestId("studio-lane")).toHaveCount(1);
   // The seed's mount effect runs at hydration, and its server action lands
   // within a moment of it. Give a second fire that long to show itself; the
-  // sessionStorage mark is what keeps the count at one.
+  // localStorage mark is what keeps the count at one.
   await page.waitForTimeout(2_000);
   expect(await userTurnCountForUser(userId)).toBe(1);
   await expect(page.getByTestId("studio-lane")).toHaveCount(1);

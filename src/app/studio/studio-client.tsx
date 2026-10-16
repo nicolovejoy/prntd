@@ -74,7 +74,13 @@ import {
   resolveFocus,
   type StudioFocus,
 } from "@/lib/studio-focus";
-import { seedFiredKey, type StudioSeed } from "@/lib/studio-seed";
+import {
+  isSeedFired,
+  markSeedFired,
+  parseSeed,
+  SEED_FIRED_STORAGE_KEY,
+  type StudioSeed,
+} from "@/lib/studio-seed";
 import {
   attachReferenceImage,
   deleteConversations,
@@ -533,13 +539,17 @@ export function StudioClient({
   // new conversation (lane) and the client job id (seed), and nothing here
   // strips it: a history write on this page races the Generate action and
   // breaks Back on a hard load (#311, #312). So the guards are:
+  //   - the URL, read now: fire only for the seed the address bar names, and
+  //     only while it is not a stage address. Back from the image detail
+  //     page remounts with the seed render's props while the URL is the
+  //     stage, so the props alone cannot be trusted;
   //   - a ref, so Strict Mode's double effect cannot fire it twice;
-  //   - a sessionStorage mark, set before the call, so a remount or reload
-  //     of this tab (including Back from the image detail page, which
-  //     remounts with the cached props) does not fire it again;
-  //   - the server's replay check on (user, lane, seed), which returns the
-  //     original job when storage is unavailable or the address is opened in
-  //     another tab.
+  //   - a mark in localStorage (the last 50 seed job ids, one key), set
+  //     before the call, so a remount, a reload, or the same address
+  //     reopened in another tab of this browser does not fire it again;
+  //   - the server's replay check on (user, lane, seed), the authority: it
+  //     returns the original job when storage is unavailable or the mark is
+  //     lost (a cleared browser, another browser).
   // A stage address wins (the page already drops the seed then). At the
   // in-flight cap the idea goes into the composer for the visitor to send,
   // and the cap notice says why; a refusal or a throw takes runTurn's own
@@ -547,15 +557,28 @@ export function StudioClient({
   const seedStarted = useRef(false);
   useEffect(() => {
     if (!initialSeed || initialFocus || seedStarted.current) return;
+    const search = new URLSearchParams(window.location.search);
+    const named = parseSeed(search);
+    if (
+      named.kind !== "complete" ||
+      named.seed.jobId !== initialSeed.jobId ||
+      parseFocus(search) !== null
+    ) {
+      return;
+    }
     seedStarted.current = true;
-    const key = seedFiredKey(initialSeed.jobId);
+    let marks: string | null = null;
     try {
-      if (window.sessionStorage.getItem(key) !== null) return;
+      marks = window.localStorage.getItem(SEED_FIRED_STORAGE_KEY);
     } catch {
       // Storage unavailable: carry on, the server's replay check covers it.
     }
+    if (isSeedFired(marks, initialSeed.jobId)) return;
     try {
-      window.sessionStorage.setItem(key, "1");
+      window.localStorage.setItem(
+        SEED_FIRED_STORAGE_KEY,
+        markSeedFired(marks, initialSeed.jobId)
+      );
     } catch {
       // Same: the mark is a convenience, not the guard of last resort.
     }
