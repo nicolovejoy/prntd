@@ -48,7 +48,9 @@ async function waitForHeroHydration(hero: Locator) {
  * which must neither add a lane nor fire the idea again.
  */
 async function expectLandingIdeaOnTheBench(page: Page, idea: string) {
-  await expect(page).toHaveURL(/\/studio\?/);
+  // 20 s: the guest mint behind the hop can be rate-limited (3 sign-ins per
+  // 10 s per IP) and is then retried once after about 10 s.
+  await expect(page).toHaveURL(/\/studio\?/, { timeout: 20_000 });
   expect(new URL(page.url()).searchParams.get("prompt")).toBe(idea);
   await expect(page.getByTestId("studio-lane")).toHaveCount(1);
 

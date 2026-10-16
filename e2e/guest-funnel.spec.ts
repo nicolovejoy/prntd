@@ -19,13 +19,19 @@ import {
   userIdForSessionCookie,
 } from "./helpers/db";
 
+// A fresh guest mint can be refused by Better-Auth's sign-in rate limit (3 per
+// 10 s per IP); /design's entry page then waits about 10 s and retries once,
+// so the Studio can legitimately take that long to appear.
+const STUDIO_AFTER_MINT_MS = 20_000;
+
 test("/design takes a signed-out visitor to the Studio as a guest", async ({
   page,
 }) => {
   await page.goto("/design");
   // /design no longer renders a page of its own (#188 slice 2b): it mints the
-  // guest session and replaces itself with the Studio bench.
-  await expect(page).toHaveURL(/\/studio$/);
+  // guest session and replaces itself with the Studio bench. The timeout
+  // covers one automatic retry after a rate-limited mint (see below).
+  await expect(page).toHaveURL(/\/studio$/, { timeout: STUDIO_AFTER_MINT_MS });
   await expect(page).not.toHaveURL(/sign-in/);
   // The empty bench: the composer, and nothing to keep yet (the sign-up line
   // appears with the guest's first lane).
@@ -38,7 +44,42 @@ test("/design takes a signed-out visitor to the Studio as a guest", async ({
 test("a guest on /design gets an anonymous session", async ({ page }) => {
   await page.goto("/design");
   await waitForSessionCookie(page);
-  await expect(page).toHaveURL(/\/studio$/);
+  await expect(page).toHaveURL(/\/studio$/, { timeout: STUDIO_AFTER_MINT_MS });
+});
+
+test("a rate-limited guest mint is retried once on its own and still reaches the Studio", async ({
+  page,
+  request,
+  baseURL,
+}, testInfo) => {
+  // One browser project is enough: the limiter is per IP, not per viewport.
+  test.skip(testInfo.project.name !== "mobile", "viewport-independent");
+  test.setTimeout(60_000);
+
+  // Better-Auth allows 3 sign-ins per 10 s per IP. Fill the window from
+  // outside the page (a separate request context, so no cookie reaches the
+  // page) until the limiter answers 429.
+  let limited = false;
+  for (let i = 0; i < 6 && !limited; i++) {
+    const res = await request.post("/api/auth/sign-in/anonymous", {
+      headers: { origin: baseURL ?? "" },
+    });
+    limited = res.status() === 429;
+  }
+  expect(limited).toBe(true);
+
+  // The page's own mint is refused too; it keeps the status line up, waits
+  // the stated Retry-After and tries again, instead of landing on sign-in.
+  const refused = page.waitForResponse(
+    (r) => r.url().includes("/sign-in/anonymous") && r.status() === 429
+  );
+  await page.goto("/design");
+  await refused;
+  await expect(page.getByTestId("design-entry-status")).toBeVisible();
+  await expect(page).not.toHaveURL(/sign-in/);
+
+  await expect(page).toHaveURL(/\/studio$/, { timeout: STUDIO_AFTER_MINT_MS });
+  await waitForSessionCookie(page);
 });
 
 test("personal routes still redirect a visitor with no session to sign-in", async ({
