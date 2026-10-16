@@ -1,6 +1,5 @@
 // What counts as a typed request to generate. Pure so it can be tested
-// directly — `chat-panel.tsx` is a client component and `design/actions.ts`
-// is "use server" (async exports only).
+// directly — `design/actions.ts` is "use server" (async exports only).
 
 // "draw it"/"draw" kept for muscle memory from the old button label; typing
 // any of these behaves like tapping Generate.

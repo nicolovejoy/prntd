@@ -110,14 +110,14 @@ export function laneLastActiveAt(input: {
  *
  * One of two `after()`-scheduled sweep sites (the other is
  * `site-header-actions.ts`, #210). The remaining lazy call sites
- * (`design/actions.ts`'s `getDesignJobs`, `user-designs.ts`,
- * `design-thread.ts`) still sweep inline on the request — `getDesignJobs`
- * because it is the poll surface that must report the transition the sweep
- * makes, and the other two because they are already batched into the same
- * `Promise.all` as their own query, so they add no serial hop. The Studio
- * has TWO sweeps (a timeout transition, an archive), and they were running
- * serially before the lanes query even started — `after()`, not
- * `Promise.all`, is what actually gets that off the response.
+ * (`design/actions.ts`'s `getDesignJobs` and `user-designs.ts`) still sweep
+ * inline on the request — `getDesignJobs` because it is the poll surface that
+ * must report the transition the sweep makes, and `user-designs.ts` because
+ * it is already batched into the same `Promise.all` as its own query, so it
+ * adds no serial hop. The Studio has TWO sweeps (a timeout transition, an
+ * archive), and they were running serially before the lanes query even
+ * started — `after()`, not `Promise.all`, is what actually gets that off the
+ * response.
  *
  * The data `getStudioLanesData` returns may therefore be one sweep behind.
  * That self-corrects differently for the two things this sweeps: a stale

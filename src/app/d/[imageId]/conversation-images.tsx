@@ -4,12 +4,12 @@ import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
 import { setPrimaryImage } from "@/app/design/actions";
-import { ImageLightbox, type LightboxImage } from "@/app/design/image-lightbox";
 import { Button, InlineNotice } from "@/components/ui";
 import { SET_PRIMARY_IMAGE_FAILED } from "@/lib/action-copy";
 import { siblingImageHref } from "@/lib/buy-page-picks";
 import type { SiblingImage } from "../actions";
 import { useOpenBuyPanelPicks } from "./buy-panel-picks-context";
+import { ImageLightbox, type LightboxImage } from "./image-lightbox";
 import { MONO_LABEL } from "./mono-label";
 
 const STRIP_SIZES = "88px";
@@ -75,8 +75,7 @@ export function ConversationImages({
 
   const href = (imageId: string) => siblingImageHref(imageId, openPicks, from);
 
-  // `#N` = position in the full seed-inclusive list, which is the same order
-  // the /design thread numbers its generations in.
+  // `#N` = position in the full seed-inclusive list (the strip's own labels).
   const lightboxImages: LightboxImage[] = images.map((img, i) => ({
     id: img.imageId,
     number: i + 1,

@@ -6,9 +6,9 @@ import { ImageLightbox, type LightboxImage } from "../image-lightbox";
 // `number` values deliberately differ from index + 1 so the "#N of M" label
 // can only pass by reading the field, not the position.
 const images: LightboxImage[] = [
-  { id: "img-a", number: 3, url: "https://img.example/a.png", publishedAt: null },
-  { id: "img-b", number: 7, url: "https://img.example/b.png", publishedAt: null },
-  { id: "img-c", number: 12, url: "https://img.example/c.png", publishedAt: null },
+  { id: "img-a", number: 3, url: "https://img.example/a.png" },
+  { id: "img-b", number: 7, url: "https://img.example/b.png" },
+  { id: "img-c", number: 12, url: "https://img.example/c.png" },
 ];
 
 type Props = ComponentProps<typeof ImageLightbox>;
@@ -23,16 +23,6 @@ function renderLightbox(overrides: Partial<Props> = {}) {
   };
   const { unmount } = render(<ImageLightbox {...props} />);
   return { ...props, unmount };
-}
-
-/** The full callback set the /design thread passes. */
-function fullCallbacks() {
-  return {
-    onDelete: vi.fn(),
-    onMakeProducts: vi.fn(),
-    onPublish: vi.fn(async () => {}),
-    onStartFrom: vi.fn(async () => {}),
-  };
 }
 
 const prev = () => screen.getByRole("button", { name: "Previous image" });
@@ -208,197 +198,31 @@ describe("ImageLightbox single view", () => {
 });
 
 describe("ImageLightbox actions row", () => {
-  it("renders no actions row when nothing is given", () => {
+  it("renders no actions row when no actions are given", () => {
     renderLightbox();
     expect(screen.queryByTestId("lightbox-actions")).toBeNull();
-    for (const name of [
-      "Order",
-      "Publish",
-      "Delete",
-      "Remove",
-      "New design from this",
-    ]) {
-      expect(screen.queryByRole("button", { name })).toBeNull();
-    }
-    expect(screen.queryByText(/Published/)).toBeNull();
   });
 
-  it("renders consumer `actions` alone", () => {
+  it("renders the caller's actions in the row", () => {
     renderLightbox({ actions: <button>Use this one</button> });
-    expect(screen.getByTestId("lightbox-actions")).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Use this one" })
-    ).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
-  });
-
-  it("with the /design callback set, every button renders", () => {
-    renderLightbox(fullCallbacks());
-    for (const name of [
-      "Order",
-      "New design from this",
-      "Publish",
-      "Delete",
-    ]) {
-      expect(screen.getByRole("button", { name })).toBeInTheDocument();
-    }
-  });
-
-  it("only onDelete given: only Delete renders", () => {
-    renderLightbox({ onDelete: vi.fn() });
     const row = screen.getByTestId("lightbox-actions");
-    expect(
-      within(row)
-        .getAllByRole("button")
-        .map((b) => b.textContent)
-    ).toEqual(["Delete"]);
-    for (const name of ["Order", "New design from this", "Publish"]) {
+    expect(within(row).getByRole("button", { name: "Use this one" })).toBeInTheDocument();
+  });
+
+  it("renders no row for empty actions (false or null)", () => {
+    const first = renderLightbox({ actions: false });
+    expect(screen.queryByTestId("lightbox-actions")).toBeNull();
+    first.unmount();
+    renderLightbox({ actions: null });
+    expect(screen.queryByTestId("lightbox-actions")).toBeNull();
+  });
+
+  it("has no built-in Order, Publish, Delete or New design buttons: those belonged to the /design thread", () => {
+    renderLightbox({ actions: <button>Use this one</button> });
+    for (const name of ["Order", "Publish", "Delete", "Remove", "New design from this"]) {
       expect(screen.queryByRole("button", { name })).toBeNull();
     }
-  });
-
-  it("published output without onPublish: no Publish button, no Published · view, Delete still gated", () => {
-    const published: LightboxImage[] = [
-      { ...images[1], publishedAt: new Date("2026-09-01T00:00:00Z") },
-    ];
-    renderLightbox({ onDelete: vi.fn(), images: published, currentIndex: 0 });
-    expect(screen.queryByRole("button", { name: "Publish" })).toBeNull();
+    expect(screen.queryByTestId("guest-publish-prompt")).toBeNull();
     expect(screen.queryByText(/Published/)).toBeNull();
-    expect(screen.queryByRole("link", { name: "view" })).toBeNull();
-    const del = screen.getByRole("button", { name: "Delete" });
-    expect(del).toBeInTheDocument();
-    expect(del).toBeDisabled();
-  });
-
-  it("renders `actions` first, then the built-in buttons in /design order", () => {
-    renderLightbox({ ...fullCallbacks(), actions: <button>Use this one</button> });
-    const row = screen.getByTestId("lightbox-actions");
-    expect(
-      within(row)
-        .getAllByRole("button")
-        .map((b) => b.textContent)
-    ).toEqual([
-      "Use this one",
-      "Order",
-      "New design from this",
-      "Publish",
-      "Delete",
-    ]);
-  });
-
-  it("Order passes the image url; Delete passes the id", () => {
-    const cbs = fullCallbacks();
-    renderLightbox(cbs);
-    fireEvent.click(screen.getByRole("button", { name: "Order" }));
-    expect(cbs.onMakeProducts).toHaveBeenCalledWith("https://img.example/b.png");
-    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
-    expect(cbs.onDelete).toHaveBeenCalledWith("img-b");
-  });
-
-  it("New design from this calls onStartFrom with the image id", async () => {
-    const cbs = fullCallbacks();
-    renderLightbox(cbs);
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "New design from this" }));
-    });
-    expect(cbs.onStartFrom).toHaveBeenCalledWith("img-b");
-  });
-
-  it("Publish calls onPublish with the image id", async () => {
-    const cbs = fullCallbacks();
-    renderLightbox(cbs);
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Publish" }));
-    });
-    expect(cbs.onPublish).toHaveBeenCalledWith("img-b");
-  });
-
-  it("a published output image: Delete disabled, Published · view instead of Publish", () => {
-    const published: LightboxImage[] = [
-      { ...images[1], publishedAt: new Date("2026-09-01T00:00:00Z") },
-    ];
-    renderLightbox({ ...fullCallbacks(), images: published, currentIndex: 0 });
-    const del = screen.getByRole("button", { name: "Delete" });
-    expect(del).toBeDisabled();
-    expect(del).toHaveAttribute("title", "Published images cannot be deleted.");
-    expect(screen.queryByRole("button", { name: "Publish" })).toBeNull();
-    expect(screen.getByText(/Published ·/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "view" })).toHaveAttribute(
-      "href",
-      "/d/img-b"
-    );
-  });
-
-  it("guestPublishNext without onPublish: a sign-up / sign-in prompt, no Publish button", () => {
-    renderLightbox({ onDelete: vi.fn(), guestPublishNext: "/design?id=abc" });
-    expect(screen.queryByRole("button", { name: "Publish" })).toBeNull();
-    expect(screen.getByTestId("guest-publish-sign-up")).toHaveAttribute(
-      "href",
-      "/sign-up?next=%2Fdesign%3Fid%3Dabc"
-    );
-    expect(screen.getByTestId("guest-publish-sign-in")).toHaveAttribute(
-      "href",
-      "/sign-in?next=%2Fdesign%3Fid%3Dabc"
-    );
-  });
-
-  it("onPublish takes precedence over guestPublishNext when both are given", () => {
-    renderLightbox({ ...fullCallbacks(), guestPublishNext: "/design" });
-    expect(screen.getByRole("button", { name: "Publish" })).toBeInTheDocument();
-    expect(screen.queryByTestId("guest-publish-prompt")).toBeNull();
-  });
-
-  it("a seed image with guestPublishNext: no publish prompt either", () => {
-    const seed: LightboxImage[] = [{ ...images[1], role: "seed" }];
-    renderLightbox({
-      onDelete: vi.fn(),
-      images: seed,
-      currentIndex: 0,
-      guestPublishNext: "/design",
-    });
-    expect(screen.queryByTestId("guest-publish-prompt")).toBeNull();
-  });
-
-  it("guestPublishNext alone on a seed image: no actions row at all (hasActions must not go true for a prompt that won't render)", () => {
-    const seed: LightboxImage[] = [{ ...images[1], role: "seed" }];
-    renderLightbox({
-      images: seed,
-      currentIndex: 0,
-      guestPublishNext: "/design",
-    });
-    expect(screen.queryByTestId("lightbox-actions")).toBeNull();
-    expect(screen.queryByTestId("guest-publish-prompt")).toBeNull();
-  });
-
-  it("guestPublishNext alone on an already-published image: no actions row at all", () => {
-    const published: LightboxImage[] = [
-      { ...images[1], publishedAt: new Date("2026-09-01T00:00:00Z") },
-    ];
-    renderLightbox({
-      images: published,
-      currentIndex: 0,
-      guestPublishNext: "/design",
-    });
-    expect(screen.queryByTestId("lightbox-actions")).toBeNull();
-    expect(screen.queryByTestId("guest-publish-prompt")).toBeNull();
-  });
-
-  it("a seed image: labelled Remove, stays enabled, no Publish", () => {
-    const seed: LightboxImage[] = [
-      { ...images[1], role: "seed", publishedAt: new Date() },
-    ];
-    const cbs = fullCallbacks();
-    renderLightbox({ ...cbs, images: seed, currentIndex: 0 });
-    const remove = screen.getByRole("button", { name: "Remove" });
-    expect(remove).toBeEnabled();
-    expect(remove).toHaveAttribute(
-      "title",
-      "Removes the starting image from this design; if it's the design's last image, the conversation goes with it."
-    );
-    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Publish" })).toBeNull();
-    expect(screen.queryByText(/Published/)).toBeNull();
-    fireEvent.click(remove);
-    expect(cbs.onDelete).toHaveBeenCalledWith("img-b");
   });
 });

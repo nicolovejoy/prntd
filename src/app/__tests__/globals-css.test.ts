@@ -10,9 +10,9 @@ import { join } from "path";
 // `@layer utilities` — regardless of specificity or source order. A
 // `border: ...` on `.bg-checkerboard` here silently overrode every
 // `border-2 border-accent` / `border-border-hover` selection-indicator
-// utility applied alongside this class (five sites: preview back-picker,
-// /d back-picker, conversation-images aria-current thumb, design-stage
-// strip, studio isPrimary tile) — jsdom-based class-presence tests cannot
+// utility applied alongside this class (four sites: preview back-picker,
+// /d back-picker, conversation-images aria-current thumb, studio isPrimary
+// tile) — jsdom-based class-presence tests cannot
 // see this because they don't evaluate the cascade, only the built CSS
 // does. Do not re-add a border to this rule; call sites that want an edge
 // on a plain (non-selectable) well add `border border-border` themselves.

@@ -2041,9 +2041,8 @@ function Lane({
       <div ref={scrollRef} className="flex gap-2 overflow-x-auto pb-1">
         {lane.cells.map((cell, index) => {
           const anchored = cell.imageId === anchoredImageId;
-          // Creation order, same convention as the /design strip (#151):
-          // #1 is the lane's first image, and a later generation never
-          // renumbers an earlier one.
+          // Creation order (#151): #1 is the lane's first image, and a later
+          // generation never renumbers an earlier one.
           const label = `#${index + 1}`;
           // The ink well is the same colour as border-foreground and the
           // muted label colour, so on it the anchored cue and the #N / Primary

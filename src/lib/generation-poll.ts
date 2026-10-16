@@ -1,5 +1,5 @@
 /**
- * Timing and capacity arithmetic for the /design job poller.
+ * Timing and capacity arithmetic for the generation job poller.
  *
  * Pure and framework-free so the schedule is unit-testable without mounting a
  * component — the page holds no timing logic of its own, it just asks this
@@ -112,7 +112,7 @@ export const GENERATION_FAILURE_COPY: Record<GenerationFailure, string> = {
   failed: "Something went wrong generating that. Try again.",
 };
 
-/** One live generation, as the thread view renders it. */
+/** One live generation, as `getDesignJobs` reports it. */
 export interface RunningJob {
   jobId: string;
   generationNumber: number;
