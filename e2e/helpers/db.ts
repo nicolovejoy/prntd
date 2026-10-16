@@ -212,6 +212,24 @@ export async function designOwnerId(designId: string): Promise<string | null> {
   return row?.user_id == null ? null : String(row.user_id);
 }
 
+/**
+ * How many user turns a user's conversations hold. generateDesign persists the
+ * user's turn before it asks Claude for the brief, so one fire of a landing
+ * idea leaves exactly one turn whatever happens next, and a second fire would
+ * leave two. CI runs with fake vendor keys, where the brief call fails and no
+ * `image_generation` row is ever written, so jobs cannot be counted there; the
+ * turn count can.
+ */
+export async function userTurnCountForUser(userId: string): Promise<number> {
+  const res = await db().execute({
+    sql: `SELECT count(*) AS n FROM chat_message m
+          JOIN design d ON d.id = m.design_id
+          WHERE d.user_id = ? AND m.role = 'user'`,
+    args: [userId],
+  });
+  return Number(res.rows[0]?.n ?? 0);
+}
+
 /** A design's current primary image id (what a fresh order/cart line pins as
  * the front placement when no explicit pick overrides it). */
 export async function primaryImageIdForDesign(

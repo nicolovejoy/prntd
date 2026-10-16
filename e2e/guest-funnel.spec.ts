@@ -19,18 +19,26 @@ import {
   userIdForSessionCookie,
 } from "./helpers/db";
 
-test("/design loads for a signed-out visitor", async ({ page }) => {
+test("/design takes a signed-out visitor to the Studio as a guest", async ({
+  page,
+}) => {
   await page.goto("/design");
+  // /design no longer renders a page of its own (#188 slice 2b): it mints the
+  // guest session and replaces itself with the Studio bench.
+  await expect(page).toHaveURL(/\/studio$/);
   await expect(page).not.toHaveURL(/sign-in/);
-  // Empty-state hero composer is the whole page when there's no content.
+  // The empty bench: the composer, and nothing to keep yet (the sign-up line
+  // appears with the guest's first lane).
   await expect(
     page.getByRole("textbox", { name: "Describe a design" }).first()
   ).toBeVisible();
+  await expect(page.getByTestId("empty-state")).toBeVisible();
 });
 
 test("a guest on /design gets an anonymous session", async ({ page }) => {
   await page.goto("/design");
   await waitForSessionCookie(page);
+  await expect(page).toHaveURL(/\/studio$/);
 });
 
 test("personal routes still redirect a visitor with no session to sign-in", async ({
