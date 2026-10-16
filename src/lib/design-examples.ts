@@ -1,6 +1,7 @@
 /**
  * Example design prompts shared by the landing hero chips (tap = navigate to
- * /design?prompt= and generate immediately) and the in-chat empty-state chips
+ * /design?prompt=, which hands the idea to the Studio to generate immediately)
+ * and the in-chat empty-state chips
  * (tap = prefill the composer). One library, two jobs. Each entry is also the
  * literal generation prompt, so every entry keeps a subject + style — "A
  * wolf" is not acceptable, "Geometric wolf head" is.

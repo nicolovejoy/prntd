@@ -10,7 +10,7 @@
  * still refuses a guest.
  */
 import { test, expect } from "@playwright/test";
-import { waitForSessionCookie } from "./helpers/session";
+import { mintGuestSession, waitForSessionCookie } from "./helpers/session";
 import {
   cleanupDesigns,
   cleanupUser,
@@ -19,17 +19,66 @@ import {
   userIdForSessionCookie,
 } from "./helpers/db";
 
-test("/design loads for a signed-out visitor", async ({ page }) => {
+// A fresh guest mint can be refused by Better-Auth's sign-in rate limit (3 per
+// 10 s per IP); /design's entry page then waits about 10 s and retries once,
+// so the Studio can legitimately take that long to appear.
+const STUDIO_AFTER_MINT_MS = 20_000;
+
+test("/design takes a signed-out visitor to the Studio as a guest", async ({
+  page,
+}) => {
   await page.goto("/design");
+  // /design no longer renders a page of its own (#188 slice 2b): it mints the
+  // guest session and replaces itself with the Studio bench. The timeout
+  // covers one automatic retry after a rate-limited mint (see below).
+  await expect(page).toHaveURL(/\/studio$/, { timeout: STUDIO_AFTER_MINT_MS });
   await expect(page).not.toHaveURL(/sign-in/);
-  // Empty-state hero composer is the whole page when there's no content.
+  // The empty bench: the composer, and nothing to keep yet (the sign-up line
+  // appears with the guest's first lane).
   await expect(
     page.getByRole("textbox", { name: "Describe a design" }).first()
   ).toBeVisible();
+  await expect(page.getByTestId("empty-state")).toBeVisible();
 });
 
 test("a guest on /design gets an anonymous session", async ({ page }) => {
   await page.goto("/design");
+  await waitForSessionCookie(page);
+  await expect(page).toHaveURL(/\/studio$/, { timeout: STUDIO_AFTER_MINT_MS });
+});
+
+test("a rate-limited guest mint is retried once on its own and still reaches the Studio", async ({
+  page,
+  request,
+  baseURL,
+}, testInfo) => {
+  // One browser project is enough: the limiter is per IP, not per viewport.
+  test.skip(testInfo.project.name !== "mobile", "viewport-independent");
+  test.setTimeout(60_000);
+
+  // Better-Auth allows 3 sign-ins per 10 s per IP. Fill the window from
+  // outside the page (a separate request context, so no cookie reaches the
+  // page) until the limiter answers 429.
+  let limited = false;
+  for (let i = 0; i < 6 && !limited; i++) {
+    const res = await request.post("/api/auth/sign-in/anonymous", {
+      headers: { origin: baseURL ?? "" },
+    });
+    limited = res.status() === 429;
+  }
+  expect(limited).toBe(true);
+
+  // The page's own mint is refused too; it keeps the status line up, waits
+  // the stated Retry-After and tries again, instead of landing on sign-in.
+  const refused = page.waitForResponse(
+    (r) => r.url().includes("/sign-in/anonymous") && r.status() === 429
+  );
+  await page.goto("/design");
+  await refused;
+  await expect(page.getByTestId("design-entry-status")).toBeVisible();
+  await expect(page).not.toHaveURL(/sign-in/);
+
+  await expect(page).toHaveURL(/\/studio$/, { timeout: STUDIO_AFTER_MINT_MS });
   await waitForSessionCookie(page);
 });
 
@@ -49,8 +98,7 @@ test("a guest with an anonymous session reaches their own Studio, not /orders", 
   const seeded: string[] = [];
 
   try {
-    await page.goto("/design");
-    const cookie = await waitForSessionCookie(page);
+    const cookie = await mintGuestSession(page);
     const userId = await userIdForSessionCookie(cookie);
     const designId = await seedDesign(userId, key);
     seeded.push(designId);
@@ -112,8 +160,7 @@ test("a guest's size and colour on the image detail page survive Sign in to buy 
     const imagePath = `/d/${seeded.imageId}`;
 
     // A guest session, minted the way a first-time visitor gets one.
-    await page.goto("/design");
-    anonUserId = await userIdForSessionCookie(await waitForSessionCookie(page));
+    anonUserId = await userIdForSessionCookie(await mintGuestSession(page));
 
     await page.goto(imagePath);
     await page.getByTestId("order-expand").click();

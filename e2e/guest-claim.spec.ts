@@ -10,7 +10,7 @@
  * account's own My Designs.
  */
 import { test, expect } from "@playwright/test";
-import { waitForSessionCookie } from "./helpers/session";
+import { mintGuestSession, waitForSessionCookie } from "./helpers/session";
 import { signUpFreshAccount } from "./helpers/auth";
 import {
   cleanupDesigns,
@@ -32,8 +32,7 @@ test("signing up after using the app as a guest claims the guest's design", asyn
   try {
     // Mint the anonymous session the same way a real first-time visitor
     // would, by loading a funnel page.
-    await page.goto("/design");
-    const anonCookie = await waitForSessionCookie(page);
+    const anonCookie = await mintGuestSession(page);
     anonUserId = await userIdForSessionCookie(anonCookie);
 
     // Seed a design owned by that guest (real generation needs Ideogram; seed

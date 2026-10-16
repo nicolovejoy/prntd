@@ -75,6 +75,13 @@ import {
   type StudioFocus,
 } from "@/lib/studio-focus";
 import {
+  isSeedFired,
+  markSeedFired,
+  parseSeed,
+  SEED_FIRED_STORAGE_KEY,
+  type StudioSeed,
+} from "@/lib/studio-seed";
+import {
   attachReferenceImage,
   deleteConversations,
   getGenerationJobStatus,
@@ -230,6 +237,7 @@ export function StudioClient({
   initialNowMs,
   isGuest = false,
   initialFocus,
+  initialSeed,
 }: {
   initialLanes: StudioLane[];
   /**
@@ -245,6 +253,9 @@ export function StudioClient({
   isGuest?: boolean;
   /** The stage address the page parsed from the URL, or null for the bench. */
   initialFocus?: StudioFocus | null;
+  /** The landing idea the page parsed from the URL (#188 slice 2b), fired
+   * once on mount; null when there is none or a stage address won. */
+  initialSeed?: StudioSeed | null;
 }) {
   const [lanes, setLanes] = useState<StudioLane[]>(initialLanes);
   const [anchor, setAnchor] = useState<Anchor | null>(null);
@@ -521,6 +532,68 @@ export function StudioClient({
     }
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  // The landing idea (#188 slice 2b): /studio?prompt=&lane=&seed= fires one
+  // generation on mount, from the bench, unanchored. The address names the
+  // new conversation (lane) and the client job id (seed), and nothing here
+  // strips it: a history write on this page races the Generate action and
+  // breaks Back on a hard load (#311, #312). So the guards are:
+  //   - the URL, read now: fire only for the seed the address bar names, and
+  //     only while it is not a stage address. Back from the image detail
+  //     page remounts with the seed render's props while the URL is the
+  //     stage, so the props alone cannot be trusted;
+  //   - a ref, so Strict Mode's double effect cannot fire it twice;
+  //   - a mark in localStorage (the last 50 seed job ids, one key), set
+  //     before the call, so a remount, a reload, or the same address
+  //     reopened in another tab of this browser does not fire it again;
+  //   - the server's replay check on (user, lane, seed), the authority: it
+  //     returns the original job when storage is unavailable or the mark is
+  //     lost (a cleared browser, another browser).
+  // A stage address wins (the page already drops the seed then). At the
+  // in-flight cap the idea goes into the composer for the visitor to send,
+  // and the cap notice says why; a refusal or a throw takes runTurn's own
+  // paths, which hand the words back.
+  const seedStarted = useRef(false);
+  useEffect(() => {
+    if (!initialSeed || initialFocus || seedStarted.current) return;
+    const search = new URLSearchParams(window.location.search);
+    const named = parseSeed(search);
+    if (
+      named.kind !== "complete" ||
+      named.seed.jobId !== initialSeed.jobId ||
+      parseFocus(search) !== null
+    ) {
+      return;
+    }
+    seedStarted.current = true;
+    let marks: string | null = null;
+    try {
+      marks = window.localStorage.getItem(SEED_FIRED_STORAGE_KEY);
+    } catch {
+      // Storage unavailable: carry on, the server's replay check covers it.
+    }
+    if (isSeedFired(marks, initialSeed.jobId)) return;
+    try {
+      window.localStorage.setItem(
+        SEED_FIRED_STORAGE_KEY,
+        markSeedFired(marks, initialSeed.jobId)
+      );
+    } catch {
+      // Same: the mark is a convenience, not the guard of last resort.
+    }
+    if (atCap) {
+      textRef.current = initialSeed.prompt;
+      setText(initialSeed.prompt);
+      return;
+    }
+    void runTurn(initialSeed.prompt, null, {
+      designId: initialSeed.designId,
+      jobId: initialSeed.jobId,
+    });
+    // Mount-once by design: the seed is the page's first reading of the
+    // address, and runTurn is rebuilt every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // A focus that names nothing on the bench (closed elsewhere, archived by
@@ -1045,7 +1118,18 @@ export function StudioClient({
     // idea without waiting for the last one's round trip is the normal case,
     // so the box clears now and each submit runs concurrently up to the cap.
     if (!trimmed || atCap) return;
-    const submitAnchor = effectiveAnchor;
+    await runTurn(trimmed, effectiveAnchor);
+  }
+
+  // One turn, from the composer or from the landing seed. `ids` is the
+  // seed's: its address already names the conversation and the client job
+  // id, so a second fire of the same address is a replay, not a second
+  // generation. A composer submit mints its own.
+  async function runTurn(
+    trimmed: string,
+    submitAnchor: Anchor | null,
+    ids?: { designId: string; jobId: string }
+  ) {
     // An accepted turn spends the anchor on the BENCH (Nico, 2026-10-01,
     // #276): the next idea typed there starts a new lane. On the stage the
     // shown image stays the anchor — the next line is another change to it.
@@ -1058,7 +1142,8 @@ export function StudioClient({
     // for an unseen id only for a submit that passes the quota and capacity
     // checks (#197), so the client mints the id up front and the lane
     // appears on the refetch below once the row exists.
-    const targetDesignId = submitAnchor?.designId ?? crypto.randomUUID();
+    const targetDesignId =
+      ids?.designId ?? submitAnchor?.designId ?? crypto.randomUUID();
     // The cell goes up now (#187). An anchored submit appends to that lane; an
     // unanchored one synthesizes a lane at the top of the bench — the first
     // lane below the composer panel — which is off-screen on a phone if the
@@ -1067,7 +1152,7 @@ export function StudioClient({
     // Minted here, not by the server (#245): lets a lost response be
     // reconciled by looking this exact id up, whatever `generateDesign`
     // itself returns or throws.
-    const clientJobId = crypto.randomUUID();
+    const clientJobId = ids?.jobId ?? crypto.randomUUID();
     // The submit's own clock reading — the optimistic entry's age (and so
     // settleOptimistic's STALE_OPTIMISTIC_MS cutoff) is measured from it, and
     // a lost response's reconcile loop uses the same instant as the start of

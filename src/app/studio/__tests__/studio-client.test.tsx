@@ -10,6 +10,7 @@
  * refresh landing mid-typing. Server actions are mocked; polling arithmetic
  * lives in generation-poll's own unit tests.
  */
+import { StrictMode } from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 import { StudioClient } from "../studio-client";
@@ -66,6 +67,14 @@ import {
 } from "@/lib/action-copy";
 import { downscaleForUpload } from "@/lib/client-image-downscale";
 import { REFERENCE_IMAGE_MAX_BYTES } from "@/lib/reference-image-limits";
+import {
+  isSeedFired,
+  parseFiredSeeds,
+  SEED_FIRED_CAP,
+  SEED_FIRED_STORAGE_KEY,
+  seedHref,
+  type StudioSeed,
+} from "@/lib/studio-seed";
 import {
   generateDesign,
   closeConversation,
@@ -3458,5 +3467,308 @@ describe("attach image (#188 slice 2a)", () => {
       });
       expect(screen.getAllByTestId("studio-pending-cell")).toHaveLength(1);
     });
+  });
+});
+
+describe("the landing seed (#188 slice 2b)", () => {
+  const SEED: StudioSeed = {
+    prompt: "a heron in tall reeds, ink drawing",
+    designId: "11111111-1111-4111-8111-111111111111",
+    jobId: "22222222-2222-4222-8222-222222222222",
+  };
+  const OTHER_JOB = "33333333-3333-4333-8333-333333333333";
+
+  /** The address a landing visitor is on: the seed travels in the URL, and the
+   * component fires only for the seed the URL names. */
+  function atSeedAddress(seed: StudioSeed = SEED) {
+    window.history.replaceState(
+      null,
+      "",
+      seedHref(seed.prompt, { designId: seed.designId, jobId: seed.jobId })
+    );
+  }
+
+  /** Lets effects and any stray timers or promises run. */
+  async function settle() {
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+  }
+
+  const stored = () => window.localStorage.getItem(SEED_FIRED_STORAGE_KEY);
+
+  beforeEach(() => {
+    window.localStorage.clear();
+    atSeedAddress();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    window.localStorage.clear();
+  });
+
+  it("fires one generation with the seed's lane id, prompt and job id, unanchored", async () => {
+    render(<StudioClient initialLanes={[]} initialSeed={SEED} />);
+
+    await waitFor(() => expect(generateDesign).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(generateDesign).mock.calls[0]).toEqual([
+      SEED.designId,
+      SEED.prompt,
+      { jobId: SEED.jobId },
+    ]);
+    expect(vi.mocked(generateDesign).mock.calls[0][2]).not.toHaveProperty("anchorImageId");
+  });
+
+  it("fires nothing without a seed", async () => {
+    render(<StudioClient initialLanes={[]} initialSeed={null} />);
+    await settle();
+    expect(generateDesign).not.toHaveBeenCalled();
+  });
+
+  it("marks the seed as fired in localStorage before the call returns", async () => {
+    vi.mocked(generateDesign).mockReturnValueOnce(new Promise(() => {}) as never);
+    render(<StudioClient initialLanes={[]} initialSeed={SEED} />);
+
+    await waitFor(() => expect(generateDesign).toHaveBeenCalledTimes(1));
+    expect(parseFiredSeeds(stored())).toEqual([SEED.jobId]);
+  });
+
+  it("does not fire again on a remount", async () => {
+    const first = render(<StudioClient initialLanes={[]} initialSeed={SEED} />);
+    await waitFor(() => expect(generateDesign).toHaveBeenCalledTimes(1));
+    first.unmount();
+
+    render(<StudioClient initialLanes={[]} initialSeed={SEED} />);
+    await settle();
+    expect(generateDesign).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not fire when another tab already marked this seed (localStorage is shared)", async () => {
+    window.localStorage.setItem(
+      SEED_FIRED_STORAGE_KEY,
+      JSON.stringify(["99999999-9999-4999-8999-999999999999", SEED.jobId])
+    );
+    render(<StudioClient initialLanes={[]} initialSeed={SEED} />);
+    await settle();
+    expect(generateDesign).not.toHaveBeenCalled();
+  });
+
+  it("a mark in sessionStorage alone no longer counts", async () => {
+    window.sessionStorage.setItem(`studio-seed:${SEED.jobId}`, "1");
+    render(<StudioClient initialLanes={[]} initialSeed={SEED} />);
+    await waitFor(() => expect(generateDesign).toHaveBeenCalledTimes(1));
+    window.sessionStorage.clear();
+  });
+
+  it("fires for a seed that is not on the list, and adds it after the others", async () => {
+    const earlier = "99999999-9999-4999-8999-999999999999";
+    window.localStorage.setItem(SEED_FIRED_STORAGE_KEY, JSON.stringify([earlier]));
+    atSeedAddress({ ...SEED, jobId: OTHER_JOB });
+    render(<StudioClient initialLanes={[]} initialSeed={{ ...SEED, jobId: OTHER_JOB }} />);
+
+    await waitFor(() => expect(generateDesign).toHaveBeenCalledTimes(1));
+    expect(parseFiredSeeds(stored())).toEqual([earlier, OTHER_JOB]);
+  });
+
+  it("keeps only the newest 50 marks", async () => {
+    const old = Array.from(
+      { length: SEED_FIRED_CAP },
+      (_, i) => `00000000-0000-4000-8000-${String(i + 1).padStart(12, "0")}`
+    );
+    window.localStorage.setItem(SEED_FIRED_STORAGE_KEY, JSON.stringify(old));
+    render(<StudioClient initialLanes={[]} initialSeed={SEED} />);
+
+    await waitFor(() => expect(generateDesign).toHaveBeenCalledTimes(1));
+    const list = parseFiredSeeds(stored());
+    expect(list).toHaveLength(SEED_FIRED_CAP);
+    expect(list[list.length - 1]).toBe(SEED.jobId);
+    expect(list).not.toContain(old[0]);
+    expect(list).toContain(old[1]);
+    expect(isSeedFired(stored(), SEED.jobId)).toBe(true);
+  });
+
+  it("a corrupt stored value counts as empty: fires once and rewrites it", async () => {
+    window.localStorage.setItem(SEED_FIRED_STORAGE_KEY, "{not json");
+    render(<StudioClient initialLanes={[]} initialSeed={SEED} />);
+
+    await waitFor(() => expect(generateDesign).toHaveBeenCalledTimes(1));
+    expect(parseFiredSeeds(stored())).toEqual([SEED.jobId]);
+    await settle();
+    expect(generateDesign).toHaveBeenCalledTimes(1);
+  });
+
+  it("still fires once when storage throws, even under Strict Mode", async () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("storage blocked");
+    });
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("storage blocked");
+    });
+    render(
+      <StrictMode>
+        <StudioClient initialLanes={[]} initialSeed={SEED} />
+      </StrictMode>
+    );
+
+    await waitFor(() => expect(generateDesign).toHaveBeenCalledTimes(1));
+    await settle();
+    expect(generateDesign).toHaveBeenCalledTimes(1);
+  });
+
+  it("fires once under Strict Mode with working storage", async () => {
+    render(
+      <StrictMode>
+        <StudioClient initialLanes={[]} initialSeed={SEED} />
+      </StrictMode>
+    );
+    await waitFor(() => expect(generateDesign).toHaveBeenCalledTimes(1));
+    await settle();
+    expect(generateDesign).toHaveBeenCalledTimes(1);
+  });
+
+  it("at the cap, fires nothing and puts the prompt in the composer (R5)", async () => {
+    render(
+      <StudioClient
+        initialLanes={[
+          lane({ pending: [pendingJob("j1"), pendingJob("j2"), pendingJob("j3")] }),
+        ]}
+        initialSeed={SEED}
+      />
+    );
+    await settle();
+
+    expect(generateDesign).not.toHaveBeenCalled();
+    expect((screen.getByTestId("studio-composer") as HTMLInputElement).value).toBe(SEED.prompt);
+    expect(screen.getByTestId("cap-notice").textContent).toContain("3 generating");
+    expect((screen.getByTestId("studio-generate") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("an initialFocus wins: nothing fires (R4)", async () => {
+    render(
+      <StudioClient
+        initialLanes={[lane({ cells: [cell("img-1")] })]}
+        initialFocus={{ designId: "design-1", imageId: "img-1" }}
+        initialSeed={SEED}
+      />
+    );
+    await settle();
+
+    expect(generateDesign).not.toHaveBeenCalled();
+    expect(stored()).toBeNull();
+  });
+
+  describe("only for the address the URL names", () => {
+    it("does not fire when the URL is a stage address, whatever the cached props say (Back from the image detail page)", async () => {
+      // Next's bfcache remounts the page with the seed render's props while
+      // the address bar is the stage; with storage blocked the mark cannot
+      // be what stops it.
+      vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+        throw new Error("storage blocked");
+      });
+      window.history.replaceState(null, "", "/studio?conversation=design-1&image=img-1");
+      render(
+        <StudioClient
+          initialLanes={[lane({ cells: [cell("img-1")] })]}
+          initialSeed={SEED}
+        />
+      );
+      await settle();
+
+      expect(generateDesign).not.toHaveBeenCalled();
+    });
+
+    it("does not fire when the URL carries a stage address beside the seed", async () => {
+      window.history.replaceState(
+        null,
+        "",
+        `${seedHref(SEED.prompt, SEED)}&conversation=design-1&image=img-1`
+      );
+      render(
+        <StudioClient
+          initialLanes={[lane({ cells: [cell("img-1")] })]}
+          initialSeed={SEED}
+        />
+      );
+      await settle();
+
+      expect(generateDesign).not.toHaveBeenCalled();
+    });
+
+    it("does not fire when the URL is the bare bench", async () => {
+      window.history.replaceState(null, "", "/studio");
+      render(<StudioClient initialLanes={[]} initialSeed={SEED} />);
+      await settle();
+
+      expect(generateDesign).not.toHaveBeenCalled();
+      expect(stored()).toBeNull();
+    });
+
+    it("does not fire when the URL names another seed", async () => {
+      atSeedAddress({ ...SEED, jobId: OTHER_JOB });
+      render(<StudioClient initialLanes={[]} initialSeed={SEED} />);
+      await settle();
+
+      expect(generateDesign).not.toHaveBeenCalled();
+    });
+  });
+
+  it("a refused seed gives the prompt back and shows the refusal", async () => {
+    vi.mocked(generateDesign).mockResolvedValueOnce({
+      kind: "limit",
+      message: "You've reached today's free design limit. Sign in to keep designing.",
+    });
+    render(<StudioClient initialLanes={[]} initialSeed={SEED} />);
+
+    await waitFor(() => expect(screen.getByText(/free design limit/)).toBeTruthy());
+    expect((screen.getByTestId("studio-composer") as HTMLInputElement).value).toBe(SEED.prompt);
+    expect(screen.queryByTestId("studio-pending-cell")).toBeNull();
+  });
+
+  it("a thrown seed gives the prompt back with the failure notice", async () => {
+    const err = Object.assign(new Error("An error occurred in the Server Components render."), {
+      digest: "1234",
+    });
+    vi.mocked(generateDesign).mockRejectedValueOnce(err);
+    render(<StudioClient initialLanes={[]} initialSeed={SEED} />);
+
+    await waitFor(() =>
+      expect((screen.getByTestId("studio-composer") as HTMLInputElement).value).toBe(SEED.prompt)
+    );
+    expect(screen.queryByTestId("studio-pending-cell")).toBeNull();
+  });
+
+  it("writes no history entry", async () => {
+    const replace = vi.spyOn(window.history, "replaceState");
+    const push = vi.spyOn(window.history, "pushState");
+    render(<StudioClient initialLanes={[]} initialSeed={SEED} />);
+
+    await waitFor(() => expect(generateDesign).toHaveBeenCalledTimes(1));
+    await settle();
+    expect(replace).not.toHaveBeenCalled();
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("shows the optimistic cell in the seed's own lane before the action returns", async () => {
+    vi.mocked(generateDesign).mockReturnValueOnce(new Promise(() => {}) as never);
+    // A server lane already holding the seed's id: the overlay joins it, so
+    // there is one lane. Had the seed minted another id there would be two.
+    render(
+      <StudioClient
+        initialLanes={[lane({ designId: SEED.designId, title: "earlier words" })]}
+        initialSeed={SEED}
+      />
+    );
+
+    await waitFor(() => expect(screen.getAllByTestId("studio-pending-cell")).toHaveLength(1));
+    expect(screen.getAllByTestId("studio-lane")).toHaveLength(1);
+    expect(screen.getByTestId("studio-pending-cell").textContent).toContain("Generating…");
+  });
+
+  it("shows a new lane titled with the prompt when no lane holds the id", async () => {
+    vi.mocked(generateDesign).mockReturnValueOnce(new Promise(() => {}) as never);
+    render(<StudioClient initialLanes={[]} initialSeed={SEED} />);
+
+    await waitFor(() => expect(screen.getAllByTestId("studio-lane")).toHaveLength(1));
+    expect(screen.getByTestId("studio-lane").textContent).toContain(SEED.prompt);
+    expect(screen.getAllByTestId("studio-pending-cell")).toHaveLength(1);
   });
 });

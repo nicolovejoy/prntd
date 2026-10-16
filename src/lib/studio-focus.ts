@@ -9,11 +9,17 @@ export type StudioFocus = { designId: string; imageId: string };
 
 export const BENCH_HREF = "/studio";
 
-type ParamSource =
-  | { conversation?: string | string[]; image?: string | string[] }
+/** The query keys the Studio reads: the stage address and the landing seed
+ * (src/lib/studio-seed.ts). */
+export type ParamKey = "conversation" | "image" | "prompt" | "lane" | "seed";
+
+/** A page's `searchParams` record, or a URLSearchParams from the browser. */
+export type ParamSource =
+  | { [K in ParamKey]?: string | string[] }
   | URLSearchParams;
 
-function one(source: ParamSource, key: "conversation" | "image"): string | null {
+/** One value for `key`: present exactly once and non-empty, else null. */
+export function one(source: ParamSource, key: ParamKey): string | null {
   if (source instanceof URLSearchParams) {
     const all = source.getAll(key);
     return all.length === 1 && all[0] !== "" ? all[0] : null;

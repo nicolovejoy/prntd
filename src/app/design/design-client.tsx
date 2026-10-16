@@ -384,9 +384,21 @@ function DesignPageInner({ initialThreadPromise, canPublish }: Props) {
   // visitor can design without hitting the auth wall. No-op when already
   // signed in; the gate now lives at checkout.
   useEffect(() => {
-    ensureGuestSession();
+    // A refused mint (rate-limited, say) now rejects; this call is not awaited,
+    // so log it rather than leave an unhandled rejection. The awaited calls
+    // below fall into their own catch blocks.
+    ensureGuestSession().catch((err) => {
+      console.error(
+        "[design] guest session failed",
+        err instanceof Error ? err.message : String(err)
+      );
+    });
   }, []);
 
+  // Unreachable since #188 slice 2b: this component renders only for ?id=,
+  // and /design without an id hands the landing idea to the Studio. Deleted
+  // with this file in slice 2c.
+  //
   // Landing seed: /design?prompt=… fires one generation with the seeded idea
   // (new designs only — never when resuming via ?id=). Ref-guarded so React
   // Strict Mode's double effect can't fire it twice; the param is stripped

@@ -1,10 +1,13 @@
 import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 import { auth, isAnonymousUser } from "@/lib/auth";
 import {
   getDesignThreadData,
   type DesignThreadData,
 } from "@/lib/design-thread";
+import { readSeedPrompt, seedHref } from "@/lib/studio-seed";
 import { DesignPageClient } from "./design-client";
+import { DesignEntry } from "./design-entry";
 
 type Session = Awaited<ReturnType<typeof auth.api.getSession>>;
 
@@ -18,11 +21,23 @@ type Session = Awaited<ReturnType<typeof auth.api.getSession>>;
 export const maxDuration = 300;
 
 /**
- * Server component shell for the /design thread (#127). For ?id= visits it
- * starts the whole-thread fetch (chat + gallery in one payload) without
- * awaiting it, so the shell streams immediately and client-side navigation
- * commits without waiting on the queries; the client hydrates from its
- * thread cache when warm and from this payload otherwise.
+ * Server component shell for /design.
+ *
+ * With no `id` it never renders the thread (#188 slice 2b). The landing page,
+ * the empty cart and "Order not found." still link here because /design is the
+ * one route the proxy opens to a request with no session cookie (while the
+ * guest funnel is on); /studio sends that request to sign-in. So:
+ *   - a visitor who already has a session (a real user or a returning guest)
+ *     is redirected on the server to the Studio, carrying the landing idea
+ *     (R2: they skip the client hop);
+ *   - a visitor with none gets DesignEntry, which mints the guest session and
+ *     then replaces itself with the same Studio address.
+ *
+ * For ?id= visits (the old thread, until slice 2c redirects it) it starts the
+ * whole-thread fetch (chat + gallery in one payload) without awaiting it, so
+ * the shell streams immediately and client-side navigation commits without
+ * waiting on the queries; the client hydrates from its thread cache when warm
+ * and from this payload otherwise.
  */
 export default async function DesignPage({
   searchParams,
@@ -33,9 +48,10 @@ export default async function DesignPage({
   const id = typeof sp.id === "string" ? sp.id : undefined;
   // One session read for the whole page (cookieCache makes this cheap — see
   // src/lib/auth.ts's 5-minute cookieCache — so this is not a DB round trip
-  // on every render): both the publish gate below and loadThread's ownership
-  // check share it. A guest-funnel anonymous session is a real Better-Auth
-  // user row, so publishing needs more than "is there a session" — see
+  // on every render): the no-id branch (session → redirect, none → the thin
+  // entry), the publish gate and loadThread's ownership check all share it.
+  // A guest-funnel anonymous session is a real Better-Auth user row, so
+  // publishing needs more than "is there a session" — see
   // publishImage's isAnonymousUser check, which this mirrors for the UI so a
   // guest never sees a Publish control that would just throw. This read now
   // runs on every /design render, including the ?prompt= landing entry, so a
@@ -48,10 +64,16 @@ export default async function DesignPage({
   } catch (err) {
     console.error("design page session read failed:", err);
   }
+  if (!id) {
+    // Read with parseSeed's rule: one non-blank prompt, else none. Every other
+    // param is dropped, including any stale lane or seed id. redirect() throws,
+    // so it sits outside the session read's try/catch above.
+    const prompt = readSeedPrompt(sp);
+    if (session) redirect(seedHref(prompt));
+    return <DesignEntry prompt={prompt} />;
+  }
   const canPublish = Boolean(session) && !isAnonymousUser(session?.user);
-  const initialThreadPromise = id
-    ? loadThread(id, session)
-    : Promise.resolve(null);
+  const initialThreadPromise = loadThread(id, session);
   return (
     <DesignPageClient
       initialThreadPromise={initialThreadPromise}
