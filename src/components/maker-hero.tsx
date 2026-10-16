@@ -7,9 +7,12 @@ import { useExamplePrompts } from "@/components/use-example-prompts";
 
 /**
  * Landing hero for all visitors — the composer IS the landing. Typing an
- * idea (or tapping a chip) navigates to /design?prompt=…, which auto-fires a
- * generation. Unlike the in-chat chips (which prefill), landing chips
- * navigate immediately: here they demo the product. The sub-line is a
+ * idea (or tapping a chip) navigates to /design?prompt=…, the one route a
+ * visitor with no session can open. There the guest session is minted (or a
+ * session that exists is reused) and the visitor moves on to
+ * /studio?prompt=…&lane=…&seed=…, where the Studio fires one generation from
+ * the idea (#188 slice 2b). Unlike the in-chat chips (which prefill), landing
+ * chips navigate immediately: here they demo the product. The sub-line is a
  * tagline, not the price line.
  *
  * data-testid="maker-hero" is the post-deploy prod smoke's "the app rendered"
