@@ -74,6 +74,7 @@ import {
   resolveFocus,
   type StudioFocus,
 } from "@/lib/studio-focus";
+import type { StudioSeed } from "@/lib/studio-seed";
 import {
   attachReferenceImage,
   deleteConversations,
@@ -245,6 +246,9 @@ export function StudioClient({
   isGuest?: boolean;
   /** The stage address the page parsed from the URL, or null for the bench. */
   initialFocus?: StudioFocus | null;
+  /** The landing idea the page parsed from the URL (#188 slice 2b), fired
+   * once on mount; null when there is none or a stage address won. */
+  initialSeed?: StudioSeed | null;
 }) {
   const [lanes, setLanes] = useState<StudioLane[]>(initialLanes);
   const [anchor, setAnchor] = useState<Anchor | null>(null);
