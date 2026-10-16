@@ -122,6 +122,14 @@ export function attachLimitMessage(reason: "identity" | "ip" | undefined): strin
   return reason === "ip" ? ATTACH_LIMIT_REACHED_IP : ATTACH_LIMIT_REACHED;
 }
 
+// --- /design entry (#188 slice 2b) ---
+// The sessionless hop through /design: a status line while the guest session
+// is minted, and one failure line with a retry.
+
+export const DESIGN_ENTRY_OPENING = "Opening the Studio…";
+export const DESIGN_ENTRY_FAILED = "Couldn't start a session. Try again.";
+export const DESIGN_ENTRY_RETRY = "Try again";
+
 // --- admin (InlineNotice: one line, plus the raw error as a hint) ---
 
 export const ADMIN_RETRY_FAILED = "Retry failed.";
