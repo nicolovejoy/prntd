@@ -74,7 +74,7 @@ import {
   resolveFocus,
   type StudioFocus,
 } from "@/lib/studio-focus";
-import type { StudioSeed } from "@/lib/studio-seed";
+import { seedFiredKey, type StudioSeed } from "@/lib/studio-seed";
 import {
   attachReferenceImage,
   deleteConversations,
@@ -231,6 +231,7 @@ export function StudioClient({
   initialNowMs,
   isGuest = false,
   initialFocus,
+  initialSeed,
 }: {
   initialLanes: StudioLane[];
   /**
@@ -525,6 +526,51 @@ export function StudioClient({
     }
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  // The landing idea (#188 slice 2b): /studio?prompt=&lane=&seed= fires one
+  // generation on mount, from the bench, unanchored. The address names the
+  // new conversation (lane) and the client job id (seed), and nothing here
+  // strips it: a history write on this page races the Generate action and
+  // breaks Back on a hard load (#311, #312). So the guards are:
+  //   - a ref, so Strict Mode's double effect cannot fire it twice;
+  //   - a sessionStorage mark, set before the call, so a remount or reload
+  //     of this tab (including Back from the image detail page, which
+  //     remounts with the cached props) does not fire it again;
+  //   - the server's replay check on (user, lane, seed), which returns the
+  //     original job when storage is unavailable or the address is opened in
+  //     another tab.
+  // A stage address wins (the page already drops the seed then). At the
+  // in-flight cap the idea goes into the composer for the visitor to send,
+  // and the cap notice says why; a refusal or a throw takes runTurn's own
+  // paths, which hand the words back.
+  const seedStarted = useRef(false);
+  useEffect(() => {
+    if (!initialSeed || initialFocus || seedStarted.current) return;
+    seedStarted.current = true;
+    const key = seedFiredKey(initialSeed.jobId);
+    try {
+      if (window.sessionStorage.getItem(key) !== null) return;
+    } catch {
+      // Storage unavailable: carry on, the server's replay check covers it.
+    }
+    try {
+      window.sessionStorage.setItem(key, "1");
+    } catch {
+      // Same: the mark is a convenience, not the guard of last resort.
+    }
+    if (atCap) {
+      textRef.current = initialSeed.prompt;
+      setText(initialSeed.prompt);
+      return;
+    }
+    void runTurn(initialSeed.prompt, null, {
+      designId: initialSeed.designId,
+      jobId: initialSeed.jobId,
+    });
+    // Mount-once by design: the seed is the page's first reading of the
+    // address, and runTurn is rebuilt every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // A focus that names nothing on the bench (closed elsewhere, archived by
@@ -1049,7 +1095,18 @@ export function StudioClient({
     // idea without waiting for the last one's round trip is the normal case,
     // so the box clears now and each submit runs concurrently up to the cap.
     if (!trimmed || atCap) return;
-    const submitAnchor = effectiveAnchor;
+    await runTurn(trimmed, effectiveAnchor);
+  }
+
+  // One turn, from the composer or from the landing seed. `ids` is the
+  // seed's: its address already names the conversation and the client job
+  // id, so a second fire of the same address is a replay, not a second
+  // generation. A composer submit mints its own.
+  async function runTurn(
+    trimmed: string,
+    submitAnchor: Anchor | null,
+    ids?: { designId: string; jobId: string }
+  ) {
     // An accepted turn spends the anchor on the BENCH (Nico, 2026-10-01,
     // #276): the next idea typed there starts a new lane. On the stage the
     // shown image stays the anchor — the next line is another change to it.
@@ -1062,7 +1119,8 @@ export function StudioClient({
     // for an unseen id only for a submit that passes the quota and capacity
     // checks (#197), so the client mints the id up front and the lane
     // appears on the refetch below once the row exists.
-    const targetDesignId = submitAnchor?.designId ?? crypto.randomUUID();
+    const targetDesignId =
+      ids?.designId ?? submitAnchor?.designId ?? crypto.randomUUID();
     // The cell goes up now (#187). An anchored submit appends to that lane; an
     // unanchored one synthesizes a lane at the top of the bench — the first
     // lane below the composer panel — which is off-screen on a phone if the
@@ -1071,7 +1129,7 @@ export function StudioClient({
     // Minted here, not by the server (#245): lets a lost response be
     // reconciled by looking this exact id up, whatever `generateDesign`
     // itself returns or throws.
-    const clientJobId = crypto.randomUUID();
+    const clientJobId = ids?.jobId ?? crypto.randomUUID();
     // The submit's own clock reading — the optimistic entry's age (and so
     // settleOptimistic's STALE_OPTIMISTIC_MS cutoff) is measured from it, and
     // a lost response's reconcile loop uses the same instant as the start of
