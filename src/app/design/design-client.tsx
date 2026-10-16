@@ -384,7 +384,15 @@ function DesignPageInner({ initialThreadPromise, canPublish }: Props) {
   // visitor can design without hitting the auth wall. No-op when already
   // signed in; the gate now lives at checkout.
   useEffect(() => {
-    ensureGuestSession();
+    // A refused mint (rate-limited, say) now rejects; this call is not awaited,
+    // so log it rather than leave an unhandled rejection. The awaited calls
+    // below fall into their own catch blocks.
+    ensureGuestSession().catch((err) => {
+      console.error(
+        "[design] guest session failed",
+        err instanceof Error ? err.message : String(err)
+      );
+    });
   }, []);
 
   // Landing seed: /design?prompt=… fires one generation with the seeded idea

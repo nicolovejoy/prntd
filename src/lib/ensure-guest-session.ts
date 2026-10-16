@@ -1,4 +1,5 @@
 import { authClient } from "./auth-client";
+import { GuestSessionError, parseRetryAfterSeconds } from "./guest-session-error";
 
 let ensured: Promise<void> | null = null;
 
@@ -19,6 +20,15 @@ let ensured: Promise<void> | null = null;
  * latter as "no session" would mint a second anonymous user and swap the
  * session cookie out from under whatever the visitor already owns — their
  * designs, cart and orders stay on the old user id.
+ *
+ * The mint itself reports failure the same way, and that one must NOT be
+ * swallowed: a refused sign-in (notably Better-Auth's rate limit, 3 per 10 s
+ * per IP on /sign-in*, which answers 429 with an `X-Retry-After`) leaves the
+ * visitor with no cookie, and resolving anyway sends them on to a page that
+ * bounces them to /sign-in. So a refused mint rejects with a GuestSessionError
+ * (HTTP status, Retry-After when the response had one) and the memo is
+ * cleared, which lets a later call mint. The lookup-error path above is the
+ * opposite on purpose: there a session may already exist.
  */
 export function ensureGuestSession(): Promise<void> {
   if (!ensured) {
@@ -31,7 +41,23 @@ export function ensureGuestSession(): Promise<void> {
         return;
       }
       if (!data) {
-        await authClient.signIn.anonymous();
+        // Set by the client's onError, which is the only place the response
+        // headers are visible; the returned `error` has the body and status.
+        let retryAfter = null as string | null;
+        const minted = await authClient.signIn.anonymous({
+          fetchOptions: {
+            onError(ctx) {
+              retryAfter = ctx.response?.headers?.get("X-Retry-After") ?? null;
+            },
+          },
+        });
+        if (minted?.error) {
+          throw new GuestSessionError(
+            minted.error.message ?? "Couldn't start a guest session",
+            typeof minted.error.status === "number" ? minted.error.status : null,
+            parseRetryAfterSeconds(retryAfter)
+          );
+        }
       }
     })().catch((err) => {
       ensured = null;
