@@ -13,7 +13,7 @@ import {
   cartItemsForUser,
   primaryImageIdForDesign,
 } from "./helpers/db";
-import { waitForSessionCookie } from "./helpers/session";
+import { mintGuestSession } from "./helpers/session";
 import { waitForHydrated } from "./helpers/hydration";
 
 const PRODUCT = "bella-canvas-3001";
@@ -72,8 +72,7 @@ test("guest cart: two items, bundled shipping, sign-in gate at checkout", async 
   try {
     // Mint the anonymous session, then seed designs it owns (designs are
     // owner-scoped; a guest can only order its own).
-    await page.goto("/design");
-    const cookie = await waitForSessionCookie(page);
+    const cookie = await mintGuestSession(page);
     const userId = await userIdForSessionCookie(cookie);
     seeded.push(await seedDesign(userId, `${key}-a`, IMAGE_A));
     seeded.push(await seedDesign(userId, `${key}-b`, IMAGE_B));
@@ -138,8 +137,7 @@ test("cart line: quantity stepper and Edit save back to the same line (#282)", a
   const seeded: string[] = [];
 
   try {
-    await page.goto("/design");
-    const cookie = await waitForSessionCookie(page);
+    const cookie = await mintGuestSession(page);
     const userId = await userIdForSessionCookie(cookie);
     seeded.push(await seedDesign(userId, key, IMAGE_A));
 

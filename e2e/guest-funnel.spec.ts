@@ -10,7 +10,7 @@
  * still refuses a guest.
  */
 import { test, expect } from "@playwright/test";
-import { waitForSessionCookie } from "./helpers/session";
+import { mintGuestSession, waitForSessionCookie } from "./helpers/session";
 import {
   cleanupDesigns,
   cleanupUser,
@@ -98,8 +98,7 @@ test("a guest with an anonymous session reaches their own Studio, not /orders", 
   const seeded: string[] = [];
 
   try {
-    await page.goto("/design");
-    const cookie = await waitForSessionCookie(page);
+    const cookie = await mintGuestSession(page);
     const userId = await userIdForSessionCookie(cookie);
     const designId = await seedDesign(userId, key);
     seeded.push(designId);
@@ -161,8 +160,7 @@ test("a guest's size and colour on the image detail page survive Sign in to buy 
     const imagePath = `/d/${seeded.imageId}`;
 
     // A guest session, minted the way a first-time visitor gets one.
-    await page.goto("/design");
-    anonUserId = await userIdForSessionCookie(await waitForSessionCookie(page));
+    anonUserId = await userIdForSessionCookie(await mintGuestSession(page));
 
     await page.goto(imagePath);
     await page.getByTestId("order-expand").click();

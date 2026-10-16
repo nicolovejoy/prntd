@@ -25,3 +25,20 @@ export async function waitForSessionCookie(page: Page): Promise<string> {
     .toBe(true);
   return value;
 }
+
+/**
+ * Mint a guest session the way a first-time visitor gets one: load /design,
+ * which mints and then replaces itself with the Studio (a document navigation
+ * since the fix round of #188 slice 2b), and return the session cookie.
+ *
+ * It waits for that hop to land before returning. A spec that needs only the
+ * cookie and goes straight on to another page.goto would otherwise have its
+ * navigation interrupted by the hop's own ("Navigation to … is interrupted by
+ * another navigation to /studio").
+ */
+export async function mintGuestSession(page: Page): Promise<string> {
+  await page.goto("/design");
+  const cookie = await waitForSessionCookie(page);
+  await page.waitForURL(/\/studio/, { timeout: 20_000 });
+  return cookie;
+}
