@@ -169,7 +169,6 @@ OWNER_EMAIL                                # new-order alert recipient (defaults
 CRON_SECRET                                # Bearer token for /api/cron/* (Production scope)
 GUEST_FUNNEL_ENABLED, CART_ENABLED, MULTI_PLACEMENT_ENABLED   # all ON in prod
 USER_GEN_DAILY_CAP, GUEST_GEN_DAILY_CAP, IP_GEN_DAILY_CAP, USER_IP_GEN_DAILY_CAP   # generation quota overrides
-GUEST_CHAT_DAILY_CAP, USER_CHAT_DAILY_CAP, IP_CHAT_DAILY_CAP, USER_IP_CHAT_DAILY_CAP   # chat quota overrides (#260; 0 refuses every call)
 USER_CHECKOUT_DAILY_CAP, USER_IP_CHECKOUT_DAILY_CAP   # checkout attempt caps, defaults 30 and 100 (#333; no guest cap, guests never reach checkout)
 EMBEDDED_CHECKOUT_ENABLED                  # embedded checkout for the image detail page and the cart (ON in prod; one switch for both). PREVIEW_EMBEDDED_CHECKOUT_ENABLED was removed by #278 slice 6a (#340, 2026-10-15); the Vercel Preview scope still sets it, with no effect
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY         # pk_ matching STRIPE_SECRET_KEY's mode; without it either switch fails closed to hosted
