@@ -8,6 +8,7 @@
 import type { StudioLane, StudioPendingCell } from "./studio";
 import { STALE_OPTIMISTIC_MS } from "./generation-poll";
 import { DISPLAY_TIME_ZONE } from "./display-time-zone";
+import { SHOP_LISTING_LINE } from "./design-view";
 
 /** Elapsed time on a pending cell: "0:07", "1:23". Clock skew clamps to 0. */
 export function formatElapsed(ms: number): string {
@@ -48,6 +49,7 @@ export interface BulkDeleteResult {
  * DELETE_CONVERSATION_TITLE/CONSEQUENCE (design-view.ts): says what is kept,
  * because the action keeps it. Differs from the single Delete in one respect
  * it states plainly — a conversation with an order is skipped, not archived.
+ * `listedInShop`: any selected conversation has a Shop listing (SHOP_LISTING_LINE).
  *
  * Split into a title (the sheet's question) and a consequence (the sheet's
  * body) so neither repeats the other.
@@ -57,9 +59,15 @@ export function bulkDeleteTitle(count: number): string {
   return `Delete ${count} ${noun}?`;
 }
 
-export function bulkDeleteConsequence(count: number): string {
+export function bulkDeleteConsequence(
+  count: number,
+  listedInShop = false
+): string {
   const poss = count === 1 ? "its" : "their";
-  return `This deletes ${poss} images too. Images used in an order, another design, or a cart are kept. Conversations with an order are kept instead.`;
+  const listing = listedInShop
+    ? ` ${count === 1 ? SHOP_LISTING_LINE.single : SHOP_LISTING_LINE.plural}`
+    : "";
+  return `This deletes ${poss} images too.${listing} Images used in an order, another design, or a cart are kept. Conversations with an order are kept instead.`;
 }
 
 /**
@@ -221,6 +229,7 @@ export function applyOptimistic(
       messageCount: 0,
       cells: [],
       pending: group.map(optimisticCell),
+      listedInShop: false,
     }))
     .sort((a, b) => b.lastActiveAt.getTime() - a.lastActiveAt.getTime());
 

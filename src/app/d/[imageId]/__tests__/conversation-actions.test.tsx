@@ -54,7 +54,7 @@ describe("ConversationActions", () => {
     assign.mockImplementation(() => {
       order.push("assign");
     });
-    render(<ConversationActions designId="d1" imageId="img-1" archived />);
+    render(<ConversationActions designId="d1" imageId="img-1" archived listedInShop={false} />);
     await act(async () => {
       fireEvent.click(screen.getByTestId("open-conversation"));
     });
@@ -66,7 +66,7 @@ describe("ConversationActions", () => {
 
   it("does not navigate when reopening fails", async () => {
     vi.mocked(openConversation).mockRejectedValueOnce(new Error("Unauthorized"));
-    render(<ConversationActions designId="d1" imageId="img-1" archived={false} />);
+    render(<ConversationActions designId="d1" imageId="img-1" archived={false} listedInShop={false} />);
     await act(async () => {
       fireEvent.click(screen.getByTestId("open-conversation"));
     });
@@ -75,7 +75,7 @@ describe("ConversationActions", () => {
 
   it("shows an inline line and no alert when opening fails", async () => {
     vi.mocked(openConversation).mockRejectedValueOnce(new Error("Unauthorized"));
-    render(<ConversationActions designId="d1" imageId="img-1" archived={false} />);
+    render(<ConversationActions designId="d1" imageId="img-1" archived={false} listedInShop={false} />);
     await act(async () => {
       fireEvent.click(screen.getByTestId("open-conversation"));
     });
@@ -85,15 +85,33 @@ describe("ConversationActions", () => {
 
   it("shows a structured refusal verbatim", async () => {
     vi.mocked(deleteDesign).mockResolvedValueOnce({ error: "This design has an order on it." });
-    render(<ConversationActions designId="d1" imageId="img-1" archived={false} />);
+    render(<ConversationActions designId="d1" imageId="img-1" archived={false} listedInShop={false} />);
     await confirmDelete();
     expect(screen.getByTestId("inline-notice")).toHaveTextContent("This design has an order on it.");
     expect(window.alert).not.toHaveBeenCalled();
   });
 
+  it("names the Shop in the confirm only when the conversation has a listing", async () => {
+    const { unmount } = render(
+      <ConversationActions designId="d1" imageId="img-1" archived={false} listedInShop />
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByText("Delete conversation"));
+    });
+    expect(screen.getByText(/Its published images leave the Shop\./)).toBeInTheDocument();
+    unmount();
+
+    render(<ConversationActions designId="d1" imageId="img-1" archived={false} listedInShop={false} />);
+    await act(async () => {
+      fireEvent.click(screen.getByText("Delete conversation"));
+    });
+    expect(screen.getByText(/Images used in an order/)).toBeInTheDocument();
+    expect(screen.queryByText(/leave the Shop/)).toBeNull();
+  });
+
   it("shows the generic delete line when the action throws", async () => {
     vi.mocked(deleteDesign).mockRejectedValueOnce(new Error("boom"));
-    render(<ConversationActions designId="d1" imageId="img-1" archived={false} />);
+    render(<ConversationActions designId="d1" imageId="img-1" archived={false} listedInShop={false} />);
     await confirmDelete();
     expect(screen.getByTestId("inline-notice")).toHaveTextContent(DELETE_CONVERSATION_FAILED);
     expect(screen.queryByText("boom")).toBeNull();

@@ -33,8 +33,8 @@ import {
   REFERENCE_IMAGE_TYPES,
 } from "@/lib/reference-image-limits";
 import {
-  DELETE_CONVERSATION_CONSEQUENCE,
   DELETE_CONVERSATION_TITLE,
+  deleteConversationConsequence,
 } from "@/lib/design-view";
 import {
   GENERATION_CAP,
@@ -766,7 +766,10 @@ export function StudioClient({
     if (ids.length === 0 || bulkDeleting) return;
     const ok = await confirm({
       title: bulkDeleteTitle(ids.length),
-      body: bulkDeleteConsequence(ids.length),
+      body: bulkDeleteConsequence(
+        ids.length,
+        lanes.some((l) => ids.includes(l.designId) && l.listedInShop)
+      ),
       confirmLabel: "Delete",
       danger: true,
     });
@@ -1312,7 +1315,7 @@ export function StudioClient({
   async function deleteLane(lane: StudioLane) {
     const ok = await confirm({
       title: DELETE_CONVERSATION_TITLE,
-      body: DELETE_CONVERSATION_CONSEQUENCE,
+      body: deleteConversationConsequence(lane.listedInShop),
       confirmLabel: "Delete",
       danger: true,
     });

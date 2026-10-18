@@ -27,6 +27,7 @@ describe("OwnerActions", () => {
         canPublish
         sourceDesignId="design-1"
         conversationArchived={false}
+        conversationListedInShop={false}
       />
     );
     expect(screen.getByText("Owner")).toBeInTheDocument();
@@ -48,6 +49,7 @@ describe("OwnerActions", () => {
         canPublish
         sourceDesignId="design-1"
         conversationArchived={false}
+        conversationListedInShop={false}
       />
     );
     expect(screen.getByText("Not published")).toBeInTheDocument();
@@ -63,6 +65,7 @@ describe("OwnerActions", () => {
         canPublish
         sourceDesignId={null}
         conversationArchived={false}
+        conversationListedInShop={false}
       />
     );
     expect(

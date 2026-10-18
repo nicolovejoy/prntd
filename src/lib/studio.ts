@@ -29,6 +29,7 @@ import { mirrorFrontImageId } from "./composition-reads";
 import { DEFAULT_PUBLISH_BACKGROUND } from "./blanks";
 import { sweepStaleJobs } from "./generation-job";
 import { sweepIdleConversations } from "./archive-conversations";
+import { shopListedConversationIds } from "./shop-listed-conversations";
 
 // Type-only import so tests can inject an in-memory db without this module
 // constructing the libSQL client at import time (generation-job.ts pattern).
@@ -80,6 +81,9 @@ export type StudioLane = {
    * whose images are all hidden is still a lane, with no cells. */
   cells: StudioCell[];
   pending: StudioPendingCell[];
+  /** The conversation has a card in the Shop feed, which deleting it removes
+   * (shopListedConversationIds); the delete confirms say so. */
+  listedInShop: boolean;
 };
 
 /**
@@ -197,7 +201,7 @@ export async function getStudioLanesData(
   if (designs.length === 0) return [];
   const designIds = designs.map((d) => d.id);
 
-  const [imageRows, jobRows, turnRows] = await Promise.all([
+  const [imageRows, jobRows, turnRows, listed] = await Promise.all([
     // Both roles: a seed is one of the conversation's images, and its
     // image.created_at predates every output the thread generates, so the
     // shared ordering keeps it first (getDesignSourceImages convention,
@@ -270,6 +274,7 @@ export async function getStudioLanesData(
       .from(chatMessageTable)
       .where(inArray(chatMessageTable.designId, designIds))
       .groupBy(chatMessageTable.designId),
+    shopListedConversationIds(designIds, { db }),
   ]);
 
   const cellsByDesign = new Map<
@@ -341,6 +346,7 @@ export async function getStudioLanesData(
       messageCount: countByDesign.get(design.id) ?? 0,
       cells,
       pending,
+      listedInShop: listed.has(design.id),
     };
   });
 

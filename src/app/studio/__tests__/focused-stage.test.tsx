@@ -19,7 +19,7 @@ function cell(imageId: string, over: Partial<StudioLane["cells"][number]> = {}) 
   return { imageId, imageUrl: `https://cdn.example/${imageId}.png`, isPrimary: false, createdAt: new Date(), backdropColor: null, luminance: null, ...over };
 }
 function lane(over: Partial<StudioLane> = {}): StudioLane {
-  return { designId: "d1", title: "woodcut bear", lastActiveAt: new Date(), messageCount: 4, cells: [cell("a"), cell("b"), cell("c")], pending: [], ...over };
+  return { designId: "d1", title: "woodcut bear", lastActiveAt: new Date(), messageCount: 4, cells: [cell("a"), cell("b"), cell("c")], pending: [], listedInShop: false, ...over };
 }
 
 /** The props half of renderStage, for tests that render more than once. */

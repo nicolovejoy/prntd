@@ -19,6 +19,7 @@ export function OwnerActions({
   canPublish,
   sourceDesignId,
   conversationArchived,
+  conversationListedInShop,
 }: {
   imageId: string;
   imageUrl: string;
@@ -29,6 +30,8 @@ export function OwnerActions({
    * image pinned by an order or a seed outlives its thread. */
   sourceDesignId: string | null;
   conversationArchived: boolean;
+  /** The source conversation has a Shop listing (shopListedConversationIds). */
+  conversationListedInShop: boolean;
 }) {
   return (
     <section className="border-t border-border pt-3">
@@ -51,6 +54,7 @@ export function OwnerActions({
             designId={sourceDesignId}
             imageId={imageId}
             archived={conversationArchived}
+            listedInShop={conversationListedInShop}
           />
         )}
       </div>

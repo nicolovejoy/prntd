@@ -94,6 +94,16 @@ describe("bulkDeleteConsequence", () => {
   it("never repeats the title's question", () => {
     expect(bulkDeleteConsequence(6)).not.toMatch(/^Delete/);
   });
+
+  it("names the Shop when a selected conversation has a listing", () => {
+    expect(bulkDeleteConsequence(1, true)).toBe(
+      "This deletes its images too. Its published images leave the Shop. Images used in an order, another design, or a cart are kept. Conversations with an order are kept instead."
+    );
+    expect(bulkDeleteConsequence(6, true)).toMatch(
+      /^This deletes their images too\. Their published images leave the Shop\. /
+    );
+    expect(bulkDeleteConsequence(6, false)).not.toMatch(/Shop/);
+  });
 });
 
 describe("bulkDeleteSkipNotice", () => {
@@ -127,6 +137,7 @@ function lane(overrides: Partial<StudioLane> = {}): StudioLane {
     messageCount: 0,
     cells: [],
     pending: [],
+    listedInShop: false,
     ...overrides,
   };
 }

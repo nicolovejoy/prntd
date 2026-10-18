@@ -8,11 +8,26 @@
  *
  * Split into a title (the sheet's question) and a consequence (the sheet's
  * body) so neither repeats the other — a single combined string used to open
- * with the same question the sheet's title already asks.
+ * with the same question the sheet's title already asks. The consequence
+ * opens with SHOP_LISTING_LINE when the conversation has a Shop listing.
  */
 export const DELETE_CONVERSATION_TITLE = "Delete this conversation?";
-export const DELETE_CONVERSATION_CONSEQUENCE =
-  "Images used in an order, another design, or a cart are kept. A conversation with an order is archived instead.";
+export function deleteConversationConsequence(listedInShop: boolean): string {
+  const kept =
+    "Images used in an order, another design, or a cart are kept. A conversation with an order is archived instead.";
+  return listedInShop ? `${SHOP_LISTING_LINE.single} ${kept}` : kept;
+}
+
+/**
+ * The line a delete confirm adds when a conversation has a Shop listing
+ * (`shopListedConversationIds`). Deleting the conversation takes the listing
+ * out of the Shop even when the image itself is kept (#321), and nothing
+ * else tells the owner.
+ */
+export const SHOP_LISTING_LINE = {
+  single: "Its published images leave the Shop.",
+  plural: "Their published images leave the Shop.",
+} as const;
 
 /** Error message the closed-conversation guard throws; the Studio keys its
  * closed state off the server row, so this is just the action backstop. */

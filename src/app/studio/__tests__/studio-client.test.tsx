@@ -94,6 +94,7 @@ function lane(overrides: Partial<StudioLane> = {}): StudioLane {
     messageCount: 0,
     cells: [],
     pending: [],
+    listedInShop: false,
     ...overrides,
   };
 }
