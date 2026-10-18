@@ -70,7 +70,7 @@ export const design = sqliteTable("design", {
   // compared image.
   activeGeneratorId: text("active_generator_id"),
   // Conversation lifecycle (Model B slice 3). Null = open. Closed makes the
-  // thread read-only — chat, generation and uploads are refused
+  // conversation read-only — generation and uploads are refused
   // (assertConversationOpen) — while history stays viewable and its images
   // stay fully usable elsewhere (orders, back picker, fresh starts).
   // A timestamp, not a status value: `status` is a visibility concept and
@@ -298,10 +298,10 @@ export const ledgerEntry = sqliteTable(
 );
 
 /**
- * Per-day (UTC) quota counters for generation and chat (#26 A3, #253, #263).
+ * Per-day (UTC) quota counters for generation, checkout and upload (#26 A3, #253, #263).
  * One row per (bucket, day): bucket is "user:<id>" (the anon or real user),
- * "ip:<addr>", or the same with a "chat:" prefix. Incremented before each
- * Ideogram/Anthropic call; over a cap the action returns a refusal with no API
+ * "ip:<addr>", or the same with a "checkout:" or "upload:" prefix. Old
+ * "chat:" rows remain as history. Incremented before each Ideogram call; over a cap the action returns a refusal with no API
  * spend (guests are told to sign in, signed-in users to try again later).
  * Ephemeral accounting, not financial — safe to prune old days.
  */

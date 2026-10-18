@@ -153,8 +153,8 @@ async function loadAggregates(userId?: string): Promise<{
       .where(only(designTable.userId))
       .groupBy(designTable.userId),
 
-    // User-role turns: chat messages, Generate prompts and uploads all write
-    // one, so this is messages sent, not chat-API calls. created_at is ms.
+    // User-role turns: Generate prompts and uploads each write one, so this
+    // counts turns sent, not API calls. created_at is ms.
     db
       .select({
         userId: designTable.userId,

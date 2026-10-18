@@ -71,11 +71,6 @@ vi.mock("@/lib/ai", () => ({
     message: "Here it is",
     spec: { subject: "a happy cat", elements: [{ type: "obj", desc: "a happy cat" }] },
   })),
-  chatAboutDesign: vi.fn(async () => ({
-    message: "Sure",
-    readyToGenerate: true,
-    options: [],
-  })),
 }));
 
 const r2Mocks = vi.hoisted(() => ({
@@ -100,8 +95,10 @@ vi.mock("@/lib/generators/registry", () => {
   };
 });
 
-const { startConversationFromImage, generateDesign, deleteDesignImage } =
-  await import("@/app/design/actions");
+const { startConversationFromImage, generateDesign } = await import(
+  "@/app/design/actions"
+);
+const { deleteImageViaPlan } = await import("@/lib/__tests__/delete-image-via-plan");
 const { getDesignImagesForAIContext } = await import("@/lib/design-images");
 const { constructDesignBrief } = await import("@/lib/ai");
 const { GENERATORS } = await import("@/lib/generators/registry");
@@ -330,7 +327,7 @@ describe("removing a seed from the thread", () => {
     const { imageId } = await seedOrigin({ publishedAt: new Date() });
     const { designId } = await startConversationFromImage(imageId);
 
-    await deleteDesignImage(designId, imageId);
+    await deleteImageViaPlan(testDb, designId, imageId);
 
     // Detach only: the image row and the ORIGIN thread's own output link
     // survive — the seed was never the origin's to lose.

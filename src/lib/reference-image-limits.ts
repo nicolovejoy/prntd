@@ -12,6 +12,6 @@ export const REFERENCE_IMAGE_MAX_SIDE = 2048;
 /** What the browser file picker is told to offer, and what the device check accepts. */
 export const REFERENCE_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"] as const;
 
-/** Messages `uploadReferenceImage` throws; the Studio action maps them to copy. */
+/** Refusal reasons `normalizeReferenceImage` and `storeReferenceImage` return; the Studio action maps them to copy. */
 export const REFERENCE_IMAGE_TOO_LARGE = "too_large";
 export const REFERENCE_IMAGE_UNSUPPORTED = "unsupported";

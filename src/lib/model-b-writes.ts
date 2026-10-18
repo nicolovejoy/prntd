@@ -115,7 +115,7 @@ export function buildOutputLinkRow(
  * Build the `placement_render` row for a placement-targeted render. `id` is
  * reused from the design_image row. `placementId` coalesces to "default" —
  * legacy front renders stored a null placement, but the cache table requires
- * one and "default" is the established front fallback (getDesignPlacementRenders).
+ * one and "default" is the established front fallback.
  */
 export function buildPlacementRenderRow(params: {
   id: string;

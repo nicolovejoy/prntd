@@ -54,11 +54,6 @@ vi.mock("@/lib/ai", () => ({
     message: "Here it is",
     spec: { subject: "a happy cat", elements: [{ type: "obj", desc: "a happy cat" }] },
   })),
-  chatAboutDesign: vi.fn(async () => ({
-    message: "",
-    readyToGenerate: true,
-    options: [],
-  })),
 }));
 
 vi.mock("@/lib/r2", () => ({

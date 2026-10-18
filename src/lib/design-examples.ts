@@ -1,8 +1,7 @@
 /**
  * Example design prompts shared by the landing hero chips (tap = navigate to
- * /design?prompt=, which hands the idea to the Studio to generate immediately)
- * and the in-chat empty-state chips
- * (tap = prefill the composer). One library, two jobs. Each entry is also the
+ * /design?prompt=, which hands the idea to the Studio to generate immediately).
+ * Each entry is also the
  * literal generation prompt, so every entry keeps a subject + style — "A
  * wolf" is not acceptable, "Geometric wolf head" is.
  *
@@ -13,7 +12,7 @@
  *
  * `pickExamplePrompts` is pure and takes an injectable `rand`, so callers can
  * get a deterministic pick in tests and a real random pick at runtime. See
- * `src/components/use-example-prompts.ts` for how the hero/composer avoid a
+ * `src/components/use-example-prompts.ts` for how the hero avoids a
  * hydration mismatch by picking deterministically on first render and only
  * randomizing after mount.
  */

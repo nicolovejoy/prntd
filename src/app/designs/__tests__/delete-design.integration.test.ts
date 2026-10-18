@@ -1,5 +1,5 @@
 /**
- * deleteDesign / deleteDesignImage against real in-memory libSQL with FKs
+ * deleteDesign / the image-delete plan against real in-memory libSQL with FKs
  * enforced (the #28 harness), driving the server actions with db/auth mocked.
  *
  * Prod bug (#121, 2026-07-28): deleteDesign's order guard only counted
@@ -45,7 +45,6 @@ vi.mock("@/lib/auth", () => ({
 vi.mock("@/lib/ai", () => ({
   generatePublishedNaming: async () => ({ title: "T", description: "D" }),
   constructDesignBrief: vi.fn(),
-  chatAboutDesign: vi.fn(),
 }));
 vi.mock("@/lib/r2", () => ({
   uploadImageObject: vi.fn(async () => "https://r2/x.png"),
@@ -58,7 +57,7 @@ vi.mock("@/lib/generators/registry", () => ({
 }));
 
 const { deleteDesign } = await import("@/app/designs/actions");
-const { deleteDesignImage } = await import("@/app/design/actions");
+const { deleteImageViaPlan } = await import("@/lib/__tests__/delete-image-via-plan");
 
 beforeEach(async () => {
   testDb = await createTestDb();
@@ -229,7 +228,7 @@ describe("deleteDesign — rows that FK design.id (#121)", () => {
   });
 });
 
-describe("deleteDesignImage — cross-design references", () => {
+describe("image delete plan — cross-design references", () => {
   it("refuses when another design's order line pins the image", async () => {
     const d = await makeDesign(testDb, "u1");
     const imageId = await makeSourceImage(testDb, {
@@ -245,8 +244,8 @@ describe("deleteDesignImage — cross-design references", () => {
       placements: { back: imageId },
     });
 
-    await expect(deleteDesignImage(d.id, imageId)).rejects.toThrow(
-      /referenced by an order/
+    expect((await deleteImageViaPlan(testDb, d.id, imageId)).refused).toBe(
+      "blocked-by-order"
     );
     expect(
       await testDb.select().from(schema.image).where(eq(schema.image.id, imageId))
@@ -267,7 +266,7 @@ describe("deleteDesignImage — cross-design references", () => {
       role: "seed",
     });
 
-    await deleteDesignImage(d.id, imageId);
+    await deleteImageViaPlan(testDb, d.id, imageId);
 
     // Own-thread link is gone…
     expect(
@@ -302,7 +301,7 @@ describe("deleteDesignImage — cross-design references", () => {
       publishedAt: new Date(),
     });
 
-    await deleteDesignImage(d.id, imageId);
+    await deleteImageViaPlan(testDb, d.id, imageId);
 
     expect(
       await testDb.select().from(schema.image).where(eq(schema.image.id, imageId))
@@ -337,7 +336,7 @@ describe("deleteDesignImage — cross-design references", () => {
       placements: { front: otherFront, back: imageId },
     });
 
-    await deleteDesignImage(d.id, imageId);
+    await deleteImageViaPlan(testDb, d.id, imageId);
 
     // Own-thread link is gone, but the artifact survives for the product.
     expect(
@@ -368,7 +367,7 @@ describe("deleteDesignImage — cross-design references", () => {
       placements: { front: `e2e-${other.id}`, back: imageId },
     });
 
-    await deleteDesignImage(d.id, imageId);
+    await deleteImageViaPlan(testDb, d.id, imageId);
 
     expect(
       await testDb.select().from(schema.image).where(eq(schema.image.id, imageId))
@@ -459,7 +458,7 @@ describe("deleteDesign — generation job rows", () => {
   });
 });
 
-describe("deleteDesignImage — owning a design doesn't authorise every image id", () => {
+describe("image delete plan — owning a design doesn't authorise every image id", () => {
   it("refuses an image the design has no link to, even an unlinked one", async () => {
     // Victim's image, detached from every conversation (its owner removed it
     // from the thread, or the thread that seeded it was deleted) — the row
@@ -478,9 +477,9 @@ describe("deleteDesignImage — owning a design doesn't authorise every image id
     currentUserId = "u1";
     const attackerDesign = await makeDesign(testDb, "u1");
 
-    await expect(
-      deleteDesignImage(attackerDesign.id, victimImage)
-    ).rejects.toThrow(/not found/i);
+    expect(
+      (await deleteImageViaPlan(testDb, attackerDesign.id, victimImage)).refused
+    ).toBe("not-found");
     expect(
       await testDb
         .select()
@@ -505,9 +504,9 @@ describe("deleteDesignImage — owning a design doesn't authorise every image id
     currentUserId = "u1";
     const attackerDesign = await makeDesign(testDb, "u1");
 
-    await expect(
-      deleteDesignImage(attackerDesign.id, render.id)
-    ).rejects.toThrow(/not found/i);
+    expect(
+      (await deleteImageViaPlan(testDb, attackerDesign.id, render.id)).refused
+    ).toBe("not-found");
     expect(
       await testDb
         .select()
@@ -675,7 +674,7 @@ describe("deleting a conversation that holds an admin-hidden image (#310 item 2)
     expect(await rowsOf.product()).toHaveLength(0);
   });
 
-  it("deleteDesignImage on the visible image keeps the conversation; a later lane Delete keeps the hidden image", async () => {
+  it("an image delete on the visible image keeps the conversation; a later lane Delete keeps the hidden image", async () => {
     const { designId, hiddenId } = await hiddenThread();
     const visibleId = await makeSourceImage(testDb, {
       designId,
@@ -683,7 +682,7 @@ describe("deleting a conversation that holds an admin-hidden image (#310 item 2)
       imageUrl: "https://img/visible.png",
     });
 
-    const { designRemoved } = await deleteDesignImage(designId, visibleId);
+    const { designRemoved } = await deleteImageViaPlan(testDb, designId, visibleId);
 
     expect(designRemoved).not.toBe("deleted");
     expect(await designRow(designId)).toBeDefined();

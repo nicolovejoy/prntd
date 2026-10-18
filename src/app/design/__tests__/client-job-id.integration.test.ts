@@ -53,11 +53,6 @@ const GENERATE_BRIEF = {
 
 vi.mock("@/lib/ai", () => ({
   constructDesignBrief: vi.fn(async () => GENERATE_BRIEF),
-  chatAboutDesign: vi.fn(async () => ({
-    message: "",
-    readyToGenerate: true,
-    options: [],
-  })),
 }));
 
 vi.mock("@/lib/r2", () => ({

@@ -21,7 +21,7 @@ import {
   type ChatMessage,
 } from "@/lib/db/schema";
 import { eq, and, asc, desc, inArray, isNull, or, sql } from "drizzle-orm";
-import { getBlank, type AspectRatio } from "@/lib/blanks";
+import { type AspectRatio } from "@/lib/blanks";
 import type { DesignSpec } from "@/lib/design-spec";
 import {
   buildNamingContext,
@@ -41,7 +41,6 @@ import {
 // reads got implicitly from the table scan.
 const IMAGE_SEQ_ASC = sql`image.rowid asc`;
 const IMAGE_SEQ_DESC = sql`image.rowid desc`;
-const RENDER_SEQ_ASC = sql`placement_render.rowid asc`;
 const RENDER_SEQ_DESC = sql`placement_render.rowid desc`;
 
 /**
@@ -125,7 +124,7 @@ export async function insertChatMessage(params: {
 /**
  * Source images for a design with the AI-context shape the prompt
  * builder wants (number, url, prompt). Numbers are 1-indexed in
- * chronological order. Used by sendChatMessage / generateDesign /
+ * chronological order. Used by generateDesign /
  * constructDesignBrief to populate the "Images so far" gallery
  * context. Uploads stored with prompt='[user upload] ...' surface as-is.
  * Includes the thread's seed image (fresh-start, slice 3) so the AI can
@@ -516,48 +515,6 @@ export async function getDesignImageWithOwner(
 }
 
 /**
- * Find the image whose imageUrl matches a target URL, scoped to a design.
- * Used at order-creation time to pin the order to the specific image that was
- * on screen when the customer clicked checkout. Artifacts first, then the
- * render cache (a URL can come from either surface). Null if neither matches
- * (e.g. pre-Phase-2 designs that haven't been backfilled).
- *
- * Matches any conversation link role: a seed image (slice 3) shown in the
- * thread is pinnable/orderable exactly like an output.
- */
-export async function findDesignImageByUrl(
-  designId: string,
-  imageUrl: string
-): Promise<string | null> {
-  const artifacts = await db
-    .select({ id: imageTable.id })
-    .from(conversationImageTable)
-    .innerJoin(imageTable, eq(imageTable.id, conversationImageTable.imageId))
-    .where(
-      and(
-        eq(conversationImageTable.designId, designId),
-        eq(imageTable.imageUrl, imageUrl)
-      )
-    )
-    .orderBy(desc(imageTable.createdAt), IMAGE_SEQ_DESC)
-    .limit(1);
-  if (artifacts[0]) return artifacts[0].id;
-
-  const renders = await db
-    .select({ id: placementRenderTable.id })
-    .from(placementRenderTable)
-    .where(
-      and(
-        eq(placementRenderTable.designId, designId),
-        eq(placementRenderTable.imageUrl, imageUrl)
-      )
-    )
-    .orderBy(desc(placementRenderTable.createdAt), RENDER_SEQ_DESC)
-    .limit(1);
-  return renders[0]?.id ?? null;
-}
-
-/**
  * Resolve the image URL to display for a list of orders. Prefers each
  * order's `placements.front` (a design_image id snapshot from purchase
  * time) over the design's current display image, so historical orders
@@ -672,87 +629,6 @@ export async function getDesignSourceImages(
   }));
 }
 
-export type ProductVersion = {
-  id: string;
-  imageUrl: string;
-  aspectRatio: AspectRatio;
-  placementId: string;
-  createdAt: Date;
-};
-
-export type ProductVersionGroup = {
-  productId: string;
-  productName: string;
-  images: ProductVersion[];
-};
-
-/**
- * Fetch placement-targeted renders for a design, grouped by blank. Each
- * group's `images` is ordered oldest → newest. Blanks with no renders for
- * this design are omitted entirely.
- *
- * A render of an admin-hidden source image is left out: it is the hidden
- * artwork on a shirt (its owner-facing callers, the /design views, were deleted
- * in #188 slice 2c; only tests call this reader now). The check
- * is one level deep, on `source_image_id` against `image_publication`. Two
- * cases cannot be judged and are kept: a legacy render with no recorded source
- * (`source_image_id` NULL), and a render whose source is itself a render (a
- * render id has no publication row). The buy path follows that chain
- * (`hiddenThroughSources` in back-sources.ts); this reader does not.
- * `placement_render` has no live writer: its only writer is
- * `insertDesignImage`'s `productId` branch, and that function's one caller
- * outside tests (the upload action) passes no `productId`. The rows that exist
- * are from before that.
- */
-export async function getDesignPlacementRenders(
-  designId: string
-): Promise<ProductVersionGroup[]> {
-  const rows = await db
-    .select({
-      id: placementRenderTable.id,
-      imageUrl: placementRenderTable.imageUrl,
-      aspectRatio: placementRenderTable.aspectRatio,
-      blankId: placementRenderTable.blankId,
-      placementId: placementRenderTable.placementId,
-      createdAt: placementRenderTable.createdAt,
-    })
-    .from(placementRenderTable)
-    .leftJoin(
-      imagePublicationTable,
-      eq(imagePublicationTable.imageId, placementRenderTable.sourceImageId)
-    )
-    .where(
-      and(
-        eq(placementRenderTable.designId, designId),
-        // NULL when the render has no source or its source has no publication row.
-        or(isNull(imagePublicationTable.isHidden), eq(imagePublicationTable.isHidden, false))
-      )
-    )
-    .orderBy(asc(placementRenderTable.createdAt), RENDER_SEQ_ASC);
-
-  const byProduct = new Map<string, ProductVersionGroup>();
-  for (const r of rows) {
-    let group = byProduct.get(r.blankId);
-    if (!group) {
-      const product = getBlank(r.blankId);
-      group = {
-        productId: r.blankId,
-        productName: product?.name ?? r.blankId,
-        images: [],
-      };
-      byProduct.set(r.blankId, group);
-    }
-    group.images.push({
-      id: r.id,
-      imageUrl: r.imageUrl,
-      aspectRatio: r.aspectRatio as AspectRatio,
-      placementId: r.placementId,
-      createdAt: r.createdAt,
-    });
-  }
-  return Array.from(byProduct.values());
-}
-
 export type DisplayImageOptions = {
   /** Treat an admin-hidden image as if it did not exist: a hidden primary
    * falls through to the latest output, and a hidden output is never that
@@ -762,9 +638,10 @@ export type DisplayImageOptions = {
    *
    * Only an image id with a hidden `image_publication` row is dropped. Not
    * judged, and kept: a primary that is a `placement_render` id, even when the
-   * render's source image is hidden (`selectImage` can still write a render id
-   * as the primary). `placement_render` has no live writer (see
-   * getDesignPlacementRenders), so only older rows can be in that state. */
+   * render's source image is hidden (a render id could once be written as the
+   * primary). `placement_render` has no live writer (its only writer is
+   * `insertDesignImage`'s `productId` branch, which no caller uses), so only
+   * older rows can be in that state. */
   excludeHidden?: boolean;
 };
 

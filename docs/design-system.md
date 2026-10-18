@@ -271,11 +271,12 @@ Three principles:
    `ghost`, or a plain link. (The old equal-weight Send / Draw it / Compare
    composer is resolved — #174 collapsed the composer to one submit control
    that generates, with chat kept to a separate, visibly lower-weight "Ask"
-   tap. See Gaps, item 5, RESOLVED.)
+   tap, since removed with the chat action. See Gaps, item 5, RESOLVED.)
 3. **Phone-first, one column.** The phone layout is the design; desktop gets
-   extra space, not extra features. Anything desktop-only (e.g. the
-   generations strip beneath the Stage — `DesignStage`, #151) must have a
-   phone equivalent (the mobile gallery drawer/strip), not be dropped.
+   extra space, not extra features. Anything desktop-only must have a phone
+   equivalent, not be dropped. (No Studio surface is desktop-only today: the
+   results strip beside the focused stage in `src/app/studio/focused-stage.tsx`
+   renders at both widths, with larger tiles at `lg:`.)
 
 ### Vocabulary
 
@@ -285,7 +286,9 @@ differ.
 **Objects**
 
 - **Design** — a thread: the conversation plus all its generations. One row in
-  `design`, one `/design?id=` URL.
+  `design`, shown in the Studio as a lane on the bench and as a focused stage.
+  (It used to have its own `/design?id=` URL; that thread view was deleted by
+  #345 and the URL now redirects to the Studio.)
 - **Generation** — one numbered render inside a design (an `image` row,
   linked to its conversation via `conversation_image`; `design_image` was
   dropped in Model B slice 5, migration `0009`). Append-only; never replaced.
@@ -306,8 +309,11 @@ differ.
 **Places**
 
 - **Studio** — `/studio`, a single view: the bench, where designs are made.
-  There is no tab strip inside it any more. One conversation thread lives
-  one level in, at `/design`. My Designs (see Shelf, below) used to be the
+  There is no tab strip inside it any more. One conversation is opened as the
+  focused stage (below); the old `/design?id=` thread view was deleted by #345.
+  `/design` is now only a doorway: it redirects a visitor with a session to
+  the Studio and mints a guest session for one without. My Designs (see Shelf,
+  below) used to be the
   Studio's own Library tab; it moved out to its own top-level route on
   2026-09-27, revising nav model A (`docs/ux-design-review-2026-09.md`),
   reachable from the header bar instead of a tab. `/studio/archive` and
@@ -347,15 +353,15 @@ differ.
   image on /d/[id]). One Stage per screen, as large as the viewport allows.
 - **Composer** — the chat input row in the Studio (input + actions). Also the
   signed-out landing hero (`MakerHero`) — the landing is the composer.
-- **Rail** — retired by #151 (2026-08-02). The desktop layout is now
-  `DesignStage`: the current image at full size, a generations strip
-  beneath it, chat a fixed-width column beside. There is no separate
-  right-side sidebar.
-- **Sheet** — a bottom drawer on phones (`MobileGalleryDrawer`, opened from
-  the thumbnail strip docked above the composer, `MobileGalleryStrip`). Now
-  the only surface carrying this pattern, since the Rail it used to pair
-  with is gone.
-- **Lightbox** — full-screen image overlay with per-image actions.
+- **Rail** — retired by #151 (2026-08-02). `DesignStage` replaced it, then the
+  focused stage replaced `DesignStage` when the `/design` thread was deleted
+  (#345): one result large on its backdrop, a results strip, the composer
+  under it. There is no separate right-side sidebar.
+- **Sheet** — the phone bottom-sheet pattern, carried today by `ConfirmSheet`
+  and `NoticeSheet`. The gallery drawer and strip (`MobileGalleryDrawer`,
+  `MobileGalleryStrip`) that also used it were deleted by #345.
+- **Lightbox** — full-screen image overlay on the image detail page
+  (`src/app/d/[imageId]/image-lightbox.tsx`).
 - **Focused stage** — a Studio layout mode with `?conversation=&image=` parameters: one result large on its backdrop, composer below, other results in a strip, history disclosure.
 - **Sticky bar** — the fixed bottom CTA bar on phone funnel pages
   (/preview).
@@ -506,9 +512,9 @@ Scale in use (Tailwind steps), roles:
 
 ### Component grammar
 
-Ten primitives in `src/components/ui/` — the only sanctioned building
+Nine primitives in `src/components/ui/` — the only sanctioned building
 blocks. Five in the original draft (Button, Badge, Card, Input, Modal);
-`ConfirmSheet`, `NoticeSheet`, `InlineNotice`, `EmptyState`, and `QuickReply`
+`ConfirmSheet`, `NoticeSheet`, `InlineNotice`, and `EmptyState`
 were added since, mostly by the #218 alert sweep:
 
 - **Button** (`button.tsx`) — variants `primary` (outlined ink, not
@@ -538,10 +544,8 @@ were added since, mostly by the #218 alert sweep:
   constants live in `src/lib/action-copy.ts` (#218).
 - **EmptyState** (`empty-state.tsx`) — the one shared "nothing here yet"
   block (optional mono label, one line of muted copy, one action), used on
-  the Studio bench, My Designs, Shop, Cart, and Orders. `/design`'s own
-  empty-conversation views do not use it — see Gaps, item 3.
-- **QuickReply** (`quick-reply.tsx`) — tappable chat-option chips rendered
-  under an assistant message; a tap submits `value` as the next turn.
+  the Studio bench, My Designs, Shop, Cart, and Orders. The old `/design`
+  empty-conversation views did not use it — see Gaps, item 3.
 
 Composites built from these: `SizePicker`/`ColorPicker`
 (`product-options.tsx`), `PublishModal`, `PublishedGrid`, `Breadcrumbs`,
@@ -618,8 +622,9 @@ Remaining:
    under #174 (studio slice 1): the composer has exactly one submit control,
    labelled "Generate" (persona C), and it always generates. Chat is still
    reachable but only via a separate, visibly lower-weight "Ask" tap
-   (`variant="ghost"` vs. the submit's `variant="primary"`/`"generate"`).
-   `chat-panel.tsx` `handleSubmit`/`handleAsk`.
+   (`variant="ghost"` vs. the submit's `variant="primary"`/`"generate"`)
+   (Ask removed with the chat action in this PR).
+   `chat-panel.tsx` `handleSubmit`/`handleAsk` (deleted by #345).
 6. ~~**Accent = white means no brand color exists.**~~ — RESOLVED 2026-09-06
    under Paper (#213): false twice over now — `--accent` resolves to ink
    (`var(--foreground)`), not white, and one brand hue does exist:
@@ -706,9 +711,20 @@ added was itself reversed in #220).
 
 ### `/design` (`app/design/page.tsx`)
 
-Job: turn a described idea into a generation worth ordering. Vocabulary
-correction: this is one conversation thread, not "Studio" — Studio now names
-`/studio` (see Part 2).
+Job: sessionless doorway into the Studio. A visitor with a session is
+redirected on the server (`?id=` for an open conversation with results goes to its focused
+stage; a closed, result-less, foreign or unknown id goes to the bench); a visitor with none gets a guest session minted by
+`app/design/design-entry.tsx`, then moves on to `/studio` carrying the landing
+idea. The conversation thread that used to render here (composer with Ask,
+message list, `DesignStage`, mobile strip and drawer, its own lightbox) was
+deleted by #345; Ask was removed after it. The surfaces below describe that
+thread as it was, and are kept as history. What replaced them is the Studio
+bench and the focused stage (`src/app/studio/focused-stage.tsx`: one result
+large on its backdrop, composer under it, other results as a strip, a
+collapsed History disclosure), and the lightbox on the image detail page
+(`src/app/d/[imageId]/image-lightbox.tsx`).
+
+Former thread surfaces (deleted by #345):
 
 1. **Composer** (`app/design/chat-panel.tsx`) — input + upload button + one
    submit control, **Generate** (primary, always generates; #174) + **Ask**

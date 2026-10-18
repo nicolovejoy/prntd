@@ -52,11 +52,6 @@ vi.mock("@/lib/auth", () => ({
 
 vi.mock("@/lib/ai", () => ({
   constructDesignBrief: vi.fn(),
-  chatAboutDesign: vi.fn(async () => ({
-    message: "",
-    readyToGenerate: true,
-    options: [],
-  })),
 }));
 
 vi.mock("@/lib/r2", () => ({
@@ -80,9 +75,8 @@ vi.mock("@/lib/generators/registry", () => {
   };
 });
 
-const { generateDesign, uploadReferenceImage } = await import(
-  "@/app/design/actions"
-);
+const { generateDesign } = await import("@/app/design/actions");
+const { storeReferenceImage } = await import("@/lib/store-reference-image");
 const { getImageNamingContext } = await import("@/lib/design-images");
 const ai = await import("@/lib/ai");
 const briefMock = ai.constructDesignBrief as Mock;
@@ -208,11 +202,14 @@ describe("image provenance is persisted (#169)", () => {
 
   it("an upload records operation=upload and no spec", async () => {
     const designId = await seedDesign();
-    const { imageId } = await uploadReferenceImage(
+    const stored = await storeReferenceImage({
       designId,
-      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADElEQVQImWNgYGAAAAAEAAGjChXjAAAAAElFTkSuQmCC" /* a 1x1 PNG: uploads are decoded now */,
-      "logo.png"
-    );
+      userId: "u1",
+      base64Data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADElEQVQImWNgYGAAAAAEAAGjChXjAAAAAElFTkSuQmCC" /* a 1x1 PNG: uploads are decoded now */,
+      fileName: "logo.png",
+    });
+    if (!stored.ok) throw new Error(stored.reason);
+    const { imageId } = stored;
 
     const [row] = (await images(designId)).filter((r) => r.id === imageId);
     expect(row.operation).toBe("upload");

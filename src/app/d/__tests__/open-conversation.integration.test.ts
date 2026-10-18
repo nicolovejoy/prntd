@@ -41,7 +41,6 @@ vi.mock("@/lib/auth", () => ({
 }));
 vi.mock("@/lib/ai", () => ({
   constructDesignBrief: vi.fn(),
-  chatAboutDesign: vi.fn(),
 }));
 vi.mock("@/lib/r2", () => ({
   uploadImageObject: vi.fn(),

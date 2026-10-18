@@ -11,8 +11,8 @@ import { useExamplePrompts } from "@/components/use-example-prompts";
  * visitor with no session can open. There the guest session is minted (or a
  * session that exists is reused) and the visitor moves on to
  * /studio?prompt=…&lane=…&seed=…, where the Studio fires one generation from
- * the idea (#188 slice 2b). Unlike the in-chat chips (which prefill), landing
- * chips navigate immediately: here they demo the product. The sub-line is a
+ * the idea (#188 slice 2b). The chips navigate immediately rather than prefill:
+ * here they demo the product. The sub-line is a
  * tagline, not the price line.
  *
  * data-testid="maker-hero" is the post-deploy prod smoke's "the app rendered"

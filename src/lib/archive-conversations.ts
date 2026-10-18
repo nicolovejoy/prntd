@@ -4,7 +4,7 @@
  *
  * This is a new WRITER of an existing state, not a new state. `closed_at`
  * already means "read-only record" (#125), `assertConversationOpen` already
- * refuses chat/generate/upload on it, and `reopenConversation` already brings
+ * refuses generate/upload on it, and `reopenConversation` already brings
  * it back. Nothing here is user-visible beyond the lane disappearing from
  * /studio — it remains visible in /designs (My Designs) under the All
  * filter (#238), and is reopenable from there or from the image detail page's
@@ -17,8 +17,8 @@
  * `sweepStaleJobs`, so the two write-shaped sweeps stop blocking the first
  * byte; the read may show a lane one sweep behind, self-correcting on the
  * next poll or a refused write. `sweepStaleJobs` itself is NOT changed by
- * this and still runs inline, on the read, at its remaining call sites
- * (`design/actions.ts`'s `getDesignJobs` and `user-designs.ts`);
+ * this and still runs inline, on the read, at its remaining call site
+ * (`user-designs.ts`);
  * `site-header-actions.ts` moved to `after()` in #210 — this module's sweep
  * has exactly one caller (the Studio), so there was nowhere else to preserve
  * the old "lazily on a read that happens anyway" shape for.
@@ -67,8 +67,8 @@ async function resolveDb(db?: AppDb): Promise<AppDb> {
  *
  * **Activity** is measured the way the Studio ranks lanes (`laneLastActiveAt`):
  * the freshest of the design row's `updated_at`, its newest image, its newest
- * chat turn, and any running job's start. Every writer that matters — chat
- * turn, generation completion, `setPrimaryImage` — does bump `updated_at`
+ * chat turn, and any running job's start. Every writer that matters —
+ * generation completion, `setPrimaryImage` — does bump `updated_at`
  * today, so in practice `updated_at` is authoritative; the other three are
  * read anyway because this function ARCHIVES on the answer. A future writer
  * that forgets the bump should cost a lane its top slot, not close a

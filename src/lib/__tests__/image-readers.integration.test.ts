@@ -29,9 +29,7 @@ const {
   getDesignImagesForAIContext,
   getDesignImageById,
   getDesignImageWithOwner,
-  getDesignPlacementRenders,
   findPlacementRender,
-  findDesignImageByUrl,
   resolveImagesByIds,
   resolveOrderImageUrls,
   resolveDesignDisplayImageUrls,
@@ -100,9 +98,6 @@ describe("readers on dual-written rows", () => {
     expect((await getDesignImageById(ids.renderId))?.imageUrl).toBe(
       "https://cdn/live/back.png"
     );
-    expect(
-      await findDesignImageByUrl(ids.designId, "https://cdn/live/back.png")
-    ).toBe(ids.renderId);
   });
 
   it("an unpublished image reads as unpublished and not hidden", async () => {
@@ -168,15 +163,6 @@ describe("readers on dual-written rows", () => {
       .where(eq(schema.design.id, ids.designId));
     urls = await resolveDesignDisplayImageUrls([ids.designId]);
     expect(urls.get(ids.designId)).toBe("https://cdn/live/2.png");
-  });
-
-  it("getDesignPlacementRenders groups renders by blank", async () => {
-    const ids = await seed();
-    const groups = await getDesignPlacementRenders(ids.designId);
-    expect(groups).toHaveLength(1);
-    expect(groups[0].productId).toBe("bella-canvas-3001");
-    expect(groups[0].images.map((i) => i.id)).toEqual([ids.renderId]);
-    expect(groups[0].images[0].placementId).toBe("back");
   });
 });
 
@@ -278,29 +264,6 @@ describe("hidden images in the conversation readers", () => {
     expect(seeds).toEqual([visibleSeed]);
     expect(sources.map((s) => s.id)).not.toContain(ids.hidden);
     expect(sources.map((s) => s.id)).not.toContain(hiddenSeed);
-  });
-
-  it("getDesignPlacementRenders leaves out a render sourced from a hidden image", async () => {
-    const ids = await seedThree();
-    const renderValues = (sourceImageId: string | null, imageUrl: string) => ({
-      designId: ids.designId,
-      sourceImageId,
-      blankId: "bella-canvas-3001",
-      placementId: "front",
-      imageUrl,
-      aspectRatio: "1:1",
-    });
-    await testDb.insert(schema.placementRender).values([
-      renderValues(ids.first, "https://cdn/h/render-of-1.png"),
-      renderValues(ids.hidden, "https://cdn/h/render-of-hidden.png"),
-      renderValues(null, "https://cdn/h/render-legacy.png"),
-    ]);
-    const groups = await getDesignPlacementRenders(ids.designId);
-    expect(groups).toHaveLength(1);
-    expect(groups[0].images.map((i) => i.imageUrl)).toEqual([
-      "https://cdn/h/render-of-1.png",
-      "https://cdn/h/render-legacy.png",
-    ]);
   });
 
   it("resolveDesignDisplayImageUrls is unchanged by default and skips a hidden primary on request", async () => {

@@ -1,7 +1,7 @@
 /**
  * "Delete the last image of a conversation removes the conversation" (owner
  * ruling, 2026-09-09) — against real in-memory libSQL with FKs enforced (the
- * #28 harness), driving both delete paths (`deleteDesignImage`, the bulk
+ * #28 harness), driving both delete paths (a design-scoped plan and execute, the bulk
  * `deleteImages`) the way `delete-design.integration.test.ts` and
  * `delete-images.integration.test.ts` already do.
  *
@@ -43,7 +43,6 @@ vi.mock("@/lib/auth", () => ({
 vi.mock("@/lib/ai", () => ({
   generatePublishedNaming: async () => ({ title: "T", description: "D" }),
   constructDesignBrief: vi.fn(),
-  chatAboutDesign: vi.fn(),
 }));
 vi.mock("@/lib/r2", () => ({
   uploadImageObject: vi.fn(async () => "https://r2/x.png"),
@@ -57,7 +56,7 @@ vi.mock("@/lib/generators/registry", () => ({
   getGenerator: () => ({ id: "ideogram", costFor: () => 0.03 }),
 }));
 
-const { deleteDesignImage } = await import("@/app/design/actions");
+const { deleteImageViaPlan } = await import("@/lib/__tests__/delete-image-via-plan");
 const { deleteImages } = await import("@/app/designs/actions");
 
 beforeEach(async () => {
@@ -106,7 +105,7 @@ describe("deleting a conversation's last image removes the conversation", () => 
       imageUrl: "https://img/only.png",
     });
 
-    await deleteDesignImage(d.id, imageId);
+    await deleteImageViaPlan(testDb, d.id, imageId);
 
     expect(await designRow(d.id)).toBeUndefined();
     const lanes = await getStudioLanesData("u1", { db: testDb });
@@ -126,7 +125,7 @@ describe("deleting a conversation's last image removes the conversation", () => 
       imageUrl: "https://img/gone.png",
     });
 
-    await deleteDesignImage(d.id, gone);
+    await deleteImageViaPlan(testDb, d.id, gone);
 
     expect(await designRow(d.id)).toBeDefined();
     expect(
@@ -147,7 +146,7 @@ describe("deleting a conversation's last image removes the conversation", () => 
     });
     await makeRunningJob(d.id, "u1");
 
-    await deleteDesignImage(d.id, imageId);
+    await deleteImageViaPlan(testDb, d.id, imageId);
 
     expect(await designRow(d.id)).toBeDefined();
     // The image itself is still gone — only the CONVERSATION removal is held
@@ -166,7 +165,7 @@ describe("deleting a conversation's last image removes the conversation", () => 
     });
     await makeHeaderOnlyOrder(d.id, "u1");
 
-    await deleteDesignImage(d.id, imageId);
+    await deleteImageViaPlan(testDb, d.id, imageId);
 
     const row = await designRow(d.id);
     expect(row).toBeDefined();
@@ -208,7 +207,7 @@ describe("deleting a conversation's last image removes the conversation", () => 
   });
 
   it("(f) a cart line pinning the design's own last image survives the delete, along with the conversation and the cart line (#242 review finding 1, \"the cart contradiction\")", async () => {
-    // Exercised through deleteDesignImage (the /design lightbox path), not
+    // Exercised through a design-scoped plan and execute, not
     // the library's bulk deleteImages: planImageDeletion's cart probe
     // (delete-image.ts) doesn't exclude the scope design's own cart line, so
     // this image resolves to a detach — its row is kept because the cart
@@ -232,7 +231,7 @@ describe("deleting a conversation's last image removes the conversation", () => 
       placements: { front: imageId },
     });
 
-    await deleteDesignImage(d.id, imageId);
+    await deleteImageViaPlan(testDb, d.id, imageId);
 
     // The image detaches — a cart line still needs it — so the row survives.
     expect(
@@ -275,7 +274,7 @@ describe("deleting a conversation's last image removes the conversation", () => 
       })
       .returning();
 
-    await deleteDesignImage(d.id, imageId);
+    await deleteImageViaPlan(testDb, d.id, imageId);
 
     // The pin is a real reference, so the image detaches rather than going...
     expect(
@@ -293,7 +292,7 @@ describe("deleting a conversation's last image removes the conversation", () => 
     expect(await designRow(d.id)).toBeUndefined();
   });
 
-  it("(h) deleteDesignImage reports designRemoved for a last-image delete", async () => {
+  it("(h) a design-scoped image delete reports designRemoved for a last-image delete", async () => {
     const d = await makeDesign(testDb, "u1");
     const imageId = await makeSourceImage(testDb, {
       designId: d.id,
@@ -301,8 +300,8 @@ describe("deleting a conversation's last image removes the conversation", () => 
       imageUrl: "https://img/only.png",
     });
 
-    const result = await deleteDesignImage(d.id, imageId);
+    const result = await deleteImageViaPlan(testDb, d.id, imageId);
 
-    expect(result).toEqual({ designRemoved: "deleted" });
+    expect(result).toEqual({ refused: null, designRemoved: "deleted" });
   });
 });

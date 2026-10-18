@@ -57,8 +57,8 @@ const { planImageDeletion, executeImageDeletion } = await import(
   "@/lib/delete-image"
 );
 
-/** What the /design thread delete does to one image: plan scoped to that
- * conversation, then execute. Was deleteDesignImageRow before #195. */
+/** A conversation-scoped delete of one image: plan scoped to that
+ * conversation, then execute. */
 async function deleteImageFromDesign(designId: string, imageId: string) {
   const plan = await planImageDeletion(testDb, imageId, { designId });
   return executeImageDeletion(testDb, plan);

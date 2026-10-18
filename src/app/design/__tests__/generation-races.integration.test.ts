@@ -79,11 +79,6 @@ vi.mock("@/lib/ai", () => ({
     message: "Here it is",
     spec: { subject: "a happy cat", elements: [{ type: "obj", desc: "a happy cat" }] },
   })),
-  chatAboutDesign: vi.fn(async () => ({
-    message: "",
-    readyToGenerate: true,
-    options: [],
-  })),
 }));
 
 vi.mock("@/lib/r2", () => ({
@@ -120,7 +115,7 @@ vi.mock("@/lib/generators/registry", () => {
   };
 });
 
-const { generateDesign, cancelGeneration, getDesignJobs } = await import(
+const { generateDesign, cancelGeneration } = await import(
   "@/app/design/actions"
 );
 const { cancelGenerationJob, sweepStaleJobs, STALE_JOB_MS, GENERATION_CONCURRENCY_CAP } =
@@ -803,7 +798,7 @@ describe("refund ownership across the job-row boundary", () => {
   });
 });
 
-describe("cancelGeneration + getDesignJobs (the UI's read/write surface)", () => {
+describe("cancelGeneration and the stale sweep", () => {
   it("cancels the caller's own running job", async () => {
     const designId = await seedDesign(0);
     const res = expectQueued(await generateDesign(designId, "one"));
@@ -830,26 +825,7 @@ describe("cancelGeneration + getDesignJobs (the UI's read/write surface)", () =>
     expect(job.cancelledAt).toBeNull();
   });
 
-  it("reports a running job, then its settled outcome once tracked", async () => {
-    const designId = await seedDesign(0);
-    const res = expectQueued(await generateDesign(designId, "one"));
-
-    const live = await getDesignJobs(designId, [res.jobId]);
-    expect(live.running.map((j) => j.jobId)).toEqual([res.jobId]);
-    expect(live.settled).toEqual([]);
-
-    await drainAfter();
-
-    const done = await getDesignJobs(designId, [res.jobId]);
-    expect(done.running).toEqual([]);
-    // The settled report is what makes the assistant turn and the image
-    // appear without a reload — the poller refreshes the whole thread on it.
-    expect(done.settled).toEqual([
-      { jobId: res.jobId, status: "succeeded", imageId: res.imageId, failure: null },
-    ]);
-  });
-
-  it("reports a swept job as a classified timeout, never the raw string", async () => {
+  it("sweeps a stale running job to failed and keeps the raw error in the row", async () => {
     const designId = await seedDesign(0);
     const res = expectQueued(await generateDesign(designId, "one"));
     afterQueue.callbacks.length = 0; // the render never lands
@@ -859,44 +835,11 @@ describe("cancelGeneration + getDesignJobs (the UI's read/write surface)", () =>
       .set({ startedAt: new Date(Date.now() - STALE_JOB_MS - 1000) })
       .where(eq(schema.imageGeneration.id, res.jobId));
 
-    // getDesignJobs sweeps on read, so the same call that notices the stale
-    // job also reports it.
-    const state = await getDesignJobs(designId, [res.jobId]);
-    expect(state.settled).toEqual([
-      { jobId: res.jobId, status: "failed", imageId: null, failure: "timeout" },
-    ]);
+    await sweepStaleJobs({ scope: "design", designId, db: testDb });
 
-    // The raw provider/internal string stays in the row and the logs; it can
-    // echo prompt text, and this payload reaches a browser.
     const [row] = await jobs(designId);
+    expect(row.status).toBe("failed");
     expect(row.error).toBe("Generation timed out");
-    expect(JSON.stringify(state)).not.toContain("Generation timed out");
-  });
-
-  it("keeps a cancelled-but-running job out of `running`", async () => {
-    const designId = await seedDesign(0);
-    const res = expectQueued(await generateDesign(designId, "one"));
-    await cancelGeneration(res.jobId);
-
-    // Not a live spinner, and not settled either — the render is still going.
-    const state = await getDesignJobs(designId, [res.jobId]);
-    expect(state.running).toEqual([]);
-    expect(state.settled).toEqual([]);
-  });
-
-  it("reports a discarded job as settled `cancelled` — no image, no failure (#187)", async () => {
-    const designId = await seedDesign(0);
-    const res = expectQueued(await generateDesign(designId, "one"));
-    await cancelGeneration(res.jobId);
-    await drainAfter();
-
-    // A tracking client (another tab) learns to stop waiting, and nothing
-    // else: no thread refresh to trigger, no error copy to show.
-    const state = await getDesignJobs(designId, [res.jobId]);
-    expect(state.running).toEqual([]);
-    expect(state.settled).toEqual([
-      { jobId: res.jobId, status: "cancelled", imageId: null, failure: null },
-    ]);
   });
 });
 
