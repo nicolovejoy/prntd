@@ -1,5 +1,7 @@
 # PRNTD Image Generation — 2026 Architecture Update
 
+> Historical. This describes the generation path as it was when the plan was written (chat on `/design`, Flux prompts, the Haiku readiness pre-check, `src/lib/design-prompt.ts`). None of those exist on main any more; the current path is in `CLAUDE.md` under Core loop and in `README.md`.
+
 ## Current State
 
 PRNTD currently generates T-shirt artwork through this flow:
