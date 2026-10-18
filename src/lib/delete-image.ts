@@ -1,6 +1,5 @@
 /**
  * DB-level core of "delete one image" — the plan/execute split behind the
- * `deleteDesignImage` server action (src/app/design/actions.ts), the
  * bulk `deleteImages` action on My Designs (src/app/designs/actions.ts).
  * Mirrors src/lib/delete-design.ts, one object down: the caller supplies the
  * session gate and decides what a non-deletable plan turns into, this layer

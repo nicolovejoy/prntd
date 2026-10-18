@@ -17,8 +17,8 @@
  * `sweepStaleJobs`, so the two write-shaped sweeps stop blocking the first
  * byte; the read may show a lane one sweep behind, self-correcting on the
  * next poll or a refused write. `sweepStaleJobs` itself is NOT changed by
- * this and still runs inline, on the read, at its remaining call sites
- * (`design/actions.ts`'s `getDesignJobs` and `user-designs.ts`);
+ * this and still runs inline, on the read, at its remaining call site
+ * (`user-designs.ts`);
  * `site-header-actions.ts` moved to `after()` in #210 — this module's sweep
  * has exactly one caller (the Studio), so there was nowhere else to preserve
  * the old "lazily on a read that happens anyway" shape for.

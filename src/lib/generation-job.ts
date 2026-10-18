@@ -453,8 +453,8 @@ export async function countRunningJobsForUser(userId: string, db?: AppDb): Promi
  * working. Excludes cancelled-but-running jobs — the user already said they
  * stopped watching that one, and showing it as live contradicts the tap.
  *
- * The same split getDesignJobs makes between its `running` list (filtered) and
- * getRunningJobsForDesign (unfiltered), applied user-wide for the header.
+ * The same filtering the Studio poll applies to its running list, applied
+ * user-wide for the header; getRunningJobsForDesign stays unfiltered.
  */
 export async function countActiveGenerationsForUser(
   userId: string,

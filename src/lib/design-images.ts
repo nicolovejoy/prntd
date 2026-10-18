@@ -125,7 +125,7 @@ export async function insertChatMessage(params: {
 /**
  * Source images for a design with the AI-context shape the prompt
  * builder wants (number, url, prompt). Numbers are 1-indexed in
- * chronological order. Used by sendChatMessage / generateDesign /
+ * chronological order. Used by generateDesign /
  * constructDesignBrief to populate the "Images so far" gallery
  * context. Uploads stored with prompt='[user upload] ...' surface as-is.
  * Includes the thread's seed image (fresh-start, slice 3) so the AI can
@@ -762,8 +762,8 @@ export type DisplayImageOptions = {
    *
    * Only an image id with a hidden `image_publication` row is dropped. Not
    * judged, and kept: a primary that is a `placement_render` id, even when the
-   * render's source image is hidden (`selectImage` can still write a render id
-   * as the primary). `placement_render` has no live writer (see
+   * render's source image is hidden (a render id could once be written as the
+   * primary). `placement_render` has no live writer (see
    * getDesignPlacementRenders), so only older rows can be in that state. */
   excludeHidden?: boolean;
 };

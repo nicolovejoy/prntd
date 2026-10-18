@@ -52,11 +52,6 @@ vi.mock("@/lib/ai", () => ({
     message: "Here it is",
     spec: { subject: "a happy cat", elements: [{ type: "obj", desc: "a happy cat" }] },
   })),
-  chatAboutDesign: vi.fn(async () => ({
-    message: "",
-    readyToGenerate: true,
-    options: [],
-  })),
 }));
 
 vi.mock("@/lib/r2", () => ({
@@ -80,12 +75,25 @@ vi.mock("@/lib/generators/registry", () => {
   };
 });
 
-const { generateDesign, uploadReferenceImage } = await import("@/app/design/actions");
+const { generateDesign } = await import("@/app/design/actions");
+const { storeReferenceImage } = await import("@/lib/store-reference-image");
 const ai = await import("@/lib/ai");
 const registry = await import("@/lib/generators/registry");
 
 const briefMock = ai.constructDesignBrief as Mock;
 const ideogramGen = registry.GENERATORS.ideogram.generate as Mock;
+
+// The upload body the Studio's attach shares; the action wrappers (auth,
+// quota) are covered in attach-reference-image.integration.test.ts.
+function upload(designId: string, base64Data: string, fileName: string) {
+  return storeReferenceImage({ designId, userId: "u1", base64Data, fileName });
+}
+
+async function uploadOk(designId: string, base64Data: string, fileName: string) {
+  const r = await upload(designId, base64Data, fileName);
+  if (!r.ok) throw new Error(r.reason);
+  return r;
+}
 
 const GENERATE_BRIEF = {
   operation: "generate" as const,
@@ -183,7 +191,7 @@ describe("the upload action writes image.luminance (#139)", () => {
     const designId = await seedDesign();
     const base64 = Buffer.from(await whitePng()).toString("base64");
 
-    const { imageId } = await uploadReferenceImage(designId, base64, "white.png");
+    const { imageId } = await uploadOk(designId, base64, "white.png");
 
     const [row] = await testDb.select().from(schema.image).where(eq(schema.image.id, imageId));
     expect(row.operation).toBe("upload");
@@ -191,7 +199,7 @@ describe("the upload action writes image.luminance (#139)", () => {
   });
 });
 
-describe("the upload action validates and normalizes the bytes", () => {
+describe("the upload body validates and normalizes the bytes", () => {
   async function imageRows(designId: string) {
     return testDb
       .select({ id: schema.image.id })
@@ -204,7 +212,7 @@ describe("the upload action validates and normalizes the bytes", () => {
     const designId = await seedDesign();
     const big = Buffer.alloc(3 * 1024 * 1024 + 1).toString("base64");
 
-    await expect(uploadReferenceImage(designId, big, "big.png")).rejects.toThrow("too_large");
+    expect(await upload(designId, big, "big.png")).toEqual({ ok: false, reason: "too_large" });
 
     expect(await imageRows(designId)).toHaveLength(0);
     const r2 = await import("@/lib/r2");
@@ -215,7 +223,7 @@ describe("the upload action validates and normalizes the bytes", () => {
     const designId = await seedDesign();
     const junk = Buffer.from([1, 2, 3, 4]).toString("base64");
 
-    await expect(uploadReferenceImage(designId, junk, "junk.png")).rejects.toThrow("unsupported");
+    expect(await upload(designId, junk, "junk.png")).toEqual({ ok: false, reason: "unsupported" });
 
     expect(await imageRows(designId)).toHaveLength(0);
   });
@@ -228,7 +236,7 @@ describe("the upload action validates and normalizes the bytes", () => {
       .jpeg()
       .toBuffer();
 
-    await uploadReferenceImage(designId, jpeg.toString("base64"), "photo.jpg");
+    await uploadOk(designId, jpeg.toString("base64"), "photo.jpg");
 
     const r2 = await import("@/lib/r2");
     const stored = (r2.uploadImageObject as Mock).mock.calls[0][1] as Buffer;
@@ -243,7 +251,7 @@ describe("the upload action validates and normalizes the bytes", () => {
       .jpeg()
       .toBuffer();
 
-    await uploadReferenceImage(designId, wide.toString("base64"), "wide.jpg");
+    await uploadOk(designId, wide.toString("base64"), "wide.jpg");
 
     const r2 = await import("@/lib/r2");
     const stored = (r2.uploadImageObject as Mock).mock.calls[0][1] as Buffer;

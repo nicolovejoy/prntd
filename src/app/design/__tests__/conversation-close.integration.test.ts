@@ -1,6 +1,6 @@
 /**
  * Conversation lifecycle (Model B slice 3) at the server-action level: a
- * closed design (design.closed_at set) is read-only — chat, generation and
+ * closed design (design.closed_at set) is read-only — generation and
  * uploads are refused before any model call or quota spend — while its
  * history stays readable and its images stay usable elsewhere (back picker).
  * Close/Reopen are owner-only and reversible.
@@ -71,11 +71,6 @@ vi.mock("@/lib/ai", () => ({
     message: "Here it is",
     spec: { subject: "a happy cat", elements: [{ type: "obj", desc: "a happy cat" }] },
   })),
-  chatAboutDesign: vi.fn(async () => ({
-    message: "Sure",
-    readyToGenerate: true,
-    options: [],
-  })),
 }));
 
 vi.mock("@/lib/r2", () => ({
@@ -100,14 +95,12 @@ vi.mock("@/lib/generators/registry", () => {
 });
 
 const {
-  sendChatMessage,
   generateDesign,
-  uploadReferenceImage,
   closeConversation,
   reopenConversation,
 } = await import("@/app/design/actions");
 const { assertUsablePlacementImage } = await import("@/lib/back-sources");
-const ai = await import("@/lib/ai");
+const { storeReferenceImage } = await import("@/lib/store-reference-image");
 const registry = await import("@/lib/generators/registry");
 const ideogramGen = registry.GENERATORS.ideogram.generate as Mock;
 
@@ -135,7 +128,6 @@ beforeEach(async () => {
   testDb = await createTestDb();
   h.userId = "u1";
   ideogramGen.mockClear();
-  (ai.chatAboutDesign as Mock).mockClear();
   vi.stubEnv("GUEST_FUNNEL_ENABLED", "true");
   // The reopen test drives a full generation, which fetches the render.
   vi.stubGlobal(
@@ -152,21 +144,6 @@ afterEach(() => {
 });
 
 describe("closed conversation blocks the write actions", () => {
-  it("refuses a chat turn and writes no chat rows", async () => {
-    const { designId } = await seedClosedDesign();
-
-    await expect(sendChatMessage(designId, "hello")).rejects.toThrow(
-      CONVERSATION_CLOSED_MESSAGE
-    );
-    expect(ai.chatAboutDesign).not.toHaveBeenCalled();
-    expect(
-      await testDb
-        .select()
-        .from(schema.chatMessage)
-        .where(eq(schema.chatMessage.designId, designId))
-    ).toHaveLength(0);
-  });
-
   it("refuses generation before spending quota or calling the model", async () => {
     const { designId } = await seedClosedDesign();
 
@@ -182,9 +159,13 @@ describe("closed conversation blocks the write actions", () => {
   it("refuses an upload", async () => {
     const { designId } = await seedClosedDesign();
 
-    await expect(
-      uploadReferenceImage(designId, "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADElEQVQImWNgYGAAAAAEAAGjChXjAAAAAElFTkSuQmCC" /* a 1x1 PNG: uploads are decoded now */, "ref.png")
-    ).rejects.toThrow(CONVERSATION_CLOSED_MESSAGE);
+    const stored = await storeReferenceImage({
+      designId,
+      userId: "u1",
+      base64Data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADElEQVQImWNgYGAAAAAEAAGjChXjAAAAAElFTkSuQmCC" /* a 1x1 PNG: uploads are decoded now */,
+      fileName: "ref.png",
+    });
+    expect(stored).toEqual({ ok: false, reason: "closed" });
   });
 
   it("keeps the history readable and the images usable as a back source", async () => {

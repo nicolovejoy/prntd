@@ -124,8 +124,8 @@ import { GuestKeepLine } from "./guest-keep-line";
  * and lets the server's lazy sweep clear overdue rows (#204: the sweep now
  * runs via `after()`, after the response, so it's the FOLLOWING poll that
  * shows its effect, not the one that triggered it) — which is why the poll
- * target is the surface itself rather than per-design getDesignJobs calls
- * (a fan-out that couldn't discover new lanes at all).
+ * target is the surface itself rather than per-design polls (a fan-out that
+ * couldn't discover new lanes at all).
  *
  * Optimistic cells (#187): a submit puts its pending cell (and, unanchored, a
  * lane at the top of the bench) on screen immediately, held in `optimistic`

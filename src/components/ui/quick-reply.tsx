@@ -1,4 +1,5 @@
-import type { ChatOption } from "@/lib/ai";
+/** A tappable chip: what the user sees vs. the value sent on tap. */
+export type QuickReplyOption = { label: string; value: string };
 
 /**
  * Tappable quick-reply chips rendered under an assistant message. Replaces the
@@ -11,7 +12,7 @@ export function QuickReply({
   onSelect,
   disabled,
 }: {
-  options: ChatOption[];
+  options: QuickReplyOption[];
   onSelect: (value: string) => void;
   disabled?: boolean;
 }) {

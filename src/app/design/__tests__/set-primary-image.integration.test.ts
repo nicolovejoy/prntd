@@ -4,8 +4,8 @@
  * variant as the design's current artwork, so the guards that matter are
  * ownership and "this image actually belongs to this conversation" — without
  * the latter an owner could point their design at any image id they can name.
- * The same file covers selectImage's and setPrimaryImage's refusal of an
- * admin-hidden image (#310 item 4).
+ * The same file covers setPrimaryImage's refusal of an admin-hidden image
+ * (#310 item 4).
  *
  * Auth is mocked; the database is real.
  */
@@ -43,7 +43,6 @@ vi.mock("@/lib/auth", () => ({
 // generation path isn't exercised here.
 vi.mock("@/lib/ai", () => ({
   constructDesignBrief: vi.fn(),
-  chatAboutDesign: vi.fn(),
 }));
 vi.mock("@/lib/r2", () => ({
   uploadImageObject: vi.fn(),
@@ -62,7 +61,7 @@ vi.mock("@/lib/stripe", () => ({
   },
 }));
 
-const { setPrimaryImage, selectImage } = await import("@/app/design/actions");
+const { setPrimaryImage } = await import("@/app/design/actions");
 const { getConversationImages } = await import("@/app/d/actions");
 const { loadEmbeddedCheckout } = await import("@/lib/embedded-checkout-session");
 const { resolveOrderEmailImages } = await import("@/lib/email-images");
@@ -386,58 +385,6 @@ describe("admin-hidden images (#310 item 4)", () => {
       await expect(setPrimaryImage(designId, foreign.imageId)).rejects.toThrow(
         "Image is not part of this design"
       );
-
-      expect(await stateOf(designId)).toEqual({
-        primaryImageId: current,
-        mockupUrls: CACHE,
-      });
-    });
-  });
-
-  describe("selectImage", () => {
-    it("refuses a hidden image and writes nothing", async () => {
-      const { designId, current } = await seedHiddenThread();
-
-      await expect(
-        selectImage(designId, "https://r2/hidden.png")
-      ).rejects.toThrow("This image is not available");
-
-      expect(await stateOf(designId)).toEqual({
-        primaryImageId: current,
-        mockupUrls: CACHE,
-      });
-    });
-
-    it("still selects a published image that is not hidden", async () => {
-      const { designId, visible } = await seedHiddenThread();
-
-      await selectImage(designId, "https://r2/visible.png");
-
-      expect(await stateOf(designId)).toEqual({
-        primaryImageId: visible,
-        mockupUrls: null,
-      });
-    });
-
-    it("still selects an image with no publication row", async () => {
-      const { designId, plain } = await seedHiddenThread();
-
-      await selectImage(designId, "https://r2/plain.png");
-
-      expect(await stateOf(designId)).toEqual({
-        primaryImageId: plain,
-        mockupUrls: null,
-      });
-    });
-
-    it("tells a non-owner Unauthorized even when the URL names a hidden image", async () => {
-      const { designId, current } = await seedHiddenThread();
-      await makeUser(testDb, "stranger");
-      h.userId = "stranger";
-
-      await expect(
-        selectImage(designId, "https://r2/hidden.png")
-      ).rejects.toThrow("Unauthorized");
 
       expect(await stateOf(designId)).toEqual({
         primaryImageId: current,

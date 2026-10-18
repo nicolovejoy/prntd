@@ -62,7 +62,6 @@ vi.mock("@/lib/ai", () => ({
     message: "Done",
     spec: { subject: "a cat", elements: [{ type: "obj", desc: "a cat" }] },
   })),
-  chatAboutDesign: vi.fn(async () => ({ message: "", readyToGenerate: true, options: [] })),
 }));
 vi.mock("@/lib/r2", () => ({
   uploadImageObject: vi.fn(async (imageId: string) => `https://r2/images/${imageId}.png`),
@@ -86,7 +85,7 @@ vi.mock("@/lib/generators/registry", () => {
 });
 
 const { attachReferenceImage, getStudioLanes } = await import("@/app/studio/actions");
-const { generateDesign, uploadReferenceImage } = await import("@/app/design/actions");
+const { generateDesign } = await import("@/app/design/actions");
 const r2 = await import("@/lib/r2");
 
 let savedFlag: string | undefined;
@@ -305,30 +304,10 @@ describe("attachReferenceImage", () => {
     expect(img.prompt).toBe("[user upload] " + "x".repeat(120));
   });
 
-  it("the design action's upload spends the same quota, so a direct call is capped", async () => {
-    for (let i = 0; i < USER_UPLOAD_DAILY_CAP; i++) {
-      await consumeUploadQuota({ userId: "owner", ip: null, db: testDb });
-    }
-    const designId = crypto.randomUUID();
-    await expect(uploadReferenceImage(designId, await png(), "a.png")).rejects.toThrow(
-      ATTACH_LIMIT_REACHED
-    );
-    expect(await designRows(designId)).toHaveLength(0);
-    expect(r2.uploadImageObject).not.toHaveBeenCalled();
-  });
-
-  it("an attach and a direct upload draw on one bucket", async () => {
+  it("every attach draws on one upload bucket per user", async () => {
     await attachReferenceImage(crypto.randomUUID(), await png(), "a.png");
-    await uploadReferenceImage(crypto.randomUUID(), await png(), "b.png");
+    await attachReferenceImage(crypto.randomUUID(), await png(), "b.png");
     const rows = await testDb.select().from(schema.generationUsage);
     expect(rows.find((r) => r.bucket === "upload:user:owner")?.count).toBe(2);
-  });
-
-  it("a refused upload on a new id through the design action leaves zero design rows", async () => {
-    const designId = crypto.randomUUID();
-    await expect(
-      uploadReferenceImage(designId, Buffer.from("junk").toString("base64"), "x.png")
-    ).rejects.toThrow("unsupported");
-    expect(await designRows(designId)).toHaveLength(0);
   });
 });

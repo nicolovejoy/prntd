@@ -7,12 +7,7 @@ import { auth, isAnonymousUser } from "@/lib/auth";
 import {
   consumeGenerationQuota,
   refundGenerationQuota,
-  consumeChatQuota,
-  refundChatQuota,
-  consumeUploadQuota,
   dayKeyUTC,
-  CHAT_MESSAGE_MAX_CHARS,
-  CHAT_HISTORY_MAX_MESSAGES,
 } from "@/lib/generation-quota";
 import { clientIp } from "@/lib/client-ip";
 import {
@@ -22,8 +17,6 @@ import {
   discardCancelledJobStatement,
   insertIfJobSucceededStatement,
   countRunningJobsForUser,
-  getRunningJobsForDesign,
-  sweepStaleJobs,
   cancelGenerationJob,
   GENERATION_CONCURRENCY_CAP,
   CONTINUATION_DEADLINE_MS,
@@ -37,40 +30,26 @@ import {
   imagePublication as imagePublicationTable,
   imageGeneration as imageGenerationTable,
 } from "@/lib/db/schema";
-import { eq, and, sql, inArray } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import {
   buildImageRow,
   buildOutputLinkRow,
   isImageAdminHidden,
 } from "@/lib/model-b-writes";
-import { chatAboutDesign, constructDesignBrief, type ChatOption } from "@/lib/ai";
+import { constructDesignBrief } from "@/lib/ai";
 import { uploadImageObject, deleteImageObject } from "@/lib/r2";
 import { meanLuminance } from "@/lib/image-luminance";
-import { storeReferenceImage } from "@/lib/store-reference-image";
-import { attachLimitMessage } from "@/lib/action-copy";
 import { getGenerator } from "@/lib/generators/registry";
 import type { GenerateOperation } from "@/lib/generators/types";
 import {
   reserveGenerationNumbers,
-  findDesignImageByUrl,
   getDesignMessages,
   insertChatMessage,
   getDesignImagesForAIContext,
   getConversationSeedProvenance,
 } from "@/lib/design-images";
 import { canStartFromImage } from "@/lib/design-publish";
-import {
-  planImageDeletion,
-  executeImageDeletion,
-} from "@/lib/delete-image";
-import {
-  assertConversationOpen,
-  CONVERSATION_CLOSED_MESSAGE,
-} from "@/lib/design-view";
-import {
-  classifyGenerationFailure,
-  type GenerationFailure,
-} from "@/lib/generation-poll";
+import { assertConversationOpen } from "@/lib/design-view";
 import { renderSpecSummary, fallbackSpec } from "@/lib/design-spec";
 import { isUniqueViolation } from "@/lib/ledger";
 import { isUuid } from "@/lib/uuid";
@@ -82,7 +61,7 @@ import type { ImageGenerator } from "@/lib/generators/types";
 /**
  * The design row if it exists and belongs to `userId`, else `null`. Throws
  * `Unauthorized` if the row exists under another user — the ownership rule
- * lives here so every caller (including `getOrCreateDesign`) shares it.
+ * lives here so every caller shares it.
  */
 async function findOwnedDesign(designId: string, userId: string) {
   const found = await db.query.design.findFirst({
@@ -91,33 +70,6 @@ async function findOwnedDesign(designId: string, userId: string) {
   if (!found) return null;
   if (found.userId !== userId) throw new Error("Unauthorized");
   return found;
-}
-
-/**
- * Used by `sendChatMessage`. Unlike `generateDesign`
- * this leaves the plain find-then-insert race unguarded: two concurrent calls
- * on the same unseen id can both see `null` and both try to insert, and the
- * loser's insert throws instead of recovering onto the winner's row.
- * `sendChatMessage` calls this after spending a chat-quota unit (#253); it
- * refunds that unit when the insert loses (as it does for any failure before
- * Claude answers). Acceptable here because nothing is at stake but a
- * double-tapped Ask surfacing an error to retry. A later failure in the same
- * turn leaves the design row this call created (an empty conversation, which
- * the Studio lists as a lane with no results; uploads avoid this, see
- * storeReferenceImage).
- */
-async function getOrCreateDesign(designId: string, userId: string) {
-  const found = await findOwnedDesign(designId, userId);
-  if (found) return found;
-
-  const [created] = await db
-    .insert(designTable)
-    .values({
-      id: designId,
-      userId,
-    })
-    .returning();
-  return created;
 }
 
 /**
@@ -136,108 +88,6 @@ function generationLimitMessage(
   return reason === "ip"
     ? "This network has hit today's design limit. Try again later."
     : "You've reached today's design limit. Try again later.";
-}
-
-/** What a chat turn resolved to: Claude's reply, or a daily-cap refusal. */
-export type ChatResult =
-  | {
-      kind: "reply";
-      message: string;
-      readyToGenerate: boolean;
-      options: ChatOption[];
-    }
-  | { kind: "limit"; message: string }
-  | { kind: "too_long"; message: string };
-
-/** Copy shown when a chat turn is blocked by the daily cap (#253). */
-function chatLimitMessage(isAnonymous: boolean): string {
-  return isAnonymous
-    ? "Daily chat limit reached. Sign in to continue."
-    : "Daily chat limit reached. Try again later.";
-}
-
-// No product caller since the /design thread view was deleted (#188 slice 2c);
-// the Ask-removal follow-up PR removes it, the chat quota and its call site.
-export async function sendChatMessage(
-  designId: string,
-  userMessage: string
-): Promise<ChatResult> {
-  if (typeof userMessage !== "string") throw new Error("Invalid message");
-  // Before auth, quota and any row write: an oversized message costs nothing.
-  if (userMessage.length > CHAT_MESSAGE_MAX_CHARS) {
-    return { kind: "too_long", message: "Message too long. Limit is 4,000 characters." };
-  }
-
-  const hdrs = await headers();
-  const session = await auth.api.getSession({ headers: hdrs });
-  if (!session) throw new Error("Unauthorized");
-
-  const userId = session.user.id;
-  const isAnonymous = isAnonymousUser(session.user);
-
-  // Find only, NOT create (same rule as #197 for generate): a refused turn on
-  // a never-seen designId must leave no design row behind.
-  const found = await findOwnedDesign(designId, userId);
-  // Closed conversation = read-only thread (slice 3): no chat turns, and no
-  // quota unit burned on one. A brand-new id can't be closed yet.
-  if (found) assertConversationOpen(found);
-
-  const ip = clientIp(hdrs);
-  // The day the unit is spent on, captured once, so a refund after midnight
-  // UTC credits the bucket the spend came out of.
-  const now = new Date();
-  const day = dayKeyUTC(now);
-
-  // Every chat turn is a paid Claude call, guests included (#253).
-  const quota = await consumeChatQuota({ userId, isAnonymous, ip, now, db });
-  if (!quota.allowed) {
-    return { kind: "limit", message: chatLimitMessage(isAnonymous) };
-  }
-
-  let aiResponse: Awaited<ReturnType<typeof chatAboutDesign>>;
-  try {
-    if (!found) await getOrCreateDesign(designId, userId);
-    const allMessages = await getDesignMessages(designId);
-    // Only the latest window goes to the model; stored rows are unchanged.
-    // The context must start on a user turn, so a leading assistant message
-    // is dropped.
-    const messages = allMessages.slice(-CHAT_HISTORY_MAX_MESSAGES);
-    if (messages[0]?.role === "assistant") messages.shift();
-    const images = await getDesignImagesForAIContext(designId);
-
-    aiResponse = await chatAboutDesign(userMessage, messages, images);
-  } catch (err) {
-    // A turn that fails before Claude answers gives its unit back.
-    // Best-effort: a refund failure is logged and never masks the original
-    // error.
-    try {
-      await refundChatQuota({ userId, ip, day, db });
-    } catch (refundErr) {
-      console.error("[chat] quota refund failed", refundErr);
-    }
-    throw err;
-  }
-
-  // Claude has answered and been billed, so a persistence failure from here
-  // propagates without a refund.
-  await insertChatMessage({ designId, role: "user", content: userMessage });
-  await insertChatMessage({
-    designId,
-    role: "assistant",
-    content: aiResponse.message,
-  });
-
-  await db
-    .update(designTable)
-    .set({ updatedAt: new Date() })
-    .where(eq(designTable.id, designId));
-
-  return {
-    kind: "reply",
-    message: aiResponse.message,
-    readyToGenerate: aiResponse.readyToGenerate,
-    options: aiResponse.options,
-  };
 }
 
 /**
@@ -1113,151 +963,6 @@ async function runGenerationJob(params: GenerationJobParams): Promise<void> {
   }
 }
 
-// No product caller since the /design thread view was deleted (#188 slice 2c):
-// the Studio attaches through attachReferenceImage, which shares
-// storeReferenceImage. Left in place for now; the Ask-removal follow-up PR
-// decides whether it goes.
-export async function uploadReferenceImage(
-  designId: string,
-  base64Data: string,
-  fileName: string
-) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) throw new Error("Unauthorized");
-
-  // Public action: spend the upload quota like the Studio's attach does, so
-  // the caps limit uploads whichever surface (or direct call) they come from.
-  const quota = await consumeUploadQuota({
-    userId: session.user.id,
-    ip: clientIp(await headers()),
-  });
-  if (!quota.allowed) throw new Error(attachLimitMessage(quota.reason));
-
-  const stored = await storeReferenceImage({
-    designId,
-    userId: session.user.id,
-    base64Data,
-    fileName,
-  });
-  if (!stored.ok) {
-    throw new Error(
-      stored.reason === "closed" ? CONVERSATION_CLOSED_MESSAGE : stored.reason
-    );
-  }
-  return { imageUrl: stored.imageUrl, imageId: stored.imageId };
-}
-
-/**
- * Make the image at `imageUrl` the conversation's primary. A URL that names
- * none of this thread's images clears the primary (the design then falls back
- * to its latest image). Refuses an admin-hidden image (#310): hidden artwork
- * is not something the owner can pin as the design's current image.
- *
- * No product caller since the /design thread view was deleted (#188 slice
- * 2c); the Ask-removal follow-up PR removes it. The image detail page pins
- * through setPrimaryImage.
- */
-export async function selectImage(designId: string, imageUrl: string) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) throw new Error("Unauthorized");
-
-  const found = await db.query.design.findFirst({
-    where: eq(designTable.id, designId),
-  });
-  if (!found || found.userId !== session.user.id)
-    throw new Error("Unauthorized");
-
-  const primaryImageId = await findDesignImageByUrl(designId, imageUrl);
-
-  // Checked after ownership and the URL lookup, so a URL this thread doesn't
-  // hold reads as it always has. A hide that lands after this check leaves a
-  // hidden primary, the same state as hiding an image that is already primary.
-  if (primaryImageId && (await isImageAdminHidden(db, primaryImageId))) {
-    throw new Error("This image is not available");
-  }
-
-  await db
-    .update(designTable)
-    .set({
-      primaryImageId,
-      mockupUrls: null,
-      updatedAt: new Date(),
-    })
-    .where(eq(designTable.id, designId));
-}
-
-/**
- * Delete an image from a design. The rules live in src/lib/delete-image.ts
- * (shared with the bulk library delete): an order reference refuses; a seed
- * link, a shop product pin or a cart pin downgrade the delete to a
- * link-detach; otherwise the image row, its publication row and its own
- * composition go. An id this thread can't reach is "Image not found" — owning the design
- * doesn't authorise deleting an image it never had. An admin-hidden image is
- * refused whatever the plan would have done (the 2026-10-05 ruling: the owner
- * cannot undo a hide or remove its record); the refusal comes after the
- * ownership, order and reachability checks: an id this thread cannot reach
- * reads "Image not found" before the hidden check, and an image the thread
- * does hold (its own output or a seed) is refused as hidden. primary_image_id moves
- * inside the same batch when the deleted image was the primary.
- *
- * Every outcome above removes THIS design's own link to the image — even a
- * detach only keeps the image row alive elsewhere, it still drops this
- * thread's copy — so `executeImageDeletion` also checks whether the design
- * is now image-less and, if nothing else still points at it, removes the
- * conversation itself (owner ruling, 2026-09-09) — a running job or its own
- * cart line keeps it, and an order archives it instead;
- * `removeDesignIfNowEmpty` holds the full rule. `/studio` is revalidated
- * when the conversation went, on top of the library revalidation every image
- * delete needs.
- *
- * No product caller since the /design thread view was deleted (#188 slice
- * 2c); the Ask-removal follow-up PR removes it. My Designs deletes through
- * deleteImages.
- */
-export async function deleteDesignImage(designId: string, imageId: string) {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) throw new Error("Unauthorized");
-
-  const found = await db.query.design.findFirst({
-    where: eq(designTable.id, designId),
-  });
-  if (!found || found.userId !== session.user.id)
-    throw new Error("Unauthorized");
-
-  // Ownership is the design check above — a seed image belongs to another
-  // conversation (possibly another user), and detaching it from this thread
-  // is the design owner's call. So the plan is design-scoped, not
-  // image-scoped.
-  const plan = await planImageDeletion(db, imageId, { designId });
-
-  // Publishing is reversible, so deletion is no longer blocked on publish
-  // state — only on real order references: an order line pinning this image
-  // (any order's, since a back design can be picked from another thread —
-  // #72/#95), or the legacy fallback where a line with no placements resolves
-  // to the design's primary. Deleting would orphan the order's print.
-  if (plan.outcome === "blocked-by-order") {
-    throw new Error("Can't delete this image — it's referenced by an order.");
-  }
-
-  // Owning the design authorises only the images that design can see (a
-  // conversation link of either role, or a render it produced). An id it
-  // can't reach isn't this thread's to delete, whoever owns it.
-  if (plan.outcome === "not-found") throw new Error("Image not found");
-
-  if (await isImageAdminHidden(db, imageId)) {
-    throw new Error("This image is not available");
-  }
-
-  // One batch, including the primary_image_id move when this image was the
-  // thread's primary — no follow-up write to fail after the rows are gone.
-  const { designRemoved } = await executeImageDeletion(db, plan);
-  revalidatePath("/designs");
-  if (designRemoved === "deleted" || designRemoved === "archived") {
-    revalidatePath("/studio");
-  }
-  return { designRemoved };
-}
-
 /**
  * Close a conversation (slice 3): the thread becomes read-only — chat,
  * generation and uploads are refused — while its history stays viewable and
@@ -1337,103 +1042,6 @@ export async function setPrimaryImage(designId: string, imageId: string) {
 
   revalidatePath("/designs");
   revalidatePath(`/d/${imageId}`);
-}
-
-/**
- * Owner-gated. Sweeps this design's overdue rows, then reports state.
- *
- * The client passes the job ids it is currently tracking. An earlier draft
- * had the server report jobs "settled since the client last looked", which
- * is unimplementable without server-side per-client cursors — the client
- * already knows what it is waiting on, so it says so.
- *
- * A failure is reported as a CLASSIFIED `failure`, never the job row's raw
- * `error`: that string is provider or internal text (it can echo prompt
- * content or vendor moderation wording) and this data reaches a browser. The
- * raw string stays in the job row and the server logs.
- *
- * `running` excludes cancelled-but-running jobs on purpose:
- * getRunningJobsForDesign deliberately includes them (cancel doesn't stop
- * the render, so the row genuinely still holds its concurrency slot), but a
- * cancelled job is not something the UI should render as an active spinner
- * — the caller already knows it cancelled that job.
- *
- * A job that reached the terminal `cancelled` status (#187: the continuation
- * came back and discarded the result) is reported as settled with neither an
- * image nor a failure — it tells a tracking client (another tab, say) to stop
- * waiting, and nothing else.
- *
- * No product caller since the /design thread view was deleted (#188 slice
- * 2c); the Studio polls through getGenerationJobStatus. The Ask-removal follow-up PR
- * removes it.
- */
-export async function getDesignJobs(
-  designId: string,
-  trackedJobIds: string[]
-): Promise<{
-  running: { jobId: string; generationNumber: number; startedAt: number }[];
-  settled: {
-    jobId: string;
-    status: "succeeded" | "failed" | "cancelled";
-    imageId: string | null;
-    failure: GenerationFailure | null;
-  }[];
-}> {
-  await requireOwnedDesign(designId);
-
-  // Narrowest scope for this call site — only the cron sweeps scope: "all".
-  await sweepStaleJobs({ scope: "design", designId, db });
-
-  const jobs = await getRunningJobsForDesign(designId, db);
-  const running = jobs
-    .filter((job) => job.cancelledAt === null)
-    .map((job) => ({
-      jobId: job.id,
-      generationNumber: job.generationNumber,
-      startedAt: job.startedAt.getTime(),
-    }));
-
-  const runningIds = new Set(jobs.map((job) => job.id));
-  const settledIds = trackedJobIds.filter((id) => !runningIds.has(id));
-
-  let settled: {
-    jobId: string;
-    status: "succeeded" | "failed" | "cancelled";
-    imageId: string | null;
-    failure: GenerationFailure | null;
-  }[] = [];
-  if (settledIds.length > 0) {
-    const rows = await db
-      .select()
-      .from(imageGenerationTable)
-      .where(
-        and(
-          eq(imageGenerationTable.designId, designId),
-          inArray(imageGenerationTable.id, settledIds)
-        )
-      );
-    settled = rows
-      .filter(
-        (
-          row
-        ): row is typeof row & { status: "succeeded" | "failed" | "cancelled" } =>
-          row.status === "succeeded" ||
-          row.status === "failed" ||
-          row.status === "cancelled"
-      )
-      .map((row) => ({
-        jobId: row.id,
-        status: row.status,
-        // The id was minted before the provider call regardless of outcome
-        // (it's also the R2 key stem); only report it once the image it
-        // names actually exists.
-        imageId: row.status === "succeeded" ? row.imageId : null,
-        failure:
-          row.status === "failed" ? classifyGenerationFailure(row.error) : null,
-      }));
-  }
-
-  return { running, settled };
 }
 
 /**
