@@ -115,7 +115,10 @@ export default async function PublishedImagePage({
       ? getConversationImages(img.sourceDesignId)
       : null,
     ownerConversationId
-      ? shopListingsRemovedByDelete([ownerConversationId])
+      ? // Fails open, as the Studio does: the confirm loses one line, not the page.
+        shopListingsRemovedByDelete([ownerConversationId]).catch(
+          () => new Set<string>()
+        )
       : new Set<string>(),
   ]);
 
