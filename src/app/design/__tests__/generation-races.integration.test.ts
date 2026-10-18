@@ -597,47 +597,17 @@ describe("generateDesign — job insert + continuation", () => {
     expect(assistant[0].imageId).toBe(res.imageId);
   });
 
-  it("falls back to the last user turn when Generate is tapped with an empty composer", async () => {
-    const designId = await seedDesign(0);
-    briefMock.mockResolvedValueOnce(GENERATE_BRIEF);
-    await generateDesign(designId, "a dog on a skateboard");
-    await drainAfter();
-    ideogramGen.mockClear();
-
-    briefMock.mockResolvedValueOnce({ operation: "clarify", message: "Which one?" });
-    expectQueued(await generateDesign(designId));
-    await drainAfter();
-
-    // The empty-composer fallback re-renders the last user turn verbatim —
-    // short, so it takes the lettering shape (#206), not an object
-    // description of the sentence.
-    expect(ideogramGen).toHaveBeenCalledWith(
-      {
-        kind: "generate",
-        spec: expect.objectContaining({
-          subject: 'Bold lettering reading "a dog on a skateboard"',
-          elements: [
-            {
-              type: "text",
-              text: "a dog on a skateboard",
-              desc: "bold lettering, the user's words exactly, centered",
-            },
-          ],
-        }),
-      },
-      expect.anything()
-    );
-  });
-
-  it("still refuses — and refunds — a clarify turn with nothing at all to render", async () => {
+  it("still refuses — and refunds — an edit with no image to edit and no instruction to render", async () => {
     process.env.GUEST_FUNNEL_ENABLED = "true";
     const designId = await seedDesign(0);
     briefMock.mockResolvedValueOnce({
-      operation: "clarify",
-      message: "Tell me what you'd like on the shirt.",
+      operation: "edit",
+      message: "Made it bolder.",
+      editInstruction: "",
+      referenceImage: null,
     });
 
-    const res = await generateDesign(designId);
+    const res = await generateDesign(designId, "make it bolder");
 
     expect(res.kind).toBe("clarification");
     expect(await jobs(designId)).toHaveLength(0);

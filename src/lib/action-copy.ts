@@ -56,6 +56,13 @@ export function checkoutLimitMessage(reason: "identity" | "ip" | undefined): str
   return reason === "ip" ? CHECKOUT_LIMIT_REACHED_IP : CHECKOUT_LIMIT_REACHED;
 }
 
+// --- Studio composer ---
+
+/** generateDesign refused a turn with no words, before any quota, write or
+ * model call. Returned as data (`{ kind: "empty", message }`); the Studio shows
+ * it as its notice. */
+export const EMPTY_GENERATE_TURN = "Type what you'd like on the shirt first.";
+
 // --- Studio reference-image attach (#188 slice 2a) ---
 // Refusals cross the wire as data and the client shows `message` verbatim.
 

@@ -53,7 +53,7 @@ import { assertConversationOpen } from "@/lib/design-view";
 import { renderSpecSummary, fallbackSpec } from "@/lib/design-spec";
 import { isUniqueViolation } from "@/lib/ledger";
 import { isUuid } from "@/lib/uuid";
-import { latestUserText } from "@/lib/design-prompt";
+import { EMPTY_GENERATE_TURN } from "@/lib/action-copy";
 import type { ChatMessage } from "@/lib/db/schema";
 import type { DesignImage } from "@/lib/design-images";
 import type { ImageGenerator } from "@/lib/generators/types";
@@ -111,11 +111,15 @@ async function persistClarification(designId: string, message: string) {
  */
 export type GenerateResult =
   | { kind: "queued"; jobId: string; generationNumber: number; imageId: string }
-  // Now only reachable when a generate turn has no words at all behind it —
-  // every other turn renders (studio slice 1). No options ride along: the
+  // Only reachable when the model classifies an edit on a conversation with
+  // no image to edit and gives no instruction to render instead — every other
+  // turn with words renders (studio slice 1). No options ride along: the
   // brief's clarify has no chip channel, and this exit is a dead end, not a
   // question worth answering with a tap.
   | { kind: "clarification"; message: string; readyToGenerate: false }
+  // A turn with no words (undefined, empty or whitespace). Refused before the
+  // quota, any write or any model call, so it costs and leaves nothing.
+  | { kind: "empty"; message: string }
   | { kind: "limit"; message: string }
   | { kind: "at_capacity"; message: string };
 
@@ -188,6 +192,16 @@ export async function generateDesign(
 
   if (opts.jobId !== undefined && !isUuid(opts.jobId)) {
     throw new Error("Invalid job id");
+  }
+
+  // A turn with no words has nothing to render and nothing to say to the
+  // brief. Refuse it before the replay check, the design lookup, the quota,
+  // the capacity check, any write and any model call: it must cost nothing and
+  // leave no row. Returned, not thrown, so the Studio shows the line as its
+  // notice. Applies whatever the conversation holds — a wordless turn no
+  // longer re-renders the previous words.
+  if (!userMessage?.trim()) {
+    return { kind: "empty", message: EMPTY_GENERATE_TURN };
   }
 
   // Replay check (#245), before quota, capacity or any write. A resubmit of a
@@ -349,13 +363,11 @@ export async function generateDesign(
     // exit below leaves this exactly one row — persistClarification writes
     // only the assistant side, and the completion batch only the assistant
     // side.
-    if (userMessage) {
-      await insertChatMessage({ designId, role: "user", content: userMessage });
-      await db
-        .update(designTable)
-        .set({ updatedAt: new Date() })
-        .where(eq(designTable.id, designId));
-    }
+    await insertChatMessage({ designId, role: "user", content: userMessage });
+    await db
+      .update(designTable)
+      .set({ updatedAt: new Date() })
+      .where(eq(designTable.id, designId));
 
     prepared = await prepareGeneration({
       designId,
@@ -449,7 +461,7 @@ async function prepareGeneration({
 }: {
   designId: string;
   found: typeof designTable.$inferSelect;
-  userMessage?: string;
+  userMessage: string;
   userId: string;
   ip: string | null;
   dayKey: string;
@@ -465,7 +477,7 @@ async function prepareGeneration({
   // considered, so an identical message from an earlier turn stays in context.
   const last = messages[messages.length - 1];
   const messagesForPrompt: ChatMessage[] =
-    userMessage && last?.role === "user" && last.content === userMessage
+    last?.role === "user" && last.content === userMessage
       ? messages.slice(0, -1)
       : messages;
 
@@ -502,9 +514,9 @@ async function prepareGeneration({
     const instruction =
       brief.operation === "edit"
         ? brief.editInstruction
-        : userMessage?.trim() || latestUserText(messagesForPrompt);
-    // No words at all behind the turn → nothing to instruct the edit with;
-    // fall through to the normal clarify handling below.
+        : userMessage.trim();
+    // The brief can classify an edit and still give no instruction; with no
+    // instruction to send, fall through to the handling below.
     if (instruction) {
       anchorImageId = explicitAnchor.id;
       generateOp = {
@@ -521,15 +533,10 @@ async function prepareGeneration({
     // A clarify brief is no longer an exit. The user asked for a design, so
     // their literal request gets rendered and the brief's question rides along
     // as the assistant turn attached to that image — a question is an addition
-    // to a result, never a substitute for one. Only a turn with no words at
-    // all behind it has nothing to render.
-    const spec = fallbackSpec(
-      userMessage?.trim() || latestUserText(messagesForPrompt)
-    );
-    if (!spec) {
-      await persistClarification(designId, brief.message);
-      return { kind: "clarification", message: brief.message, readyToGenerate: false };
-    }
+    // to a result, never a substitute for one. generateDesign refuses a turn
+    // with no words before this point, so there is always text to render.
+    const spec = fallbackSpec(userMessage.trim());
+    if (!spec) throw new Error("Clarify brief reached with no user words");
     generateOp = { kind: "generate", spec };
   } else if (brief.operation === "edit") {
     const referencedImage =
