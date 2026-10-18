@@ -8,7 +8,6 @@ import {
   buildInitialPicks,
   parseIdParam,
   siblingImageHref,
-  conversationOrderHref,
 } from "@/lib/buy-page-picks";
 
 const blank = getBlankOrThrow(DEFAULT_BLANK_ID);
@@ -249,29 +248,5 @@ describe("siblingImageHref", () => {
     );
     expect(url.searchParams.get("back")).toBeNull();
     expect(url.searchParams.get("swap")).toBeNull();
-  });
-});
-
-describe("conversationOrderHref", () => {
-  const images = [
-    { id: "img-a", url: "https://img.example/a.png" },
-    { id: "img-b", url: "https://img.example/b.png" },
-  ];
-
-  it("opens the shown image's page with the panel open, from the Studio", () => {
-    expect(conversationOrderHref(images, "https://img.example/b.png")).toBe(
-      "/d/img-b?order=1&from=%2Fstudio"
-    );
-  });
-
-  it("carries a product version's product", () => {
-    expect(
-      conversationOrderHref(images, "https://img.example/a.png", "bella-canvas-3001")
-    ).toBe("/d/img-a?order=1&product=bella-canvas-3001&from=%2Fstudio");
-  });
-
-  it("is null for no image or an image not in the list", () => {
-    expect(conversationOrderHref(images, null)).toBeNull();
-    expect(conversationOrderHref(images, "https://img.example/gone.png")).toBeNull();
   });
 });

@@ -273,7 +273,7 @@ export function succeedJobStatement(db: AppDb, jobId: string, now: Date) {
  * polling UI maps `failed` to error copy. A cancel is billed, refunds nothing,
  * and the UI shows nothing for it. Every transition predicate in this file
  * still reads `status = 'running'`, so the new terminal state is invisible to
- * the cap count, the stale sweep, getRunningJobsForDesign and the Studio's
+ * the cap count, the stale sweep and the Studio's
  * pending cells without any of them changing.
  *
  * Callers book the generation's cost alongside this statement (the render was
@@ -401,33 +401,6 @@ export async function cancelGenerationJob(params: {
 }
 
 /**
- * Every job for this design that has not reached a terminal status.
- *
- * INCLUDES CANCEL-REQUESTED JOBS, and that is intentional — cancel does not
- * stop the render, so until the continuation notices the request and moves
- * the row to `cancelled`, the job is genuinely still running and still
- * holding its concurrency slot. Consumers MUST consult `cancelledAt` on each
- * row rather than treating the whole list as in-flight work: rendering a
- * cancelled generation as an active spinner is the bug this note exists to
- * prevent. Use the list for slot/lifecycle accounting; filter on
- * `cancelledAt === null` for anything the user is meant to read as "still
- * working".
- */
-export async function getRunningJobsForDesign(
-  designId: string,
-  db?: AppDb
-): Promise<GenerationJob[]> {
-  const database = await resolveDb(db);
-  return database
-    .select()
-    .from(imageGeneration)
-    .where(
-      and(eq(imageGeneration.designId, designId), eq(imageGeneration.status, "running"))
-    )
-    .orderBy(asc(imageGeneration.generationNumber));
-}
-
-/**
  * SLOT accounting: how many of the user's concurrency slots are occupied.
  *
  * Counts cancelled-but-running jobs, and must — cancel does not stop the
@@ -454,7 +427,7 @@ export async function countRunningJobsForUser(userId: string, db?: AppDb): Promi
  * stopped watching that one, and showing it as live contradicts the tap.
  *
  * The same filtering the Studio poll applies to its running list, applied
- * user-wide for the header; getRunningJobsForDesign stays unfiltered.
+ * user-wide for the header.
  */
 export async function countActiveGenerationsForUser(
   userId: string,

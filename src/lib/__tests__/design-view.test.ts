@@ -1,32 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  isDesignEmpty,
-  dedupeById,
-  assertConversationOpen,
-  CONVERSATION_CLOSED_MESSAGE,
-  shouldClampMessage,
-  MESSAGE_CLAMP_CHARS,
-  conversationToggleError,
-} from "@/lib/design-view";
-import { CLOSE_CONVERSATION_ERROR, REOPEN_CONVERSATION_ERROR } from "@/lib/action-copy";
-
-describe("shouldClampMessage", () => {
-  it("leaves a normal-length message alone", () => {
-    expect(shouldClampMessage("a blue whale wearing sunglasses")).toBe(false);
-  });
-
-  it("clamps a pasted prompt past the threshold", () => {
-    expect(shouldClampMessage("x".repeat(MESSAGE_CLAMP_CHARS + 1))).toBe(true);
-  });
-
-  it("does not clamp exactly at the threshold", () => {
-    expect(shouldClampMessage("x".repeat(MESSAGE_CLAMP_CHARS))).toBe(false);
-  });
-
-  it("handles an empty message", () => {
-    expect(shouldClampMessage("")).toBe(false);
-  });
-});
+import { assertConversationOpen, CONVERSATION_CLOSED_MESSAGE } from "@/lib/design-view";
 
 describe("assertConversationOpen", () => {
   it("passes an open conversation through", () => {
@@ -37,51 +10,5 @@ describe("assertConversationOpen", () => {
     expect(() => assertConversationOpen({ closedAt: new Date() })).toThrow(
       CONVERSATION_CLOSED_MESSAGE
     );
-  });
-});
-
-describe("isDesignEmpty", () => {
-  it("is empty with zero messages and zero images", () => {
-    expect(isDesignEmpty(0, 0)).toBe(true);
-  });
-
-  it("is not empty once there is a chat message", () => {
-    expect(isDesignEmpty(1, 0)).toBe(false);
-  });
-
-  it("is not empty once there is an image (e.g. R2-recovered design)", () => {
-    expect(isDesignEmpty(0, 1)).toBe(false);
-  });
-
-  it("is not empty with both messages and images", () => {
-    expect(isDesignEmpty(3, 2)).toBe(false);
-  });
-});
-
-describe("dedupeById", () => {
-  it("returns the list unchanged when ids are unique", () => {
-    const items = [{ id: "a" }, { id: "b" }, { id: "c" }];
-    expect(dedupeById(items)).toEqual(items);
-  });
-
-  it("drops later items that repeat an id, keeping the first and order", () => {
-    const a1 = { id: "a", n: 1 };
-    const b = { id: "b", n: 2 };
-    const a2 = { id: "a", n: 3 };
-    expect(dedupeById([a1, b, a2])).toEqual([a1, b]);
-  });
-
-  it("handles an empty list", () => {
-    expect(dedupeById([])).toEqual([]);
-  });
-});
-
-describe("conversationToggleError", () => {
-  it("reports a failed reopen when the conversation was closed", () => {
-    expect(conversationToggleError(true)).toEqual(REOPEN_CONVERSATION_ERROR);
-  });
-
-  it("reports a failed close when the conversation was open", () => {
-    expect(conversationToggleError(false)).toEqual(CLOSE_CONVERSATION_ERROR);
   });
 });

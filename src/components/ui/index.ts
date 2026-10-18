@@ -9,5 +9,4 @@ export { NoticeSheet, useNotice } from "./notice-sheet";
 export type { NoticeSheetProps, NoticeOptions } from "./notice-sheet";
 export { InlineNotice } from "./inline-notice";
 export type { InlineNoticeProps, InlineNoticeTone } from "./inline-notice";
-export { QuickReply } from "./quick-reply";
 export { EmptyState } from "./empty-state";

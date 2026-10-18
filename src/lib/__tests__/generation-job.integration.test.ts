@@ -5,7 +5,7 @@
  * built from schema.ts (FKs enforced).
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { createTestDb } from "./test-db";
 import { makeUser, makeDesign } from "./factories";
 import { generationUsage, imageGeneration, image as imageTable } from "@/lib/db/schema";
@@ -20,7 +20,6 @@ import {
   discardCancelledJobStatement,
   failGenerationJob,
   getGenerationJobStatusForUser,
-  getRunningJobsForDesign,
   insertGenerationJob,
   insertIfJobSucceededStatement,
   succeedJobStatement,
@@ -123,7 +122,11 @@ describe("insertGenerationJob", () => {
 
     // The predicate must read status, not a bare row count: the three rows are
     // still there after one is failed, but only two are running.
-    const [first] = await getRunningJobsForDesign(designId, db);
+    const [first] = await db
+      .select()
+      .from(imageGeneration)
+      .where(and(eq(imageGeneration.designId, designId), eq(imageGeneration.status, "running")))
+      .orderBy(asc(imageGeneration.generationNumber));
     await failGenerationJob({ jobId: first.id, error: "boom", now: NOW, db });
 
     const admitted = await insertGenerationJob({
@@ -541,7 +544,6 @@ describe("discardCancelledJobStatement (#187)", () => {
     // Terminal, so the cap no longer counts it and nothing displays it.
     expect(await countRunningJobsForUser(USER, db)).toBe(0);
     expect(await countActiveGenerationsForUser(USER, db)).toBe(0);
-    expect(await getRunningJobsForDesign(designId, db)).toEqual([]);
   });
 
   it("admits a fourth job the moment a cancelled one is discarded", async () => {
@@ -788,45 +790,6 @@ describe("sweepStaleJobs", () => {
       expect.objectContaining({ swept: 1, jobs: [expect.objectContaining({ id: otherJob.id })] })
     );
     expect(await countRunningJobsForUser("user-b", db)).toBe(0);
-  });
-});
-
-describe("getRunningJobsForDesign", () => {
-  it("excludes finished jobs and orders by generationNumber", async () => {
-    const third = await seedJob({ generationNumber: 3 });
-    await seedJob({ generationNumber: 1 });
-    const second = await seedJob({ generationNumber: 2 });
-
-    await failGenerationJob({ jobId: second.id, error: "boom", now: NOW, db });
-
-    const running = await getRunningJobsForDesign(designId, db);
-    expect(running.map((j) => j.generationNumber)).toEqual([1, 3]);
-    expect(running.map((j) => j.id)).toContain(third.id);
-  });
-
-  it("still returns a cancelled job, with cancelledAt set to distinguish it", async () => {
-    // Cancel does not stop the render, so the job is still running and still
-    // holds its slot. Consumers must read cancelledAt rather than treating
-    // everything in this list as in-flight work.
-    const cancelled = await seedJob({ generationNumber: 1 });
-    await seedJob({ generationNumber: 2 });
-    expect(await cancelGenerationJob({ jobId: cancelled.id, userId: USER, db })).toBe(true);
-
-    const running = await getRunningJobsForDesign(designId, db);
-    expect(running.map((j) => j.generationNumber)).toEqual([1, 2]);
-
-    const row = running.find((j) => j.id === cancelled.id);
-    expect(row?.cancelledAt).toBeInstanceOf(Date);
-    expect(running.find((j) => j.generationNumber === 2)?.cancelledAt).toBeNull();
-    // It is still counted against the concurrency cap.
-    expect(await countRunningJobsForUser(USER, db)).toBe(2);
-  });
-
-  it("does not leak another design's jobs", async () => {
-    await seedJob();
-    const otherDesign = await makeDesign(db, USER);
-
-    expect(await getRunningJobsForDesign(otherDesign.id, db)).toHaveLength(0);
   });
 });
 

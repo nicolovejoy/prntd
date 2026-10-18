@@ -21,7 +21,7 @@ import {
   type ChatMessage,
 } from "@/lib/db/schema";
 import { eq, and, asc, desc, inArray, isNull, or, sql } from "drizzle-orm";
-import { getBlank, type AspectRatio } from "@/lib/blanks";
+import { type AspectRatio } from "@/lib/blanks";
 import type { DesignSpec } from "@/lib/design-spec";
 import {
   buildNamingContext,
@@ -41,7 +41,6 @@ import {
 // reads got implicitly from the table scan.
 const IMAGE_SEQ_ASC = sql`image.rowid asc`;
 const IMAGE_SEQ_DESC = sql`image.rowid desc`;
-const RENDER_SEQ_ASC = sql`placement_render.rowid asc`;
 const RENDER_SEQ_DESC = sql`placement_render.rowid desc`;
 
 /**
@@ -672,87 +671,6 @@ export async function getDesignSourceImages(
   }));
 }
 
-export type ProductVersion = {
-  id: string;
-  imageUrl: string;
-  aspectRatio: AspectRatio;
-  placementId: string;
-  createdAt: Date;
-};
-
-export type ProductVersionGroup = {
-  productId: string;
-  productName: string;
-  images: ProductVersion[];
-};
-
-/**
- * Fetch placement-targeted renders for a design, grouped by blank. Each
- * group's `images` is ordered oldest → newest. Blanks with no renders for
- * this design are omitted entirely.
- *
- * A render of an admin-hidden source image is left out: it is the hidden
- * artwork on a shirt (its owner-facing callers, the /design views, were deleted
- * in #188 slice 2c; only tests call this reader now). The check
- * is one level deep, on `source_image_id` against `image_publication`. Two
- * cases cannot be judged and are kept: a legacy render with no recorded source
- * (`source_image_id` NULL), and a render whose source is itself a render (a
- * render id has no publication row). The buy path follows that chain
- * (`hiddenThroughSources` in back-sources.ts); this reader does not.
- * `placement_render` has no live writer: its only writer is
- * `insertDesignImage`'s `productId` branch, and that function's one caller
- * outside tests (the upload action) passes no `productId`. The rows that exist
- * are from before that.
- */
-export async function getDesignPlacementRenders(
-  designId: string
-): Promise<ProductVersionGroup[]> {
-  const rows = await db
-    .select({
-      id: placementRenderTable.id,
-      imageUrl: placementRenderTable.imageUrl,
-      aspectRatio: placementRenderTable.aspectRatio,
-      blankId: placementRenderTable.blankId,
-      placementId: placementRenderTable.placementId,
-      createdAt: placementRenderTable.createdAt,
-    })
-    .from(placementRenderTable)
-    .leftJoin(
-      imagePublicationTable,
-      eq(imagePublicationTable.imageId, placementRenderTable.sourceImageId)
-    )
-    .where(
-      and(
-        eq(placementRenderTable.designId, designId),
-        // NULL when the render has no source or its source has no publication row.
-        or(isNull(imagePublicationTable.isHidden), eq(imagePublicationTable.isHidden, false))
-      )
-    )
-    .orderBy(asc(placementRenderTable.createdAt), RENDER_SEQ_ASC);
-
-  const byProduct = new Map<string, ProductVersionGroup>();
-  for (const r of rows) {
-    let group = byProduct.get(r.blankId);
-    if (!group) {
-      const product = getBlank(r.blankId);
-      group = {
-        productId: r.blankId,
-        productName: product?.name ?? r.blankId,
-        images: [],
-      };
-      byProduct.set(r.blankId, group);
-    }
-    group.images.push({
-      id: r.id,
-      imageUrl: r.imageUrl,
-      aspectRatio: r.aspectRatio as AspectRatio,
-      placementId: r.placementId,
-      createdAt: r.createdAt,
-    });
-  }
-  return Array.from(byProduct.values());
-}
-
 export type DisplayImageOptions = {
   /** Treat an admin-hidden image as if it did not exist: a hidden primary
    * falls through to the latest output, and a hidden output is never that
@@ -763,8 +681,9 @@ export type DisplayImageOptions = {
    * Only an image id with a hidden `image_publication` row is dropped. Not
    * judged, and kept: a primary that is a `placement_render` id, even when the
    * render's source image is hidden (a render id could once be written as the
-   * primary). `placement_render` has no live writer (see
-   * getDesignPlacementRenders), so only older rows can be in that state. */
+   * primary). `placement_render` has no live writer (its only writer is
+   * `insertDesignImage`'s `productId` branch, which no caller uses), so only
+   * older rows can be in that state. */
   excludeHidden?: boolean;
 };
 
