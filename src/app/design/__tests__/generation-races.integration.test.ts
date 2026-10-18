@@ -597,7 +597,7 @@ describe("generateDesign — job insert + continuation", () => {
     expect(assistant[0].imageId).toBe(res.imageId);
   });
 
-  it("still refuses — and refunds — an edit with no image to edit and no instruction to render", async () => {
+  it("defensive: refuses — and refunds — a brief that edits with no image and no instruction (constructDesignBrief never returns this)", async () => {
     process.env.GUEST_FUNNEL_ENABLED = "true";
     const designId = await seedDesign(0);
     briefMock.mockResolvedValueOnce({

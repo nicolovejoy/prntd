@@ -111,11 +111,11 @@ async function persistClarification(designId: string, message: string) {
  */
 export type GenerateResult =
   | { kind: "queued"; jobId: string; generationNumber: number; imageId: string }
-  // Only reachable when the model classifies an edit on a conversation with
-  // no image to edit and gives no instruction to render instead — every other
-  // turn with words renders (studio slice 1). No options ride along: the
-  // brief's clarify has no chip channel, and this exit is a dead end, not a
-  // question worth answering with a tap.
+  // Defensive only: reached when a brief classifies an edit on a conversation
+  // with no image and gives no instruction. constructDesignBrief downgrades an
+  // edit with an empty instruction to clarify, so production briefs never take
+  // this shape; the exit guards the brief contract. Every turn with words
+  // renders (studio slice 1).
   | { kind: "clarification"; message: string; readyToGenerate: false }
   // A turn with no words (undefined, empty or whitespace). Refused before the
   // quota, any write or any model call, so it costs and leaves nothing.
@@ -434,7 +434,10 @@ export async function generateDesign(
  * caller maps it straight to `queued` from the winning row.
  */
 type PreparedGeneration =
-  | Exclude<GenerateResult, { kind: "queued" } | { kind: "limit" }>
+  | Exclude<
+      GenerateResult,
+      { kind: "queued" } | { kind: "limit" } | { kind: "empty" }
+    >
   | {
       kind: "prepared";
       jobId: string;
@@ -511,20 +514,18 @@ async function prepareGeneration({
     throw new Error("Anchor image is not part of this conversation");
   }
   if (explicitAnchor) {
+    // The user's own words stand in when the brief gives no edit instruction;
+    // generateDesign refuses a wordless turn, so there is always one, and the
+    // tapped image is always the one edited.
     const instruction =
-      brief.operation === "edit"
-        ? brief.editInstruction
-        : userMessage.trim();
-    // The brief can classify an edit and still give no instruction; with no
-    // instruction to send, fall through to the handling below.
-    if (instruction) {
-      anchorImageId = explicitAnchor.id;
-      generateOp = {
-        kind: "edit",
-        instruction,
-        anchorImageUrl: explicitAnchor.url,
-      };
-    }
+      (brief.operation === "edit" && brief.editInstruction) ||
+      userMessage.trim();
+    anchorImageId = explicitAnchor.id;
+    generateOp = {
+      kind: "edit",
+      instruction,
+      anchorImageUrl: explicitAnchor.url,
+    };
   }
 
   if (generateOp) {

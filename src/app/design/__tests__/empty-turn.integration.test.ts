@@ -187,6 +187,24 @@ describe("generateDesign — a turn with no words", () => {
     expectNothingHappened();
   });
 
+  it("refuses before the replay check reads the job id", async () => {
+    // A job id that already belongs to another conversation makes the replay
+    // check throw "Invalid job id". An empty turn carrying it gets `empty`,
+    // so the guard runs first.
+    const jobId = crypto.randomUUID();
+    const first = await generateDesign(crypto.randomUUID(), "a happy cat", { jobId });
+    expect(first.kind).toBe("queued");
+    briefMock.mockClear();
+    afterQueue.callbacks.length = 0;
+    const before = await counts();
+
+    const result = await generateDesign(crypto.randomUUID(), "", { jobId });
+
+    expectEmpty(result);
+    expect(await counts()).toEqual(before);
+    expectNothingHappened();
+  });
+
   it("still validates the job id format first", async () => {
     await expect(
       generateDesign(crypto.randomUUID(), "", { jobId: "not-a-uuid" })

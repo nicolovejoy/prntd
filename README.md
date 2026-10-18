@@ -27,7 +27,7 @@ Next.js 16 (App Router, Server Actions) on Vercel, functions pinned to pdx1
 ├─ Anthropic API: Claude Sonnet 4.6 builds the design brief and names orders and published designs
 ├─ Ideogram API: v4 generate-transparent and /v1/edit
 ├─ Cloudflare R2: generated images and cached mockups
-├─ Printful API: product catalog, mockups, order submission, status webhooks
+├─ Printful API: mockups, cost estimates, order submission, status webhooks
 ├─ Stripe: embedded and hosted Checkout, webhooks, promo codes, admin refunds
 └─ Resend: transactional email
 ```
@@ -41,15 +41,15 @@ Server Actions handle mutations; each page directory has a sibling `actions.ts`.
 - **Conditional writes instead of transactions.** libSQL over HTTP has no interactive transactions, so claims use `UPDATE … WHERE status = …` and caps use guarded `INSERT … SELECT … WHERE count < cap`. The webhook claim and its ledger rows land in one `db.batch`.
 - **Typed brief, affirmative only.** The brief schema has no negative-prompt field; Claude is told to turn a negation ("no text") into a positive description, because image models draw whatever the prompt mentions.
 - **Background generation with cleanup.** Jobs carry a client-minted id so a lost response does not read as a failure. A cancelled job's result is discarded, and a sweep fails stale jobs, refunds their quota and reclaims orphaned R2 objects.
-- **Checkout session hygiene.** Sessions expire after two hours, and a new checkout expires the buyer's earlier open sessions at Stripe. Checkout attempts and cart lines are capped per user and per IP.
-- **CI.** Lint, typecheck, tests and build on every PR, plus a migration drift gate (`npm run db:generate` must report no schema changes). On PRs, Playwright runs against a local compiled build and an ephemeral Turso branch copied from the preview database. A nightly job runs one real Stripe test-mode checkout and a Printful contract check; a post-deploy job checks markers on prntd.org.
+- **Checkout session hygiene.** Sessions expire after two hours, and a new checkout expires the buyer's earlier open sessions at Stripe. Checkout attempts are capped per user and per IP, and a cart holds at most 40 lines.
+- **CI.** Lint, typecheck, tests and build on every PR, plus a migration drift gate (`npm run db:generate` must report no schema changes). On PRs, Playwright runs against a local compiled build and an ephemeral Turso branch copied from the preview database. A nightly job runs real Stripe test-mode checkouts and a Printful contract check; a post-deploy job checks markers on prntd.org.
 - **Migration discipline.** Additive migrations are applied to production before the code merges; destructive ones follow a written runbook with a rehearsal on a copy.
 
 ## Local development
 
 ```bash
 npm install
-op inject -i .env.tpl -o .env.local      # 1Password CLI; or write .env.local by hand
+cp .env.example .env.local                # fill in values (see below)
 npm run db:push                           # sync schema to the dev database
 npm run dev
 ```
@@ -61,18 +61,18 @@ npm test                 # Vitest, one run
 npm run test:watch
 npm run build
 npm run e2e              # Playwright against a local compiled build
-npm run e2e:stripe       # one real Stripe test-mode checkout (see docs/stripe-e2e.md)
+npm run e2e:stripe       # real Stripe test-mode checkouts (see docs/stripe-e2e.md)
 npm run db:generate      # new migration from schema.ts changes
 npm run db:migrate
 npm run db:seed
 npm run db:studio
 ```
 
-`.env.local` is generated from `.env.tpl` (1Password references) and must point at the dev database, not production. `db:push`, `db:migrate` and `db:seed` refuse any other target unless confirmed.
+`.env.local` must point at the dev database, not production. With 1Password access, `.env.tpl` generates it instead; its header has the three steps (inject to a temporary file, review key names with `scripts/diff-env.ts`, move into place). `db:push`, `db:migrate` and `db:seed` refuse any other target unless confirmed.
 
 Environment variable names (values are not in the repo):
 
-`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, `IDEOGRAM_API_KEY`, `ANTHROPIC_API_KEY`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `NEXT_PUBLIC_R2_PUBLIC_URL`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `PRINTFUL_API_KEY`, `BETTER_AUTH_SECRET`, `RESEND_API_KEY`, `NEXT_PUBLIC_APP_URL`, `ADMIN_EMAIL`, `OWNER_EMAIL`, `CRON_SECRET`
+`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, `IDEOGRAM_API_KEY`, `ANTHROPIC_API_KEY`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `NEXT_PUBLIC_R2_PUBLIC_URL`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `PRINTFUL_API_KEY`, `BETTER_AUTH_SECRET`, `RESEND_API_KEY`, `NEXT_PUBLIC_APP_URL`, `ADMIN_EMAIL`, `OWNER_EMAIL`, `CRON_SECRET`, `NEXT_PUBLIC_FEEDBACK_PROJECT_ID`
 
 Feature flags: `GUEST_FUNNEL_ENABLED`, `CART_ENABLED`, `MULTI_PLACEMENT_ENABLED`, `EMBEDDED_CHECKOUT_ENABLED`. `PRINTFUL_DRY_RUN=true` skips real order submission, and `PRINTFUL_AUTO_CONFIRM` defaults on. Generation, upload and checkout quotas have per-user and per-IP daily cap variables (for example `USER_GEN_DAILY_CAP`, `USER_CHECKOUT_DAILY_CAP`). `REPLICATE_API_TOKEN` is used only by ops scripts in `scripts/`.
 
