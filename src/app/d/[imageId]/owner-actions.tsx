@@ -19,7 +19,7 @@ export function OwnerActions({
   canPublish,
   sourceDesignId,
   conversationArchived,
-  conversationListedInShop,
+  conversationLeavesShop,
 }: {
   imageId: string;
   imageUrl: string;
@@ -30,8 +30,9 @@ export function OwnerActions({
    * image pinned by an order or a seed outlives its thread. */
   sourceDesignId: string | null;
   conversationArchived: boolean;
-  /** The source conversation has a Shop listing (shopListedConversationIds). */
-  conversationListedInShop: boolean;
+  /** Deleting the source conversation would take a card out of the Shop
+   * (shopListingsRemovedByDelete). */
+  conversationLeavesShop: boolean;
 }) {
   return (
     <section className="border-t border-border pt-3">
@@ -54,7 +55,7 @@ export function OwnerActions({
             designId={sourceDesignId}
             imageId={imageId}
             archived={conversationArchived}
-            listedInShop={conversationListedInShop}
+            leavesShop={conversationLeavesShop}
           />
         )}
       </div>

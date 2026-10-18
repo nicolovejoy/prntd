@@ -72,7 +72,7 @@ vi.mock("../owner-actions", () => ({
 }));
 vi.mock("../conversation-images", () => ({ ConversationImages: () => null }));
 vi.mock("@/lib/shop-listed-conversations", () => ({
-  shopListedConversationIds: vi.fn(async () => new Set<string>()),
+  shopListingsRemovedByDelete: vi.fn(async () => new Set<string>()),
 }));
 
 import PublishedImagePage from "../page";

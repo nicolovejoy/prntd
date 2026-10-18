@@ -46,10 +46,12 @@ export interface BulkDeleteResult {
 
 /**
  * The one confirm before a bulk delete. Same voice as
- * DELETE_CONVERSATION_TITLE/CONSEQUENCE (design-view.ts): says what is kept,
- * because the action keeps it. Differs from the single Delete in one respect
- * it states plainly — a conversation with an order is skipped, not archived.
- * `listedInShop`: any selected conversation has a Shop listing (SHOP_LISTING_LINE).
+ * DELETE_CONVERSATION_TITLE/deleteConversationConsequence (design-view.ts):
+ * says what is kept, because the action keeps it. Differs from the single
+ * Delete in one respect it states plainly — a conversation with an order is
+ * skipped, not archived.
+ * `leavesShop`: deleting the selection would take a card out of the Shop
+ * (SHOP_LISTING_LINE).
  *
  * Split into a title (the sheet's question) and a consequence (the sheet's
  * body) so neither repeats the other.
@@ -61,10 +63,10 @@ export function bulkDeleteTitle(count: number): string {
 
 export function bulkDeleteConsequence(
   count: number,
-  listedInShop = false
+  leavesShop = false
 ): string {
   const poss = count === 1 ? "its" : "their";
-  const listing = listedInShop
+  const listing = leavesShop
     ? ` ${count === 1 ? SHOP_LISTING_LINE.single : SHOP_LISTING_LINE.plural}`
     : "";
   return `This deletes ${poss} images too.${listing} Images used in an order, another design, or a cart are kept. Conversations with an order are kept instead.`;
@@ -229,7 +231,6 @@ export function applyOptimistic(
       messageCount: 0,
       cells: [],
       pending: group.map(optimisticCell),
-      listedInShop: false,
     }))
     .sort((a, b) => b.lastActiveAt.getTime() - a.lastActiveAt.getTime());
 

@@ -9,24 +9,27 @@
  * Split into a title (the sheet's question) and a consequence (the sheet's
  * body) so neither repeats the other — a single combined string used to open
  * with the same question the sheet's title already asks. The consequence
- * opens with SHOP_LISTING_LINE when the conversation has a Shop listing.
+ * opens with SHOP_LISTING_LINE when the delete would take a card out of the
+ * Shop.
  */
 export const DELETE_CONVERSATION_TITLE = "Delete this conversation?";
-export function deleteConversationConsequence(listedInShop: boolean): string {
+export function deleteConversationConsequence(leavesShop: boolean): string {
   const kept =
     "Images used in an order, another design, or a cart are kept. A conversation with an order is archived instead.";
-  return listedInShop ? `${SHOP_LISTING_LINE.single} ${kept}` : kept;
+  return leavesShop ? `${SHOP_LISTING_LINE.single} ${kept}` : kept;
 }
 
 /**
- * The line a delete confirm adds when a conversation has a Shop listing
- * (`shopListedConversationIds`). Deleting the conversation takes the listing
- * out of the Shop even when the image itself is kept (#321), and nothing
- * else tells the owner.
+ * The line a delete confirm adds when the delete would take a card out of
+ * the Shop (`shopListingsRemovedByDelete`): the feed lists an image only
+ * while its conversation exists, so a delete removes the card even when the
+ * image is kept for a cart or another design (#321). Nothing else tells the
+ * owner. `plural` is for a bulk delete, where any one of the selection may
+ * be the listed one.
  */
 export const SHOP_LISTING_LINE = {
   single: "Its published images leave the Shop.",
-  plural: "Their published images leave the Shop.",
+  plural: "Published images among them leave the Shop.",
 } as const;
 
 /** Error message the closed-conversation guard throws; the Studio keys its

@@ -86,6 +86,7 @@ import {
   deleteConversations,
   getGenerationJobStatus,
   getStudioLanes,
+  shopListingsLeaveOnDelete,
 } from "./actions";
 import { FocusedStage } from "./focused-stage";
 import { GuestKeepLine } from "./guest-keep-line";
@@ -757,6 +758,16 @@ export function StudioClient({
     setSelected(new Set(selectableIds));
   }
 
+  // Whether a delete confirm names the Shop (#321), read when Delete is
+  // tapped. A failed read leaves the line out rather than blocking the delete.
+  async function listingsLeave(designIds: string[]): Promise<boolean> {
+    try {
+      return await shopListingsLeaveOnDelete(designIds);
+    } catch {
+      return false;
+    }
+  }
+
   // One confirm, then one action for the whole selection. Optimistic: the
   // selected lanes leave now; the ones the server kept come back, with a
   // plain line saying why. Then a refetch, so what's on screen is server
@@ -766,10 +777,7 @@ export function StudioClient({
     if (ids.length === 0 || bulkDeleting) return;
     const ok = await confirm({
       title: bulkDeleteTitle(ids.length),
-      body: bulkDeleteConsequence(
-        ids.length,
-        lanes.some((l) => ids.includes(l.designId) && l.listedInShop)
-      ),
+      body: bulkDeleteConsequence(ids.length, await listingsLeave(ids)),
       confirmLabel: "Delete",
       danger: true,
     });
@@ -1315,7 +1323,7 @@ export function StudioClient({
   async function deleteLane(lane: StudioLane) {
     const ok = await confirm({
       title: DELETE_CONVERSATION_TITLE,
-      body: deleteConversationConsequence(lane.listedInShop),
+      body: deleteConversationConsequence(await listingsLeave([lane.designId])),
       confirmLabel: "Delete",
       danger: true,
     });

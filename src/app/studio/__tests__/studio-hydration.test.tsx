@@ -102,7 +102,6 @@ function runningLane(): StudioLane {
     pending: [
       { jobId: "job-1", generationNumber: 1, startedAt: new Date(T - 25_400) },
     ],
-    listedInShop: false,
   };
 }
 
@@ -161,7 +160,6 @@ describe("StudioClient hydration", () => {
             messageCount: 0,
             cells: [],
             pending: [],
-            listedInShop: false,
           },
         ]}
         initialNowMs={serverNow}

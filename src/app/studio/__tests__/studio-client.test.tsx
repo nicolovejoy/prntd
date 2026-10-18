@@ -34,6 +34,7 @@ vi.mock("../actions", () => ({
   })),
   getGenerationJobStatus: vi.fn(async () => ({ status: "none" })),
   attachReferenceImage: vi.fn(),
+  shopListingsLeaveOnDelete: vi.fn(async () => false),
 }));
 vi.mock("@/app/design/actions", () => ({
   generateDesign: vi.fn(async () => ({
@@ -57,6 +58,7 @@ import {
   deleteConversations,
   getGenerationJobStatus,
   getStudioLanes,
+  shopListingsLeaveOnDelete,
 } from "../actions";
 import {
   ATTACH_BUSY,
@@ -94,7 +96,6 @@ function lane(overrides: Partial<StudioLane> = {}): StudioLane {
     messageCount: 0,
     cells: [],
     pending: [],
-    listedInShop: false,
     ...overrides,
   };
 }
@@ -996,6 +997,31 @@ describe("deleting a lane (slice 5 review, F1)", () => {
     await waitFor(() => expect(deleteDesign).toHaveBeenCalledWith("design-1"));
   });
 
+  it("names the Shop in the confirm when the delete would take a card out (#321)", async () => {
+    vi.mocked(shopListingsLeaveOnDelete).mockResolvedValueOnce(true);
+    render(<StudioClient initialLanes={[lane()]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    fireEvent.click(screen.getByTestId("studio-delete-lane"));
+    await screen.findByTestId("confirm-sheet");
+
+    expect(shopListingsLeaveOnDelete).toHaveBeenCalledWith(["design-1"]);
+    expect(screen.getByText(/^Its published images leave the Shop\./)).toBeTruthy();
+  });
+
+  it("leaves the Shop line out when the read fails, and still deletes", async () => {
+    vi.mocked(shopListingsLeaveOnDelete).mockRejectedValueOnce(new Error("boom"));
+    render(<StudioClient initialLanes={[lane()]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    fireEvent.click(screen.getByTestId("studio-delete-lane"));
+    await screen.findByTestId("confirm-sheet");
+    expect(screen.queryByText(/leave the Shop/)).toBeNull();
+    fireEvent.click(screen.getByTestId("confirm-sheet-confirm"));
+
+    await waitFor(() => expect(deleteDesign).toHaveBeenCalledWith("design-1"));
+  });
+
   it("keeps the lane and shows the reason when the delete is refused", async () => {
     vi.mocked(deleteDesign).mockResolvedValueOnce({
       // deleteDesign archives an ordered conversation rather than returning an
@@ -1133,10 +1159,12 @@ describe("select mode (#189)", () => {
     fireEvent.click(screen.getByTestId("bulk-delete"));
 
     await screen.findByTestId("confirm-sheet");
+    expect(shopListingsLeaveOnDelete).toHaveBeenCalledWith(["d1", "d3"]);
     expect(screen.getByText("Delete 2 conversations?")).toBeTruthy();
     expect(
       screen.getByText(/This deletes their images too\./)
     ).toBeTruthy();
+    expect(screen.queryByText(/leave the Shop/)).toBeNull();
     fireEvent.click(screen.getByTestId("confirm-sheet-confirm"));
 
     await waitFor(() =>

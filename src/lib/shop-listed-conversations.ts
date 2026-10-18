@@ -1,14 +1,20 @@
 /**
- * Which conversations have a card in the Shop feed. The delete confirms use
- * it (Studio lane Delete, bulk delete, the image detail page's conversation
- * Delete): deleting a conversation takes its listings out of the Shop,
- * whether `deleteDesign` removes the image or keeps it for an order, a cart
- * or another design (#321), so the confirm says so when there is one.
+ * Whether deleting conversations would take a card out of the Shop feed. The
+ * delete confirms read it (Studio lane Delete and bulk delete through
+ * `shopListingsLeaveOnDelete`, the image detail page's conversation Delete at
+ * render) and add one line when it would, because nothing else tells the
+ * owner (#321).
  *
- * The rule is the feed's own (`getPublishedFeed`, discover-feed.ts): a
- * composition whose front image has a publication row that is not hidden,
- * attributed to the conversation `feedConversationId` names. No `db` import
- * at module load, so studio.ts can call it with an injected test database.
+ * Two conditions. The conversation has a listing, by the feed's own rule
+ * (`getPublishedFeed`, discover-feed.ts): a composition whose front image has
+ * a publication row that is not hidden, attributed to the conversation
+ * `feedConversationId` names. And the delete would remove the design row: a
+ * conversation with any order reference is archived by `deleteDesign` and
+ * skipped by the bulk delete, its row stays and so does its card, so the
+ * delete's own plan (`planDesignDeletion`) decides. The plan runs only for
+ * listed conversations, which are few.
+ *
+ * No `db` import at module load, so tests can inject a database.
  */
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { db as appDb } from "./db";
@@ -19,6 +25,7 @@ import {
   product as productTable,
 } from "./db/schema";
 import { mirrorFrontImageId } from "./composition-reads";
+import { isDeletionBlocked, planDesignDeletion } from "./delete-design";
 
 type AppDb = typeof appDb;
 
@@ -50,4 +57,23 @@ export async function shopListedConversationIds(
       )
     );
   return new Set(rows.map((r) => r.designId));
+}
+
+/**
+ * The ids among `designIds` whose delete would take a card out of the Shop:
+ * listed, and not blocked by an order (see the header). Ownership is the
+ * caller's to check.
+ */
+export async function shopListingsRemovedByDelete(
+  designIds: string[],
+  opts: { db?: AppDb } = {}
+): Promise<Set<string>> {
+  const db = opts.db ?? (await import("./db")).db;
+  const listed = await shopListedConversationIds(designIds, { db });
+  const plans = await Promise.all(
+    [...listed].map((id) => planDesignDeletion(db, id))
+  );
+  return new Set(
+    plans.filter((p) => !isDeletionBlocked(p)).map((p) => p.designId)
+  );
 }

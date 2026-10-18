@@ -23,7 +23,7 @@ import { ConversationImages } from "./conversation-images";
 import { BuyPanelPicksProvider } from "./buy-panel-picks-context";
 import { OwnerActions } from "./owner-actions";
 import { HiddenNotice } from "./hidden-notice";
-import { shopListedConversationIds } from "@/lib/shop-listed-conversations";
+import { shopListingsRemovedByDelete } from "@/lib/shop-listed-conversations";
 import {
   backToResolve,
   buildInitialPicks,
@@ -104,18 +104,18 @@ export default async function PublishedImagePage({
 
   // #136 slice 3: the owner also gets the conversation's variant history and
   // the explicit "Use this one". Owner-gated in the action too. Read with it:
-  // the conversation the OWNER row's Delete acts on, and whether it has a
-  // Shop listing, which that Delete's confirm names.
+  // the conversation the OWNER row's Delete acts on, and whether that delete
+  // would take a card out of the Shop, which its confirm names.
   const ownerConversationId =
     isOwner && img.sourceDesignId && img.hasSourceConversation
       ? img.sourceDesignId
       : null;
-  const [siblings, listedConversations] = await Promise.all([
+  const [siblings, delistedOnDelete] = await Promise.all([
     isOwner && img.sourceDesignId
       ? getConversationImages(img.sourceDesignId)
       : null,
     ownerConversationId
-      ? shopListedConversationIds([ownerConversationId])
+      ? shopListingsRemovedByDelete([ownerConversationId])
       : new Set<string>(),
   ]);
 
@@ -176,9 +176,9 @@ export default async function PublishedImagePage({
       // is gated on the design row resolving.
       sourceDesignId={ownerConversationId}
       conversationArchived={img.sourceConversationArchived}
-      conversationListedInShop={
+      conversationLeavesShop={
         ownerConversationId !== null &&
-        listedConversations.has(ownerConversationId)
+        delistedOnDelete.has(ownerConversationId)
       }
     />
   );

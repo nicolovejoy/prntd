@@ -22,8 +22,10 @@
  *
  * src/lib/feed-visibility-parity.ts re-runs this query's joins as raw SQL so
  * a production database can be checked against the visibility rule, and lists
- * the visible listings the conversation rule leaves out. If the joins or the
- * filters below change, change that module with them.
+ * the visible listings the conversation rule leaves out, and
+ * src/lib/shop-listed-conversations.ts repeats them to tell the delete
+ * confirms whether a conversation is listed. If the joins or the filters
+ * below change, change both modules with them.
  */
 import { db } from "@/lib/db";
 import {
