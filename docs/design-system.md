@@ -310,7 +310,9 @@ differ.
 - **Studio** — `/studio`, a single view: the bench, where designs are made.
   There is no tab strip inside it any more. One conversation is opened as the
   focused stage (below); the old `/design?id=` thread view was deleted by #345.
-  `/design` is now only a doorway that mints the guest session. My Designs (see Shelf, below) used to be the
+  `/design` is now only a doorway: it redirects a visitor with a session to
+  the Studio and mints a guest session for one without. My Designs (see Shelf,
+  below) used to be the
   Studio's own Library tab; it moved out to its own top-level route on
   2026-09-27, revising nav model A (`docs/ux-design-review-2026-09.md`),
   reachable from the header bar instead of a tab. `/studio/archive` and
@@ -354,8 +356,9 @@ differ.
   focused stage replaced `DesignStage` when the `/design` thread was deleted
   (#345): one result large on its backdrop, a results strip, the composer
   under it. There is no separate right-side sidebar.
-- **Sheet** — a bottom drawer on phones. Its one use, the gallery drawer and
-  strip (`MobileGalleryDrawer`, `MobileGalleryStrip`), was deleted by #345.
+- **Sheet** — the phone bottom-sheet pattern, carried today by `ConfirmSheet`
+  and `NoticeSheet`. The gallery drawer and strip (`MobileGalleryDrawer`,
+  `MobileGalleryStrip`) that also used it were deleted by #345.
 - **Lightbox** — full-screen image overlay on the image detail page
   (`src/app/d/[imageId]/image-lightbox.tsx`).
 - **Focused stage** — a Studio layout mode with `?conversation=&image=` parameters: one result large on its backdrop, composer below, other results in a strip, history disclosure.
@@ -619,7 +622,7 @@ Remaining:
    labelled "Generate" (persona C), and it always generates. Chat is still
    reachable but only via a separate, visibly lower-weight "Ask" tap
    (`variant="ghost"` vs. the submit's `variant="primary"`/`"generate"`).
-   `chat-panel.tsx` `handleSubmit`/`handleAsk`.
+   `chat-panel.tsx` `handleSubmit`/`handleAsk` (deleted by #345).
 6. ~~**Accent = white means no brand color exists.**~~ — RESOLVED 2026-09-06
    under Paper (#213): false twice over now — `--accent` resolves to ink
    (`var(--foreground)`), not white, and one brand hue does exist:
