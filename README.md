@@ -1,74 +1,83 @@
 # PRNTD
 
-Chat with an AI to design a t-shirt, then buy it — the shirt is printed and shipped by a print-on-demand provider. Live at [prntd.org](https://prntd.org).
+Describe a t-shirt design in plain words, see it rendered, refine it, then buy it on a shirt that is printed and shipped by a print-on-demand provider. Designs a user publishes appear in a public Shop. Live at [prntd.org](https://prntd.org).
 
-**Next.js 16 · TypeScript · Turso/Drizzle · 440 Vitest tests (incl. real-DB money-path integration) · Playwright e2e in CI against live preview deploys · in production with real paid orders**
+Next.js 16, TypeScript, Turso/Drizzle, Vitest (including real-database money-path tests), Playwright e2e in CI. In production with paid orders.
 
 ## How it works
 
-1. **Describe** — the user chats on `/design`. Claude (Sonnet 4.6) interprets each casual message and constructs a structured image-generation prompt, returned as a JSON envelope with a readiness flag; a fast Haiku 4.5 pre-check catches under-specified ideas before spending a generation.
-2. **Generate** — Ideogram v3 Turbo (via Replicate) renders the design. Transparency comes from Ideogram's native transparent-background endpoint when generating fresh, or from BiRefNet background removal (`851-labs/background-remover` on Replicate) when iterating against an anchor image. Generators sit behind an adapter interface (`src/lib/generators/`), with Recraft v3 as an alternate for side-by-side comparison.
-3. **Iterate** — every generation is stored in Cloudflare R2 and appended to the design thread; the user refines in chat with prior images as style references.
-4. **Preview** — `/preview` renders the design on a real product mockup via the Printful mockup API, placement-aware (front and optional back print).
-5. **Buy** — size/color selection, per-size pricing with shipping as a separate Stripe line item, then Stripe Checkout (single item or multi-item cart).
-6. **Fulfill** — the Stripe webhook confirms payment and submits the order to the Printful REST API through a single shared fulfillment path; sale, Stripe-fee, and COGS entries land in an append-only ledger; confirmation emails go out via Resend with the actual product mockup.
-7. **Track** — Printful webhooks drive shipping status back into the customer's order history.
+1. **Describe.** The user types an idea into the composer in the Studio (`/studio`). Claude (`claude-sonnet-4-6`) turns the casual message and the conversation so far into a typed `DesignSpec` brief, either a new design or an edit of an existing image.
+2. **Generate.** Ideogram v4 `generate-transparent` renders a new design; `/v1/edit` with a transparent background renders an edit of the image the composer is anchored to. The request returns once a job row exists. The work continues in the background, and the Studio polls job status. Each user has a daily quota (also counted per IP) and at most three jobs in flight.
+3. **Iterate.** Every result is stored in Cloudflare R2. The Studio shows one lane per conversation. Opening a result gives a focused stage: the image large on its backdrop, the composer anchored to it, the other results in a strip, and the message history collapsed below. Reference images can be attached from the device.
+4. **Buy.** Each image has an image detail page (`/d/[imageId]`), public for published images and an owner view for private ones. Its buy panel takes garment, size, colour and an optional back design, with Printful mockups rendered on demand. Choices are kept in the URL. No price is shown until garment and size are picked.
+5. **Pay.** Order goes to Stripe Checkout, embedded on `/checkout` with hosted Checkout as the fallback if embedded is not configured. A buyer can also add lines to a cart (`/cart`) and check out together.
+6. **Fulfil.** The Stripe webhook claims the order, writes sale and Stripe-fee entries to an append-only ledger, and submits the order to Printful through one shared function. Printful's invoice supplies the cost-of-goods entry. If submission fails, a daily cron retries. Confirmation email goes out through Resend.
+7. **Track.** Printful webhooks move the order through shipping states, shown on `/orders`.
+8. **Publish.** A signed-in user can publish an image to the Shop (`/shop`). Published images are immutable snapshots. Admins can hide them (`/admin/published`).
 
-Guests can use the whole design→preview→order funnel without an account (anonymous sessions with daily generation quotas per identity and per IP); the auth gate is at checkout, and guest designs/carts are re-parented to the real account on sign-in.
+Visitors can use the Studio as a guest, without an account. Guests are anonymous Better-Auth users with generation quotas per identity and per IP. Checkout and publishing need a real account, and a guest's designs and cart move to the account on sign-in or sign-up.
 
 ## Architecture
 
 ```
-Next.js 16 (App Router, Server Actions) on Vercel
+Next.js 16 (App Router, Server Actions) on Vercel, functions pinned to pdx1
 │
-├─ Turso (libSQL) + Drizzle ORM — 18 tables, versioned migrations
-├─ Better-Auth — email/password + anonymous guest sessions
-├─ Anthropic API — Claude Sonnet 4.6 (prompt construction), Haiku 4.5 (readiness check)
-├─ Replicate — ideogram-v3-turbo, recraft-v3, BiRefNet background removal
-├─ Ideogram API — native transparent-background generation
-├─ Cloudflare R2 — all generated images + cached mockups
-├─ Printful REST API — mockups, order submission, shipping webhooks
-├─ Stripe — Checkout Sessions, payment webhooks, promo codes
-└─ Resend — transactional email
+├─ Turso (libSQL) + Drizzle ORM, versioned migrations in drizzle/
+├─ Better-Auth: email/password + anonymous guest sessions
+├─ Anthropic API: Claude Sonnet 4.6 builds the design brief and names orders and published designs
+├─ Ideogram API: v4 generate-transparent and /v1/edit
+├─ Cloudflare R2: generated images and cached mockups
+├─ Printful API: product catalog, mockups, order submission, status webhooks
+├─ Stripe: embedded and hosted Checkout, webhooks, promo codes, admin refunds
+└─ Resend: transactional email
 ```
 
-Server Actions handle all mutations; the only API routes are the Stripe and Printful webhook receivers (`src/app/api/webhooks/`). Product catalog, pricing, and promotions are config-driven TypeScript (`src/lib/blanks.ts`, `pricing.ts`, `promotion.ts`).
+Server Actions handle mutations; each page directory has a sibling `actions.ts`. API routes under `src/app/api/` are for Better-Auth, the Stripe and Printful webhooks (`api/webhooks/`), two crons (`api/cron/retry-fulfillment`, `api/cron/sweep-generations`) and a health check. The product catalog, pricing and promotions are config in TypeScript (`src/lib/blanks.ts`, `pricing.ts`, `promotion.ts`); adding a garment is a new entry in `blanks.ts`.
 
 ## Notable engineering
 
-**Treating LLM output as a wire format.** The chat model must return a JSON envelope (message, image prompt, readiness flag, quick-reply options), but models sometimes emit prose *and* the envelope in one reply. A naive parse failure once persisted the raw blob into chat history — which then taught every later turn to imitate the broken format, cascading across the thread. The fix is layered: a salvage parser extracts the envelope from mixed output, and history is scrubbed of embedded envelopes before each resend so the model never sees its own malformed replies. Related: user negations ("no text on it") are rewritten into affirmative image prompts, because diffusion models surface whatever you mention.
-
-- **Money-path integration tests against a real database.** Order → Stripe webhook → ledger runs against an in-memory libSQL instance whose DDL is derived from the live Drizzle schema at test time, so a schema/query mismatch fails the suite instead of hiding behind mocks.
-- **End-to-end tests in CI against real deploys.** Playwright specs (guest funnel, multi-item cart) run on every PR against the Vercel preview deployment, after applying pending migrations to an isolated preview database branch. Locally they run against a compiled production build.
-- **Background-removal correctness.** Transparent PNGs on colored shirts exposed soft-alpha artifacts (thin dark strokes going semi-transparent); the pipeline uses hard-threshold BiRefNet segmentation, chosen after the previous remover silently returned unprocessed images on painterly output.
-- **Append-only financial ledger** (sale / stripe_fee / cogs / refund) with COGS taken from Printful's real invoice, not estimates; order classification kept separate from freeform tags.
-- **Versioned schema migrations** (Drizzle) with per-environment database branches (dev / preview / prod), a baselined genesis snapshot, and a row-count smoke script that runs before and after production migrations.
-- **Anonymous-to-registered account claiming** — designs, orders, carts, and images created as a guest are re-parented atomically when the user signs up.
+- **Money-path tests against a real database.** Order, Stripe webhook and ledger tests run against an in-memory libSQL built from `schema.ts` (`src/lib/__tests__/test-db.ts`), so a schema/query mismatch fails the suite instead of hiding behind mocks.
+- **Append-only ledger** (`sale`, `stripe_fee`, `cogs`, `refund`, `refund_cogs_reversal`), unique per order and type, with cost of goods taken from Printful's invoice rather than estimated.
+- **Conditional writes instead of transactions.** libSQL over HTTP has no interactive transactions, so claims use `UPDATE … WHERE status = …` and caps use guarded `INSERT … SELECT … WHERE count < cap`. The webhook claim and its ledger rows land in one `db.batch`.
+- **Typed brief, affirmative only.** The brief schema has no negative-prompt field; Claude is told to turn a negation ("no text") into a positive description, because image models draw whatever the prompt mentions.
+- **Background generation with cleanup.** Jobs carry a client-minted id so a lost response does not read as a failure. A cancelled job's result is discarded, and a sweep fails stale jobs, refunds their quota and reclaims orphaned R2 objects.
+- **Checkout session hygiene.** Sessions expire after two hours, and a new checkout expires the buyer's earlier open sessions at Stripe. Checkout attempts and cart lines are capped per user and per IP.
+- **CI.** Lint, typecheck, tests and build on every PR, plus a migration drift gate (`npm run db:generate` must report no schema changes). On PRs, Playwright runs against a local compiled build and an ephemeral Turso branch copied from the preview database. A nightly job runs one real Stripe test-mode checkout and a Printful contract check; a post-deploy job checks markers on prntd.org.
+- **Migration discipline.** Additive migrations are applied to production before the code merges; destructive ones follow a written runbook with a rehearsal on a copy.
 
 ## Local development
 
 ```bash
 npm install
-cp .env.example .env.local   # fill in values
-npm run db:push              # sync schema to your dev database
+op inject -i .env.tpl -o .env.local      # 1Password CLI; or write .env.local by hand
+npm run db:push                           # sync schema to the dev database
 npm run dev
 ```
 
 ```bash
-npm test        # Vitest (unit + real-DB integration)
-npm run e2e     # Playwright against a local production build
 npm run lint
+npm run typecheck
+npm test                 # Vitest, one run
+npm run test:watch
+npm run build
+npm run e2e              # Playwright against a local compiled build
+npm run e2e:stripe       # one real Stripe test-mode checkout (see docs/stripe-e2e.md)
+npm run db:generate      # new migration from schema.ts changes
+npm run db:migrate
+npm run db:seed
 npm run db:studio
 ```
 
-Required env vars (names only — see `.env.example`):
+`.env.local` is generated from `.env.tpl` (1Password references) and must point at the dev database, not production. `db:push`, `db:migrate` and `db:seed` refuse any other target unless confirmed.
 
-`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, `ANTHROPIC_API_KEY`, `REPLICATE_API_TOKEN`, `IDEOGRAM_API_KEY`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `PRINTFUL_API_KEY`, `RESEND_API_KEY`, `BETTER_AUTH_SECRET`, `ADMIN_EMAIL`, `NEXT_PUBLIC_R2_PUBLIC_URL`, `NEXT_PUBLIC_APP_URL`
+Environment variable names (values are not in the repo):
 
-Feature flags (env-based): `GUEST_FUNNEL_ENABLED`, `CART_ENABLED`, `MULTI_PLACEMENT_ENABLED`. `PRINTFUL_DRY_RUN=true` short-circuits real order submission for local testing.
+`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, `IDEOGRAM_API_KEY`, `ANTHROPIC_API_KEY`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `NEXT_PUBLIC_R2_PUBLIC_URL`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `PRINTFUL_API_KEY`, `BETTER_AUTH_SECRET`, `RESEND_API_KEY`, `NEXT_PUBLIC_APP_URL`, `ADMIN_EMAIL`, `OWNER_EMAIL`, `CRON_SECRET`
+
+Feature flags: `GUEST_FUNNEL_ENABLED`, `CART_ENABLED`, `MULTI_PLACEMENT_ENABLED`, `EMBEDDED_CHECKOUT_ENABLED`. `PRINTFUL_DRY_RUN=true` skips real order submission, and `PRINTFUL_AUTO_CONFIRM` defaults on. Generation, upload and checkout quotas have per-user and per-IP daily cap variables (for example `USER_GEN_DAILY_CAP`, `USER_CHECKOUT_DAILY_CAP`). `REPLICATE_API_TOKEN` is used only by ops scripts in `scripts/`.
+
+More detail is in `docs/` (`design-system.md`, `products.md`, `stripe-e2e.md`) and `CLAUDE.md`.
 
 ## Status
 
-In production at prntd.org with real paid orders fulfilled end-to-end (including two-sided prints and multi-item carts). Working: the full design→order funnel for guests and account holders, admin order management with ledger timeline, and a community Shop of published designs.
-
-Known gaps: money-path idempotency hardening and cart-lifecycle fixes are tracked in the issue backlog; visual identity/copy pass is pending.
+Live at prntd.org and taking paid orders, fulfilled through Printful, including back prints and multi-item carts. Working: the Studio for guests and account holders, the image detail page buy panel, the cart, embedded checkout, order history, the Shop, and admin pages for orders (with ledger timeline and refunds), published-image moderation, usage and captured errors.
