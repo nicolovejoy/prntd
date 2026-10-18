@@ -964,7 +964,7 @@ async function runGenerationJob(params: GenerationJobParams): Promise<void> {
 }
 
 /**
- * Close a conversation (slice 3): the thread becomes read-only — chat,
+ * Close a conversation (slice 3): the conversation becomes read-only —
  * generation and uploads are refused — while its history stays viewable and
  * its images stay fully usable elsewhere (orders, back picker, fresh starts).
  * Explicit-only (nothing auto-closes) and reversible via reopenConversation.
@@ -996,7 +996,7 @@ export async function reopenConversation(designId: string) {
  * to say so.
  *
  * Allowed on a closed conversation: this curates the record, it doesn't write
- * to the thread (no chat, generation or upload), so assertConversationOpen
+ * to the thread (no generation or upload), so assertConversationOpen
  * deliberately isn't applied.
  *
  * Refuses an admin-hidden image (#310): hidden artwork is not something the

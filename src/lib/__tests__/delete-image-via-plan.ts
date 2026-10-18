@@ -4,8 +4,9 @@ type Db = Parameters<typeof planImageDeletion>[0];
 type Removed = Awaited<ReturnType<typeof executeImageDeletion>>["designRemoved"];
 
 /**
- * Plan then execute one image delete scoped to a conversation, the way the
- * My Designs bulk delete drives the same two functions. A plan the rules
+ * Plan then execute one image delete scoped to a conversation: a
+ * design-scoped plan, then execute, the path the removed `deleteDesignImage`
+ * action took (executing detaches the image from the conversation too). A plan the rules
  * refuse (an order reference, or an image the conversation cannot reach)
  * comes back as `refused` with the outcome and writes nothing.
  */

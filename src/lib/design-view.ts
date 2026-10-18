@@ -19,8 +19,8 @@ export const DELETE_CONVERSATION_CONSEQUENCE =
 export const CONVERSATION_CLOSED_MESSAGE = "This design is closed.";
 
 /**
- * Shared guard for the thread-write actions (generate, attach): a closed
- * conversation (design.closed_at set) is read-only. Pure — the actions
+ * Guard for `generateDesign`, its only caller (attach checks `closedAt`
+ * itself): a closed conversation (design.closed_at set) is read-only. Pure — the actions
  * already hold the design row, so no extra query. Model B slice 3.
  */
 export function assertConversationOpen(design: { closedAt: Date | null }): void {

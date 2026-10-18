@@ -271,11 +271,12 @@ Three principles:
    `ghost`, or a plain link. (The old equal-weight Send / Draw it / Compare
    composer is resolved — #174 collapsed the composer to one submit control
    that generates, with chat kept to a separate, visibly lower-weight "Ask"
-   tap. See Gaps, item 5, RESOLVED.)
+   tap, since removed with the chat action. See Gaps, item 5, RESOLVED.)
 3. **Phone-first, one column.** The phone layout is the design; desktop gets
-   extra space, not extra features. Anything desktop-only (e.g. the
-   results strip beneath the focused stage in `src/app/studio/focused-stage.tsx`)
-   must have a phone equivalent, not be dropped.
+   extra space, not extra features. Anything desktop-only must have a phone
+   equivalent, not be dropped. (No Studio surface is desktop-only today: the
+   results strip beside the focused stage in `src/app/studio/focused-stage.tsx`
+   renders at both widths, with larger tiles at `lg:`.)
 
 ### Vocabulary
 
@@ -621,7 +622,8 @@ Remaining:
    under #174 (studio slice 1): the composer has exactly one submit control,
    labelled "Generate" (persona C), and it always generates. Chat is still
    reachable but only via a separate, visibly lower-weight "Ask" tap
-   (`variant="ghost"` vs. the submit's `variant="primary"`/`"generate"`).
+   (`variant="ghost"` vs. the submit's `variant="primary"`/`"generate"`)
+   (Ask removed with the chat action in this PR).
    `chat-panel.tsx` `handleSubmit`/`handleAsk` (deleted by #345).
 6. ~~**Accent = white means no brand color exists.**~~ — RESOLVED 2026-09-06
    under Paper (#213): false twice over now — `--accent` resolves to ink
@@ -710,8 +712,8 @@ added was itself reversed in #220).
 ### `/design` (`app/design/page.tsx`)
 
 Job: sessionless doorway into the Studio. A visitor with a session is
-redirected on the server (`?id=` goes to the Studio's focused stage for that
-conversation); a visitor with none gets a guest session minted by
+redirected on the server (`?id=` for an open conversation with results goes to its focused
+stage; a closed, result-less, foreign or unknown id goes to the bench); a visitor with none gets a guest session minted by
 `app/design/design-entry.tsx`, then moves on to `/studio` carrying the landing
 idea. The conversation thread that used to render here (composer with Ask,
 message list, `DesignStage`, mobile strip and drawer, its own lightbox) was

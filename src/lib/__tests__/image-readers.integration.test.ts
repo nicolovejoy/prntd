@@ -30,7 +30,6 @@ const {
   getDesignImageById,
   getDesignImageWithOwner,
   findPlacementRender,
-  findDesignImageByUrl,
   resolveImagesByIds,
   resolveOrderImageUrls,
   resolveDesignDisplayImageUrls,
@@ -99,9 +98,6 @@ describe("readers on dual-written rows", () => {
     expect((await getDesignImageById(ids.renderId))?.imageUrl).toBe(
       "https://cdn/live/back.png"
     );
-    expect(
-      await findDesignImageByUrl(ids.designId, "https://cdn/live/back.png")
-    ).toBe(ids.renderId);
   });
 
   it("an unpublished image reads as unpublished and not hidden", async () => {

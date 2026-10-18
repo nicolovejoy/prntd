@@ -449,8 +449,9 @@ export async function countActiveGenerationsForUser(
 
 /**
  * Fail + refund every overdue running job in scope. Called lazily on read
- * (thread load) rather than from a daily cron, so a stuck row clears the next
- * time anyone looks at it.
+ * by the Studio bench, the site header and My Designs (`scope: "user"`), and
+ * by the daily cron (`scope: "all"`), so a stuck row clears the next time
+ * anyone looks at it. The `design` scope is kept for tests.
  *
  * The scope is a discriminated union rather than optional designId/userId
  * fields on purpose: with optionals, a caller that forgot to pass one would

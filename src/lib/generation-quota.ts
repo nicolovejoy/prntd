@@ -10,7 +10,8 @@ type AppDb = typeof appDb;
 // Independent cap families share this module and the generation_usage table,
 // distinguished only by bucket prefix: generation functions read and write
 // `user:<id>` / `ip:<addr>` buckets, checkout functions read and write
-// `checkout:user:<id>` / `checkout:ip:<addr>` buckets. No family touches
+// `checkout:user:<id>` / `checkout:ip:<addr>` buckets, and upload functions
+// read and write `upload:user:<id>` / `upload:ip:<addr>` buckets. No family touches
 // another's buckets.
 
 /**

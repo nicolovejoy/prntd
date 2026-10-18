@@ -515,48 +515,6 @@ export async function getDesignImageWithOwner(
 }
 
 /**
- * Find the image whose imageUrl matches a target URL, scoped to a design.
- * Used at order-creation time to pin the order to the specific image that was
- * on screen when the customer clicked checkout. Artifacts first, then the
- * render cache (a URL can come from either surface). Null if neither matches
- * (e.g. pre-Phase-2 designs that haven't been backfilled).
- *
- * Matches any conversation link role: a seed image (slice 3) shown in the
- * thread is pinnable/orderable exactly like an output.
- */
-export async function findDesignImageByUrl(
-  designId: string,
-  imageUrl: string
-): Promise<string | null> {
-  const artifacts = await db
-    .select({ id: imageTable.id })
-    .from(conversationImageTable)
-    .innerJoin(imageTable, eq(imageTable.id, conversationImageTable.imageId))
-    .where(
-      and(
-        eq(conversationImageTable.designId, designId),
-        eq(imageTable.imageUrl, imageUrl)
-      )
-    )
-    .orderBy(desc(imageTable.createdAt), IMAGE_SEQ_DESC)
-    .limit(1);
-  if (artifacts[0]) return artifacts[0].id;
-
-  const renders = await db
-    .select({ id: placementRenderTable.id })
-    .from(placementRenderTable)
-    .where(
-      and(
-        eq(placementRenderTable.designId, designId),
-        eq(placementRenderTable.imageUrl, imageUrl)
-      )
-    )
-    .orderBy(desc(placementRenderTable.createdAt), RENDER_SEQ_DESC)
-    .limit(1);
-  return renders[0]?.id ?? null;
-}
-
-/**
  * Resolve the image URL to display for a list of orders. Prefers each
  * order's `placements.front` (a design_image id snapshot from purchase
  * time) over the design's current display image, so historical orders

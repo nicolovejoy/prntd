@@ -4,7 +4,7 @@
  *
  * This is a new WRITER of an existing state, not a new state. `closed_at`
  * already means "read-only record" (#125), `assertConversationOpen` already
- * refuses chat/generate/upload on it, and `reopenConversation` already brings
+ * refuses generate/upload on it, and `reopenConversation` already brings
  * it back. Nothing here is user-visible beyond the lane disappearing from
  * /studio — it remains visible in /designs (My Designs) under the All
  * filter (#238), and is reopenable from there or from the image detail page's
@@ -67,8 +67,8 @@ async function resolveDb(db?: AppDb): Promise<AppDb> {
  *
  * **Activity** is measured the way the Studio ranks lanes (`laneLastActiveAt`):
  * the freshest of the design row's `updated_at`, its newest image, its newest
- * chat turn, and any running job's start. Every writer that matters — chat
- * turn, generation completion, `setPrimaryImage` — does bump `updated_at`
+ * chat turn, and any running job's start. Every writer that matters —
+ * generation completion, `setPrimaryImage` — does bump `updated_at`
  * today, so in practice `updated_at` is authoritative; the other three are
  * read anyway because this function ARCHIVES on the answer. A future writer
  * that forgets the bump should cost a lane its top slot, not close a
