@@ -33,3 +33,13 @@ Process: one Sonnet implementer per task in the main checkout, the controller's 
 5. Minor: the gallery sentence added in Task 1 went on every turn with an upload in the gallery and could stop the model from editing a later design that names the upload. Reverted to main's text; the system-prompt rule covers the attached-photo case.
 6. Minor: the brief call now processes an image (about 1.6k tokens) inside the same timeout. Noted in the PR.
 7. Minor: docs (ledger, CLAUDE.md Core loop and Current state). Done by the controller.
+
+### Fix round (`67ecfd0`, Sonnet implementer)
+
+1. `REFERENCE_IMAGE_MAX_PIXELS` is now exported from `src/lib/reference-image.ts` and reused as `limitInputPixels` in `loadBriefPhoto` (plus `animated: false`), not copied.
+2. sharp is imported lazily inside `loadBriefPhoto`, as `reference-image.ts` does.
+3. The photo is loaded outside the brief's try/catch (it never throws), after the anchor lookup and before any row write.
+4. The system-prompt rule now reads "A photo shown to you in the user's message is never edited…", since the photo arrives as an image block rather than as something "attached".
+5. Seed-upload provenance: with an output present, the parent is the latest non-seed output (the code's existing rule for seed anchors), never the seed. The test asserts that; the comment in `runGenerationJob` says it.
+6. Mutation checks: breaking the anchor-parent lookup fails the strengthened upload test; counting seeds as outputs fails the seed test.
+7. Gate on `67ecfd0` (controller): lint 0 errors (21 existing warnings), typecheck clean, 266 files / 4170 tests, `db:generate` "No schema changes", build exit 0.
