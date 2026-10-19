@@ -29,10 +29,11 @@
  * filename whatever the server's TZ. manifest.json keeps UTC ISO 8601.
  *
  * Rows come from the `image` table, minus images an admin has hidden
- * (`image_publication.is_hidden`, #288); other publication state and order
+ * (`image_publication.is_hidden`, #288) and uploaded photos
+ * (`image.operation` = "upload", #355); other publication state and order
  * state are not part of an export.
  */
-import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, ne, or, sql } from "drizzle-orm";
 import type { db as appDb } from "@/lib/db";
 import {
   image as imageTable,
@@ -69,10 +70,11 @@ export type ExportRow = {
 };
 
 /**
- * Every image the user owns that an admin has not hidden, oldest first. The
- * same rows as `getUserImageLibrary` (My Designs), which applies the same
- * hidden filter, in exactly its order reversed, so the page can compute the parts from
- * the library it already loaded.
+ * Every image the user owns that an admin has not hidden and that is not an
+ * uploaded photo, oldest first. The same rows as `getUserImageLibrary` (My
+ * Designs), which applies the same hidden and upload filters, in exactly its
+ * order reversed, so the page can compute the parts from the library it
+ * already loaded.
  */
 export async function loadExportRows(
   db: typeof appDb,
@@ -102,6 +104,9 @@ export async function loadExportRows(
             isNull(imagePublicationTable.isHidden),
             eq(imagePublicationTable.isHidden, false),
           ),
+          // An attached photo is an input, not a design (#355). `<>` on NULL
+          // is NULL, so legacy rows with no operation need the isNull arm.
+          or(isNull(imageTable.operation), ne(imageTable.operation, "upload")),
         ),
       )
       // created_at has seconds resolution; rowid breaks same-second ties.
