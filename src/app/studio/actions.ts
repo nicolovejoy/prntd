@@ -25,6 +25,7 @@ import { getGenerationJobStatusForUser } from "@/lib/generation-job";
 import { consumeUploadQuota } from "@/lib/generation-quota";
 import type { GenerationJobStatus } from "@/lib/lost-submit";
 import { deleteObjectByKey, imageKeyFromUrl } from "@/lib/r2";
+import { REFERENCE_IMAGE_MAX_BYTES } from "@/lib/reference-image-limits";
 import { storeReferenceImage } from "@/lib/store-reference-image";
 import { requireStudioActionSession } from "@/lib/require-user";
 import {
@@ -233,9 +234,17 @@ export type AttachReferenceImageResult =
  * conversation, an existing one gains a cell), so the next Generate can be
  * anchored to it. Same gate as the other Studio actions.
  *
- * Order: session; ownership (another user's conversation throws
+ * The image arrives as a Blob (the File the composer prepared), never as a
+ * base64 string (#351): React Flight counts every string argument's length
+ * against a 1,000,000-slot decode limit, so a base64 string over about 1 M
+ * characters (about 750 KB of image) was refused before this body ran, while
+ * a Blob is read straight from the multipart form data and not counted.
+ *
+ * Order: session; the argument must be a Blob (anything else is a caller
+ * bug and throws); ownership (another user's conversation throws
  * Unauthorized, as the other actions do); a closed conversation is refused
  * before any quota is spent; then the upload quota (never refunded); then
+ * the Blob's size against the cap, before its bytes are read; then
  * `storeReferenceImage`, which normalizes the bytes before it writes anything,
  * so a refused or failed file leaves no design row for a new id.
  * Refusals are data; anything unexpected maps to ATTACH_FAILED and the thrown
@@ -243,10 +252,13 @@ export type AttachReferenceImageResult =
  */
 export async function attachReferenceImage(
   designId: string,
-  base64Data: string,
+  file: Blob,
   fileName: string
 ): Promise<AttachReferenceImageResult> {
   const session = await requireStudioActionSession();
+  if (!(file instanceof Blob)) {
+    throw new Error("attachReferenceImage expects a Blob");
+  }
 
   const [existing] = await db
     .select({ userId: designTable.userId, closedAt: designTable.closedAt })
@@ -268,11 +280,18 @@ export async function attachReferenceImage(
     return { kind: "refused", message: attachLimitMessage(quota.reason) };
   }
 
+  // The same cap normalizeReferenceImage applies to the bytes, checked on the
+  // Blob's size first so an oversize upload is not copied into a Buffer or
+  // decoded (Flight has already buffered the multipart part by now).
+  if (file.size > REFERENCE_IMAGE_MAX_BYTES) {
+    return { kind: "refused", message: ATTACH_TOO_LARGE };
+  }
+
   try {
     const stored = await storeReferenceImage({
       designId,
       userId: session.user.id,
-      base64Data,
+      bytes: Buffer.from(await file.arrayBuffer()),
       fileName,
     });
     if (!stored.ok) {

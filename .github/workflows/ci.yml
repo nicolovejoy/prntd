@@ -116,6 +116,9 @@ jobs:
       R2_ACCESS_KEY_ID: ci-skip
       R2_SECRET_ACCESS_KEY: ci-skip
       R2_BUCKET_NAME: ci-skip
+      # The Studio attach spec (#351) stores an image through the real action;
+      # with fake R2 creds the object write is skipped and only the rows land.
+      R2_DRY_RUN: "true"
       ADMIN_EMAIL: ci-skip@example.com
       # Name carries "prntd-preview" so e2e/helpers/db.ts's guard accepts it.
       CI_DB_NAME: prntd-preview-ci-${{ github.run_id }}-${{ github.run_attempt }}

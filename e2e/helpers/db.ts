@@ -184,9 +184,47 @@ export async function cleanupDesigns(designIds: string[]): Promise<void> {
     sql: `DELETE FROM placement_render WHERE design_id IN (${placeholders})`,
     args: designIds,
   });
+  // Chat turns FK the design (an attach or a Generate through the real app
+  // writes one; a seeded design has none).
+  await c.execute({
+    sql: `DELETE FROM chat_message WHERE design_id IN (${placeholders})`,
+    args: designIds,
+  });
   await c.execute({
     sql: `DELETE FROM design WHERE id IN (${placeholders})`,
     args: designIds,
+  });
+}
+
+/**
+ * Every design a user owns. For a spec whose design ids are minted in the
+ * browser (the Studio attach, #351), so cleanup can find them.
+ */
+export async function designIdsForUser(userId: string): Promise<string[]> {
+  const res = await db().execute({
+    sql: "SELECT id FROM design WHERE user_id = ?",
+    args: [userId],
+  });
+  return res.rows.map((r) => String(r.id));
+}
+
+/**
+ * Undo one attach's upload quota (#351 spec): drop the user's own
+ * `upload:user:<id>` rows and take one off every `upload:ip:*` row for today
+ * (UTC), so local runs do not fill the shared 127.0.0.1 bucket. Never below 0.
+ */
+export async function cleanupUploadQuota(userId: string): Promise<void> {
+  const c = db();
+  await c.execute({
+    sql: "DELETE FROM generation_usage WHERE bucket = ?",
+    args: [`upload:user:${userId}`],
+  });
+  // The quota buckets by UTC day on purpose (dayKeyUTC in generation-quota.ts),
+  // so the UTC slice is the right key here, not a Pacific day.
+  const today = new Date().toISOString().slice(0, 10);
+  await c.execute({
+    sql: "UPDATE generation_usage SET count = max(count - 1, 0) WHERE bucket LIKE 'upload:ip:%' AND day = ?",
+    args: [today],
   });
 }
 

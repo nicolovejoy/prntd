@@ -205,7 +205,10 @@ describe("image provenance is persisted (#169)", () => {
     const stored = await storeReferenceImage({
       designId,
       userId: "u1",
-      base64Data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADElEQVQImWNgYGAAAAAEAAGjChXjAAAAAElFTkSuQmCC" /* a 1x1 PNG: uploads are decoded now */,
+      bytes: Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADElEQVQImWNgYGAAAAAEAAGjChXjAAAAAElFTkSuQmCC",
+        "base64"
+      ) /* a 1x1 PNG: uploads are decoded now */,
       fileName: "logo.png",
     });
     if (!stored.ok) throw new Error(stored.reason);

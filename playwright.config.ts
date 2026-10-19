@@ -78,6 +78,9 @@ export default defineConfig({
           // dry-run so a local e2e can never place a real Printful order,
           // whatever .env.local says.
           PRINTFUL_DRY_RUN: "true",
+          // The Studio attach spec stores an image; the write to R2 is
+          // skipped so a local e2e never puts an object in the real bucket.
+          R2_DRY_RUN: "true",
         },
       },
 });

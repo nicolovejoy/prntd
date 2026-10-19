@@ -3,8 +3,8 @@
 
 /**
  * Vercel Functions cap a request body at 4.5 MB whatever
- * `serverActions.bodySizeLimit` says, and base64 adds a third: 3 MB raw is
- * about 4 MB on the wire.
+ * `serverActions.bodySizeLimit` says. The file travels as a multipart part
+ * (#351), so 3 MB raw is about 3 MB on the wire.
  */
 export const REFERENCE_IMAGE_MAX_BYTES = 3 * 1024 * 1024;
 export const REFERENCE_IMAGE_MAX_SIDE = 2048;

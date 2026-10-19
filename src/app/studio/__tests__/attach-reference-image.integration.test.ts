@@ -1,7 +1,11 @@
+// @vitest-environment node
 /**
  * attachReferenceImage (#188 slice 2a) against a real in-memory libSQL. Auth,
  * R2, the model and Ideogram are mocked; the action, the upload helper, the
  * quota and the lanes read are real.
+ *
+ * Runs under node, not jsdom: the action reads its Blob argument with
+ * `arrayBuffer()`, which jsdom 25's Blob does not implement (#351).
  */
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from "vitest";
 import { createTestDb } from "@/lib/__tests__/test-db";
@@ -9,6 +13,7 @@ import { makeDesign, makeUser } from "@/lib/__tests__/factories";
 import * as schema from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import sharp from "sharp";
+import { randomBytes } from "node:crypto";
 import {
   ATTACH_CONVERSATION_CLOSED,
   ATTACH_FAILED,
@@ -18,6 +23,7 @@ import {
   ATTACH_UNSUPPORTED,
 } from "@/lib/action-copy";
 import { consumeUploadQuota, USER_UPLOAD_DAILY_CAP } from "@/lib/generation-quota";
+import { REFERENCE_IMAGE_MAX_BYTES } from "@/lib/reference-image-limits";
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
 let testDb: Db;
@@ -90,13 +96,27 @@ const r2 = await import("@/lib/r2");
 
 let savedFlag: string | undefined;
 
-async function png(): Promise<string> {
+/** A tiny PNG as the File the composer sends (#351: a Blob, never base64). */
+async function png(): Promise<Blob> {
   const buf = await sharp({
     create: { width: 8, height: 8, channels: 3, background: { r: 255, g: 255, b: 255 } },
   })
     .png()
     .toBuffer();
-  return buf.toString("base64");
+  return new Blob([buf], { type: "image/png" });
+}
+
+/**
+ * Random noise does not compress, so this JPEG lands well over 1 MB at
+ * 1400x1050 (about 1.4 MB) and under the 3 MB cap, with no side over 2048 px:
+ * the shape of a camera photo the device downscale passes through unchanged.
+ */
+async function noiseJpeg(width = 1400, height = 1050): Promise<Blob> {
+  const raw = randomBytes(width * height * 3);
+  const buf = await sharp(raw, { raw: { width, height, channels: 3 } })
+    .jpeg({ quality: 95 })
+    .toBuffer();
+  return new Blob([buf], { type: "image/jpeg" });
 }
 
 async function designRows(id: string) {
@@ -223,18 +243,57 @@ describe("attachReferenceImage", () => {
     expect(r2.uploadImageObject).not.toHaveBeenCalled();
   });
 
-  it("an oversize file returns refused with the too-large message and leaves no design row for a new id", async () => {
+  it("an oversize file returns refused with the too-large message, before its bytes are read, and leaves no design row for a new id", async () => {
     const designId = crypto.randomUUID();
-    const big = Buffer.alloc(3 * 1024 * 1024 + 1).toString("base64");
+    const big = new Blob([Buffer.alloc(REFERENCE_IMAGE_MAX_BYTES + 1)], { type: "image/png" });
+    const read = vi.spyOn(big, "arrayBuffer");
     const r = await attachReferenceImage(designId, big, "big.png");
     expect(r).toEqual({ kind: "refused", message: ATTACH_TOO_LARGE });
+    expect(read).not.toHaveBeenCalled();
     expect(await designRows(designId)).toHaveLength(0);
+  });
+
+  it("a file exactly at the cap is not refused for its size", async () => {
+    const designId = crypto.randomUUID();
+    const atCap = new Blob([Buffer.alloc(REFERENCE_IMAGE_MAX_BYTES)], { type: "image/png" });
+    const r = await attachReferenceImage(designId, atCap, "cap.png");
+    // Zero-filled bytes decode as nothing, so the refusal is for the format.
+    expect(r).toEqual({ kind: "refused", message: ATTACH_UNSUPPORTED });
   });
 
   it("an undecodable file returns refused with the unsupported message and leaves no design row", async () => {
     const designId = crypto.randomUUID();
-    const r = await attachReferenceImage(designId, Buffer.from("not an image").toString("base64"), "x.png");
+    const junk = new Blob([Buffer.from("not an image")], { type: "image/png" });
+    const r = await attachReferenceImage(designId, junk, "x.png");
     expect(r).toEqual({ kind: "refused", message: ATTACH_UNSUPPORTED });
+    expect(await designRows(designId)).toHaveLength(0);
+  });
+
+  it("a Blob over 1 MB is accepted and stored (#351: the base64 hand-off was refused past about 750 KB)", async () => {
+    const designId = crypto.randomUUID();
+    const photo = await noiseJpeg();
+    expect(photo.size).toBeGreaterThan(1_000_000);
+    expect(photo.size).toBeLessThanOrEqual(REFERENCE_IMAGE_MAX_BYTES);
+    const r = await attachReferenceImage(designId, photo, "IMG_0001.jpg");
+    if (r.kind !== "attached") throw new Error(`expected attached, got ${JSON.stringify(r)}`);
+    expect(r2.uploadImageObject).toHaveBeenCalledTimes(1);
+    const [storedId, storedBytes] = (r2.uploadImageObject as Mock).mock.calls[0] as [string, Buffer];
+    expect(storedId).toBe(r.imageId);
+    // The normalizer ran on the Blob's bytes: what reached R2 is a PNG of the
+    // photo's own dimensions, not the JPEG that was sent.
+    const meta = await sharp(storedBytes).metadata();
+    expect(meta.format).toBe("png");
+    expect([meta.width, meta.height]).toEqual([1400, 1050]);
+    const [img] = await testDb.select().from(schema.image).where(eq(schema.image.id, r.imageId));
+    expect(img.operation).toBe("upload");
+    expect(img.prompt).toBe("[user upload] IMG_0001.jpg");
+  });
+
+  it("a base64 string in place of the Blob throws before any quota is spent or row is written", async () => {
+    const designId = crypto.randomUUID();
+    const asString = Buffer.from("not a blob").toString("base64") as unknown as Blob;
+    await expect(attachReferenceImage(designId, asString, "a.png")).rejects.toThrow(/Blob/);
+    expect(await testDb.select().from(schema.generationUsage)).toHaveLength(0);
     expect(await designRows(designId)).toHaveLength(0);
   });
 
