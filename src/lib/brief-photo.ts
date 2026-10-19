@@ -23,7 +23,10 @@ export type BriefPhoto = { mediaType: "image/jpeg"; data: string };
 export async function loadBriefPhoto(imageUrl: string): Promise<BriefPhoto | null> {
   try {
     const key = imageKeyFromUrl(imageUrl);
-    if (!key) return null;
+    if (!key) {
+      console.error("loadBriefPhoto: no R2 key in", imageUrl);
+      return null;
+    }
     const bytes = await getObjectByKey(key, BRIEF_PHOTO_READ_TIMEOUT_MS);
     if (!bytes) return null;
     const { default: sharp } = await import("sharp");

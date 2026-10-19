@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import sharp from "sharp";
+import { randomBytes } from "node:crypto";
 
 const getObjectByKey = vi.fn();
 vi.mock("../r2", () => ({
@@ -37,10 +38,18 @@ describe("loadBriefPhoto", () => {
     expect(BRIEF_PHOTO_READ_TIMEOUT_MS).toBe(5_000);
   });
 
-  it("stays under 5 MB for a large noisy photo", async () => {
-    getObjectByKey.mockResolvedValue(await noisePng(2048, 1536));
+  it("stays under 5 MB as base64 for the largest stored upload of pure noise", async () => {
+    // True noise does not compress: as PNG this is about 12 MB, so a PNG
+    // passthrough or a dropped resize fails here.
+    const png = await sharp(randomBytes(2048 * 2048 * 3), {
+      raw: { width: 2048, height: 2048, channels: 3 },
+    })
+      .png()
+      .toBuffer();
+    expect(png.length).toBeGreaterThan(5 * 1024 * 1024);
+    getObjectByKey.mockResolvedValue(png);
     const photo = await loadBriefPhoto("https://r2/images/p.png");
-    expect(Buffer.from(photo!.data, "base64").length).toBeLessThan(5 * 1024 * 1024);
+    expect(photo!.data.length).toBeLessThan(5 * 1024 * 1024);
   });
 
   it("does not enlarge a small image", async () => {

@@ -43,3 +43,15 @@ Process: one Sonnet implementer per task in the main checkout, the controller's 
 5. Seed-upload provenance: with an output present, the parent is the latest non-seed output (the code's existing rule for seed anchors), never the seed. The test asserts that; the comment in `runGenerationJob` says it.
 6. Mutation checks: breaking the anchor-parent lookup fails the strengthened upload test; counting seeds as outputs fails the seed test.
 7. Gate on `67ecfd0` (controller): lint 0 errors (21 existing warnings), typecheck clean, 266 files / 4170 tests, `db:generate` "No schema changes", build exit 0.
+
+### Opus re-review of `67ecfd0`: READY WITH FIXES, five Minor
+
+Every finding of the first review checked fixed. Worst case measured with true noise: 1568×1568 gives 2.34 MB of base64, under 5 MB however Anthropic counts it. The block shape matches `Base64ImageSource` in @anthropic-ai/sdk 0.80.0. No e2e spec generates after an attach.
+
+1. `src/lib/lost-submit.ts` docblocks were stale (the photo read adds up to 5 s before the job row; the Turso-stall margin drops from about 15 s to about 10 s). Fixed by the controller.
+2. The size test's patterned noise compressed to 224 KB as PNG, so it could not fail. Now 2048×2048 `randomBytes` noise (over 5 MB as PNG, asserted), with the base64 length checked; a mutation that keeps PNG output at 2048 px fails it. Fixed by the controller.
+3. Fitting the JPEG to about 1.15 MP (Anthropic's own downscale target for this model) would cut the upload by 40 to 50% with no change in what the model sees. Not built: the payload is already bounded, and it is an optimisation.
+4. A URL with no derivable R2 key (a changed public base) returned null silently. Now logged. Fixed by the controller.
+5. `getObjectByKey`'s docblock says "null on any failure" though it throws on timeout. Predates the branch; left.
+
+Final gate (controller): lint 0 errors (21 existing warnings), typecheck clean, 266 files / 4170 tests, `db:generate` "No schema changes", build exit 0 with CI's dummy env.
