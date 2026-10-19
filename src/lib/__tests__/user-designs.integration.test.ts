@@ -231,4 +231,30 @@ describe("getUserImageLibrary", () => {
     expect(image.sourceDesignId).toBeNull();
     expect(image.isArchived).toBe(false);
   });
+
+  it("leaves an uploaded photo out and keeps generate, edit and legacy null rows (#355)", async () => {
+    const db = h.db as Db;
+    const design = await makeDesign(db, "owner");
+    const make = async (name: string, at: string) =>
+      makeSourceImage(db, {
+        designId: design.id,
+        ownerId: "owner",
+        imageUrl: `https://r2/${name}.png`,
+        createdAt: new Date(at),
+      });
+    const generated = await make("generated", "2026-08-01T00:00:00Z");
+    const edited = await make("edited", "2026-08-02T00:00:00Z");
+    const legacy = await make("legacy", "2026-08-03T00:00:00Z");
+    const upload = await make("upload", "2026-08-04T00:00:00Z");
+    const setOperation = (id: string, operation: "generate" | "edit" | "upload") =>
+      db.update(schema.image).set({ operation }).where(eq(schema.image.id, id));
+    await setOperation(generated, "generate");
+    await setOperation(edited, "edit");
+    await setOperation(upload, "upload");
+    // `legacy` keeps operation NULL, as rows from before the column do.
+
+    const ids = (await getUserImageLibrary("owner")).map((i) => i.imageId);
+    expect(ids).toEqual([legacy, edited, generated]);
+    expect(ids).not.toContain(upload);
+  });
 });

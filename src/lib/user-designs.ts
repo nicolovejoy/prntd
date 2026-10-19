@@ -5,7 +5,7 @@ import {
   imagePublication as imagePublicationTable,
   product as productTable,
 } from "@/lib/db/schema";
-import { eq, desc, and, or, isNull, inArray, sql } from "drizzle-orm";
+import { eq, ne, desc, and, or, isNull, inArray, sql } from "drizzle-orm";
 import {
   isPublishedShopMirror,
   mirrorFrontImageId,
@@ -37,8 +37,9 @@ export type LibraryImage = {
  * My Designs is a library of images, not of conversations (studio-plan,
  * "What My Designs becomes"). Every image the user owns, newest first, except
  * the ones an admin has hidden (#288; Nico's ruling: a placeholder tile the
- * owner can't identify is pointless) — no keep verb, per the plan's open
- * question.
+ * owner can't identify is pointless) and uploaded photos (`operation` =
+ * "upload", #355: an attached photo is an input, not a design) — no keep
+ * verb, per the plan's open question.
  *
  * One statement plus the ride-along sweep for the grid itself; a second,
  * batched statement for the backdrops of whichever images turned out to be
@@ -73,7 +74,8 @@ export async function getUserImageLibrary(
       .from(imageTable)
       .leftJoin(imagePublicationTable, eq(imagePublicationTable.imageId, imageTable.id))
       .leftJoin(designTable, eq(designTable.id, imageTable.sourceDesignId))
-      // Two filters: ownership, and not admin-hidden (#288). A hidden image
+      // Three filters: ownership, not admin-hidden (#288) and not an upload
+      // (#355). A hidden image
       // has no tile, since a placeholder the owner can't identify is
       // pointless; no publication row (null) means never published or
       // unpublished, so not hidden. Beyond those two the library is the whole
@@ -89,7 +91,10 @@ export async function getUserImageLibrary(
           or(
             isNull(imagePublicationTable.isHidden),
             eq(imagePublicationTable.isHidden, false)
-          )
+          ),
+          // An attached photo is an input, not a design (#355). `<>` on NULL
+          // is NULL, so legacy rows with no operation need the isNull arm.
+          or(isNull(imageTable.operation), ne(imageTable.operation, "upload"))
         )
       )
       // created_at is seconds-resolution, so same-second inserts need the
