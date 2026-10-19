@@ -3272,12 +3272,16 @@ describe("attach image (#188 slice 2a)", () => {
       expect(attachReferenceImage).not.toHaveBeenCalled();
     });
 
-    it("the downscaled file, not the original, is what gets uploaded", async () => {
-      vi.mocked(downscaleForUpload).mockResolvedValueOnce(file("photo.jpg", "image/jpeg", 2000));
+    it("the downscaled file itself, not the original and not a string, is what gets uploaded", async () => {
+      const downscaled = file("photo.jpg", "image/jpeg", 2000);
+      vi.mocked(downscaleForUpload).mockResolvedValueOnce(downscaled);
       attachLands();
       render(<StudioClient initialLanes={[]} />);
       choose(file("IMG_0001.png", "image/png", REFERENCE_IMAGE_MAX_BYTES * 2));
       await waitFor(() => expect(attachReferenceImage).toHaveBeenCalled());
+      // #351: the File goes to the action as is; a base64 string over about
+      // 1 M characters was refused by React Flight before the action ran.
+      expect(vi.mocked(attachReferenceImage).mock.calls[0][1]).toBe(downscaled);
       expect(vi.mocked(attachReferenceImage).mock.calls[0][2]).toBe("photo.jpg");
     });
 
@@ -3337,9 +3341,9 @@ describe("attach image (#188 slice 2a)", () => {
       render(<StudioClient initialLanes={[]} />);
       choose(file("cat.png"));
       await waitFor(() => expect(screen.getByTestId("anchor-chip")).toBeTruthy());
-      const [designId, base64, name] = vi.mocked(attachReferenceImage).mock.calls[0];
+      const [designId, sent, name] = vi.mocked(attachReferenceImage).mock.calls[0];
       expect(designId).toMatch(UUID);
-      expect(typeof base64).toBe("string");
+      expect(sent).toBeInstanceOf(File);
       expect(name).toBe("cat.png");
       expect(getStudioLanes).toHaveBeenCalled();
       expect(screen.getByTestId("anchor-chip").textContent).toContain("Editing ·");

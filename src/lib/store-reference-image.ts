@@ -16,8 +16,8 @@ export type StoreReferenceImageResult =
 /**
  * Stores one user-supplied reference image as an `upload` result of
  * `designId`, creating the conversation for an unseen id. The one body behind
- * `attachReferenceImage` (Studio), which spends the upload quota before
- * calling it.
+ * `attachReferenceImage` (Studio), which spends the upload quota and reads
+ * the uploaded Blob into `bytes` before calling it.
  *
  * Order: normalize the bytes (size, decodable, format, rotation, resize, PNG)
  * FIRST, so a refused file touches nothing; then find or create the design
@@ -29,13 +29,13 @@ export type StoreReferenceImageResult =
 export async function storeReferenceImage(opts: {
   designId: string;
   userId: string;
-  base64Data: string;
+  bytes: Buffer;
   fileName: string;
 }): Promise<StoreReferenceImageResult> {
   const { designId, userId } = opts;
   const fileName = opts.fileName.slice(0, REFERENCE_IMAGE_NAME_MAX_CHARS);
 
-  const normalized = await normalizeReferenceImage(Buffer.from(opts.base64Data, "base64"));
+  const normalized = await normalizeReferenceImage(opts.bytes);
   if (!normalized.ok) return { ok: false, reason: normalized.reason };
   const buffer = normalized.png;
 

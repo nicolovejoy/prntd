@@ -19,6 +19,18 @@ const r2 = new S3Client({
 const bucket = process.env.R2_BUCKET_NAME!;
 
 /**
+ * `R2_DRY_RUN=true` makes `uploadImageObject` skip its write and return the
+ * URL the object would have had; the other writes and the deletes are not
+ * gated. Set by the e2e runs (playwright.config.ts and CI's e2e job), whose
+ * R2 credentials are fakes, so a spec that stores an image (the Studio
+ * attach, #351) can reach its rows; never set in a real deployment. Gated
+ * like PRINTFUL_DRY_RUN, read per call.
+ */
+function r2DryRun(): boolean {
+  return process.env.R2_DRY_RUN === "true";
+}
+
+/**
  * Upload a generated/uploaded artifact or placement render under its own
  * id-keyed object (Model B slice 4, plan §6): `images/{id}.png`. The id is
  * minted before upload, so concurrent generations can't collide — no shared
@@ -31,14 +43,18 @@ export async function uploadImageObject(
 ): Promise<string> {
   const key = `images/${imageId}.png`;
 
-  await r2.send(
-    new PutObjectCommand({
-      Bucket: bucket,
-      Key: key,
-      Body: imageBuffer,
-      ContentType: "image/png",
-    })
-  );
+  if (r2DryRun()) {
+    console.log(`[R2_DRY_RUN] Skipping the write of ${key} (${imageBuffer.length} bytes)`);
+  } else {
+    await r2.send(
+      new PutObjectCommand({
+        Bucket: bucket,
+        Key: key,
+        Body: imageBuffer,
+        ContentType: "image/png",
+      })
+    );
+  }
 
   // Return the public URL — assumes R2 bucket has public access or custom domain
   return `${process.env.NEXT_PUBLIC_R2_PUBLIC_URL ?? `https://${bucket}.r2.dev`}/${key}`;

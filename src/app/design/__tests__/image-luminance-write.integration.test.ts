@@ -85,12 +85,12 @@ const ideogramGen = registry.GENERATORS.ideogram.generate as Mock;
 
 // The upload body the Studio's attach shares; the action wrappers (auth,
 // quota) are covered in attach-reference-image.integration.test.ts.
-function upload(designId: string, base64Data: string, fileName: string) {
-  return storeReferenceImage({ designId, userId: "u1", base64Data, fileName });
+function upload(designId: string, bytes: Buffer, fileName: string) {
+  return storeReferenceImage({ designId, userId: "u1", bytes, fileName });
 }
 
-async function uploadOk(designId: string, base64Data: string, fileName: string) {
-  const r = await upload(designId, base64Data, fileName);
+async function uploadOk(designId: string, bytes: Buffer, fileName: string) {
+  const r = await upload(designId, bytes, fileName);
   if (!r.ok) throw new Error(r.reason);
   return r;
 }
@@ -189,9 +189,9 @@ describe("the continuation writes image.luminance (#139)", () => {
 describe("the upload action writes image.luminance (#139)", () => {
   it("stores the mean luminance of the uploaded PNG", async () => {
     const designId = await seedDesign();
-    const base64 = Buffer.from(await whitePng()).toString("base64");
+    const bytes = Buffer.from(await whitePng());
 
-    const { imageId } = await uploadOk(designId, base64, "white.png");
+    const { imageId } = await uploadOk(designId, bytes, "white.png");
 
     const [row] = await testDb.select().from(schema.image).where(eq(schema.image.id, imageId));
     expect(row.operation).toBe("upload");
@@ -210,7 +210,7 @@ describe("the upload body validates and normalizes the bytes", () => {
 
   it("an upload over the cap is refused and writes nothing", async () => {
     const designId = await seedDesign();
-    const big = Buffer.alloc(3 * 1024 * 1024 + 1).toString("base64");
+    const big = Buffer.alloc(3 * 1024 * 1024 + 1);
 
     expect(await upload(designId, big, "big.png")).toEqual({ ok: false, reason: "too_large" });
 
@@ -221,7 +221,7 @@ describe("the upload body validates and normalizes the bytes", () => {
 
   it("an undecodable upload is refused and writes nothing", async () => {
     const designId = await seedDesign();
-    const junk = Buffer.from([1, 2, 3, 4]).toString("base64");
+    const junk = Buffer.from([1, 2, 3, 4]);
 
     expect(await upload(designId, junk, "junk.png")).toEqual({ ok: false, reason: "unsupported" });
 
@@ -236,7 +236,7 @@ describe("the upload body validates and normalizes the bytes", () => {
       .jpeg()
       .toBuffer();
 
-    await uploadOk(designId, jpeg.toString("base64"), "photo.jpg");
+    await uploadOk(designId, jpeg, "photo.jpg");
 
     const r2 = await import("@/lib/r2");
     const stored = (r2.uploadImageObject as Mock).mock.calls[0][1] as Buffer;
@@ -251,7 +251,7 @@ describe("the upload body validates and normalizes the bytes", () => {
       .jpeg()
       .toBuffer();
 
-    await uploadOk(designId, wide.toString("base64"), "wide.jpg");
+    await uploadOk(designId, wide, "wide.jpg");
 
     const r2 = await import("@/lib/r2");
     const stored = (r2.uploadImageObject as Mock).mock.calls[0][1] as Buffer;

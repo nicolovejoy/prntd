@@ -209,21 +209,6 @@ const GENERATE_FAILED_COPY = "Something went wrong. Try again.";
  */
 const MOUNT_RECONCILE_DELAY_MS = 1500;
 
-/** The file's bytes as base64 (the part of a data URL after the comma). */
-function readAsBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const url = typeof reader.result === "string" ? reader.result : "";
-      const comma = url.indexOf(",");
-      if (comma < 0) reject(new Error("unreadable file"));
-      else resolve(url.slice(comma + 1));
-    };
-    reader.onerror = () => reject(reader.error ?? new Error("unreadable file"));
-    reader.readAsDataURL(file);
-  });
-}
-
 /**
  * A click the browser should handle itself: a new tab or window, a download.
  * The stage's links are real hrefs so these work (#188 slice 4); only a plain
@@ -1075,8 +1060,10 @@ export function StudioClient({
         setAttachNotice(ATTACH_TOO_LARGE);
         return;
       }
-      const base64 = await readAsBase64(prepared);
-      const result = await attachReferenceImage(designId, base64, prepared.name);
+      // The File itself goes to the action (#351): a base64 string over about
+      // 1 M characters was refused by React Flight's decode limit before the
+      // action ran, while a Blob rides the multipart body uncounted.
+      const result = await attachReferenceImage(designId, prepared, prepared.name);
       if (!mountedRef.current) return;
       if (result.kind === "refused") {
         setAttachNotice(result.message);

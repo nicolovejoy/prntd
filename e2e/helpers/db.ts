@@ -184,10 +184,28 @@ export async function cleanupDesigns(designIds: string[]): Promise<void> {
     sql: `DELETE FROM placement_render WHERE design_id IN (${placeholders})`,
     args: designIds,
   });
+  // Chat turns FK the design (an attach or a Generate through the real app
+  // writes one; a seeded design has none).
+  await c.execute({
+    sql: `DELETE FROM chat_message WHERE design_id IN (${placeholders})`,
+    args: designIds,
+  });
   await c.execute({
     sql: `DELETE FROM design WHERE id IN (${placeholders})`,
     args: designIds,
   });
+}
+
+/**
+ * Every design a user owns. For a spec whose design ids are minted in the
+ * browser (the Studio attach, #351), so cleanup can find them.
+ */
+export async function designIdsForUser(userId: string): Promise<string[]> {
+  const res = await db().execute({
+    sql: "SELECT id FROM design WHERE user_id = ?",
+    args: [userId],
+  });
+  return res.rows.map((r) => String(r.id));
 }
 
 /** True if a user row still exists — used to confirm better-auth's own
