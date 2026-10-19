@@ -140,6 +140,20 @@ describe("getImagePage reads visibility from image_publication", () => {
   });
 });
 
+describe("getImagePage carries the image's operation (#355)", () => {
+  it("an upload reports 'upload' and a row with no recorded operation reports null", async () => {
+    const uploadId = await seed({ publishedAt: null });
+    await testDb
+      .update(schema.image)
+      .set({ operation: "upload" })
+      .where(eq(schema.image.id, uploadId));
+    const legacyId = await seed({ publishedAt: null });
+    currentUserId = "owner";
+    expect((await getImagePage(uploadId))!.operation).toBe("upload");
+    expect((await getImagePage(legacyId))!.operation).toBeNull();
+  });
+});
+
 describe("getImageShareCard reads visibility from image_publication", () => {
   it("no card for a hidden publication even if the mirror is listed", async () => {
     const imageId = await seed();

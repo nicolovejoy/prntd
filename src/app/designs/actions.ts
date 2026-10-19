@@ -30,7 +30,11 @@ import {
 import { generatePublishedNaming } from "@/lib/ai";
 import { getImageNamingContext } from "@/lib/design-images";
 import { DEFAULT_PUBLISH_BACKGROUND } from "@/lib/blanks";
-import { EMPTY_TITLE_REJECTED, TITLE_TOO_LONG } from "@/lib/action-copy";
+import {
+  EMPTY_TITLE_REJECTED,
+  TITLE_TOO_LONG,
+  UPLOAD_NOT_PUBLISHABLE,
+} from "@/lib/action-copy";
 import { MAX_IMAGE_TITLE_LENGTH } from "@/lib/design-publish";
 
 /**
@@ -216,8 +220,9 @@ export async function deleteImages(
  * auto-generated (2026-07-29 review); only an explicit caller-supplied
  * one is stored. Subsequent calls are a no-op on already-published
  * images. Reversible via unpublishImage; admin moderation via the
- * publication row's is_hidden removes from the feed. Refuses an admin-hidden
- * image (isImageAdminHidden).
+ * publication row's is_hidden removes from the feed. Refuses an uploaded
+ * photo (UPLOAD_NOT_PUBLISHABLE, #355) and an admin-hidden image
+ * (isImageAdminHidden); the upload refusal comes first.
  *
  * Authorizes via image.ownerId (the design owner, denormalized).
  */
@@ -248,6 +253,7 @@ export async function publishImage(
       id: imageTable.id,
       ownerId: imageTable.ownerId,
       imageUrl: imageTable.imageUrl,
+      operation: imageTable.operation,
       publishedAt: imagePublicationTable.publishedAt,
     })
     .from(imageTable)
@@ -256,6 +262,14 @@ export async function publishImage(
     .limit(1);
   if (!image) throw new Error("Image not found");
   if (image.ownerId !== session.user.id) throw new Error("Unauthorized");
+
+  // An uploaded photo is an input to a design, not a design (#355). Checked
+  // after ownership and before the hidden check, so the owner of a hidden
+  // upload reads this line. An upload published before #355 stays listed
+  // until its owner unpublishes it; unpublishImage has no such check.
+  if (image.operation === "upload") {
+    throw new Error(UPLOAD_NOT_PUBLISHABLE);
+  }
 
   // An admin-hidden image stays hidden: the owner can neither publish it
   // again nor (unpublishImage) erase the hide. Checked before the

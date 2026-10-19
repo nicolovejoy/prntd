@@ -20,6 +20,7 @@ import {
   resolveImagesByIds,
 } from "@/lib/design-images";
 import { resolveBuyPageFront } from "@/lib/placement-pins";
+import type { ImageOperation } from "@/lib/image-provenance";
 import { buyPageHref } from "@/lib/buy-page-picks";
 import { computePrice } from "@/lib/pricing";
 import {
@@ -116,6 +117,11 @@ export type ImagePage = Omit<PublishedImage, "publishedAt"> & {
    * conversation was deleted (it stays public but no order can be written).
    */
   canOrder: boolean;
+  /**
+   * How the image was made. The page offers no Publish for an `upload` (#355);
+   * null on legacy rows that predate the column.
+   */
+  operation: ImageOperation | null;
 };
 
 /**
@@ -224,6 +230,7 @@ export async function getImagePage(
     .select({
       imageId: imageTable.id,
       imageUrl: imageTable.imageUrl,
+      operation: imageTable.operation,
       title: productTable.title,
       description: productTable.description,
       backgroundColor: productTable.backdropColor,
@@ -319,6 +326,7 @@ export async function getImagePage(
     sourceConversationArchived:
       r.sourceClosedAt !== null || r.sourceStatus === "archived",
     canOrder,
+    operation: r.operation,
     forkChain,
   };
 }

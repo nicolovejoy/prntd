@@ -174,6 +174,7 @@ export default async function PublishedImagePage({
       imageUrl={img.imageUrl}
       isPublished={isPublished}
       canPublish={isLoggedIn}
+      isUpload={img.operation === "upload"}
       // The conversation may be gone even when the image names one — an image
       // pinned by an order or a seed survives its thread's delete — so the row
       // is gated on the design row resolving.

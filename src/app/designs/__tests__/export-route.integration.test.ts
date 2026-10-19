@@ -9,6 +9,8 @@ import { eq } from "drizzle-orm";
 import { createTestDb } from "@/lib/__tests__/test-db";
 import { makeUser, makeDesign, makeSourceImage } from "@/lib/__tests__/factories";
 import * as schema from "@/lib/db/schema";
+import { loadExportRows } from "@/lib/design-export";
+import { getUserImageLibrary } from "@/lib/user-designs";
 
 type Db = Awaited<ReturnType<typeof createTestDb>>;
 let testDb: Db;
@@ -194,6 +196,30 @@ describe("GET /designs/export", () => {
     expect(manifest.images.map((i: ManifestImage) => i.imageId)).toEqual([shown]);
     expect(Object.keys(files)).toHaveLength(2);
     expect(getObjectByKey).not.toHaveBeenCalledWith("images/hidden.png");
+  });
+
+  it("exports the same rows My Designs lists, uploads left out (#355)", async () => {
+    const generated = await seedImage("u1", "generated");
+    const upload = await seedImage("u1", "upload");
+    const legacy = await seedImage("u1", "legacy");
+    const setOperation = (id: string, operation: "generate" | "upload") =>
+      testDb.update(schema.image).set({ operation }).where(eq(schema.image.id, id));
+    await setOperation(generated, "generate");
+    await setOperation(upload, "upload");
+    // `legacy` keeps operation NULL, as rows from before the column do.
+
+    const library = (await getUserImageLibrary("u1")).map((i) => i.imageId);
+    const rows = await loadExportRows(testDb, "u1");
+    const res = await GET(request());
+    expect(res.status).toBe(200);
+    const { files, manifest } = await readZip(res);
+    const exported = manifest.images.map((i: ManifestImage) => i.imageId);
+    expect(exported).not.toContain(upload);
+    expect(exported.sort()).toEqual([generated, legacy].sort());
+    expect(rows.map((r) => r.imageId).sort()).toEqual(exported.sort());
+    expect([...library].sort()).toEqual(exported.sort());
+    expect(Object.keys(files)).toHaveLength(3);
+    expect(getObjectByKey).not.toHaveBeenCalledWith("images/upload.png");
   });
 
   it("still answers 200 when an object is missing, and lists it as not included", async () => {
