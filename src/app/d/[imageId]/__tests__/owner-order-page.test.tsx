@@ -71,6 +71,9 @@ vi.mock("../owner-actions", () => ({
   ),
 }));
 vi.mock("../conversation-images", () => ({ ConversationImages: () => null }));
+vi.mock("@/lib/shop-listed-conversations", () => ({
+  shopListingsRemovedByDelete: vi.fn(async () => new Set<string>()),
+}));
 
 import PublishedImagePage from "../page";
 import { buyPublishedDesign, getImagePage } from "../../actions";

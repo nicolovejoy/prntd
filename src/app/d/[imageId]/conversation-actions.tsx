@@ -4,8 +4,8 @@ import { useState } from "react";
 import { openConversation } from "@/app/d/conversation-actions";
 import { deleteDesign } from "@/app/designs/actions";
 import {
-  DELETE_CONVERSATION_CONSEQUENCE,
   DELETE_CONVERSATION_TITLE,
+  deleteConversationConsequence,
 } from "@/lib/design-view";
 import { focusHref } from "@/lib/studio-focus";
 import { useConfirm, InlineNotice } from "@/components/ui";
@@ -30,12 +30,16 @@ export function ConversationActions({
   designId,
   imageId,
   archived,
+  leavesShop,
 }: {
   designId: string;
   /** The image this page shows; the stage opens on it. */
   imageId: string;
   /** Source conversation is closed — opening it reopens it first. */
   archived: boolean;
+  /** Deleting the conversation would take a card out of the Shop; the
+   * confirm says so. */
+  leavesShop: boolean;
 }) {
   const [busy, setBusy] = useState<"open" | "delete" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -56,7 +60,7 @@ export function ConversationActions({
   async function remove() {
     const ok = await confirm({
       title: DELETE_CONVERSATION_TITLE,
-      body: DELETE_CONVERSATION_CONSEQUENCE,
+      body: deleteConversationConsequence(leavesShop),
       confirmLabel: "Delete",
       danger: true,
     });

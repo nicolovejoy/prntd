@@ -19,6 +19,7 @@ import {
   planDesignDeletion,
 } from "@/lib/delete-design";
 import { r2KeysForPlan } from "@/lib/delete-designs-since";
+import { shopListingsRemovedByDelete } from "@/lib/shop-listed-conversations";
 import { getDesignMessages } from "@/lib/design-images";
 import { getGenerationJobStatusForUser } from "@/lib/generation-job";
 import { consumeUploadQuota } from "@/lib/generation-quota";
@@ -50,6 +51,33 @@ export async function getStudioLanes(): Promise<StudioLane[]> {
   const session = await requireStudioActionSession();
   after(() => sweepStudioForUser(session.user.id));
   return getStudioLanesData(session.user.id);
+}
+
+/**
+ * Read by the Studio's delete confirms when Delete is tapped: true when
+ * deleting these conversations would take a card out of the Shop, so the
+ * sheet says so (shopListingsRemovedByDelete). Read at tap time rather than
+ * carried on the lanes, which can be stale after a publish elsewhere and are
+ * re-read on every poll. Ids that are not the caller's are ignored.
+ */
+export async function shopListingsLeaveOnDelete(
+  designIds: string[]
+): Promise<boolean> {
+  const session = await requireStudioActionSession();
+  const ids = [...new Set(designIds)];
+  if (ids.length === 0) return false;
+  const owned = (
+    await db
+      .select({ id: designTable.id })
+      .from(designTable)
+      .where(
+        and(
+          inArray(designTable.id, ids),
+          eq(designTable.userId, session.user.id)
+        )
+      )
+  ).map((r) => r.id);
+  return (await shopListingsRemovedByDelete(owned)).size > 0;
 }
 
 /**

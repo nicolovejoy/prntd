@@ -23,6 +23,7 @@ import { ConversationImages } from "./conversation-images";
 import { BuyPanelPicksProvider } from "./buy-panel-picks-context";
 import { OwnerActions } from "./owner-actions";
 import { HiddenNotice } from "./hidden-notice";
+import { shopListingsRemovedByDelete } from "@/lib/shop-listed-conversations";
 import {
   backToResolve,
   buildInitialPicks,
@@ -102,11 +103,24 @@ export default async function PublishedImagePage({
   const remembered = await getLastPurchaseDefaults();
 
   // #136 slice 3: the owner also gets the conversation's variant history and
-  // the explicit "Use this one". Owner-gated in the action too.
-  const siblings =
-    isOwner && img.sourceDesignId
-      ? await getConversationImages(img.sourceDesignId)
+  // the explicit "Use this one". Owner-gated in the action too. Read with it:
+  // the conversation the OWNER row's Delete acts on, and whether that delete
+  // would take a card out of the Shop, which its confirm names.
+  const ownerConversationId =
+    isOwner && img.sourceDesignId && img.hasSourceConversation
+      ? img.sourceDesignId
       : null;
+  const [siblings, delistedOnDelete] = await Promise.all([
+    isOwner && img.sourceDesignId
+      ? getConversationImages(img.sourceDesignId)
+      : null,
+    ownerConversationId
+      ? // Fails open, as the Studio does: the confirm loses one line, not the page.
+        shopListingsRemovedByDelete([ownerConversationId]).catch(
+          () => new Set<string>()
+        )
+      : new Set<string>(),
+  ]);
 
   // The buy panel's picks ride in the link (#278): parsed against the catalog
   // here, and the back image is checked against what this viewer may print.
@@ -163,12 +177,12 @@ export default async function PublishedImagePage({
       // The conversation may be gone even when the image names one — an image
       // pinned by an order or a seed survives its thread's delete — so the row
       // is gated on the design row resolving.
-      sourceDesignId={
-        img.sourceDesignId && img.hasSourceConversation
-          ? img.sourceDesignId
-          : null
-      }
+      sourceDesignId={ownerConversationId}
       conversationArchived={img.sourceConversationArchived}
+      conversationLeavesShop={
+        ownerConversationId !== null &&
+        delistedOnDelete.has(ownerConversationId)
+      }
     />
   );
 

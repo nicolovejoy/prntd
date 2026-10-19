@@ -22,12 +22,13 @@
  *
  * src/lib/feed-visibility-parity.ts re-runs this query's joins as raw SQL so
  * a production database can be checked against the visibility rule, and lists
- * the visible listings the conversation rule leaves out. If the joins or the
- * filters below change, change that module with them.
+ * the visible listings the conversation rule leaves out, and
+ * src/lib/shop-listed-conversations.ts repeats them to tell the delete
+ * confirms whether a conversation is listed. If the joins or the filters
+ * below change, change both modules with them.
  */
 import { db } from "@/lib/db";
 import {
-  conversationImage as conversationImageTable,
   design as designTable,
   image as imageTable,
   imagePublication as imagePublicationTable,
@@ -39,6 +40,7 @@ import {
   listedMirrorPublishedAt,
   mirrorFrontImageId,
 } from "@/lib/composition-reads";
+import { feedConversationId } from "@/lib/shop-listed-conversations";
 
 export type FeedRow = {
   imageId: string;
@@ -116,7 +118,7 @@ export async function getPublishedFeed(limit = 60): Promise<FeedRow[]> {
   // it cannot multiply rows, and it sits in the same query before the limit,
   // so a dropped row never takes a slot from one that should show. The output
   // link is a scalar subquery rather than a join for the same reason.
-  const conversationId = sql<string>`coalesce(${imageTable.sourceDesignId}, (select ${conversationImageTable.designId} from ${conversationImageTable} where ${conversationImageTable.imageId} = ${imageTable.id} and ${conversationImageTable.role} = 'output' limit 1))`;
+  const conversationId = feedConversationId;
   const rows = await db
     .select({
       imageId: imageTable.id,

@@ -8,6 +8,7 @@
 import type { StudioLane, StudioPendingCell } from "./studio";
 import { STALE_OPTIMISTIC_MS } from "./generation-poll";
 import { DISPLAY_TIME_ZONE } from "./display-time-zone";
+import { SHOP_LISTING_LINE } from "./design-view";
 
 /** Elapsed time on a pending cell: "0:07", "1:23". Clock skew clamps to 0. */
 export function formatElapsed(ms: number): string {
@@ -45,9 +46,12 @@ export interface BulkDeleteResult {
 
 /**
  * The one confirm before a bulk delete. Same voice as
- * DELETE_CONVERSATION_TITLE/CONSEQUENCE (design-view.ts): says what is kept,
- * because the action keeps it. Differs from the single Delete in one respect
- * it states plainly — a conversation with an order is skipped, not archived.
+ * DELETE_CONVERSATION_TITLE/deleteConversationConsequence (design-view.ts):
+ * says what is kept, because the action keeps it. Differs from the single
+ * Delete in one respect it states plainly — a conversation with an order is
+ * skipped, not archived.
+ * `leavesShop`: deleting the selection would take a card out of the Shop
+ * (SHOP_LISTING_LINE).
  *
  * Split into a title (the sheet's question) and a consequence (the sheet's
  * body) so neither repeats the other.
@@ -57,9 +61,15 @@ export function bulkDeleteTitle(count: number): string {
   return `Delete ${count} ${noun}?`;
 }
 
-export function bulkDeleteConsequence(count: number): string {
+export function bulkDeleteConsequence(
+  count: number,
+  leavesShop = false
+): string {
   const poss = count === 1 ? "its" : "their";
-  return `This deletes ${poss} images too. Images used in an order, another design, or a cart are kept. Conversations with an order are kept instead.`;
+  const listing = leavesShop
+    ? ` ${count === 1 ? SHOP_LISTING_LINE.single : SHOP_LISTING_LINE.plural}`
+    : "";
+  return `This deletes ${poss} images too.${listing} Images used in an order, another design, or a cart are kept. Conversations with an order are kept instead.`;
 }
 
 /**

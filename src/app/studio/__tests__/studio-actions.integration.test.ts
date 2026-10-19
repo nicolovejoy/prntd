@@ -14,7 +14,11 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createTestDb } from "@/lib/__tests__/test-db";
-import { makeDesign, makeUser } from "@/lib/__tests__/factories";
+import {
+  makeDesign,
+  makeSourceImage,
+  makeUser,
+} from "@/lib/__tests__/factories";
 import * as schema from "@/lib/db/schema";
 import { dayKeyUTC } from "@/lib/generation-quota";
 import { insertGenerationJob } from "@/lib/generation-job";
@@ -55,10 +59,12 @@ vi.mock("@/lib/auth", () => ({
     user.isAnonymous === true,
 }));
 
-const { getStudioLanes, getGenerationJobStatus, getConversationHistory } =
-  await import(
-    "@/app/studio/actions"
-  );
+const {
+  getStudioLanes,
+  getGenerationJobStatus,
+  getConversationHistory,
+  shopListingsLeaveOnDelete,
+} = await import("@/app/studio/actions");
 
 let savedFlag: string | undefined;
 
@@ -274,5 +280,38 @@ describe("getConversationHistory", () => {
   it("refuses with no session", async () => {
     h.userId = null;
     await expect(getConversationHistory("any")).rejects.toThrow("Unauthorized");
+  });
+});
+
+describe("shopListingsLeaveOnDelete", () => {
+  async function listedConversation(userId: string) {
+    const d = await makeDesign(testDb, userId);
+    await makeSourceImage(testDb, {
+      designId: d.id,
+      ownerId: userId,
+      imageUrl: `https://img.example/${crypto.randomUUID()}.png`,
+      publishedAt: new Date(),
+    });
+    return d.id;
+  }
+
+  it("is true when the selection holds the session's listed conversation", async () => {
+    const plain = await makeDesign(testDb, "owner");
+    const listed = await listedConversation("owner");
+    expect(await shopListingsLeaveOnDelete([plain.id])).toBe(false);
+    expect(await shopListingsLeaveOnDelete([plain.id, listed])).toBe(true);
+  });
+
+  it("ignores another user's listed conversation", async () => {
+    await makeUser(testDb, "stranger");
+    const theirs = await listedConversation("stranger");
+    expect(await shopListingsLeaveOnDelete([theirs])).toBe(false);
+  });
+
+  it("refuses with no session", async () => {
+    h.userId = null;
+    await expect(shopListingsLeaveOnDelete(["any"])).rejects.toThrow(
+      "Unauthorized"
+    );
   });
 });
