@@ -61,6 +61,10 @@ vi.mock("@/lib/ai", () => ({
   })),
 }));
 
+vi.mock("@/lib/brief-photo", () => ({
+  loadBriefPhoto: vi.fn(),
+}));
+
 vi.mock("@/lib/r2", () => ({
   uploadImageObject: vi.fn(
     async (imageId: string) => `https://r2/images/${imageId}.png`
@@ -87,6 +91,9 @@ const ai = await import("@/lib/ai");
 const registry = await import("@/lib/generators/registry");
 
 const briefMock = ai.constructDesignBrief as Mock;
+const briefPhoto = await import("@/lib/brief-photo");
+const loadBriefPhotoMock = briefPhoto.loadBriefPhoto as Mock;
+const PHOTO = { mediaType: "image/jpeg" as const, data: "AAAA" };
 const ideogramGen = registry.GENERATORS.ideogram.generate as Mock;
 const ideogramCost = registry.GENERATORS.ideogram.costFor as Mock;
 
@@ -129,6 +136,7 @@ beforeEach(async () => {
   afterQueue.callbacks.length = 0;
   vi.clearAllMocks();
   briefMock.mockResolvedValue(GENERATE_BRIEF);
+  loadBriefPhotoMock.mockResolvedValue(PHOTO);
   ideogramGen.mockResolvedValue("https://src/ideogram.png");
   vi.stubGlobal(
     "fetch",
@@ -319,7 +327,15 @@ describe("upload anchors (#356)", () => {
 
   it("an explicit upload anchor becomes a generate from the brief's spec, anchor kept", async () => {
     const designId = await seedDesign();
-    const uploadId = await seedUpload(designId);
+    const uploadId = await seedUpload(designId, new Date("2026-01-01T00:00:00Z"));
+    // A newer generated output, so the latest output is not the upload.
+    const newerId = await makeSourceImage(testDb, {
+      designId,
+      ownerId: "u1",
+      imageUrl: "https://r2/newer.png",
+      operation: "generate",
+      createdAt: new Date("2026-01-02T00:00:00Z"),
+    });
 
     const result = expectQueued(
       await generateDesign(designId, "stylize that design", {
@@ -339,7 +355,9 @@ describe("upload anchors (#356)", () => {
       expect.objectContaining({ kind: "edit" }),
       expect.anything()
     );
-    // The upload is an output of this conversation, so it is the parent.
+    // The upload is an output of this conversation, so it is the parent,
+    // not the newer generated output.
+    expect(newerId).not.toBe(uploadId);
     const [row] = await testDb
       .select()
       .from(schema.image)
@@ -347,7 +365,7 @@ describe("upload anchors (#356)", () => {
     expect(row.parentImageId).toBe(uploadId);
   });
 
-  it("passes the upload anchor to the brief", async () => {
+  it("passes the loaded photo to the brief, 4th argument", async () => {
     const designId = await seedDesign();
     const uploadId = await seedUpload(designId);
 
@@ -356,10 +374,40 @@ describe("upload anchors (#356)", () => {
         anchorImageId: uploadId,
       })
     );
-    const anchorArg = briefMock.mock.calls[0][3];
-    expect(anchorArg).toEqual(
-      expect.objectContaining({ id: uploadId, operation: "upload" })
+    expect(loadBriefPhotoMock).toHaveBeenCalledWith("https://r2/photo.png");
+    expect(briefMock.mock.calls[0][3]).toEqual(PHOTO);
+  });
+
+  it("a photo that cannot be loaded still generates, from a brief without it", async () => {
+    const designId = await seedDesign();
+    const uploadId = await seedUpload(designId);
+    loadBriefPhotoMock.mockResolvedValue(null);
+
+    expectQueued(
+      await generateDesign(designId, "stylize that design", {
+        anchorImageId: uploadId,
+      })
     );
+    expect(briefMock.mock.calls[0][3]).toBeNull();
+    const [job] = await jobs(designId);
+    expect(job.operation).toBe("generate");
+    expect(job.anchorImageId).toBe(uploadId);
+  });
+
+  it("does not load a photo for a generated anchor or for no anchor", async () => {
+    const designId = await seedDesign();
+    const genId = await makeSourceImage(testDb, {
+      designId,
+      ownerId: "u1",
+      imageUrl: "https://r2/gen.png",
+      operation: "generate",
+    });
+    expectQueued(
+      await generateDesign(designId, "make it blue", { anchorImageId: genId })
+    );
+    expectQueued(await generateDesign(designId, "make it red"));
+    expect(loadBriefPhotoMock).not.toHaveBeenCalled();
+    expect(briefMock.mock.calls[0][3]).toBeNull();
   });
 
   it("a brief that says edit for an upload anchor still generates, from the user's words", async () => {
@@ -416,8 +464,14 @@ describe("upload anchors (#356)", () => {
     );
   });
 
-  it("a seed-role upload generates, anchored on the seed, with no parent", async () => {
+  it("a seed-role upload generates, anchored on the seed; the parent is the latest output, never the seed", async () => {
     const designId = await seedDesign();
+    const outputId = await makeSourceImage(testDb, {
+      designId,
+      ownerId: "u1",
+      imageUrl: "https://r2/own-output.png",
+      operation: "generate",
+    });
     const [other] = await testDb
       .insert(schema.design)
       .values({ userId: "u1" })
@@ -446,8 +500,10 @@ describe("upload anchors (#356)", () => {
       .select()
       .from(schema.image)
       .where(eq(schema.image.id, result.imageId));
-    // Provenance excludes seeds from the within-thread parent chain.
-    expect(row.parentImageId).toBeNull();
+    // Provenance excludes seeds from the within-thread parent chain; a seed
+    // anchor keeps the latest-output fallback.
+    expect(row.parentImageId).toBe(outputId);
+    expect(row.parentImageId).not.toBe(seedId);
   });
 
   it("books a generate's cost for a photo turn", async () => {

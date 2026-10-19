@@ -3,6 +3,7 @@ import type { ChatMessage } from "./db/schema";
 import type { DesignImage } from "./design-images";
 import { parseDesignSpec, type DesignSpec } from "./design-spec";
 import { DESIGN_BRIEF_TIMEOUT_MS } from "./lost-submit";
+import type { BriefPhoto } from "./brief-photo";
 import {
   imageGalleryLine,
   imageHistoryNote,
@@ -32,7 +33,7 @@ function buildImageGalleryContext(images: DesignImage[]): string {
   const lines = images.map((img) =>
     imageGalleryLine(toProvenanceNode(img), img.number)
   );
-  return `\nImages so far:\n${lines.join("\n")}\n\nEntries marked [user upload] are reference images the user provided. Use them as style/content inspiration; a photo anchored on this turn is described in a "generate" spec, never edited. When the user references images by number (e.g., "#2"), you know which image they mean.`;
+  return `\nImages so far:\n${lines.join("\n")}\n\nEntries marked [user upload] are reference images the user provided. Use them as style/content inspiration. When the user references images by number (e.g., "#2"), you know which image they mean.`;
 }
 
 /**
@@ -64,7 +65,7 @@ function buildMessages(
   chatHistory: ChatMessage[],
   images: DesignImage[],
   userMessage?: string,
-  anchor?: DesignImage | null
+  photo?: BriefPhoto | null
 ) {
   const galleryContext = buildImageGalleryContext(images);
 
@@ -117,15 +118,20 @@ function buildMessages(
   }
 
   // A photo anchor goes to the model as an image so the spec is written from
-  // what the photo shows (#356). The photo is described, never edited.
+  // what the photo shows (#356). The photo is described, never edited. It is
+  // sent as base64 (a downscaled JPEG, see brief-photo.ts), not as a URL: the
+  // stored PNG can pass Anthropic's 5 MB per-image limit.
   const lastMessage = messages[messages.length - 1];
   if (
-    anchor?.operation === "upload" &&
+    photo &&
     lastMessage?.role === "user" &&
     typeof lastMessage.content === "string"
   ) {
     lastMessage.content = [
-      { type: "image", source: { type: "url", url: anchor.url } },
+      {
+        type: "image",
+        source: { type: "base64", media_type: photo.mediaType, data: photo.data },
+      },
       { type: "text", text: lastMessage.content },
     ];
   }
@@ -240,7 +246,7 @@ Respond with raw JSON only (no markdown, no code fences):
 Choosing the operation:
 - "generate": the user wants a new design, or a different take on the idea (new subject, changed style, another version of the same concept).
 - "edit": the user is refining an existing design — changing, adding, removing, or adjusting parts while keeping the rest ("make the bear larger", "remove the lettering", "different font"). The referenced image is sent to an instruction-edit model together with your editInstruction.
-- A photo the user attached to this turn is never edited: emit "generate" and write a spec that describes what is in the photo (subject, composition, what to keep) in the style the user asked for, as a cut-out shirt graphic with no background. Never emit "edit" for a photo.
+- A photo shown to you in the user's message is never edited: emit "generate" and write a spec that describes what is in the photo (subject, composition, what to keep) in the style the user asked for, as a cut-out shirt graphic with no background. Never emit "edit" for a photo.
 - "clarify": ONLY when the conversation contains no design request at all to interpret. This is close to never.
 - A short phrase with no drawable subject — a slogan, a quip, a sentence — IS a design request: it is lettering. Emit a text element carrying the user's exact words, add an illustration only if one follows naturally from the words, and never answer it with "clarify".
 
@@ -303,9 +309,9 @@ export async function constructDesignBrief(
   chatHistory: ChatMessage[],
   images: DesignImage[],
   userMessage?: string,
-  anchor?: DesignImage | null
+  photo?: BriefPhoto | null
 ): Promise<DesignBrief> {
-  const { messages, galleryContext } = buildMessages(chatHistory, images, userMessage, anchor);
+  const { messages, galleryContext } = buildMessages(chatHistory, images, userMessage, photo);
 
   const response = await anthropic.messages.create(
     {

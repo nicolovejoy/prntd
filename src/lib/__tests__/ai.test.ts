@@ -339,23 +339,29 @@ describe("photo anchors (#356)", () => {
     return call.messages[call.messages.length - 1];
   }
 
-  it("sends the photo as an image block before the text when the anchor is an upload", async () => {
+  const PHOTO = { mediaType: "image/jpeg" as const, data: "QUJD" };
+  const PHOTO_BLOCK = {
+    type: "image",
+    source: { type: "base64", media_type: "image/jpeg", data: "QUJD" },
+  };
+
+  it("sends the photo as a base64 image block before the text when a photo is given", async () => {
     const anchor = img({ id: "up1", operation: "upload", prompt: "IMG_0238.jpeg" });
     const { constructDesignBrief } = await import("../ai");
-    await constructDesignBrief([], [anchor], "stylize that design", anchor);
+    await constructDesignBrief([], [anchor], "stylize that design", PHOTO);
 
     const last = await lastTurn();
     expect(last.role).toBe("user");
     expect(last.content).toEqual([
-      { type: "image", source: { type: "url", url: "https://r2/images/up1.png" } },
+      PHOTO_BLOCK,
       { type: "text", text: "stylize that design" },
     ]);
   });
 
-  it("keeps a plain string turn when the anchor is a generated image", async () => {
+  it("keeps a plain string turn when no photo is given", async () => {
     const anchor = img({ id: "g1", operation: "generate" });
     const { constructDesignBrief } = await import("../ai");
-    await constructDesignBrief([], [anchor], "make it blue", anchor);
+    await constructDesignBrief([], [anchor], "make it blue", undefined);
 
     expect((await lastTurn()).content).toBe("make it blue");
   });
@@ -382,11 +388,11 @@ describe("photo anchors (#356)", () => {
   it("merges a trailing user history row into the photo turn as one text block", async () => {
     const anchor = img({ id: "up1", operation: "upload" });
     const { constructDesignBrief } = await import("../ai");
-    await constructDesignBrief([msg("user", "hello")], [anchor], "stylize that design", anchor);
+    await constructDesignBrief([msg("user", "hello")], [anchor], "stylize that design", PHOTO);
 
     const last = await lastTurn();
     expect(last.content).toEqual([
-      { type: "image", source: { type: "url", url: "https://r2/images/up1.png" } },
+      PHOTO_BLOCK,
       { type: "text", text: "hello\n\nstylize that design" },
     ]);
   });

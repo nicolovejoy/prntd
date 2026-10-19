@@ -53,6 +53,7 @@ import { assertConversationOpen } from "@/lib/design-view";
 import { renderSpecSummary, fallbackSpec, type DesignSpec } from "@/lib/design-spec";
 import { isUniqueViolation } from "@/lib/ledger";
 import { isUuid } from "@/lib/uuid";
+import { loadBriefPhoto } from "@/lib/brief-photo";
 import { EMPTY_GENERATE_TURN } from "@/lib/action-copy";
 import type { ChatMessage } from "@/lib/db/schema";
 import type { DesignImage } from "@/lib/design-images";
@@ -484,10 +485,6 @@ async function prepareGeneration({
       ? messages.slice(0, -1)
       : messages;
 
-  // No readiness pre-check any more (studio slice 1): a generate request
-  // always produces a generation, so there is nothing for a "render vs ask"
-  // gate to decide. The brief below still asks its question — attached to the
-  // image it renders, never instead of one.
   // Studio slice 3: a tapped-cell anchor is explicit and deterministic. The
   // brief still writes the best edit instruction it can, but it never picks a
   // different anchor and never downgrades the turn to a from-scratch generate
@@ -509,13 +506,23 @@ async function prepareGeneration({
   // always produces a generation, so there is nothing for a "render vs ask"
   // gate to decide. The brief below still asks its question — attached to the
   // image it renders, never instead of one.
+  // Only an explicit upload anchor is shown to the brief. loadBriefPhoto never
+  // throws; when it returns null (object missing, read timed out, undecodable)
+  // the brief runs on the words alone and the turn is still a generate through
+  // specForPhotoTurn. That is the accepted limit of the photo rule (spec,
+  // slice A): the spec then cannot describe the photo.
+  const photo =
+    explicitAnchor?.operation === "upload"
+      ? await loadBriefPhoto(explicitAnchor.url)
+      : null;
+
   let brief: Awaited<ReturnType<typeof constructDesignBrief>>;
   try {
     brief = await constructDesignBrief(
       messagesForPrompt,
       images,
       userMessage,
-      explicitAnchor ?? null
+      photo
     );
   } catch (err) {
     console.error("constructDesignBrief failed:", err);
@@ -880,7 +887,9 @@ async function runGenerationJob(params: GenerationJobParams): Promise<void> {
     // from that image, so "latest output" would record the wrong parent);
     // seed anchors and from-scratch generates keep the latest-output
     // fallback. A generate anchored on an uploaded output (#356) records that
-    // upload as its parent the same way; an upload that is a seed does not.
+    // upload as its parent the same way; an upload that is a seed is not an
+    // output, so it is never the parent (the latest non-seed output is, else
+    // null).
     const outputs = images.filter((img) => img.role !== "seed");
     const anchorOutput = params.anchorImageId
       ? outputs.find((img) => img.id === params.anchorImageId)

@@ -8,7 +8,7 @@ export {
 } from "./reference-image-limits";
 
 /** Decoded pixels allowed per input image. */
-const REFERENCE_IMAGE_MAX_PIXELS = 40_000_000;
+export const REFERENCE_IMAGE_MAX_PIXELS = 40_000_000;
 /** sharp's names for the formats the file picker offers, plus gif (first frame). */
 const ACCEPTED_FORMATS = ["png", "jpeg", "webp", "gif"];
 
