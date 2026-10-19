@@ -17,6 +17,7 @@ export function OwnerActions({
   imageUrl,
   isPublished,
   canPublish,
+  isUpload = false,
   sourceDesignId,
   conversationArchived,
   conversationLeavesShop,
@@ -26,6 +27,9 @@ export function OwnerActions({
   isPublished: boolean;
   /** A real (non-anonymous) session; publishImage rejects guests server-side too. */
   canPublish: boolean;
+  /** An uploaded photo is ordered but never published (#355): the row states
+   * "Not published" and offers neither Publish nor the sign-up prompt. */
+  isUpload?: boolean;
   /** Null when the conversation this image came from no longer resolves — an
    * image pinned by an order or a seed outlives its thread. */
   sourceDesignId: string | null;
@@ -43,11 +47,13 @@ export function OwnerActions({
         ) : (
           <>
             <span className="text-sm text-text-faint">Not published</span>
-            <PublishCta
-              imageId={imageId}
-              imageUrl={imageUrl}
-              canPublish={canPublish}
-            />
+            {!isUpload && (
+              <PublishCta
+                imageId={imageId}
+                imageUrl={imageUrl}
+                canPublish={canPublish}
+              />
+            )}
           </>
         )}
         {sourceDesignId && (

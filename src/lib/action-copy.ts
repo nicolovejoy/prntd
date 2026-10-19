@@ -83,6 +83,12 @@ export function attachLimitMessage(reason: "identity" | "ip" | undefined): strin
   return reason === "ip" ? ATTACH_LIMIT_REACHED_IP : ATTACH_LIMIT_REACHED;
 }
 
+/** publishImage refused an uploaded photo (#355): an upload is an input to a
+ * design, not a design. The image detail page shows no Publish for one, so
+ * this only reaches a direct call. */
+export const UPLOAD_NOT_PUBLISHABLE =
+  "Attached photos can't be published. Publish a design made from one instead.";
+
 // --- /design entry (#188 slice 2b) ---
 // The sessionless hop through /design: a status line while the guest session
 // is minted, and one failure line with a retry.

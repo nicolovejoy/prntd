@@ -42,7 +42,8 @@ vi.mock("@/lib/ai", () => ({
   }),
 }));
 
-const { publishImage } = await import("@/app/designs/actions");
+const { publishImage, unpublishImage } = await import("@/app/designs/actions");
+const { UPLOAD_NOT_PUBLISHABLE } = await import("@/lib/action-copy");
 
 beforeEach(async () => {
   testDb = await createTestDb();
@@ -88,5 +89,53 @@ describe("publishImage — anonymous (guest-funnel) sessions are rejected", () =
     const rows = await publicationRows(imageId);
     expect(rows).toHaveLength(1);
     expect(rows[0].publishedAt).not.toBeNull();
+  });
+});
+
+describe("publishImage — an uploaded photo is an input, not a design (#355)", () => {
+  async function seedUpload(opts: { hidden?: boolean; published?: boolean } = {}) {
+    const d = await makeDesign(testDb, "u1");
+    const imageId = await makeSourceImage(testDb, {
+      designId: d.id,
+      ownerId: "u1",
+      imageUrl: "https://r2/images/upload.png",
+    });
+    await testDb
+      .update(schema.image)
+      .set({ operation: "upload" })
+      .where(eq(schema.image.id, imageId));
+    if (opts.hidden || opts.published) {
+      await testDb.insert(schema.imagePublication).values({
+        imageId,
+        publishedAt: new Date(),
+        isHidden: Boolean(opts.hidden),
+      });
+    }
+    return imageId;
+  }
+
+  it("refuses an uploaded photo with the upload line (#355)", async () => {
+    const imageId = await seedUpload();
+
+    await expect(publishImage(imageId, { title: "T" })).rejects.toThrow(
+      UPLOAD_NOT_PUBLISHABLE
+    );
+    expect(await publicationRows(imageId)).toHaveLength(0);
+  });
+
+  it("the upload line wins over the hidden line (#355)", async () => {
+    const imageId = await seedUpload({ hidden: true });
+
+    await expect(publishImage(imageId, { title: "T" })).rejects.toThrow(
+      UPLOAD_NOT_PUBLISHABLE
+    );
+  });
+
+  it("unpublishImage still works on an upload published before #355", async () => {
+    const imageId = await seedUpload({ published: true });
+    expect(await publicationRows(imageId)).toHaveLength(1);
+
+    await unpublishImage(imageId);
+    expect(await publicationRows(imageId)).toHaveLength(0);
   });
 });
