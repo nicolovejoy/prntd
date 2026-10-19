@@ -281,7 +281,8 @@ export async function attachReferenceImage(
   }
 
   // The same cap normalizeReferenceImage applies to the bytes, checked on the
-  // Blob's size first so an oversize upload is never read into memory.
+  // Blob's size first so an oversize upload is not copied into a Buffer or
+  // decoded (Flight has already buffered the multipart part by now).
   if (file.size > REFERENCE_IMAGE_MAX_BYTES) {
     return { kind: "refused", message: ATTACH_TOO_LARGE };
   }

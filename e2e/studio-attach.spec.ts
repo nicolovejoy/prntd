@@ -25,6 +25,7 @@ import { mintGuestSession } from "./helpers/session";
 import { waitForHydrated } from "./helpers/hydration";
 import {
   cleanupDesigns,
+  cleanupUploadQuota,
   cleanupUser,
   designIdsForUser,
   userIdForSessionCookie,
@@ -41,11 +42,17 @@ async function noiseJpeg(width = 1900, height = 1425): Promise<Buffer> {
     .toBuffer();
 }
 
-test("a 2.5 MB photo attaches through the Studio and starts a lane (#351)", async ({
+test("a 2.6 MB photo attaches through the Studio and starts a lane (#351)", async ({
   page,
 }, testInfo) => {
   // One browser project is enough: the request body is the same on both.
   test.skip(testInfo.project.name !== "mobile", "viewport-independent");
+  // Against a deployment there is no webServer env, so R2_DRY_RUN is off and
+  // the attach would write a real object to the shared bucket.
+  test.skip(
+    Boolean(process.env.E2E_BASE_URL),
+    "local-only: a deployment's attach writes a real R2 object that nothing cleans up"
+  );
 
   const photo = await noiseJpeg();
   expect(photo.length, "the noise JPEG is not photo-sized").toBeGreaterThan(MIN_BYTES);
@@ -75,6 +82,9 @@ test("a 2.5 MB photo attaches through the Studio and starts a lane (#351)", asyn
   } finally {
     if (userId) {
       await cleanupDesigns(await designIdsForUser(userId));
+      // The attach spent one unit of the per-user and per-IP upload quota;
+      // locally that IP bucket is shared with a developer's own attaches.
+      await cleanupUploadQuota(userId);
       await cleanupUser(userId);
     }
   }

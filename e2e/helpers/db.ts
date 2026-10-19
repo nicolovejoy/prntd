@@ -208,6 +208,26 @@ export async function designIdsForUser(userId: string): Promise<string[]> {
   return res.rows.map((r) => String(r.id));
 }
 
+/**
+ * Undo one attach's upload quota (#351 spec): drop the user's own
+ * `upload:user:<id>` rows and take one off every `upload:ip:*` row for today
+ * (UTC), so local runs do not fill the shared 127.0.0.1 bucket. Never below 0.
+ */
+export async function cleanupUploadQuota(userId: string): Promise<void> {
+  const c = db();
+  await c.execute({
+    sql: "DELETE FROM generation_usage WHERE bucket = ?",
+    args: [`upload:user:${userId}`],
+  });
+  // The quota buckets by UTC day on purpose (dayKeyUTC in generation-quota.ts),
+  // so the UTC slice is the right key here, not a Pacific day.
+  const today = new Date().toISOString().slice(0, 10);
+  await c.execute({
+    sql: "UPDATE generation_usage SET count = max(count - 1, 0) WHERE bucket LIKE 'upload:ip:%' AND day = ?",
+    args: [today],
+  });
+}
+
 /** True if a user row still exists — used to confirm better-auth's own
  * anonymous-plugin cleanup actually deleted the guest user after a claim
  * (guest-claim.spec.ts). */
