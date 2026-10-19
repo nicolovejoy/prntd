@@ -50,7 +50,7 @@ import {
 } from "@/lib/design-images";
 import { canStartFromImage } from "@/lib/design-publish";
 import { assertConversationOpen } from "@/lib/design-view";
-import { renderSpecSummary, fallbackSpec } from "@/lib/design-spec";
+import { renderSpecSummary, fallbackSpec, type DesignSpec } from "@/lib/design-spec";
 import { isUniqueViolation } from "@/lib/ledger";
 import { isUuid } from "@/lib/uuid";
 import { EMPTY_GENERATE_TURN } from "@/lib/action-copy";
@@ -488,9 +488,35 @@ async function prepareGeneration({
   // always produces a generation, so there is nothing for a "render vs ask"
   // gate to decide. The brief below still asks its question — attached to the
   // image it renders, never instead of one.
-  let brief;
+  // Studio slice 3: a tapped-cell anchor is explicit and deterministic. The
+  // brief still writes the best edit instruction it can, but it never picks a
+  // different anchor and never downgrades the turn to a from-scratch generate
+  // — what the user tapped is what gets edited. The one exception is an
+  // uploaded photo (#356): Ideogram /v1/edit with transparent_background keeps
+  // one sticker-shaped element of a photo, so a photo anchor renders as a
+  // generate instead, from a brief that was shown the photo. An id that isn't
+  // one of this conversation's images is a stale tap or a forged id; refuse
+  // before any row exists (the caller's direct-refund catch covers this span).
+  // The lookup sits above the brief call so the brief can be shown the photo.
+  const explicitAnchor = explicitAnchorId
+    ? images.find((img) => img.id === explicitAnchorId)
+    : undefined;
+  if (explicitAnchorId && !explicitAnchor) {
+    throw new Error("Anchor image is not part of this conversation");
+  }
+
+  // No readiness pre-check any more (studio slice 1): a generate request
+  // always produces a generation, so there is nothing for a "render vs ask"
+  // gate to decide. The brief below still asks its question — attached to the
+  // image it renders, never instead of one.
+  let brief: Awaited<ReturnType<typeof constructDesignBrief>>;
   try {
-    brief = await constructDesignBrief(messagesForPrompt, images, userMessage);
+    brief = await constructDesignBrief(
+      messagesForPrompt,
+      images,
+      userMessage,
+      explicitAnchor ?? null
+    );
   } catch (err) {
     console.error("constructDesignBrief failed:", err);
     throw new Error("Failed to construct prompt");
@@ -501,31 +527,36 @@ async function prepareGeneration({
   let generateOp: GenerateOperation | undefined;
   let anchorImageId: string | null = null;
 
-  // Studio slice 3: a tapped-cell anchor is explicit and deterministic. The
-  // brief still writes the best edit instruction it can, but it never picks a
-  // different anchor and never downgrades the turn to a from-scratch generate
-  // — what the user tapped is what gets edited. An id that isn't one of this
-  // conversation's images is a stale tap or a forged id; refuse before any
-  // row exists (the caller's direct-refund catch covers this span).
-  const explicitAnchor = explicitAnchorId
-    ? images.find((img) => img.id === explicitAnchorId)
-    : undefined;
-  if (explicitAnchorId && !explicitAnchor) {
-    throw new Error("Anchor image is not part of this conversation");
+  // The spec for a turn anchored on an uploaded photo: the brief's own when it
+  // obeyed the photo rule and chose "generate"; otherwise (edit or clarify)
+  // the user's words, as the clarify branch does. A brief written without
+  // seeing the photo (no explicit anchor; the anchor fell back to the latest
+  // output) lands here with "edit" and renders from the words alone.
+  function specForPhotoTurn(): DesignSpec {
+    if (brief.operation === "generate") return brief.spec;
+    const spec = fallbackSpec(userMessage.trim());
+    if (!spec) throw new Error("Photo turn reached with no user words");
+    return spec;
   }
+
   if (explicitAnchor) {
-    // The user's own words stand in when the brief gives no edit instruction;
-    // generateDesign refuses a wordless turn, so there is always one, and the
-    // tapped image is always the one edited.
-    const instruction =
-      (brief.operation === "edit" && brief.editInstruction) ||
-      userMessage.trim();
-    anchorImageId = explicitAnchor.id;
-    generateOp = {
-      kind: "edit",
-      instruction,
-      anchorImageUrl: explicitAnchor.url,
-    };
+    if (explicitAnchor.operation === "upload") {
+      anchorImageId = explicitAnchor.id;
+      generateOp = { kind: "generate", spec: specForPhotoTurn() };
+    } else {
+      // The user's own words stand in when the brief gives no edit
+      // instruction; generateDesign refuses a wordless turn, so there is
+      // always one, and the tapped image is always the one edited.
+      const instruction =
+        (brief.operation === "edit" && brief.editInstruction) ||
+        userMessage.trim();
+      anchorImageId = explicitAnchor.id;
+      generateOp = {
+        kind: "edit",
+        instruction,
+        anchorImageUrl: explicitAnchor.url,
+      };
+    }
   }
 
   if (generateOp) {
@@ -567,6 +598,10 @@ async function prepareGeneration({
         return { kind: "clarification", message, readyToGenerate: false };
       }
       generateOp = { kind: "generate", spec };
+    } else if (anchor.operation === "upload") {
+      // Same photo rule as the explicit anchor above (#356).
+      anchorImageId = anchor.id;
+      generateOp = { kind: "generate", spec: specForPhotoTurn() };
     } else {
       anchorImageId = anchor.id;
       generateOp = {
@@ -844,7 +879,8 @@ async function runGenerationJob(params: GenerationJobParams): Promise<void> {
     // parent (studio slice 3 — choosing "Edit this one" on an older image edits
     // from that image, so "latest output" would record the wrong parent);
     // seed anchors and from-scratch generates keep the latest-output
-    // fallback.
+    // fallback. A generate anchored on an uploaded output (#356) records that
+    // upload as its parent the same way; an upload that is a seed does not.
     const outputs = images.filter((img) => img.role !== "seed");
     const anchorOutput = params.anchorImageId
       ? outputs.find((img) => img.id === params.anchorImageId)

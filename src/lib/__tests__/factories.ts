@@ -6,6 +6,7 @@
  */
 import type { db as appDb } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
+import type { ImageOperation } from "@/lib/image-provenance";
 import { buildMirrorProductRow } from "@/lib/model-b-writes";
 import { eq } from "drizzle-orm";
 
@@ -45,6 +46,7 @@ export async function makeSourceImage(
     seedImageId?: string | null;
     originalDesignerId?: string | null;
     luminance?: number | null;
+    operation?: ImageOperation | null;
     createdAt?: Date;
     publishedAt?: Date | null;
     isHidden?: boolean;
@@ -68,6 +70,7 @@ export async function makeSourceImage(
     seedImageId: params.seedImageId ?? null,
     originalDesignerId: params.originalDesignerId ?? null,
     luminance: params.luminance ?? null,
+    operation: params.operation ?? null,
     sourceDesignId: params.designId,
     ...(params.createdAt ? { createdAt: params.createdAt } : {}),
   });
