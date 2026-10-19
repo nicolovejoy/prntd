@@ -32,7 +32,7 @@ function buildImageGalleryContext(images: DesignImage[]): string {
   const lines = images.map((img) =>
     imageGalleryLine(toProvenanceNode(img), img.number)
   );
-  return `\nImages so far:\n${lines.join("\n")}\n\nEntries marked [user upload] are reference images the user provided. Use them as style/content inspiration. When the user references images by number (e.g., "#2"), you know which image they mean.`;
+  return `\nImages so far:\n${lines.join("\n")}\n\nEntries marked [user upload] are reference images the user provided. Use them as style/content inspiration; a photo anchored on this turn is described in a "generate" spec, never edited. When the user references images by number (e.g., "#2"), you know which image they mean.`;
 }
 
 /**
@@ -63,7 +63,8 @@ export function extractChatEnvelope(text: string): { message: string } | null {
 function buildMessages(
   chatHistory: ChatMessage[],
   images: DesignImage[],
-  userMessage?: string
+  userMessage?: string,
+  anchor?: DesignImage | null
 ) {
   const galleryContext = buildImageGalleryContext(images);
 
@@ -99,19 +100,34 @@ function buildMessages(
   }
 
   // Merge consecutive same-role messages (Anthropic requires alternating roles)
-  const messages: typeof raw = [];
+  const merged: typeof raw = [];
   for (const msg of raw) {
-    const prev = messages[messages.length - 1];
+    const prev = merged[merged.length - 1];
     if (prev && prev.role === msg.role) {
       prev.content += "\n\n" + msg.content;
     } else {
-      messages.push({ ...msg });
+      merged.push({ ...msg });
     }
   }
+  const messages: Anthropic.MessageParam[] = merged;
 
   // Sonnet 4.6 requires messages to end with a user turn (no assistant prefill)
   if (messages.length > 0 && messages[messages.length - 1].role === "assistant") {
     messages.push({ role: "user", content: "Generate an image based on this conversation." });
+  }
+
+  // A photo anchor goes to the model as an image so the spec is written from
+  // what the photo shows (#356). The photo is described, never edited.
+  const lastMessage = messages[messages.length - 1];
+  if (
+    anchor?.operation === "upload" &&
+    lastMessage?.role === "user" &&
+    typeof lastMessage.content === "string"
+  ) {
+    lastMessage.content = [
+      { type: "image", source: { type: "url", url: anchor.url } },
+      { type: "text", text: lastMessage.content },
+    ];
   }
 
   return { messages, galleryContext };
@@ -224,6 +240,7 @@ Respond with raw JSON only (no markdown, no code fences):
 Choosing the operation:
 - "generate": the user wants a new design, or a different take on the idea (new subject, changed style, another version of the same concept).
 - "edit": the user is refining an existing design — changing, adding, removing, or adjusting parts while keeping the rest ("make the bear larger", "remove the lettering", "different font"). The referenced image is sent to an instruction-edit model together with your editInstruction.
+- A photo the user attached to this turn is never edited: emit "generate" and write a spec that describes what is in the photo (subject, composition, what to keep) in the style the user asked for, as a cut-out shirt graphic with no background. Never emit "edit" for a photo.
 - "clarify": ONLY when the conversation contains no design request at all to interpret. This is close to never.
 - A short phrase with no drawable subject — a slogan, a quip, a sentence — IS a design request: it is lettering. Emit a text element carrying the user's exact words, add an illustration only if one follows naturally from the words, and never answer it with "clarify".
 
@@ -285,9 +302,10 @@ export type DesignBrief =
 export async function constructDesignBrief(
   chatHistory: ChatMessage[],
   images: DesignImage[],
-  userMessage?: string
+  userMessage?: string,
+  anchor?: DesignImage | null
 ): Promise<DesignBrief> {
-  const { messages, galleryContext } = buildMessages(chatHistory, images, userMessage);
+  const { messages, galleryContext } = buildMessages(chatHistory, images, userMessage, anchor);
 
   const response = await anthropic.messages.create(
     {

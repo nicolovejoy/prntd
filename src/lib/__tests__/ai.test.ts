@@ -313,3 +313,81 @@ describe("DESIGN_BRIEF_SYSTEM_PROMPT", () => {
     );
   });
 });
+
+describe("photo anchors (#356)", () => {
+  beforeEach(async () => {
+    const mockCreate = await getMockCreate();
+    mockCreate.mockReset();
+    mockCreate.mockResolvedValue({
+      content: [{ type: "text", text: '{"operation":"clarify","message":"ok"}' }],
+    });
+  });
+
+  function img(over: Partial<DesignImage> & { id: string }): DesignImage {
+    return {
+      number: 1,
+      url: `https://r2/images/${over.id}.png`,
+      prompt: "",
+      publishedAt: null,
+      ...over,
+    };
+  }
+
+  async function lastTurn() {
+    const mockCreate = await getMockCreate();
+    const call = mockCreate.mock.calls[0][0];
+    return call.messages[call.messages.length - 1];
+  }
+
+  it("sends the photo as an image block before the text when the anchor is an upload", async () => {
+    const anchor = img({ id: "up1", operation: "upload", prompt: "IMG_0238.jpeg" });
+    const { constructDesignBrief } = await import("../ai");
+    await constructDesignBrief([], [anchor], "stylize that design", anchor);
+
+    const last = await lastTurn();
+    expect(last.role).toBe("user");
+    expect(last.content).toEqual([
+      { type: "image", source: { type: "url", url: "https://r2/images/up1.png" } },
+      { type: "text", text: "stylize that design" },
+    ]);
+  });
+
+  it("keeps a plain string turn when the anchor is a generated image", async () => {
+    const anchor = img({ id: "g1", operation: "generate" });
+    const { constructDesignBrief } = await import("../ai");
+    await constructDesignBrief([], [anchor], "make it blue", anchor);
+
+    expect((await lastTurn()).content).toBe("make it blue");
+  });
+
+  it("keeps a plain string turn when there is no anchor", async () => {
+    const upload = img({ id: "up1", operation: "upload" });
+    const { constructDesignBrief } = await import("../ai");
+    await constructDesignBrief([], [upload], "make it blue");
+    expect((await lastTurn()).content).toBe("make it blue");
+
+    const mockCreate = await getMockCreate();
+    mockCreate.mockClear();
+    await constructDesignBrief([], [upload], "make it blue", null);
+    expect((await lastTurn()).content).toBe("make it blue");
+  });
+
+  it("tells the model a photo turn is always a generate, never an edit", async () => {
+    const { DESIGN_BRIEF_SYSTEM_PROMPT } = await import("../ai");
+    expect(DESIGN_BRIEF_SYSTEM_PROMPT).toMatch(/photo/i);
+    expect(DESIGN_BRIEF_SYSTEM_PROMPT).toContain('Never emit "edit" for a photo');
+    expect(DESIGN_BRIEF_SYSTEM_PROMPT).toContain('emit "generate"');
+  });
+
+  it("merges a trailing user history row into the photo turn as one text block", async () => {
+    const anchor = img({ id: "up1", operation: "upload" });
+    const { constructDesignBrief } = await import("../ai");
+    await constructDesignBrief([msg("user", "hello")], [anchor], "stylize that design", anchor);
+
+    const last = await lastTurn();
+    expect(last.content).toEqual([
+      { type: "image", source: { type: "url", url: "https://r2/images/up1.png" } },
+      { type: "text", text: "hello\n\nstylize that design" },
+    ]);
+  });
+});
