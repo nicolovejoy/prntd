@@ -257,4 +257,21 @@ describe("getUserImageLibrary", () => {
     expect(ids).toEqual([legacy, edited, generated]);
     expect(ids).not.toContain(upload);
   });
+
+  it("leaves out an uploaded photo that was published before #355 (#355)", async () => {
+    const db = h.db as Db;
+    const design = await makeDesign(db, "owner");
+    const upload = await makeSourceImage(db, {
+      designId: design.id,
+      ownerId: "owner",
+      imageUrl: "https://r2/old-upload.png",
+      publishedAt: new Date("2026-07-01T00:00:00Z"),
+    });
+    await db
+      .update(schema.image)
+      .set({ operation: "upload" })
+      .where(eq(schema.image.id, upload));
+
+    expect((await getUserImageLibrary("owner")).map((i) => i.imageId)).not.toContain(upload);
+  });
 });

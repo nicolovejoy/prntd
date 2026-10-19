@@ -75,10 +75,10 @@ export async function getUserImageLibrary(
       .leftJoin(imagePublicationTable, eq(imagePublicationTable.imageId, imageTable.id))
       .leftJoin(designTable, eq(designTable.id, imageTable.sourceDesignId))
       // Three filters: ownership, not admin-hidden (#288) and not an upload
-      // (#355). A hidden image
-      // has no tile, since a placeholder the owner can't identify is
-      // pointless; no publication row (null) means never published or
-      // unpublished, so not hidden. Beyond those two the library is the whole
+      // (#355). A hidden image has no tile, since a placeholder the owner
+      // can't identify is pointless; no publication row (null) means never
+      // published or unpublished, so not hidden. An upload is an input to a
+      // design, not a design. Beyond those three the library is the whole
       // record of what the user has made, so a conversation being archived —
       // off the bench (closed_at) or away (status, which is what deleteDesign
       // leaves behind for an ordered design) — marks its images, it does not

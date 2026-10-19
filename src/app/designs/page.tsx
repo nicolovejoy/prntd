@@ -27,10 +27,11 @@ import { GuestKeepLine } from "../studio/guest-keep-line";
  *
  * With at least one image, the masthead row has "Download all my designs"
  * (#12): a zip of every owned image from /designs/export, in parts of up to
- * 50 images, oldest first, without admin-hidden ones (#288). One part is a
- * plain link; several open a panel with one link per part. The part summaries
- * come from the library this page already loads (which leaves admin-hidden
- * images out, as the export does), reversed to the export's oldest-first order (a real-DB test pins that the
+ * 50 images, oldest first, without admin-hidden ones (#288) or uploaded
+ * photos (#355). One part is a plain link; several open a panel with one link
+ * per part. The part summaries come from the library this page already loads
+ * (which leaves admin-hidden images and uploads out, as the export does),
+ * reversed to the export's oldest-first order (a real-DB test pins that the
  * two are exact reverses), so nothing extra is fetched.
  *
  * Guests (#241) get their own images and, once there is at least one, the

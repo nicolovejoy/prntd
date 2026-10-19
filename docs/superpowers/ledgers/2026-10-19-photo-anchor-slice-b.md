@@ -18,3 +18,18 @@ Baseline on main `3292672` before any change: 265 files / 4149 tests.
 
 - Task 1 `4f48a60`: both readers filter `or(isNull(operation), ne(operation, 'upload'))`; two tests (library; export parity against the real library output).
 - Task 2 `3a8e1ac`: `UPLOAD_NOT_PUBLISHABLE`, `publishImage` refusal after ownership and before hidden, `ImagePage.operation`, `OwnerActions.isUpload`; three publish-gate tests and four page-row tests.
+
+## Review (Opus, whole branch, `9712c58`): READY WITH FIXES
+
+Nothing Blocking. The reviewer reverted each production hunk in a scratch copy and saw a test fail for each, except `getImagePage`'s `operation` (see 2). Hostile values (NULL, "", "UPLOAD", "upload ", other operations) behaved the same in both readers, same ids in reverse order, same part count.
+
+Findings and rulings (controller):
+1. **Important, not fixed in code, handed to Nico.** Uploads written before migration 0012 (2026-09-04, `operation` added nullable, no backfill) have `operation IS NULL`; `/design`'s old upload and `scripts/migrate-chat-history-to-table.ts` wrote `prompt` starting `[user upload]`. Every new check reads NULL as "not an upload", so such a photo stays on My Designs and the zip and can still be published. Widening four checks to a prompt-string rule was rejected; a one-off data UPDATE is the smaller change. Whether any such rows exist in Production cannot be read from this session. The PR body carries the count query and the UPDATE for Nico to run on prod, preview and dev; it is a data change, so it is his call.
+2. **Important, fixed.** `getImagePage`'s `operation` had no test (replacing it with `null` passed every test). Added `getImagePage carries the image's operation (#355)` in `image-visibility-one-reader.integration.test.ts`; fails when the mapping is reverted.
+3. **Minor, not fixed (scope).** The Un-publish confirm on a published upload says "You can re-publish it later." and then sends the owner to My Designs, which no longer lists the photo. Only reachable for an upload published before #355. Named in the PR body.
+4. **Minor, not fixed.** An unpublished upload's page without `from` shows "My Designs" as its breadcrumb parent. Cosmetic. Named in the PR body.
+5. **Minor, fixed.** Stale comments in `src/lib/user-designs.ts` ("Beyond those two") and the `src/app/designs/page.tsx` docblock (export and library parity claim).
+6. **Minor, fixed.** Added a library test for an upload with a publication row (Review Focus 1). The export parity test compares sorted ids; order parity is covered by the existing reverse-order test and the shared predicate.
+7. **Minor, not fixed (out of scope).** An upload in a conversation, or made the conversation's primary, can be picked as a back design under the "My designs" label. Allowed by ruling 4 (an upload may be ordered). Named in the PR body.
+
+Both added tests fail when their production line is reverted (checked by hand with `sed` and restore).
