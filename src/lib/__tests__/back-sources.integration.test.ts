@@ -374,3 +374,131 @@ describe("getBuyPageBackSourceGroups (/d back picker)", () => {
     expect(groups).toEqual([]);
   });
 });
+
+describe("uploads in the back picker (#355)", () => {
+  beforeEach(async () => {
+    testDb = await createTestDb();
+  });
+
+  /** A design owned by `userId` whose primary is a new image with `operation`. */
+  async function makeDesignWithPrimary(
+    userId: string,
+    operation: "upload" | "generate" | null,
+    updatedAt?: Date
+  ): Promise<{ designId: string; imageId: string }> {
+    const [d] = await testDb
+      .insert(schema.design)
+      .values({ userId, ...(updatedAt ? { updatedAt } : {}) })
+      .returning();
+    const imageId = await makeSourceImage(testDb, {
+      designId: d.id,
+      ownerId: userId,
+      imageUrl: `https://img.example/${d.id}.png`,
+      operation,
+    });
+    await testDb
+      .update(schema.design)
+      .set({ primaryImageId: imageId })
+      .where(eq(schema.design.id, d.id));
+    return { designId: d.id, imageId };
+  }
+
+  async function seed() {
+    await makeUser(testDb, "owner");
+    await makeUser(testDb, "seller");
+    const page = await makeDesignWithPrimary("owner", "generate");
+    const upload = await makeDesignWithPrimary("owner", "upload");
+    const legacy = await makeDesignWithPrimary("owner", null);
+    const generated = await makeDesignWithPrimary("owner", "generate");
+    // A seller's design the owner is buying from (cross-owner path).
+    const sold = await makeDesignWithImage(testDb, "seller", {
+      published: true,
+    });
+    return { page, upload, legacy, generated, sold };
+  }
+
+  it("owner path: a design whose primary is an upload is not offered under My designs", async () => {
+    const ids = await seed();
+    const groups = await getBuyPageBackSourceGroups({
+      designId: ids.page.designId,
+      viewerId: "owner",
+    });
+    const mine = groups.find((g) => g.id === "my-designs");
+    expect(mine?.images.map((i) => i.id).sort()).toEqual(
+      [ids.legacy.imageId, ids.generated.imageId].sort()
+    );
+    expect(mine?.images.map((i) => i.id)).not.toContain(ids.upload.imageId);
+  });
+
+  it("cross-owner path: the viewer's upload-primary design is left out, a NULL operation stays", async () => {
+    const ids = await seed();
+    const groups = await getBuyPageBackSourceGroups({
+      designId: ids.sold.designId,
+      viewerId: "owner",
+    });
+    const mine = groups.find((g) => g.id === "my-designs");
+    expect(mine?.images.map((i) => i.id).sort()).toEqual(
+      [ids.page.imageId, ids.legacy.imageId, ids.generated.imageId].sort()
+    );
+  });
+
+  it("a viewer whose only other design is an upload gets no My designs group", async () => {
+    await makeUser(testDb, "owner");
+    const page = await makeDesignWithPrimary("owner", "generate");
+    await makeDesignWithPrimary("owner", "upload");
+    const groups = await getBuyPageBackSourceGroups({
+      designId: page.designId,
+      viewerId: "owner",
+    });
+    expect(groups.map((g) => g.id)).not.toContain("my-designs");
+  });
+
+  it("an upload in the page's own conversation stays pickable under This design", async () => {
+    const ids = await seed();
+    const uploadInThread = await makeSourceImage(testDb, {
+      designId: ids.page.designId,
+      ownerId: "owner",
+      imageUrl: "https://img.example/thread-upload.png",
+      operation: "upload",
+    });
+    const groups = await getBuyPageBackSourceGroups({
+      designId: ids.page.designId,
+      viewerId: "owner",
+    });
+    const thisDesign = groups.find((g) => g.id === "this-design");
+    expect(thisDesign?.images.map((i) => i.id)).toContain(uploadInThread);
+    const mine = groups.find((g) => g.id === "my-designs");
+    expect(mine?.images.map((i) => i.id)).not.toContain(uploadInThread);
+  });
+
+  it("the placement guard still accepts the owner's upload (an upload may be ordered)", async () => {
+    const ids = await seed();
+    await expect(
+      assertUsablePlacementImage(
+        ids.upload.imageId,
+        ids.page.designId,
+        "owner"
+      )
+    ).resolves.toBeUndefined();
+  });
+
+  it("upload-primary designs do not use up the 24 slots", async () => {
+    await makeUser(testDb, "owner");
+    const page = await makeDesignWithPrimary("owner", "generate");
+    // The one real design is oldest; 25 newer designs have upload primaries.
+    const real = await makeDesignWithPrimary(
+      "owner",
+      "generate",
+      new Date(Date.now() - 100_000)
+    );
+    for (let i = 0; i < 25; i++) {
+      await makeDesignWithPrimary("owner", "upload", new Date(Date.now() + i * 1000));
+    }
+    const groups = await getBuyPageBackSourceGroups({
+      designId: page.designId,
+      viewerId: "owner",
+    });
+    const mine = groups.find((g) => g.id === "my-designs");
+    expect(mine?.images.map((i) => i.id)).toEqual([real.imageId]);
+  });
+});

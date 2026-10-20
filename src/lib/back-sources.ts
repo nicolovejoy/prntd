@@ -4,14 +4,22 @@
  *
  * The back of a shirt can print any of three image origins:
  *  - This design: the current thread's source images (the original picker).
- *  - My Designs: the display (primary) image of the user's other designs.
+ *  - My Designs: the display (primary) image of the user's other designs,
+ *    except a primary that is an uploaded photo (`image.operation = 'upload'`).
+ *    My Designs leaves uploads out (#355: an attached photo is an input, not a
+ *    design), so this group does too. An upload in the page's own conversation
+ *    stays pickable under This design.
  *  - Shop: published, not-hidden images, as the Shop feed lists them except
  *    that an image whose conversation is gone stays in (#321).
  * An admin-hidden image is in none of them: nobody may print one.
  *
  * Mirror of `canUseAsPlacementSource` (design-publish.ts): everything this
  * returns passes that guard, and the guard rejects anything outside these
- * groups at the checkout choke points.
+ * groups at the checkout choke points. The reverse does not hold for uploads:
+ * the guard still accepts an owner's upload pin (an upload may be ordered,
+ * ruling 4 of the photo-anchor spec), so an existing cart line or link that
+ * pins one as a back keeps validating even though the picker no longer offers
+ * it under My designs.
  */
 import { db } from "@/lib/db";
 import {
@@ -19,7 +27,7 @@ import {
   image as imageTable,
   imagePublication as imagePublicationTable,
 } from "@/lib/db/schema";
-import { eq, and, ne, desc, isNotNull, inArray } from "drizzle-orm";
+import { eq, and, ne, or, desc, isNull, isNotNull, inArray } from "drizzle-orm";
 import {
   getDesignSourceImages,
   getDesignImageWithOwner,
@@ -266,7 +274,15 @@ async function hiddenImageIds(ids: string[]): Promise<Set<string>> {
 /**
  * Display images of the user's other designs: each design's primary image,
  * most recently touched design first. Designs without a primary (never
- * produced a source image) are skipped.
+ * produced a source image) are skipped, and so are designs whose primary is
+ * an uploaded photo (`image.operation = 'upload'`, #355): My Designs leaves
+ * uploads out, and this group is "My designs" in the picker. The upload
+ * filter runs in the query, before GROUP_LIMIT, so skipped designs do not use
+ * up slots. Legacy rows with a NULL operation stay in (`<>` on NULL is NULL,
+ * hence the isNull arm), and so does a primary that is a `placement_render`
+ * id (no `image` row, so the left join yields a NULL operation). Placement
+ * guards are unchanged: `assertUsablePlacementImage` still accepts an upload
+ * the user owns.
  */
 async function getOtherDesignPrimaries(
   userId: string,
@@ -278,11 +294,13 @@ async function getOtherDesignPrimaries(
       primaryImageId: designTable.primaryImageId,
     })
     .from(designTable)
+    .leftJoin(imageTable, eq(imageTable.id, designTable.primaryImageId))
     .where(
       and(
         eq(designTable.userId, userId),
         ne(designTable.id, excludeDesignId),
-        isNotNull(designTable.primaryImageId)
+        isNotNull(designTable.primaryImageId),
+        or(isNull(imageTable.operation), ne(imageTable.operation, "upload"))
       )
     )
     .orderBy(desc(designTable.updatedAt))
