@@ -464,6 +464,142 @@ describe("upload anchors (#356)", () => {
     );
   });
 
+  describe("an anchorless turn whose latest output is an upload", () => {
+    it("is shown the photo and generates from the brief's spec, anchored on the upload", async () => {
+      const designId = await seedDesign();
+      const uploadId = await seedUpload(designId);
+
+      const result = expectQueued(
+        await generateDesign(designId, "a happy cat in this style")
+      );
+      expect(loadBriefPhotoMock).toHaveBeenCalledWith("https://r2/photo.png");
+      expect(briefMock.mock.calls[0][3]).toEqual(PHOTO);
+
+      const [job] = await jobs(designId);
+      expect(job.operation).toBe("generate");
+      expect(job.anchorImageId).toBe(uploadId);
+
+      await drainAfter();
+      expect(ideogramCost).toHaveBeenCalledWith(
+        expect.objectContaining({ kind: "generate" })
+      );
+      expect(ideogramGen).toHaveBeenCalledWith(
+        { kind: "generate", spec: GENERATE_BRIEF.spec },
+        { aspect: "1:1" }
+      );
+      const [row] = await testDb
+        .select()
+        .from(schema.image)
+        .where(eq(schema.image.id, result.imageId));
+      expect(row.parentImageId).toBe(uploadId);
+    });
+
+    it("renders the user's words, not an edit, when the brief says edit about another image", async () => {
+      const designId = await seedDesign();
+      const uploadId = await seedUpload(designId, new Date("2026-01-02T00:00:00Z"));
+      // An older generated image the brief points at; the upload is the latest.
+      await makeSourceImage(testDb, {
+        designId,
+        ownerId: "u1",
+        imageUrl: "https://r2/older.png",
+        operation: "generate",
+        createdAt: new Date("2026-01-01T00:00:00Z"),
+      });
+      briefMock.mockResolvedValue({
+        operation: "edit",
+        message: "Stylized",
+        editInstruction: "stylize",
+        referenceImage: 1,
+      });
+
+      expectQueued(await generateDesign(designId, "stylize that design"));
+      const [job] = await jobs(designId);
+      expect(job.operation).toBe("generate");
+      expect(job.anchorImageId).toBe(uploadId);
+
+      await drainAfter();
+      expect(ideogramGen).toHaveBeenCalledTimes(1);
+      expect(ideogramGen).toHaveBeenCalledWith(
+        {
+          kind: "generate",
+          spec: expect.objectContaining({
+            subject: 'Bold lettering reading "stylize that design"',
+          }),
+        },
+        { aspect: "1:1" }
+      );
+      expect(ideogramGen).not.toHaveBeenCalledWith(
+        expect.objectContaining({ kind: "edit" }),
+        expect.anything()
+      );
+    });
+
+    it("renders the words, anchored on the upload, when the brief asks a question", async () => {
+      const designId = await seedDesign();
+      const uploadId = await seedUpload(designId);
+      briefMock.mockResolvedValue({
+        operation: "clarify",
+        message: "Which part of the photo?",
+      });
+
+      expectQueued(await generateDesign(designId, "make it cool"));
+      const [job] = await jobs(designId);
+      expect(job.operation).toBe("generate");
+      expect(job.anchorImageId).toBe(uploadId);
+
+      await drainAfter();
+      const messages = await testDb.select().from(schema.chatMessage);
+      expect(messages.map((m) => m.content)).toContain("Which part of the photo?");
+    });
+
+    it("still generates, anchored on the upload, when the photo cannot be loaded", async () => {
+      const designId = await seedDesign();
+      const uploadId = await seedUpload(designId);
+      loadBriefPhotoMock.mockResolvedValue(null);
+
+      expectQueued(await generateDesign(designId, "a happy cat in this style"));
+      expect(briefMock.mock.calls[0][3]).toBeNull();
+      const [job] = await jobs(designId);
+      expect(job.operation).toBe("generate");
+      expect(job.anchorImageId).toBe(uploadId);
+    });
+  });
+
+  it("an anchorless turn whose latest output is generated edits it and loads no photo, even with an older upload", async () => {
+    const designId = await seedDesign();
+    await seedUpload(designId, new Date("2026-01-01T00:00:00Z"));
+    const genId = await makeSourceImage(testDb, {
+      designId,
+      ownerId: "u1",
+      imageUrl: "https://r2/gen.png",
+      operation: "generate",
+      createdAt: new Date("2026-01-02T00:00:00Z"),
+    });
+    briefMock.mockResolvedValue({
+      operation: "edit",
+      message: "Bluer",
+      editInstruction: "make it blue",
+      referenceImage: null,
+    });
+
+    expectQueued(await generateDesign(designId, "make it blue"));
+    expect(loadBriefPhotoMock).not.toHaveBeenCalled();
+    expect(briefMock.mock.calls[0][3]).toBeNull();
+    const [job] = await jobs(designId);
+    expect(job.operation).toBe("edit");
+    expect(job.anchorImageId).toBe(genId);
+
+    await drainAfter();
+    expect(ideogramGen).toHaveBeenCalledWith(
+      {
+        kind: "edit",
+        instruction: "make it blue",
+        anchorImageUrl: "https://r2/gen.png",
+      },
+      expect.anything()
+    );
+  });
+
   it("a seed-role upload generates, anchored on the seed; the parent is the latest output, never the seed", async () => {
     const designId = await seedDesign();
     const outputId = await makeSourceImage(testDb, {
