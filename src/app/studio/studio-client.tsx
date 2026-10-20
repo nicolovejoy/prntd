@@ -26,6 +26,7 @@ import {
   ATTACH_LABEL,
   ATTACH_TOO_LARGE,
   ATTACH_UNSUPPORTED,
+  STUDIO_DELETE_CHECKING,
 } from "@/lib/action-copy";
 import { downscaleForUpload } from "@/lib/client-image-downscale";
 import {
@@ -201,6 +202,9 @@ type Anchor = {
 const AT_CAP_COPY = `${GENERATION_CAP} generating — wait for one to finish.`;
 const GENERATE_FAILED_COPY = "Something went wrong. Try again.";
 
+/** Busy key of the bulk Delete's Shop read; a lane's key is its designId. */
+const BULK_CHECK_KEY = "bulk";
+
 /**
  * Delay before the one-shot mount reconcile (#204) below. Long enough that
  * it never competes with first paint, short enough that a lane the server's
@@ -266,6 +270,11 @@ export function StudioClient({
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  // Delete reads whether the confirm names the Shop (#352) before it opens.
+  // The keys ("bulk", or a lane's designId) are held in state to paint the
+  // busy trigger and in a ref so a second tap in the same tick is ignored.
+  const [checkingKeys, setCheckingKeys] = useState<Set<string>>(() => new Set());
+  const checkingRef = useRef<Set<string>>(new Set());
   // The synthetic lane an unanchored submit just created. It goes to the top
   // of the bench (just below the composer), which is off-screen if the user
   // had scrolled down, so the lane nudges itself into view when it mounts
@@ -745,11 +754,23 @@ export function StudioClient({
 
   // Whether a delete confirm names the Shop (#321), read when Delete is
   // tapped. A failed read leaves the line out rather than blocking the delete.
-  async function listingsLeave(designIds: string[]): Promise<boolean> {
+  // While it is in flight `key` is busy (the lane's More trigger, or the bulk
+  // Delete button); it clears when the read settles, before the confirm opens.
+  // Returns null when a read for `key` is already running: the caller stops.
+  async function listingsLeave(
+    key: string,
+    designIds: string[]
+  ): Promise<boolean | null> {
+    if (checkingRef.current.has(key)) return null;
+    checkingRef.current.add(key);
+    setCheckingKeys(new Set(checkingRef.current));
     try {
       return await shopListingsLeaveOnDelete(designIds);
     } catch {
       return false;
+    } finally {
+      checkingRef.current.delete(key);
+      setCheckingKeys(new Set(checkingRef.current));
     }
   }
 
@@ -760,9 +781,11 @@ export function StudioClient({
   async function bulkDelete() {
     const ids = [...selected];
     if (ids.length === 0 || bulkDeleting) return;
+    const leave = await listingsLeave(BULK_CHECK_KEY, ids);
+    if (leave === null) return;
     const ok = await confirm({
       title: bulkDeleteTitle(ids.length),
-      body: bulkDeleteConsequence(ids.length, await listingsLeave(ids)),
+      body: bulkDeleteConsequence(ids.length, leave),
       confirmLabel: "Delete",
       danger: true,
     });
@@ -1308,9 +1331,11 @@ export function StudioClient({
   // cell in My Designs, so the image detail page cannot offer it (slice 5
   // review, F1). Same action, same honest copy.
   async function deleteLane(lane: StudioLane) {
+    const leave = await listingsLeave(lane.designId, [lane.designId]);
+    if (leave === null) return;
     const ok = await confirm({
       title: DELETE_CONVERSATION_TITLE,
-      body: deleteConversationConsequence(await listingsLeave([lane.designId])),
+      body: deleteConversationConsequence(leave),
       confirmLabel: "Delete",
       danger: true,
     });
@@ -1455,6 +1480,7 @@ export function StudioClient({
                   onToggleSelect={toggleSelected}
                   onClose={closeLane}
                   onDelete={deleteLane}
+                  checkingDelete={checkingKeys.has(lane.designId)}
                   onCancel={cancelJob}
                   onEnterSelectMode={enterSelectMode}
                   unresolvedCellIds={unresolvedCellIds}
@@ -1499,11 +1525,16 @@ export function StudioClient({
                 variant="danger"
                 size="sm"
                 onClick={() => void bulkDelete()}
-                disabled={selected.size === 0 || bulkDeleting}
+                disabled={
+                  selected.size === 0 ||
+                  bulkDeleting ||
+                  checkingKeys.has(BULK_CHECK_KEY)
+                }
+                aria-busy={checkingKeys.has(BULK_CHECK_KEY) || undefined}
                 className="min-h-11"
                 data-testid="bulk-delete"
               >
-                Delete
+                {checkingKeys.has(BULK_CHECK_KEY) ? STUDIO_DELETE_CHECKING : "Delete"}
               </Button>
               <Button
                 type="button"
@@ -1713,7 +1744,15 @@ const MENUITEM_SELECTOR = '[role="menuitem"]';
  * and Delete remove the lane, and Select hides every ⋯ on the page — so a
  * generic on-close restore would focus a detached node.
  */
-function LaneMenu({ children }: { children: React.ReactNode }) {
+function LaneMenu({
+  children,
+  busy = false,
+}: {
+  children: React.ReactNode;
+  /** A Delete's Shop read is in flight (#352): the trigger shows the wait
+   * text, is disabled and aria-busy. */
+  busy?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [dropUp, setDropUp] = useState(false);
@@ -1826,20 +1865,28 @@ function LaneMenu({ children }: { children: React.ReactNode }) {
       <button
         ref={triggerRef}
         type="button"
-        aria-label="More"
+        aria-label={busy ? STUDIO_DELETE_CHECKING : "More"}
         aria-haspopup="menu"
         aria-expanded={open}
+        aria-busy={busy || undefined}
+        disabled={busy}
         onClick={() => {
           if (!open) setActiveIndex(0);
           setOpen(!open);
         }}
-        className="w-[46px] min-h-11 -mr-3 flex items-center justify-center text-foreground"
+        className="min-w-[46px] min-h-11 -mr-3 flex items-center justify-center text-foreground"
       >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-          <circle cx="5" cy="12" r="1.8" />
-          <circle cx="12" cy="12" r="1.8" />
-          <circle cx="19" cy="12" r="1.8" />
-        </svg>
+        {busy ? (
+          <span className="px-1 font-mono text-[11px] leading-4 text-text-muted">
+            {STUDIO_DELETE_CHECKING}
+          </span>
+        ) : (
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <circle cx="5" cy="12" r="1.8" />
+            <circle cx="12" cy="12" r="1.8" />
+            <circle cx="19" cy="12" r="1.8" />
+          </svg>
+        )}
       </button>
       {open && (
         <div
@@ -1869,6 +1916,7 @@ function Lane({
   onToggleSelect,
   onClose,
   onDelete,
+  checkingDelete,
   onCancel,
   onEnterSelectMode,
   unresolvedCellIds,
@@ -1889,6 +1937,8 @@ function Lane({
   onToggleSelect: (designId: string) => void;
   onClose: (lane: StudioLane) => void;
   onDelete: (lane: StudioLane) => void;
+  /** This lane's Delete is reading whether the confirm names the Shop. */
+  checkingDelete: boolean;
   onCancel: (lane: StudioLane, jobId: string) => void;
   /** Opens this row's own Select entry inside its ⋯ overflow (Paper bench,
    * #188 slice 3) — the page-level "Select" control is gone, so this is now
@@ -2005,7 +2055,7 @@ function Lane({
             verb there). With every item gone there is nothing to open, so
             the trigger goes too. */}
         {!generating && !selectMode && (
-          <LaneMenu>
+          <LaneMenu busy={checkingDelete}>
             <button
               type="button"
               role="menuitem"

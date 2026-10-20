@@ -9,7 +9,12 @@ vi.mock("../r2", () => ({
   getObjectByKey: (...args: unknown[]) => getObjectByKey(...args),
 }));
 
-import { loadBriefPhoto, BRIEF_PHOTO_READ_TIMEOUT_MS } from "../brief-photo";
+import {
+  loadBriefPhoto,
+  briefPhotoSize,
+  BRIEF_PHOTO_READ_TIMEOUT_MS,
+  BRIEF_PHOTO_MAX_PIXELS,
+} from "../brief-photo";
 
 async function noisePng(width: number, height: number): Promise<Buffer> {
   const raw = Buffer.alloc(width * height * 3);
@@ -23,14 +28,16 @@ describe("loadBriefPhoto", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
   });
 
-  it("returns a JPEG within 1568 px that decodes, and reads with the short timeout", async () => {
+  it("returns a JPEG within the size caps that decodes, and reads with the short timeout", async () => {
     getObjectByKey.mockResolvedValue(await noisePng(3000, 2000));
     const photo = await loadBriefPhoto("https://r2/images/p.png");
     expect(photo?.mediaType).toBe("image/jpeg");
     const meta = await sharp(Buffer.from(photo!.data, "base64")).metadata();
     expect(meta.format).toBe("jpeg");
     expect(Math.max(meta.width!, meta.height!)).toBeLessThanOrEqual(1568);
-    expect(meta.width).toBe(1568);
+    // 3000x2000 is now limited by area (1.15 MP), not by the 1568 px side.
+    expect(meta.width! * meta.height!).toBeLessThanOrEqual(BRIEF_PHOTO_MAX_PIXELS);
+    expect(meta.width).toBe(1313);
     expect(getObjectByKey).toHaveBeenCalledWith(
       "images/p.png",
       BRIEF_PHOTO_READ_TIMEOUT_MS
@@ -50,6 +57,45 @@ describe("loadBriefPhoto", () => {
     getObjectByKey.mockResolvedValue(png);
     const photo = await loadBriefPhoto("https://r2/images/p.png");
     expect(photo!.data.length).toBeLessThan(5 * 1024 * 1024);
+  });
+
+  describe("output dimensions", () => {
+    async function outputSize(width: number, height: number) {
+      getObjectByKey.mockResolvedValue(await noisePng(width, height));
+      const photo = await loadBriefPhoto("https://r2/images/p.png");
+      const meta = await sharp(Buffer.from(photo!.data, "base64")).metadata();
+      return { width: meta.width!, height: meta.height! };
+    }
+
+    it("fits a 2048x1536 photo to the area cap (about 1238x928)", async () => {
+      const size = await outputSize(2048, 1536);
+      expect(size).toEqual({ width: 1238, height: 928 });
+      expect(size.width * size.height).toBeLessThanOrEqual(BRIEF_PHOTO_MAX_PIXELS);
+    });
+
+    it("fits a 1568x1568 square to the area cap (about 1072x1072)", async () => {
+      const size = await outputSize(1568, 1568);
+      expect(size).toEqual({ width: 1072, height: 1072 });
+    });
+
+    it("keeps a 3000x600 panorama at the 1568 px side cap", async () => {
+      const size = await outputSize(3000, 600);
+      expect(size).toEqual({ width: 1568, height: 314 });
+    });
+
+    it("leaves a small image unchanged", async () => {
+      expect(await outputSize(640, 480)).toEqual({ width: 640, height: 480 });
+    });
+
+    it("never exceeds either cap across aspect ratios", () => {
+      for (const [w, h] of [[2048, 2048], [2048, 1], [1, 2048], [1500, 900], [900, 1500], [1200, 1200]]) {
+        const size = briefPhotoSize(w, h);
+        expect(size.width * size.height).toBeLessThanOrEqual(BRIEF_PHOTO_MAX_PIXELS);
+        expect(Math.max(size.width, size.height)).toBeLessThanOrEqual(1568);
+        expect(size.width).toBeGreaterThanOrEqual(1);
+        expect(size.height).toBeGreaterThanOrEqual(1);
+      }
+    });
   });
 
   it("does not enlarge a small image", async () => {

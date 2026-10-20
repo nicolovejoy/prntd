@@ -14,7 +14,9 @@ import { multiPlacementEnabled } from "@/lib/blanks";
 import { cartEnabled } from "@/lib/flags";
 import { getEditableCartLine } from "@/app/cart/actions";
 import { Breadcrumbs } from "@/components/breadcrumbs";
-import { breadcrumbTrail, detailFrom } from "@/lib/nav";
+import { breadcrumbTrail, detailFrom, HOME, type Crumb } from "@/lib/nav";
+import { conversationStudioHref } from "@/lib/studio-entry";
+import { BENCH_HREF } from "@/lib/studio-focus";
 import { IdentityBlock } from "./identity-block";
 import { PublishedImageView } from "./published-image-view";
 import { BuyHero } from "./buy-hero";
@@ -110,7 +112,15 @@ export default async function PublishedImagePage({
     isOwner && img.sourceDesignId && img.hasSourceConversation
       ? img.sourceDesignId
       : null;
-  const [siblings, delistedOnDelete] = await Promise.all([
+  // The owner's unpublished upload with no recognised `from` hangs off the
+  // Studio rather than My Designs (see the trail below); its stage address is
+  // read here, with the other owner reads, so it adds no round trip.
+  const uploadHangsOffStudio =
+    isOwner &&
+    !isPublished &&
+    img.operation === "upload" &&
+    !detailFrom(from, true);
+  const [siblings, delistedOnDelete, studioHref] = await Promise.all([
     isOwner && img.sourceDesignId
       ? getConversationImages(img.sourceDesignId)
       : null,
@@ -120,6 +130,12 @@ export default async function PublishedImagePage({
           () => new Set<string>()
         )
       : new Set<string>(),
+    uploadHangsOffStudio && ownerConversationId && session
+      ? // Fails open to the bench, as the other optional reads on this page do.
+        conversationStudioHref(session.user.id, ownerConversationId).catch(
+          () => BENCH_HREF
+        )
+      : BENCH_HREF,
   ]);
 
   // The buy panel's picks ride in the link (#278): parsed against the catalog
@@ -140,9 +156,19 @@ export default async function PublishedImagePage({
   const editingLine = editable ? { id: editable.id } : null;
 
   // No `from` on a private image means My Designs, not the Shop it isn't in.
-  const trail = breadcrumbTrail(`/d/${imageId}`, {
-    from: detailFrom(from, isPublished),
-  });
+  // The exception is the owner's unpublished upload (slice B follow-up): My
+  // Designs leaves uploads out (#355), so its parent is the Studio, on the
+  // stage of the conversation it sits in, else the bench. A recognised `from`
+  // still wins (`detailFrom(from, true)` is the recognised `from` or nothing).
+  // The trail is built here rather than in nav.ts so nav.ts stays pure: the
+  // stage address needs a read of the viewer's lanes (started above, and only
+  // for this branch).
+  const uploadParent: Crumb | null = uploadHangsOffStudio
+    ? { label: "Studio", href: studioHref }
+    : null;
+  const trail = uploadParent
+    ? [HOME, uploadParent]
+    : breadcrumbTrail(`/d/${imageId}`, { from: detailFrom(from, isPublished) });
   const up = trail.length > 0 ? trail[trail.length - 1] : null;
 
   // Publishing (or unpublishing) re-renders this same route with the other

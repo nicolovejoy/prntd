@@ -167,8 +167,10 @@ export async function getImageObject(imageId: string): Promise<Buffer | null> {
 export const R2_READ_TIMEOUT_MS = 30_000;
 
 /**
- * Fetch an object's bytes by its exact key, or null on any failure. The
- * request and the body read share one deadline: past it the request is
+ * Fetch an object's bytes by its exact key. Returns null when the object has
+ * no body, and when the read fails for any reason other than the deadline (a
+ * missing key, a network or credentials error); those are logged, not thrown.
+ * The request and the body read share one deadline: past it the request is
  * aborted and this throws an Error named "TimeoutError" (the web platform's
  * name for a timeout), so a caller can tell a slow read from a missing one.
  */

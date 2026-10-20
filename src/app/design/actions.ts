@@ -174,7 +174,8 @@ export async function generateDesign(
     /**
      * Explicit anchor (studio slice 3): the image the user tapped before
      * typing. Deterministic — the turn becomes an edit of exactly this image,
-     * whatever the brief would have classified. Must be one of the
+     * whatever the brief would have classified; an uploaded photo anchor
+     * renders as a generate from the photo instead (#356). Must be one of the
      * conversation's own images or the whole turn is refused.
      */
     anchorImageId?: string;
@@ -506,15 +507,35 @@ async function prepareGeneration({
   // always produces a generation, so there is nothing for a "render vs ask"
   // gate to decide. The brief below still asks its question — attached to the
   // image it renders, never instead of one.
-  // Only an explicit upload anchor is shown to the brief. loadBriefPhoto never
-  // throws; when it returns null (object missing, read timed out, undecodable)
-  // the brief runs on the words alone and the turn is still a generate through
+  // The image an anchorless edit would land on when the brief names no
+  // reference: the latest OUTPUT is what "make it larger" means, but a
+  // fresh-start thread may have only a seed (no outputs yet) — that seed is
+  // still a legitimate, on-screen design, so fall back to the latest image of
+  // any role. (Provenance below uses a separate, seed-excluding `outputs`
+  // lookup — parent lineage must never point at a seed; this one is purely
+  // "what is the user looking at".)
+  const anchorOutputs = images.filter((img) => img.role !== "seed");
+  const fallbackAnchor =
+    anchorOutputs[anchorOutputs.length - 1] ?? images[images.length - 1];
+
+  // The photo rule applies to an explicit upload anchor and equally to an
+  // anchorless turn whose fallback anchor is an upload (#356, leftovers). The
+  // Studio does not send the second kind (an unanchored submit mints a new
+  // conversation), so it is reached by a direct generateDesign call or a
+  // later client; applying the rule here keeps the photo from being edited, or
+  // rendered as lettering, whichever client sends the turn. A brief reference
+  // to an upload while the fallback is a generated image is not resolved here:
+  // it is only known after the brief, so the brief is not shown that photo.
+  const shownAnchor = explicitAnchor ?? fallbackAnchor;
+  const photoAnchor =
+    shownAnchor?.operation === "upload" ? shownAnchor : undefined;
+
+  // Only a photo anchor is shown to the brief. loadBriefPhoto never throws;
+  // when it returns null (object missing, read timed out, undecodable) the
+  // brief runs on the words alone and the turn is still a generate through
   // specForPhotoTurn. That is the accepted limit of the photo rule (spec,
   // slice A): the spec then cannot describe the photo.
-  const photo =
-    explicitAnchor?.operation === "upload"
-      ? await loadBriefPhoto(explicitAnchor.url)
-      : null;
+  const photo = photoAnchor ? await loadBriefPhoto(photoAnchor.url) : null;
 
   let brief: Awaited<ReturnType<typeof constructDesignBrief>>;
   try {
@@ -537,8 +558,9 @@ async function prepareGeneration({
   // The spec for a turn anchored on an uploaded photo: the brief's own when it
   // obeyed the photo rule and chose "generate"; otherwise (edit or clarify)
   // the user's words, as the clarify branch does. A brief written without
-  // seeing the photo (no explicit anchor; the anchor fell back to the latest
-  // output) lands here with "edit" and renders from the words alone.
+  // seeing the photo (the photo could not be loaded, or the brief named an
+  // upload as its reference after the fact) lands here with "edit" and renders
+  // from the words alone.
   function specForPhotoTurn(): DesignSpec {
     if (brief.operation === "generate") return brief.spec;
     const spec = fallbackSpec(userMessage.trim());
@@ -566,8 +588,30 @@ async function prepareGeneration({
     }
   }
 
+  // The image the brief named as its edit reference, if it resolves.
+  const referencedImage =
+    brief.operation === "edit" && brief.referenceImage != null
+      ? images.find((img) => img.number === brief.referenceImage)
+      : undefined;
+
+  if (
+    !explicitAnchor &&
+    photoAnchor &&
+    !(referencedImage && referencedImage.operation !== "upload")
+  ) {
+    // Anchorless turn on a photo: same rule as the explicit upload anchor.
+    // Whatever the brief returned, the photo is the anchor and the turn is a
+    // generate; a clarify brief's question still rides along as the assistant
+    // turn (brief.message), as on the explicit path. The one exception is a
+    // brief that explicitly references another, non-upload image: what the
+    // brief named wins over the implicit fallback, and the edit branch below
+    // edits that image.
+    anchorImageId = photoAnchor.id;
+    generateOp = { kind: "generate", spec: specForPhotoTurn() };
+  }
+
   if (generateOp) {
-    // explicit anchor resolved above
+    // explicit or photo anchor resolved above
   } else if (brief.operation === "clarify") {
     // A clarify brief is no longer an exit. The user asked for a design, so
     // their literal request gets rendered and the brief's question rides along
@@ -578,21 +622,8 @@ async function prepareGeneration({
     if (!spec) throw new Error("Clarify brief reached with no user words");
     generateOp = { kind: "generate", spec };
   } else if (brief.operation === "edit") {
-    const referencedImage =
-      brief.referenceImage != null
-        ? images.find((img) => img.number === brief.referenceImage)
-        : undefined;
-    // No explicit reference → the latest OUTPUT is what "make it larger"
-    // means. But a fresh-start thread may have only a seed (no outputs yet) —
-    // that seed is still a legitimate, on-screen design to edit, so fall back
-    // to the latest image of any role rather than refusing. (Provenance below
-    // uses a separate, seed-excluding `outputs` lookup — parent lineage must
-    // never point at a seed; this one is purely "what is the user looking at".)
-    const anchorOutputs = images.filter((img) => img.role !== "seed");
-    const anchor =
-      referencedImage ??
-      anchorOutputs[anchorOutputs.length - 1] ??
-      images[images.length - 1];
+    // No explicit reference → the fallback anchor computed above.
+    const anchor = referencedImage ?? fallbackAnchor;
     if (!anchor) {
       // An edit classified on an imageless thread is a model error. There is
       // nothing to anchor on, but the instruction still describes a design —
@@ -606,7 +637,9 @@ async function prepareGeneration({
       }
       generateOp = { kind: "generate", spec };
     } else if (anchor.operation === "upload") {
-      // Same photo rule as the explicit anchor above (#356).
+      // Same photo rule as the explicit anchor above (#356). Reached when the
+      // brief's reference is an upload while the fallback anchor is not (an
+      // upload fallback is handled before the brief, with the photo shown).
       anchorImageId = anchor.id;
       generateOp = { kind: "generate", spec: specForPhotoTurn() };
     } else {

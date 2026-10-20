@@ -64,6 +64,12 @@ function detailParent(from: string | undefined): Crumb {
  * the buyer who backs out of an order for it (Stripe's cancel link, the
  * embedded Back, the sign-in detour) arrives with no `from` because the return
  * path never carries a client-sent one.
+ *
+ * `detailFrom(from, true)` is therefore the recognised `from` or undefined.
+ * The page uses that to tell "no origin" apart from an explicit `/designs`, for
+ * the owner's unpublished upload, whose parent is the Studio rather than My
+ * Designs (My Designs leaves uploads out); that crumb is built in the page
+ * because its href is a read of the viewer's lanes.
  */
 export function detailFrom(
   from: string | undefined,

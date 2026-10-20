@@ -1022,6 +1022,53 @@ describe("deleting a lane (slice 5 review, F1)", () => {
     await waitFor(() => expect(deleteDesign).toHaveBeenCalledWith("design-1"));
   });
 
+  it("shows a busy trigger while the Shop read is in flight, then opens the confirm (#352)", async () => {
+    let resolveRead!: (leaves: boolean) => void;
+    vi.mocked(shopListingsLeaveOnDelete).mockImplementationOnce(
+      () => new Promise<boolean>((resolve) => (resolveRead = resolve))
+    );
+    render(<StudioClient initialLanes={[lane()]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    fireEvent.click(screen.getByTestId("studio-delete-lane"));
+
+    // The busy trigger's accessible name is the wait text, not "More".
+    const trigger = await screen.findByRole("button", { name: "Checking…" });
+    expect((trigger as HTMLButtonElement).disabled).toBe(true);
+    expect(trigger.getAttribute("aria-busy")).toBe("true");
+    expect(trigger.textContent).toBe("Checking…");
+    expect(screen.queryByTestId("confirm-sheet")).toBeNull();
+
+    await act(async () => resolveRead(true));
+
+    await screen.findByTestId("confirm-sheet");
+    const settled = screen.getByRole("button", { name: "More" });
+    expect((settled as HTMLButtonElement).disabled).toBe(false);
+    expect(settled.getAttribute("aria-busy")).toBeNull();
+    expect(settled.textContent).not.toContain("Checking");
+  });
+
+  it("clears the busy trigger when the read fails (#352)", async () => {
+    let rejectRead!: (err: Error) => void;
+    vi.mocked(shopListingsLeaveOnDelete).mockImplementationOnce(
+      () => new Promise<boolean>((_, reject) => (rejectRead = reject))
+    );
+    render(<StudioClient initialLanes={[lane()]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    fireEvent.click(screen.getByTestId("studio-delete-lane"));
+    expect(
+      (await screen.findByRole("button", { name: "Checking…" })).getAttribute("aria-busy")
+    ).toBe("true");
+
+    await act(async () => rejectRead(new Error("boom")));
+
+    await screen.findByTestId("confirm-sheet");
+    const settled = screen.getByRole("button", { name: "More" });
+    expect((settled as HTMLButtonElement).disabled).toBe(false);
+    expect(settled.getAttribute("aria-busy")).toBeNull();
+  });
+
   it("keeps the lane and shows the reason when the delete is refused", async () => {
     vi.mocked(deleteDesign).mockResolvedValueOnce({
       // deleteDesign archives an ordered conversation rather than returning an
@@ -1176,6 +1223,61 @@ describe("select mode (#189)", () => {
     expect(screen.getByText("two")).toBeTruthy();
     // Back to the composer once it's done.
     expect(screen.getByTestId("studio-composer")).toBeTruthy();
+  });
+
+  it("shows the bulk Delete as busy while the Shop read is in flight; a second tap is ignored (#352)", async () => {
+    let resolveRead!: (leaves: boolean) => void;
+    vi.mocked(shopListingsLeaveOnDelete).mockClear();
+    vi.mocked(shopListingsLeaveOnDelete).mockImplementationOnce(
+      () => new Promise<boolean>((resolve) => (resolveRead = resolve))
+    );
+    render(<StudioClient initialLanes={three()} />);
+    fireEvent.click(screen.getAllByRole("button", { name: "More" })[0]);
+    fireEvent.click(screen.getByTestId("select-mode"));
+    fireEvent.click(screen.getByTestId("select-all"));
+
+    // Both taps land in one act(), before the disabled state commits, so the
+    // second one reaches bulkDelete and only the in-flight guard stops it.
+    const button = screen.getByTestId("bulk-delete") as HTMLButtonElement;
+    act(() => {
+      fireEvent.click(button);
+      fireEvent.click(button);
+    });
+    expect(shopListingsLeaveOnDelete).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(button.disabled).toBe(true));
+    expect(button.getAttribute("aria-busy")).toBe("true");
+    expect(button.textContent).toBe("Checking…");
+
+    await act(async () => resolveRead(false));
+
+    await screen.findByTestId("confirm-sheet");
+    const settled = screen.getByTestId("bulk-delete") as HTMLButtonElement;
+    expect(settled.disabled).toBe(false);
+    expect(settled.getAttribute("aria-busy")).toBeNull();
+    expect(settled.textContent).toBe("Delete");
+  });
+
+  it("clears the bulk Delete busy state when the read fails (#352)", async () => {
+    let rejectRead!: (err: Error) => void;
+    vi.mocked(shopListingsLeaveOnDelete).mockImplementationOnce(
+      () => new Promise<boolean>((_, reject) => (rejectRead = reject))
+    );
+    render(<StudioClient initialLanes={three()} />);
+    fireEvent.click(screen.getAllByRole("button", { name: "More" })[0]);
+    fireEvent.click(screen.getByTestId("select-mode"));
+    fireEvent.click(screen.getByTestId("select-all"));
+
+    fireEvent.click(screen.getByTestId("bulk-delete"));
+    await waitFor(() =>
+      expect(screen.getByTestId("bulk-delete").getAttribute("aria-busy")).toBe("true")
+    );
+
+    await act(async () => rejectRead(new Error("boom")));
+
+    await screen.findByTestId("confirm-sheet");
+    const settled = screen.getByTestId("bulk-delete") as HTMLButtonElement;
+    expect(settled.disabled).toBe(false);
+    expect(settled.getAttribute("aria-busy")).toBeNull();
   });
 
   it("puts a kept lane back and says why", async () => {
