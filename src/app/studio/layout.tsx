@@ -27,7 +27,9 @@ export default function StudioLayout({
   return (
     <div className="group/studio min-h-screen flex flex-col">
       <div className="px-4 sm:px-6 pt-6 max-w-4xl group-has-[[data-studio-stage]]/studio:max-w-6xl mx-auto w-full">
-        <h1 className="text-xl sm:text-2xl font-bold">Studio</h1>
+        <h1 className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted">
+          Studio
+        </h1>
       </div>
       {children}
     </div>

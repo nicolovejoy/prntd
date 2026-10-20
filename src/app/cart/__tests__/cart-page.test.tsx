@@ -73,6 +73,20 @@ beforeEach(() => {
 });
 
 describe("CartPage load states", () => {
+  it("titles the page with the mono masthead (#188 slice 8)", async () => {
+    getCart.mockResolvedValue(EMPTY);
+    render(<CartPage />);
+
+    const h1 = await screen.findByRole("heading", { level: 1, name: "Your cart" });
+    expect(h1).toHaveClass(
+      "font-mono",
+      "text-[11px]",
+      "uppercase",
+      "text-text-muted",
+    );
+    expect(h1).not.toHaveClass("font-bold");
+  });
+
   it("shows the empty state for a genuinely empty cart", async () => {
     getCart.mockResolvedValue(EMPTY);
     render(<CartPage />);
