@@ -90,3 +90,10 @@ describe("sign-up redirect target", () => {
     );
   });
 });
+
+describe("sign-up layout", () => {
+  it("keeps a 16px horizontal gutter on the outer wrapper (phone)", async () => {
+    const { container } = await renderSignUp();
+    expect(container.firstElementChild).toHaveClass("min-h-screen", "px-4");
+  });
+});

@@ -19,7 +19,7 @@ function ResetPasswordForm() {
 
   if (!token && !error_param) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center px-4">
         <div className="w-full max-w-sm space-y-6 text-center">
           <h1 className="text-2xl font-bold">Invalid link</h1>
           <p className="text-text-muted text-sm">This reset link is missing a token.</p>
@@ -33,7 +33,7 @@ function ResetPasswordForm() {
 
   if (done) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center px-4">
         <div className="w-full max-w-sm space-y-6 text-center">
           <h1 className="text-2xl font-bold">Password updated</h1>
           <p className="text-text-muted text-sm">You can now sign in with your new password.</p>
@@ -82,7 +82,7 @@ function ResetPasswordForm() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center">
+    <div className="min-h-screen flex items-center justify-center px-4">
       <div className="w-full max-w-sm space-y-6">
         <h1 className="text-2xl font-bold text-center">Set new password</h1>
         <form onSubmit={handleSubmit} className="space-y-4">

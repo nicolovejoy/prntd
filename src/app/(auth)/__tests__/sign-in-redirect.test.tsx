@@ -30,7 +30,7 @@ async function renderSignIn(next?: string) {
   const element = await SignInPage({
     searchParams: Promise.resolve(next === undefined ? {} : { next }),
   });
-  render(element);
+  return render(element);
 }
 
 async function submit() {
@@ -92,5 +92,12 @@ describe("sign-in redirect target", () => {
     const line = await screen.findByText("Invalid credentials");
     expect(line.className).toContain("text-negative");
     expect(line.className).not.toContain("red-600");
+  });
+});
+
+describe("sign-in layout", () => {
+  it("keeps a 16px horizontal gutter on the outer wrapper (phone)", async () => {
+    const { container } = await renderSignIn();
+    expect(container.firstElementChild).toHaveClass("min-h-screen", "px-4");
   });
 });
