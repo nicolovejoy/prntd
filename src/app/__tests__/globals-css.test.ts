@@ -60,7 +60,7 @@ describe("globals.css", () => {
     const extra = rules.map((r) => r.selector).filter((s) => !RULES.includes(s));
     expect(
       extra,
-      "any other rule is unlayered and beats Tailwind's layered utilities",
+      "globals.css holds only the token blocks and body; an unlayered rule here beats Tailwind's layered utilities (an @layer or @utility block needs this list and the doc updated)",
     ).toEqual([]);
   });
 

@@ -125,8 +125,8 @@ little playful; the studio has opinions. More character, more risk.
 
 - One ink accent color added — a riso staple (blue or fluorescent-adjacent
   red), used only for chips, generation numbers, and small marks. This breaks
-  the "white is the only inversion color" rule (see Gaps, item 4); the primary button
-  stays white-on-ink.
+  the "white is the only inversion color" rule (see Gaps, item 4); the
+  primary button stays white-on-ink.
 - Geist Mono promoted: generation numbers, prices, and section labels set in
   mono, hand-set-type style.
 - Registration-mark / crop-mark motifs allowed as decoration on empty states
@@ -512,9 +512,9 @@ Scale in use (Tailwind steps), roles:
   in, sign up, forgot password ×2, reset password ×3). Nico's ruling of
   2026-10-20: a form or admin heading is a heading, not a label, so these
   keep the bold sans title. The Studio and Cart titles use the mono masthead
-  below (#188 slice 8); `/preview` is a redirect and has no heading. The `text-lg font-semibold` headings that
-  survived on the retired `/dashboard` and `/shop/[slug]/[productId]` routes
-  went with them (#201).
+  below (#188 slice 8); `/preview` is a redirect and has no heading. The
+  `text-lg font-semibold` headings that survived on the retired `/dashboard`
+  and `/shop/[slug]/[productId]` routes went with them (#201).
 - `text-sm font-medium` — card titles. Also still used for 2 section
   labels not yet converted to the mono label below (the publish modal's Name
   label, `publish-modal.tsx`, and `background-picker.tsx`); the 4 on the
