@@ -125,7 +125,7 @@ little playful; the studio has opinions. More character, more risk.
 
 - One ink accent color added — a riso staple (blue or fluorescent-adjacent
   red), used only for chips, generation numbers, and small marks. This breaks
-  the "white is the only inversion color" rule (gap #8); the primary button
+  the "white is the only inversion color" rule (see Gaps, item 4); the primary button
   stays white-on-ink.
 - Geist Mono promoted: generation numbers, prices, and section labels set in
   mono, hand-set-type style.
@@ -481,17 +481,18 @@ well; call sites that want an edge add `border border-border` themselves).
 The old `.bg-checkerboard` class is gone (#188 slice 8). A rule in
 `globals.css` is unlayered, so it beats every Tailwind utility regardless of
 specificity; a `border` on that class once overrode the 2px `border-accent`
-selection ring on five thumbnails (2026-09-06). `globals.css` therefore sets
-no border outside `:root` and `body`, pinned by
-`src/app/__tests__/globals-css.test.ts`.
+selection border on five thumbnails (2026-09-06). `globals.css` therefore
+holds only `:root`, `@theme inline` and `body`, with no border declared in
+any of them, pinned by `src/app/__tests__/globals-css.test.ts`.
 
 Token mirrors: `src/lib/email.ts`, `src/lib/og-site-card.tsx`,
 `src/app/manifest.ts` and `src/lib/artwork-well.ts` copy hex values by hand,
 because emails, OG rasters, the manifest and the luminance rule cannot read
 CSS custom properties. `src/lib/__tests__/token-mirrors.test.ts` pins each
 copy to its token in `globals.css`, so changing a token fails a test instead
-of leaving a mirror behind. The app icon (`src/app/icon.svg`) is pinned by
-`app-icons.test.ts`.
+of leaving a mirror behind. `token-mirrors.test.ts` also pins the colour
+constants in `scripts/generate-icons.ts` and the fills in `src/app/icon.svg`
+to `globals.css`; `app-icons.test.ts` pins the rest of the icon files.
 
 ### Type
 
@@ -507,17 +508,17 @@ Scale in use (Tailwind steps), roles:
 - `text-xl` / `text-2xl` `font-bold` — form and admin screen title (13 live
   headings): `text-xl` on the six admin headings (`/admin`,
   `/admin/orders/[id]`, `/admin/published`, `/admin/errors`, `/admin/usage`,
-  `/admin/usage/[userId]`) and `text-2xl` on the seven auth headings (sign in, sign up, forgot password
-  ×2, reset password ×3). Nico's ruling of 2026-10-20: a form or admin heading
-  is a heading, not a label, so these keep the bold sans title. The Studio and
-  Cart titles use the mono masthead below (#188 slice 8); `/preview` is a
-  redirect and has no heading. The `text-lg font-semibold` headings that
+  `/admin/usage/[userId]`) and `text-2xl` on the seven auth headings (sign
+  in, sign up, forgot password ×2, reset password ×3). Nico's ruling of
+  2026-10-20: a form or admin heading is a heading, not a label, so these
+  keep the bold sans title. The Studio and Cart titles use the mono masthead
+  below (#188 slice 8); `/preview` is a redirect and has no heading. The `text-lg font-semibold` headings that
   survived on the retired `/dashboard` and `/shop/[slug]/[productId]` routes
   went with them (#201).
-- `text-sm font-medium` — card titles. Also still used for 3 section
-  labels not yet converted to the mono label below (`/preview`'s Product
-  label, the publish modal's Name label, `background-picker.tsx`); the 4 on
-  the retired `/dashboard` compose form were deleted with it (#201).
+- `text-sm font-medium` — card titles. Also still used for 2 section
+  labels not yet converted to the mono label below (the publish modal's Name
+  label, `publish-modal.tsx`, and `background-picker.tsx`); the 4 on the
+  retired `/dashboard` compose form were deleted with it (#201).
 - `text-sm` — body, chat
 - `text-xs text-text-muted` — metadata
 - `text-xs text-text-faint` / `text-[10px]` — fine print; `Badge` and
@@ -536,6 +537,10 @@ Scale in use (Tailwind steps), roles:
   class string in other files, including the mastheads and
   `src/components/product-options.tsx`. Is taking over the "section
   labels" role named above — see there for what has not converted yet.
+- `font-mono text-[13px] leading-5 tracking-[0.08em] uppercase` — mono
+  screen title, one step above the 11 px masthead. Used by the Checkout
+  heading (`src/app/checkout/page.tsx`) and the Order confirm headings
+  (`src/app/order/confirm/page.tsx`, two sites, one centred).
 - `font-mono` — IDs, codes, money references (Option B widens this role to
   generation numbers, prices, and labels)
 
@@ -610,8 +615,8 @@ Interaction grammar:
 Status as of 2026-07-19, with one edit on 2026-10-20: Gaps 3 (the two
 empty states in the `/design` thread) and 4 ("Selected image is
 load-bearing") were deleted in #188 slice 8 because the views they described
-are gone (#345), and the items after them were renumbered 1 to 5. Items 1, 2,
-and the undefined-token no-ops from the first draft were fixed on main
+are gone (#345), and the later items became 3 to 5. The first draft's items 1
+and 2, and the undefined-token no-ops, were fixed on main
 2026-06-14 (`cbedcbe`): Geist restored, 40 raw `gray-*` classes swept to
 semantic tokens, 4 dead token names corrected. Remaining:
 
@@ -633,9 +638,9 @@ semantic tokens, 4 dead token names corrected. Remaining:
    under #174 (studio slice 1): the composer has exactly one submit control,
    labelled "Generate" (persona C), and it always generates. Chat is still
    reachable but only via a separate, visibly lower-weight "Ask" tap
-   (`variant="ghost"` vs. the submit's `variant="primary"`/`"generate"`)
-   (Ask removed with the chat action in this PR).
-   `chat-panel.tsx` `handleSubmit`/`handleAsk` (deleted by #345).
+   (`variant="ghost"` vs. the submit's `variant="primary"`/`"generate"`).
+   Ask was removed with the chat action by #347, and the `chat-panel.tsx`
+   `handleSubmit`/`handleAsk` handlers went with the thread (#345).
 4. ~~**Accent = white means no brand color exists.**~~ — RESOLVED 2026-09-06
    under Paper (#213): false twice over now — `--accent` resolves to ink
    (`var(--foreground)`), not white, and one brand hue does exist:

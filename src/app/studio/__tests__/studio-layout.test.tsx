@@ -18,6 +18,8 @@ describe("StudioLayout", () => {
       "text-text-muted",
     );
     expect(h1).not.toHaveClass("font-bold");
+    // Hidden on the focused stage, whose back row carries the same label.
+    expect(h1).toHaveClass("group-has-[[data-studio-stage]]/studio:sr-only");
     expect(screen.getByText("bench")).toBeInTheDocument();
   });
 });

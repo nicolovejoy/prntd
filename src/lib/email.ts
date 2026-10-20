@@ -14,8 +14,9 @@ const REPLY_TO = "hello@prntd.org";
 // reliably support tables + inline styles, so everything is built that way.
 //
 // Colours are the Paper token values from globals.css, hardcoded as hex —
-// email HTML can't read CSS custom properties. src/lib/__tests__/
-// token-mirrors.test.ts fails when one drifts from globals.css.
+// email HTML can't read CSS custom properties.
+// src/lib/__tests__/token-mirrors.test.ts fails when one drifts from
+// globals.css.
 // ---------------------------------------------------------------------------
 
 const INK = "#141311";
