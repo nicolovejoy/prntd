@@ -4,6 +4,7 @@ import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { unpublishImage } from "@/app/designs/actions";
 import { useConfirm } from "@/components/ui";
+import { UNPUBLISH_UPLOAD_BODY, UNPUBLISH_UPLOAD_TITLE } from "@/lib/action-copy";
 
 /**
  * Take a published design back down. Lifted out of
@@ -11,25 +12,41 @@ import { useConfirm } from "@/components/ui";
  * renders while the hero is collapsed, so Un-publish used to vanish the
  * moment the buyer tapped Order. It belongs with the owner's other actions.
  *
- * The confirm copy and the post-action redirect are unchanged.
+ * A design keeps its confirm copy and goes back to My Designs afterwards. An
+ * uploaded photo (only one published before #357) gets its own confirm copy,
+ * because it can't be re-published, and the owner stays on the page, which
+ * re-renders as "Not published" with no Publish control (My Designs no longer
+ * lists uploads, so there is nothing to go back to).
  */
-export function UnpublishAction({ imageId }: { imageId: string }) {
+export function UnpublishAction({
+  imageId,
+  isUpload = false,
+}: {
+  imageId: string;
+  isUpload?: boolean;
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const { confirm, element: confirmSheet } = useConfirm();
 
   async function unpublish() {
     const ok = await confirm({
-      title: "Take this design down from the storefront?",
-      body: "You can re-publish it later.",
+      title: isUpload
+        ? UNPUBLISH_UPLOAD_TITLE
+        : "Take this design down from the storefront?",
+      body: isUpload ? UNPUBLISH_UPLOAD_BODY : "You can re-publish it later.",
       confirmLabel: "Un-publish",
       danger: true,
     });
     if (!ok) return;
     startTransition(async () => {
       await unpublishImage(imageId);
-      // The page is no longer public — send the owner back to My Designs.
-      router.push("/designs");
+      if (isUpload) {
+        router.refresh();
+      } else {
+        // The page is no longer public — send the owner back to My Designs.
+        router.push("/designs");
+      }
     });
   }
 

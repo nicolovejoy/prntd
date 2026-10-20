@@ -2,7 +2,9 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 
 vi.mock("../unpublish-action", () => ({
-  UnpublishAction: () => <button>Un-publish</button>,
+  UnpublishAction: ({ isUpload }: { isUpload?: boolean }) => (
+    <button data-is-upload={String(isUpload)}>Un-publish</button>
+  ),
 }));
 vi.mock("../publish-cta", () => ({
   PublishCta: () => <button>Publish</button>,
@@ -38,6 +40,43 @@ describe("OwnerActions", () => {
     // The stage opens on the image the page shows, so the row passes it down.
     expect(open).toHaveAttribute("data-design-id", "design-1");
     expect(open).toHaveAttribute("data-image-id", "img-1");
+  });
+
+  it("passes isUpload through to Un-publish for a published photo", () => {
+    render(
+      <OwnerActions
+        imageId="img-1"
+        imageUrl="https://img.example/1.png"
+        isPublished
+        canPublish
+        isUpload
+        sourceDesignId="design-1"
+        conversationArchived={false}
+        conversationLeavesShop={false}
+      />
+    );
+    expect(screen.getByRole("button", { name: "Un-publish" })).toHaveAttribute(
+      "data-is-upload",
+      "true"
+    );
+  });
+
+  it("does not mark Un-publish as an upload by default", () => {
+    render(
+      <OwnerActions
+        imageId="img-1"
+        imageUrl="https://img.example/1.png"
+        isPublished
+        canPublish
+        sourceDesignId="design-1"
+        conversationArchived={false}
+        conversationLeavesShop={false}
+      />
+    );
+    expect(screen.getByRole("button", { name: "Un-publish" })).toHaveAttribute(
+      "data-is-upload",
+      "false"
+    );
   });
 
   it("states unpublished status and offers Publish", () => {
