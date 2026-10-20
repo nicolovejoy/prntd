@@ -76,3 +76,13 @@ Findings and the controller's rulings:
 7. **Minor, fixed.** No test pinned an anchorless turn whose only image is a seed upload (a "Start from this image" lane); added.
 
 Checked fine by the reviewer: explicit anchors and non-upload fallbacks unchanged; lineage from the seed-excluding outputs; cost $0.03; `anchor_image_id` written but never read for display; job-id replay check untouched; the photo read inside the lost-submit window; Task 3's catch covers every throw; Task 4's left join on the primary key cannot duplicate rows; Task 5's unmount and poll races behave as on main; Task 6's `metadata()` reads only the header.
+
+## Fix round
+
+- Task 1 `2e2fc1b`: `referencedImage` computed once above the override; the override is skipped when it resolves to a non-upload image. A reference that resolves to an upload (the fallback itself included) or to nothing stays a photo generate. Test (b) flipped (edits the named image; the photo was still shown to the brief); an `it.each` for no reference, a number that matches nothing, and the upload itself; a seed-upload test (anchored on the seed, `parentImageId` null). The `opts.anchorImageId` docblock corrected. Mutation: replacing the exception with `true` fails exactly test (b).
+- Task 2 `580ad2e`: the implementer checked `node_modules/next/dist/docs` (server-actions guide: a `revalidatePath` inside an action includes the re-render in the action's response; `revalidatePath` reference: "Updates the UI immediately (if viewing the affected path)") and `unpublishImage`, which revalidates `/d/${imageId}`. The upload branch does nothing after the action. Mutation: an added `router.refresh()` fails the upload test.
+- Task 3 `a902a84`: `conversationStudioHref` is the third entry of the page's existing `Promise.all`, gated by the same conditions, same fail-open.
+- Task 5 `bb7986a`: the bulk test double-clicks inside one `act`; deleting the ref guard now fails it. The trigger's `aria-label` follows the busy state; deleting that fails both lane busy tests.
+- CLAUDE.md "Current state": this entry added above the two merged ones; the #357, #358 and #352 known limits this branch fixes are marked.
+
+Gate on `df8b07d` (controller): lint 0 errors (21 existing warnings), typecheck clean, 268 files / 4218 tests, `db:generate` "No schema changes", build exit 0 with CI's dummy env.
