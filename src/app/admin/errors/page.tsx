@@ -68,7 +68,7 @@ export default async function AdminErrorsPage() {
                         <summary className="text-text-muted cursor-pointer underline underline-offset-[3px]">
                           Stack
                         </summary>
-                        <pre className="mt-1 p-2 bg-surface-well border border-border rounded text-[10px] whitespace-pre-wrap break-all">
+                        <pre className="mt-1 p-2 bg-surface-well border border-border text-[10px] whitespace-pre-wrap break-all">
                           {e.stack}
                         </pre>
                       </details>

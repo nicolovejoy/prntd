@@ -1,7 +1,8 @@
 import type { MetadataRoute } from "next";
 
 // Paper ground (#f8f5ef, the hex the icon and the OG card use for the
-// globals.css --background token).
+// globals.css --background token). src/lib/__tests__/token-mirrors.test.ts
+// fails when it drifts from that token.
 const PAPER = "#f8f5ef";
 
 /**
