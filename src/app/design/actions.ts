@@ -174,7 +174,8 @@ export async function generateDesign(
     /**
      * Explicit anchor (studio slice 3): the image the user tapped before
      * typing. Deterministic — the turn becomes an edit of exactly this image,
-     * whatever the brief would have classified. Must be one of the
+     * whatever the brief would have classified; an uploaded photo anchor
+     * renders as a generate from the photo instead (#356). Must be one of the
      * conversation's own images or the whole turn is refused.
      */
     anchorImageId?: string;
@@ -587,11 +588,24 @@ async function prepareGeneration({
     }
   }
 
-  if (!explicitAnchor && photoAnchor) {
+  // The image the brief named as its edit reference, if it resolves.
+  const referencedImage =
+    brief.operation === "edit" && brief.referenceImage != null
+      ? images.find((img) => img.number === brief.referenceImage)
+      : undefined;
+
+  if (
+    !explicitAnchor &&
+    photoAnchor &&
+    !(referencedImage && referencedImage.operation !== "upload")
+  ) {
     // Anchorless turn on a photo: same rule as the explicit upload anchor.
     // Whatever the brief returned, the photo is the anchor and the turn is a
     // generate; a clarify brief's question still rides along as the assistant
-    // turn (brief.message), as on the explicit path.
+    // turn (brief.message), as on the explicit path. The one exception is a
+    // brief that explicitly references another, non-upload image: what the
+    // brief named wins over the implicit fallback, and the edit branch below
+    // edits that image.
     anchorImageId = photoAnchor.id;
     generateOp = { kind: "generate", spec: specForPhotoTurn() };
   }
@@ -608,10 +622,6 @@ async function prepareGeneration({
     if (!spec) throw new Error("Clarify brief reached with no user words");
     generateOp = { kind: "generate", spec };
   } else if (brief.operation === "edit") {
-    const referencedImage =
-      brief.referenceImage != null
-        ? images.find((img) => img.number === brief.referenceImage)
-        : undefined;
     // No explicit reference → the fallback anchor computed above.
     const anchor = referencedImage ?? fallbackAnchor;
     if (!anchor) {
