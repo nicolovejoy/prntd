@@ -14,9 +14,10 @@ import { UNPUBLISH_UPLOAD_BODY, UNPUBLISH_UPLOAD_TITLE } from "@/lib/action-copy
  *
  * A design keeps its confirm copy and goes back to My Designs afterwards. An
  * uploaded photo (only one published before #357) gets its own confirm copy,
- * because it can't be re-published, and the owner stays on the page, which
- * re-renders as "Not published" with no Publish control (My Designs no longer
- * lists uploads, so there is nothing to go back to).
+ * because it can't be re-published, and the owner stays on the page, which the
+ * action's revalidatePath re-renders as "Not published" with no Publish
+ * control (My Designs no longer lists uploads, so there is nothing to go back
+ * to).
  */
 export function UnpublishAction({
   imageId,
@@ -41,12 +42,10 @@ export function UnpublishAction({
     if (!ok) return;
     startTransition(async () => {
       await unpublishImage(imageId);
-      if (isUpload) {
-        router.refresh();
-      } else {
-        // The page is no longer public — send the owner back to My Designs.
-        router.push("/designs");
-      }
+      // A design goes back to My Designs. An upload stays: unpublishImage's
+      // revalidatePath(`/d/${imageId}`) re-renders this page in the action's
+      // response, so there is nothing more to do here.
+      if (!isUpload) router.push("/designs");
     });
   }
 

@@ -43,7 +43,7 @@ describe("UnpublishAction", () => {
     expect(screen.getByText("You can re-publish it later.")).toBeInTheDocument();
   });
 
-  it("uses the photo copy for an upload and stays on the page afterwards", async () => {
+  it("uses the photo copy for an upload and stays put afterwards", async () => {
     render(<UnpublishAction imageId="img-1" isUpload />);
     fireEvent.click(screen.getByRole("button", { name: "Un-publish" }));
     expect(screen.getByText(UNPUBLISH_UPLOAD_TITLE)).toBeInTheDocument();
@@ -58,8 +58,11 @@ describe("UnpublishAction", () => {
 
     fireEvent.click(screen.getByTestId("confirm-sheet-confirm"));
     await waitFor(() => expect(unpublishImage).toHaveBeenCalledWith("img-1"));
-    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+    // The action's own revalidatePath re-renders the page; the component
+    // navigates nowhere and does not refresh a second time.
+    await waitFor(() => expect(screen.getByRole("button", { name: "Un-publish" })).toBeEnabled());
     expect(push).not.toHaveBeenCalled();
+    expect(refresh).not.toHaveBeenCalled();
   });
 
   it("does nothing for an upload when the confirm is dismissed", async () => {
