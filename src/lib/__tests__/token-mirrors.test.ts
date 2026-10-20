@@ -3,8 +3,9 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "fs";
 import { join } from "path";
 
-// Email HTML, satori (OG card), the web manifest and artwork-well.ts cannot
-// read CSS custom properties, so they carry hand-copied hex values. This test
+// Email HTML, satori (OG card), the web manifest, artwork-well.ts and the icon
+// generator cannot read CSS custom properties, so they carry hand-copied hex
+// values. The generated src/app/icon.svg carries them too. This test
 // reads those values as source text and compares each to the token in
 // globals.css's :root block. The files are read as text, not imported:
 // email.ts and og-site-card.tsx pull in Resend and satori.
@@ -85,6 +86,9 @@ const MIRRORS: { file: string; constName: string; token: string }[] = [
   { file: "src/app/manifest.ts", constName: "PAPER", token: "--background" },
   { file: "src/lib/artwork-well.ts", constName: "PAPER_WELL_HEX", token: "--surface-well" },
   { file: "src/lib/artwork-well.ts", constName: "DARK_WELL_HEX", token: "--surface-well-dark" },
+  { file: "scripts/generate-icons.ts", constName: "PAPER", token: "--background" },
+  { file: "scripts/generate-icons.ts", constName: "INK", token: "--foreground" },
+  { file: "scripts/generate-icons.ts", constName: "ROSE", token: "--accent-rose" },
 ];
 
 describe("hand-copied token hex values match globals.css", () => {
@@ -102,4 +106,17 @@ describe("hand-copied token hex values match globals.css", () => {
       );
     },
   );
+
+  it("every colour in src/app/icon.svg is a token hex", () => {
+    const allowed = new Set(
+      ["--background", "--foreground", "--accent-rose"].map((t) =>
+        tokenHex(tokens, t).toLowerCase(),
+      ),
+    );
+    const colours = [
+      ...read("src/app/icon.svg").matchAll(/\b(?:fill|stroke|stop-color)="([^"]*)"/g),
+    ].map((m) => m[1].toLowerCase());
+    expect(colours.length, "expected colours in icon.svg").toBeGreaterThan(0);
+    expect(colours.filter((c) => !allowed.has(c))).toEqual([]);
+  });
 });

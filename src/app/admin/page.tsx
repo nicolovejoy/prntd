@@ -412,7 +412,7 @@ export default function AdminPage() {
                     <td className="py-3 pr-4">
                       {order.designImageUrl && (
                         <div
-                          className="w-10 h-10 p-1 overflow-hidden"
+                          className="w-10 h-10 p-1 overflow-hidden border border-border"
                           style={{
                             backgroundColor: firstLine
                               ? getColorHex(firstLine.blankId, firstLine.color)

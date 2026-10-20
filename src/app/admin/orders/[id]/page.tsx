@@ -281,7 +281,7 @@ export default function OrderDetailPage() {
                   <div key={i} className="flex gap-3">
                     {thumb && (
                       <div
-                        className="w-16 h-16 p-1.5 overflow-hidden flex-shrink-0"
+                        className="w-16 h-16 p-1.5 overflow-hidden flex-shrink-0 border border-border"
                         style={{
                           backgroundColor: getColorHex(line.blankId, line.color),
                         }}

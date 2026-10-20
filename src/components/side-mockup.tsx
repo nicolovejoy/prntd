@@ -173,9 +173,9 @@ export function SideMockup({
       {/* Side label: an opaque paper label with a hairline border, so it reads
           on any shirt colour. Sits outside the select button so the button's
           name stays `selectLabel`, and stays readable to assistive tech so a
-          panel with no select button still says which side it is. Only rendered when the layout
-          actually has two sides — with one side on screen there is nothing
-          for "Front" to distinguish it from. */}
+          panel with no select button still says which side it is. Only rendered
+          when the layout actually has two sides — with one side on screen
+          there is nothing for "Front" to distinguish it from. */}
       {showSideLabel && (
         <span className="pointer-events-none absolute top-1.5 left-1.5 z-10 border border-border bg-background px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-foreground">
           {SIDE_LABEL[side]}
