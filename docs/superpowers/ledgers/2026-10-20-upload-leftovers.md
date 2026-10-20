@@ -60,3 +60,19 @@ Each implementer ran its own targeted tests, typecheck, eslint on its files, and
 ### Merge and gate (controller)
 
 One conflict, `src/lib/action-copy.ts` (Tasks 2 and 5 both added a block between `UPLOAD_NOT_PUBLISHABLE` and the `/design entry` section); both kept. Gate on `44c08f1`: lint 0 errors (21 existing warnings), typecheck clean, 268 files / 4214 tests, `db:generate` "No schema changes", build exit 0 with CI's dummy env. Baseline from CLAUDE.md for #358's combined tree: 267 / 4181.
+
+## Opus whole-branch review (head `be9b815`): READY WITH FIXES, seven Minor
+
+Nothing Blocking or Important. The reviewer ran the 23 relevant test files (503 tests), two mutation checks, and read Next's bundled docs for the revalidate question.
+
+Findings and the controller's rulings:
+
+1. **Minor, fixed.** Task 5's bulk "second tap is ignored" assertion could not fail: React drops clicks on a disabled button, so deleting the ref guard in `listingsLeave` left all four #352 tests green. The test now fires both clicks in one `act`.
+2. **Minor, fixed.** The busy trigger kept `aria-label="More"`, which hides "Checking…" from screen readers. The label follows the busy state.
+3. **Minor, fixed; ruling 2 reversed.** The anchorless-photo override threw away a brief `edit` whose `referenceImage` named a generated image ("make #1 blue" typed while the latest output is a photo) and rendered a photo generate instead. An implicit fallback is not a tap, and an image the brief names has always won over the fallback (`referencedImage ?? fallbackAnchor`). Now such an edit edits the named image; every other brief outcome on an anchorless photo turn is still a photo generate. The system-prompt rule forbids editing the photo, not other images.
+4. **Minor, fixed (subject to the implementer's check of Next's docs).** `router.refresh()` after unpublishing a photo is redundant: `unpublishImage` calls `revalidatePath` for the page, and a revalidate inside a server action re-renders the current route in the action's response. Dropped to save a second full render.
+5. **Minor, fixed.** Task 3's lanes read ran after the page's other reads, one extra sequential round trip; it now starts in the existing `Promise.all`.
+6. **Minor, fixed.** CLAUDE.md still listed what this branch fixes as known limits; updated in this PR. Also the `generateDesign` `opts.anchorImageId` docblock (wrong for uploads since #358) is corrected.
+7. **Minor, fixed.** No test pinned an anchorless turn whose only image is a seed upload (a "Start from this image" lane); added.
+
+Checked fine by the reviewer: explicit anchors and non-upload fallbacks unchanged; lineage from the seed-excluding outputs; cost $0.03; `anchor_image_id` written but never read for display; job-id replay check untouched; the photo read inside the lost-submit window; Task 3's catch covers every throw; Task 4's left join on the primary key cannot duplicate rows; Task 5's unmount and poll races behave as on main; Task 6's `metadata()` reads only the header.
