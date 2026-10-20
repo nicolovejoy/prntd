@@ -223,7 +223,9 @@ export default function CartPage() {
       />
 
       <div className="w-full max-w-2xl">
-        <h1 className="text-xl sm:text-2xl font-bold mb-6">Your cart</h1>
+        <h1 className="mb-6 font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted">
+          Your cart
+        </h1>
 
         {cart === null && !loadFailed && (
           <p className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-faint">
