@@ -5,7 +5,9 @@
 
 /**
  * Hard bound on `constructDesignBrief`'s Anthropic call (src/lib/ai.ts). The
- * brief is the only slow step before the job row is written, and the SDK's
+ * brief is the main slow step before the job row is written (a photo turn
+ * also reads its photo first, bounded at 5 s by BRIEF_PHOTO_READ_TIMEOUT_MS in
+ * src/lib/brief-photo.ts, #356), and the SDK's
  * own default (10 min, 3 retries) has no bound at all — without one, a lost
  * submit's fate would be unknowable for far longer than a phone screen should
  * sit on a stuck cell.
@@ -14,10 +16,10 @@ export const DESIGN_BRIEF_TIMEOUT_MS = 45_000;
 
 /**
  * How long a lost submit's reconcile loop waits before giving up as failed.
- * Set above DESIGN_BRIEF_TIMEOUT_MS with margin for cold start and the DB
- * work around the brief call: the server started the request no later than
+ * Set above DESIGN_BRIEF_TIMEOUT_MS (plus a photo turn's 5 s photo read) with
+ * margin for cold start and the DB work around the brief call: the server started the request no later than
  * the client's catch, so in practice its job row exists by this deadline or
- * never will. Residual case: a Turso stall of more than ~15 s across
+ * never will. Residual case: a Turso stall of more than ~15 s (~10 s on a photo turn) across
  * generateDesign's pre-insert round trips could still write the row after
  * the deadline. The client then shows the old failure (notice, words back)
  * and the cell appears on the next poll — today's behaviour, not a new
