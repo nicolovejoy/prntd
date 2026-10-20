@@ -89,6 +89,13 @@ export function attachLimitMessage(reason: "identity" | "ip" | undefined): strin
 export const UPLOAD_NOT_PUBLISHABLE =
   "Attached photos can't be published. Publish a design made from one instead.";
 
+/** Un-publish confirm for an uploaded photo (#355 leftover). Only a photo
+ * published before #357 can reach it. Un-publishing is final for a photo, so
+ * the sheet drops the ordinary design's "You can re-publish it later." */
+export const UNPUBLISH_UPLOAD_TITLE = "Take this photo down from the storefront?";
+export const UNPUBLISH_UPLOAD_BODY =
+  "An attached photo can't be published, so this can't be undone.";
+
 // --- /design entry (#188 slice 2b) ---
 // The sessionless hop through /design: a status line while the guest session
 // is minted, and one failure line with a retry.

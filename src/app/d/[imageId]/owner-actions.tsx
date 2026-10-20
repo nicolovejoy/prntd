@@ -43,7 +43,7 @@ export function OwnerActions({
       <h2 className={MONO_LABEL}>Owner</h2>
       <div className="mt-1 flex flex-wrap items-center gap-x-5 gap-y-1">
         {isPublished ? (
-          <UnpublishAction imageId={imageId} />
+          <UnpublishAction imageId={imageId} isUpload={isUpload} />
         ) : (
           <>
             <span className="text-sm text-text-faint">Not published</span>
