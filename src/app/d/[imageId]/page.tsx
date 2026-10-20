@@ -14,7 +14,9 @@ import { multiPlacementEnabled } from "@/lib/blanks";
 import { cartEnabled } from "@/lib/flags";
 import { getEditableCartLine } from "@/app/cart/actions";
 import { Breadcrumbs } from "@/components/breadcrumbs";
-import { breadcrumbTrail, detailFrom } from "@/lib/nav";
+import { breadcrumbTrail, detailFrom, HOME, type Crumb } from "@/lib/nav";
+import { conversationStudioHref } from "@/lib/studio-entry";
+import { BENCH_HREF } from "@/lib/studio-focus";
 import { IdentityBlock } from "./identity-block";
 import { PublishedImageView } from "./published-image-view";
 import { BuyHero } from "./buy-hero";
@@ -140,9 +142,31 @@ export default async function PublishedImagePage({
   const editingLine = editable ? { id: editable.id } : null;
 
   // No `from` on a private image means My Designs, not the Shop it isn't in.
-  const trail = breadcrumbTrail(`/d/${imageId}`, {
-    from: detailFrom(from, isPublished),
-  });
+  // The exception is the owner's unpublished upload (slice B follow-up): My
+  // Designs leaves uploads out (#355), so its parent is the Studio, on the
+  // stage of the conversation it sits in, else the bench. A recognised `from`
+  // still wins (`detailFrom(from, true)` is the recognised `from` or nothing).
+  // The trail is built here rather than in nav.ts so nav.ts stays pure: the
+  // stage address needs a read of the viewer's lanes. Only this branch reads.
+  let uploadParent: Crumb | null = null;
+  if (
+    isOwner &&
+    !isPublished &&
+    img.operation === "upload" &&
+    !detailFrom(from, true)
+  ) {
+    // Fails open to the bench, as the other optional reads on this page do.
+    const href =
+      ownerConversationId && session
+        ? await conversationStudioHref(session.user.id, ownerConversationId).catch(
+            () => BENCH_HREF
+          )
+        : BENCH_HREF;
+    uploadParent = { label: "Studio", href };
+  }
+  const trail = uploadParent
+    ? [HOME, uploadParent]
+    : breadcrumbTrail(`/d/${imageId}`, { from: detailFrom(from, isPublished) });
   const up = trail.length > 0 ? trail[trail.length - 1] : null;
 
   // Publishing (or unpublishing) re-renders this same route with the other
