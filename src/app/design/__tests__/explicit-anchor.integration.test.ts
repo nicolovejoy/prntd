@@ -494,11 +494,11 @@ describe("upload anchors (#356)", () => {
       expect(row.parentImageId).toBe(uploadId);
     });
 
-    it("renders the user's words, not an edit, when the brief says edit about another image", async () => {
+    it("edits the image the brief names when it is not the upload; the photo was still shown", async () => {
       const designId = await seedDesign();
-      const uploadId = await seedUpload(designId, new Date("2026-01-02T00:00:00Z"));
+      await seedUpload(designId, new Date("2026-01-02T00:00:00Z"));
       // An older generated image the brief points at; the upload is the latest.
-      await makeSourceImage(testDb, {
+      const olderId = await makeSourceImage(testDb, {
         designId,
         ownerId: "u1",
         imageUrl: "https://r2/older.png",
@@ -513,25 +513,93 @@ describe("upload anchors (#356)", () => {
       });
 
       expectQueued(await generateDesign(designId, "stylize that design"));
+      expect(briefMock.mock.calls[0][3]).toEqual(PHOTO);
       const [job] = await jobs(designId);
-      expect(job.operation).toBe("generate");
-      expect(job.anchorImageId).toBe(uploadId);
+      expect(job.operation).toBe("edit");
+      expect(job.anchorImageId).toBe(olderId);
 
       await drainAfter();
       expect(ideogramGen).toHaveBeenCalledTimes(1);
       expect(ideogramGen).toHaveBeenCalledWith(
         {
-          kind: "generate",
-          spec: expect.objectContaining({
-            subject: 'Bold lettering reading "stylize that design"',
-          }),
+          kind: "edit",
+          instruction: "stylize",
+          anchorImageUrl: "https://r2/older.png",
         },
-        { aspect: "1:1" }
-      );
-      expect(ideogramGen).not.toHaveBeenCalledWith(
-        expect.objectContaining({ kind: "edit" }),
         expect.anything()
       );
+    });
+
+    it.each([
+      ["names no reference", null],
+      ["names a number that matches no image", 99],
+      ["names the upload itself", 1],
+    ])(
+      "renders the user's words as a generate anchored on the upload when the brief's edit %s",
+      async (_label, referenceImage) => {
+        const designId = await seedDesign();
+        const uploadId = await seedUpload(designId);
+        briefMock.mockResolvedValue({
+          operation: "edit",
+          message: "Stylized",
+          editInstruction: "stylize",
+          referenceImage,
+        });
+
+        expectQueued(await generateDesign(designId, "stylize that design"));
+        expect(briefMock.mock.calls[0][3]).toEqual(PHOTO);
+        const [job] = await jobs(designId);
+        expect(job.operation).toBe("generate");
+        expect(job.anchorImageId).toBe(uploadId);
+
+        await drainAfter();
+        expect(ideogramGen).toHaveBeenCalledWith(
+          {
+            kind: "generate",
+            spec: expect.objectContaining({
+              subject: 'Bold lettering reading "stylize that design"',
+            }),
+          },
+          { aspect: "1:1" }
+        );
+        expect(ideogramGen).not.toHaveBeenCalledWith(
+          expect.objectContaining({ kind: "edit" }),
+          expect.anything()
+        );
+      }
+    );
+
+    it("a conversation whose only image is a seed upload generates anchored on the seed, with no parent", async () => {
+      const designId = await seedDesign();
+      const [other] = await testDb
+        .insert(schema.design)
+        .values({ userId: "u1" })
+        .returning();
+      const seedId = await makeSourceImage(testDb, {
+        designId: other.id,
+        ownerId: "u1",
+        imageUrl: "https://r2/seed-photo.png",
+        operation: "upload",
+      });
+      await testDb
+        .insert(schema.conversationImage)
+        .values({ designId, imageId: seedId, role: "seed" });
+
+      const result = expectQueued(
+        await generateDesign(designId, "a happy cat in this style")
+      );
+      expect(loadBriefPhotoMock).toHaveBeenCalledWith("https://r2/seed-photo.png");
+      expect(briefMock.mock.calls[0][3]).toEqual(PHOTO);
+      const [job] = await jobs(designId);
+      expect(job.operation).toBe("generate");
+      expect(job.anchorImageId).toBe(seedId);
+
+      await drainAfter();
+      const [row] = await testDb
+        .select()
+        .from(schema.image)
+        .where(eq(schema.image.id, result.imageId));
+      expect(row.parentImageId).toBeNull();
     });
 
     it("renders the words, anchored on the upload, when the brief asks a question", async () => {
