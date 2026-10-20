@@ -16,4 +16,47 @@ Method: one Sonnet implementer per task, each in its own worktree (`.claude/work
 
 ## Task log
 
-(filled in as tasks land)
+Each implementer ran its own targeted tests, typecheck, eslint on its files, and a mutation check (a production line reverted, a new test seen failing, restored).
+
+### Task 1 (`16866ca`)
+
+1. The fallback anchor (latest non-seed output, else latest image) is computed once, above the brief, and the brief-`edit` branch reuses it (`referencedImage ?? fallbackAnchor`). Behaviour for a non-upload fallback is unchanged.
+2. `photoAnchor = (explicitAnchor ?? fallbackAnchor)` when it is an upload. Anchorless with a photo fallback: `anchorImageId` = the upload and the turn is a generate through `specForPhotoTurn()`, whatever the brief returned. A `generate` or `clarify` brief on such a turn now records the upload as `anchor_image_id`; before, no anchor was recorded.
+3. A brief `edit` whose `referenceImage` names a generated image while the fallback is an upload still renders as a photo generate (ruling 2 above).
+4. Left as is: a brief whose `referenceImage` names an upload while the fallback is a generated image. The reference is known only after the brief, so the brief was not shown that photo; the turn renders through `specForPhotoTurn` from the words (slice A's limit, unchanged).
+5. Five tests (the plan's four plus a clarify case asserting the question is persisted). Mutation: stashing the production change fails the four anchorless-upload tests; the unchanged-behaviour test passes.
+
+### Task 2 (`e6f4d37`)
+
+1. The non-upload title and body stay inline literals in the component, as before; only the two new strings went into `action-copy.ts`.
+2. `UnpublishAction` takes `isUpload` (default false); `OwnerActions` passes it. `page.tsx` already passed `isUpload` to `OwnerActions`.
+
+### Task 3 (`bd49b61`)
+
+1. The crumb is built in `page.tsx`; `nav.ts` logic is unchanged (one docblock paragraph on `detailFrom`). `detailFrom(from, true)` is the recognised `from` or undefined, so it tells "no from" (including unknown or unsafe values) from an explicit one.
+2. The lanes read runs only for the owner's unpublished upload with no recognised `from` and a resolving conversation; a throw falls back to the bench (`.catch`), as the page's other optional reads fail open.
+3. The HiddenNotice branch is unchanged (it returns before the session read; an upload cannot normally be hidden since it cannot be published).
+4. The mobile back arrow and Escape target read the same `trail`/`up`.
+
+### Task 4 (`d3399f2`)
+
+1. Filter in SQL before `GROUP_LIMIT` (left join `image` on the primary; `operation IS NULL OR operation <> 'upload'`), so skipped designs do not use up slots (test: 25 newer upload primaries and one older real design; the real one stays).
+2. Left join, not inner: a primary that is a `placement_render` id has no `image` row and stays in, as before; a dangling primary is still dropped by the resolve loop.
+
+### Task 5 (`3af8b7a`)
+
+1. In-flight reads are tracked per key (a lane's `designId`, or `"bulk"`) in a ref (blocks a second tap in the same tick) plus state (drives the render); cleared in a `finally`, success or failure, before the confirm opens. `listingsLeave` returns null when a read for that key is already running and the caller stops.
+2. The trigger went from `w-[46px]` to `min-w-[46px]` so "Checking…" can widen it; `min-h-11` and `aria-label="More"` kept. Select all and Done stay enabled during the bulk read.
+3. The lane's ignored-second-tap path is guarded by the disabled attribute and the ref; jsdom cannot click a disabled button, so only the bulk second tap is tested.
+
+### Task 6 (`56da5c6`)
+
+1. `briefPhotoSize(w, h)` (exported, pure) computes the target from decoded metadata; sides rounded, floored if rounding breaks a cap. 2048×1536 → 1238×928, 1568×1568 → 1072×1072, 3000×600 → 1568×314.
+2. No rotate step: `normalizeReferenceImage` stores uploads with orientation applied and metadata stripped.
+3. An existing test fed 3000×2000 and asserted width 1568; that is now area-limited (1313×875) and the test asserts that.
+4. Measured, 2048×1536 random noise: base64 1,532,580 → 860,312 characters (about 44% smaller).
+5. `getObjectByKey`'s docblock now says: null when the object has no body or the read fails for any reason other than the deadline (logged); throws an Error named `TimeoutError` past the deadline.
+
+### Merge and gate (controller)
+
+One conflict, `src/lib/action-copy.ts` (Tasks 2 and 5 both added a block between `UPLOAD_NOT_PUBLISHABLE` and the `/design entry` section); both kept. Gate on `44c08f1`: lint 0 errors (21 existing warnings), typecheck clean, 268 files / 4214 tests, `db:generate` "No schema changes", build exit 0 with CI's dummy env. Baseline from CLAUDE.md for #358's combined tree: 267 / 4181.
