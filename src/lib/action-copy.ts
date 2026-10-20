@@ -89,6 +89,12 @@ export function attachLimitMessage(reason: "identity" | "ip" | undefined): strin
 export const UPLOAD_NOT_PUBLISHABLE =
   "Attached photos can't be published. Publish a design made from one instead.";
 
+// --- Studio delete (#352) ---
+// Shown on the lane's More trigger and the bulk Delete button while the read
+// that decides whether the confirm names the Shop is in flight.
+
+export const STUDIO_DELETE_CHECKING = "Checking…";
+
 // --- /design entry (#188 slice 2b) ---
 // The sessionless hop through /design: a status line while the guest session
 // is minted, and one failure line with a retry.
