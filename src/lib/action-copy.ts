@@ -96,6 +96,12 @@ export const UNPUBLISH_UPLOAD_TITLE = "Take this photo down from the storefront?
 export const UNPUBLISH_UPLOAD_BODY =
   "An attached photo can't be published, so this can't be undone.";
 
+// --- Studio delete (#352) ---
+// Shown on the lane's More trigger and the bulk Delete button while the read
+// that decides whether the confirm names the Shop is in flight.
+
+export const STUDIO_DELETE_CHECKING = "Checking…";
+
 // --- /design entry (#188 slice 2b) ---
 // The sessionless hop through /design: a status line while the guest session
 // is minted, and one failure line with a retry.
