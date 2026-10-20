@@ -64,7 +64,7 @@ export function PublishModal({
 
   const preview = bg
     ? publishedBackdrop(bg)
-    : { className: "bg-checkerboard", style: undefined };
+    : { className: "bg-surface-well", style: undefined };
 
   return (
     <Modal
