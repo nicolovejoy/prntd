@@ -275,7 +275,7 @@ Vercel env changes apply only to new deployments. A flag a Playwright spec needs
 ## Shared conventions
 
 <!-- These are Nico's cross-repo output rules. They're materialized into each repo's
-CLAUDE.md so every agent (local, cloud, third-party) sees them as plain
+CLAUDE.md and AGENTS.md so every agent (local, cloud, third-party) sees them as plain
 text. Source of truth: prompt-lab/workflow/claude-md-shared.md — edit there and
 re-sync, never here. -->
 
