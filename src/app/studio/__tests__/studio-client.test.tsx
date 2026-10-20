@@ -1032,10 +1032,9 @@ describe("deleting a lane (slice 5 review, F1)", () => {
     fireEvent.click(screen.getByRole("button", { name: "More" }));
     fireEvent.click(screen.getByTestId("studio-delete-lane"));
 
-    const trigger = await screen.findByRole("button", { name: "More" });
-    await waitFor(() =>
-      expect((trigger as HTMLButtonElement).disabled).toBe(true)
-    );
+    // The busy trigger's accessible name is the wait text, not "More".
+    const trigger = await screen.findByRole("button", { name: "Checking…" });
+    expect((trigger as HTMLButtonElement).disabled).toBe(true);
     expect(trigger.getAttribute("aria-busy")).toBe("true");
     expect(trigger.textContent).toBe("Checking…");
     expect(screen.queryByTestId("confirm-sheet")).toBeNull();
@@ -1058,9 +1057,9 @@ describe("deleting a lane (slice 5 review, F1)", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "More" }));
     fireEvent.click(screen.getByTestId("studio-delete-lane"));
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "More" }).getAttribute("aria-busy")).toBe("true")
-    );
+    expect(
+      (await screen.findByRole("button", { name: "Checking…" })).getAttribute("aria-busy")
+    ).toBe("true");
 
     await act(async () => rejectRead(new Error("boom")));
 
@@ -1237,14 +1236,17 @@ describe("select mode (#189)", () => {
     fireEvent.click(screen.getByTestId("select-mode"));
     fireEvent.click(screen.getByTestId("select-all"));
 
-    fireEvent.click(screen.getByTestId("bulk-delete"));
+    // Both taps land in one act(), before the disabled state commits, so the
+    // second one reaches bulkDelete and only the in-flight guard stops it.
     const button = screen.getByTestId("bulk-delete") as HTMLButtonElement;
+    act(() => {
+      fireEvent.click(button);
+      fireEvent.click(button);
+    });
+    expect(shopListingsLeaveOnDelete).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(button.disabled).toBe(true));
     expect(button.getAttribute("aria-busy")).toBe("true");
     expect(button.textContent).toBe("Checking…");
-
-    fireEvent.click(button);
-    expect(shopListingsLeaveOnDelete).toHaveBeenCalledTimes(1);
 
     await act(async () => resolveRead(false));
 
