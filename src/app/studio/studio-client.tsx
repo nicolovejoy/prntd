@@ -1865,7 +1865,7 @@ function LaneMenu({
       <button
         ref={triggerRef}
         type="button"
-        aria-label="More"
+        aria-label={busy ? STUDIO_DELETE_CHECKING : "More"}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-busy={busy || undefined}
