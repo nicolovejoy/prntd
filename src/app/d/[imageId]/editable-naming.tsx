@@ -104,7 +104,7 @@ export function EditableNaming({ imageId, title, canEdit }: Props) {
         onChange={(e) => setTitleDraft(e.target.value)}
         placeholder="Title"
         maxLength={MAX_IMAGE_TITLE_LENGTH}
-        className="w-full bg-surface border border-border rounded px-3 py-2 text-base"
+        className="w-full bg-surface border border-border rounded-md px-3 py-2 text-base"
       />
       {error && <InlineNotice message={error} />}
       <div className="flex gap-2">
