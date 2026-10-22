@@ -43,6 +43,26 @@ describe("SideMockup", () => {
     expect(screen.queryByText("Front")).not.toBeInTheDocument();
   });
 
+  it("paints the side label as an opaque paper label with a hairline", () => {
+    render(
+      <SideMockup
+        side="front"
+        variant="hero"
+        display={ready}
+        colorHex="#000000"
+        alt="front mockup"
+        pendingLabel="Final preview loading…"
+        onMockupLoad={noop}
+      />
+    );
+    const label = screen.getByText("Front");
+    expect(label).toHaveClass("bg-background", "border", "border-border", "text-foreground");
+    // The look forbids translucency and blur: no opacity modifiers, no backdrop-blur.
+    expect(label.className).not.toMatch(/\//);
+    expect(label.className).not.toContain("backdrop-blur");
+    expect(label.className).not.toContain("rounded");
+  });
+
   it("hides the side label when showSideLabel is false; shows it by default", () => {
     const { rerender } = render(
       <SideMockup

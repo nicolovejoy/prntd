@@ -99,7 +99,7 @@ describe("PublishModal live preview (#140)", () => {
       />
     );
     const preview = screen.getByTestId("publish-preview");
-    expect(preview.className).toContain("bg-checkerboard");
+    expect(preview.className).toContain("bg-surface-well");
   });
 
   it("re-colors the preview to the picked backdrop", () => {
@@ -113,7 +113,7 @@ describe("PublishModal live preview (#140)", () => {
     );
     fireEvent.click(screen.getByTitle("Black"));
     const preview = screen.getByTestId("publish-preview");
-    expect(preview.className).not.toContain("bg-checkerboard");
+    expect(preview.className).not.toContain("bg-surface-well");
     expect(preview.style.backgroundColor).not.toBe("");
   });
 });

@@ -125,8 +125,8 @@ little playful; the studio has opinions. More character, more risk.
 
 - One ink accent color added — a riso staple (blue or fluorescent-adjacent
   red), used only for chips, generation numbers, and small marks. This breaks
-  the "white is the only inversion color" rule (gap #8); the primary button
-  stays white-on-ink.
+  the "white is the only inversion color" rule (see Gaps, item 4); the
+  primary button stays white-on-ink.
 - Geist Mono promoted: generation numbers, prices, and section labels set in
   mono, hand-set-type style.
 - Registration-mark / crop-mark motifs allowed as decoration on empty states
@@ -271,7 +271,7 @@ Three principles:
    `ghost`, or a plain link. (The old equal-weight Send / Draw it / Compare
    composer is resolved — #174 collapsed the composer to one submit control
    that generates, with chat kept to a separate, visibly lower-weight "Ask"
-   tap, since removed with the chat action. See Gaps, item 5, RESOLVED.)
+   tap, since removed with the chat action. See Gaps, item 3, RESOLVED.)
 3. **Phone-first, one column.** The phone layout is the design; desktop gets
    extra space, not extra features. Anything desktop-only must have a phone
    equivalent, not be dropped. (No Studio surface is desktop-only today: the
@@ -407,8 +407,16 @@ separator):
 --surface         #ffffff   inputs, plain paper wells
 --surface-raised  #ffffff   cards (same paper; a border does the work)
 --surface-well    #e6e3dd   media/transparency well — ink mixed 8% into the
-                             ground. Replaces the checkerboard: see
-                             `.bg-checkerboard` below.
+                             ground (`bg-surface-well`). Replaced the
+                             checkerboard: see "Well" below.
+--surface-well-dark  #141311  the ink well under unpublished artwork that
+                             would read as blank on paper (#139). Same hex
+                             as `--foreground`. `src/lib/artwork-well.ts`
+                             decides which well an image gets, from its
+                             mean luminance: contrast under 3:1 against the
+                             paper well goes on this one; unscored artwork
+                             stays on paper. Published artwork keeps its
+                             pinned Shop backdrop.
 (overlay)         ink/20%   modals, lightbox scrim   [gap: not yet a token]
 ```
 
@@ -420,6 +428,8 @@ floor:
 
 ```
 --border          #bfbdb8   resting (hairline) — ink at ~25% over the ground
+                             (the site header's bottom rule is ink, not this:
+                             see Global chrome)
 --border-hover    #141311   hover/focus/emphasis — solid ink, 1px
 --text-muted      #4b4946   secondary text — ink 24% toward ground
 --text-faint      #6f6d6a   tertiary/metadata — ink 40% toward ground
@@ -466,12 +476,23 @@ positive  (#166534) on ground            →  6.55:1
 negative  (#b91c1c) on ground            →  5.95:1
 ```
 
-Utility: `.bg-checkerboard` — was a literal checkerboard (transparency
-indicator for raw PNGs); on paper that read as noise, so it's now a plain
-well (`background-color: var(--surface-well)` only — call sites that want
-an edge add `border border-border` themselves; the class must never set
-`border`, see gap #4). The class name is kept so existing call sites keep
-compiling.
+Well: the media well is the token utility `bg-surface-well` (a plain paper
+well; call sites that want an edge add `border border-border` themselves).
+The old `.bg-checkerboard` class is gone (#188 slice 8). A rule in
+`globals.css` is unlayered, so it beats every Tailwind utility regardless of
+specificity; a `border` on that class once overrode the 2px `border-accent`
+selection border on five thumbnails (2026-09-06). `globals.css` therefore
+holds only `:root`, `@theme inline` and `body`, with no border declared in
+any of them, pinned by `src/app/__tests__/globals-css.test.ts`.
+
+Token mirrors: `src/lib/email.ts`, `src/lib/og-site-card.tsx`,
+`src/app/manifest.ts` and `src/lib/artwork-well.ts` copy hex values by hand,
+because emails, OG rasters, the manifest and the luminance rule cannot read
+CSS custom properties. `src/lib/__tests__/token-mirrors.test.ts` pins each
+copy to its token in `globals.css`, so changing a token fails a test instead
+of leaving a mirror behind. `token-mirrors.test.ts` also pins the colour
+constants in `scripts/generate-icons.ts` and the fills in `src/app/icon.svg`
+to `globals.css`; `app-icons.test.ts` pins the rest of the icon files.
 
 ### Type
 
@@ -484,14 +505,20 @@ Scale in use (Tailwind steps), roles:
 - `text-2xl sm:text-5xl bold` — page hero (`MakerHero` h1 on `/`; `/prints`
   is now a bare 308 redirect to `/shop`, not a hero page — see Vocabulary,
   Shop)
-- `text-xl` / `text-2xl` `font-bold` — screen title (14 live headings:
-  `/studio`, `/cart`, `/preview`, `/admin` ×3, and the four auth pages).
-  The `text-lg font-semibold` headings that survived on the retired
-  `/dashboard` and `/shop/[slug]/[productId]` routes went with them (#201).
-- `text-sm font-medium` — card titles. Also still used for 3 section
-  labels not yet converted to the mono label below (`/preview`'s Product
-  label, the publish modal's Name label, `background-picker.tsx`); the 4 on
-  the retired `/dashboard` compose form were deleted with it (#201).
+- `text-xl` / `text-2xl` `font-bold` — form and admin screen title (13 live
+  headings): `text-xl` on the six admin headings (`/admin`,
+  `/admin/orders/[id]`, `/admin/published`, `/admin/errors`, `/admin/usage`,
+  `/admin/usage/[userId]`) and `text-2xl` on the seven auth headings (sign
+  in, sign up, forgot password ×2, reset password ×3). Nico's ruling of
+  2026-10-20: a form or admin heading is a heading, not a label, so these
+  keep the bold sans title. The Studio and Cart titles use the mono masthead
+  below (#188 slice 8); `/preview` is a redirect and has no heading. The
+  `text-lg font-semibold` headings that survived on the retired `/dashboard`
+  and `/shop/[slug]/[productId]` routes went with them (#201).
+- `text-sm font-medium` — card titles. Also still used for 2 section
+  labels not yet converted to the mono label below (the publish modal's Name
+  label, `publish-modal.tsx`, and `background-picker.tsx`); the 4 on the
+  retired `/dashboard` compose form were deleted with it (#201).
 - `text-sm` — body, chat
 - `text-xs text-text-muted` — metadata
 - `text-xs text-text-faint` / `text-[10px]` — fine print; `Badge` and
@@ -499,14 +526,21 @@ Scale in use (Tailwind steps), roles:
   variant (`font-mono uppercase tracking-wide text-[10px]`).
 - `font-mono text-[11px] leading-4 tracking-[0.08em] uppercase` — mono
   label. Not in the original draft; now the most-used label type in the
-  app (the Shop/`/orders` mastheads, `SizePicker`/`ColorPicker` section
-  labels, the image detail page's rows). Defined once as `MONO_LABEL`
-  (`src/app/d/[imageId]/mono-label.ts`), imported by 4 files under that
+  app (the screen mastheads, `SizePicker`/`ColorPicker` section
+  labels, the image detail page's rows). The masthead is the screen title on
+  Shop, My Designs, Orders, Studio and Cart (Studio and Cart moved to it in
+  #188 slice 8; the words stay "Studio" and "Your cart", and CSS uppercases
+  them). Defined once as `MONO_LABEL`
+  (`src/app/d/[imageId]/mono-label.ts`), imported by 5 files under that
   route (`identity-block.tsx`, `buy-panel.tsx`, `owner-actions.tsx`,
-  `conversation-images.tsx`); inlined as the literal class string in 11
-  other files, including both mastheads and
+  `conversation-images.tsx`, `hidden-notice.tsx`); inlined as the literal
+  class string in other files, including the mastheads and
   `src/components/product-options.tsx`. Is taking over the "section
   labels" role named above — see there for what has not converted yet.
+- `font-mono text-[13px] leading-5 tracking-[0.08em] uppercase` — mono
+  screen title, one step above the 11 px masthead. Used by the Checkout
+  heading (`src/app/checkout/page.tsx`) and the Order confirm headings
+  (`src/app/order/confirm/page.tsx`, two sites, one centred).
 - `font-mono` — IDs, codes, money references (Option B widens this role to
   generation numbers, prices, and labels)
 
@@ -544,8 +578,7 @@ were added since, mostly by the #218 alert sweep:
   constants live in `src/lib/action-copy.ts` (#218).
 - **EmptyState** (`empty-state.tsx`) — the one shared "nothing here yet"
   block (optional mono label, one line of muted copy, one action), used on
-  the Studio bench, My Designs, Shop, Cart, and Orders. The old `/design`
-  empty-conversation views did not use it — see Gaps, item 3.
+  the Studio bench, My Designs, Shop, Cart, and Orders.
 
 Composites built from these: `SizePicker`/`ColorPicker`
 (`product-options.tsx`), `PublishModal`, `PublishedGrid`, `Breadcrumbs`,
@@ -554,14 +587,19 @@ was deleted with the retired `/dashboard` — #191, #201.)
 
 Interaction grammar:
 
-- Radius: `rounded-md` controls, `rounded-lg` cards/images, `rounded-full`
+- Radius: `rounded-md` controls, `rounded-lg` cards/images, `rounded-xl` the
+  bottom sheets (`ConfirmSheet`, `NoticeSheet`: `rounded-t-xl` on phones,
+  where they dock to the bottom edge, `rounded-xl` from `sm:`), `rounded-full`
   chips (example prompts, filter tabs) and circular icon buttons (e.g. the
   image detail page's back arrow). Badges carry no radius at all now (a mono
-  label, not a pill — see Component grammar); the numbered gallery FAB was
-  removed in #89 and no longer exists. A pattern not in the original rule: a
+  label, not a pill — see Component grammar), and neither does any other
+  mono label, such as the Front/Back label on a mockup; the numbered gallery
+  FAB was removed in #89 and no longer exists. A pattern not in the original rule: a
   container on a ruled surface (the admin/published grid card, an `/orders`
   thumbnail well) carries a hairline `border` and NO radius — square, not
-  rounded.
+  rounded. Emails follow the same grammar in pixels, since they cannot share
+  the CSS: 8 px for the card and the hero well, 6 px for the button, square
+  line thumbnails.
 - Spacing: 4px base; `p-4` standard padding; `gap-2` within a control group,
   `gap-4` between groups.
 - Touch targets ≥ 44px on phone (established rule).
@@ -574,10 +612,13 @@ Interaction grammar:
 
 ### Gaps / inconsistencies
 
-Status as of 2026-07-19. Items 1, 2, and the undefined-token no-ops from the
-first draft were fixed on main 2026-06-14 (`cbedcbe`): Geist restored, 40 raw
-`gray-*` classes swept to semantic tokens, 4 dead token names corrected.
-Remaining:
+Status as of 2026-07-19, with one edit on 2026-10-20: Gaps 3 (the two
+empty states in the `/design` thread) and 4 ("Selected image is
+load-bearing") were deleted in #188 slice 8 because the views they described
+are gone (#345), and the later items became 3 to 5. The first draft's items 1
+and 2, and the undefined-token no-ops, were fixed on main
+2026-06-14 (`cbedcbe`): Geist restored, 40 raw `gray-*` classes swept to
+semantic tokens, 4 dead token names corrected. Remaining:
 
 1. ~~**Badge palette is the only chrome color**~~ — RESOLVED 2026-07-19 under
    C: `--positive`/`--negative` tokens added; badges collapse to a mono text
@@ -593,45 +634,20 @@ Remaining:
    gone because there's only one mode. The dark-literal sweep (`bg-gray-900`,
    `bg-black/*`, `text-white`, `shadow-*`) that made the old dark-only brand
    implicit is complete (#188 slice 1) — zero matches outside tests.
-3. **Two empty-state implementations remain in a design's conversation
-   thread** (`/design`, `chat-panel.tsx`) — the page-level empty state (no
-   messages and no images at all) and a second, in-thread variant shown once
-   images exist but no message has been sent yet. Neither uses the shared
-   `EmptyState` primitive (`src/components/ui/empty-state.tsx`, added since
-   the original draft); that primitive unified the OTHER hand-rolled empty
-   states across the app (Studio bench, My Designs, Shop, Cart, Orders), but
-   `/design`'s two were never among them and both still render
-   on a live path — this is not near-dead code. (Vocabulary correction: this
-   gap's original wording said "in the Studio" — "Studio" now names
-   `/studio`, not `/design`; fixed here.) Persona-independent cleanup, but
-   the surviving copy is persona-dependent (see Part 1 samples).
-4. **"Selected image" is load-bearing but nearly invisible** — a 2px border
-   decides what Order ships to /preview. Persona-independent problem;
-   B's ink accent gives it a free fix, A/C need a heavier white treatment
-   (thicker ring + dimmed siblings). **Incident, 2026-09-06:** the Paper
-   slice-1 rollout's `.bg-checkerboard` alias briefly made this worse than
-   "nearly invisible" — it set an unlayered `border` that overrode the 2px
-   `border-accent` selection indicator outright on five thumbnails/swatches
-   (preview back-picker, /d back-picker, conversation-images aria-current,
-   design-stage strip, studio isPrimary), so the selected state rendered no
-   differently from an unselected one. Caught in the slice-1 whole-branch
-   review, fixed (the alias no longer sets a border), and guarded by a test
-   asserting the rule stays border-free. This gap itself — the 2px border
-   being weak even when it renders — is unchanged and still open.
-5. ~~**Three composer actions at equal weight**~~ — RESOLVED 2026-08-30/31
+3. ~~**Three composer actions at equal weight**~~ — RESOLVED 2026-08-30/31
    under #174 (studio slice 1): the composer has exactly one submit control,
    labelled "Generate" (persona C), and it always generates. Chat is still
    reachable but only via a separate, visibly lower-weight "Ask" tap
-   (`variant="ghost"` vs. the submit's `variant="primary"`/`"generate"`)
-   (Ask removed with the chat action in this PR).
-   `chat-panel.tsx` `handleSubmit`/`handleAsk` (deleted by #345).
-6. ~~**Accent = white means no brand color exists.**~~ — RESOLVED 2026-09-06
+   (`variant="ghost"` vs. the submit's `variant="primary"`/`"generate"`).
+   Ask was removed with the chat action by #347, and the `chat-panel.tsx`
+   `handleSubmit`/`handleAsk` handlers went with the thread (#345).
+4. ~~**Accent = white means no brand color exists.**~~ — RESOLVED 2026-09-06
    under Paper (#213): false twice over now — `--accent` resolves to ink
    (`var(--foreground)`), not white, and one brand hue does exist:
    `--accent-rose`, the "One Mark" rule (the wordmark and the `generate`
    Button variant, nothing else). Option B's old "single ink accent" idea is
    superseded by this narrower, already-shipped rose accent.
-7. ~~**Internals leak into customer copy**~~ — RESOLVED: Compare, and its
+5. ~~**Internals leak into customer copy**~~ — RESOLVED: Compare, and its
    generator-naming tooltip, was removed entirely in #56 (2026-07-19). A
    repo-wide grep for "Compare" and for generator/`Ideogram` naming in
    `src/app`/`src/components` (excluding tests) found no remaining
@@ -664,7 +680,10 @@ and covered by Part 1's samples.
    (`isAdminUser()`), Feedback, the build-date stamp, Sign out — is one tap
    into the account menu (hamburger on phone; "Account" text at `sm:` and
    up). Organizer storefronts are retired (#191), so there is no Dashboard
-   entry. Anon guests read as signed-out.
+   entry. Anon guests read as signed-out. The bar's bottom rule is a full
+   ink line (a bare `border-b`, which paints `currentColor`) and stays ink on
+   purpose (Nico, 2026-10-20); every other resting divider is the hairline
+   `--border`.
 2. **Running-jobs badge** — "N generating" pill in the bar itself, not the
    account menu, so a phone user who left the Studio mid-generation sees it
    without opening a menu; links to `/studio`, where the job renders as a

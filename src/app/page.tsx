@@ -22,10 +22,10 @@ export default async function Home() {
       <MakerHero />
 
       {promo && (
-        <section className="py-4 px-4 bg-accent/10 border-y border-accent/20 text-center">
+        <section className="py-4 px-4 border-y border-border text-center">
           <p className="text-sm">
             <span className="font-medium">{promo.blurb}</span> with code{" "}
-            <code className="px-1.5 py-0.5 bg-accent/20 rounded text-accent font-mono text-xs">
+            <code className="px-1.5 py-0.5 border border-border text-foreground font-mono text-xs">
               {promo.code}
             </code>{" "}
             at checkout

@@ -33,7 +33,8 @@ export function designCardPalette(backgroundColor: string | null | undefined): {
 }
 
 // Paper token hex values, hardcoded — satori markup can't read CSS custom
-// properties. Keep in sync with globals.css / docs/design-system.md by hand.
+// properties. src/lib/__tests__/token-mirrors.test.ts fails when one drifts
+// from globals.css.
 const GROUND = "#f8f5ef";
 const INK = "#141311";
 const FAINT = "#6f6d6a";

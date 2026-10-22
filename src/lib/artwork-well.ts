@@ -12,7 +12,10 @@
  */
 import { relativeLuminance } from "@/lib/blanks";
 
-/** Must match --surface-well and --surface-well-dark in globals.css. */
+/**
+ * Must match --surface-well and --surface-well-dark in globals.css;
+ * src/lib/__tests__/token-mirrors.test.ts fails when they drift.
+ */
 export const PAPER_WELL_HEX = "#e6e3dd";
 export const DARK_WELL_HEX = "#141311";
 

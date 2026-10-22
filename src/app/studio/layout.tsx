@@ -10,7 +10,10 @@
  *
  * The focused stage (#188 slice 4) widens `main` to max-w-6xl and marks it
  * `data-studio-stage`; the heading follows with a `group-has` variant, so it
- * stays aligned with the content without the layout knowing the URL.
+ * stays aligned with the content without the layout knowing the URL. On the
+ * stage the heading is visually hidden (`sr-only`) because the stage's own
+ * back row ("← Studio · Result 1 of N") reads as the same label in the same
+ * type; it stays the page's h1 for assistive technology.
  *
  * The page owns its own auth gate (requireStudioUser, which admits a
  * guest-funnel session while the guest funnel is on, #241); a layout renders
@@ -27,7 +30,9 @@ export default function StudioLayout({
   return (
     <div className="group/studio min-h-screen flex flex-col">
       <div className="px-4 sm:px-6 pt-6 max-w-4xl group-has-[[data-studio-stage]]/studio:max-w-6xl mx-auto w-full">
-        <h1 className="text-xl sm:text-2xl font-bold">Studio</h1>
+        <h1 className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted group-has-[[data-studio-stage]]/studio:sr-only">
+          Studio
+        </h1>
       </div>
       {children}
     </div>

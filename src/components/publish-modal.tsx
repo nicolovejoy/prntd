@@ -64,7 +64,7 @@ export function PublishModal({
 
   const preview = bg
     ? publishedBackdrop(bg)
-    : { className: "bg-checkerboard", style: undefined };
+    : { className: "bg-surface-well", style: undefined };
 
   return (
     <Modal
@@ -100,7 +100,7 @@ export function PublishModal({
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Auto-generated if blank"
             maxLength={80}
-            className="w-full bg-surface border border-border rounded px-3 py-2"
+            className="w-full bg-surface border border-border rounded-md px-3 py-2"
           />
         </div>
         <BackgroundPicker

@@ -281,7 +281,7 @@ export default function OrderDetailPage() {
                   <div key={i} className="flex gap-3">
                     {thumb && (
                       <div
-                        className="w-16 h-16 rounded p-1.5 overflow-hidden flex-shrink-0"
+                        className="w-16 h-16 p-1.5 overflow-hidden flex-shrink-0 border border-border"
                         style={{
                           backgroundColor: getColorHex(line.blankId, line.color),
                         }}
@@ -353,7 +353,7 @@ export default function OrderDetailPage() {
             <h3 className="font-mono text-[11px] leading-4 tracking-[0.08em] uppercase text-text-muted mb-2">Classification & Tags</h3>
             <div className="space-y-2">
               <select
-                className="text-sm min-h-11 px-2 rounded bg-surface border border-foreground text-foreground cursor-pointer outline-none focus:ring-1 focus:ring-foreground"
+                className="text-sm min-h-11 px-2 rounded-md bg-surface border border-foreground text-foreground cursor-pointer outline-none focus:ring-1 focus:ring-foreground"
                 value={order.classification ?? ""}
                 onChange={(e) => {
                   if (e.target.value) handleClassification(e.target.value as OrderClassification);

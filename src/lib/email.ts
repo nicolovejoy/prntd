@@ -14,8 +14,9 @@ const REPLY_TO = "hello@prntd.org";
 // reliably support tables + inline styles, so everything is built that way.
 //
 // Colours are the Paper token values from globals.css, hardcoded as hex —
-// email HTML can't read CSS custom properties. Keep these in sync with
-// `docs/design-system.md`'s Tokens section by hand.
+// email HTML can't read CSS custom properties.
+// src/lib/__tests__/token-mirrors.test.ts fails when one drifts from
+// globals.css.
 // ---------------------------------------------------------------------------
 
 const INK = "#141311";
@@ -35,8 +36,8 @@ function renderHero(images: EmailImage[] | undefined): string {
     .map(
       (img) => `
         <td align="center" valign="top" style="padding: 0 8px;">
-          <div style="background: ${img.backdrop ?? WELL}; border: 1px solid ${BORDER}; border-radius: 12px; padding: 14px; line-height: 0;">
-            <img src="${img.url}" width="${imgWidth}" alt="${img.label} design" style="display: block; width: ${imgWidth}px; max-width: 100%; height: auto; border-radius: 6px;" />
+          <div style="background: ${img.backdrop ?? WELL}; border: 1px solid ${BORDER}; border-radius: 8px; padding: 14px; line-height: 0;">
+            <img src="${img.url}" width="${imgWidth}" alt="${img.label} design" style="display: block; width: ${imgWidth}px; max-width: 100%; height: auto;" />
           </div>
           ${
             showLabels
@@ -70,7 +71,7 @@ export function emailLayout(o: {
   // other button on Paper.
   const cta =
     o.ctaLabel && o.ctaUrl
-      ? `<p style="margin: 4px 0 0;"><a href="${o.ctaUrl}" style="display: inline-block; padding: 10px 21px; background: ${SURFACE}; color: ${INK}; text-decoration: none; border: 1px solid ${INK}; border-radius: 8px; font-size: 14px; font-weight: 600;">${o.ctaLabel}</a></p>`
+      ? `<p style="margin: 4px 0 0;"><a href="${o.ctaUrl}" style="display: inline-block; padding: 10px 21px; background: ${SURFACE}; color: ${INK}; text-decoration: none; border: 1px solid ${INK}; border-radius: 6px; font-size: 14px; font-weight: 600;">${o.ctaLabel}</a></p>`
       : "";
 
   return `
@@ -79,7 +80,7 @@ export function emailLayout(o: {
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background: ${GROUND}; padding: 32px 16px;">
         <tr>
           <td align="center">
-            <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px; width: 100%; background: ${SURFACE}; border: 1px solid ${BORDER}; border-radius: 16px; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+            <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px; width: 100%; background: ${SURFACE}; border: 1px solid ${BORDER}; border-radius: 8px; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
               <tr>
                 <td style="background: ${GROUND}; border-bottom: 1px solid ${BORDER}; padding: 18px 28px;">
                   <span style="color: ${ROSE}; font-size: 18px; font-weight: 700; letter-spacing: 0.18em;">PRNTD</span>
@@ -197,7 +198,7 @@ function lineRow(line: EmailOrderLine): string {
   const thumb = `
     <table role="presentation" cellpadding="0" cellspacing="0"><tr>
       <td width="48" valign="middle" style="padding-right: 10px;">
-        <div style="width: 48px; height: 48px; background: ${escapeHtml(line.backdrop ?? WELL)}; border: 1px solid ${BORDER}; border-radius: 8px; line-height: 0; text-align: center;">
+        <div style="width: 48px; height: 48px; background: ${escapeHtml(line.backdrop ?? WELL)}; border: 1px solid ${BORDER}; line-height: 0; text-align: center;">
           <img src="${escapeHtml(line.imageUrl)}" width="40" height="40" alt="" style="display: inline-block; width: 40px; height: 40px; margin: 4px 0; object-fit: contain;" />
         </div>
       </td>

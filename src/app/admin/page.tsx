@@ -366,7 +366,7 @@ export default function AdminPage() {
                           <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-text-muted">archived</span>
                         )}
                         <select
-                          className="font-mono text-[10px] uppercase tracking-[0.08em] px-1.5 py-0.5 rounded bg-surface border border-border hover:border-border-hover focus:border-border-hover text-foreground cursor-pointer outline-none"
+                          className="font-mono text-[10px] uppercase tracking-[0.08em] px-1.5 py-0.5 rounded-md bg-surface border border-border hover:border-border-hover focus:border-border-hover text-foreground cursor-pointer outline-none"
                           value={order.classification ?? ""}
                           onChange={(e) => {
                             if (e.target.value) {
@@ -412,7 +412,7 @@ export default function AdminPage() {
                     <td className="py-3 pr-4">
                       {order.designImageUrl && (
                         <div
-                          className="w-10 h-10 rounded p-1 overflow-hidden"
+                          className="w-10 h-10 p-1 overflow-hidden border border-border"
                           style={{
                             backgroundColor: firstLine
                               ? getColorHex(firstLine.blankId, firstLine.color)

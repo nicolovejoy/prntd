@@ -2,41 +2,78 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "fs";
 import { join } from "path";
 
-// Guard against a regression that shipped and was caught in the #188 Paper
-// slice-1 whole-branch review: globals.css is authored AFTER
-// `@import "tailwindcss"`, so every rule in this file lives in an
-// unlayered position. Per the CSS cascade-layers spec, an unlayered
-// declaration beats any declaration in a `@layer` — including Tailwind's
-// `@layer utilities` — regardless of specificity or source order. A
-// `border: ...` on `.bg-checkerboard` here silently overrode every
-// `border-2 border-accent` / `border-border-hover` selection-indicator
-// utility applied alongside this class (four sites: preview back-picker,
-// /d back-picker, conversation-images aria-current thumb, studio isPrimary
-// tile) — jsdom-based class-presence tests cannot
-// see this because they don't evaluate the cascade, only the built CSS
-// does. Do not re-add a border to this rule; call sites that want an edge
-// on a plain (non-selectable) well add `border border-border` themselves.
-describe("globals.css .bg-checkerboard", () => {
-  const css = readFileSync(
-    join(__dirname, "../globals.css"),
-    "utf-8",
-  );
+// globals.css is authored after `@import "tailwindcss"`, so every rule in it
+// is unlayered. Per the CSS cascade-layers spec an unlayered declaration beats
+// any declaration inside an `@layer`, Tailwind's `@layer utilities` included,
+// whatever the specificity. On 2026-09-06 a `border: ...` on the old
+// `.bg-checkerboard` rule here silently overrode the `border-2 border-accent`
+// selection border on five thumbnails. Class-presence tests under jsdom
+// cannot see this; they never evaluate the cascade. So this file asserts that
+// the only top-level rules are the token blocks and `body`, and that none of
+// them declares a border.
 
-  function extractRule(selector: string): string {
-    const start = css.indexOf(`${selector} {`);
-    expect(start, `expected to find rule ${selector} in globals.css`).toBeGreaterThan(-1);
-    const end = css.indexOf("}", start);
-    return css.slice(start, end);
+const RULES = [":root", "@theme inline", "body"];
+
+const css = readFileSync(join(__dirname, "../globals.css"), "utf-8");
+
+function parseTopLevelRules(source: string) {
+  const text = source.replace(/\/\*[\s\S]*?\*\//g, "");
+  const rules: { selector: string; body: string }[] = [];
+  let depth = 0;
+  let prelude = "";
+  let body = "";
+  for (const ch of text) {
+    if (ch === "{") {
+      if (depth === 0) body = "";
+      else body += ch;
+      depth++;
+    } else if (ch === "}") {
+      depth--;
+      if (depth === 0) {
+        rules.push({ selector: prelude.trim().replace(/\s+/g, " "), body });
+        prelude = "";
+      } else {
+        body += ch;
+      }
+    } else if (depth > 0) {
+      body += ch;
+    } else if (ch === ";") {
+      prelude = ""; // an @import or @plugin statement, no block
+    } else {
+      prelude += ch;
+    }
   }
+  return rules;
+}
 
-  it("sets no border property (would win over layered utility borders)", () => {
-    const rule = extractRule(".bg-checkerboard");
-    expect(rule).not.toMatch(/\bborder\b/);
-    expect(rule).not.toMatch(/\bborder-/);
+describe("globals.css", () => {
+  const rules = parseTopLevelRules(css);
+
+  it("finds the three rules this test is about", () => {
+    const selectors = rules.map((r) => r.selector);
+    for (const expected of RULES) {
+      expect(selectors, `expected a ${expected} rule`).toContain(expected);
+    }
   });
 
-  it("still fills the well with the surface-well token", () => {
-    const rule = extractRule(".bg-checkerboard");
-    expect(rule).toContain("background-color: var(--surface-well)");
+  it("has no top-level rule besides :root, @theme inline and body", () => {
+    const extra = rules.map((r) => r.selector).filter((s) => !RULES.includes(s));
+    expect(
+      extra,
+      "globals.css holds only the token blocks and body; an unlayered rule here beats Tailwind's layered utilities (an @layer or @utility block needs this list and the doc updated)",
+    ).toEqual([]);
+  });
+
+  it("declares no border in :root, @theme inline or body", () => {
+    // Custom properties (`--border`, `--color-border`) are tokens, not borders.
+    const offenders = rules
+      .filter((r) =>
+        r.body
+          .split(";")
+          .map((d) => d.trim())
+          .some((d) => /^border[\w-]*\s*:/.test(d)),
+      )
+      .map((r) => r.selector);
+    expect(offenders).toEqual([]);
   });
 });

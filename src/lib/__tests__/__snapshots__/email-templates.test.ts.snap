@@ -7,7 +7,7 @@ exports[`emailLayout > omits optional sections cleanly when absent 1`] = `
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background: #f8f5ef; padding: 32px 16px;">
         <tr>
           <td align="center">
-            <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px; width: 100%; background: #ffffff; border: 1px solid #bfbdb8; border-radius: 16px; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+            <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px; width: 100%; background: #ffffff; border: 1px solid #bfbdb8; border-radius: 8px; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
               <tr>
                 <td style="background: #f8f5ef; border-bottom: 1px solid #bfbdb8; padding: 18px 28px;">
                   <span style="color: #a83250; font-size: 18px; font-weight: 700; letter-spacing: 0.18em;">PRNTD</span>
@@ -41,7 +41,7 @@ exports[`emailLayout > renders the shared wrapper (header, card, footer, CTA, he
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background: #f8f5ef; padding: 32px 16px;">
         <tr>
           <td align="center">
-            <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px; width: 100%; background: #ffffff; border: 1px solid #bfbdb8; border-radius: 16px; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+            <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px; width: 100%; background: #ffffff; border: 1px solid #bfbdb8; border-radius: 8px; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
               <tr>
                 <td style="background: #f8f5ef; border-bottom: 1px solid #bfbdb8; padding: 18px 28px;">
                   <span style="color: #a83250; font-size: 18px; font-weight: 700; letter-spacing: 0.18em;">PRNTD</span>
@@ -53,14 +53,14 @@ exports[`emailLayout > renders the shared wrapper (header, card, footer, CTA, he
     <table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin: 0 auto 28px;">
       <tr>
         <td align="center" valign="top" style="padding: 0 8px;">
-          <div style="background: #e6e3dd; border: 1px solid #bfbdb8; border-radius: 12px; padding: 14px; line-height: 0;">
-            <img src="https://mock.example/front-mockup.png" width="200" alt="Front design" style="display: block; width: 200px; max-width: 100%; height: auto; border-radius: 6px;" />
+          <div style="background: #e6e3dd; border: 1px solid #bfbdb8; border-radius: 8px; padding: 14px; line-height: 0;">
+            <img src="https://mock.example/front-mockup.png" width="200" alt="Front design" style="display: block; width: 200px; max-width: 100%; height: auto;" />
           </div>
           <div style="color: #6f6d6a; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; margin-top: 8px;">Front</div>
         </td>
         <td align="center" valign="top" style="padding: 0 8px;">
-          <div style="background: #0c0c0c; border: 1px solid #bfbdb8; border-radius: 12px; padding: 14px; line-height: 0;">
-            <img src="https://img.example/back-artwork.png" width="200" alt="Back design" style="display: block; width: 200px; max-width: 100%; height: auto; border-radius: 6px;" />
+          <div style="background: #0c0c0c; border: 1px solid #bfbdb8; border-radius: 8px; padding: 14px; line-height: 0;">
+            <img src="https://img.example/back-artwork.png" width="200" alt="Back design" style="display: block; width: 200px; max-width: 100%; height: auto;" />
           </div>
           <div style="color: #6f6d6a; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; margin-top: 8px;">Back</div>
         </td></tr>
@@ -68,7 +68,7 @@ exports[`emailLayout > renders the shared wrapper (header, card, footer, CTA, he
                   <h1 style="color: #141311; font-size: 21px; font-weight: 700; margin: 0 0 12px; text-align: center;">A heading</h1>
                   <p style="color: #4b4946; font-size: 15px; line-height: 1.5; margin: 0 0 24px;">An intro paragraph.</p>
                   <p>Body</p>
-                  <p style="margin: 4px 0 0;"><a href="https://prntd.org/thing" style="display: inline-block; padding: 10px 21px; background: #ffffff; color: #141311; text-decoration: none; border: 1px solid #141311; border-radius: 8px; font-size: 14px; font-weight: 600;">Do the thing</a></p>
+                  <p style="margin: 4px 0 0;"><a href="https://prntd.org/thing" style="display: inline-block; padding: 10px 21px; background: #ffffff; color: #141311; text-decoration: none; border: 1px solid #141311; border-radius: 6px; font-size: 14px; font-weight: 600;">Do the thing</a></p>
                 </td>
               </tr>
               <tr>
@@ -90,7 +90,7 @@ exports[`sendOrderConfirmation > multi-line cart order without display name > ht
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background: #f8f5ef; padding: 32px 16px;">
         <tr>
           <td align="center">
-            <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px; width: 100%; background: #ffffff; border: 1px solid #bfbdb8; border-radius: 16px; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+            <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px; width: 100%; background: #ffffff; border: 1px solid #bfbdb8; border-radius: 8px; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
               <tr>
                 <td style="background: #f8f5ef; border-bottom: 1px solid #bfbdb8; padding: 18px 28px;">
                   <span style="color: #a83250; font-size: 18px; font-weight: 700; letter-spacing: 0.18em;">PRNTD</span>
@@ -114,7 +114,7 @@ exports[`sendOrderConfirmation > multi-line cart order without display name > ht
     <td style="padding: 9px 0; color: #6f6d6a; font-size: 14px; border-top: 1px solid #bfbdb8;">Total</td>
     <td style="padding: 9px 0; text-align: right; font-size: 14px; color: #141311; font-weight: 600;  border-top: 1px solid #bfbdb8;">$43.55</td>
   </tr></table>
-                  <p style="margin: 4px 0 0;"><a href="https://prntd.org/orders" style="display: inline-block; padding: 10px 21px; background: #ffffff; color: #141311; text-decoration: none; border: 1px solid #141311; border-radius: 8px; font-size: 14px; font-weight: 600;">View your orders</a></p>
+                  <p style="margin: 4px 0 0;"><a href="https://prntd.org/orders" style="display: inline-block; padding: 10px 21px; background: #ffffff; color: #141311; text-decoration: none; border: 1px solid #141311; border-radius: 6px; font-size: 14px; font-weight: 600;">View your orders</a></p>
                 </td>
               </tr>
               <tr>
@@ -138,7 +138,7 @@ exports[`sendOrderConfirmation > multi-line order renders a thumbnail and name p
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background: #f8f5ef; padding: 32px 16px;">
         <tr>
           <td align="center">
-            <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px; width: 100%; background: #ffffff; border: 1px solid #bfbdb8; border-radius: 16px; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+            <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px; width: 100%; background: #ffffff; border: 1px solid #bfbdb8; border-radius: 8px; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
               <tr>
                 <td style="background: #f8f5ef; border-bottom: 1px solid #bfbdb8; padding: 18px 28px;">
                   <span style="color: #a83250; font-size: 18px; font-weight: 700; letter-spacing: 0.18em;">PRNTD</span>
@@ -156,7 +156,7 @@ exports[`sendOrderConfirmation > multi-line order renders a thumbnail and name p
     <td style="padding: 9px 0;">
     <table role="presentation" cellpadding="0" cellspacing="0"><tr>
       <td width="48" valign="middle" style="padding-right: 10px;">
-        <div style="width: 48px; height: 48px; background: #0c0c0c; border: 1px solid #bfbdb8; border-radius: 8px; line-height: 0; text-align: center;">
+        <div style="width: 48px; height: 48px; background: #0c0c0c; border: 1px solid #bfbdb8; line-height: 0; text-align: center;">
           <img src="https://img.example/line-1.png" width="40" height="40" alt="" style="display: inline-block; width: 40px; height: 40px; margin: 4px 0; object-fit: contain;" />
         </div>
       </td>
@@ -170,7 +170,7 @@ exports[`sendOrderConfirmation > multi-line order renders a thumbnail and name p
     <td style="padding: 9px 0;">
     <table role="presentation" cellpadding="0" cellspacing="0"><tr>
       <td width="48" valign="middle" style="padding-right: 10px;">
-        <div style="width: 48px; height: 48px; background: #0c0c0c; border: 1px solid #bfbdb8; border-radius: 8px; line-height: 0; text-align: center;">
+        <div style="width: 48px; height: 48px; background: #0c0c0c; border: 1px solid #bfbdb8; line-height: 0; text-align: center;">
           <img src="https://img.example/line-2.png" width="40" height="40" alt="" style="display: inline-block; width: 40px; height: 40px; margin: 4px 0; object-fit: contain;" />
         </div>
       </td>
@@ -184,7 +184,7 @@ exports[`sendOrderConfirmation > multi-line order renders a thumbnail and name p
     <td style="padding: 9px 0; color: #6f6d6a; font-size: 14px; border-top: 1px solid #bfbdb8;">Total</td>
     <td style="padding: 9px 0; text-align: right; font-size: 14px; color: #141311; font-weight: 600;  border-top: 1px solid #bfbdb8;">$43.55</td>
   </tr></table>
-                  <p style="margin: 4px 0 0;"><a href="https://prntd.org/orders" style="display: inline-block; padding: 10px 21px; background: #ffffff; color: #141311; text-decoration: none; border: 1px solid #141311; border-radius: 8px; font-size: 14px; font-weight: 600;">View your orders</a></p>
+                  <p style="margin: 4px 0 0;"><a href="https://prntd.org/orders" style="display: inline-block; padding: 10px 21px; background: #ffffff; color: #141311; text-decoration: none; border: 1px solid #141311; border-radius: 6px; font-size: 14px; font-weight: 600;">View your orders</a></p>
                 </td>
               </tr>
               <tr>
@@ -206,7 +206,7 @@ exports[`sendOrderConfirmation > single-line order with display name > html 1`] 
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background: #f8f5ef; padding: 32px 16px;">
         <tr>
           <td align="center">
-            <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px; width: 100%; background: #ffffff; border: 1px solid #bfbdb8; border-radius: 16px; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+            <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px; width: 100%; background: #ffffff; border: 1px solid #bfbdb8; border-radius: 8px; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
               <tr>
                 <td style="background: #f8f5ef; border-bottom: 1px solid #bfbdb8; padding: 18px 28px;">
                   <span style="color: #a83250; font-size: 18px; font-weight: 700; letter-spacing: 0.18em;">PRNTD</span>
@@ -218,8 +218,8 @@ exports[`sendOrderConfirmation > single-line order with display name > html 1`] 
     <table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin: 0 auto 28px;">
       <tr>
         <td align="center" valign="top" style="padding: 0 8px;">
-          <div style="background: #e6e3dd; border: 1px solid #bfbdb8; border-radius: 12px; padding: 14px; line-height: 0;">
-            <img src="https://mock.example/front-mockup.png" width="280" alt="Front design" style="display: block; width: 280px; max-width: 100%; height: auto; border-radius: 6px;" />
+          <div style="background: #e6e3dd; border: 1px solid #bfbdb8; border-radius: 8px; padding: 14px; line-height: 0;">
+            <img src="https://mock.example/front-mockup.png" width="280" alt="Front design" style="display: block; width: 280px; max-width: 100%; height: auto;" />
           </div>
           
         </td></tr>
@@ -239,7 +239,7 @@ exports[`sendOrderConfirmation > single-line order with display name > html 1`] 
     <td style="padding: 9px 0; color: #6f6d6a; font-size: 14px; border-top: 1px solid #bfbdb8;">Total</td>
     <td style="padding: 9px 0; text-align: right; font-size: 14px; color: #141311; font-weight: 600;  border-top: 1px solid #bfbdb8;">$24.12</td>
   </tr></table>
-                  <p style="margin: 4px 0 0;"><a href="https://prntd.org/orders" style="display: inline-block; padding: 10px 21px; background: #ffffff; color: #141311; text-decoration: none; border: 1px solid #141311; border-radius: 8px; font-size: 14px; font-weight: 600;">View your orders</a></p>
+                  <p style="margin: 4px 0 0;"><a href="https://prntd.org/orders" style="display: inline-block; padding: 10px 21px; background: #ffffff; color: #141311; text-decoration: none; border: 1px solid #141311; border-radius: 6px; font-size: 14px; font-weight: 600;">View your orders</a></p>
                 </td>
               </tr>
               <tr>
@@ -263,7 +263,7 @@ exports[`sendOwnerOrderAlert > renders the admin alert with discount and design 
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background: #f8f5ef; padding: 32px 16px;">
         <tr>
           <td align="center">
-            <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px; width: 100%; background: #ffffff; border: 1px solid #bfbdb8; border-radius: 16px; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+            <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px; width: 100%; background: #ffffff; border: 1px solid #bfbdb8; border-radius: 8px; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
               <tr>
                 <td style="background: #f8f5ef; border-bottom: 1px solid #bfbdb8; padding: 18px 28px;">
                   <span style="color: #a83250; font-size: 18px; font-weight: 700; letter-spacing: 0.18em;">PRNTD</span>
@@ -275,8 +275,8 @@ exports[`sendOwnerOrderAlert > renders the admin alert with discount and design 
     <table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin: 0 auto 28px;">
       <tr>
         <td align="center" valign="top" style="padding: 0 8px;">
-          <div style="background: #e6e3dd; border: 1px solid #bfbdb8; border-radius: 12px; padding: 14px; line-height: 0;">
-            <img src="https://mock.example/front-mockup.png" width="280" alt="Front design" style="display: block; width: 280px; max-width: 100%; height: auto; border-radius: 6px;" />
+          <div style="background: #e6e3dd; border: 1px solid #bfbdb8; border-radius: 8px; padding: 14px; line-height: 0;">
+            <img src="https://mock.example/front-mockup.png" width="280" alt="Front design" style="display: block; width: 280px; max-width: 100%; height: auto;" />
           </div>
           
         </td></tr>
@@ -302,7 +302,7 @@ exports[`sendOwnerOrderAlert > renders the admin alert with discount and design 
     <td style="padding: 9px 0; color: #6f6d6a; font-size: 14px; border-top: 1px solid #bfbdb8;">Total</td>
     <td style="padding: 9px 0; text-align: right; font-size: 14px; color: #141311; font-weight: 600;  border-top: 1px solid #bfbdb8;">$14.41</td>
   </tr></table>
-                  <p style="margin: 4px 0 0;"><a href="https://prntd.org/admin/orders/abcd1234-5678-90ab-cdef-000000000000" style="display: inline-block; padding: 10px 21px; background: #ffffff; color: #141311; text-decoration: none; border: 1px solid #141311; border-radius: 8px; font-size: 14px; font-weight: 600;">View in admin</a></p>
+                  <p style="margin: 4px 0 0;"><a href="https://prntd.org/admin/orders/abcd1234-5678-90ab-cdef-000000000000" style="display: inline-block; padding: 10px 21px; background: #ffffff; color: #141311; text-decoration: none; border: 1px solid #141311; border-radius: 6px; font-size: 14px; font-weight: 600;">View in admin</a></p>
                 </td>
               </tr>
               <tr>
@@ -326,7 +326,7 @@ exports[`sendPasswordResetEmail > renders the reset CTA > html 1`] = `
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background: #f8f5ef; padding: 32px 16px;">
         <tr>
           <td align="center">
-            <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px; width: 100%; background: #ffffff; border: 1px solid #bfbdb8; border-radius: 16px; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+            <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px; width: 100%; background: #ffffff; border: 1px solid #bfbdb8; border-radius: 8px; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
               <tr>
                 <td style="background: #f8f5ef; border-bottom: 1px solid #bfbdb8; padding: 18px 28px;">
                   <span style="color: #a83250; font-size: 18px; font-weight: 700; letter-spacing: 0.18em;">PRNTD</span>
@@ -338,7 +338,7 @@ exports[`sendPasswordResetEmail > renders the reset CTA > html 1`] = `
                   <h1 style="color: #141311; font-size: 21px; font-weight: 700; margin: 0 0 12px; text-align: center;">Reset your password</h1>
                   <p style="color: #4b4946; font-size: 15px; line-height: 1.5; margin: 0 0 24px;">Click the button below to set a new password. This link expires in 1 hour. If you didn't request this, you can ignore this email.</p>
                   
-                  <p style="margin: 4px 0 0;"><a href="https://prntd.org/reset-password?token=fixture-token" style="display: inline-block; padding: 10px 21px; background: #ffffff; color: #141311; text-decoration: none; border: 1px solid #141311; border-radius: 8px; font-size: 14px; font-weight: 600;">Reset password</a></p>
+                  <p style="margin: 4px 0 0;"><a href="https://prntd.org/reset-password?token=fixture-token" style="display: inline-block; padding: 10px 21px; background: #ffffff; color: #141311; text-decoration: none; border: 1px solid #141311; border-radius: 6px; font-size: 14px; font-weight: 600;">Reset password</a></p>
                 </td>
               </tr>
               <tr>
@@ -362,7 +362,7 @@ exports[`sendShippingNotification > with tracking number and URL > html 1`] = `
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background: #f8f5ef; padding: 32px 16px;">
         <tr>
           <td align="center">
-            <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px; width: 100%; background: #ffffff; border: 1px solid #bfbdb8; border-radius: 16px; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+            <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px; width: 100%; background: #ffffff; border: 1px solid #bfbdb8; border-radius: 8px; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
               <tr>
                 <td style="background: #f8f5ef; border-bottom: 1px solid #bfbdb8; padding: 18px 28px;">
                   <span style="color: #a83250; font-size: 18px; font-weight: 700; letter-spacing: 0.18em;">PRNTD</span>
@@ -374,14 +374,14 @@ exports[`sendShippingNotification > with tracking number and URL > html 1`] = `
     <table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin: 0 auto 28px;">
       <tr>
         <td align="center" valign="top" style="padding: 0 8px;">
-          <div style="background: #e6e3dd; border: 1px solid #bfbdb8; border-radius: 12px; padding: 14px; line-height: 0;">
-            <img src="https://mock.example/front-mockup.png" width="200" alt="Front design" style="display: block; width: 200px; max-width: 100%; height: auto; border-radius: 6px;" />
+          <div style="background: #e6e3dd; border: 1px solid #bfbdb8; border-radius: 8px; padding: 14px; line-height: 0;">
+            <img src="https://mock.example/front-mockup.png" width="200" alt="Front design" style="display: block; width: 200px; max-width: 100%; height: auto;" />
           </div>
           <div style="color: #6f6d6a; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; margin-top: 8px;">Front</div>
         </td>
         <td align="center" valign="top" style="padding: 0 8px;">
-          <div style="background: #0c0c0c; border: 1px solid #bfbdb8; border-radius: 12px; padding: 14px; line-height: 0;">
-            <img src="https://img.example/back-artwork.png" width="200" alt="Back design" style="display: block; width: 200px; max-width: 100%; height: auto; border-radius: 6px;" />
+          <div style="background: #0c0c0c; border: 1px solid #bfbdb8; border-radius: 8px; padding: 14px; line-height: 0;">
+            <img src="https://img.example/back-artwork.png" width="200" alt="Back design" style="display: block; width: 200px; max-width: 100%; height: auto;" />
           </div>
           <div style="color: #6f6d6a; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; margin-top: 8px;">Back</div>
         </td></tr>
@@ -392,7 +392,7 @@ exports[`sendShippingNotification > with tracking number and URL > html 1`] = `
     <td style="padding: 9px 0; color: #6f6d6a; font-size: 14px; ">Tracking #</td>
     <td style="padding: 9px 0; text-align: right; font-size: 14px; color: #141311;  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; ">1Z999AA10123456784</td>
   </tr></table>
-                  <p style="margin: 4px 0 0;"><a href="https://track.example/1Z999AA10123456784" style="display: inline-block; padding: 10px 21px; background: #ffffff; color: #141311; text-decoration: none; border: 1px solid #141311; border-radius: 8px; font-size: 14px; font-weight: 600;">Track your package</a></p>
+                  <p style="margin: 4px 0 0;"><a href="https://track.example/1Z999AA10123456784" style="display: inline-block; padding: 10px 21px; background: #ffffff; color: #141311; text-decoration: none; border: 1px solid #141311; border-radius: 6px; font-size: 14px; font-weight: 600;">Track your package</a></p>
                 </td>
               </tr>
               <tr>
@@ -416,7 +416,7 @@ exports[`sendShippingNotification > without tracking info yet > html 1`] = `
       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background: #f8f5ef; padding: 32px 16px;">
         <tr>
           <td align="center">
-            <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px; width: 100%; background: #ffffff; border: 1px solid #bfbdb8; border-radius: 16px; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+            <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px; width: 100%; background: #ffffff; border: 1px solid #bfbdb8; border-radius: 8px; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
               <tr>
                 <td style="background: #f8f5ef; border-bottom: 1px solid #bfbdb8; padding: 18px 28px;">
                   <span style="color: #a83250; font-size: 18px; font-weight: 700; letter-spacing: 0.18em;">PRNTD</span>
