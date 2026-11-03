@@ -1,5 +1,6 @@
 import { config as loadEnv } from "dotenv";
 import { defineConfig, devices } from "@playwright/test";
+import { E2E_SIGNIN_RATE_MAX } from "./e2e/helpers/rate-limit";
 
 // Local runs read DB creds (for the e2e seed helper) from .env.local; CI
 // provides DATABASE_URL/DATABASE_AUTH_TOKEN as job env instead. dotenv never
@@ -12,6 +13,8 @@ loadEnv({ path: ".env.local" });
 const remoteURL = process.env.E2E_BASE_URL;
 const baseURL = remoteURL ?? "http://localhost:3100";
 const bypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+
+const RATE_LIMIT_SPEC = /guest-rate-limit\.spec\.ts$/;
 
 export default defineConfig({
   testDir: "e2e",
@@ -39,7 +42,7 @@ export default defineConfig({
   projects: [
     // Phone-first project: the product principle is mobile wins, so the
     // primary E2E viewport is a phone. Everything runs here.
-    { name: "mobile", use: { ...devices["Pixel 7"] } },
+    { name: "mobile", use: { ...devices["Pixel 7"] }, testIgnore: RATE_LIMIT_SPEC },
     // Desktop is a smoke layer, not a second full suite. Running every spec on
     // both viewports doubled e2e runtime for little marginal signal — the specs
     // assert flow and data, which are viewport-independent; the layout that
@@ -52,6 +55,15 @@ export default defineConfig({
       name: "desktop",
       use: { ...devices["Desktop Chrome"] },
       testMatch: /(landing|guest-funnel)\.spec\.ts$/,
+    },
+    // Fills the sign-in limiter's window on purpose, which would starve any
+    // test minting a guest at the same time. It runs alone, after the two
+    // projects above have finished.
+    {
+      name: "rate-limit",
+      use: { ...devices["Pixel 7"] },
+      testMatch: RATE_LIMIT_SPEC,
+      dependencies: ["mobile", "desktop"],
     },
   ],
   webServer: remoteURL
@@ -73,6 +85,11 @@ export default defineConfig({
           // localhost; let Better-Auth trust the localhost origin so the
           // sign-up/sign-in flow (origin-checked) works. Never set in real prod.
           E2E_TRUST_LOCALHOST: "true",
+          // Better-Auth allows 3 sign-ins per 10 s per IP in a compiled
+          // build; every worker's guest mint comes from this one IP. Raised
+          // for the harness only (src/lib/auth.ts ignores it on Vercel).
+          // CI's e2e job boots this same webServer, so it gets it too.
+          E2E_AUTH_SIGNIN_RATE_MAX: String(E2E_SIGNIN_RATE_MAX),
           // The Stripe money-path spec (e2e:stripe) completes a real test-mode
           // payment, which drives the webhook into Printful submission — force
           // dry-run so a local e2e can never place a real Printful order,

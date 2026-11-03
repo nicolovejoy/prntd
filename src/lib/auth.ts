@@ -6,6 +6,7 @@ import { db } from "./db";
 import * as schema from "./db/schema";
 import { reparentUserData } from "./reparent-user";
 import { sendPasswordResetEmail } from "./email";
+import { parseSigninRateMax, signinRateLimitRules } from "./auth-rate-limit";
 
 // The auth client resolves to same-origin, so requests come from whatever
 // host serves the page. Trust this project's Vercel preview hosts
@@ -31,9 +32,21 @@ if (
   );
 }
 
+// Better-Auth limits sign-in/sign-up to 3 per 10 s per IP in production
+// builds. The local e2e harness (compiled build, many workers, one IP) sets
+// E2E_AUTH_SIGNIN_RATE_MAX to raise it; ignored on any Vercel deployment.
+const signinRateMax = parseSigninRateMax(
+  process.env.E2E_AUTH_SIGNIN_RATE_MAX,
+  process.env.VERCEL_ENV
+);
+const signinCustomRules = signinRateLimitRules(signinRateMax);
+
 export const auth = betterAuth({
   baseURL: process.env.NEXT_PUBLIC_APP_URL,
   trustedOrigins,
+  ...(signinCustomRules
+    ? { rateLimit: { customRules: signinCustomRules } }
+    : {}),
   database: drizzleAdapter(db, {
     provider: "sqlite",
     schema,
