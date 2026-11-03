@@ -35,3 +35,22 @@ export function signinRateLimitRules(
     "/change-email": rule,
   };
 }
+
+/** Ordinary paths (get-session and the rest) are limited per IP per path by
+ * Better-Auth's global rule: 100 per 10 s (create-context.mjs defaults).
+ * Nine e2e workers polling get-session from one IP exceed that, so the harness
+ * raises it by the same override, as a fixed multiple of the sign-in max. */
+export const GLOBAL_RATE_MAX_MULTIPLE = 10;
+
+/** The whole `rateLimit` option for the e2e override, or undefined. `window`,
+ * `enabled` and `storage` are left out so Better-Auth's defaults still apply. */
+export function e2eRateLimitOptions(max: number | null):
+  | {
+      max: number;
+      customRules: Record<string, { window: number; max: number }>;
+    }
+  | undefined {
+  const customRules = signinRateLimitRules(max);
+  if (!customRules || max === null) return undefined;
+  return { max: max * GLOBAL_RATE_MAX_MULTIPLE, customRules };
+}

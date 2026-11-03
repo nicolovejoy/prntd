@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  GLOBAL_RATE_MAX_MULTIPLE,
+  e2eRateLimitOptions,
   parseSigninRateMax,
   signinRateLimitRules,
 } from "../auth-rate-limit";
@@ -43,5 +45,18 @@ describe("signinRateLimitRules", () => {
     for (const r of Object.values(rules)) {
       expect(r).toEqual({ window: 10, max: 30 });
     }
+  });
+});
+
+describe("e2eRateLimitOptions", () => {
+  it("returns nothing without an override", () => {
+    expect(e2eRateLimitOptions(null)).toBeUndefined();
+  });
+
+  it("raises the global max and carries the sign-in rules, nothing else", () => {
+    const o = e2eRateLimitOptions(30)!;
+    expect(o.max).toBe(30 * GLOBAL_RATE_MAX_MULTIPLE);
+    expect(o.customRules).toEqual(signinRateLimitRules(30));
+    expect(Object.keys(o).sort()).toEqual(["customRules", "max"]);
   });
 });
