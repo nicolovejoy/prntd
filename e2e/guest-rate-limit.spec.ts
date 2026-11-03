@@ -31,6 +31,9 @@ test("a rate-limited guest mint is retried once on its own and still reaches the
         origin: "https://e2e-probe.invalid",
         cookie: "e2e-probe=1",
       },
+      // A JSON body: with no Content-Type the endpoint answers 415 before
+      // the origin check runs.
+      data: {},
     });
     limited = res.status() === 429;
     if (!limited) expect(res.status(), `probe ${i}`).toBe(403);
