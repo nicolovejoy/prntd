@@ -20,8 +20,9 @@ import {
 } from "./helpers/db";
 
 // A fresh guest mint can still be refused by Better-Auth's sign-in rate limit
-// (the e2e server raises it from 3 to E2E_SIGNIN_RATE_MAX per 10 s per IP, see
-// playwright.config.ts; a remote E2E_BASE_URL keeps the default 3). /design's
+// (the e2e server raises the ip|path bucket's ceiling from 3 to
+// E2E_SIGNIN_RATE_MAX, see playwright.config.ts; a remote E2E_BASE_URL keeps
+// the default 3, and the bucket resets after 10 s with no request). /design's
 // entry page then waits about 10 s and retries once, so the Studio can
 // legitimately take that long to appear. The test that exhausts the limit on
 // purpose is guest-rate-limit.spec.ts, which runs alone after everything else.

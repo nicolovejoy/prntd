@@ -8,20 +8,32 @@ import { waitForSessionCookie } from "./helpers/session";
 test("a rate-limited guest mint is retried once on its own and still reaches the Studio", async ({
   page,
   request,
-  baseURL,
 }) => {
   test.setTimeout(60_000);
 
-  // Fill the window from outside the page (a separate request context, so no
-  // cookie reaches the page) until the limiter answers 429. The local server
-  // allows E2E_SIGNIN_RATE_MAX per 10 s; a remote one keeps Better-Auth's 3
+  // Fill the sign-in bucket (ip|path; its count resets only after 10 s with no
+  // request on it) from outside the page, in a separate request context so no
+  // cookie reaches the page, until the limiter answers 429. The local server
+  // allows E2E_SIGNIN_RATE_MAX in a row; a remote one keeps Better-Auth's 3
   // and answers 429 sooner.
+  //
+  // The probe creates no users. The limiter runs in the router's onRequest,
+  // before any middleware, so it counts the request; Better-Auth's origin
+  // check then refuses it. That check only validates when the request carries
+  // a cookie header (validateOrigin in origin-check.mjs), hence the dummy
+  // cookie, and the untrusted origin makes it a 403 before the handler. Every
+  // answer short of 429 must be that 403; anything else means a guest was
+  // minted (or the check changed), so fail instead of carrying on.
   let limited = false;
   for (let i = 0; i < E2E_SIGNIN_RATE_MAX + 5 && !limited; i++) {
     const res = await request.post("/api/auth/sign-in/anonymous", {
-      headers: { origin: baseURL ?? "" },
+      headers: {
+        origin: "https://e2e-probe.invalid",
+        cookie: "e2e-probe=1",
+      },
     });
     limited = res.status() === 429;
+    if (!limited) expect(res.status(), `probe ${i}`).toBe(403);
   }
   expect(limited).toBe(true);
 

@@ -4,9 +4,10 @@ import { expect, type Page } from "@playwright/test";
  * Wait for the Better-Auth session cookie the guest funnel mints client-side
  * (ensureGuestSession) and return its value.
  *
- * 20 s: Better-Auth rate-limits sign-ins per IP per 10 s (the e2e server
- * raises the default 3 to E2E_SIGNIN_RATE_MAX, e2e/helpers/rate-limit.ts; a
- * remote base URL keeps 3). A visitor who hits it is retried once by /design's
+ * 20 s: Better-Auth rate-limits sign-ins per ip|path bucket, which resets
+ * after 10 s with no request on it (the e2e server raises the default 3 to
+ * E2E_SIGNIN_RATE_MAX, e2e/helpers/rate-limit.ts; a remote base URL keeps 3).
+ * A visitor who hits it is retried once by /design's
  * entry page after the stated wait (about 10 s), so a mint can legitimately
  * land that late.
  */
