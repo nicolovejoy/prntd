@@ -119,3 +119,41 @@ Tests (`src/components/__tests__/page-view-beacon.test.tsx`, jsdom, `@testing-li
 10. `stripToOriginPath`: `""` → `""`; `"not a url"` → `""`; `"https://prntd.org/checkout?session=cs_123"` → `"https://prntd.org/checkout"`; `"https://prntd.org/sign-in?next=%2Fcart#top"` → `"https://prntd.org/sign-in"`.
 
 Gate before reporting DONE: `npm run lint` (0 errors), `npm run typecheck`, `npx vitest run src/components/__tests__/page-view-beacon.test.tsx src/app/__tests__/layout-beacon.test.ts`, then `npm test`.
+
+## Task 2: no ids, no admin (Nico, 2026-11-04, option 2 on #365)
+
+Files: `src/components/page-view-beacon.tsx`, `src/components/__tests__/page-view-beacon.test.tsx`.
+
+Paths can carry ids. An owner's unpublished `/d/<imageId>` is enough to fetch the artwork from public R2, and `/admin/usage/<userId>` and `/admin/orders/<id>` carry user and order ids. The only dynamic segments in `src/app` are `d/[imageId]`, `admin/usage/[userId]`, `admin/orders/[id]` and `api/auth/[...all]` (never a page).
+
+Add and export `beaconPath(pathname: string): string`:
+- `"/admin"` or anything starting `"/admin/"` returns `"/admin"`.
+- `/^\/d\/[^/]+/` is replaced with `"/d/[id]"`, keeping any rest of the path.
+- Anything else is returned unchanged.
+
+Behaviour:
+- When the current pathname is `/admin` or under `/admin/`, send nothing. Still record it as `lastPath`, so the next page's dedupe and `ref` work.
+- `path` in the body is `beaconPath(pathname)`.
+- `ref` after a client navigation is `location.origin + beaconPath(lastPath)`, so leaving an admin page gives `https://<origin>/admin` and leaving an image page gives `https://<origin>/d/[id]`.
+- `ref` on the first send: `stripToOriginPath(document.referrer)`. When that URL's origin equals `window.location.origin`, its path also goes through `beaconPath`. A hard navigation from `/d/abc` to `/sign-in` must give `ref` `https://<origin>/d/[id]`. A cross-origin referrer stays origin+path.
+- The dedupe is still keyed on the raw pathname. Going from `/d/a` to `/d/b` sends two views, both with path `/d/[id]`.
+
+Update the component's header comment in one or two plain sentences: no ids, and admin pages aren't sent.
+
+New tests, each of which must fail if the line it pins is broken (verify by mutation):
+1. `beaconPath` cases:
+   - `"/admin"` → `"/admin"`
+   - `"/admin/orders/123"` → `"/admin"`
+   - `"/administrator"` → `"/administrator"`
+   - `"/d/abc123"` → `"/d/[id]"`
+   - `"/d/abc123/x"` → `"/d/[id]/x"`
+   - `"/design"` → `"/design"`
+   - `"/shop"` → `"/shop"`
+2. Mount at `/admin/usage/u1`: no send.
+3. Mount at `/d/abc`: body `path` is `"/d/[id]"`.
+4. `/admin/orders/9`, then rerender at `/shop`: exactly one send, `ref` = `window.location.origin + "/admin"`.
+5. `/d/abc`, then `/shop`: the second send has `ref` = `origin + "/d/[id]"`.
+6. Same-origin referrer `window.location.origin + "/d/abc?x=1"`, mount at `/sign-in`: `ref` = `origin + "/d/[id]"`.
+7. Cross-origin referrer `https://checkout.stripe.com/c/pay/cs_test_1#frag`, mount at `/order/confirm`: `ref` = `"https://checkout.stripe.com/c/pay/cs_test_1"`. This pins today's behaviour.
+
+Gate: lint, typecheck, `npx vitest run src/components/__tests__/page-view-beacon.test.tsx src/app/__tests__/layout-beacon.test.ts`.
