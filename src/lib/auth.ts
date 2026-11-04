@@ -6,6 +6,7 @@ import { db } from "./db";
 import * as schema from "./db/schema";
 import { reparentUserData } from "./reparent-user";
 import { sendPasswordResetEmail } from "./email";
+import { parseRateMax, e2eRateLimitOptions } from "./auth-rate-limit";
 
 // The auth client resolves to same-origin, so requests come from whatever
 // host serves the page. Trust this project's Vercel preview hosts
@@ -31,9 +32,24 @@ if (
   );
 }
 
+// Better-Auth's limiter counts per ip|path bucket: 3 on sign-in/sign-up and
+// 100 elsewhere, reset after 10 s with no request on the bucket (production
+// builds). The local e2e harness (compiled build, many workers, one IP) raises
+// both ceilings through E2E_AUTH_SIGNIN_RATE_MAX and E2E_AUTH_GLOBAL_RATE_MAX.
+// Honoured only with E2E_TRUST_LOCALHOST=true and no VERCEL_ENV.
+const rateGuards = {
+  vercelEnv: process.env.VERCEL_ENV,
+  trustLocalhost: process.env.E2E_TRUST_LOCALHOST,
+};
+const e2eRateLimit = e2eRateLimitOptions(
+  parseRateMax(process.env.E2E_AUTH_SIGNIN_RATE_MAX, rateGuards),
+  parseRateMax(process.env.E2E_AUTH_GLOBAL_RATE_MAX, rateGuards)
+);
+
 export const auth = betterAuth({
   baseURL: process.env.NEXT_PUBLIC_APP_URL,
   trustedOrigins,
+  ...(e2eRateLimit ? { rateLimit: e2eRateLimit } : {}),
   database: drizzleAdapter(db, {
     provider: "sqlite",
     schema,
