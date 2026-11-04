@@ -60,6 +60,7 @@ afterEach(() => {
   if (origReferrer) Object.defineProperty(document, "referrer", origReferrer);
   else delete (document as unknown as Record<string, unknown>).referrer;
   localStorage.clear();
+  window.history.replaceState({}, "", "/");
 });
 
 describe("PageViewBeacon", () => {
@@ -130,6 +131,13 @@ describe("PageViewBeacon", () => {
     expect((bodyOf(beacon.mock.calls[0]) as { wd: number }).wd).toBe(1);
   });
 
+  it("sets wd to 1 and remembers it when the URL has ?pl_agent=1", () => {
+    window.history.replaceState({}, "", "/shop?pl_agent=1");
+    render(<PageViewBeacon />);
+    expect((bodyOf(beacon.mock.calls[0]) as { wd: number }).wd).toBe(1);
+    expect(localStorage.getItem("pl_agent")).toBe("1");
+  });
+
   it("does not throw when sendBeacon throws", () => {
     beacon.mockImplementation(() => {
       throw new Error("boom");
@@ -143,10 +151,13 @@ describe("PageViewBeacon", () => {
       configurable: true,
       writable: true,
     });
-    const fetchMock = vi.fn(() => Promise.reject(new Error("offline")));
+    const rejected = Promise.reject(new Error("offline"));
+    const catchSpy = vi.spyOn(rejected, "catch");
+    const fetchMock = vi.fn(() => rejected);
     vi.stubGlobal("fetch", fetchMock);
     render(<PageViewBeacon />);
     await Promise.resolve();
+    expect(catchSpy).toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as unknown as [
       string,
