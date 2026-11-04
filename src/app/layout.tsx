@@ -5,6 +5,7 @@ import { FeedbackLauncher } from "@/components/feedback-launcher";
 import { FEEDBACK_PROJECT_ID } from "@/lib/feedback/project-id";
 import { cartEnabled } from "@/lib/flags";
 import { Analytics } from "@vercel/analytics/next";
+import Script from "next/script";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -63,6 +64,14 @@ export default function RootLayout({
         {children}
         <FeedbackLauncher projectId={FEEDBACK_PROJECT_ID} />
         <Analytics />
+        {/* prompt-lab's page-view beacon. It counts document loads (first
+            visit, reloads, hard navigations such as sign-in/up and the Stripe
+            return), not client-side navigations. No cookies, no IP stored. */}
+        <Script
+          src="https://prompt-labs.org/beacon.js"
+          strategy="afterInteractive"
+          crossOrigin="anonymous"
+        />
       </body>
     </html>
   );
