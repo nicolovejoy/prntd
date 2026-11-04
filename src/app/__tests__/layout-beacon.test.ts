@@ -6,13 +6,16 @@ import { join } from "path";
 // server component that loads next/font, so we assert on its text instead of
 // rendering it.
 const raw = readFileSync(join(__dirname, "../layout.tsx"), "utf8");
-// Drop JSX comments so a commented-out script cannot satisfy the check.
+// Drop JSX comments so a commented-out element cannot satisfy the check.
 const layout = raw.replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
 
 describe("root layout page-view beacon", () => {
-  it("renders one Script element with the beacon src, strategy and crossOrigin", () => {
-    const re =
-      /<Script\b(?=[^>]*\bsrc="https:\/\/prompt-labs\.org\/beacon\.js")(?=[^>]*\bstrategy="afterInteractive")(?=[^>]*\bcrossOrigin="anonymous")[^>]*\/>/g;
-    expect(layout.match(re)).toHaveLength(1);
+  it("renders <PageViewBeacon /> exactly once", () => {
+    expect(layout.match(/<PageViewBeacon\s*\/>/g)).toHaveLength(1);
+  });
+
+  it("loads no third-party beacon script and does not import next/script", () => {
+    expect(layout).not.toContain("prompt-labs.org/beacon.js");
+    expect(layout).not.toMatch(/from\s+["']next\/script["']/);
   });
 });
