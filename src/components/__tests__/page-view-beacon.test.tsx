@@ -10,6 +10,7 @@ vi.mock("next/navigation", () => ({
 import {
   PageViewBeacon,
   stripToOriginPath,
+  beaconPath,
   BEACON_URL,
 } from "../page-view-beacon";
 
@@ -173,6 +174,76 @@ describe("PageViewBeacon", () => {
       path: "/shop",
       ref: "",
       wd: 0,
+    });
+  });
+});
+
+describe("beaconPath", () => {
+  it("drops admin detail and ids", () => {
+    expect(beaconPath("/admin")).toBe("/admin");
+    expect(beaconPath("/admin/orders/123")).toBe("/admin");
+    expect(beaconPath("/administrator")).toBe("/administrator");
+    expect(beaconPath("/d/abc123")).toBe("/d/[id]");
+    expect(beaconPath("/d/abc123/x")).toBe("/d/[id]/x");
+    expect(beaconPath("/design")).toBe("/design");
+    expect(beaconPath("/shop")).toBe("/shop");
+  });
+});
+
+describe("PageViewBeacon privacy", () => {
+  it("sends nothing on an admin page", () => {
+    mockPathname = "/admin/usage/u1";
+    render(<PageViewBeacon />);
+    expect(beacon).not.toHaveBeenCalled();
+  });
+
+  it("sends /d/[id] for an image page, and again for another image", () => {
+    mockPathname = "/d/abc";
+    const { rerender } = render(<PageViewBeacon />);
+    expect(bodyOf(beacon.mock.calls[0])).toMatchObject({ path: "/d/[id]" });
+    mockPathname = "/d/b";
+    rerender(<PageViewBeacon />);
+    expect(beacon).toHaveBeenCalledTimes(2);
+    expect(bodyOf(beacon.mock.calls[1])).toMatchObject({ path: "/d/[id]" });
+  });
+
+  it("leaving an admin page sends one view whose ref is /admin", () => {
+    mockPathname = "/admin/orders/9";
+    const { rerender } = render(<PageViewBeacon />);
+    mockPathname = "/shop";
+    rerender(<PageViewBeacon />);
+    expect(beacon).toHaveBeenCalledTimes(1);
+    expect(bodyOf(beacon.mock.calls[0])).toMatchObject({
+      path: "/shop",
+      ref: window.location.origin + "/admin",
+    });
+  });
+
+  it("leaving an image page gives ref /d/[id]", () => {
+    mockPathname = "/d/abc";
+    const { rerender } = render(<PageViewBeacon />);
+    mockPathname = "/shop";
+    rerender(<PageViewBeacon />);
+    expect(bodyOf(beacon.mock.calls[1])).toMatchObject({
+      ref: window.location.origin + "/d/[id]",
+    });
+  });
+
+  it("scrubs a same-origin referrer", () => {
+    setReferrer(window.location.origin + "/d/abc?x=1");
+    mockPathname = "/sign-in";
+    render(<PageViewBeacon />);
+    expect(bodyOf(beacon.mock.calls[0])).toMatchObject({
+      ref: window.location.origin + "/d/[id]",
+    });
+  });
+
+  it("keeps a cross-origin referrer as origin + path", () => {
+    setReferrer("https://checkout.stripe.com/c/pay/cs_test_1#frag");
+    mockPathname = "/order/confirm";
+    render(<PageViewBeacon />);
+    expect(bodyOf(beacon.mock.calls[0])).toMatchObject({
+      ref: "https://checkout.stripe.com/c/pay/cs_test_1",
     });
   });
 });

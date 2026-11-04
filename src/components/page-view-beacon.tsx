@@ -7,8 +7,19 @@ import { usePathname } from "next/navigation";
 // prompt-lab beacon.js script sends, from its own code, so no third-party
 // script runs on prntd's pages (Nico, 2026-11-03). prompt-lab derives the site
 // from the Origin header. The body is an interface with prompt-lab: change it
-// only after telling them on the handoff.
+// only after telling them on the handoff. Paths carry no ids (/d/<imageId> is
+// sent as /d/[id]) and admin pages are not sent at all (Nico, 2026-11-04).
 export const BEACON_URL = "https://prompt-labs.org/api/beacon";
+
+/** The path prompt-lab sees: no ids, and every admin page collapses to /admin. */
+export function beaconPath(pathname: string): string {
+  if (pathname === "/admin" || pathname.startsWith("/admin/")) return "/admin";
+  return pathname.replace(/^\/d\/[^/]+/, "/d/[id]");
+}
+
+function isAdminPath(pathname: string): boolean {
+  return pathname === "/admin" || pathname.startsWith("/admin/");
+}
 
 /** Origin + path of an absolute URL; "" when empty or unparseable. Drops query and hash. */
 export function stripToOriginPath(url: string): string {
@@ -65,12 +76,19 @@ export function PageViewBeacon() {
 
   useEffect(() => {
     if (!pathname || lastPath.current === pathname) return;
-    const ref =
-      lastPath.current === null
-        ? stripToOriginPath(document.referrer)
-        : window.location.origin + lastPath.current;
+    let ref: string;
+    if (lastPath.current === null) {
+      ref = stripToOriginPath(document.referrer);
+      if (ref.startsWith(window.location.origin + "/")) {
+        const { origin } = window.location;
+        ref = origin + beaconPath(ref.slice(origin.length));
+      }
+    } else {
+      ref = window.location.origin + beaconPath(lastPath.current);
+    }
     lastPath.current = pathname;
-    sendPageView(pathname, ref);
+    if (isAdminPath(pathname)) return;
+    sendPageView(beaconPath(pathname), ref);
   }, [pathname]);
 
   return null;
