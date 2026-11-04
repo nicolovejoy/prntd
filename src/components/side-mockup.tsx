@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  isDarkShirt,
   mockupBackdrop,
   type HeroDisplay,
   type Side,
@@ -135,11 +134,10 @@ export function SideMockup({
 
       {display.pendingExact && (
         <div className="pointer-events-none absolute inset-x-0 bottom-2 z-10 flex justify-center">
-          <span
-            className={`inline-flex items-center gap-2 text-xs ${
-              isDarkShirt(colorHex) ? "text-accent-fg/80" : "text-foreground/60"
-            }`}
-          >
+          {/* An opaque Paper chip, like the Front/Back label: the shirt behind it
+              can be any of the catalogue's colours, so translucent text could
+              not hold AA contrast on all of them (#361 question 3). */}
+          <span className="inline-flex items-center gap-2 border border-border bg-background px-1.5 py-0.5 text-xs text-foreground">
             <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
             {!tile && pendingLabel}
           </span>
