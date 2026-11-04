@@ -9,6 +9,11 @@ import { usePathname } from "next/navigation";
 // from the Origin header. The body is an interface with prompt-lab: change it
 // only after telling them on the handoff. Paths carry no ids (/d/<imageId> is
 // sent as /d/[id]) and admin pages are not sent at all (Nico, 2026-11-04).
+// The first view of each document sends no `event` field, which prompt-lab
+// counts as a page load; every later client-side route change adds
+// `"event": "nav"`, which prompt-lab counts separately as an in-app view, so
+// prntd's page loads stay comparable with sites that count loads only
+// (prompt-lab, 2026-11-04; contract: prompt-lab's docs/beacon.md).
 export const BEACON_URL = "https://prompt-labs.org/api/beacon";
 
 /** The path prompt-lab sees: no ids, and every admin page collapses to /admin. */
@@ -51,10 +56,13 @@ function agentFlag(): 0 | 1 {
   return agent;
 }
 
-/** Fire-and-forget. Never throws. */
-export function sendPageView(path: string, ref: string): void {
+/** Fire-and-forget. Never throws. `nav` marks a client-side navigation. */
+export function sendPageView(path: string, ref: string, nav = false): void {
   try {
-    const data = JSON.stringify({ path, ref, wd: agentFlag() });
+    const body = nav
+      ? { path, ref, wd: agentFlag(), event: "nav" }
+      : { path, ref, wd: agentFlag() };
+    const data = JSON.stringify(body);
     if (typeof navigator.sendBeacon === "function") {
       navigator.sendBeacon(BEACON_URL, new Blob([data], { type: "text/plain" }));
     } else if (typeof fetch === "function") {
@@ -76,19 +84,23 @@ export function PageViewBeacon() {
 
   useEffect(() => {
     if (!pathname || lastPath.current === pathname) return;
+    // Not the document's first route: the document loaded earlier (even on
+    // an admin page that was not sent), so this is an in-app navigation.
+    const prev = lastPath.current;
+    const nav = prev !== null;
     let ref: string;
-    if (lastPath.current === null) {
+    if (prev === null) {
       ref = stripToOriginPath(document.referrer);
       if (ref.startsWith(window.location.origin + "/")) {
         const { origin } = window.location;
         ref = origin + beaconPath(ref.slice(origin.length));
       }
     } else {
-      ref = window.location.origin + beaconPath(lastPath.current);
+      ref = window.location.origin + beaconPath(prev);
     }
     lastPath.current = pathname;
     if (isAdminPath(pathname)) return;
-    sendPageView(beaconPath(pathname), ref);
+    sendPageView(beaconPath(pathname), ref, nav);
   }, [pathname]);
 
   return null;

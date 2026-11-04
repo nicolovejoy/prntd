@@ -39,6 +39,10 @@ function bodyOf(call: unknown[]): unknown {
 
 let beacon: ReturnType<typeof vi.fn>;
 
+function call(i: number): unknown {
+  return bodyOf(beacon.mock.calls[i]);
+}
+
 beforeEach(() => {
   mockPathname = "/shop";
   vi.stubGlobal("Blob", RecordingBlob);
@@ -95,7 +99,23 @@ describe("PageViewBeacon", () => {
       path: "/cart",
       ref: window.location.origin + "/shop",
       wd: 0,
+      event: "nav",
     });
+  });
+
+  it("marks only client-side navigations as nav; the document load has no event", () => {
+    const { rerender } = render(<PageViewBeacon />);
+    mockPathname = "/cart";
+    rerender(<PageViewBeacon />);
+    mockPathname = "/shop";
+    rerender(<PageViewBeacon />);
+    expect(beacon).toHaveBeenCalledTimes(3);
+    expect(bodyOf(beacon.mock.calls[0])).not.toHaveProperty("event");
+    expect((call(1) as { event?: string }).event).toBe("nav");
+    expect((call(2) as { event?: string }).event).toBe("nav");
+    expect((beacon.mock.calls[1][1] as RecordingBlob).parts.join("")).toBe(
+      `{"path":"/cart","ref":"${window.location.origin}/shop","wd":0,"event":"nav"}`,
+    );
   });
 
   it("does not send again for the same pathname", () => {
@@ -176,6 +196,24 @@ describe("PageViewBeacon", () => {
       wd: 0,
     });
   });
+
+  it("sends nav through the fetch fallback too", () => {
+    Object.defineProperty(navigator, "sendBeacon", {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
+    const fetchMock = vi.fn(() => Promise.resolve(new Response()));
+    vi.stubGlobal("fetch", fetchMock);
+    const { rerender } = render(<PageViewBeacon />);
+    mockPathname = "/cart";
+    rerender(<PageViewBeacon />);
+    const init = (fetchMock.mock.calls[1] as unknown as [string, RequestInit])[1];
+    expect(JSON.parse(init.body as string)).toMatchObject({
+      path: "/cart",
+      event: "nav",
+    });
+  });
 });
 
 describe("beaconPath", () => {
@@ -213,9 +251,12 @@ describe("PageViewBeacon privacy", () => {
     mockPathname = "/shop";
     rerender(<PageViewBeacon />);
     expect(beacon).toHaveBeenCalledTimes(1);
+    // The document loaded on the admin page, which is not sent, so the
+    // first view prompt-lab sees from it is an in-app navigation.
     expect(bodyOf(beacon.mock.calls[0])).toMatchObject({
       path: "/shop",
       ref: window.location.origin + "/admin",
+      event: "nav",
     });
   });
 
