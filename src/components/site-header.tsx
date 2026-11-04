@@ -151,7 +151,7 @@ export function SiteHeader({
   }
 
   return (
-    <header className="px-4 sm:px-6 py-2 border-b text-sm relative">
+    <header className="px-4 sm:px-6 py-2 border-b border-foreground text-sm relative">
       <div className="flex items-center justify-between" data-testid="header-bar">
         <Link href="/" className="font-bold tracking-tight text-accent-rose">
           PRNTD
