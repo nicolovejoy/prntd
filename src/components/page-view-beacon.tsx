@@ -1,14 +1,21 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 
-// prompt-lab's page-view endpoint. prntd sends the same three-field body the
-// prompt-lab beacon.js script sends, from its own code, so no third-party
-// script runs on prntd's pages (Nico, 2026-11-03). prompt-lab derives the site
+// prompt-lab's page-view endpoint. prntd sends the body prompt-lab's beacon
+// interface defines, from its own code, so no third-party script runs on
+// prntd's pages (Nico, 2026-11-03). prompt-lab derives the site
 // from the Origin header. The body is an interface with prompt-lab: change it
 // only after telling them on the handoff. Paths carry no ids (/d/<imageId> is
 // sent as /d/[id]) and admin pages are not sent at all (Nico, 2026-11-04).
+// The first view each document sends has no `event` field, which prompt-lab
+// counts as a page load; every later client-side route change adds
+// `"event": "nav"`, which prompt-lab counts separately as an in-app view, so
+// prntd's page loads stay comparable with sites that count loads only. A
+// document that loads on an admin page sends its page load from the first
+// public page, as prompt-lab's reference component does (prompt-lab,
+// 2026-11-04; contract: prompt-lab's docs/beacon.md).
 export const BEACON_URL = "https://prompt-labs.org/api/beacon";
 
 /** The path prompt-lab sees: no ids, and every admin page collapses to /admin. */
@@ -51,10 +58,13 @@ function agentFlag(): 0 | 1 {
   return agent;
 }
 
-/** Fire-and-forget. Never throws. */
-export function sendPageView(path: string, ref: string): void {
+/** Fire-and-forget. Never throws. `nav` marks a client-side navigation. */
+export function sendPageView(path: string, ref: string, nav = false): void {
   try {
-    const data = JSON.stringify({ path, ref, wd: agentFlag() });
+    const body = nav
+      ? { path, ref, wd: agentFlag(), event: "nav" }
+      : { path, ref, wd: agentFlag() };
+    const data = JSON.stringify(body);
     if (typeof navigator.sendBeacon === "function") {
       navigator.sendBeacon(BEACON_URL, new Blob([data], { type: "text/plain" }));
     } else if (typeof fetch === "function") {
@@ -70,25 +80,39 @@ export function sendPageView(path: string, ref: string): void {
   }
 }
 
+// Per document, not per mount: module state lives until the next document
+// load, so a remount of the root layout (a recovery from global-error) is
+// neither counted as a page load again nor sent twice for the same path.
+let lastPath: string | null = null;
+let documentCounted = false;
+
+/** Test-only: forget this document's state, as a fresh document load would. */
+export function resetPageViewBeaconForTests(): void {
+  lastPath = null;
+  documentCounted = false;
+}
+
 export function PageViewBeacon() {
   const pathname = usePathname();
-  const lastPath = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!pathname || lastPath.current === pathname) return;
+    if (!pathname || lastPath === pathname) return;
+    const prev = lastPath;
     let ref: string;
-    if (lastPath.current === null) {
+    if (prev === null) {
       ref = stripToOriginPath(document.referrer);
       if (ref.startsWith(window.location.origin + "/")) {
         const { origin } = window.location;
         ref = origin + beaconPath(ref.slice(origin.length));
       }
     } else {
-      ref = window.location.origin + beaconPath(lastPath.current);
+      ref = window.location.origin + beaconPath(prev);
     }
-    lastPath.current = pathname;
+    lastPath = pathname;
     if (isAdminPath(pathname)) return;
-    sendPageView(beaconPath(pathname), ref);
+    const nav = documentCounted;
+    documentCounted = true;
+    sendPageView(beaconPath(pathname), ref, nav);
   }, [pathname]);
 
   return null;

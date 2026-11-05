@@ -12,6 +12,7 @@ import {
   stripToOriginPath,
   beaconPath,
   BEACON_URL,
+  resetPageViewBeaconForTests,
 } from "../page-view-beacon";
 
 // Records Blob parts and type so tests do not depend on jsdom's Blob reading.
@@ -39,7 +40,12 @@ function bodyOf(call: unknown[]): unknown {
 
 let beacon: ReturnType<typeof vi.fn>;
 
+function call(i: number): unknown {
+  return bodyOf(beacon.mock.calls[i]);
+}
+
 beforeEach(() => {
+  resetPageViewBeaconForTests();
   mockPathname = "/shop";
   vi.stubGlobal("Blob", RecordingBlob);
   beacon = vi.fn(() => true);
@@ -95,7 +101,23 @@ describe("PageViewBeacon", () => {
       path: "/cart",
       ref: window.location.origin + "/shop",
       wd: 0,
+      event: "nav",
     });
+  });
+
+  it("marks only client-side navigations as nav; the document load has no event", () => {
+    const { rerender } = render(<PageViewBeacon />);
+    mockPathname = "/cart";
+    rerender(<PageViewBeacon />);
+    mockPathname = "/shop";
+    rerender(<PageViewBeacon />);
+    expect(beacon).toHaveBeenCalledTimes(3);
+    expect(bodyOf(beacon.mock.calls[0])).not.toHaveProperty("event");
+    expect((call(1) as { event?: string }).event).toBe("nav");
+    expect((call(2) as { event?: string }).event).toBe("nav");
+    expect((beacon.mock.calls[1][1] as RecordingBlob).parts.join("")).toBe(
+      `{"path":"/cart","ref":"${window.location.origin}/shop","wd":0,"event":"nav"}`,
+    );
   });
 
   it("does not send again for the same pathname", () => {
@@ -111,6 +133,18 @@ describe("PageViewBeacon", () => {
       </React.StrictMode>,
     );
     expect(beacon).toHaveBeenCalledTimes(1);
+    expect(call(0)).not.toHaveProperty("event");
+  });
+
+  it("a remount in the same document sends nothing for the same path and nav after", () => {
+    const first = render(<PageViewBeacon />);
+    first.unmount();
+    const { rerender } = render(<PageViewBeacon />);
+    expect(beacon).toHaveBeenCalledTimes(1);
+    mockPathname = "/cart";
+    rerender(<PageViewBeacon />);
+    expect(beacon).toHaveBeenCalledTimes(2);
+    expect(call(1)).toMatchObject({ path: "/cart", event: "nav" });
   });
 
   it("sets wd to 1 when navigator.webdriver is true", () => {
@@ -176,6 +210,24 @@ describe("PageViewBeacon", () => {
       wd: 0,
     });
   });
+
+  it("sends nav through the fetch fallback too", () => {
+    Object.defineProperty(navigator, "sendBeacon", {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
+    const fetchMock = vi.fn(() => Promise.resolve(new Response()));
+    vi.stubGlobal("fetch", fetchMock);
+    const { rerender } = render(<PageViewBeacon />);
+    mockPathname = "/cart";
+    rerender(<PageViewBeacon />);
+    const init = (fetchMock.mock.calls[1] as unknown as [string, RequestInit])[1];
+    expect(JSON.parse(init.body as string)).toMatchObject({
+      path: "/cart",
+      event: "nav",
+    });
+  });
 });
 
 describe("beaconPath", () => {
@@ -207,15 +259,35 @@ describe("PageViewBeacon privacy", () => {
     expect(bodyOf(beacon.mock.calls[1])).toMatchObject({ path: "/d/[id]" });
   });
 
-  it("leaving an admin page sends one view whose ref is /admin", () => {
+  it("a document that loads on an admin page sends its page load from the first public page", () => {
     mockPathname = "/admin/orders/9";
     const { rerender } = render(<PageViewBeacon />);
     mockPathname = "/shop";
     rerender(<PageViewBeacon />);
-    expect(beacon).toHaveBeenCalledTimes(1);
-    expect(bodyOf(beacon.mock.calls[0])).toMatchObject({
+    mockPathname = "/cart";
+    rerender(<PageViewBeacon />);
+    expect(beacon).toHaveBeenCalledTimes(2);
+    expect(call(0)).toEqual({
       path: "/shop",
       ref: window.location.origin + "/admin",
+      wd: 0,
+    });
+    expect(call(1)).toMatchObject({ path: "/cart", event: "nav" });
+  });
+
+  it("public, then admin, then public: the return is a nav from /admin", () => {
+    const { rerender } = render(<PageViewBeacon />);
+    mockPathname = "/admin/usage";
+    rerender(<PageViewBeacon />);
+    mockPathname = "/cart";
+    rerender(<PageViewBeacon />);
+    expect(beacon).toHaveBeenCalledTimes(2);
+    expect(call(0)).not.toHaveProperty("event");
+    expect(call(1)).toEqual({
+      path: "/cart",
+      ref: window.location.origin + "/admin",
+      wd: 0,
+      event: "nav",
     });
   });
 
