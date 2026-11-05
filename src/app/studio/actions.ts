@@ -259,6 +259,12 @@ export async function attachReferenceImage(
   if (!(file instanceof Blob)) {
     throw new Error("attachReferenceImage expects a Blob");
   }
+  // Checked with the Blob, before the quota: a non-string name used to fail
+  // inside storeReferenceImage (ATTACH_FAILED) after a unit was spent. The
+  // composer always sends the File's name, so only a direct call lands here.
+  if (typeof fileName !== "string" || typeof designId !== "string") {
+    throw new Error("attachReferenceImage expects a string designId and fileName");
+  }
 
   const [existing] = await db
     .select({ userId: designTable.userId, closedAt: designTable.closedAt })

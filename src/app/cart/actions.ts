@@ -49,7 +49,7 @@ import {
   CART_TOO_FULL_TO_CHECKOUT,
   checkoutLimitMessage,
 } from "@/lib/action-copy";
-import { consumeCheckoutQuota } from "@/lib/generation-quota";
+import { consumeCartQuoteQuota, consumeCheckoutQuota } from "@/lib/generation-quota";
 import { clientIp } from "@/lib/client-ip";
 import {
   isValidCartQuantity,
@@ -389,16 +389,38 @@ export async function getCartCount(): Promise<number> {
 export async function getCart(): Promise<CartView> {
   const userId = await currentUserId();
   if (!userId) return { items: [], itemSubtotal: 0, shipping: 0, total: 0 };
-  return (await buildCart(userId)).view;
+  const ip = clientIp(await headers());
+  return (await buildCart(userId, { liveQuote: () => cartQuoteAllowed(userId, ip) }))
+    .view;
+}
+
+/**
+ * Whether getCart may ask Printful for a live shipping quote: one unit of the
+ * daily cart quote caps (#316). A refusal, or a quota write that fails, means
+ * the flat estimate; the cart page never fails over a quote.
+ */
+async function cartQuoteAllowed(userId: string, ip: string | null): Promise<boolean> {
+  try {
+    return (await consumeCartQuoteQuota({ userId, ip })).allowed;
+  } catch (err) {
+    console.error(
+      `getCart quote quota failed for ${userId}: ${err instanceof Error ? err.message : String(err)}`
+    );
+    return false;
+  }
 }
 
 /**
  * `getCart` for a known user, plus each line's page image id (the image whose
  * detail page the line re-opens, `cartLineEdit`; null when it cannot be
- * determined). `checkoutCart` attributes a line by that image.
+ * determined). `checkoutCart` attributes a line by that image. `liveQuote`,
+ * when given, is asked before the Printful quote and a false answer uses the
+ * flat estimate (getCart passes the cart quote cap; checkoutCart passes
+ * nothing and always quotes live, under its own checkout cap).
  */
 async function buildCart(
-  userId: string
+  userId: string,
+  opts: { liveQuote?: () => Promise<boolean> } = {}
 ): Promise<{ view: CartView; pageImageIds: Map<string, string | null> }> {
   const pageImageIds = new Map<string, string | null>();
   const rows = await db.query.cartItem.findMany({
@@ -529,7 +551,7 @@ async function buildCart(
     if (hiddenArt[n].back) i.backImageUrl = null;
   });
 
-  const shipping = await quoteCartShipping(items);
+  const shipping = await quoteCartShipping(items, opts.liveQuote);
   const { item, shipping: ship, total } = computeCartTotal(
     items.flatMap((i) => Array(i.quantity).fill(i.unitPrice)),
     shipping
@@ -784,9 +806,14 @@ export async function checkoutCart(): Promise<{
  * Bundled shipping for the whole cart — one live Printful estimate for all the
  * lines at a representative US destination, so the 2nd+ item's cheaper shipping
  * shows up. Falls back to the flat per-order estimate if the quote is
- * unavailable (dry-run, error, or no resolvable variants).
+ * unavailable (dry-run, error, or no resolvable variants), or when `liveQuote`
+ * says no (getCart past its daily cart quote cap). `liveQuote` is asked only
+ * when there is something to quote, so an empty cart spends no quota.
  */
-async function quoteCartShipping(items: CartLine[]): Promise<number> {
+async function quoteCartShipping(
+  items: CartLine[],
+  liveQuote?: () => Promise<boolean>
+): Promise<number> {
   if (items.length === 0) return 0;
 
   const quoteItems: { variantId: number; quantity: number }[] = [];
@@ -797,7 +824,7 @@ async function quoteCartShipping(items: CartLine[]): Promise<number> {
     if (variantId) quoteItems.push({ variantId, quantity: i.quantity });
   }
 
-  if (quoteItems.length > 0) {
+  if (quoteItems.length > 0 && (!liveQuote || (await liveQuote()))) {
     const est = await estimateOrderCosts({
       recipient: QUOTE_RECIPIENT,
       items: quoteItems,

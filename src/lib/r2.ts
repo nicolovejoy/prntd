@@ -6,6 +6,7 @@ import {
 } from "@aws-sdk/client-s3";
 import { createHash } from "crypto";
 import { mockupObjectKey, type MockupKeyParts } from "@/lib/mockup-cache";
+import { dryRunEnabled } from "@/lib/dry-run";
 
 const r2 = new S3Client({
   region: "auto",
@@ -23,11 +24,11 @@ const bucket = process.env.R2_BUCKET_NAME!;
  * URL the object would have had; the other writes and the deletes are not
  * gated. Set by the e2e runs (playwright.config.ts and CI's e2e job), whose
  * R2 credentials are fakes, so a spec that stores an image (the Studio
- * attach, #351) can reach its rows; never set in a real deployment. Gated
- * like PRINTFUL_DRY_RUN, read per call.
+ * attach, #351) can reach its rows; never set in a real deployment, and
+ * ignored in a Production one (`dryRunEnabled`, like PRINTFUL_DRY_RUN).
  */
 function r2DryRun(): boolean {
-  return process.env.R2_DRY_RUN === "true";
+  return dryRunEnabled("R2_DRY_RUN");
 }
 
 /**

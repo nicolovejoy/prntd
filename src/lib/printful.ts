@@ -1,4 +1,5 @@
 import { withTimeout } from "./timeout";
+import { dryRunEnabled } from "./dry-run";
 
 const PRINTFUL_API = "https://api.printful.com";
 
@@ -109,7 +110,7 @@ export async function createOrder(params: {
     items = [{ variantId: params.variantId, quantity: 1, files }];
   }
 
-  if (process.env.PRINTFUL_DRY_RUN === "true") {
+  if (dryRunEnabled("PRINTFUL_DRY_RUN")) {
     const fakeId = `dry-run-${crypto.randomUUID()}`;
     console.warn(
       `[PRINTFUL_DRY_RUN] Skipping real order submission. Returning fake id=${fakeId} for ${params.recipientName} items=${items.map((it) => `${it.variantId}×${it.quantity}[${it.files.map((f) => f.placement).join(",")}]`).join(" ")}`
@@ -252,7 +253,7 @@ export async function estimateOrderCosts(params: {
   }[];
 }): Promise<EstimatedCosts | null> {
   if (params.items.length === 0) return null;
-  if (process.env.PRINTFUL_DRY_RUN === "true") return null;
+  if (dryRunEnabled("PRINTFUL_DRY_RUN")) return null;
 
   try {
     const data = await printfulFetch(
