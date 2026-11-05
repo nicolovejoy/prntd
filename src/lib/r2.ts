@@ -25,7 +25,7 @@ const bucket = process.env.R2_BUCKET_NAME!;
  * gated. Set by the e2e runs (playwright.config.ts and CI's e2e job), whose
  * R2 credentials are fakes, so a spec that stores an image (the Studio
  * attach, #351) can reach its rows; never set in a real deployment, and
- * ignored in a Production one (`dryRunEnabled`, like PRINTFUL_DRY_RUN).
+ * refused in a Production one (`dryRunEnabled` throws, like PRINTFUL_DRY_RUN).
  */
 function r2DryRun(): boolean {
   return dryRunEnabled("R2_DRY_RUN");

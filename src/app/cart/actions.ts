@@ -383,8 +383,9 @@ export async function getCartCount(): Promise<number> {
 
 /**
  * The full cart for display + checkout: each line priced via computePrice, plus
- * the order-level bundled shipping (live Printful quote, flat fallback) and the
- * grand total. Skips a row whose product is no longer in the catalog.
+ * the order-level bundled shipping (live Printful quote within the daily cart
+ * quote caps, else the flat estimate) and the grand total. Skips a row whose
+ * product is no longer in the catalog.
  */
 export async function getCart(): Promise<CartView> {
   const userId = await currentUserId();

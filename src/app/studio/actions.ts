@@ -240,8 +240,8 @@ export type AttachReferenceImageResult =
  * characters (about 750 KB of image) was refused before this body ran, while
  * a Blob is read straight from the multipart form data and not counted.
  *
- * Order: session; the argument must be a Blob (anything else is a caller
- * bug and throws); ownership (another user's conversation throws
+ * Order: session; the argument must be a Blob and `designId` and `fileName`
+ * strings (anything else is a caller bug and throws); ownership (another user's conversation throws
  * Unauthorized, as the other actions do); a closed conversation is refused
  * before any quota is spent; then the upload quota (never refunded); then
  * the Blob's size against the cap, before its bytes are read; then

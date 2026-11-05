@@ -253,9 +253,10 @@ export async function estimateOrderCosts(params: {
   }[];
 }): Promise<EstimatedCosts | null> {
   if (params.items.length === 0) return null;
-  if (dryRunEnabled("PRINTFUL_DRY_RUN")) return null;
-
   try {
+    // Inside the try: a dry-run flag refused in Production (dry-run.ts) gives
+    // the flat fallback, like any other quote failure, never a broken cart.
+    if (dryRunEnabled("PRINTFUL_DRY_RUN")) return null;
     const data = await printfulFetch(
       "/orders/estimate-costs",
       {

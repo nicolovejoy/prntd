@@ -25,14 +25,17 @@ describe("dryRunEnabled", () => {
     expect(dryRunEnabled("R2_DRY_RUN")).toBe(true);
   });
 
-  it("is ignored in a Production deployment, with an error naming the flag", () => {
-    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+  it("throws with VERCEL_ENV=production, naming the flag, so neither the dry run nor the real call happens", () => {
     vi.stubEnv("VERCEL_ENV", "production");
     vi.stubEnv("PRINTFUL_DRY_RUN", "true");
     vi.stubEnv("R2_DRY_RUN", "true");
+    expect(() => dryRunEnabled("PRINTFUL_DRY_RUN")).toThrow(/PRINTFUL_DRY_RUN/);
+    expect(() => dryRunEnabled("R2_DRY_RUN")).toThrow(/R2_DRY_RUN/);
+  });
+
+  it("an unset flag never throws in Production", () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("PRINTFUL_DRY_RUN", undefined);
     expect(dryRunEnabled("PRINTFUL_DRY_RUN")).toBe(false);
-    expect(dryRunEnabled("R2_DRY_RUN")).toBe(false);
-    expect(errors.mock.calls.flat().join(" ")).toContain("PRINTFUL_DRY_RUN");
-    expect(errors.mock.calls.flat().join(" ")).toContain("R2_DRY_RUN");
   });
 });

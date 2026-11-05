@@ -74,7 +74,7 @@ Environment variable names (values are not in the repo):
 
 `DATABASE_URL`, `DATABASE_AUTH_TOKEN`, `IDEOGRAM_API_KEY`, `ANTHROPIC_API_KEY`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `NEXT_PUBLIC_R2_PUBLIC_URL`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `PRINTFUL_API_KEY`, `BETTER_AUTH_SECRET`, `RESEND_API_KEY`, `NEXT_PUBLIC_APP_URL`, `ADMIN_EMAIL`, `OWNER_EMAIL`, `CRON_SECRET`, `NEXT_PUBLIC_FEEDBACK_PROJECT_ID`
 
-Feature flags: `GUEST_FUNNEL_ENABLED`, `CART_ENABLED`, `MULTI_PLACEMENT_ENABLED`, `EMBEDDED_CHECKOUT_ENABLED`. `PRINTFUL_DRY_RUN=true` skips real order submission, and `PRINTFUL_AUTO_CONFIRM` defaults on. Generation, upload and checkout quotas have per-user and per-IP daily cap variables (for example `USER_GEN_DAILY_CAP`, `USER_CHECKOUT_DAILY_CAP`). `REPLICATE_API_TOKEN` is used only by ops scripts in `scripts/`.
+Feature flags: `GUEST_FUNNEL_ENABLED`, `CART_ENABLED`, `MULTI_PLACEMENT_ENABLED`, `EMBEDDED_CHECKOUT_ENABLED`. `PRINTFUL_DRY_RUN=true` skips real order submission (and throws instead when `VERCEL_ENV=production`), and `PRINTFUL_AUTO_CONFIRM` defaults on. Generation, upload, checkout and cart shipping-quote quotas have per-user and per-IP daily cap variables (for example `USER_GEN_DAILY_CAP`, `USER_CHECKOUT_DAILY_CAP`, `USER_CART_QUOTE_DAILY_CAP`). `REPLICATE_API_TOKEN` is used only by ops scripts in `scripts/`.
 
 More detail is in `docs/` (`design-system.md`, `products.md`, `stripe-e2e.md`) and `CLAUDE.md`.
 
