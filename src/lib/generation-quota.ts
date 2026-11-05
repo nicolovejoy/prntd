@@ -44,10 +44,19 @@ export const USER_IP_GEN_DAILY_CAP = parseDailyCap(process.env.USER_IP_GEN_DAILY
 // action (both return needsAuth first), so there is no guest cap. The
 // numbers are far above what a buyer does in a day; their job is to bound
 // the pending orders and Stripe sessions one account can make us create. They
-// do not bound Printful quotes: getCart runs the same quote for any session,
-// guests included, with no cap.
+// do not bound getCart's Printful quotes; the cart quote caps below do.
 export const USER_CHECKOUT_DAILY_CAP = parseDailyCap(process.env.USER_CHECKOUT_DAILY_CAP, 30);
 export const USER_IP_CHECKOUT_DAILY_CAP = parseDailyCap(process.env.USER_IP_CHECKOUT_DAILY_CAP, 100);
+
+// Live Printful shipping quotes from getCart (#316's fourth bullet). getCart
+// runs for any session, guests included, and every cart view used to ask
+// Printful, whose rate limit real order submission shares. Past either cap the
+// cart shows the flat shipping estimate instead of refusing, so the page keeps
+// working; checkoutCart still quotes live (it has its own cap above). The cart
+// page reads the cart on load, on a quantity change and on a back/forward
+// restore, so the numbers sit far above a real day of shopping.
+export const USER_CART_QUOTE_DAILY_CAP = parseDailyCap(process.env.USER_CART_QUOTE_DAILY_CAP, 200);
+export const USER_IP_CART_QUOTE_DAILY_CAP = parseDailyCap(process.env.USER_IP_CART_QUOTE_DAILY_CAP, 500);
 
 // Reference-image uploads (#188 slice 2a). No upload quota existed before:
 // each attach writes an R2 object for any guest. The numbers sit well above
@@ -61,6 +70,14 @@ function checkoutUserBucket(userId: string): string {
 
 function checkoutIpBucket(ip: string): string {
   return `checkout:ip:${ip}`;
+}
+
+function cartQuoteUserBucket(userId: string): string {
+  return `cart-quote:user:${userId}`;
+}
+
+function cartQuoteIpBucket(ip: string): string {
+  return `cart-quote:ip:${ip}`;
 }
 
 function uploadUserBucket(userId: string): string {
@@ -210,6 +227,29 @@ export async function consumeCheckoutQuota(opts: {
     ipBucket: opts.ip ? checkoutIpBucket(opts.ip) : null,
     identityCap: USER_CHECKOUT_DAILY_CAP,
     ipCap: USER_IP_CHECKOUT_DAILY_CAP,
+    day: dayKeyUTC(opts.now ?? new Date()),
+    db,
+  });
+}
+
+/**
+ * Count one live cart shipping quote against the daily caps. Same shape as
+ * consumeCheckoutQuota: identity (`cart-quote:user:<id>`), then IP
+ * (`cart-quote:ip:<ip>`) when one is present. Never refunded. A refusal means
+ * "use the flat estimate", not an error.
+ */
+export async function consumeCartQuoteQuota(opts: {
+  userId: string;
+  ip: string | null;
+  now?: Date;
+  db?: AppDb;
+}): Promise<QuotaResult> {
+  const db = opts.db ?? (await import("./db")).db;
+  return consumeBuckets({
+    identityBucket: cartQuoteUserBucket(opts.userId),
+    ipBucket: opts.ip ? cartQuoteIpBucket(opts.ip) : null,
+    identityCap: USER_CART_QUOTE_DAILY_CAP,
+    ipCap: USER_IP_CART_QUOTE_DAILY_CAP,
     day: dayKeyUTC(opts.now ?? new Date()),
     db,
   });

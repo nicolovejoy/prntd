@@ -159,8 +159,8 @@ R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME (= prntd)
 NEXT_PUBLIC_R2_PUBLIC_URL                  # pub-xxx.r2.dev
 STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET
 PRINTFUL_API_KEY
-PRINTFUL_DRY_RUN                           # "true" short-circuits order submission (local e2e sets it)
-R2_DRY_RUN                                 # "true" skips the R2 write in uploadImageObject (local and CI e2e set it; #351); never in a deployment
+PRINTFUL_DRY_RUN                           # "true" short-circuits order submission and quotes (local e2e sets it); ignored when VERCEL_ENV=production (`src/lib/dry-run.ts`)
+R2_DRY_RUN                                 # "true" skips the R2 write in uploadImageObject (local and CI e2e set it; #351); never in a deployment, ignored when VERCEL_ENV=production
 PRINTFUL_AUTO_CONFIRM                      # defaults ON
 BETTER_AUTH_SECRET
 RESEND_API_KEY
@@ -171,6 +171,7 @@ CRON_SECRET                                # Bearer token for /api/cron/* (Produ
 GUEST_FUNNEL_ENABLED, CART_ENABLED, MULTI_PLACEMENT_ENABLED   # all ON in prod
 USER_GEN_DAILY_CAP, GUEST_GEN_DAILY_CAP, IP_GEN_DAILY_CAP, USER_IP_GEN_DAILY_CAP   # generation quota overrides
 USER_CHECKOUT_DAILY_CAP, USER_IP_CHECKOUT_DAILY_CAP   # checkout attempt caps, defaults 30 and 100 (#333; no guest cap, guests never reach checkout)
+USER_CART_QUOTE_DAILY_CAP, USER_IP_CART_QUOTE_DAILY_CAP   # live Printful quotes from getCart, defaults 200 and 500; past either the cart shows flat shipping
 EMBEDDED_CHECKOUT_ENABLED                  # embedded checkout for the image detail page and the cart (ON in prod; one switch for both). PREVIEW_EMBEDDED_CHECKOUT_ENABLED was removed by #278 slice 6a (#340, 2026-10-15); the Vercel Preview scope still sets it, with no effect
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY         # pk_ matching STRIPE_SECRET_KEY's mode; without it either switch fails closed to hosted
 NEXT_PUBLIC_FEEDBACK_PROJECT_ID            # feedback widget target
