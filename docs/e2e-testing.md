@@ -13,7 +13,7 @@ Stripe gives you two separate API key pairs (publishable + secret) for the two m
 
 Where orders land: local dev points at the **`prntd-dev`** Turso branch (#27), so test orders write to dev, not prod. Earlier in this project they hit prod Turso — that's no longer true. Confirm with `npx tsx scripts/check-db-isolation.ts` (expects host `prntd-dev-…`).
 
-The thing that trips people up: a test-mode checkout would still hit our real Printful API unless we stub it. Set `PRINTFUL_DRY_RUN=true` in `.env.local` for any local testing — the order submission is short-circuited and returns a fake `dry-run-…` id without contacting Printful. Catalog reads (variants, mockups) stay real. Make sure the flag is **unset** in production env vars; if it ever leaks to prod, real customer orders silently won't fulfill.
+The thing that trips people up: a test-mode checkout would still hit our real Printful API unless we stub it. Set `PRINTFUL_DRY_RUN=true` in `.env.local` for any local testing — the order submission is short-circuited and returns a fake `dry-run-…` id without contacting Printful. Catalog reads (variants, mockups) stay real, except that the Playwright webServer sets `PRINTFUL_MOCKUP_STUB=true`, which makes the mockup calls fail fast with no network call (`src/lib/dry-run.ts`). Make sure the flag is **unset** in production env vars; if it ever leaks to prod, real customer orders silently won't fulfill.
 
 ## Prerequisites (one-time setup)
 

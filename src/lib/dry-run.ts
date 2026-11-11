@@ -1,7 +1,10 @@
 /**
  * The test-only short-circuits: `PRINTFUL_DRY_RUN` (no real Printful order or
- * quote) and `R2_DRY_RUN` (no R2 write). They exist for local runs, CI's e2e
- * jobs and Vercel Previews.
+ * quote), `R2_DRY_RUN` (no R2 write) and `PRINTFUL_MOCKUP_STUB` (no call to
+ * Printful's mockup generator). They exist for local runs, CI's e2e jobs and
+ * Vercel Previews, except `PRINTFUL_MOCKUP_STUB`, which only the e2e harness
+ * sets: a Preview sets `PRINTFUL_DRY_RUN` and still needs real mockups, so
+ * the stub is its own flag.
  *
  * When `VERCEL_ENV` is `production` a set flag throws instead of answering.
  * In a real Production deployment a flag set by mistake would otherwise leave
@@ -14,7 +17,7 @@
  * it off. Ignoring the flag was the first version and was reversed for that
  * reason (#368's review). Read per call, so a test can set and clear it.
  */
-export type DryRunFlag = "PRINTFUL_DRY_RUN" | "R2_DRY_RUN";
+export type DryRunFlag = "PRINTFUL_DRY_RUN" | "R2_DRY_RUN" | "PRINTFUL_MOCKUP_STUB";
 
 export function dryRunEnabled(name: DryRunFlag): boolean {
   if (process.env[name] !== "true") return false;

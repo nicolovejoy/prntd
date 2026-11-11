@@ -269,6 +269,55 @@ describe("createMockupTask", () => {
   });
 });
 
+describe("PRINTFUL_MOCKUP_STUB", () => {
+  const position = {
+    area_width: 1800,
+    area_height: 2400,
+    width: 1800,
+    height: 1800,
+    top: 300,
+    left: 0,
+  };
+  let fetchSpy: MockInstance<any>;
+
+  beforeEach(() => {
+    vi.stubEnv("VERCEL_ENV", undefined);
+    vi.stubEnv("PRINTFUL_MOCKUP_STUB", "true");
+    fetchSpy = vi.spyOn(global, "fetch");
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    fetchSpy.mockRestore();
+  });
+
+  it("createMockupTask throws without calling fetch", async () => {
+    await expect(
+      createMockupTask(71, [4012], "https://x/img.png", position, "front")
+    ).rejects.toThrow(/PRINTFUL_MOCKUP_STUB/);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("pollMockupTask throws without calling fetch", async () => {
+    await expect(pollMockupTask("task-xyz")).rejects.toThrow(
+      /PRINTFUL_MOCKUP_STUB/
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("with the flag unset, createMockupTask still calls Printful", async () => {
+    vi.stubEnv("PRINTFUL_MOCKUP_STUB", undefined);
+    fetchSpy.mockResolvedValue(
+      new Response(JSON.stringify({ result: { task_key: "abc" } }), {
+        status: 200,
+      })
+    );
+    await expect(
+      createMockupTask(71, [4012], "https://x/img.png", position, "front")
+    ).resolves.toBe("abc");
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("pollMockupTask", () => {
   let fetchSpy: MockInstance<any>;
 

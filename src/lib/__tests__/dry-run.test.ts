@@ -21,16 +21,29 @@ describe("dryRunEnabled", () => {
     vi.stubEnv("VERCEL_ENV", "preview");
     vi.stubEnv("PRINTFUL_DRY_RUN", "true");
     vi.stubEnv("R2_DRY_RUN", "true");
+    vi.stubEnv("PRINTFUL_MOCKUP_STUB", "true");
     expect(dryRunEnabled("PRINTFUL_DRY_RUN")).toBe(true);
     expect(dryRunEnabled("R2_DRY_RUN")).toBe(true);
+    expect(dryRunEnabled("PRINTFUL_MOCKUP_STUB")).toBe(true);
   });
 
   it("throws with VERCEL_ENV=production, naming the flag, so neither the dry run nor the real call happens", () => {
     vi.stubEnv("VERCEL_ENV", "production");
     vi.stubEnv("PRINTFUL_DRY_RUN", "true");
     vi.stubEnv("R2_DRY_RUN", "true");
+    vi.stubEnv("PRINTFUL_MOCKUP_STUB", "true");
     expect(() => dryRunEnabled("PRINTFUL_DRY_RUN")).toThrow(/PRINTFUL_DRY_RUN/);
     expect(() => dryRunEnabled("R2_DRY_RUN")).toThrow(/R2_DRY_RUN/);
+    expect(() => dryRunEnabled("PRINTFUL_MOCKUP_STUB")).toThrow(
+      /PRINTFUL_MOCKUP_STUB/
+    );
+  });
+
+  it("PRINTFUL_MOCKUP_STUB is independent of PRINTFUL_DRY_RUN", () => {
+    vi.stubEnv("VERCEL_ENV", "preview");
+    vi.stubEnv("PRINTFUL_DRY_RUN", "true");
+    vi.stubEnv("PRINTFUL_MOCKUP_STUB", undefined);
+    expect(dryRunEnabled("PRINTFUL_MOCKUP_STUB")).toBe(false);
   });
 
   it("an unset flag never throws in Production", () => {
