@@ -240,8 +240,8 @@ export type AttachReferenceImageResult =
  * characters (about 750 KB of image) was refused before this body ran, while
  * a Blob is read straight from the multipart form data and not counted.
  *
- * Order: session; the argument must be a Blob (anything else is a caller
- * bug and throws); ownership (another user's conversation throws
+ * Order: session; the argument must be a Blob and `designId` and `fileName`
+ * strings (anything else is a caller bug and throws); ownership (another user's conversation throws
  * Unauthorized, as the other actions do); a closed conversation is refused
  * before any quota is spent; then the upload quota (never refunded); then
  * the Blob's size against the cap, before its bytes are read; then
@@ -258,6 +258,12 @@ export async function attachReferenceImage(
   const session = await requireStudioActionSession();
   if (!(file instanceof Blob)) {
     throw new Error("attachReferenceImage expects a Blob");
+  }
+  // Checked with the Blob, before the quota: a non-string name used to fail
+  // inside storeReferenceImage (ATTACH_FAILED) after a unit was spent. The
+  // composer always sends the File's name, so only a direct call lands here.
+  if (typeof fileName !== "string" || typeof designId !== "string") {
+    throw new Error("attachReferenceImage expects a string designId and fileName");
   }
 
   const [existing] = await db

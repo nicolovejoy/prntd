@@ -297,6 +297,20 @@ describe("attachReferenceImage", () => {
     expect(await designRows(designId)).toHaveLength(0);
   });
 
+  it("a non-string fileName or designId throws before any quota is spent or row is written", async () => {
+    const designId = crypto.randomUUID();
+    for (const name of [null, 42, { x: 1 }, undefined]) {
+      await expect(
+        attachReferenceImage(designId, await png(), name as unknown as string)
+      ).rejects.toThrow(/string designId and fileName/);
+    }
+    await expect(
+      attachReferenceImage(7 as unknown as string, await png(), "a.png")
+    ).rejects.toThrow(/string designId and fileName/);
+    expect(await testDb.select().from(schema.generationUsage)).toHaveLength(0);
+    expect(await designRows(designId)).toHaveLength(0);
+  });
+
   it("any other throw returns refused with ATTACH_FAILED and the thrown text is not in the message", async () => {
     (r2.uploadImageObject as Mock).mockRejectedValueOnce(new Error("R2 exploded: secret-detail"));
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
