@@ -159,8 +159,8 @@ R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME (= prntd)
 NEXT_PUBLIC_R2_PUBLIC_URL                  # pub-xxx.r2.dev
 STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET
 PRINTFUL_API_KEY
-PRINTFUL_DRY_RUN                           # "true" short-circuits order submission and quotes (local e2e sets it); ignored when VERCEL_ENV=production (`src/lib/dry-run.ts`)
-R2_DRY_RUN                                 # "true" skips the R2 write in uploadImageObject (local and CI e2e set it; #351); never in a deployment, ignored when VERCEL_ENV=production
+PRINTFUL_DRY_RUN                           # "true" short-circuits order submission and quotes (local e2e sets it); throws when VERCEL_ENV=production (`src/lib/dry-run.ts`)
+R2_DRY_RUN                                 # "true" skips the R2 write in uploadImageObject (local and CI e2e set it; #351); never in a deployment, throws when VERCEL_ENV=production
 PRINTFUL_MOCKUP_STUB                       # "true" makes createMockupTask/pollMockupTask throw with no network call (the e2e webServer sets it; separate from PRINTFUL_DRY_RUN because Previews need real mockups); throws when VERCEL_ENV=production (`src/lib/dry-run.ts`)
 PRINTFUL_AUTO_CONFIRM                      # defaults ON
 BETTER_AUTH_SECRET

@@ -25,7 +25,7 @@ describe("createOrder PRINTFUL_DRY_RUN", () => {
   let fetchSpy: MockInstance<any>;
 
   beforeEach(() => {
-    fetchSpy = vi.spyOn(global, "fetch");
+    fetchSpy = vi.spyOn(global, "fetch").mockRejectedValue(new Error("unmocked fetch in printful.test.ts"));
   });
 
   afterEach(() => {
@@ -228,7 +228,7 @@ describe("createMockupTask", () => {
   };
 
   beforeEach(() => {
-    fetchSpy = vi.spyOn(global, "fetch");
+    fetchSpy = vi.spyOn(global, "fetch").mockRejectedValue(new Error("unmocked fetch in printful.test.ts"));
   });
   afterEach(() => fetchSpy.mockRestore());
 
@@ -283,7 +283,7 @@ describe("PRINTFUL_MOCKUP_STUB", () => {
   beforeEach(() => {
     vi.stubEnv("VERCEL_ENV", undefined);
     vi.stubEnv("PRINTFUL_MOCKUP_STUB", "true");
-    fetchSpy = vi.spyOn(global, "fetch");
+    fetchSpy = vi.spyOn(global, "fetch").mockRejectedValue(new Error("unmocked fetch in printful.test.ts"));
   });
   afterEach(() => {
     vi.unstubAllEnvs();
@@ -322,7 +322,7 @@ describe("pollMockupTask", () => {
   let fetchSpy: MockInstance<any>;
 
   beforeEach(() => {
-    fetchSpy = vi.spyOn(global, "fetch");
+    fetchSpy = vi.spyOn(global, "fetch").mockRejectedValue(new Error("unmocked fetch in printful.test.ts"));
   });
   afterEach(() => fetchSpy.mockRestore());
 
