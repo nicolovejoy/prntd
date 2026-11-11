@@ -301,8 +301,8 @@ import type { MockupPosition } from "./blanks";
 /**
  * With `PRINTFUL_MOCKUP_STUB=true` (the e2e harness) the mockup functions
  * throw before any network call, so a local run neither spends the real
- * store's mockup quota nor trips its rate limit. Callers already treat a
- * failed mockup as "no mockup", which is what CI's fake key produces too.
+ * store's mockup quota nor trips its rate limit. Callers already surface a
+ * failed mockup as a retryable error, the same state CI's fake key produces.
  */
 function assertMockupsNotStubbed(): void {
   if (dryRunEnabled("PRINTFUL_MOCKUP_STUB")) {

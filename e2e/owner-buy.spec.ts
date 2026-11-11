@@ -69,9 +69,10 @@ test("the owner of an unpublished image can order it; a second signed-in user ge
       page.getByRole("button", { name: /^Order — \$\d/ })
     ).toBeEnabled();
 
-    // Lightbox (#285), mockup once the panel is open. CI's Printful key is a
-    // stub, so the render may show its error overlay above the hero's select
-    // button; open it by keyboard so the check does not depend on the render.
+    // Lightbox (#285), mockup once the panel is open. In e2e the mockup render
+    // fails (CI's fake key, PRINTFUL_MOCKUP_STUB locally), so it may show its
+    // error overlay above the hero's select button; open it by keyboard so the
+    // check does not depend on the render.
     const urlWithPicks = page.url();
     const heroButton = page
       .getByTestId("side-hero")

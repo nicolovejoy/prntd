@@ -228,9 +228,13 @@ describe("createMockupTask", () => {
   };
 
   beforeEach(() => {
+    vi.stubEnv("PRINTFUL_MOCKUP_STUB", undefined);
     fetchSpy = vi.spyOn(global, "fetch").mockRejectedValue(new Error("unmocked fetch in printful.test.ts"));
   });
-  afterEach(() => fetchSpy.mockRestore());
+  afterEach(() => {
+    fetchSpy.mockRestore();
+    vi.unstubAllEnvs();
+  });
 
   it("sends variant_ids as an array (multi-variant bulk path)", async () => {
     fetchSpy.mockResolvedValue(
@@ -322,9 +326,13 @@ describe("pollMockupTask", () => {
   let fetchSpy: MockInstance<any>;
 
   beforeEach(() => {
+    vi.stubEnv("PRINTFUL_MOCKUP_STUB", undefined);
     fetchSpy = vi.spyOn(global, "fetch").mockRejectedValue(new Error("unmocked fetch in printful.test.ts"));
   });
-  afterEach(() => fetchSpy.mockRestore());
+  afterEach(() => {
+    fetchSpy.mockRestore();
+    vi.unstubAllEnvs();
+  });
 
   it("returns one entry per rendered mockup, preserving variantIds grouping", async () => {
     fetchSpy.mockResolvedValue(
