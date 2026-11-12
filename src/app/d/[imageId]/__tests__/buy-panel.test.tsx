@@ -776,6 +776,16 @@ describe("BuyPanel failure notices", () => {
     expect(screen.getAllByTestId("add-to-cart")[0]).toBeEnabled();
   });
 
+  it("a lookup 429 followed by a returned full-cart refusal keeps the refusal's own line", async () => {
+    vi.mocked(ensureGuestSession).mockRejectedValueOnce(
+      new GuestSessionError("Too many", 429, 4, "lookup")
+    );
+    vi.mocked(addToCart).mockResolvedValueOnce({ ok: false, count: 40, error: CART_FULL });
+    await clickAddToCart(true);
+    expect((await screen.findAllByText(CART_FULL)).length).toBeGreaterThan(0);
+    expect(screen.queryByText(GUEST_SESSION_RATE_LIMITED)).toBeNull();
+  });
+
   /** Replace window.location with a stub that records href assignments. */
   function stubLocation() {
     const hrefSet = vi.fn();
