@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createRef } from "react";
-import { render, screen, fireEvent, act, within } from "@testing-library/react";
+import { render, screen, fireEvent, act, within, waitFor } from "@testing-library/react";
 import { getBlankOrThrow } from "@/lib/blanks";
 import type { BackSourceGroup } from "@/lib/back-sources";
 import { BuyPanel, type BuyPanelHandle } from "../buy-panel";
@@ -735,16 +735,44 @@ describe("BuyPanel failure notices", () => {
     expect((await screen.findAllByText(ADD_TO_CART_FAILED)).length).toBeGreaterThan(0);
   });
 
-  it("signed-out: a 429 on the guest session shows the rate-limited line and adds nothing", async () => {
-    vi.mocked(ensureGuestSession).mockRejectedValueOnce(new GuestSessionError("Too many", 429, 4));
-    vi.mocked(addToCart).mockClear();
-    render(<BuyPanel imageId="img-1" isLoggedIn={false} cartEnabled />);
+  async function clickAddToCart(isLoggedIn: boolean) {
+    render(<BuyPanel imageId="img-1" isLoggedIn={isLoggedIn} cartEnabled />);
     expand();
     fireEvent.click(screen.getByRole("button", { name: "M" }));
     fireEvent.click(screen.getAllByTestId("add-to-cart")[0]);
+  }
+
+  it("a mint 429 shows the rate-limited line, adds nothing and re-enables Add to cart", async () => {
+    vi.mocked(ensureGuestSession).mockRejectedValueOnce(
+      new GuestSessionError("Too many", 429, 4, "mint")
+    );
+    vi.mocked(addToCart).mockClear();
+    await clickAddToCart(false);
     expect((await screen.findAllByText(GUEST_SESSION_RATE_LIMITED)).length).toBeGreaterThan(0);
     expect(screen.queryByText(ADD_TO_CART_FAILED)).toBeNull();
     expect(addToCart).not.toHaveBeenCalled();
+    expect(screen.getAllByTestId("add-to-cart")[0]).toBeEnabled();
+  });
+
+  it("a lookup 429 still adds to the cart for a viewer who has a cookie, with no line", async () => {
+    vi.mocked(ensureGuestSession).mockRejectedValueOnce(
+      new GuestSessionError("Too many", 429, 4, "lookup")
+    );
+    vi.mocked(addToCart).mockClear();
+    await clickAddToCart(true);
+    await waitFor(() => expect(addToCart).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText(GUEST_SESSION_RATE_LIMITED)).toBeNull();
+    expect(screen.queryByText(ADD_TO_CART_FAILED)).toBeNull();
+  });
+
+  it("a lookup 429 followed by an addToCart failure shows the rate-limited line", async () => {
+    vi.mocked(ensureGuestSession).mockRejectedValueOnce(
+      new GuestSessionError("Too many", 429, 4, "lookup")
+    );
+    vi.mocked(addToCart).mockRejectedValueOnce(new Error("digest"));
+    await clickAddToCart(false);
+    expect((await screen.findAllByText(GUEST_SESSION_RATE_LIMITED)).length).toBeGreaterThan(0);
+    expect(screen.queryByText(ADD_TO_CART_FAILED)).toBeNull();
     expect(screen.getAllByTestId("add-to-cart")[0]).toBeEnabled();
   });
 

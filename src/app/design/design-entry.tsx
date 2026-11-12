@@ -27,9 +27,11 @@ import { seedHref } from "@/lib/studio-seed";
  * navigation goes ahead: the proxy then sends the visitor to sign-in, which is
  * what happened on /design before.
  *
- * A mint that Better-Auth refuses rejects. Its default rate limit is 3
- * sign-ins per 10 s per IP, so a fourth visitor behind one address gets a 429;
- * that one is retried once, on its own, after the wait the response states
+ * A mint that Better-Auth refuses rejects. Its sign-in limiter caps a run of 3
+ * back-to-back requests per IP, so a fourth visitor behind one address gets a
+ * 429. A 429 on the session lookup rejects the same way: this page renders
+ * only for a visitor with no session cookie, so there is nothing to fall back
+ * on. Either 429 is retried once, on its own, after the wait the response states
  * (10 s without one, 15 s at most), with the status line still on screen. Any
  * other failure shows one line and a retry button; so does a second 429, with
  * the rate-limited line (Nico's wording) in place of the generic one.

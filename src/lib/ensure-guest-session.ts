@@ -29,11 +29,15 @@ let ensured: Promise<void> | null = null;
  * (HTTP status, Retry-After when the response had one) and the memo is
  * cleared, which lets a later call mint. One exception: if a session reads
  * back after the refusal (another tab minted in the same moment), it
- * resolves. The lookup-error path above is the opposite on purpose: there a
- * session may already exist, so it resolves without minting, except that a
- * 429 on the lookup (Better-Auth's general limit, 100 per ip|path per 10 s)
- * rejects with a GuestSessionError the same way a refused mint does, and the
- * memo is cleared.
+ * resolves.
+ *
+ * A failed lookup means we don't know whether a session exists, so it never
+ * mints. Most lookup failures (5xx, network) resolve and leave the next step
+ * to decide. A 429 on the lookup (Better-Auth's general limiter, which caps a
+ * run of back-to-back requests on one ip|path) rejects with a
+ * GuestSessionError whose `stage` is "lookup", so a caller can tell it from a
+ * refused mint: the visitor may well hold a cookie, and a caller with a
+ * server action to run can run it anyway. Either way the memo is cleared.
  */
 export function ensureGuestSession(): Promise<void> {
   if (!ensured) {
@@ -49,21 +53,19 @@ export function ensureGuestSession(): Promise<void> {
         },
       });
       if (error) {
-        // Lookup failed — we don't know whether a session exists, so never
-        // mint here and let the next call retry rather than risk swapping the
-        // session.
-        ensured = null;
-        // A rate-limited lookup (429) is the one failure that rejects: the
-        // visitor has no cookie yet, and resolving would send them on to a
-        // page that bounces a guest to /sign-in. Any other lookup failure
-        // resolves, as before.
+        // Lookup failed: we don't know whether a session exists, so never mint
+        // here, and clear the memo so the next call looks again rather than
+        // risk swapping the session. A 429 rejects (the .catch below also
+        // clears the memo); any other lookup failure resolves.
         if (error.status === 429) {
           throw new GuestSessionError(
             error.message ?? "Session lookup was rate limited",
             429,
-            parseRetryAfterSeconds(lookupRetryAfter)
+            parseRetryAfterSeconds(lookupRetryAfter),
+            "lookup"
           );
         }
+        ensured = null;
         return;
       }
       if (!data) {
@@ -85,7 +87,8 @@ export function ensureGuestSession(): Promise<void> {
           throw new GuestSessionError(
             minted.error.message ?? "Couldn't start a guest session",
             typeof minted.error.status === "number" ? minted.error.status : null,
-            parseRetryAfterSeconds(retryAfter)
+            parseRetryAfterSeconds(retryAfter),
+            "mint"
           );
         }
       }

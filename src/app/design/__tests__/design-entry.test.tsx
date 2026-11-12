@@ -306,6 +306,19 @@ describe("DesignEntry when the mint is rate-limited (429)", () => {
     expect(h.replace).not.toHaveBeenCalled();
   });
 
+  it("a lookup-stage 429 takes the same automatic retry, then shows the rate-limited line", async () => {
+    h.ensure.mockRejectedValue(new GuestSessionError("Too many", 429, null, "lookup"));
+    render(<DesignEntry prompt="a heron" />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_100);
+    });
+    expect(h.ensure).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("alert").textContent).toBe(GUEST_SESSION_RATE_LIMITED);
+    expect(screen.getByRole("button", { name: DESIGN_ENTRY_RETRY })).toBeTruthy();
+    expect(h.replace).not.toHaveBeenCalled();
+  });
+
   it("a non-429 failure on the retry shows the failure line", async () => {
     h.ensure.mockRejectedValueOnce(tooMany()).mockRejectedValueOnce(new Error("network"));
     render(<DesignEntry prompt={null} />);

@@ -25,7 +25,12 @@ vi.mock("../auth-client", () => ({
 // Fresh module per test: ensureGuestSession memoizes its result at module scope.
 // That reset also re-creates GuestSessionError, so the errors below are matched
 // by name and fields, not with instanceof against a stale copy of the class.
-type MintError = { name: string; status: number | null; retryAfterSeconds: number | null };
+type MintError = {
+  name: string;
+  status: number | null;
+  retryAfterSeconds: number | null;
+  stage: string;
+};
 async function loadFresh() {
   vi.resetModules();
   return (await import("../ensure-guest-session")).ensureGuestSession;
@@ -120,7 +125,12 @@ describe("ensureGuestSession", () => {
       const err = await ensureGuestSession().catch((e: unknown) => e);
 
       expect(err).toBeInstanceOf(Error);
-      expect(err).toMatchObject({ name: "GuestSessionError", status: 429, retryAfterSeconds: null });
+      expect(err).toMatchObject({
+        name: "GuestSessionError",
+        status: 429,
+        retryAfterSeconds: null,
+        stage: "mint",
+      });
     });
 
     it("carries X-Retry-After when the response had one", async () => {
@@ -226,7 +236,12 @@ describe("ensureGuestSession", () => {
       const err = (await ensureGuestSession().catch((e: unknown) => e)) as MintError;
 
       expect(err).toBeInstanceOf(Error);
-      expect(err).toMatchObject({ name: "GuestSessionError", status: 429, retryAfterSeconds: null });
+      expect(err).toMatchObject({
+        name: "GuestSessionError",
+        status: 429,
+        retryAfterSeconds: null,
+        stage: "lookup",
+      });
       expect(signInAnonymous).not.toHaveBeenCalled();
     });
 
@@ -250,6 +265,7 @@ describe("ensureGuestSession", () => {
 
       expect(err.status).toBe(429);
       expect(err.retryAfterSeconds).toBe(6);
+      expect(err.stage).toBe("lookup");
       expect(signInAnonymous).not.toHaveBeenCalled();
     });
 
