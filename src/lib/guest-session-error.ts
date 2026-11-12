@@ -1,3 +1,5 @@
+import { GUEST_SESSION_RATE_LIMITED } from "./action-copy";
+
 /**
  * Why a guest-session mint failed (#188 slice 2b review). Better-Auth's
  * client returns `{ data, error }` instead of throwing, and the HTTP status
@@ -59,4 +61,20 @@ export function rateLimitRetryDelayMs(err: unknown): number | null {
       ? retryAfterSeconds * 1000 + RETRY_SLACK_MS
       : RATE_LIMIT_DEFAULT_WAIT_MS;
   return Math.min(stated, RATE_LIMIT_MAX_WAIT_MS);
+}
+
+/**
+ * The line to show when starting a guest session failed with `err`: the
+ * rate-limited line for a 429 (from the session lookup or the mint), else the
+ * caller's own `fallback`. Duck-typed on `status`, like rateLimitRetryDelayMs,
+ * so callers that mock the session module still get the real rule.
+ */
+export function guestSessionFailureMessage(
+  err: unknown,
+  fallback: string
+): string {
+  if (typeof err === "object" && err !== null && (err as { status?: unknown }).status === 429) {
+    return GUEST_SESSION_RATE_LIMITED;
+  }
+  return fallback;
 }

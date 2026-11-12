@@ -109,6 +109,9 @@ export const STUDIO_DELETE_CHECKING = "Checking…";
 export const DESIGN_ENTRY_OPENING = "Opening the Studio…";
 export const DESIGN_ENTRY_FAILED = "Couldn't start a session. Try again.";
 export const DESIGN_ENTRY_RETRY = "Try again";
+// Nico's wording (2026-11-11), a deliberate exception to persona C. Do not
+// reword. Shown wherever starting a guest session fails with a 429.
+export const GUEST_SESSION_RATE_LIMITED = "patience makes the hearth grow fondue";
 
 // --- admin (InlineNotice: one line, plus the raw error as a hint) ---
 

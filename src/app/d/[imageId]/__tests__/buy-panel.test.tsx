@@ -40,8 +40,11 @@ import {
   CART_LINE_GONE,
   CHECKOUT_FAILED,
   CHECKOUT_LIMIT_REACHED,
+  GUEST_SESSION_RATE_LIMITED,
   UPDATE_CART_FAILED,
 } from "@/lib/action-copy";
+import { ensureGuestSession } from "@/lib/ensure-guest-session";
+import { GuestSessionError } from "@/lib/guest-session-error";
 
 /** The panel starts collapsed (#128); most tests exercise the expanded stack. */
 function expand() {
@@ -730,6 +733,19 @@ describe("BuyPanel failure notices", () => {
     fireEvent.click(screen.getByRole("button", { name: "M" }));
     fireEvent.click(screen.getAllByTestId("add-to-cart")[0]);
     expect((await screen.findAllByText(ADD_TO_CART_FAILED)).length).toBeGreaterThan(0);
+  });
+
+  it("signed-out: a 429 on the guest session shows the rate-limited line and adds nothing", async () => {
+    vi.mocked(ensureGuestSession).mockRejectedValueOnce(new GuestSessionError("Too many", 429, 4));
+    vi.mocked(addToCart).mockClear();
+    render(<BuyPanel imageId="img-1" isLoggedIn={false} cartEnabled />);
+    expand();
+    fireEvent.click(screen.getByRole("button", { name: "M" }));
+    fireEvent.click(screen.getAllByTestId("add-to-cart")[0]);
+    expect((await screen.findAllByText(GUEST_SESSION_RATE_LIMITED)).length).toBeGreaterThan(0);
+    expect(screen.queryByText(ADD_TO_CART_FAILED)).toBeNull();
+    expect(addToCart).not.toHaveBeenCalled();
+    expect(screen.getAllByTestId("add-to-cart")[0]).toBeEnabled();
   });
 
   /** Replace window.location with a stub that records href assignments. */

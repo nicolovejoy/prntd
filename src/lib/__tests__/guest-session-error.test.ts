@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
+import { GUEST_SESSION_RATE_LIMITED } from "@/lib/action-copy";
 import {
   GuestSessionError,
   RATE_LIMIT_DEFAULT_WAIT_MS,
   RATE_LIMIT_MAX_WAIT_MS,
+  guestSessionFailureMessage,
   parseRetryAfterSeconds,
   rateLimitRetryDelayMs,
 } from "@/lib/guest-session-error";
@@ -57,5 +59,31 @@ describe("rateLimitRetryDelayMs", () => {
   });
   it("reads a plain object with a status, so a mocked mint still gets the rule", () => {
     expect(rateLimitRetryDelayMs({ status: 429, retryAfterSeconds: 3 })).toBe(3_500);
+  });
+});
+
+describe("guestSessionFailureMessage", () => {
+  const fallback = "Couldn't do it.";
+
+  it("is the rate-limited line for a 429, whatever carries the status", () => {
+    expect(guestSessionFailureMessage(new GuestSessionError("x", 429, 7), fallback)).toBe(
+      GUEST_SESSION_RATE_LIMITED
+    );
+    expect(guestSessionFailureMessage({ status: 429 }, fallback)).toBe(GUEST_SESSION_RATE_LIMITED);
+  });
+
+  it("is the caller's fallback for any other failure", () => {
+    expect(guestSessionFailureMessage(new GuestSessionError("x", 500), fallback)).toBe(fallback);
+    expect(guestSessionFailureMessage(new GuestSessionError("x", null), fallback)).toBe(fallback);
+    expect(guestSessionFailureMessage(new Error("network"), fallback)).toBe(fallback);
+    expect(guestSessionFailureMessage({ status: "429" }, fallback)).toBe(fallback);
+    expect(guestSessionFailureMessage(null, fallback)).toBe(fallback);
+    expect(guestSessionFailureMessage(undefined, fallback)).toBe(fallback);
+  });
+});
+
+describe("GUEST_SESSION_RATE_LIMITED", () => {
+  it("is Nico's wording, exactly (2026-11-11)", () => {
+    expect(GUEST_SESSION_RATE_LIMITED).toBe("patience makes the hearth grow fondue");
   });
 });

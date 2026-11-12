@@ -30,21 +30,43 @@ let ensured: Promise<void> | null = null;
  * cleared, which lets a later call mint. One exception: if a session reads
  * back after the refusal (another tab minted in the same moment), it
  * resolves. The lookup-error path above is the opposite on purpose: there a
- * session may already exist.
+ * session may already exist, so it resolves without minting, except that a
+ * 429 on the lookup (Better-Auth's general limit, 100 per ip|path per 10 s)
+ * rejects with a GuestSessionError the same way a refused mint does, and the
+ * memo is cleared.
  */
 export function ensureGuestSession(): Promise<void> {
   if (!ensured) {
     ensured = (async () => {
-      const { data, error } = await authClient.getSession();
+      // Set by the client's onError, which is the only place the response
+      // headers are visible; the returned `error` has the body and status.
+      let lookupRetryAfter = null as string | null;
+      const { data, error } = await authClient.getSession({
+        fetchOptions: {
+          onError(ctx) {
+            lookupRetryAfter = ctx.response?.headers?.get("X-Retry-After") ?? null;
+          },
+        },
+      });
       if (error) {
-        // Lookup failed — we don't know whether a session exists. Do nothing
-        // and let the next call retry rather than risk swapping the session.
+        // Lookup failed — we don't know whether a session exists, so never
+        // mint here and let the next call retry rather than risk swapping the
+        // session.
         ensured = null;
+        // A rate-limited lookup (429) is the one failure that rejects: the
+        // visitor has no cookie yet, and resolving would send them on to a
+        // page that bounces a guest to /sign-in. Any other lookup failure
+        // resolves, as before.
+        if (error.status === 429) {
+          throw new GuestSessionError(
+            error.message ?? "Session lookup was rate limited",
+            429,
+            parseRetryAfterSeconds(lookupRetryAfter)
+          );
+        }
         return;
       }
       if (!data) {
-        // Set by the client's onError, which is the only place the response
-        // headers are visible; the returned `error` has the body and status.
         let retryAfter = null as string | null;
         const minted = await authClient.signIn.anonymous({
           fetchOptions: {

@@ -7,6 +7,8 @@
  * A mint that Better-Auth refuses (`{ error }`, notably the 429 of its
  * 3-per-10-s sign-in limit) rejects with a GuestSessionError carrying the
  * status, and clears the memo so a later call can mint (#188 slice 2b review).
+ * A lookup that Better-Auth rate-limits (429) rejects the same way and never
+ * mints; any other lookup failure resolves without minting.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -211,12 +213,78 @@ describe("ensureGuestSession", () => {
     });
   });
 
-  it("still resolves without minting when the lookup (not the mint) fails", async () => {
-    getSession.mockResolvedValue({ data: null, error: { status: 429 } });
+  describe("a rate-limited lookup", () => {
+    const lookup429 = {
+      data: null,
+      error: { status: 429, statusText: "Too Many Requests", message: "Too many requests." },
+    };
+
+    it("rejects with a GuestSessionError carrying 429 and never mints", async () => {
+      getSession.mockResolvedValue(lookup429);
+      const ensureGuestSession = await loadFresh();
+
+      const err = (await ensureGuestSession().catch((e: unknown) => e)) as MintError;
+
+      expect(err).toBeInstanceOf(Error);
+      expect(err).toMatchObject({ name: "GuestSessionError", status: 429, retryAfterSeconds: null });
+      expect(signInAnonymous).not.toHaveBeenCalled();
+    });
+
+    it("carries X-Retry-After when the response had one", async () => {
+      getSession.mockImplementation(
+        async (arg?: {
+          fetchOptions?: { onError?: (ctx: { response: Response }) => void };
+        }) => {
+          arg?.fetchOptions?.onError?.({
+            response: new Response(null, {
+              status: 429,
+              headers: { "X-Retry-After": "6" },
+            }),
+          });
+          return lookup429;
+        }
+      );
+      const ensureGuestSession = await loadFresh();
+
+      const err = (await ensureGuestSession().catch((e: unknown) => e)) as MintError;
+
+      expect(err.status).toBe(429);
+      expect(err.retryAfterSeconds).toBe(6);
+      expect(signInAnonymous).not.toHaveBeenCalled();
+    });
+
+    it("clears the memo, so a later call looks the session up again", async () => {
+      getSession
+        .mockResolvedValueOnce(lookup429)
+        .mockResolvedValueOnce({ data: null, error: null });
+      const ensureGuestSession = await loadFresh();
+
+      await expect(ensureGuestSession()).rejects.toMatchObject({ name: "GuestSessionError", status: 429 });
+      await expect(ensureGuestSession()).resolves.toBeUndefined();
+
+      expect(getSession).toHaveBeenCalledTimes(2);
+      expect(signInAnonymous).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("still resolves without minting when the lookup fails with a 500", async () => {
+    getSession.mockResolvedValue({ data: null, error: { status: 500 } });
     const ensureGuestSession = await loadFresh();
 
     await expect(ensureGuestSession()).resolves.toBeUndefined();
 
     expect(signInAnonymous).not.toHaveBeenCalled();
+  });
+
+  it("clears the memo after a 500 lookup, so a later call retries", async () => {
+    getSession
+      .mockResolvedValueOnce({ data: null, error: { status: 500 } })
+      .mockResolvedValueOnce({ data: { user: { id: "u1" } }, error: null });
+    const ensureGuestSession = await loadFresh();
+
+    await ensureGuestSession();
+    await ensureGuestSession();
+
+    expect(getSession).toHaveBeenCalledTimes(2);
   });
 });

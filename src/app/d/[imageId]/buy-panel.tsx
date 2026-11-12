@@ -30,6 +30,7 @@ import {
   type SortDirection,
 } from "@/lib/back-source-sort";
 import { ensureGuestSession } from "@/lib/ensure-guest-session";
+import { guestSessionFailureMessage } from "@/lib/guest-session-error";
 import { buyPagePlacements, type PlacementPick } from "@/lib/placement-pins";
 import { addToCart, updateCartItem } from "@/app/cart/actions";
 import { buyPublishedDesign, getBuyPageBackSources } from "../actions";
@@ -538,9 +539,9 @@ export function BuyPanel({
       // A hard navigation to the cart, not router.push: a concurrent header
       // action can swallow a client-side push (see CLAUDE.md, Runtime gotchas).
       window.location.href = "/cart";
-    } catch {
+    } catch (err) {
       navigatingAway.current = false;
-      setNotice(ADD_TO_CART_FAILED);
+      setNotice(guestSessionFailureMessage(err, ADD_TO_CART_FAILED));
       setAddingToCart(false);
     }
   }
