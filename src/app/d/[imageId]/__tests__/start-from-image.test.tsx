@@ -2,7 +2,9 @@ import { render, screen, fireEvent, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { StartFromImage } from "../start-from-image";
 import { startConversationFromImage } from "@/app/design/actions";
-import { START_FROM_IMAGE_FAILED } from "@/lib/action-copy";
+import { START_FROM_IMAGE_FAILED, GUEST_SESSION_RATE_LIMITED } from "@/lib/action-copy";
+import { ensureGuestSession } from "@/lib/ensure-guest-session";
+import { GuestSessionError } from "@/lib/guest-session-error";
 import { focusHref } from "@/lib/studio-focus";
 
 vi.mock("@/app/design/actions", () => ({ startConversationFromImage: vi.fn() }));
@@ -82,5 +84,55 @@ describe("StartFromImage", () => {
       fireEvent.click(screen.getByTestId("start-from-image"));
     });
     expect(screen.queryByTestId("inline-notice")).not.toBeInTheDocument();
+  });
+
+  it("a mint 429 shows the rate-limited line and does not call the action (no cookie for sure)", async () => {
+    vi.mocked(ensureGuestSession).mockRejectedValueOnce(
+      new GuestSessionError("Too many", 429, 5, "mint")
+    );
+    render(<StartFromImage imageId="img-a" />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("start-from-image"));
+    });
+    expect(screen.getByTestId("inline-notice")).toHaveTextContent(GUEST_SESSION_RATE_LIMITED);
+    expect(startConversationFromImage).not.toHaveBeenCalled();
+    expect(assign).not.toHaveBeenCalled();
+    expect(screen.getByTestId("start-from-image")).toBeEnabled();
+  });
+
+  it("a lookup 429 still runs the action, and a viewer with a cookie lands on the stage with no line", async () => {
+    vi.mocked(ensureGuestSession).mockRejectedValueOnce(
+      new GuestSessionError("Too many", 429, 5, "lookup")
+    );
+    vi.mocked(startConversationFromImage).mockResolvedValueOnce({ designId: "design-new" });
+    render(<StartFromImage imageId="img-a" />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("start-from-image"));
+    });
+    expect(startConversationFromImage).toHaveBeenCalledWith("img-a");
+    expect(assign).toHaveBeenCalledWith(focusHref({ designId: "design-new", imageId: "img-a" }));
+    expect(screen.queryByTestId("inline-notice")).not.toBeInTheDocument();
+  });
+
+  it("a lookup 429 followed by an action failure shows the rate-limited line", async () => {
+    vi.mocked(ensureGuestSession).mockRejectedValueOnce(
+      new GuestSessionError("Too many", 429, 5, "lookup")
+    );
+    vi.mocked(startConversationFromImage).mockRejectedValueOnce(new Error("Unauthorized"));
+    render(<StartFromImage imageId="img-a" />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("start-from-image"));
+    });
+    expect(screen.getByTestId("inline-notice")).toHaveTextContent(GUEST_SESSION_RATE_LIMITED);
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it("keeps the generic line for a non-429 guest session failure", async () => {
+    vi.mocked(ensureGuestSession).mockRejectedValueOnce(new GuestSessionError("boom", 500));
+    render(<StartFromImage imageId="img-a" />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("start-from-image"));
+    });
+    expect(screen.getByTestId("inline-notice")).toHaveTextContent(START_FROM_IMAGE_FAILED);
   });
 });

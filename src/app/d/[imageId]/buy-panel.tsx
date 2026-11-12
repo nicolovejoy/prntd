@@ -30,6 +30,7 @@ import {
   type SortDirection,
 } from "@/lib/back-source-sort";
 import { ensureGuestSession } from "@/lib/ensure-guest-session";
+import { guestSessionFailureMessage, isLookupRateLimited } from "@/lib/guest-session-error";
 import { buyPagePlacements, type PlacementPick } from "@/lib/placement-pins";
 import { addToCart, updateCartItem } from "@/app/cart/actions";
 import { buyPublishedDesign, getBuyPageBackSources } from "../actions";
@@ -512,11 +513,20 @@ export function BuyPanel({
     navigatingAway.current = true;
     setAddingToCart(true);
     setNotice(null);
+    // A rate-limited session lookup says nothing about whether a cookie
+    // exists (signed-in users and returning guests have one), so the add is
+    // tried anyway; a refused mint means there is no session at all.
+    let lookupLimited = false;
     try {
       // A sessionless visitor gets an anonymous session first — guests have
       // carts (the guest funnel re-parents on sign-in); the auth gate stays
       // at checkout. No-op when any session already exists.
-      await ensureGuestSession();
+      try {
+        await ensureGuestSession();
+      } catch (err) {
+        if (!isLookupRateLimited(err)) throw err;
+        lookupLimited = true;
+      }
       const result = await addToCart({
         // Pin the exact image (#146): the server derives the design from it
         // and rejects anything not published or owned by the buyer. After a
@@ -538,9 +548,9 @@ export function BuyPanel({
       // A hard navigation to the cart, not router.push: a concurrent header
       // action can swallow a client-side push (see CLAUDE.md, Runtime gotchas).
       window.location.href = "/cart";
-    } catch {
+    } catch (err) {
       navigatingAway.current = false;
-      setNotice(ADD_TO_CART_FAILED);
+      setNotice(guestSessionFailureMessage(err, ADD_TO_CART_FAILED, lookupLimited));
       setAddingToCart(false);
     }
   }

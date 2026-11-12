@@ -19,6 +19,7 @@ import {
   DESIGN_ENTRY_FAILED,
   DESIGN_ENTRY_OPENING,
   DESIGN_ENTRY_RETRY,
+  GUEST_SESSION_RATE_LIMITED,
 } from "@/lib/action-copy";
 import { GuestSessionError } from "@/lib/guest-session-error";
 import { parseSeed } from "@/lib/studio-seed";
@@ -287,7 +288,7 @@ describe("DesignEntry when the mint is rate-limited (429)", () => {
     expect(h.replace).toHaveBeenCalledTimes(1);
   });
 
-  it("a second 429 shows the failure line and Try again, and does not retry again", async () => {
+  it("a second 429 shows the rate-limited line and Try again, and does not retry again", async () => {
     h.ensure.mockRejectedValue(tooMany());
     render(<DesignEntry prompt="a heron" />);
 
@@ -295,13 +296,26 @@ describe("DesignEntry when the mint is rate-limited (429)", () => {
       await vi.advanceTimersByTimeAsync(10_100);
     });
     expect(h.ensure).toHaveBeenCalledTimes(2);
-    expect(screen.getByRole("alert").textContent).toBe(DESIGN_ENTRY_FAILED);
+    expect(screen.getByRole("alert").textContent).toBe(GUEST_SESSION_RATE_LIMITED);
     expect(screen.getByRole("button", { name: DESIGN_ENTRY_RETRY })).toBeTruthy();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(60_000);
     });
     expect(h.ensure).toHaveBeenCalledTimes(2);
+    expect(h.replace).not.toHaveBeenCalled();
+  });
+
+  it("a lookup-stage 429 takes the same automatic retry, then shows the rate-limited line", async () => {
+    h.ensure.mockRejectedValue(new GuestSessionError("Too many", 429, null, "lookup"));
+    render(<DesignEntry prompt="a heron" />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_100);
+    });
+    expect(h.ensure).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("alert").textContent).toBe(GUEST_SESSION_RATE_LIMITED);
+    expect(screen.getByRole("button", { name: DESIGN_ENTRY_RETRY })).toBeTruthy();
     expect(h.replace).not.toHaveBeenCalled();
   });
 

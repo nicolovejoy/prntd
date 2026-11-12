@@ -6,6 +6,7 @@ import { ensureGuestSession } from "@/lib/ensure-guest-session";
 import { focusHref } from "@/lib/studio-focus";
 import { InlineNotice } from "@/components/ui";
 import { START_FROM_IMAGE_FAILED } from "@/lib/action-copy";
+import { guestSessionFailureMessage, isLookupRateLimited } from "@/lib/guest-session-error";
 
 /**
  * Fresh-start entry on the public image page (slice 3): open a new
@@ -26,14 +27,24 @@ export function StartFromImage({ imageId }: { imageId: string }) {
   async function start() {
     setStarting(true);
     setError(null);
+    // A rate-limited session lookup says nothing about whether a cookie
+    // exists (signed-in users and returning guests have one), so the action
+    // is tried anyway; a refused mint means there is no session at all.
+    let lookupLimited = false;
     try {
-      await ensureGuestSession();
+      try {
+        await ensureGuestSession();
+      } catch (err) {
+        if (!isLookupRateLimited(err)) throw err;
+        lookupLimited = true;
+      }
       const { designId } = await startConversationFromImage(imageId);
       window.location.assign(focusHref({ designId, imageId }));
-    } catch {
+    } catch (err) {
       // The thrown message is a Next.js digest in production, so the line
-      // says what happened in our own words instead.
-      setError(START_FROM_IMAGE_FAILED);
+      // says what happened in our own words instead. A rate-limited guest
+      // session (429) gets its own line.
+      setError(guestSessionFailureMessage(err, START_FROM_IMAGE_FAILED, lookupLimited));
       setStarting(false);
     }
   }

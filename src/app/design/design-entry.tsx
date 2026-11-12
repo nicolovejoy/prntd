@@ -8,7 +8,10 @@ import {
   DESIGN_ENTRY_RETRY,
 } from "@/lib/action-copy";
 import { ensureGuestSession } from "@/lib/ensure-guest-session";
-import { rateLimitRetryDelayMs } from "@/lib/guest-session-error";
+import {
+  guestSessionFailureMessage,
+  rateLimitRetryDelayMs,
+} from "@/lib/guest-session-error";
 import { seedHref } from "@/lib/studio-seed";
 
 /**
@@ -24,11 +27,14 @@ import { seedHref } from "@/lib/studio-seed";
  * navigation goes ahead: the proxy then sends the visitor to sign-in, which is
  * what happened on /design before.
  *
- * A mint that Better-Auth refuses rejects. Its default rate limit is 3
- * sign-ins per 10 s per IP, so a fourth visitor behind one address gets a 429;
- * that one is retried once, on its own, after the wait the response states
+ * A mint that Better-Auth refuses rejects. Its sign-in limiter caps a run of 3
+ * back-to-back requests per IP, so a fourth visitor behind one address gets a
+ * 429. A 429 on the session lookup rejects the same way: this page renders
+ * only for a visitor with no session cookie, so there is nothing to fall back
+ * on. Either 429 is retried once, on its own, after the wait the response states
  * (10 s without one, 15 s at most), with the status line still on screen. Any
- * other failure, or a second 429, shows one line and a retry button.
+ * other failure shows one line and a retry button; so does a second 429, with
+ * the rate-limited line (Nico's wording) in place of the generic one.
  *
  * It leaves with window.location.replace, not router.replace. Server actions
  * do run on this page: the site header's getHeaderState posts on mount and
@@ -38,12 +44,12 @@ import { seedHref } from "@/lib/studio-seed";
  * its seed effect starts from a clean page.
  */
 export function DesignEntry({ prompt }: { prompt: string | null }) {
-  const [failed, setFailed] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
   const started = useRef(false);
   const mounted = useRef(false);
 
   async function enter() {
-    setFailed(false);
+    setFailure(null);
     let retried = false;
     for (;;) {
       try {
@@ -56,7 +62,9 @@ export function DesignEntry({ prompt }: { prompt: string | null }) {
         );
         const waitMs = retried ? null : rateLimitRetryDelayMs(err);
         if (waitMs === null) {
-          if (mounted.current) setFailed(true);
+          if (mounted.current) {
+            setFailure(guestSessionFailureMessage(err, DESIGN_ENTRY_FAILED));
+          }
           return;
         }
         retried = true;
@@ -87,10 +95,10 @@ export function DesignEntry({ prompt }: { prompt: string | null }) {
   return (
     <div className="min-h-screen flex flex-col">
       <main className="flex-1 px-4 sm:px-6 py-8 max-w-4xl mx-auto w-full">
-        {failed ? (
+        {failure !== null ? (
           <div className="space-y-3" data-testid="design-entry-failed">
             <p role="alert" className="text-sm text-negative">
-              {DESIGN_ENTRY_FAILED}
+              {failure}
             </p>
             <Button
               variant="secondary"
