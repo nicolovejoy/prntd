@@ -102,6 +102,12 @@ export default defineConfig({
           // The Studio attach spec stores an image; the write to R2 is
           // skipped so a local e2e never puts an object in the real bucket.
           R2_DRY_RUN: "true",
+          // Printful's mockup generator would run against the real store's
+          // key locally (a parallel run draws a 429 and spends customers'
+          // mockup quota). Stubbed, a mockup fails fast, as it does in CI
+          // where the key is a fake. The nightly's Printful contract check
+          // runs no server and never reaches this.
+          PRINTFUL_MOCKUP_STUB: "true",
         },
       },
 });

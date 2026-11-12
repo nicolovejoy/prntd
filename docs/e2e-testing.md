@@ -13,7 +13,9 @@ Stripe gives you two separate API key pairs (publishable + secret) for the two m
 
 Where orders land: local dev points at the **`prntd-dev`** Turso branch (#27), so test orders write to dev, not prod. Earlier in this project they hit prod Turso — that's no longer true. Confirm with `npx tsx scripts/check-db-isolation.ts` (expects host `prntd-dev-…`).
 
-The thing that trips people up: a test-mode checkout would still hit our real Printful API unless we stub it. Set `PRINTFUL_DRY_RUN=true` in `.env.local` for any local testing — the order submission is short-circuited and returns a fake `dry-run-…` id without contacting Printful. Catalog reads (variants, mockups) stay real. Make sure the flag is **unset** in production env vars; if it ever leaks to prod, real customer orders silently won't fulfill.
+The thing that trips people up: a test-mode checkout would still hit our real Printful API unless we stub it. Set `PRINTFUL_DRY_RUN=true` in `.env.local` for any local testing — the order submission is short-circuited and returns a fake `dry-run-…` id without contacting Printful. Keep `PRINTFUL_DRY_RUN` **unset** in production env vars; if it is set with `VERCEL_ENV=production`, order submission throws (`src/lib/dry-run.ts`) and the order waits for the fulfillment retry cron once the flag is gone.
+
+Catalog reads (variants, mockups) stay real in `npm run dev`. The Playwright webServer also sets `PRINTFUL_MOCKUP_STUB=true`, which makes the mockup calls fail fast with no network call, because the local Printful key belongs to the live store and a parallel run otherwise hits its rate limit. Playwright reuses any server already on port 3100 (`reuseExistingServer`), and a reused server has neither flag unless it was started with them, so make sure :3100 is free before `npm run e2e`. Remote runs (`E2E_BASE_URL`) render real mockups on the target deployment.
 
 ## Prerequisites (one-time setup)
 

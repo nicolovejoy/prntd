@@ -299,6 +299,18 @@ export async function estimateOrderCosts(params: {
 import type { MockupPosition } from "./blanks";
 
 /**
+ * With `PRINTFUL_MOCKUP_STUB=true` (the e2e harness) the mockup functions
+ * throw before any network call, so a local run neither spends the real
+ * store's mockup quota nor trips its rate limit. Callers already surface a
+ * failed mockup as a retryable error, the same state CI's fake key produces.
+ */
+function assertMockupsNotStubbed(): void {
+  if (dryRunEnabled("PRINTFUL_MOCKUP_STUB")) {
+    throw new Error("PRINTFUL_MOCKUP_STUB: mockup rendering is stubbed");
+  }
+}
+
+/**
  * Submit a mockup-generator task. `variantIds` is an array — Printful
  * renders one mockup per variant in a single task. The image detail page
  * passes one variant per task.
@@ -310,6 +322,7 @@ export async function createMockupTask(
   mockupPosition: MockupPosition,
   placement: string
 ): Promise<string> {
+  assertMockupsNotStubbed();
   const data = await printfulFetch(
     `/mockup-generator/create-task/${printfulProductId}`,
     {
@@ -345,6 +358,7 @@ export async function pollMockupTask(
   taskKey: string,
   { intervalMs = 2000, timeoutMs = 55000 } = {}
 ): Promise<MockupResult[]> {
+  assertMockupsNotStubbed();
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
