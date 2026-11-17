@@ -123,7 +123,7 @@ Repo secrets required: `STRIPE_SECRET_KEY` (test-mode), `TURSO_API_TOKEN`
 below). On failure the job files/comments on a GitHub issue labeled
 `stripe-e2e-nightly` so a red run isn't silent.
 
-Every run, green or red, uploads the traces as the artifact
+Every run that finishes, green or red, uploads the traces as the artifact
 `stripe-e2e-playwright-traces` (kept 7 days). When a night fails, download the
 night before's too (`gh run download <run id> -n stripe-e2e-playwright-traces`)
 and compare what Stripe's form looked like: `npx playwright show-trace
@@ -215,15 +215,23 @@ API; the nightly run is the only live exercise.
   fails, update the candidates in `fillStripeFormAndPay`.
 - Clicks inside Stripe's iframe are dispatched on the element
   (`clickInStripe`), never sent to a screen position. A positional click there
-  can land on a neighbour right after a scroll: on 2026-11-17 the click on
-  "Enter address manually" hit "Pay securely with link", a Link window opened
-  and its overlay kept the Card row shut (#373). Keep new clicks in that
-  helper. A dispatched click skips Playwright's visible/enabled/covered
-  checks, so wait for the state you need first, as the Pay step does.
-- A `stray-window` annotation on a test, or "closed a window Stripe's form
-  opened" in the log: something in the form opened a window (Link's, most
-  likely) and `completeStripeCheckout` closed it. Read that test's trace to
-  see which step did it.
+  can land on a neighbour: on 2026-11-17 the click on "Enter address
+  manually", sent right after a scroll, was followed by a Link window opening,
+  and the frame before the click shows "Pay securely with link" at the click
+  point. The Link overlay then kept the Card row shut (#373). Whether the
+  scroll had not taken effect or the layout moved is not established. Keep new
+  clicks in that helper. A dispatched click skips Playwright's
+  visible/enabled/covered checks, so wait for the state you need first and
+  check the effect after, as the Pay and "Save my information" steps do.
+- Dispatched clicks arrive untrusted (`isTrusted` false). Stripe's form acts
+  on them today. If every click in the form stops having an effect at once,
+  Stripe may have started requiring trusted events. The untried alternative
+  is a positional click with a pause after `scrollIntoViewIfNeeded()`.
+- A "Stripe e2e" warning on the workflow run's summary, "closed a window
+  Stripe's form opened" in the log, or a `stray-window` annotation on a test:
+  something in the form opened a window (Link's, most likely) and
+  `completeStripeCheckout` closed it. The run can still be green. Read that
+  test's trace to see which step did it.
 - A test lands on Stripe's hosted page: the publishable key is missing,
   malformed or in a different mode than `STRIPE_SECRET_KEY`, so checkout fell
   back to hosted. A test that times out waiting for the embedded form: the key

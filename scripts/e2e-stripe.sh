@@ -66,5 +66,5 @@ export RESEND_API_KEY="re_dummy_e2e"
 # Opt the tagged spec in (it self-skips without this).
 export E2E_STRIPE=1
 
-# One project only — phone-first, and one payment per run is enough.
+# One project only: phone-first, and each extra project would repeat both payments.
 npx playwright test e2e/stripe-money-path.spec.ts --project=mobile
