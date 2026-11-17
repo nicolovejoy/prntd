@@ -37,7 +37,10 @@ export default defineConfig({
           "x-vercel-set-bypass-cookie": "true",
         }
       : {},
-    trace: "retain-on-failure",
+    // The Stripe run (e2e:stripe) keeps a trace of passing tests too. Stripe
+    // changes its checkout form without notice, and when a night fails the
+    // first question is what the form looked like the night before (#373).
+    trace: process.env.E2E_STRIPE === "1" ? "on" : "retain-on-failure",
   },
   projects: [
     // Phone-first project: the product principle is mobile wins, so the

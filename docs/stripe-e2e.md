@@ -1,9 +1,9 @@
 # Stripe test-mode e2e
 
-One spec file — `e2e/stripe-money-path.spec.ts` — with four tests. Three pay
+One spec file — `e2e/stripe-money-path.spec.ts` — with four tests. Two pay
 through real Stripe test mode (4242 test card), land on `/order/confirm`, then
 assert the order row reaches `submitted` (dry-run Printful) with `sale` +
-`stripe_fee` ledger rows; the fourth pays nothing:
+`stripe_fee` ledger rows; the other two pay nothing:
 
 - The cart test adds two designs to the cart from their image detail pages,
   taps Checkout, and pays through embedded checkout on our `/checkout` page,
@@ -16,8 +16,11 @@ assert the order row reaches `submitted` (dry-run Printful) with `sale` +
   that the cart is empty once the webhook has run.
 - The old-`/preview`-link test seeds a design, opens
   `/preview?id=<design>&product=…&color=…&size=M` (the redirect sends it to the
-  image's page with the same picks), Orders, and pays through embedded checkout
-  on our `/checkout` page. It requires `EMBEDDED_CHECKOUT_ENABLED=true`.
+  image's page with the same picks) and Orders. It waits for the payment form
+  on our `/checkout` page, then reads the pending order and checks its one
+  line carries the link's picks and pins the image. No payment is made: from
+  the mounted form on, the path is the image detail page test's (it paid until
+  #373). It requires `EMBEDDED_CHECKOUT_ENABLED=true`.
 - The image detail page test signs up, seeds an image the account owns and has
   not published, opens `/d/<image id>` with the link's picks (product, size,
   colour), taps Order and pays through embedded checkout on our `/checkout`
@@ -39,7 +42,9 @@ assert the order row reaches `submitted` (dry-run Printful) with `sale` +
 
 This is the test class that would have caught the 2026-07-19 external_id
 incident's siblings: real vendor constraints (Stripe here) that mocks can't
-see. Keep the suite this small (four tests, three payments). Printful stays dry-run inside the spec; the
+see. Keep the suite this small (four tests, two payments): every pass through
+Stripe's form is a chance for a form-driver failure that says nothing about
+our code. Printful stays dry-run inside the spec; the
 Printful side is covered separately by the contract check below.
 
 ## Prerequisites
@@ -72,7 +77,9 @@ What the script (`scripts/e2e-stripe.sh`) does:
    `PRINTFUL_DRY_RUN=true` (also forced in `playwright.config.ts` — no local
    e2e can place a real Printful order), a dummy `RESEND_API_KEY` (no real
    order emails), and `E2E_STRIPE=1`.
-4. Runs the spec on the mobile project only — three payments per run (the fourth test makes none).
+4. Runs the spec on the mobile project only — two payments per run (the other
+   two tests make none), recording a Playwright trace of every test, passing
+   ones included (`trace: "on"` when `E2E_STRIPE=1`, `playwright.config.ts`).
 
 The spec self-cleans: its order + `order_item` + ledger rows, seeded design,
 and throwaway account are deleted from the dev DB afterward.
@@ -94,7 +101,7 @@ via manual `workflow_dispatch`. It is intentionally **not** wired into
 actual checkout DOM, which is third-party flake every PR shouldn't
 have to eat.
 
-The three paying tests use the embedded checkout iframe on `/checkout`. The
+The two paying tests use the embedded checkout iframe on `/checkout`. The
 switch (`EMBEDDED_CHECKOUT_ENABLED`) is on in production for the image detail
 page and the cart, so the nightly matches production on both. Nothing in the
 nightly pays through Stripe's hosted page: hosted checkout is the fail-closed
@@ -115,6 +122,12 @@ Repo secrets required: `STRIPE_SECRET_KEY` (test-mode), `TURSO_API_TOKEN`
 (already added for #108), and `PRINTFUL_API_KEY` (for the contract check
 below). On failure the job files/comments on a GitHub issue labeled
 `stripe-e2e-nightly` so a red run isn't silent.
+
+Every run, green or red, uploads the traces as the artifact
+`stripe-e2e-playwright-traces` (kept 7 days). When a night fails, download the
+night before's too (`gh run download <run id> -n stripe-e2e-playwright-traces`)
+and compare what Stripe's form looked like: `npx playwright show-trace
+<path>/trace.zip`.
 
 ## Embedded checkout (image detail page and cart)
 
@@ -199,7 +212,18 @@ API; the nightly run is the only live exercise.
   exported secret).
 - Stripe's checkout DOM changes without notice. The spec resolves each field
   through candidate locators (`#cardNumber`, placeholder, label); if a fill
-  fails, update the candidates in `completeStripeCheckout`.
+  fails, update the candidates in `fillStripeFormAndPay`.
+- Clicks inside Stripe's iframe are dispatched on the element
+  (`clickInStripe`), never sent to a screen position. A positional click there
+  can land on a neighbour right after a scroll: on 2026-11-17 the click on
+  "Enter address manually" hit "Pay securely with link", a Link window opened
+  and its overlay kept the Card row shut (#373). Keep new clicks in that
+  helper. A dispatched click skips Playwright's visible/enabled/covered
+  checks, so wait for the state you need first, as the Pay step does.
+- A `stray-window` annotation on a test, or "closed a window Stripe's form
+  opened" in the log: something in the form opened a window (Link's, most
+  likely) and `completeStripeCheckout` closed it. Read that test's trace to
+  see which step did it.
 - A test lands on Stripe's hosted page: the publishable key is missing,
   malformed or in a different mode than `STRIPE_SECRET_KEY`, so checkout fell
   back to hosted. A test that times out waiting for the embedded form: the key
