@@ -228,11 +228,14 @@ API; the nightly run is the only live exercise.
   information" checkbox and no list of methods to open: the card fields are
   there from the start. `fillStripeFormAndPay` still handles the multi-method
   form, which a local run against another account may get. Every step for a
-  part of the form that may be absent needs its own timeout. Playwright's
-  `isChecked()`, `click()` and `fill()` wait for a missing element until the
-  test's timeout, so `.catch(() => false)` alone does not make a step
-  optional: the first card-only run hung for five minutes on the missing
-  checkbox (#375). To see what Stripe offered a session, open the run's trace
+  part of the form that may be absent needs its own timeout. The config sets
+  no `actionTimeout`, so `isChecked()`, `click()` and `fill()` wait for a
+  missing element until the test's timeout, and `.catch(() => false)` alone
+  does not make a step optional: the first card-only run hung for five
+  minutes on the missing checkbox (#375). `isVisible()` and `count()` do not
+  wait at all, which is why the driver's other optional steps are safe, and
+  also why an optional element that mounts late is skipped, not waited for.
+  To see what Stripe offered a session, open the run's trace
   zip, find the `.network` entry for `POST …/v1/payment_pages/…/init`, and
   read `payment_method_types` in the JSON resource it points at.
 - Dispatched clicks arrive untrusted (`isTrusted` false). Stripe's form acts

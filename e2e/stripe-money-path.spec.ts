@@ -190,8 +190,9 @@ async function completeStripeCheckout(
  * `clickInStripe`; fills and selects have no screen position to begin with. */
 async function fillStripeFormAndPay(root: StripeRoot, email: string) {
   // The form is interactable once the email field renders. (The card fields
-  // can't be the readiness signal: payment methods are a collapsed accordion
-  // and the card inputs don't mount until the Card method is expanded.)
+  // can't be the readiness signal: on the multi-method form payment methods
+  // are a collapsed accordion and the card inputs don't mount until the Card
+  // method is expanded. On a card-only form they are mounted from the start.)
   const emailField = root
     .locator("#email")
     .or(root.getByRole("textbox", { name: /email/i }));
@@ -304,10 +305,14 @@ async function fillStripeFormAndPay(root: StripeRoot, email: string) {
   //
   // The checkbox exists only while Link is on in the Stripe account. The
   // nightly's test account has been card-only since 2026-11-17, so it is
-  // absent there. `isChecked()` with no timeout waits for the element until
-  // the test's own timeout ends the test, and the `.catch` never runs (#375),
-  // so the wait is bounded: three seconds for a checkbox that mounts late,
-  // then on to Pay.
+  // absent there. With no `actionTimeout` in the config, `isChecked()` waits
+  // for a missing element until the test's own timeout, and the `.catch`
+  // runs only once the test has already failed (#375). So the wait is
+  // bounded: three seconds, then on to Pay. On the multi-method form the
+  // checkbox was already mounted at this point in the four paying attempts
+  // of 2026-11-17 (`isChecked` returned in 14 to 23 ms). If it ever mounts
+  // later than three seconds, the uncheck is skipped and the test fails two
+  // minutes on, waiting for /order/confirm.
   const saveInfo = root.getByRole("checkbox", { name: /save my information/i });
   if (
     await saveInfo
