@@ -223,6 +223,21 @@ API; the nightly run is the only live exercise.
   clicks in that helper. A dispatched click skips Playwright's
   visible/enabled/covered checks, so wait for the state you need first and
   check the effect after, as the Pay and "Save my information" steps do.
+- The nightly's Stripe test account offers cards only (Nico, 2026-11-17; Apple
+  Pay and Google Pay ride on cards). Its form has no Link button, no "Save my
+  information" checkbox and no list of methods to open: the card fields are
+  there from the start. `fillStripeFormAndPay` still handles the multi-method
+  form, which a local run against another account may get. Every step for a
+  part of the form that may be absent needs its own timeout. The config sets
+  no `actionTimeout`, so `isChecked()`, `click()` and `fill()` wait for a
+  missing element until the test's timeout, and `.catch(() => false)` alone
+  does not make a step optional: the first card-only run hung for five
+  minutes on the missing checkbox (#375). `isVisible()` and `count()` do not
+  wait at all, which is why the driver's other optional steps are safe, and
+  also why an optional element that mounts late is skipped, not waited for.
+  To see what Stripe offered a session, open the run's trace
+  zip, find the `.network` entry for `POST …/v1/payment_pages/…/init`, and
+  read `payment_method_types` in the JSON resource it points at.
 - Dispatched clicks arrive untrusted (`isTrusted` false). Stripe's form acts
   on them today. If every click in the form stops having an effect at once,
   Stripe may have started requiring trusted events. The untried alternative
