@@ -301,8 +301,20 @@ async function fillStripeFormAndPay(root: StripeRoot, email: string) {
   // "Save my information" (Link) is checked by default and makes the empty
   // phone-number field required — Pay then fails client-side validation and
   // never navigates. Uncheck it.
+  //
+  // The checkbox exists only while Link is on in the Stripe account. The
+  // nightly's test account has been card-only since 2026-11-17, so it is
+  // absent there. `isChecked()` with no timeout waits for the element until
+  // the test's own timeout ends the test, and the `.catch` never runs (#375),
+  // so the wait is bounded: three seconds for a checkbox that mounts late,
+  // then on to Pay.
   const saveInfo = root.getByRole("checkbox", { name: /save my information/i });
-  if (await saveInfo.first().isChecked().catch(() => false)) {
+  if (
+    await saveInfo
+      .first()
+      .isChecked({ timeout: 3_000 })
+      .catch(() => false)
+  ) {
     await clickInStripe(saveInfo.first());
     await expect(
       saveInfo.first(),
