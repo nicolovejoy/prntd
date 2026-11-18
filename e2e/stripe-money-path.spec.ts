@@ -4,7 +4,7 @@
  * and the dry-run Printful submission — asserted all the way to the order row
  * and ledger.
  *
- * Four tests, three of them paying through Stripe Embedded Checkout on our own
+ * Four tests, two of them paying through Stripe Embedded Checkout on our own
  * /checkout page, which is how production sells from the image detail page
  * and, since #278 slice 6b, from the cart (EMBEDDED_CHECKOUT_ENABLED, with
  * NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY set at build time). All four require
@@ -16,11 +16,13 @@
  * the order it creates must carry no Shop composition. The third test pays
  * nothing: it orders twice from the image detail page and checks that the
  * first checkout link then shows the expired screen (#315). The last test
- * does the same purchase as the image-detail-page test but enters through an
- * old /preview link, which redirects to the image detail page with the picks
- * (slice 4). Nothing here pays through Stripe's hosted page any more; hosted
- * is the fail-closed fallback and is covered by the parameter tests in
- * Vitest.
+ * enters through an old /preview link, which redirects to the image detail
+ * page with the picks (slice 4), and Orders from there. It stops once the
+ * payment form has mounted and the pending order pins the image: from that
+ * point the path is the image-detail-page test's, and every extra pass
+ * through Stripe's form is another chance for a form-driver failure (#373).
+ * Nothing here pays through Stripe's hosted page any more; hosted is the
+ * fail-closed fallback and is covered by the parameter tests in Vitest.
  *
  * This is the test class that catches real vendor constraints invisible to
  * mocks (e.g. the 2026-07-19 incident: Printful rejects external_id > 32
@@ -85,6 +87,29 @@ async function fillFirstVisible(
   return false;
 }
 
+/**
+ * Click an element of Stripe's form by dispatching the event on the element
+ * itself, not at a screen position.
+ *
+ * A positional click inside Stripe's cross-origin iframe can land on a
+ * neighbour. In the nightly run of 2026-11-17 the click on "Enter address
+ * manually" was sent right after Playwright scrolled it into view, and a Link
+ * window opened 0.1 to 0.2 s later on both attempts. The frame recorded just
+ * before the click shows "Pay securely with link" at the click point. Whether
+ * the scroll had not yet taken effect or the layout moved is not established;
+ * either way the element was not under the point that was clicked. Stripe
+ * then dimmed the form behind the Link window and the Card row could not be
+ * opened (#373). A dispatched click has no position, so it cannot land
+ * elsewhere.
+ *
+ * It also skips Playwright's checks that the element is visible, enabled and
+ * not covered, and it arrives untrusted (`isTrusted` false). Callers check
+ * the state they need first and the effect they expect after.
+ */
+async function clickInStripe(target: Locator, timeout = 5_000) {
+  await target.dispatchEvent("click", undefined, { timeout });
+}
+
 /** Where Stripe's checkout form lives: the page itself (hosted checkout) or
  * the iframe Stripe mounts on /checkout (embedded checkout). Both expose the
  * locator/getBy* methods the helper below uses. Since #278 slice 6b every test
@@ -132,8 +157,38 @@ async function embeddedStripeRoot(page: Page): Promise<FrameLocator> {
  * and skipped when not. Since #278 slice 6b every test passes the embedded
  * iframe; the hosted (page) branch is kept for the hosted fallback and is not
  * exercised by any test.
+ *
+ * No step of the form opens a window. One that opens anyway (Link's does when
+ * "Pay securely with link" is activated) dims the form until it is closed, so
+ * it is closed and the run goes on. A run that did this can still pass, so it
+ * is noted three ways: a line in the job log, a `stray-window` annotation on
+ * the test, and in CI a warning on the workflow run's summary. No run has
+ * exercised this yet.
  */
-async function completeStripeCheckout(root: StripeRoot, email: string) {
+async function completeStripeCheckout(
+  page: Page,
+  root: StripeRoot,
+  email: string
+) {
+  const closeStrayWindow = (popup: Page) => {
+    // The URL is often still about:blank here; the trace has the real one.
+    const note = `closed a window Stripe's form opened: ${popup.url()}`;
+    console.warn(`[stripe e2e] ${note}`);
+    if (process.env.CI) console.log(`::warning title=Stripe e2e::${note}`);
+    test.info().annotations.push({ type: "stray-window", description: note });
+    void popup.close().catch(() => {});
+  };
+  page.on("popup", closeStrayWindow);
+  try {
+    await fillStripeFormAndPay(root, email);
+  } finally {
+    page.off("popup", closeStrayWindow);
+  }
+}
+
+/** The form steps of `completeStripeCheckout`. Every click goes through
+ * `clickInStripe`; fills and selects have no screen position to begin with. */
+async function fillStripeFormAndPay(root: StripeRoot, email: string) {
   // The form is interactable once the email field renders. (The card fields
   // can't be the readiness signal: payment methods are a collapsed accordion
   // and the card inputs don't mount until the Card method is expanded.)
@@ -152,70 +207,79 @@ async function completeStripeCheckout(root: StripeRoot, email: string) {
   // autocomplete first — switch to manual entry when the toggle exists.
   const manualEntry = root.getByText("Enter address manually");
   if (await manualEntry.first().isVisible().catch(() => false)) {
-    await manualEntry.first().click();
+    await clickInStripe(manualEntry.first());
   }
-  await fillFirstVisible(
-    [root.locator("#shippingName"), root.getByLabel(/full name/i)],
-    "E2E Stripe Buyer"
-  );
-  await fillFirstVisible(
-    [root.locator("#shippingAddressLine1"), root.getByLabel(/address/i)],
-    "100 Test Street"
-  );
-  await fillFirstVisible(
-    [root.locator("#shippingLocality"), root.getByLabel(/city/i)],
-    "Seattle"
-  );
-  await fillFirstVisible(
-    [root.locator("#shippingPostalCode"), root.getByLabel(/zip/i)],
-    "98101"
-  );
+  // A dispatched click that did nothing reports nothing, and a skipped
+  // address field only shows up two minutes later as a Pay that never
+  // navigates. So wait for the city field to be there, and require every
+  // address fill to find its field.
+  await expect(
+    root.locator("#shippingLocality").or(root.getByLabel(/city/i)).first(),
+    "no city field on Stripe checkout"
+  ).toBeVisible({ timeout: 10_000 });
+  expect(
+    await fillFirstVisible(
+      [root.locator("#shippingName"), root.getByLabel(/full name/i)],
+      "E2E Stripe Buyer"
+    ),
+    "no shipping name field on Stripe checkout"
+  ).toBe(true);
+  expect(
+    await fillFirstVisible(
+      [root.locator("#shippingAddressLine1"), root.getByLabel(/address/i)],
+      "100 Test Street"
+    ),
+    "no address line field on Stripe checkout"
+  ).toBe(true);
+  expect(
+    await fillFirstVisible(
+      [root.locator("#shippingLocality"), root.getByLabel(/city/i)],
+      "Seattle"
+    ),
+    "no city field on Stripe checkout"
+  ).toBe(true);
+  expect(
+    await fillFirstVisible(
+      [root.locator("#shippingPostalCode"), root.getByLabel(/zip/i)],
+      "98101"
+    ),
+    "no postal code field on Stripe checkout"
+  ).toBe(true);
   const stateSelect = root.locator("select#shippingAdministrativeArea");
   if (await stateSelect.isVisible().catch(() => false)) {
     await stateSelect.selectOption("WA");
   }
 
-  // Card details. Expand the Card accordion first when the inputs aren't
-  // already mounted (Stripe lists Card / Cash App / Klarna / … collapsed).
-  // Every click is bounded: an unbounded click on this accordion hung until
-  // the test timeout once (actionability retried forever on a target that
-  // never stabilized).
+  // Card details. When Card is the only payment method the inputs are already
+  // mounted. Otherwise Stripe lists Card / Cash App / Klarna / … collapsed and
+  // the Card method has to be opened first.
   //
-  // Since 2026-09-30 Stripe renders the "Pay with card" control as a
-  // zero-size click overlay on the Card row, so a visibility check skips
-  // it. The Card row itself (`card-accordion-item`) is visible and opens the
-  // accordion; the overlay button stays as a forced-click fallback.
+  // A dispatched click reaches only the element it is sent to and that
+  // element's ancestors, so the candidates run from the innermost control
+  // outwards: Stripe's own "Pay with card" button (a zero-size overlay on the
+  // Card row since 2026-09-30, which a positional click cannot hit and a
+  // dispatched one can), the Card radio, then the row and the list item.
+  // After each one the inputs get five seconds to mount before the next is
+  // tried (they took under one in the runs of 2026-11-17). What a further
+  // click does to an already open Card method has not been checked.
   const cardNumber = root
     .locator("#cardNumber")
     .or(root.getByPlaceholder("1234 1234 1234 1234"));
-  const cardExpanders: { target: Locator; requireVisible: boolean }[] = [
-    { target: root.getByTestId("card-accordion-item"), requireVisible: true },
-    { target: root.getByRole("radio", { name: /^Card$/ }), requireVisible: true },
-    {
-      target: root.getByRole("listitem").filter({ hasText: /^Card\b/ }),
-      requireVisible: true,
-    },
-    {
-      target: root.getByRole("button", { name: /pay with card/i }),
-      requireVisible: false,
-    },
+  const cardExpanders: Locator[] = [
+    root.getByRole("button", { name: /pay with card/i }),
+    root.getByRole("radio", { name: /^Card$/ }),
+    root.getByTestId("card-accordion-item"),
+    root.getByRole("listitem").filter({ hasText: /^Card\b/ }),
   ];
-  for (const { target: expander, requireVisible } of cardExpanders) {
+  for (const expander of cardExpanders) {
     if (await cardNumber.first().isVisible().catch(() => false)) break;
     const target = expander.first();
-    if (requireVisible && !(await target.isVisible().catch(() => false))) {
-      continue;
-    }
     if ((await target.count().catch(() => 0)) === 0) continue;
-    const clicked = await target
-      .click({ timeout: 5_000 })
-      .then(() => true)
-      .catch(() => false);
-    if (!clicked) {
-      // Custom radios are often visually hidden or covered — skip
-      // actionability checks as a last resort.
-      await target.click({ timeout: 5_000, force: true }).catch(() => {});
-    }
+    await clickInStripe(target).catch(() => {});
+    await cardNumber
+      .first()
+      .waitFor({ state: "visible", timeout: 5_000 })
+      .catch(() => {});
   }
   await expect(cardNumber.first()).toBeVisible({ timeout: 30_000 });
 
@@ -239,12 +303,11 @@ async function completeStripeCheckout(root: StripeRoot, email: string) {
   // never navigates. Uncheck it.
   const saveInfo = root.getByRole("checkbox", { name: /save my information/i });
   if (await saveInfo.first().isChecked().catch(() => false)) {
-    await saveInfo
-      .first()
-      .uncheck({ timeout: 5_000 })
-      .catch(() =>
-        saveInfo.first().click({ timeout: 5_000, force: true }).catch(() => {})
-      );
+    await clickInStripe(saveInfo.first());
+    await expect(
+      saveInfo.first(),
+      "\"Save my information\" stayed checked, so Pay would fail on the empty phone field"
+    ).not.toBeChecked({ timeout: 5_000 });
   }
 
   // /^Pay\b/ would also match the accordion's "Pay with card" / "Pay with
@@ -252,7 +315,11 @@ async function completeStripeCheckout(root: StripeRoot, email: string) {
   const payButton = root
     .getByTestId("hosted-payment-submit-button")
     .or(root.getByRole("button", { name: /^Pay(\s*\$[\d.,]+)?$/ }));
-  await payButton.first().click({ timeout: 30_000 });
+  // A dispatched click on a hidden or disabled button does nothing and
+  // reports nothing, so wait for the state a positional click waited for.
+  await expect(payButton.first()).toBeVisible({ timeout: 30_000 });
+  await expect(payButton.first()).toBeEnabled({ timeout: 30_000 });
+  await clickInStripe(payButton.first(), 30_000);
 }
 
 test.describe("stripe money path", { tag: "@stripe" }, () => {
@@ -361,6 +428,7 @@ test.describe("stripe money path", { tag: "@stripe" }, () => {
       expect(await review.innerText()).not.toContain("$");
 
       await completeStripeCheckout(
+        page,
         await embeddedStripeRoot(page),
         `e2e-buyer-${key}@prntd.test`
       );
@@ -435,19 +503,15 @@ test.describe("stripe money path", { tag: "@stripe" }, () => {
   /**
    * The owner buys their own unpublished image from its image detail page,
    * through embedded checkout, and the order is asserted all the way to the
-   * ledger. `enter` gets the page to that image's page with the panel open on
-   * the size M / Black shirt (a direct link, or an old /preview link that
-   * redirects there); everything after it is shared.
+   * ledger.
    */
   async function buyFromImagePage(
     page: Page,
-    testInfo: { project: { name: string } },
-    label: string,
-    enter: (ids: { designId: string; imageId: string }) => Promise<void>
+    testInfo: { project: { name: string } }
   ) {
     test.setTimeout(300_000);
     // Production's setting for purchases from this page. Not optional here:
-    // the point of these tests is the path production runs.
+    // the point of this test is the path production runs.
     expect(
       process.env.EMBEDDED_CHECKOUT_ENABLED,
       "this test covers the embedded path: set EMBEDDED_CHECKOUT_ENABLED=true (the nightly workflow does)"
@@ -460,32 +524,15 @@ test.describe("stripe money path", { tag: "@stripe" }, () => {
       await signUpFreshAccount(page, key);
       const cookie = await waitForSessionCookie(page);
       userId = await userIdForSessionCookie(cookie);
-      seeded.push(await seedDesign(userId, `${key}-${label}`, IMAGE_A));
+      seeded.push(await seedDesign(userId, `${key}-detail-buy`, IMAGE_A));
       const imageId = await primaryImageIdForDesign(seeded[0]);
       expect(imageId, "seeded design has no primary image").toBeTruthy();
 
-      await enter({ designId: seeded[0], imageId: imageId! });
-
-      // The size is picked by the link, so the button carries the total:
-      // "Order — $<total>" in the purchase controls and the sticky bar; role
-      // queries skip whichever is hidden. The panel is server-rendered from
-      // the link's picks, so the button is already enabled before React has
-      // attached its handler: wait for hydration, not for Total or enabled.
-      const orderButton = page.getByRole("button", { name: /^Order/ });
-      await expect(orderButton.first()).toBeEnabled({ timeout: 30_000 });
-      await waitForHydrated(orderButton);
-      await orderButton.first().click({ timeout: 30_000 });
-
-      // Waiting on either URL and then asserting turns a fail-closed fallback
-      // to the hosted page into a red run.
-      await page.waitForURL(
-        /\/checkout\?session=cs_test_|checkout\.stripe\.com/,
-        { timeout: 60_000 }
+      // The link's picks open the panel on the shirt (product, size, colour).
+      await page.goto(
+        `/d/${imageId}?order=1&product=${PRODUCT}&color=Black&size=M`
       );
-      expect(
-        page.url(),
-        "checkout opened on Stripe's hosted page — is EMBEDDED_CHECKOUT_ENABLED on and NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY set at build time, from the same Stripe test account as STRIPE_SECRET_KEY?"
-      ).toMatch(/\/checkout\?session=cs_test_/);
+      await orderToPaymentForm(page);
       const sessionId = page.url().match(/cs_test_[A-Za-z0-9]+/)?.[0];
       expect(sessionId, `no cs_test_… in checkout URL: ${page.url()}`).toBeTruthy();
       const checkoutFrom = new URL(page.url()).searchParams.get("from");
@@ -523,6 +570,7 @@ test.describe("stripe money path", { tag: "@stripe" }, () => {
       expect(await stripeFrame!.evaluate((el) => el.isConnected)).toBe(true);
 
       await completeStripeCheckout(
+        page,
         await embeddedStripeRoot(page),
         `e2e-buyer-${key}@prntd.test`
       );
@@ -567,13 +615,36 @@ test.describe("stripe money path", { tag: "@stripe" }, () => {
   test("image detail page: the owner orders their own unpublished image → embedded checkout → signed webhook → submitted order, no Shop composition", async ({
     page,
   }, testInfo) => {
-    await buyFromImagePage(page, testInfo, "detail-buy", async ({ imageId }) => {
-      // The link's picks open the panel on the shirt (product, size, colour).
-      await page.goto(
-        `/d/${imageId}?order=1&product=${PRODUCT}&color=Black&size=M`
-      );
-    });
+    await buyFromImagePage(page, testInfo);
   });
+
+  /** From an image detail page open on the size M / Black shirt: clicks Order,
+   * waits for the payment form on our /checkout page and returns the
+   * /checkout URL. No payment is made. */
+  async function orderToPaymentForm(page: Page): Promise<string> {
+    // The size is picked by the link, so the button carries the total:
+    // "Order — $<total>" in the purchase controls and the sticky bar; role
+    // queries skip whichever is hidden. The panel is server-rendered from
+    // the link's picks, so the button is already enabled before React has
+    // attached its handler: wait for hydration, not for Total or enabled.
+    const orderButton = page.getByRole("button", { name: /^Order/ });
+    await expect(orderButton.first()).toBeEnabled({ timeout: 30_000 });
+    await waitForHydrated(orderButton);
+    await orderButton.first().click({ timeout: 30_000 });
+    // Waiting on either URL and then asserting turns a fail-closed fallback
+    // to the hosted page into a red run.
+    await page.waitForURL(
+      /\/checkout\?session=cs_test_|checkout\.stripe\.com/,
+      { timeout: 60_000 }
+    );
+    expect(
+      page.url(),
+      "checkout opened on Stripe's hosted page — is EMBEDDED_CHECKOUT_ENABLED on and NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY set at build time, from the same Stripe test account as STRIPE_SECRET_KEY?"
+    ).toMatch(/\/checkout\?session=cs_test_/);
+    // The payment form mounted: the session is open and usable.
+    await embeddedStripeRoot(page);
+    return page.url();
+  }
 
   test("a second order from the image detail page expires the first checkout session; opening the first /checkout link shows the expired screen (#315)", async ({
     page,
@@ -587,27 +658,13 @@ test.describe("stripe money path", { tag: "@stripe" }, () => {
     const seeded: string[] = [];
     let userId = "";
 
-    /** Opens the image's page on the size M / Black shirt, clicks Order and
-     * returns the /checkout URL the browser lands on. No payment is made. */
+    /** Opens the image's page on the size M / Black shirt, Orders, and returns
+     * the /checkout URL the browser lands on. */
     async function orderOnce(imageId: string): Promise<string> {
       await page.goto(
         `/d/${imageId}?order=1&product=${PRODUCT}&color=Black&size=M`
       );
-      const orderButton = page.getByRole("button", { name: /^Order/ });
-      await expect(orderButton.first()).toBeEnabled({ timeout: 30_000 });
-      await waitForHydrated(orderButton);
-      await orderButton.first().click({ timeout: 30_000 });
-      await page.waitForURL(
-        /\/checkout\?session=cs_test_|checkout\.stripe\.com/,
-        { timeout: 60_000 }
-      );
-      expect(
-        page.url(),
-        "checkout opened on Stripe's hosted page — is EMBEDDED_CHECKOUT_ENABLED on and NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY set at build time, from the same Stripe test account as STRIPE_SECRET_KEY?"
-      ).toMatch(/\/checkout\?session=cs_test_/);
-      // The payment form mounted: the session is open and usable.
-      await embeddedStripeRoot(page);
-      return page.url();
+      return orderToPaymentForm(page);
     }
 
     try {
@@ -639,27 +696,62 @@ test.describe("stripe money path", { tag: "@stripe" }, () => {
     }
   });
 
-  test("an old /preview link → image detail page → embedded checkout → signed webhook → submitted order + sale/fee ledger", async ({
+  test("an old /preview link → image detail page → Order opens embedded checkout on a pending order for that image (no payment)", async ({
     page,
   }, testInfo) => {
-    // Same path as the test above, entered through a /preview link the way a
-    // Stripe cancel link or a bookmark from before slice 4 would.
-    await buyFromImagePage(
-      page,
-      testInfo,
-      "old-preview-buy",
-      async ({ designId, imageId }) => {
-        // The old link redirects to the image detail page with the picks.
-        await page.goto(
-          `/preview?id=${designId}&product=${PRODUCT}&color=Black&size=M`
-        );
-        await page.waitForURL(
-          (url) =>
-            url.pathname === `/d/${imageId}` &&
-            url.searchParams.get("size") === "M",
-          { timeout: 30_000 }
-        );
-      }
-    );
+    // Entered through a /preview link the way a Stripe cancel link or a
+    // bookmark from before slice 4 would. It stops at the mounted payment
+    // form: paying from here is the image-detail-page test's path.
+    test.setTimeout(300_000);
+    expect(
+      process.env.EMBEDDED_CHECKOUT_ENABLED,
+      "this test covers the embedded path: set EMBEDDED_CHECKOUT_ENABLED=true (the nightly workflow does)"
+    ).toBe("true");
+    const key = `${Date.now()}-${testInfo.project.name}`;
+    const seeded: string[] = [];
+    let userId = "";
+
+    try {
+      await signUpFreshAccount(page, key);
+      const cookie = await waitForSessionCookie(page);
+      userId = await userIdForSessionCookie(cookie);
+      seeded.push(await seedDesign(userId, `${key}-old-preview`, IMAGE_A));
+      const imageId = await primaryImageIdForDesign(seeded[0]);
+      expect(imageId, "seeded design has no primary image").toBeTruthy();
+
+      // The old link redirects to the image detail page with the picks.
+      await page.goto(
+        `/preview?id=${seeded[0]}&product=${PRODUCT}&color=Black&size=M`
+      );
+      await page.waitForURL(
+        (url) =>
+          url.pathname === `/d/${imageId}` &&
+          url.searchParams.get("size") === "M",
+        { timeout: 30_000 }
+      );
+
+      const checkoutUrl = await orderToPaymentForm(page);
+
+      // The order behind that session waits for payment and carries the
+      // link's picks: one line, this design, this image on the front.
+      const sessionId = new URL(checkoutUrl).searchParams.get("session");
+      expect(sessionId, `no session in checkout URL: ${checkoutUrl}`).toBeTruthy();
+      const order = await orderForStripeSession(sessionId!);
+      expect(order, "no order row for the checkout session").not.toBeNull();
+      expect(order!.status).toBe("pending");
+      // An unpublished image has no Shop composition to record.
+      expect(await storeProductIdForOrder(order!.id)).toBeNull();
+      const items = await orderItemsForOrder(order!.id);
+      expect(items).toHaveLength(1);
+      expect(items[0].designId).toBe(seeded[0]);
+      expect(items[0].productId).toBe(PRODUCT);
+      expect(items[0].size).toBe("M");
+      expect(items[0].color).toBe("Black");
+      expect(items[0].placements?.front).toBe(imageId);
+    } finally {
+      await cleanupOrdersForDesigns(seeded);
+      await cleanupDesigns(seeded);
+      await cleanupUser(userId);
+    }
   });
 });
